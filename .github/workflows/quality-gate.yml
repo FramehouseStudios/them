@@ -1,0 +1,163 @@
+name: quality-gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_eval:
+        description: Run prompt regression eval
+        required: false
+        type: boolean
+        default: true
+      run_speculative_reuse_gate:
+        description: Run speculative /talk prepare-reuse smoke
+        required: false
+        type: boolean
+        default: true
+      run_smoke:
+        description: Run smoke.sh coverage
+        required: false
+        type: boolean
+        default: true
+      run_talk_recovery_gate:
+        description: Run talk recovery contract gate
+        required: false
+        type: boolean
+        default: true
+      run_alert:
+        description: Run ops alert checks
+        required: false
+        type: boolean
+        default: true
+      run_load:
+        description: Run load profile
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      run_eval:
+        required: false
+        type: boolean
+        default: true
+      run_speculative_reuse_gate:
+        required: false
+        type: boolean
+        default: true
+      run_smoke:
+        required: false
+        type: boolean
+        default: true
+      run_talk_recovery_gate:
+        required: false
+        type: boolean
+        default: true
+      run_alert:
+        required: false
+        type: boolean
+        default: true
+      run_load:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      OPENAI_API_KEY:
+        required: false
+      APP_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Quality Gate
+    runs-on: macos-latest
+    env:
+      RUN_SERVER: 1
+      RUN_EVAL: ${{ inputs.run_eval && '1' || '0' }}
+      RUN_SPECULATIVE_REUSE_GATE: ${{ inputs.run_speculative_reuse_gate && '1' || '0' }}
+      RUN_SMOKE: ${{ inputs.run_smoke && '1' || '0' }}
+      RUN_TALK_RECOVERY_GATE: ${{ inputs.run_talk_recovery_gate && '1' || '0' }}
+      RUN_ALERT: ${{ inputs.run_alert && '1' || '0' }}
+      RUN_LOAD: ${{ inputs.run_load && '1' || '0' }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      APP_TOKEN: ${{ secrets.APP_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Required Secrets
+        run: |
+          missing=()
+          if [[ "${RUN_EVAL}" == "1" || "${RUN_TALK_RECOVERY_GATE}" == "1" ]]; then
+            if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+              missing+=("OPENAI_API_KEY")
+            fi
+          fi
+          if [[ "${RUN_SPECULATIVE_REUSE_GATE}" == "1" || "${RUN_SMOKE}" == "1" || "${RUN_ALERT}" == "1" ]]; then
+            if [[ -z "${APP_TOKEN:-}" ]]; then
+              missing+=("APP_TOKEN")
+            fi
+          fi
+          if (( ${#missing[@]} > 0 )); then
+            {
+              echo "## Quality Gate Summary"
+              echo
+              echo "- Trigger: ${{ github.event_name }}"
+              echo "- Status: failed before gate execution"
+              echo "- Missing required secrets: ${missing[*]}"
+            } | tee -a "${GITHUB_STEP_SUMMARY}"
+            printf 'Missing required GitHub Actions secrets: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Run repo quality gate
+        run: bash ./scripts/quality_gate.sh
+
+      - name: Workflow inputs summary
+        if: always()
+        run: |
+          gate_status() {
+            if [[ "$1" == "1" ]]; then
+              echo "enforced"
+            else
+              echo "skipped"
+            fi
+          }
+          {
+            echo "## Quality Gate Summary"
+            echo
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Prompt regression: $(gate_status "${RUN_EVAL}")"
+            echo "- Speculative reuse smoke: $(gate_status "${RUN_SPECULATIVE_REUSE_GATE}")"
+            echo "- Smoke suite: $(gate_status "${RUN_SMOKE}")"
+            echo "- Talk recovery gate: $(gate_status "${RUN_TALK_RECOVERY_GATE}")"
+            echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
+            echo "- Load profile: $(gate_status "${RUN_LOAD}")"
+            echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Failure Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-failure-logs
+          if-no-files-found: ignore
+          path: |
+            /tmp/them-quality-gate-backend.log
+            /tmp/them-smoke/them-home.png

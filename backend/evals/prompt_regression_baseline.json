@@ -1,0 +1,712 @@
+{
+  "version": 1,
+  "maxDrop": 0.05,
+  "floors": {
+    "avgScore": 0.68,
+    "specificity": 0.58,
+    "continuity": 0.62,
+    "attunement": 0.6,
+    "conversationalPull": 0.48,
+    "brevity": 0.68,
+    "completionRate": 0.9,
+    "humorTiming": 0.7,
+    "noFiller": 0.88,
+    "turnTaking": 0.86,
+    "casualFit": 0.78
+  },
+  "updatedAt": "2026-03-16T00:07:15.862Z",
+  "snapshot": {
+    "generatedAt": "2026-03-16T00:07:15.862Z",
+    "caseCount": 18,
+    "avgScore": 0.7934294399999999,
+    "avgComponents": {
+      "specificity": 0.7704444444444443,
+      "continuity": 0.7724444444444445,
+      "attunement": 0.6477777777777779,
+      "conversationalPull": 0.6722222222222223,
+      "brevity": 0.867777777777778,
+      "completionRate": 0.99
+    },
+    "avgSpecialComponents": {
+      "humorTiming": 0.8633333333333332,
+      "noFiller": 1,
+      "turnTaking": 0.9000000000000001,
+      "casualFit": 0.8875
+    },
+    "specialCoverage": {
+      "humorTiming": 18,
+      "noFiller": 18,
+      "turnTaking": 18,
+      "casualFit": 8
+    },
+    "cases": [
+      {
+        "id": "casual_snack_banter",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "reflective_checkin",
+        "score": 0.80428448,
+        "components": {
+          "specificity": 0.7999999999999999,
+          "continuity": 0.9,
+          "attunement": 0.5499999999999999,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": true,
+            "value": 0.88
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "good_question",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "casual_exhausted_checkin",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "draw_out_vague_fragment",
+        "score": 0.7534943999999999,
+        "components": {
+          "specificity": 0.7999999999999999,
+          "continuity": 0.52,
+          "attunement": 0.72,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": true,
+            "value": 0.88
+          }
+        },
+        "tags": [
+          "good_question",
+          "strong_empathy",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "simple_difference_question",
+        "model": "gpt-4o",
+        "lane": "knowledge",
+        "intent": "knowledge_answer",
+        "score": 0.83588352,
+        "components": {
+          "specificity": 0.9199999999999999,
+          "continuity": 0.9,
+          "attunement": 0.58,
+          "conversationalPull": 0.56,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "gratitude_clean_close",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "gratitude_acknowledgment",
+        "score": 0.96,
+        "components": {
+          "specificity": 0.62,
+          "continuity": 0.56,
+          "attunement": 0.86,
+          "conversationalPull": 0.7,
+          "brevity": 0.92,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.62
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": true,
+            "value": 0.88
+          }
+        },
+        "tags": [
+          "strong_empathy"
+        ]
+      },
+      {
+        "id": "vulnerable_shame_restart",
+        "model": "gpt-4o",
+        "lane": "vulnerability_quiet",
+        "intent": "reflective_checkin",
+        "score": 0.8699641599999999,
+        "components": {
+          "specificity": 0.7999999999999999,
+          "continuity": 1,
+          "attunement": 0.72,
+          "conversationalPull": 0.86,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 1
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "good_question",
+          "strong_empathy",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "anxious_present_moment",
+        "model": "gpt-4o",
+        "lane": "high_distress_safety",
+        "intent": "emotional_safety",
+        "score": 0.83819968,
+        "components": {
+          "specificity": 0.7999999999999999,
+          "continuity": 0.9,
+          "attunement": 0.7999999999999999,
+          "conversationalPull": 0.56,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "strong_empathy",
+          "great_reflection",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "topic_shift_trap_old_heartbreak_now_dinner",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "draw_out_vague_fragment",
+        "score": 0.7807092799999998,
+        "components": {
+          "specificity": 0.7249999999999999,
+          "continuity": 0.9,
+          "attunement": 0.5499999999999999,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": true,
+            "value": 0.88
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "good_question",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "topic_shift_trap_old_screenplay_now_outfit",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "practical_action",
+        "score": 0.7683840000000001,
+        "components": {
+          "specificity": 0.7999999999999999,
+          "continuity": 0.66,
+          "attunement": 0.7,
+          "conversationalPull": 0.56,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": true,
+            "value": 0.94
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "playful_roast_gentle",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "reflective_checkin",
+        "score": 0.8142108800000001,
+        "components": {
+          "specificity": 0.7999999999999999,
+          "continuity": 1,
+          "attunement": 0.5499999999999999,
+          "conversationalPull": 0.56,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 1
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": true,
+            "value": 0.88
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "direct_short_cancel_text",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "practical_action",
+        "score": 0.7649924799999999,
+        "components": {
+          "specificity": 0.6249999999999999,
+          "continuity": 0.9,
+          "attunement": 0.7,
+          "conversationalPull": 0.56,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "screenplay_shift_now_break_drink",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "reflective_checkin",
+        "score": 0.6976583999999999,
+        "components": {
+          "specificity": 0.6249999999999999,
+          "continuity": 0.66,
+          "attunement": 0.5499999999999999,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": true,
+            "value": 0.88
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "good_question",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "screenplay_casual_title_opinion",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "practical_action",
+        "score": 0.75109552,
+        "components": {
+          "specificity": 0.7449999999999999,
+          "continuity": 0.66,
+          "attunement": 0.7,
+          "conversationalPull": 0.56,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "screenplay_playful_notebook_vibe",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "reflective_checkin",
+        "score": 0.7410864,
+        "components": {
+          "specificity": 0.7999999999999999,
+          "continuity": 0.66,
+          "attunement": 0.5499999999999999,
+          "conversationalPull": 0.56,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.88
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": true,
+            "value": 0.88
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "screenplay_quick_character_name_check",
+        "model": "gpt-4o-mini",
+        "lane": "normal_rotation",
+        "intent": "reflective_checkin",
+        "score": 0.7788067200000001,
+        "components": {
+          "specificity": 0.9199999999999999,
+          "continuity": 0.66,
+          "attunement": 0.5499999999999999,
+          "conversationalPull": 0.56,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": [
+          "memory_continuity",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "screenplay_collab_next_beat_thriller",
+        "model": "gpt-4o",
+        "lane": "screenplay_studio",
+        "intent": "screenplay_collaboration",
+        "score": 0.67032,
+        "components": {
+          "specificity": 0.536,
+          "continuity": 0.528,
+          "attunement": 0.64,
+          "conversationalPull": 0.84,
+          "brevity": 0.88,
+          "completionRate": 0.94
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": []
+      },
+      {
+        "id": "screenplay_collab_on_the_nose_dialogue",
+        "model": "gpt-4o",
+        "lane": "screenplay_studio",
+        "intent": "screenplay_collaboration",
+        "score": 0.7146399999999999,
+        "components": {
+          "specificity": 0.632,
+          "continuity": 0.616,
+          "attunement": 0.64,
+          "conversationalPull": 0.84,
+          "brevity": 0.88,
+          "completionRate": 0.94
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": [
+          "screenplay_anchor_carryover"
+        ]
+      },
+      {
+        "id": "screenplay_confirmed_page_write",
+        "model": "gpt-4o-mini",
+        "lane": "screenplay_studio",
+        "intent": "screenplay_page_write",
+        "score": 0.8904,
+        "components": {
+          "specificity": 1,
+          "continuity": 1,
+          "attunement": 0.66,
+          "conversationalPull": 0.74,
+          "brevity": 0.88,
+          "completionRate": 1
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": [
+          "screenplay_anchor_carryover"
+        ]
+      },
+      {
+        "id": "screenplay_character_collab_want",
+        "model": "gpt-4o",
+        "lane": "screenplay_studio",
+        "intent": "screenplay_collaboration",
+        "score": 0.8476,
+        "components": {
+          "specificity": 0.92,
+          "continuity": 0.88,
+          "attunement": 0.64,
+          "conversationalPull": 0.84,
+          "brevity": 0.88,
+          "completionRate": 0.94
+        },
+        "special": {
+          "humorTiming": {
+            "applicable": true,
+            "value": 0.86
+          },
+          "noFiller": {
+            "applicable": true,
+            "value": 1
+          },
+          "turnTaking": {
+            "applicable": true,
+            "value": 0.9
+          },
+          "casualFit": {
+            "applicable": false,
+            "value": 0
+          }
+        },
+        "tags": [
+          "screenplay_anchor_carryover"
+        ]
+      }
+    ]
+  }
+}

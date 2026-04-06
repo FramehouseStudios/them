@@ -1,0 +1,3923 @@
+import Foundation
+
+nonisolated extension Notification.Name {
+    static let themTurnCommitted = Notification.Name("io.them.them.turnCommitted")
+    static let themBackendSyncUpdated = Notification.Name("io.them.them.backendSyncUpdated")
+}
+
+nonisolated struct BackendSyncState: Equatable {
+    var status: String
+    var sessionId: String
+    var schemaVersion: Int
+    var backendBuild: String
+    var backendBootId: String
+    var lastTurnId: String
+    var lastUpdatedAt: TimeInterval
+    var historyUpdatedAt: TimeInterval
+    var memoryUpdatedAt: TimeInterval
+    var stateVersion: String
+
+    static let empty = BackendSyncState(
+        status: "unknown",
+        sessionId: "",
+        schemaVersion: 0,
+        backendBuild: "",
+        backendBootId: "",
+        lastTurnId: "",
+        lastUpdatedAt: 0,
+        historyUpdatedAt: 0,
+        memoryUpdatedAt: 0,
+        stateVersion: ""
+    )
+}
+
+nonisolated struct BackendTurnCommittedEvent {
+    let source: String
+    let turnId: String
+    let requestId: String?
+    let sessionId: String
+    let stateVersion: String
+    let lastUpdatedAt: TimeInterval
+    let historyUpdatedAt: TimeInterval
+    let memoryUpdatedAt: TimeInterval
+    let userMessage: String?
+    let assistantMessage: String?
+    let screenplayReplacementApplied: Bool?
+    let screenplayReplacedWriteId: String?
+    let screenplayRevisedBlockText: String?
+    let screenplayResolvedAnchorExcerpt: String?
+
+    init?(notification: Notification) {
+        guard let userInfo = notification.userInfo else { return nil }
+        let source = String(describing: userInfo[BackendMemoryAPI.NotificationKey.source] ?? "")
+        let turnId = String(describing: userInfo[BackendMemoryAPI.NotificationKey.turnId] ?? "")
+        if source.isEmpty || turnId.isEmpty { return nil }
+        self.source = source
+        self.turnId = turnId
+        let requestId = String(describing: userInfo[BackendMemoryAPI.NotificationKey.requestId] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.requestId = requestId.isEmpty ? nil : requestId
+        self.sessionId = String(describing: userInfo[BackendMemoryAPI.NotificationKey.sessionId] ?? "")
+        self.stateVersion = String(describing: userInfo[BackendMemoryAPI.NotificationKey.stateVersion] ?? "")
+        self.lastUpdatedAt = Double(String(describing: userInfo[BackendMemoryAPI.NotificationKey.lastUpdatedAt] ?? "")) ?? 0
+        self.historyUpdatedAt = Double(String(describing: userInfo[BackendMemoryAPI.NotificationKey.historyUpdatedAt] ?? "")) ?? 0
+        self.memoryUpdatedAt = Double(String(describing: userInfo[BackendMemoryAPI.NotificationKey.memoryUpdatedAt] ?? "")) ?? 0
+        self.userMessage = userInfo[BackendMemoryAPI.NotificationKey.userMessage] as? String
+        self.assistantMessage = userInfo[BackendMemoryAPI.NotificationKey.assistantMessage] as? String
+        if let replacementApplied = userInfo[BackendMemoryAPI.NotificationKey.screenplayReplacementApplied] as? Bool {
+            self.screenplayReplacementApplied = replacementApplied
+        } else {
+            let rawReplacement = String(describing: userInfo[BackendMemoryAPI.NotificationKey.screenplayReplacementApplied] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            self.screenplayReplacementApplied = rawReplacement.isEmpty ? nil : ["1", "true", "yes"].contains(rawReplacement)
+        }
+        let replacedWriteId = String(describing: userInfo[BackendMemoryAPI.NotificationKey.screenplayReplacedWriteId] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.screenplayReplacedWriteId = replacedWriteId.isEmpty ? nil : replacedWriteId
+        let revisedBlockText = String(describing: userInfo[BackendMemoryAPI.NotificationKey.screenplayRevisedBlockText] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.screenplayRevisedBlockText = revisedBlockText.isEmpty ? nil : revisedBlockText
+        let resolvedAnchorExcerpt = String(describing: userInfo[BackendMemoryAPI.NotificationKey.screenplayResolvedAnchorExcerpt] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.screenplayResolvedAnchorExcerpt = resolvedAnchorExcerpt.isEmpty ? nil : resolvedAnchorExcerpt
+    }
+}
+
+nonisolated struct BackendReadResult<Payload> {
+    let payload: Payload
+    let sync: BackendSyncState
+    let notModified: Bool
+}
+
+nonisolated struct BackendRememberedName: Decodable, Hashable {
+    let name: String
+    let relation: String
+}
+
+nonisolated struct BackendHistoryThread: Decodable, Hashable, Identifiable {
+    let id: String
+    let turn: Int
+    let title: String
+    let preview: String
+    let user: String
+    let assistant: String
+    let updatedAt: TimeInterval
+    let screenplayProjectId: String?
+    let screenplayTarget: String?
+    let screenplayPromptSource: String?
+    let screenplayWriteId: String?
+    let screenplayAnchorLine: Int?
+    let screenplayAnchorEndLine: Int?
+    let screenplayAnchorSceneLabel: String?
+    let screenplayNoteTitle: String?
+    let screenplayNoteBody: String?
+    let screenplayInsertedText: String?
+    let screenplayReplacementApplied: Bool?
+    let screenplayReplacedWriteId: String?
+    let screenplayRevisedBlockText: String?
+    let screenplayResolvedAnchorExcerpt: String?
+}
+
+nonisolated struct BackendActionReceipt: Decodable, Hashable, Identifiable {
+    let id: String
+    let type: String
+    let status: String
+    let target: String
+    let title: String?
+    let summary: String
+    let turnId: String?
+    let sessionId: String?
+    let requestId: String?
+    let createdAt: TimeInterval
+    let updatedAt: TimeInterval?
+}
+
+nonisolated struct BackendActionReceiptsPayload: Decodable, Hashable {
+    let count: Int
+    let lastActionReceiptAt: TimeInterval?
+    let items: [BackendActionReceipt]
+}
+
+nonisolated struct BackendHistoryResponse: Decodable {
+    let source: String
+    let sourceIp: String
+    let assistantName: String?
+    let userName: String?
+    let rememberedNames: [BackendRememberedName]
+    let conversationCount: Int
+    let lastConversationRecap: String?
+    let lastConversationAt: TimeInterval?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let isDelta: Bool?
+    let sinceTurnId: String?
+    let actionReceipts: BackendActionReceiptsPayload?
+    let threads: [BackendHistoryThread]
+}
+
+nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
+    let id: String
+    let key: String
+    let title: String
+    let summary: String
+    let reason: String?
+    let emotionalTone: String
+    let salience: Double
+    let confidence: Double
+    let rememberedAt: TimeInterval
+    let lastUsedAt: TimeInterval?
+    let qualityScore: Double?
+    let qualityHitCount: Int?
+    let qualityCorrectionCount: Int?
+    let qualityLastFeedbackAt: TimeInterval?
+    let stalenessDays: Int?
+    let stalenessBand: String?
+    let editable: Bool?
+    let snippets: [String]
+    let referenceHint: String
+    let source: String
+}
+
+nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {
+    let avgQualityScore: Double?
+    let totalCards: Int?
+    let freshCards: Int?
+    let warmCards: Int?
+    let staleCards: Int?
+    let staleThresholdDays: Int?
+    let maxStalenessDays: Int?
+    let hitCount: Int?
+    let correctionCount: Int?
+    let lastFeedbackAt: TimeInterval?
+    let usefulnessLastAt: TimeInterval?
+    let usefulnessLastTrigger: String?
+    let usefulnessLastTurn: Int?
+    let usefulnessLastPromotions: Int?
+    let usefulnessLastDemotions: Int?
+    let usefulnessLastDropped: Int?
+    let usefulnessPromotionsTotal: Int?
+    let usefulnessDemotionsTotal: Int?
+    let backfillLastAt: TimeInterval?
+    let backfillLastTrigger: String?
+    let backfillLastCreated: Int?
+    let backfillTotal: Int?
+    let promptThemeCount: Int?
+    let promptInjectedCount: Int?
+    let promptSuppressedCount: Int?
+    let promptLastAt: TimeInterval?
+    let generatedAt: TimeInterval?
+}
+
+nonisolated struct BackendMemoriesResponse: Decodable {
+    let source: String
+    let sourceIp: String
+    let assistantName: String?
+    let userName: String?
+    let relationshipDepthScore: Double?
+    let behaviorMode: String?
+    let cycleIndex: Int?
+    let season: Int?
+    let seasonProgress: Double?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let isDelta: Bool?
+    let deltaNoChange: Bool?
+    let actionReceipts: BackendActionReceiptsPayload?
+    let memoryQuality: BackendMemoryQualitySnapshot?
+    let memories: [BackendMemoryCard]
+    let conversationSamples: [BackendHistoryThread]
+}
+
+nonisolated struct BackendStateDeltaResponse: Decodable {
+    let source: String
+    let sourceIp: String
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let isDelta: Bool?
+    let deltaNoChange: Bool?
+    let historyChanged: Bool?
+    let memoryChanged: Bool?
+    let sinceVersion: String?
+    let sinceTurnId: String?
+    let actionReceipts: BackendActionReceiptsPayload?
+    let historyDelta: [BackendHistoryThread]
+    let memoriesDelta: [BackendMemoryCard]
+}
+
+nonisolated struct BackendActionReceiptsResponse: Decodable {
+    let source: String
+    let sourceIp: String
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let actionReceipts: BackendActionReceiptsPayload
+}
+
+nonisolated struct BackendTaskItem: Decodable, Hashable, Identifiable {
+    let id: String
+    let title: String
+    let status: String
+    let priority: String
+    let dueAt: TimeInterval
+    let createdAt: TimeInterval
+    let completedAt: TimeInterval
+    let source: String
+}
+
+nonisolated struct BackendTasksResponse: Decodable {
+    let source: String
+    let sourceIp: String
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let statusFilter: String
+    let taskLastUpdatedAt: TimeInterval?
+    let totalCount: Int
+    let openCount: Int
+    let completedCount: Int
+    let tasks: [BackendTaskItem]
+}
+
+nonisolated struct BackendTaskUpdateResponse: Decodable {
+    let ok: Bool
+    let action: String
+    let status: String
+    let message: String?
+    let task: BackendTaskItem?
+    let removedCount: Int?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastTurnId: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let taskLastUpdatedAt: TimeInterval?
+    let totalCount: Int?
+    let openCount: Int?
+    let completedCount: Int?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendDailyRecapStats: Decodable {
+    let turnsToday: Int
+    let openTasks: Int
+    let completedToday: Int
+    let totalTasks: Int
+}
+
+nonisolated struct BackendDailyRecapResponse: Decodable {
+    let source: String
+    let sourceIp: String
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let window: String?
+    let windowLabel: String?
+    let windowStartAt: TimeInterval?
+    let windowEndAt: TimeInterval?
+    let localDay: String
+    let generatedAt: TimeInterval
+    let recap: String
+    let highlights: [String]
+    let outcomes: [String]
+    let nextActions: [String]
+    let openTasks: [BackendTaskItem]
+    let completedToday: [BackendTaskItem]
+    let stats: BackendDailyRecapStats
+}
+
+nonisolated struct BackendSecretaryEmailResponse: Decodable {
+    let stage: String?
+    let mode: String?
+    let draftSource: String?
+    let to: String?
+    let subject: String?
+    let body: String?
+    let status: String?
+    let action: String?
+    let target: String?
+    let transport: String?
+    let composeUrl: String?
+    let error: String?
+}
+
+nonisolated struct BackendSecretaryEmailConnectResponse: Decodable {
+    let stage: String?
+    let provider: String?
+    let mode: String?
+    let oauthConfigured: Bool?
+    let connectUrl: String?
+    let error: String?
+}
+
+nonisolated struct BackendMemoryExportResponse: Decodable {
+    let source: String
+    let sourceIp: String
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let actionReceipts: BackendActionReceiptsPayload?
+    let memoryQuality: BackendMemoryQualitySnapshot?
+    let filename: String
+    let exportedAt: TimeInterval
+    let exportJson: String
+}
+
+nonisolated struct BackendDataControlResponse: Decodable {
+    let ok: Bool
+    let action: String
+    let sessionId: String?
+    let stateVersion: String?
+    let lastTurnId: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let memoryQuality: BackendMemoryQualitySnapshot?
+}
+
+nonisolated struct BackendRealtimeTurnCommitResponse: Decodable {
+    let ok: Bool
+    let action: String
+    let status: String
+    let source: String?
+    let turnId: String?
+    let requestId: String?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastTurnId: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
+    let screenplayProjectId: String
+    let screenplayTarget: String
+    let screenplayPromptSource: String
+    let screenplayWriteId: String
+    let screenplayAnchorLine: Int?
+    let screenplayAnchorEndLine: Int?
+    let screenplayAnchorSceneLabel: String
+    let screenplayNoteTitle: String
+    let screenplayNoteBody: String
+    let screenplayInsertedText: String
+    let screenplayReplacementApplied: Bool
+    let screenplayReplacedWriteId: String
+    let screenplayRevisedBlockText: String
+    let screenplayResolvedAnchorExcerpt: String
+
+    var isMeaningful: Bool {
+        !screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayWriteId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        screenplayAnchorLine != nil ||
+        screenplayAnchorEndLine != nil ||
+        !screenplayAnchorSceneLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayNoteTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayNoteBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayInsertedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        screenplayReplacementApplied ||
+        !screenplayReplacedWriteId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayRevisedBlockText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayResolvedAnchorExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+nonisolated struct BackendMemoryMutationResponse: Decodable {
+    let ok: Bool
+    let action: String
+    let status: String
+    let message: String?
+    let memoryCard: BackendMemoryCard?
+    let forgottenId: String?
+    let themeKey: String?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastTurnId: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendSessionResponse: Decodable {
+    let userId: String?
+    let clientToken: String
+    let sessionId: String?
+    let expiresIn: Int
+    let assistantName: String?
+    let assistantSelfName: String?
+    let userName: String?
+    let rememberedNames: [BackendRememberedName]
+    let lastConversationRecap: String?
+    let lastConversationSnapshot: String?
+    let lastConversationAt: TimeInterval?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let evolutionSync: BackendEvolutionSyncSnapshot?
+}
+
+nonisolated struct BackendEvolutionSyncSnapshot: Decodable {
+    let stage: Int?
+    let depthScore: Double?
+    let romanceTension: Double?
+    let sessionCount: Int?
+    let reassuranceNeed: Double?
+    let boundaryNeed: Double?
+    let playfulMomentum: Double?
+    let trustSignal: Double?
+    let lastThemeCue: String?
+    let preferredName: String?
+    let isScreenwriter: Bool?
+}
+
+nonisolated struct BackendScreenplayVersion: Decodable, Hashable {
+    let id: String
+    let projectId: String?
+    let phase: String?
+    let source: String?
+    let createdAt: TimeInterval?
+    let updatedAt: TimeInterval?
+    let prompt: String?
+    let notes: String?
+    let formatScore: Double?
+    let storyScore: Double?
+    let confidenceClass: String?
+    let warnings: [String]?
+    let draft: String?
+    let draftExcerpt: String?
+    let studioWriteAnchors: [BackendScreenplayWriteAnchor]?
+    let screenplayBindings: [BackendScreenplayBindingRecord]?
+}
+
+nonisolated struct BackendScreenplayWriteAnchor: Codable, Hashable {
+    let writeId: String
+    let anchorLine: Int?
+    let anchorEndLine: Int?
+    let anchorSceneLabel: String?
+    let anchorExcerpt: String?
+    let insertedText: String?
+    let updatedAt: TimeInterval?
+}
+
+nonisolated struct BackendScreenplayBindingRecord: Codable, Hashable {
+    let draftSceneId: String
+    let draftLine: Int?
+    let draftEndLine: Int?
+    let draftSlugline: String?
+    let draftShortLabel: String?
+    let outlineSceneId: String?
+    let outlineSceneTitle: String?
+    let outlineSceneSlugline: String?
+    let outlineBeatIds: [String]?
+    let outlineBeatLabels: [String]?
+    let actTitle: String?
+    let matchedBy: String?
+    let updatedAt: TimeInterval?
+}
+
+nonisolated struct BackendScreenplayThreadViewState: Codable, Hashable {
+    let searchText: String?
+    let selectedFilterRaw: String?
+    let selectedSceneKey: String?
+    let scrollTargetKey: String?
+    let collapsedSectionKeys: [String]?
+    let focusedDiffKey: String?
+    let reopenedLineageKeys: [String]?
+    let latestReopenedWriteID: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case searchText
+        case selectedFilterRaw
+        case selectedSceneKey
+        case scrollTargetKey
+        case collapsedSectionKeys
+        case focusedDiffKey
+        case reopenedLineageKeys
+        case latestReopenedWriteID = "latestReopenedWriteId"
+    }
+}
+
+nonisolated struct BackendScreenplayDiffAcknowledgementEntry: Codable, Hashable {
+    let key: String?
+    let fingerprint: String?
+    let writeId: String?
+}
+
+nonisolated struct BackendScreenplayDiffAcknowledgementState: Codable, Hashable {
+    let keys: [String]?
+    let entries: [BackendScreenplayDiffAcknowledgementEntry]?
+}
+
+nonisolated struct BackendScreenplayCollaborator: Decodable, Hashable {
+    let id: String?
+    let email: String
+    let status: String?
+    let approvedAt: TimeInterval?
+    let updatedAt: TimeInterval?
+    let invitedBy: String?
+    let note: String?
+}
+
+nonisolated struct BackendScreenplayComment: Decodable, Hashable {
+    let id: String
+    let projectId: String?
+    let versionId: String?
+    let type: String?
+    let text: String?
+    let authorEmail: String?
+    let authorName: String?
+    let anchorLine: Int?
+    let parentCommentId: String?
+    let threadRootId: String?
+    let isDeleted: Bool?
+    let deletedAt: TimeInterval?
+    let resolved: Bool?
+    let resolvedAt: TimeInterval?
+    let resolvedBy: String?
+    let voiceUrl: String?
+    let voiceTranscript: String?
+    let voiceDurationMs: Int?
+    let createdAt: TimeInterval?
+    let updatedAt: TimeInterval?
+    let canEdit: Bool?
+}
+
+nonisolated struct BackendScreenplayAct: Codable, Hashable {
+    let id: String
+    let title: String
+    let summary: String?
+    let order: Int?
+    let sceneIds: [String]?
+    let createdAt: TimeInterval?
+    let updatedAt: TimeInterval?
+}
+
+nonisolated struct BackendScreenplayScene: Codable, Hashable {
+    let id: String
+    let slugline: String?
+    let title: String
+    let objective: String?
+    let summary: String?
+    let actId: String?
+    let order: Int?
+    let status: String?
+    let beatIds: [String]?
+    let createdAt: TimeInterval?
+    let updatedAt: TimeInterval?
+}
+
+nonisolated struct BackendScreenplayBeat: Codable, Hashable {
+    let id: String
+    let label: String
+    let summary: String?
+    let sceneId: String?
+    let actId: String?
+    let order: Int?
+    let status: String?
+    let createdAt: TimeInterval?
+    let updatedAt: TimeInterval?
+}
+
+nonisolated struct BackendScreenplayOutline: Decodable, Hashable {
+    let updatedAt: TimeInterval?
+    let actCount: Int?
+    let sceneCount: Int?
+    let beatCount: Int?
+    let acts: [BackendScreenplayAct]
+    let scenes: [BackendScreenplayScene]
+    let beats: [BackendScreenplayBeat]
+}
+
+nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
+    let id: String
+    let title: String
+    let archived: Bool?
+    let tags: [String]?
+    let characters: [String]?
+    let setting: String?
+    let tone: String?
+    let promptSeed: String?
+    let createdAt: TimeInterval?
+    let updatedAt: TimeInterval?
+    let versionCount: Int?
+    let lastPhase: String?
+    let activeVersionId: String?
+    let lastVersionId: String?
+    let lastVersionAt: TimeInterval?
+    let formatScore: Double?
+    let storyScore: Double?
+    let confidenceClass: String?
+    let latestExcerpt: String?
+    let actCount: Int?
+    let sceneCount: Int?
+    let beatCount: Int?
+    let outlineUpdatedAt: TimeInterval?
+    let collaboratorCount: Int?
+    let approvedEmails: [String]?
+    let commentCount: Int?
+    let lastCommentAt: TimeInterval?
+    let studioThreadViewState: BackendScreenplayThreadViewState?
+    let studioDiffAcknowledged: BackendScreenplayDiffAcknowledgementState?
+    let collaborators: [BackendScreenplayCollaborator]?
+    let comments: [BackendScreenplayComment]?
+    let versions: [BackendScreenplayVersion]?
+    let outline: BackendScreenplayOutline?
+}
+
+nonisolated struct BackendScreenplayCompanionStateResponse: Decodable {
+    let stage: String?
+    let status: String?
+    let source: String?
+    let sourceIp: String?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let modeRaw: String
+    let recentTurns: [ScreenplayConversationTurn]
+    let analytics: ScreenplayCompanionAnalyticsSnapshot
+
+    private enum CodingKeys: String, CodingKey {
+        case stage
+        case status
+        case source
+        case sourceIp
+        case sessionId
+        case stateVersion
+        case lastUpdatedAt
+        case historyUpdatedAt
+        case memoryUpdatedAt
+        case lastTurnId
+        case schemaVersion
+        case backendBuild
+        case backendBootId
+        case modeRaw
+        case recentTurns
+        case analytics
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stage = try container.decodeIfPresent(String.self, forKey: .stage)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        sourceIp = try container.decodeIfPresent(String.self, forKey: .sourceIp)
+        sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        stateVersion = try container.decodeIfPresent(String.self, forKey: .stateVersion)
+        lastUpdatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .lastUpdatedAt)
+        historyUpdatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .historyUpdatedAt)
+        memoryUpdatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .memoryUpdatedAt)
+        lastTurnId = try container.decodeIfPresent(String.self, forKey: .lastTurnId)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        backendBuild = try container.decodeIfPresent(String.self, forKey: .backendBuild)
+        backendBootId = try container.decodeIfPresent(String.self, forKey: .backendBootId)
+        modeRaw = try container.decodeIfPresent(String.self, forKey: .modeRaw) ?? StudioCompanionMode.coach.rawValue
+        recentTurns = try container.decodeIfPresent([ScreenplayConversationTurn].self, forKey: .recentTurns) ?? []
+        analytics = try container.decodeIfPresent(ScreenplayCompanionAnalyticsSnapshot.self, forKey: .analytics) ?? .empty
+    }
+}
+
+nonisolated struct BackendScreenplayProjectsResponse: Decodable {
+    let stage: String?
+    let source: String?
+    let sourceIp: String?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let screenplayActiveProjectId: String?
+    let screenplayProjectCount: Int?
+    let screenplayProjects: [BackendScreenplayProjectSummary]
+}
+
+nonisolated struct BackendScreenplayProjectResponse: Decodable {
+    let stage: String?
+    let source: String?
+    let sourceIp: String?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let screenplayActiveProjectId: String?
+    let screenplayProjectCount: Int?
+    let project: BackendScreenplayProjectSummary?
+}
+
+nonisolated struct BackendScreenplayProjectMutationResponse: Decodable {
+    let stage: String?
+    let status: String?
+    let created: Bool?
+    let projectId: String?
+    let project: BackendScreenplayProjectSummary?
+    let screenplayActiveProjectId: String?
+    let screenplayProjectCount: Int?
+    let screenplayProjects: [BackendScreenplayProjectSummary]?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendScreenplayOutlineResponse: Decodable {
+    let stage: String?
+    let source: String?
+    let sourceIp: String?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+    let projectId: String?
+    let outline: BackendScreenplayOutline?
+    let project: BackendScreenplayProjectSummary?
+}
+
+nonisolated struct BackendScreenplayOutlineMutationResponse: Decodable {
+    let stage: String?
+    let status: String?
+    let createdProject: Bool?
+    let projectId: String?
+    let project: BackendScreenplayProjectSummary?
+    let outline: BackendScreenplayOutline?
+    let screenplayActiveProjectId: String?
+    let screenplayProjectCount: Int?
+    let screenplayProjects: [BackendScreenplayProjectSummary]?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendScreenplaySceneMutationResponse: Decodable {
+    let stage: String?
+    let status: String?
+    let projectId: String?
+    let sceneId: String?
+    let scene: BackendScreenplayScene?
+    let project: BackendScreenplayProjectSummary?
+    let outline: BackendScreenplayOutline?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendScreenplayBeatMutationResponse: Decodable {
+    let stage: String?
+    let status: String?
+    let projectId: String?
+    let beatId: String?
+    let beat: BackendScreenplayBeat?
+    let project: BackendScreenplayProjectSummary?
+    let outline: BackendScreenplayOutline?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendScreenplayCollaboratorsResponse: Decodable {
+    let stage: String?
+    let status: String?
+    let projectId: String?
+    let collaboratorCount: Int?
+    let approvedEmails: [String]?
+    let collaborator: BackendScreenplayCollaborator?
+    let collaborators: [BackendScreenplayCollaborator]
+    let project: BackendScreenplayProjectSummary?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendScreenplayCommentsResponse: Decodable {
+    let stage: String?
+    let status: String?
+    let projectId: String?
+    let commentCount: Int?
+    let comment: BackendScreenplayComment?
+    let comments: [BackendScreenplayComment]
+    let project: BackendScreenplayProjectSummary?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendScreenplayVersionMutationResponse: Decodable {
+    let stage: String?
+    let status: String?
+    let createdProject: Bool?
+    let projectId: String?
+    let versionId: String?
+    let version: BackendScreenplayVersion?
+    let project: BackendScreenplayProjectSummary?
+    let formatScore: Double?
+    let storyScore: Double?
+    let confidenceClass: String?
+    let warnings: [String]?
+    let baseVersionId: String?
+    let serverVersionId: String?
+    let serverVersion: BackendScreenplayVersion?
+    let conflict: Bool?
+    let sessionId: String?
+    let stateVersion: String?
+    let lastUpdatedAt: TimeInterval?
+    let historyUpdatedAt: TimeInterval?
+    let memoryUpdatedAt: TimeInterval?
+    let lastTurnId: String?
+    let schemaVersion: Int?
+    let backendBuild: String?
+    let backendBootId: String?
+}
+
+nonisolated struct BackendScreenplayPaginationPage: Decodable, Hashable {
+    let page: Int
+    let startLine: Int
+    let endLine: Int
+    let lineCount: Int
+    let preview: String?
+    let estMinutes: Double?
+}
+
+nonisolated struct BackendScreenplayPaginateResponse: Decodable {
+    let stage: String?
+    let mode: String?
+    let title: String?
+    let phase: String?
+    let targetPages: Int?
+    let pageCount: Int
+    let lineCount: Int
+    let linesPerPage: Int
+    let pages: [BackendScreenplayPaginationPage]
+    let lengthProfile: String?
+}
+
+nonisolated struct BackendScreenplayRevisionSummary: Decodable, Hashable {
+    let unchanged: Int
+    let revised: Int
+    let added: Int
+    let moved: Int
+    let removed: Int
+}
+
+nonisolated struct BackendScreenplayRevisionRange: Decodable, Hashable {
+    let startLine: Int
+    let endLine: Int
+    let status: String
+    let color: String
+}
+
+nonisolated struct BackendScreenplayRevisionResponse: Decodable {
+    let stage: String?
+    let mode: String?
+    let revisionColor: String?
+    let lineCount: Int?
+    let baseLineCount: Int?
+    let summary: BackendScreenplayRevisionSummary?
+    let ranges: [BackendScreenplayRevisionRange]
+}
+
+nonisolated struct BackendScreenplayExportArtifact {
+    let format: String
+    let filename: String
+    let contentType: String
+    let data: Data
+}
+
+nonisolated struct BackendScreenplaySceneDraft: Hashable {
+    var id: String?
+    var slugline: String
+    var title: String
+    var objective: String
+    var summary: String
+    var actId: String?
+    var order: Int?
+    var status: String?
+    var beatIds: [String]
+
+    init(
+        id: String? = nil,
+        slugline: String = "",
+        title: String = "",
+        objective: String = "",
+        summary: String = "",
+        actId: String? = nil,
+        order: Int? = nil,
+        status: String? = nil,
+        beatIds: [String] = []
+    ) {
+        self.id = id
+        self.slugline = slugline
+        self.title = title
+        self.objective = objective
+        self.summary = summary
+        self.actId = actId
+        self.order = order
+        self.status = status
+        self.beatIds = beatIds
+    }
+}
+
+nonisolated struct BackendScreenplayBeatDraft: Hashable {
+    var id: String?
+    var label: String
+    var summary: String
+    var sceneId: String?
+    var actId: String?
+    var order: Int?
+    var status: String?
+
+    init(
+        id: String? = nil,
+        label: String = "",
+        summary: String = "",
+        sceneId: String? = nil,
+        actId: String? = nil,
+        order: Int? = nil,
+        status: String? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.summary = summary
+        self.sceneId = sceneId
+        self.actId = actId
+        self.order = order
+        self.status = status
+    }
+}
+
+nonisolated struct BackendHealthStatus {
+    let ok: Bool
+    let status: String
+    let raw: String
+    let sessionId: String
+    let schemaVersion: Int
+    let backendBuild: String
+    let backendBootId: String
+    let lastTurnId: String
+    let lastUpdatedAt: TimeInterval
+    let historyUpdatedAt: TimeInterval
+    let memoryUpdatedAt: TimeInterval
+    let stateVersion: String
+    let turnReliability: BackendTurnReliabilitySnapshot
+}
+
+nonisolated struct BackendTurnReliabilitySnapshot {
+    let sampleCount: Int
+    let silentTurnRate: Double
+    let bargeInStopP95Ms: Double?
+    let bargeInStopSampleCount: Int
+    let medianEndToEndMs: Double?
+    let source: String
+
+    static let empty = BackendTurnReliabilitySnapshot(
+        sampleCount: 0,
+        silentTurnRate: 0,
+        bargeInStopP95Ms: nil,
+        bargeInStopSampleCount: 0,
+        medianEndToEndMs: nil,
+        source: "none"
+    )
+}
+
+nonisolated enum BackendMemoryAPIError: LocalizedError {
+    case invalidBaseURL
+    case invalidResponse
+    case server(status: Int, message: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidBaseURL:
+            return "Invalid backend base URL."
+        case .invalidResponse:
+            return "Backend returned an invalid response."
+        case .server(let status, let message):
+            return "Backend error \(status): \(message)"
+        }
+    }
+}
+
+actor BackendMemoryAPI {
+    static let shared = BackendMemoryAPI()
+    private let personaFlowKey = "clementine"
+
+    enum NotificationKey {
+        static let source = "source"
+        static let turnId = "turn_id"
+        static let requestId = "request_id"
+        static let sessionId = "session_id"
+        static let stateVersion = "state_version"
+        static let lastUpdatedAt = "last_updated_at"
+        static let historyUpdatedAt = "history_updated_at"
+        static let memoryUpdatedAt = "memory_updated_at"
+        static let userMessage = "user_message"
+        static let assistantMessage = "assistant_message"
+        static let screenplayReplacementApplied = "screenplay_replacement_applied"
+        static let screenplayReplacedWriteId = "screenplay_replaced_write_id"
+        static let screenplayRevisedBlockText = "screenplay_revised_block_text"
+        static let screenplayResolvedAnchorExcerpt = "screenplay_resolved_anchor_excerpt"
+        static let status = "status"
+        static let schemaVersion = "schema_version"
+        static let backendBuild = "backend_build"
+        static let backendBootId = "backend_boot_id"
+        static let lastTurnId = "last_turn_id"
+    }
+
+    enum DefaultsKey {
+        static let baseURL = "backend_base_url"
+        static let appToken = "app_token"
+        static let clientToken = "client_token"
+        static let userId = "user_id"
+        static let assistantName = "assistant_self_name"
+        static let userName = "user_primary_name"
+    }
+
+    private struct HistoryCacheEntry {
+        let etag: String
+        let payload: BackendHistoryResponse
+        let sync: BackendSyncState
+    }
+
+    private struct MemoriesCacheEntry {
+        let etag: String
+        let payload: BackendMemoriesResponse
+        let sync: BackendSyncState
+    }
+
+    private struct HealthPayload: Decodable {
+        let ok: Bool?
+        let status: String?
+        let sessionId: String?
+        let schemaVersion: Int?
+        let backendBuild: String?
+        let backendBootId: String?
+        let lastTurnId: String?
+        let lastUpdatedAt: TimeInterval?
+        let historyUpdatedAt: TimeInterval?
+        let memoryUpdatedAt: TimeInterval?
+        let stateVersion: String?
+        let talkMetrics: HealthTalkMetricsPayload?
+        let productKpis: HealthProductKpisPayload?
+    }
+
+    private struct HealthTalkMetricsPayload: Decodable {
+        let sampleCount: Int?
+        let userLiveSampleCount: Int?
+        let silentTurnRate: Double?
+        let bargeInStopSampleCount: Int?
+        let p95BargeInStopMs: Double?
+        let medianEndToEndMs: Double?
+    }
+
+    private struct HealthProductKpisPayload: Decodable {
+        let voiceSampleCount: Int?
+        let silentTurnRate: Double?
+        let bargeInStopP95Ms: Double?
+        let bargeInStopSampleCount: Int?
+        let medianEndToEndMs: Double?
+    }
+
+    private let devFallbackAppToken: String? = {
+#if DEBUG
+        "them-dev"
+#else
+        nil
+#endif
+    }()
+    private let session: URLSession
+    private var cachedSession: BackendSessionResponse?
+    private var cachedSessionAt: Date?
+    private var syncState: BackendSyncState = .empty
+    private var historyCacheByLimit: [Int: HistoryCacheEntry] = [:]
+    private var memoriesCacheByLimit: [Int: MemoriesCacheEntry] = [:]
+    private var latestSeenStateVersion: String = ""
+    private var inFlightStateVersions: Set<String> = []
+    private var lastForcedSessionRefreshAt: Date?
+    private let forcedSessionRefreshCooldown: TimeInterval = 8
+
+    init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    func currentSyncState() -> BackendSyncState {
+        syncState
+    }
+
+    func bootstrapSession(force: Bool = false) async throws -> BackendSessionResponse {
+        if force {
+            cachedSession = nil
+            cachedSessionAt = nil
+        }
+        if !force,
+           let cachedSession,
+           let cachedSessionAt,
+           Date().timeIntervalSince(cachedSessionAt) < 90 {
+            return cachedSession
+        }
+        var request = try makeRequest(path: "/session")
+        request.httpMethod = "POST"
+        let payload = try await run(request, as: BackendSessionResponse.self)
+        cacheSession(payload)
+        updateSyncState(syncFromSession(payload), emitTurnEvent: false)
+        return payload
+    }
+
+    func fetchHealth() async throws -> BackendHealthStatus {
+        do {
+            return try await fetchHealth(path: "/bridge")
+        } catch {
+            return try await fetchHealth(path: "/health")
+        }
+    }
+
+    private func fetchHealth(path: String) async throws -> BackendHealthStatus {
+        let request = try makeRequest(path: path)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        validatePersonaContract(response: http, path: path)
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try? decoder.decode(HealthPayload.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: (200...299).contains(http.statusCode) ? "up" : "down")
+        let payloadSync = syncFromHealthPayload(payload, ok: (200...299).contains(http.statusCode))
+        let incomingSync = mergeSyncStates(base: payloadSync, incoming: headerSync)
+        let previous = syncState
+        updateSyncState(incomingSync, emitTurnEvent: false)
+        if shouldForceSessionRefresh(previous: previous, current: syncState), canForceSessionRefreshNow() {
+            lastForcedSessionRefreshAt = Date()
+            invalidateReadCaches(clearSyncState: false)
+            _ = try? await bootstrapSession(force: true)
+        }
+        let latest = syncState
+        let healthStatus = payload?.status?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let turnReliability = buildTurnReliabilitySnapshot(from: payload)
+        return BackendHealthStatus(
+            ok: (200...299).contains(http.statusCode),
+            status: healthStatus?.isEmpty == false ? healthStatus! : latest.status,
+            raw: raw,
+            sessionId: latest.sessionId,
+            schemaVersion: latest.schemaVersion,
+            backendBuild: latest.backendBuild,
+            backendBootId: latest.backendBootId,
+            lastTurnId: latest.lastTurnId,
+            lastUpdatedAt: latest.lastUpdatedAt,
+            historyUpdatedAt: latest.historyUpdatedAt,
+            memoryUpdatedAt: latest.memoryUpdatedAt,
+            stateVersion: latest.stateVersion,
+            turnReliability: turnReliability
+        )
+    }
+
+    private func buildTurnReliabilitySnapshot(from payload: HealthPayload?) -> BackendTurnReliabilitySnapshot {
+        guard let payload else { return .empty }
+
+        let talk = payload.talkMetrics
+        let kpis = payload.productKpis
+        let source = talk != nil ? "talk_metrics" : (kpis != nil ? "product_kpis" : "none")
+
+        let sampleCount = max(
+            talk?.userLiveSampleCount ?? 0,
+            talk?.sampleCount ?? 0,
+            kpis?.voiceSampleCount ?? 0
+        )
+        let silentTurnRate = talk?.silentTurnRate ?? kpis?.silentTurnRate ?? 0
+        let bargeInStopP95Ms = talk?.p95BargeInStopMs ?? kpis?.bargeInStopP95Ms
+        let bargeInStopSampleCount = max(
+            talk?.bargeInStopSampleCount ?? 0,
+            kpis?.bargeInStopSampleCount ?? 0
+        )
+        let medianEndToEndMs = talk?.medianEndToEndMs ?? kpis?.medianEndToEndMs
+
+        return BackendTurnReliabilitySnapshot(
+            sampleCount: sampleCount,
+            silentTurnRate: max(0, silentTurnRate),
+            bargeInStopP95Ms: bargeInStopP95Ms,
+            bargeInStopSampleCount: bargeInStopSampleCount,
+            medianEndToEndMs: medianEndToEndMs,
+            source: source
+        )
+    }
+
+    func hardResync() async {
+        invalidateReadCaches(clearSyncState: false)
+        _ = try? await bootstrapSession(force: true)
+    }
+
+    func fetchHistory(
+        limit: Int = 120,
+        force: Bool = false,
+        sinceTurnId: String? = nil,
+        screenplayProjectId: String? = nil
+    ) async throws -> BackendReadResult<BackendHistoryResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedSince = sinceTurnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedProjectId = screenplayProjectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var extraQuery: [URLQueryItem] = normalizedSince.isEmpty
+            ? []
+            : [URLQueryItem(name: "sinceTurnId", value: normalizedSince)]
+        if !normalizedProjectId.isEmpty {
+            extraQuery.append(URLQueryItem(name: "screenplayProjectId", value: normalizedProjectId))
+        }
+        var request = try makeRequest(path: "/history", limit: limit, extraQueryItems: extraQuery)
+        let canUseSharedCache = normalizedSince.isEmpty && normalizedProjectId.isEmpty
+        if !force, canUseSharedCache, let cached = historyCacheByLimit[limit], !cached.etag.isEmpty {
+            request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
+        }
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+
+        if canUseSharedCache, http.statusCode == 304, let cached = historyCacheByLimit[limit] {
+            let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+            let incoming = mergeSyncStates(base: cached.sync, incoming: headerSync)
+            updateSyncState(incoming, emitTurnEvent: false)
+            return BackendReadResult(payload: cached.payload, sync: syncState, notModified: true)
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendHistoryResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromHistoryPayload(payload)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: true)
+        let etag = normalizedEtag(from: http, fallbackStateVersion: syncState.stateVersion)
+        if canUseSharedCache {
+            historyCacheByLimit[limit] = HistoryCacheEntry(etag: etag, payload: payload, sync: syncState)
+        }
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func fetchMemories(
+        limit: Int = 36,
+        force: Bool = false,
+        sinceVersion: String? = nil
+    ) async throws -> BackendReadResult<BackendMemoriesResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedSince = sinceVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let extraQuery: [URLQueryItem] = normalizedSince.isEmpty
+            ? []
+            : [URLQueryItem(name: "sinceVersion", value: normalizedSince)]
+        var request = try makeRequest(path: "/memories", limit: limit, extraQueryItems: extraQuery)
+        if !force, normalizedSince.isEmpty, let cached = memoriesCacheByLimit[limit], !cached.etag.isEmpty {
+            request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
+        }
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+
+        if normalizedSince.isEmpty, http.statusCode == 304, let cached = memoriesCacheByLimit[limit] {
+            let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+            let incoming = mergeSyncStates(base: cached.sync, incoming: headerSync)
+            updateSyncState(incoming, emitTurnEvent: false)
+            return BackendReadResult(payload: cached.payload, sync: syncState, notModified: true)
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendMemoriesResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromMemoriesPayload(payload)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: true)
+        let etag = normalizedEtag(from: http, fallbackStateVersion: syncState.stateVersion)
+        if normalizedSince.isEmpty {
+            memoriesCacheByLimit[limit] = MemoriesCacheEntry(etag: etag, payload: payload, sync: syncState)
+        }
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func fetchStateDelta(
+        sinceVersion: String,
+        sinceTurnId: String? = nil,
+        historyLimit: Int = 140,
+        memoriesLimit: Int = 72
+    ) async throws -> BackendReadResult<BackendStateDeltaResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedVersion = sinceVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTurn = sinceTurnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var extraQuery: [URLQueryItem] = [
+            URLQueryItem(name: "sinceVersion", value: normalizedVersion),
+            URLQueryItem(name: "historyLimit", value: String(max(1, historyLimit))),
+            URLQueryItem(name: "memoriesLimit", value: String(max(1, memoriesLimit))),
+        ]
+        if !normalizedTurn.isEmpty {
+            extraQuery.append(URLQueryItem(name: "sinceTurnId", value: normalizedTurn))
+        }
+        let request = try makeRequest(
+            path: "/state",
+            limit: max(1, historyLimit),
+            extraQueryItems: extraQuery
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendStateDeltaResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromStatePayload(payload)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: true)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func fetchActionReceipts(
+        limit: Int = 24,
+        force: Bool = false
+    ) async throws -> BackendReadResult<BackendActionReceiptsResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let request = try makeRequest(path: "/actions/receipts", limit: limit)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendActionReceiptsResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromActionReceiptsPayload(payload)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: true)
+        _ = force // parity with other read methods
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func clearHistory() async throws -> BackendReadResult<BackendDataControlResponse> {
+        try await runDataControl(path: "/data/history/clear")
+    }
+
+    func clearMemories() async throws -> BackendReadResult<BackendDataControlResponse> {
+        try await runDataControl(path: "/data/memories/clear")
+    }
+
+    func fetchTasks(
+        limit: Int = 80,
+        status: String = "all",
+        force: Bool = false
+    ) async throws -> BackendReadResult<BackendTasksResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedStatus = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let request = try makeRequest(
+            path: "/tasks",
+            limit: max(1, limit),
+            extraQueryItems: [URLQueryItem(name: "status", value: normalizedStatus.isEmpty ? "all" : normalizedStatus)]
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendTasksResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromTasksPayload(payload)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: true)
+        _ = force // reserved for parity with other read methods.
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func fetchDailyRecap(window: String = "today") async throws -> BackendReadResult<BackendDailyRecapResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedWindow = window.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let windowValue = normalizedWindow.isEmpty ? "today" : normalizedWindow
+        let request = try makeRequest(
+            path: "/recap",
+            extraQueryItems: [URLQueryItem(name: "window", value: windowValue)]
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendDailyRecapResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromDailyRecapPayload(payload)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: false)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func fetchScreenplayProjects(
+        limit: Int = 12,
+        includeVersions: Bool = false,
+        includeDrafts: Bool = false
+    ) async throws -> BackendReadResult<BackendScreenplayProjectsResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let request = try makeRequest(
+            path: "/screenplay/projects",
+            limit: max(1, limit),
+            extraQueryItems: [
+                URLQueryItem(name: "include_versions", value: includeVersions ? "1" : "0"),
+                URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
+            ]
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendScreenplayProjectsResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: payload.sessionId,
+            stateVersion: payload.stateVersion,
+            lastUpdatedAt: payload.lastUpdatedAt,
+            historyUpdatedAt: payload.historyUpdatedAt,
+            memoryUpdatedAt: payload.memoryUpdatedAt,
+            lastTurnId: payload.lastTurnId,
+            schemaVersion: payload.schemaVersion,
+            backendBuild: payload.backendBuild,
+            backendBootId: payload.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func fetchScreenplayProject(
+        projectId: String,
+        includeDrafts: Bool = true,
+        versionLimit: Int = 16
+    ) async throws -> BackendReadResult<BackendScreenplayProjectResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        let request = try makeRequest(
+            path: "/screenplay/projects/\(normalizedProjectId)",
+            extraQueryItems: [
+                URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
+                URLQueryItem(name: "version_limit", value: String(max(1, versionLimit))),
+            ]
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendScreenplayProjectResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: payload.sessionId,
+            stateVersion: payload.stateVersion,
+            lastUpdatedAt: payload.lastUpdatedAt,
+            historyUpdatedAt: payload.historyUpdatedAt,
+            memoryUpdatedAt: payload.memoryUpdatedAt,
+            lastTurnId: payload.lastTurnId,
+            schemaVersion: payload.schemaVersion,
+            backendBuild: payload.backendBuild,
+            backendBootId: payload.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func fetchScreenplayCompanionState() async throws -> BackendReadResult<BackendScreenplayCompanionStateResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let request = try makeRequest(path: "/screenplay/companion/state")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        let payload = try decoder.decode(BackendScreenplayCompanionStateResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: payload.sessionId,
+            stateVersion: payload.stateVersion,
+            lastUpdatedAt: payload.lastUpdatedAt,
+            historyUpdatedAt: payload.historyUpdatedAt,
+            memoryUpdatedAt: payload.memoryUpdatedAt,
+            lastTurnId: payload.lastTurnId,
+            schemaVersion: payload.schemaVersion,
+            backendBuild: payload.backendBuild,
+            backendBootId: payload.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func fetchScreenplayOutline(
+        projectId: String,
+        includeProject: Bool = true
+    ) async throws -> BackendReadResult<BackendScreenplayOutlineResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        let request = try makeRequest(
+            path: "/screenplay/projects/\(normalizedProjectId)/outline",
+            extraQueryItems: [
+                URLQueryItem(name: "include_project", value: includeProject ? "1" : "0"),
+            ]
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendScreenplayOutlineResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: payload.sessionId,
+            stateVersion: payload.stateVersion,
+            lastUpdatedAt: payload.lastUpdatedAt,
+            historyUpdatedAt: payload.historyUpdatedAt,
+            memoryUpdatedAt: payload.memoryUpdatedAt,
+            lastTurnId: payload.lastTurnId,
+            schemaVersion: payload.schemaVersion,
+            backendBuild: payload.backendBuild,
+            backendBootId: payload.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func upsertScreenplayProject(
+        projectId: String? = nil,
+        title: String,
+        phase: String = "scene_draft",
+        tags: [String] = [],
+        characters: [String] = [],
+        setting: String = "",
+        tone: String = "",
+        studioThreadViewState: BackendScreenplayThreadViewState? = nil,
+        studioDiffAcknowledgedKeys: [String]? = nil,
+        studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil
+    ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/screenplay/projects")
+        var payload: [String: Any] = [
+            "title": title,
+            "phase": phase,
+            "tags": tags,
+            "characters": characters,
+            "setting": setting,
+            "tone": tone,
+            "activate": true,
+        ]
+        if let projectId, !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["project_id"] = projectId
+        }
+        if let studioThreadViewState,
+           let encoded = try? JSONEncoder().encode(studioThreadViewState),
+           let statePayload = try? JSONSerialization.jsonObject(with: encoded) {
+            payload["studio_thread_view_state"] = statePayload
+        }
+        if let studioDiffAcknowledgedKeys {
+            payload["studio_diff_acknowledged_keys"] = studioDiffAcknowledgedKeys
+        }
+        if let studioDiffAcknowledgedEntries,
+           let encoded = try? JSONEncoder().encode(studioDiffAcknowledgedEntries),
+           let entriesPayload = try? JSONSerialization.jsonObject(with: encoded) {
+            payload["studio_diff_acknowledged_entries"] = entriesPayload
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayProjectMutationResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func upsertScreenplayOutline(
+        projectId: String,
+        acts: [BackendScreenplayAct],
+        scenes: [BackendScreenplayScene],
+        beats: [BackendScreenplayBeat],
+        merge: Bool = true,
+        title: String? = nil,
+        phase: String? = nil
+    ) async throws -> BackendReadResult<BackendScreenplayOutlineMutationResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/outline")
+        var payload: [String: Any] = [
+            "merge": merge,
+            "acts": acts.map(screenplayActPayload),
+            "scenes": scenes.map(screenplayScenePayload),
+            "beats": beats.map(screenplayBeatPayload),
+        ]
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["title"] = title
+        }
+        if let phase, !phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["phase"] = phase
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayOutlineMutationResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func upsertScreenplayScene(
+        projectId: String,
+        scene: BackendScreenplaySceneDraft,
+        title: String? = nil,
+        phase: String? = nil
+    ) async throws -> BackendReadResult<BackendScreenplaySceneMutationResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/scenes")
+        var payload: [String: Any] = [
+            "scene": screenplaySceneDraftPayload(scene),
+        ]
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["title"] = title
+        }
+        if let phase, !phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["phase"] = phase
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplaySceneMutationResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func upsertScreenplayBeat(
+        projectId: String,
+        beat: BackendScreenplayBeatDraft,
+        title: String? = nil,
+        phase: String? = nil
+    ) async throws -> BackendReadResult<BackendScreenplayBeatMutationResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/beats")
+        var payload: [String: Any] = [
+            "beat": screenplayBeatDraftPayload(beat),
+        ]
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["title"] = title
+        }
+        if let phase, !phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["phase"] = phase
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayBeatMutationResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func exportMemories() async throws -> BackendReadResult<BackendMemoryExportResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let request = try makeRequest(path: "/memories/export")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendMemoryExportResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromMemoryExportPayload(payload)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: false)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func fetchScreenplayCollaborators(
+        projectId: String
+    ) async throws -> BackendReadResult<BackendScreenplayCollaboratorsResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        let request = try makeRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayCollaboratorsResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func upsertScreenplayCollaborator(
+        projectId: String,
+        email: String,
+        action: String = "approve",
+        note: String = "",
+        invitedBy: String = ""
+    ) async throws -> BackendReadResult<BackendScreenplayCollaboratorsResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedEmail.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "valid_email_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        let payload: [String: Any] = [
+            "email": normalizedEmail,
+            "action": action,
+            "note": note,
+            "invited_by": invitedBy,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayCollaboratorsResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func fetchScreenplayComments(
+        projectId: String,
+        limit: Int = 120,
+        actorEmail: String = ""
+    ) async throws -> BackendReadResult<BackendScreenplayCommentsResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        var query: [URLQueryItem] = []
+        let normalizedActorEmail = actorEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedActorEmail.isEmpty {
+            query.append(URLQueryItem(name: "actor_email", value: normalizedActorEmail))
+        }
+        let request = try makeRequest(
+            path: "/screenplay/projects/\(normalizedProjectId)/comments",
+            limit: max(1, limit),
+            extraQueryItems: query
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayCommentsResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func upsertScreenplayComment(
+        projectId: String,
+        text: String,
+        authorEmail: String = "",
+        authorName: String = "",
+        anchorLine: Int? = nil,
+        versionId: String = "",
+        voiceURL: String = "",
+        voiceTranscript: String = "",
+        voiceDurationMs: Int = 0,
+        type: String = "text",
+        action: String = "upsert",
+        commentId: String = "",
+        parentCommentId: String = "",
+        actorEmail: String = ""
+    ) async throws -> BackendReadResult<BackendScreenplayCommentsResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedVoiceURL = voiceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedVoiceTranscript = voiceTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAction = action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isDeleteAction = normalizedAction == "delete" || normalizedAction == "remove"
+        let isResolveAction = normalizedAction == "resolve" || normalizedAction == "unresolve" || normalizedAction == "mark_resolved" || normalizedAction == "mark_open" || normalizedAction == "reopen"
+        guard isDeleteAction || isResolveAction || !normalizedText.isEmpty || !normalizedVoiceURL.isEmpty || !normalizedVoiceTranscript.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "comment_or_voice_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/comments")
+        var payload: [String: Any] = [
+            "text": text,
+            "author_email": authorEmail,
+            "author_name": authorName,
+            "voice_url": voiceURL,
+            "voice_transcript": voiceTranscript,
+            "voice_duration_ms": max(0, voiceDurationMs),
+            "type": type,
+            "action": action,
+        ]
+        let normalizedActorEmail = actorEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedActorEmail.isEmpty {
+            payload["actor_email"] = normalizedActorEmail
+        }
+        let normalizedCommentId = commentId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedCommentId.isEmpty {
+            payload["comment_id"] = normalizedCommentId
+        }
+        let normalizedParentCommentId = parentCommentId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedParentCommentId.isEmpty {
+            payload["parent_comment_id"] = normalizedParentCommentId
+        }
+        let normalizedVersionId = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedVersionId.isEmpty {
+            payload["version_id"] = normalizedVersionId
+        }
+        if let anchorLine, anchorLine > 0 {
+            payload["anchor_line"] = anchorLine
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayCommentsResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func upsertScreenplayProjectVersion(
+        projectId: String,
+        draft: String,
+        title: String = "",
+        phase: String = "scene_draft",
+        notes: String = "",
+        source: String = "studio_autosave",
+        targetPages: Int? = nil,
+        studioWriteAnchors: [BackendScreenplayWriteAnchor] = [],
+        screenplayBindings: [BackendScreenplayBindingRecord] = [],
+        baseVersionId: String = "",
+        conflictStrategy: String = "reject_if_stale"
+    ) async throws -> BackendReadResult<BackendScreenplayVersionMutationResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
+        }
+
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
+        var payload: [String: Any] = [
+            "draft": draft,
+            "phase": phase,
+            "source": source,
+        ]
+        if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["title"] = title
+        }
+        if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["notes"] = notes
+        }
+        if let targetPages, targetPages > 0 {
+            payload["target_pages"] = targetPages
+        }
+        if !studioWriteAnchors.isEmpty,
+           let anchorsPayload = try? JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(studioWriteAnchors)
+           ) {
+            payload["studio_write_anchors"] = anchorsPayload
+        }
+        if !screenplayBindings.isEmpty,
+           let bindingsPayload = try? JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(screenplayBindings)
+           ) {
+            payload["screenplay_bindings"] = bindingsPayload
+        }
+        let normalizedBaseVersionId = baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedBaseVersionId.isEmpty {
+            payload["base_version_id"] = normalizedBaseVersionId
+        }
+        let normalizedConflictStrategy = conflictStrategy.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedConflictStrategy.isEmpty {
+            payload["conflict_strategy"] = normalizedConflictStrategy
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        if http.statusCode == 409 {
+            let parsed = try decoder.decode(BackendScreenplayVersionMutationResponse.self, from: data)
+            let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+            let bodySync = syncFromScreenplayEnvelope(
+                sessionId: parsed.sessionId,
+                stateVersion: parsed.stateVersion,
+                lastUpdatedAt: parsed.lastUpdatedAt,
+                historyUpdatedAt: parsed.historyUpdatedAt,
+                memoryUpdatedAt: parsed.memoryUpdatedAt,
+                lastTurnId: parsed.lastTurnId,
+                schemaVersion: parsed.schemaVersion,
+                backendBuild: parsed.backendBuild,
+                backendBootId: parsed.backendBootId
+            )
+            updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+            return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let parsed = try decoder.decode(BackendScreenplayVersionMutationResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func updateScreenplayCompanionState(
+        mode: StudioCompanionMode,
+        recentTurns: [ScreenplayConversationTurn],
+        analytics: ScreenplayCompanionAnalyticsSnapshot
+    ) async throws -> BackendReadResult<BackendScreenplayCompanionStateResponse> {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/screenplay/companion/state")
+        var payload: [String: Any] = [
+            "mode_raw": mode.rawValue,
+        ]
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let recentTurnsPayload = try? JSONSerialization.jsonObject(
+            with: encoder.encode(Array(recentTurns.suffix(6)))
+        ) {
+            payload["recent_turns"] = recentTurnsPayload
+        }
+        if let analyticsPayload = try? JSONSerialization.jsonObject(
+            with: encoder.encode(analytics)
+        ) {
+            payload["analytics"] = analyticsPayload
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        let parsed = try decoder.decode(BackendScreenplayCompanionStateResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func paginateScreenplayDraft(
+        draft: String,
+        title: String = "",
+        phase: String = "scene_draft",
+        targetPages: Int? = nil,
+        linesPerPage: Int = 55
+    ) async throws -> BackendReadResult<BackendScreenplayPaginateResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/paginate")
+        var payload: [String: Any] = [
+            "draft": draft,
+            "phase": phase,
+            "lines_per_page": max(24, linesPerPage),
+        ]
+        if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["title"] = title
+        }
+        if let targetPages, targetPages > 0 {
+            payload["target_pages"] = targetPages
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayPaginateResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(headerSync, emitTurnEvent: false)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func fetchScreenplayRevisionColors(
+        baseDraft: String,
+        draft: String,
+        revisionColor: String = "blue"
+    ) async throws -> BackendReadResult<BackendScreenplayRevisionResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/revision-colors")
+        let payload: [String: Any] = [
+            "base_draft": baseDraft,
+            "draft": draft,
+            "revision_color": revisionColor,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayRevisionResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(headerSync, emitTurnEvent: false)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func exportScreenplayDraft(
+        draft: String,
+        title: String = "",
+        phase: String = "scene_draft",
+        format: String = "fountain",
+        projectId: String? = nil,
+        versionId: String? = nil,
+        targetPages: Int? = nil
+    ) async throws -> BackendScreenplayExportArtifact {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/screenplay/export")
+        var payload: [String: Any] = [
+            "draft": draft,
+            "phase": phase,
+            "format": format,
+        ]
+        if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["title"] = title
+        }
+        if let projectId, !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["project_id"] = projectId
+        }
+        if let versionId, !versionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["version_id"] = versionId
+        }
+        if let targetPages, targetPages > 0 {
+            payload["target_pages"] = targetPages
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(headerSync, emitTurnEvent: false)
+        let contentType = headerValue(http, "Content-Type").trimmingCharacters(in: .whitespacesAndNewlines)
+        let disposition = headerValue(http, "Content-Disposition")
+        let filename = parseDispositionFilename(disposition, fallbackFormat: format)
+        let resolvedFormat = headerValue(http, "x-screenplay-format").trimmingCharacters(in: .whitespacesAndNewlines)
+        return BackendScreenplayExportArtifact(
+            format: resolvedFormat.isEmpty ? format : resolvedFormat,
+            filename: filename,
+            contentType: contentType.isEmpty ? "application/octet-stream" : contentType,
+            data: data
+        )
+    }
+
+    func updateMemoryCard(
+        id: String,
+        key: String? = nil,
+        title: String,
+        summary: String,
+        reason: String
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = [
+            "card_id": id,
+            "title": title,
+            "summary": summary,
+            "reason": reason,
+        ]
+        if let key, !key.isEmpty { payload["key"] = key }
+        return try await runMemoryMutation(path: "/memories/update", payload: payload)
+    }
+
+    func forgetMemoryCard(
+        id: String,
+        key: String? = nil
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = ["card_id": id]
+        if let key, !key.isEmpty { payload["key"] = key }
+        return try await runMemoryMutation(path: "/memories/forget", payload: payload)
+    }
+
+    func promoteMemoryCard(
+        id: String,
+        key: String? = nil,
+        title: String? = nil,
+        summary: String? = nil,
+        reason: String? = nil
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = ["card_id": id]
+        if let key, !key.isEmpty { payload["key"] = key }
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["title"] = title
+        }
+        if let summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["summary"] = summary
+        }
+        if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["reason"] = reason
+        }
+        return try await runMemoryMutation(path: "/memories/promote", payload: payload)
+    }
+
+    func markMemoryQuality(
+        id: String,
+        key: String? = nil,
+        signal: String,
+        note: String? = nil
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = [
+            "card_id": id,
+            "signal": signal
+        ]
+        if let key, !key.isEmpty { payload["key"] = key }
+        if let note, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["note"] = note
+        }
+        return try await runMemoryMutation(path: "/memories/feedback", payload: payload)
+    }
+
+    func updateTask(
+        action: String,
+        taskID: String? = nil,
+        title: String? = nil,
+        query: String? = nil,
+        dueAt: TimeInterval? = nil,
+        priority: String? = nil
+    ) async throws -> BackendReadResult<BackendTaskUpdateResponse> {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/tasks/update")
+        var payload: [String: Any] = ["action": action]
+        if let taskID, !taskID.isEmpty { payload["task_id"] = taskID }
+        if let title, !title.isEmpty { payload["title"] = title }
+        if let query, !query.isEmpty { payload["query"] = query }
+        if let dueAt, dueAt > 0 { payload["due_at"] = dueAt }
+        if let priority, !priority.isEmpty { payload["priority"] = priority }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendTaskUpdateResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromTaskUpdatePayload(parsed)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func composeSecretaryEmail(
+        to: String,
+        subject: String,
+        body: String,
+        provider: String = "mailto",
+        sendNow: Bool = true
+    ) async throws -> BackendReadResult<BackendSecretaryEmailResponse> {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/secretary/email")
+        let payload: [String: Any] = [
+            "to": to,
+            "subject": subject,
+            "body": body,
+            "target": provider,
+            "send_now": sendNow,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendSecretaryEmailResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: (200...299).contains(http.statusCode) ? "up" : "degraded")
+        updateSyncState(headerSync, emitTurnEvent: false)
+
+        if !(200...299).contains(http.statusCode),
+           (parsed.composeUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let message = (parsed.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            throw BackendMemoryAPIError.server(
+                status: http.statusCode,
+                message: message.isEmpty ? decodeErrorMessage(from: data) : message
+            )
+        }
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func commitRealtimeTurn(
+        userMessage: String,
+        assistantMessage: String,
+        requestId: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil
+    ) async throws -> BackendReadResult<BackendRealtimeTurnCommitResponse> {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/realtime/turn_commit")
+        var payload: [String: Any] = [
+            "transcript": userMessage,
+            "reply": assistantMessage,
+            "request_id": requestId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        ]
+        if let studioMetadata, studioMetadata.isMeaningful {
+            payload["studio"] = [
+                "screenplay_project_id": studioMetadata.screenplayProjectId,
+                "screenplay_target": studioMetadata.screenplayTarget,
+                "screenplay_prompt_source": studioMetadata.screenplayPromptSource,
+                "screenplay_write_id": studioMetadata.screenplayWriteId,
+                "screenplay_anchor_line": studioMetadata.screenplayAnchorLine as Any,
+                "screenplay_anchor_end_line": studioMetadata.screenplayAnchorEndLine as Any,
+                "screenplay_anchor_scene_label": studioMetadata.screenplayAnchorSceneLabel,
+                "screenplay_note_title": studioMetadata.screenplayNoteTitle,
+                "screenplay_note_body": studioMetadata.screenplayNoteBody,
+                "screenplay_inserted_text": studioMetadata.screenplayInsertedText,
+                "screenplay_replacement_applied": studioMetadata.screenplayReplacementApplied,
+                "screenplay_replaced_write_id": studioMetadata.screenplayReplacedWriteId,
+                "screenplay_revised_block_text": studioMetadata.screenplayRevisedBlockText,
+                "screenplay_resolved_anchor_excerpt": studioMetadata.screenplayResolvedAnchorExcerpt,
+            ]
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendRealtimeTurnCommitResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
+        let bodySync = syncFromRealtimeTurnCommitPayload(parsed)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: false)
+        let emittedTurnId = (parsed.turnId ?? parsed.lastTurnId ?? incoming.lastTurnId)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !emittedTurnId.isEmpty {
+            postTurnCommitted(
+                source: "authoritative",
+                turnId: emittedTurnId,
+                requestId: (parsed.requestId ?? requestId)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                sessionId: syncState.sessionId,
+                stateVersion: syncState.stateVersion,
+                lastUpdatedAt: syncState.lastUpdatedAt,
+                historyUpdatedAt: syncState.historyUpdatedAt,
+                memoryUpdatedAt: syncState.memoryUpdatedAt,
+                userMessage: userMessage,
+                assistantMessage: assistantMessage,
+                studioMetadata: studioMetadata
+            )
+        }
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func annotateTurnHistory(
+        turnId: String,
+        studioMetadata: BackendStudioThreadCommitMetadata
+    ) async throws -> BackendReadResult<BackendRealtimeTurnCommitResponse> {
+        let normalizedTurnId = turnId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTurnId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "turn_id_required")
+        }
+        guard studioMetadata.isMeaningful else {
+            throw BackendMemoryAPIError.server(status: 400, message: "studio_metadata_required")
+        }
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/history/annotate_turn")
+        let payload: [String: Any] = [
+            "turn_id": normalizedTurnId,
+            "studio": [
+                "screenplay_project_id": studioMetadata.screenplayProjectId,
+                "screenplay_target": studioMetadata.screenplayTarget,
+                "screenplay_prompt_source": studioMetadata.screenplayPromptSource,
+                "screenplay_write_id": studioMetadata.screenplayWriteId,
+                "screenplay_anchor_line": studioMetadata.screenplayAnchorLine as Any,
+                "screenplay_anchor_end_line": studioMetadata.screenplayAnchorEndLine as Any,
+                "screenplay_anchor_scene_label": studioMetadata.screenplayAnchorSceneLabel,
+                "screenplay_note_title": studioMetadata.screenplayNoteTitle,
+                "screenplay_note_body": studioMetadata.screenplayNoteBody,
+                "screenplay_inserted_text": studioMetadata.screenplayInsertedText,
+                "screenplay_replacement_applied": studioMetadata.screenplayReplacementApplied,
+                "screenplay_replaced_write_id": studioMetadata.screenplayReplacedWriteId,
+                "screenplay_revised_block_text": studioMetadata.screenplayRevisedBlockText,
+                "screenplay_resolved_anchor_excerpt": studioMetadata.screenplayResolvedAnchorExcerpt,
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendRealtimeTurnCommitResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
+        let bodySync = syncFromRealtimeTurnCommitPayload(parsed)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func fetchSecretaryEmailConnectURL(
+        provider: String = "gmail"
+    ) async throws -> BackendReadResult<BackendSecretaryEmailConnectResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let request = try makeRequest(
+            path: "/secretary/email/connect-url",
+            extraQueryItems: [URLQueryItem(name: "provider", value: provider)]
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendSecretaryEmailConnectResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: (200...299).contains(http.statusCode) ? "up" : "degraded")
+        updateSyncState(headerSync, emitTurnEvent: false)
+
+        if !(200...299).contains(http.statusCode),
+           (parsed.connectUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let message = (parsed.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            throw BackendMemoryAPIError.server(
+                status: http.statusCode,
+                message: message.isEmpty ? decodeErrorMessage(from: data) : message
+            )
+        }
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    private func runMemoryMutation(
+        path: String,
+        payload: [String: Any]
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: path)
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendMemoryMutationResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
+        let bodySync = syncFromMemoryMutationPayload(parsed)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: true)
+        historyCacheByLimit.removeAll()
+        memoriesCacheByLimit.removeAll()
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    private func runDataControl(path: String) async throws -> BackendReadResult<BackendDataControlResponse> {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: path)
+        request.httpBody = Data("{}".utf8)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let payload = try decoder.decode(BackendDataControlResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromDataControlPayload(payload)
+        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
+        updateSyncState(incoming, emitTurnEvent: false)
+        historyCacheByLimit.removeAll()
+        memoriesCacheByLimit.removeAll()
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+    }
+
+    func publishOptimisticTurn(
+        userMessage: String,
+        assistantMessage: String = "",
+        turnId: String? = nil,
+        lastUpdatedAt: TimeInterval = Date().timeIntervalSince1970 * 1000
+    ) {
+        let normalizedUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAssistant = assistantMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextTurn = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackTurn = syncState.lastTurnId.isEmpty ? "optimistic-\(Int(lastUpdatedAt))" : syncState.lastTurnId
+        postTurnCommitted(
+            source: "optimistic",
+            turnId: (nextTurn?.isEmpty == false ? nextTurn! : fallbackTurn),
+            sessionId: syncState.sessionId,
+            stateVersion: syncState.stateVersion,
+            lastUpdatedAt: lastUpdatedAt,
+            historyUpdatedAt: syncState.historyUpdatedAt,
+            memoryUpdatedAt: syncState.memoryUpdatedAt,
+            userMessage: normalizedUser.isEmpty ? nil : normalizedUser,
+            assistantMessage: normalizedAssistant.isEmpty ? nil : normalizedAssistant
+        )
+    }
+
+    func recordTurnCommitted(
+        turnId: String,
+        requestId: String? = nil,
+        sessionId: String? = nil,
+        stateVersion: String? = nil,
+        lastUpdatedAt: TimeInterval? = nil,
+        historyUpdatedAt: TimeInterval? = nil,
+        memoryUpdatedAt: TimeInterval? = nil,
+        userMessage: String? = nil,
+        assistantMessage: String? = nil
+    ) {
+        var incoming = BackendSyncState.empty
+        incoming.status = "up"
+        incoming.lastTurnId = turnId
+        incoming.sessionId = sessionId ?? syncState.sessionId
+        incoming.stateVersion = stateVersion ?? syncState.stateVersion
+        incoming.lastUpdatedAt = lastUpdatedAt ?? max(syncState.lastUpdatedAt, Date().timeIntervalSince1970 * 1000)
+        incoming.historyUpdatedAt = historyUpdatedAt ?? syncState.historyUpdatedAt
+        incoming.memoryUpdatedAt = memoryUpdatedAt ?? syncState.memoryUpdatedAt
+        updateSyncState(incoming, emitTurnEvent: false)
+        postTurnCommitted(
+            source: "authoritative",
+            turnId: turnId,
+            requestId: requestId,
+            sessionId: syncState.sessionId,
+            stateVersion: syncState.stateVersion,
+            lastUpdatedAt: incoming.lastUpdatedAt,
+            historyUpdatedAt: syncState.historyUpdatedAt,
+            memoryUpdatedAt: syncState.memoryUpdatedAt,
+            userMessage: userMessage,
+            assistantMessage: assistantMessage
+        )
+    }
+
+    func recordTurnCommitted(from response: HTTPURLResponse, userMessage: String? = nil, assistantMessage: String? = nil) {
+        let turnId = headerValue(response, "x-turn-id").trimmingCharacters(in: .whitespacesAndNewlines)
+        if turnId.isEmpty { return }
+        let requestId = headerValue(response, "x-request-id").trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessionId = headerValue(response, "x-session-id")
+        let stateVersion = headerValue(response, "x-state-version")
+        let lastUpdated = Double(headerValue(response, "x-last-updated-at")) ?? (Date().timeIntervalSince1970 * 1000)
+        let historyUpdated = Double(headerValue(response, "x-history-updated-at")) ?? 0
+        let memoryUpdated = Double(headerValue(response, "x-memory-updated-at")) ?? 0
+        onTurnCommittedBarrier(
+            turnId: turnId,
+            requestId: requestId.isEmpty ? nil : requestId,
+            sessionId: sessionId.isEmpty ? nil : sessionId,
+            stateVersion: stateVersion.isEmpty ? nil : stateVersion,
+            lastUpdatedAt: lastUpdated,
+            historyUpdatedAt: historyUpdated > 0 ? historyUpdated : nil,
+            memoryUpdatedAt: memoryUpdated > 0 ? memoryUpdated : nil,
+            userMessage: userMessage,
+            assistantMessage: assistantMessage
+        )
+    }
+
+    /// Syncs client-side emotional state from HerEvolutionStore to the backend after each turn.
+    /// This reconciles the two memory systems so the server's persona has the same emotional
+    /// context as the local relationship tracker (depth, romance tension, trust, etc.).
+    /// Fire-and-forget — errors are logged but never surface to the user.
+    func syncEvolutionState(
+        stage: Int,
+        depthScore: Double,
+        romanceTension: Double,
+        sessionCount: Int,
+        reassuranceNeed: Double,
+        boundaryNeed: Double,
+        playfulMomentum: Double,
+        trustSignal: Double,
+        lastThemeCue: String,
+        preferredName: String,
+        isScreenwriter: Bool,
+        latestUserMessage: String? = nil
+    ) {
+        Task {
+            do {
+                let url = baseURL().appendingPathComponent("session").appendingPathComponent("evolution")
+                var request = URLRequest(url: url)
+                request.httpMethod = "PATCH"
+                request.timeoutInterval = 8
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                if let token = appToken(), !token.isEmpty {
+                    request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+                }
+                if let userId = userID(), !userId.isEmpty {
+                    request.setValue(userId, forHTTPHeaderField: "X-User-Id")
+                }
+                if let ct = clientToken(), !ct.isEmpty {
+                    request.setValue(ct, forHTTPHeaderField: "X-Client-Token")
+                }
+                request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+
+                var payload: [String: Any] = [
+                    "stage": stage,
+                    "depth_score": round(depthScore * 100) / 100,
+                    "romance_tension": round(romanceTension * 100) / 100,
+                    "session_count": sessionCount,
+                    "reassurance_need": round(reassuranceNeed * 1000) / 1000,
+                    "boundary_need": round(boundaryNeed * 1000) / 1000,
+                    "playful_momentum": round(playfulMomentum * 1000) / 1000,
+                    "trust_signal": round(trustSignal * 1000) / 1000,
+                ]
+                let trimmedCue = lastThemeCue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedCue.isEmpty { payload["last_theme_cue"] = trimmedCue }
+                let trimmedName = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedName.isEmpty { payload["preferred_name"] = String(trimmedName.prefix(64)) }
+                payload["is_screenwriter"] = isScreenwriter
+                let latestMessage = (latestUserMessage ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !latestMessage.isEmpty {
+                    payload["latest_user_message"] = String(latestMessage.prefix(220))
+                }
+
+                let loweredMessage = latestMessage.lowercased()
+                let loveTopicActive = loweredMessage.contains("love") ||
+                    loweredMessage.contains("relationship") ||
+                    loweredMessage.contains("romance") ||
+                    loweredMessage.contains("dating") ||
+                    loweredMessage.contains("miss you") ||
+                    loweredMessage.contains("heart")
+                if loveTopicActive {
+                    payload["love_topic_active"] = true
+                }
+                let reassuranceStyleHint: String = {
+                    if loweredMessage.contains("be direct") ||
+                        loweredMessage.contains("straight up") ||
+                        loweredMessage.contains("no sugarcoat") {
+                        return "direct"
+                    }
+                    if loweredMessage.contains("hype me") ||
+                        loweredMessage.contains("pep talk") {
+                        return "hype"
+                    }
+                    if loweredMessage.contains("gentle") ||
+                        loweredMessage.contains("comfort me") ||
+                        loweredMessage.contains("hold space") {
+                        return "motherly"
+                    }
+                    return reassuranceNeed > 0.62 ? "soft" : "direct"
+                }()
+                payload["reassurance_style_hint"] = reassuranceStyleHint
+
+                let affectionStyleHint: String = {
+                    if loveTopicActive {
+                        if playfulMomentum > 0.62 { return "playful" }
+                        if trustSignal > 0.68 && romanceTension > 2.2 { return "tender" }
+                        if romanceTension > 4.2 { return "intimate" }
+                    }
+                    return "casual"
+                }()
+                payload["affection_style_hint"] = affectionStyleHint
+                payload["romance_depth_hint"] = round(min(max(romanceTension / 10.0, 0), 1) * 1000) / 1000
+                payload["support_intent_hint"] = reassuranceNeed > 0.58 ? "comfort_first" : "clarity_then_comfort"
+
+                request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                // 404 = backend doesn't support this endpoint yet — silently skip.
+                if status != 200 && status != 204 && status != 404 {
+                    print("[BackendMemoryAPI] syncEvolutionState status=\(status)")
+                }
+            } catch {
+                print("[BackendMemoryAPI] syncEvolutionState error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func onTurnCommittedBarrier(
+        turnId: String,
+        requestId: String? = nil,
+        sessionId: String? = nil,
+        stateVersion: String? = nil,
+        lastUpdatedAt: TimeInterval? = nil,
+        historyUpdatedAt: TimeInterval? = nil,
+        memoryUpdatedAt: TimeInterval? = nil,
+        userMessage: String? = nil,
+        assistantMessage: String? = nil
+    ) {
+        let normalizedTurn = turnId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTurn.isEmpty else { return }
+        let normalizedSession = (sessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !shouldAcceptIncomingSession(current: syncState.sessionId, incoming: normalizedSession) {
+            print("[BackendMemoryAPI] turn commit dropped due to session drift incoming=\(normalizedSession) current=\(syncState.sessionId)")
+            return
+        }
+        let normalizedState = stateVersion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if normalizedTurn == syncState.lastTurnId &&
+            (normalizedState.isEmpty || normalizedState == syncState.stateVersion) {
+            return
+        }
+        let incomingLast = max(
+            lastUpdatedAt ?? 0,
+            historyUpdatedAt ?? 0,
+            memoryUpdatedAt ?? 0
+        )
+        let knownLast = max(syncState.lastUpdatedAt, syncState.historyUpdatedAt, syncState.memoryUpdatedAt)
+        if incomingLast > 0,
+           knownLast > 0,
+           incomingLast <= knownLast,
+           (!normalizedState.isEmpty && normalizedState == syncState.stateVersion) {
+            return
+        }
+        let versionKey = normalizedState.isEmpty ? normalizedTurn : normalizedState
+        if !versionKey.isEmpty {
+            if versionKey == latestSeenStateVersion { return }
+            if inFlightStateVersions.contains(versionKey) { return }
+            inFlightStateVersions.insert(versionKey)
+        }
+        defer {
+            if !versionKey.isEmpty {
+                inFlightStateVersions.remove(versionKey)
+            }
+        }
+        recordTurnCommitted(
+            turnId: normalizedTurn,
+            requestId: requestId,
+            sessionId: normalizedSession.isEmpty ? nil : normalizedSession,
+            stateVersion: normalizedState.isEmpty ? nil : normalizedState,
+            lastUpdatedAt: lastUpdatedAt,
+            historyUpdatedAt: historyUpdatedAt,
+            memoryUpdatedAt: memoryUpdatedAt,
+            userMessage: userMessage,
+            assistantMessage: assistantMessage
+        )
+        if !versionKey.isEmpty {
+            latestSeenStateVersion = versionKey
+        }
+    }
+
+    private func shouldAcceptIncomingSession(current: String, incoming: String) -> Bool {
+        let currentNormalized = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        let incomingNormalized = incoming.trimmingCharacters(in: .whitespacesAndNewlines)
+        if incomingNormalized.isEmpty || currentNormalized.isEmpty { return true }
+        if incomingNormalized == currentNormalized { return true }
+        let currentIsIpScoped = currentNormalized.hasPrefix("ip:")
+        let incomingIsIpScoped = incomingNormalized.hasPrefix("ip:")
+        // Allow secure session promotion (ip -> token/user), but reject drift and token->ip downgrade.
+        if currentIsIpScoped, !incomingIsIpScoped { return true }
+        return false
+    }
+
+    private func makeRequest(
+        path: String,
+        limit: Int,
+        extraQueryItems: [URLQueryItem] = []
+    ) throws -> URLRequest {
+        guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+        components.path = path
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: String(max(1, limit)))
+        ] + extraQueryItems
+        guard let url = components.url else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 12
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = appToken(), !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        if let userId = userID(), !userId.isEmpty {
+            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
+        }
+        if let clientToken = clientToken(), !clientToken.isEmpty {
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        }
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        return request
+    }
+
+    private func makeRequest(path: String) throws -> URLRequest {
+        guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+        components.path = path
+        guard let url = components.url else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 12
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = appToken(), !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        if let userId = userID(), !userId.isEmpty {
+            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
+        }
+        if let clientToken = clientToken(), !clientToken.isEmpty {
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        }
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        return request
+    }
+
+    private func makeRequest(
+        path: String,
+        extraQueryItems: [URLQueryItem]
+    ) throws -> URLRequest {
+        guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+        components.path = path
+        if !extraQueryItems.isEmpty {
+            components.queryItems = extraQueryItems
+        }
+        guard let url = components.url else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 12
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = appToken(), !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        if let userId = userID(), !userId.isEmpty {
+            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
+        }
+        if let clientToken = clientToken(), !clientToken.isEmpty {
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        }
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        return request
+    }
+
+    private func makeWriteRequest(path: String) throws -> URLRequest {
+        guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+        components.path = path
+        guard let url = components.url else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = appToken(), !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        if let userId = userID(), !userId.isEmpty {
+            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
+        }
+        if let clientToken = clientToken(), !clientToken.isEmpty {
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        }
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        return request
+    }
+
+    private func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        validatePersonaContract(response: http, path: request.url?.path ?? "unknown")
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func syncFromSession(_ payload: BackendSessionResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: "up",
+            sessionId: payload.sessionId ?? payload.clientToken,
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromHealthPayload(_ payload: HealthPayload?, ok: Bool) -> BackendSyncState {
+        BackendSyncState(
+            status: payload?.status ?? (ok ? "up" : "down"),
+            sessionId: payload?.sessionId ?? "",
+            schemaVersion: payload?.schemaVersion ?? 0,
+            backendBuild: payload?.backendBuild ?? "",
+            backendBootId: payload?.backendBootId ?? "",
+            lastTurnId: payload?.lastTurnId ?? "",
+            lastUpdatedAt: payload?.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload?.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload?.memoryUpdatedAt ?? 0,
+            stateVersion: payload?.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromHistoryPayload(_ payload: BackendHistoryResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: "up",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? payload.lastConversationAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? payload.lastUpdatedAt ?? payload.lastConversationAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromMemoriesPayload(_ payload: BackendMemoriesResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: "up",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromStatePayload(_ payload: BackendStateDeltaResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: "up",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromTasksPayload(_ payload: BackendTasksResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: "up",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromDailyRecapPayload(_ payload: BackendDailyRecapResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: "up",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? payload.generatedAt,
+            historyUpdatedAt: payload.historyUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromMemoryExportPayload(_ payload: BackendMemoryExportResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: "up",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? payload.exportedAt,
+            historyUpdatedAt: payload.historyUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromActionReceiptsPayload(_ payload: BackendActionReceiptsResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: "up",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromTaskUpdatePayload(_ payload: BackendTaskUpdateResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: payload.ok ? "up" : "degraded",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromMemoryMutationPayload(_ payload: BackendMemoryMutationResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: payload.ok ? "up" : "degraded",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromDataControlPayload(_ payload: BackendDataControlResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: payload.ok ? "up" : "degraded",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromRealtimeTurnCommitPayload(_ payload: BackendRealtimeTurnCommitResponse) -> BackendSyncState {
+        BackendSyncState(
+            status: payload.ok ? "up" : "degraded",
+            sessionId: payload.sessionId ?? "",
+            schemaVersion: payload.schemaVersion ?? 0,
+            backendBuild: payload.backendBuild ?? "",
+            backendBootId: payload.backendBootId ?? "",
+            lastTurnId: payload.lastTurnId ?? payload.turnId ?? "",
+            lastUpdatedAt: payload.lastUpdatedAt ?? 0,
+            historyUpdatedAt: payload.historyUpdatedAt ?? 0,
+            memoryUpdatedAt: payload.memoryUpdatedAt ?? payload.lastUpdatedAt ?? 0,
+            stateVersion: payload.stateVersion ?? ""
+        )
+    }
+
+    private func syncFromScreenplayEnvelope(
+        sessionId: String?,
+        stateVersion: String?,
+        lastUpdatedAt: TimeInterval?,
+        historyUpdatedAt: TimeInterval?,
+        memoryUpdatedAt: TimeInterval?,
+        lastTurnId: String?,
+        schemaVersion: Int?,
+        backendBuild: String?,
+        backendBootId: String?
+    ) -> BackendSyncState {
+        BackendSyncState(
+            status: "up",
+            sessionId: sessionId ?? "",
+            schemaVersion: schemaVersion ?? 0,
+            backendBuild: backendBuild ?? "",
+            backendBootId: backendBootId ?? "",
+            lastTurnId: lastTurnId ?? "",
+            lastUpdatedAt: lastUpdatedAt ?? 0,
+            historyUpdatedAt: historyUpdatedAt ?? 0,
+            memoryUpdatedAt: memoryUpdatedAt ?? lastUpdatedAt ?? 0,
+            stateVersion: stateVersion ?? ""
+        )
+    }
+
+    private func screenplayActPayload(_ act: BackendScreenplayAct) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": act.id,
+            "title": act.title,
+        ]
+        if let summary = act.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["summary"] = summary
+        }
+        if let order = act.order { payload["order"] = order }
+        if let sceneIds = act.sceneIds, !sceneIds.isEmpty { payload["sceneIds"] = sceneIds }
+        return payload
+    }
+
+    private func screenplayScenePayload(_ scene: BackendScreenplayScene) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": scene.id,
+            "title": scene.title,
+        ]
+        if let slugline = scene.slugline, !slugline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["slugline"] = slugline
+        }
+        if let objective = scene.objective, !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["objective"] = objective
+        }
+        if let summary = scene.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["summary"] = summary
+        }
+        if let actId = scene.actId, !actId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["actId"] = actId
+        }
+        if let order = scene.order { payload["order"] = order }
+        if let status = scene.status, !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["status"] = status
+        }
+        if let beatIds = scene.beatIds, !beatIds.isEmpty { payload["beatIds"] = beatIds }
+        return payload
+    }
+
+    private func screenplayBeatPayload(_ beat: BackendScreenplayBeat) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": beat.id,
+            "label": beat.label,
+        ]
+        if let summary = beat.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["summary"] = summary
+        }
+        if let sceneId = beat.sceneId, !sceneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["sceneId"] = sceneId
+        }
+        if let actId = beat.actId, !actId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["actId"] = actId
+        }
+        if let order = beat.order { payload["order"] = order }
+        if let status = beat.status, !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["status"] = status
+        }
+        return payload
+    }
+
+    private func screenplaySceneDraftPayload(_ scene: BackendScreenplaySceneDraft) -> [String: Any] {
+        var payload: [String: Any] = [:]
+        let title = scene.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty { payload["title"] = title }
+        let slugline = scene.slugline.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !slugline.isEmpty { payload["slugline"] = slugline }
+        let objective = scene.objective.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !objective.isEmpty { payload["objective"] = objective }
+        let summary = scene.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !summary.isEmpty { payload["summary"] = summary }
+        if let id = scene.id?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+            payload["id"] = id
+        }
+        if let actId = scene.actId?.trimmingCharacters(in: .whitespacesAndNewlines), !actId.isEmpty {
+            payload["actId"] = actId
+        }
+        if let order = scene.order { payload["order"] = order }
+        if let status = scene.status?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+            payload["status"] = status
+        }
+        if !scene.beatIds.isEmpty {
+            payload["beatIds"] = scene.beatIds
+        }
+        return payload
+    }
+
+    private func screenplayBeatDraftPayload(_ beat: BackendScreenplayBeatDraft) -> [String: Any] {
+        var payload: [String: Any] = [:]
+        let label = beat.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !label.isEmpty { payload["label"] = label }
+        let summary = beat.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !summary.isEmpty { payload["summary"] = summary }
+        if let id = beat.id?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+            payload["id"] = id
+        }
+        if let sceneId = beat.sceneId?.trimmingCharacters(in: .whitespacesAndNewlines), !sceneId.isEmpty {
+            payload["sceneId"] = sceneId
+        }
+        if let actId = beat.actId?.trimmingCharacters(in: .whitespacesAndNewlines), !actId.isEmpty {
+            payload["actId"] = actId
+        }
+        if let order = beat.order { payload["order"] = order }
+        if let status = beat.status?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+            payload["status"] = status
+        }
+        return payload
+    }
+
+    private func syncFromHeaders(_ http: HTTPURLResponse, fallbackStatus: String) -> BackendSyncState {
+        BackendSyncState(
+            status: headerValue(http, "x-backend-status").isEmpty ? fallbackStatus : headerValue(http, "x-backend-status"),
+            sessionId: headerValue(http, "x-session-id"),
+            schemaVersion: Int(headerValue(http, "x-schema-version")) ?? 0,
+            backendBuild: headerValue(http, "x-backend-build"),
+            backendBootId: headerValue(http, "x-backend-boot-id"),
+            lastTurnId: headerValue(http, "x-last-turn-id"),
+            lastUpdatedAt: Double(headerValue(http, "x-last-updated-at")) ?? 0,
+            historyUpdatedAt: Double(headerValue(http, "x-history-updated-at")) ?? 0,
+            memoryUpdatedAt: Double(headerValue(http, "x-memory-updated-at")) ?? 0,
+            stateVersion: headerValue(http, "x-state-version")
+        )
+    }
+
+    private func mergeSyncStates(base: BackendSyncState, incoming: BackendSyncState) -> BackendSyncState {
+        var merged = base
+        if !incoming.status.isEmpty, incoming.status != "unknown" { merged.status = incoming.status }
+        let canAdoptIncomingSession = shouldAcceptIncomingSession(current: base.sessionId, incoming: incoming.sessionId)
+        if canAdoptIncomingSession, !incoming.sessionId.isEmpty {
+            merged.sessionId = incoming.sessionId
+        }
+        if incoming.schemaVersion > 0 { merged.schemaVersion = incoming.schemaVersion }
+        if !incoming.backendBuild.isEmpty { merged.backendBuild = incoming.backendBuild }
+        if !incoming.backendBootId.isEmpty { merged.backendBootId = incoming.backendBootId }
+        if canAdoptIncomingSession {
+            if !incoming.lastTurnId.isEmpty { merged.lastTurnId = incoming.lastTurnId }
+            if incoming.lastUpdatedAt > 0 { merged.lastUpdatedAt = incoming.lastUpdatedAt }
+            if incoming.historyUpdatedAt > 0 { merged.historyUpdatedAt = incoming.historyUpdatedAt }
+            if incoming.memoryUpdatedAt > 0 { merged.memoryUpdatedAt = incoming.memoryUpdatedAt }
+            if !incoming.stateVersion.isEmpty { merged.stateVersion = incoming.stateVersion }
+        }
+        return merged
+    }
+
+    private func updateSyncState(_ incoming: BackendSyncState, emitTurnEvent: Bool) {
+        let previous = syncState
+        let merged = mergeSyncStates(base: previous, incoming: incoming)
+        let syncChanged = merged != previous
+        syncState = merged
+        if !merged.stateVersion.isEmpty {
+            latestSeenStateVersion = merged.stateVersion
+        }
+        if syncChanged {
+            NotificationCenter.default.post(
+                name: .themBackendSyncUpdated,
+                object: nil,
+                userInfo: [
+                    NotificationKey.status: merged.status,
+                    NotificationKey.sessionId: merged.sessionId,
+                    NotificationKey.schemaVersion: merged.schemaVersion,
+                    NotificationKey.backendBuild: merged.backendBuild,
+                    NotificationKey.backendBootId: merged.backendBootId,
+                    NotificationKey.lastTurnId: merged.lastTurnId,
+                    NotificationKey.lastUpdatedAt: merged.lastUpdatedAt,
+                    NotificationKey.historyUpdatedAt: merged.historyUpdatedAt,
+                    NotificationKey.memoryUpdatedAt: merged.memoryUpdatedAt,
+                    NotificationKey.stateVersion: merged.stateVersion,
+                ]
+            )
+        }
+        if emitTurnEvent,
+           !merged.lastTurnId.isEmpty,
+           merged.lastTurnId != previous.lastTurnId {
+            postTurnCommitted(
+                source: "authoritative",
+                turnId: merged.lastTurnId,
+                sessionId: merged.sessionId,
+                stateVersion: merged.stateVersion,
+                lastUpdatedAt: merged.lastUpdatedAt,
+                historyUpdatedAt: merged.historyUpdatedAt,
+                memoryUpdatedAt: merged.memoryUpdatedAt,
+                userMessage: nil,
+                assistantMessage: nil
+            )
+        }
+    }
+
+    private func invalidateReadCaches(clearSyncState: Bool) {
+        cachedSession = nil
+        cachedSessionAt = nil
+        historyCacheByLimit.removeAll()
+        memoriesCacheByLimit.removeAll()
+        inFlightStateVersions.removeAll()
+        if clearSyncState {
+            syncState = .empty
+            latestSeenStateVersion = ""
+        }
+    }
+
+    private func shouldForceSessionRefresh(previous: BackendSyncState, current: BackendSyncState) -> Bool {
+        let previousBoot = previous.backendBootId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentBoot = current.backendBootId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !previousBoot.isEmpty, !currentBoot.isEmpty, previousBoot != currentBoot {
+            return true
+        }
+        let previousSession = previous.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentSession = current.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if previousSession.isEmpty || currentSession.isEmpty { return false }
+        let previousWasToken = !previousSession.hasPrefix("ip:")
+        let currentIsIpScoped = currentSession.hasPrefix("ip:")
+        if previousWasToken && currentIsIpScoped {
+            return true
+        }
+        return false
+    }
+
+    private func canForceSessionRefreshNow() -> Bool {
+        guard let last = lastForcedSessionRefreshAt else { return true }
+        return Date().timeIntervalSince(last) >= forcedSessionRefreshCooldown
+    }
+
+    private func postTurnCommitted(
+        source: String,
+        turnId: String,
+        requestId: String? = nil,
+        sessionId: String,
+        stateVersion: String,
+        lastUpdatedAt: TimeInterval,
+        historyUpdatedAt: TimeInterval,
+        memoryUpdatedAt: TimeInterval,
+        userMessage: String?,
+        assistantMessage: String?,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil
+    ) {
+        var userInfo: [AnyHashable: Any] = [
+            NotificationKey.source: source,
+            NotificationKey.turnId: turnId,
+            NotificationKey.sessionId: sessionId,
+            NotificationKey.stateVersion: stateVersion,
+            NotificationKey.lastUpdatedAt: lastUpdatedAt,
+            NotificationKey.historyUpdatedAt: historyUpdatedAt,
+            NotificationKey.memoryUpdatedAt: memoryUpdatedAt,
+        ]
+        if let requestId, !requestId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            userInfo[NotificationKey.requestId] = requestId.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let userMessage, !userMessage.isEmpty {
+            userInfo[NotificationKey.userMessage] = userMessage
+        }
+        if let assistantMessage, !assistantMessage.isEmpty {
+            userInfo[NotificationKey.assistantMessage] = assistantMessage
+        }
+        if let studioMetadata {
+            userInfo[NotificationKey.screenplayReplacementApplied] = studioMetadata.screenplayReplacementApplied
+            let replacedWriteId = studioMetadata.screenplayReplacedWriteId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !replacedWriteId.isEmpty {
+                userInfo[NotificationKey.screenplayReplacedWriteId] = replacedWriteId
+            }
+            let revisedBlockText = studioMetadata.screenplayRevisedBlockText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !revisedBlockText.isEmpty {
+                userInfo[NotificationKey.screenplayRevisedBlockText] = revisedBlockText
+            }
+            let resolvedAnchorExcerpt = studioMetadata.screenplayResolvedAnchorExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !resolvedAnchorExcerpt.isEmpty {
+                userInfo[NotificationKey.screenplayResolvedAnchorExcerpt] = resolvedAnchorExcerpt
+            }
+        }
+        NotificationCenter.default.post(name: .themTurnCommitted, object: nil, userInfo: userInfo)
+    }
+
+    private func normalizedEtag(from http: HTTPURLResponse, fallbackStateVersion: String) -> String {
+        let etag = headerValue(http, "ETag")
+        if !etag.isEmpty { return etag }
+        if !fallbackStateVersion.isEmpty { return "W/\"\(fallbackStateVersion)\"" }
+        return ""
+    }
+
+    private func validatePersonaContract(response: HTTPURLResponse, path: String) {
+        let responsePersona = headerValue(response, "x-persona-key")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if !responsePersona.isEmpty, responsePersona != personaFlowKey {
+            print(
+                "[BackendMemoryAPI] persona contract mismatch path=\(path) response=\(responsePersona) expected=\(personaFlowKey)"
+            )
+        }
+    }
+
+    private func headerValue(_ response: HTTPURLResponse, _ name: String) -> String {
+        if let value = response.value(forHTTPHeaderField: name), !value.isEmpty {
+            return value
+        }
+        return ""
+    }
+
+    private func parseDispositionFilename(_ header: String, fallbackFormat: String) -> String {
+        let source = header.trimmingCharacters(in: .whitespacesAndNewlines)
+        if source.isEmpty {
+            return "screenplay.\(fallbackExtension(for: fallbackFormat))"
+        }
+        let parts = source.split(separator: ";")
+        for rawPart in parts {
+            let part = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
+            if part.lowercased().hasPrefix("filename=") {
+                let value = part.dropFirst("filename=".count)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    return value
+                }
+            }
+        }
+        return "screenplay.\(fallbackExtension(for: fallbackFormat))"
+    }
+
+    private func fallbackExtension(for format: String) -> String {
+        switch format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "fdx":
+            return "fdx"
+        case "pdf":
+            return "pdf"
+        case "json":
+            return "json"
+        case "txt":
+            return "txt"
+        default:
+            return "fountain"
+        }
+    }
+
+    private func decodeErrorMessage(from data: Data) -> String {
+        struct ErrorPayload: Decodable {
+            let error: String?
+            let stage: String?
+        }
+        if let payload = try? JSONDecoder().decode(ErrorPayload.self, from: data) {
+            if let error = payload.error, !error.isEmpty {
+                if let stage = payload.stage, !stage.isEmpty {
+                    return "\(stage): \(error)"
+                }
+                return error
+            }
+        }
+        return String(data: data, encoding: .utf8) ?? "Request failed."
+    }
+
+    private func baseURL() -> URL {
+        if let fromDefaults = UserDefaults.standard.string(forKey: DefaultsKey.baseURL),
+           isUsableConfigValue(fromDefaults),
+           let url = URL(string: fromDefaults) {
+            return canonicalizeLoopbackURL(url)
+        }
+        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
+           isUsableConfigValue(fromInfo),
+           let url = URL(string: fromInfo) {
+            return canonicalizeLoopbackURL(url)
+        }
+        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_URL") as? String,
+           isUsableConfigValue(fromInfo),
+           let url = URL(string: fromInfo) {
+            return canonicalizeLoopbackURL(url)
+        }
+#if DEBUG
+        return URL(string: "http://127.0.0.1:3000")!
+#else
+        return URL(string: "https://api.them.io")!
+#endif
+    }
+
+    private func canonicalizeLoopbackURL(_ url: URL) -> URL {
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return url
+        }
+        guard host == "localhost" || host == "::1" || host == "[::1]" else {
+            return url
+        }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.host = "127.0.0.1"
+        return components.url ?? url
+    }
+
+    private func appToken() -> String? {
+        if let fromDefaults = UserDefaults.standard.string(forKey: DefaultsKey.appToken),
+           isUsableConfigValue(fromDefaults) {
+            return fromDefaults
+        }
+        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String,
+           isUsableConfigValue(fromInfo) {
+            return fromInfo
+        }
+        let envValue = ProcessInfo.processInfo.environment["APP_TOKEN"] ?? ""
+        if isUsableConfigValue(envValue) {
+            return envValue
+        }
+        return devFallbackAppToken
+    }
+
+    private func isUsableConfigValue(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        // Reject unresolved placeholders like "$(BACKEND_URL)".
+        if value.hasPrefix("$("), value.hasSuffix(")") { return false }
+        return true
+    }
+
+    private func clientToken() -> String? {
+        let token = UserDefaults.standard.string(forKey: DefaultsKey.clientToken) ?? ""
+        return token.isEmpty ? nil : token
+    }
+
+    private func userID() -> String? {
+        let current = normalizedUserID(UserDefaults.standard.string(forKey: DefaultsKey.userId) ?? "")
+        if !current.isEmpty {
+            return current
+        }
+        let generated = generatedUserID()
+        UserDefaults.standard.set(generated, forKey: DefaultsKey.userId)
+        return generated
+    }
+
+    private func generatedUserID() -> String {
+        let compact = UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        return "usr_\(compact)"
+    }
+
+    private func normalizedUserID(_ raw: String) -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return "" }
+        guard value.count >= 8 && value.count <= 128 else { return "" }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-")
+        if value.rangeOfCharacter(from: allowed.inverted) != nil { return "" }
+        return value
+    }
+
+    private func cacheSession(_ sessionPayload: BackendSessionResponse) {
+        cachedSession = sessionPayload
+        cachedSessionAt = Date()
+
+        UserDefaults.standard.set(sessionPayload.clientToken, forKey: DefaultsKey.clientToken)
+        if let userId = sessionPayload.userId {
+            let normalized = normalizedUserID(userId)
+            if !normalized.isEmpty {
+                UserDefaults.standard.set(normalized, forKey: DefaultsKey.userId)
+            }
+        }
+        if let assistant = sessionPayload.assistantSelfName ?? sessionPayload.assistantName,
+           !assistant.isEmpty {
+            UserDefaults.standard.set(assistant, forKey: DefaultsKey.assistantName)
+        }
+        if let user = sessionPayload.userName, !user.isEmpty {
+            UserDefaults.standard.set(user, forKey: DefaultsKey.userName)
+        }
+    }
+}
+
+func themDateFromEpoch(_ value: TimeInterval) -> Date {
+    if value <= 0 { return .distantPast }
+    if value > 10_000_000_000 {
+        return Date(timeIntervalSince1970: value / 1000.0)
+    }
+    return Date(timeIntervalSince1970: value)
+}

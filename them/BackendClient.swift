@@ -1,0 +1,3390 @@
+import Foundation
+import os
+import Security
+
+struct BackendTalkUIReflection {
+    let cycleIndex: Int
+    let orbSaturation: Double
+    let orbReactivity: Double
+    let orbSmoothing: Double
+    let voiceSpeed: Double
+    let overAttachmentSafeguardActive: Bool
+
+    static let `default` = BackendTalkUIReflection(
+        cycleIndex: 0,
+        orbSaturation: 1.0,
+        orbReactivity: 1.0,
+        orbSmoothing: 0.55,
+        voiceSpeed: 1.2,
+        overAttachmentSafeguardActive: false
+    )
+}
+
+struct BackendTurnCommitSignal {
+    let sessionId: String
+    let turnId: String
+    let requestId: String?
+    let stateVersion: String
+    let lastUpdatedAt: TimeInterval
+    let historyUpdatedAt: TimeInterval
+    let memoryUpdatedAt: TimeInterval
+}
+
+private struct BackendTalkTurnMetaPayload: Decodable {
+    let turnID: String?
+    let sessionID: String?
+    let stateVersion: String?
+    let transcript: String?
+    let reply: String?
+    let audioDurationMs: Int?
+    let timingSource: String?
+    let screenplayCues: [BackendTalkScreenplayCue]?
+    let screenplayOutput: BackendTalkScreenplayOutput?
+    let knowledgeTopics: [String]?
+    let knowledgeCitations: [String]?
+    let knowledgeQueryRaw: String?
+    let knowledgeQueryRewrite: String?
+    let knowledgeContradictionRisk: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case turnID = "turn_id"
+        case sessionID = "session_id"
+        case stateVersion = "state_version"
+        case transcript
+        case reply
+        case audioDurationMs = "audio_duration_ms"
+        case timingSource = "timing_source"
+        case screenplayCues = "screenplay_cues"
+        case screenplayOutput = "screenplay_output"
+        case knowledgeTopics = "knowledge_topics"
+        case knowledgeCitations = "knowledge_citations"
+        case knowledgeQueryRaw = "knowledge_query_raw"
+        case knowledgeQueryRewrite = "knowledge_query_rewrite"
+        case knowledgeContradictionRisk = "knowledge_contradiction_risk"
+    }
+}
+
+struct BackendTalkKnowledgeTrace {
+    let topics: [String]
+    let citations: [String]
+    let confidenceClass: String
+    let contradictionRisk: Double
+    let contradictionGuard: Bool
+    let rawQuery: String?
+    let rewrittenQuery: String?
+
+    static let empty = BackendTalkKnowledgeTrace(
+        topics: [],
+        citations: [],
+        confidenceClass: "UNKNOWN",
+        contradictionRisk: 0,
+        contradictionGuard: false,
+        rawQuery: nil,
+        rewrittenQuery: nil
+    )
+}
+
+struct BackendTalkScreenplayTrace {
+    let modeEnabled: Bool
+    let phase: String
+    let pack: String
+    let packLock: Bool
+    let projectId: String?
+    let versionId: String?
+
+    var hasRenderableOutput: Bool {
+        modeEnabled && (
+            !pack.isEmpty ||
+            !(phase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        )
+    }
+
+    static let empty = BackendTalkScreenplayTrace(
+        modeEnabled: false,
+        phase: "",
+        pack: "",
+        packLock: false,
+        projectId: nil,
+        versionId: nil
+    )
+}
+
+struct BackendTalkScreenplayOutputLine: Codable, Equatable {
+    let index: Int
+    let text: String
+    let element: String
+}
+
+struct BackendTalkScreenplayOutput: Codable, Equatable {
+    let target: String
+    let format: String
+    let source: String
+    let text: String
+    let lines: [BackendTalkScreenplayOutputLine]
+
+    var writesToPage: Bool {
+        target == "page" && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+struct BackendTalkScreenplayCue: Codable, Equatable {
+    let index: Int
+    let text: String
+    let element: String
+    let startMs: Int
+    let endMs: Int
+
+    enum CodingKeys: String, CodingKey {
+        case index
+        case text
+        case element
+        case startMs = "start_ms"
+        case endMs = "end_ms"
+    }
+}
+
+struct BackendTalkSpeculativeTrace {
+    let reused: Bool
+    let speculativeKey: String?
+    let promptHash: String?
+
+    static let none = BackendTalkSpeculativeTrace(
+        reused: false,
+        speculativeKey: nil,
+        promptHash: nil
+    )
+}
+
+struct BackendTalkResult {
+    let audioURL: URL
+    let streamedFirstSegment: Bool
+    let streamedRemainderURL: URL?
+    let audioDurationMs: Int?
+    let timingSource: String?
+    let transcript: String?
+    let reply: String?
+    let screenplayOutput: BackendTalkScreenplayOutput?
+    let screenplayCues: [BackendTalkScreenplayCue]
+    let assistantSelfName: String?
+    let userName: String?
+    let uiReflection: BackendTalkUIReflection
+    let knowledgeTrace: BackendTalkKnowledgeTrace
+    let screenplayTrace: BackendTalkScreenplayTrace
+    let turnStatus: String
+    let turnContinueReason: String?
+    let turnErrorStage: String?
+    let turnErrorMessage: String?
+    let noteAction: BackendNoteCaptureAction?
+    let emailAction: BackendEmailComposeAction?
+    let calendarAction: BackendCalendarComposeAction?
+    let taskAction: BackendTaskAction?
+    let speculativeTrace: BackendTalkSpeculativeTrace
+    let commit: BackendTurnCommitSignal?
+}
+
+struct BackendTalkResponseMetadata {
+    let audioDurationMs: Int?
+    let timingSource: String?
+    let screenplayOutput: BackendTalkScreenplayOutput?
+    let screenplayCues: [BackendTalkScreenplayCue]
+    let reply: String?
+}
+
+struct BackendTalkDebugEvent {
+    let stage: String
+    let resolvedBaseURL: String?
+    let requestURL: String?
+    let clientTokenResolved: Bool?
+    let errorDomain: String?
+    let errorCode: Int?
+    let errorDescription: String?
+}
+
+private struct BackendSpeculativePreparePayload: Decodable {
+    let ok: Bool
+    let action: String?
+    let speculativeKey: String?
+    let promptHash: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case action
+        case speculativeKey = "speculative_key"
+        case promptHash = "prompt_hash"
+    }
+}
+
+struct BackendSpeculativePrepareReceipt {
+    let speculativeKey: String
+    let promptHash: String
+}
+
+struct BackendRealtimeClientSecretPayload: Decodable {
+    let value: String
+    let expiresAt: TimeInterval
+    let sessionExpiresAt: TimeInterval?
+
+    enum CodingKeys: String, CodingKey {
+        case value
+        case expiresAt = "expires_at"
+        case sessionExpiresAt = "session_expires_at"
+    }
+}
+
+struct BackendRealtimeSessionPayload: Decodable {
+    let type: String
+    let model: String
+    let voice: String
+    let instructions: String
+    let outputModalities: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case model
+        case voice
+        case instructions
+        case outputModalities = "output_modalities"
+    }
+}
+
+struct BackendRealtimeBootstrapPayload: Decodable {
+    let transport: String
+    let assistantName: String?
+    let model: String
+    let voice: String
+    let session: BackendRealtimeSessionPayload
+    let clientSecret: BackendRealtimeClientSecretPayload
+    let issuedAt: TimeInterval
+
+    enum CodingKeys: String, CodingKey {
+        case transport
+        case assistantName = "assistant_name"
+        case model
+        case voice
+        case session
+        case clientSecret = "client_secret"
+        case issuedAt = "issued_at"
+    }
+}
+
+struct BackendRealtimeStudioRenderPayload: Decodable {
+    let ok: Bool
+    let action: String?
+    let reply: String?
+}
+
+private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
+    let action: String?
+    let kind: String?
+    let delta: String?
+    let reply: String?
+    let error: String?
+    let stage: String?
+    let requestID: String?
+    let startedAtISO8601: String?
+    let firstDeltaMs: Int?
+    let totalMs: Int?
+    let deltaChunks: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case kind
+        case delta
+        case reply
+        case error
+        case stage
+        case requestID = "request_id"
+        case startedAtISO8601 = "started_at"
+        case firstDeltaMs = "first_delta_ms"
+        case totalMs = "total_ms"
+        case deltaChunks = "delta_chunks"
+    }
+}
+
+struct BackendRealtimeStudioRenderStreamTrace: Sendable {
+    let action: String
+    let kind: String
+    let requestID: String
+    let startedAtISO8601: String?
+    let firstDeltaMs: Int?
+    let totalMs: Int?
+    let deltaChunks: Int?
+}
+
+struct BackendVisualContextEnvelope {
+    let summary: String
+    let promptAddendum: String
+    let appName: String
+    let windowTitle: String
+    let source: String
+    let capturedAt: TimeInterval
+}
+
+private struct BackendVisualContextPayload: Decodable {
+    let ok: Bool
+    let summary: String?
+    let promptAddendum: String?
+    let appName: String?
+    let windowTitle: String?
+    let source: String?
+    let capturedAt: TimeInterval?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case summary
+        case promptAddendum = "prompt_addendum"
+        case appName = "app_name"
+        case windowTitle = "window_title"
+        case source
+        case capturedAt = "captured_at"
+    }
+}
+
+struct BackendNoteCaptureAction {
+    let captured: Bool
+    let status: String
+    let target: String
+    let title: String?
+    let noteText: String?
+    let createdAt: TimeInterval?
+    let path: String?
+    let fallbackFrom: String?
+    let error: String?
+}
+
+struct BackendEmailComposeAction {
+    let action: String
+    let status: String
+    let target: String
+    let to: String?
+    let subject: String?
+    let composeURL: URL?
+    let composed: Bool
+}
+
+struct BackendCalendarComposeAction {
+    let action: String
+    let status: String
+    let target: String
+    let title: String?
+    let startAt: TimeInterval?
+    let endAt: TimeInterval?
+    let composeURL: URL?
+    let composed: Bool
+}
+
+struct BackendTaskAction {
+    let action: String
+    let status: String
+    let taskID: String?
+    let title: String?
+    let priority: String?
+    let dueAt: TimeInterval?
+    let completedAt: TimeInterval?
+}
+
+enum BackendError: LocalizedError {
+    case stage(String, String)
+    case http(Int, String)
+    case continueListening
+    case emptyAudio
+    case invalidAudioType(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .stage(stage, message):
+            let label: String
+            switch stage.lowercased() {
+            case "stt":
+                label = "Voice capture"
+            case "chat":
+                label = "Response"
+            case "tts":
+                label = "Voice playback"
+            case "upload":
+                label = "Upload"
+            case "session":
+                label = "Session"
+            default:
+                label = stage.uppercased()
+            }
+            return "\(label) error: \(message)"
+        case let .http(status, message):
+            return "HTTP \(status): \(message)"
+        case .continueListening:
+            return "Continue listening."
+        case .emptyAudio:
+            return "Backend returned empty audio."
+        case let .invalidAudioType(type):
+            return "Backend returned non-audio response (\(type))."
+        }
+    }
+}
+
+final class BackendClient {
+    private static let sharedBackendBaseURLDefaultsKeyStatic = "backend_base_url"
+    private var baseURL: URL
+    private let fallbackURL: URL
+    private let devFallbackAppToken: String? = {
+#if DEBUG
+        "them-dev"
+#else
+        nil
+#endif
+    }()
+    private let maxUploadBytes = 25 * 1024 * 1024
+    private let requestTimeout: TimeInterval = 40
+    private let preferStreamedTalkAudio = true
+    private let sessionRefreshSkew: TimeInterval = 30
+    private let maxTalkAttempts = 2
+    private let maxAudioValidationRetries = 1
+    private let minPlayableSegmentBytes = 900
+    private let streamChunkFlushBytes = 4096
+    private let retryableHTTPStatus: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
+    private let retryableURLErrors: Set<URLError.Code> = [
+        .timedOut,
+        .networkConnectionLost,
+        .cannotConnectToHost,
+        .cannotFindHost,
+        .dnsLookupFailed,
+        .notConnectedToInternet,
+        .internationalRoamingOff,
+        .callIsActive,
+        .dataNotAllowed,
+    ]
+
+    private let keychainService = "io.them.client"
+    private let keychainTokenAccount = "session_client_token"
+    private let keychainExpiryAccount = "session_client_token_expiry"
+    private let keychainUserIDAccount = "stable_user_id"
+    private let sharedBackendBaseURLDefaultsKey = "backend_base_url"
+    private let sharedClientTokenDefaultsKey = "client_token"
+    private let sharedClientTokenExpiryDefaultsKey = "client_token_expiry"
+    private let sharedUserIDDefaultsKey = "user_id"
+    private let personaFlowKey = "clementine"
+
+    private var cachedClientToken: String?
+    private var cachedClientTokenExpiry: Date?
+    private var cachedUserID: String?
+
+    // Health check cache — avoids a full /health round-trip before every /talk
+    private let healthCacheTTL: TimeInterval = 30
+    private var cachedHealthyURL: URL?
+    private var cachedHealthyAt: Date = .distantPast
+
+    private static let productionBaseURL = URL(string: "https://api.them.io")!
+
+    private static var defaultPrimaryBaseURL: URL {
+#if DEBUG
+        return URL(string: "http://127.0.0.1:3000")!
+#else
+        return productionBaseURL
+#endif
+    }
+
+    private static var defaultFallbackBaseURL: URL {
+#if DEBUG
+        return URL(string: "http://localhost:3001")!
+#else
+        // Never fall back to localhost in release/App Store builds.
+        return productionBaseURL
+#endif
+    }
+
+    init(
+        baseURL: URL = BackendClient.resolveURL(
+            fromEnv: "BACKEND_URL",
+            infoPlistKey: "BACKEND_URL",
+            fallback: BackendClient.defaultPrimaryBaseURL
+        ),
+        fallbackURL: URL = BackendClient.resolveURL(
+            fromEnv: "BACKEND_FALLBACK_URL",
+            infoPlistKey: "BACKEND_FALLBACK_URL",
+            fallback: BackendClient.defaultFallbackBaseURL
+        )
+    ) {
+        self.baseURL = baseURL
+        self.fallbackURL = fallbackURL
+        persistSharedBackendBaseURL(baseURL)
+    }
+
+    func health() async throws -> Bool {
+        if await isHealthy(baseURL) {
+            persistSharedBackendBaseURL(baseURL)
+            return true
+        }
+        if await isHealthy(fallbackURL) {
+            baseURL = fallbackURL
+            persistSharedBackendBaseURL(fallbackURL)
+            return true
+        }
+        throw BackendError.http(-1, "Server offline")
+    }
+
+    func talk(
+        fileURL: URL,
+        fileDataOverride: Data? = nil,
+        systemPrompt: String? = nil,
+        stage: Int? = nil,
+        depthScore: Double? = nil,
+        romanceTension: Double? = nil,
+        sessionCount: Int? = nil,
+        personaPreset: String? = nil,
+        memoryCue: String? = nil,
+        idempotencyKey: String? = nil,
+        tailSilenceMs: Int? = nil,
+        vadThreshold: Float? = nil,
+        speechMs: Int? = nil,
+        noiseFloorRms: Float? = nil,
+        speechRms: Float? = nil,
+        userName: String? = nil,
+        partialTranscriptHint: String? = nil,
+        speculativeReuseKey: String? = nil,
+        speculativePromptHash: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil,
+        clientTranscriptOverride: String? = nil,
+        onResponseMetadataReady: ((BackendTalkResponseMetadata) -> Void)? = nil,
+        onFirstAudioSegmentReady: ((URL) -> Void)? = nil,
+        onTextReady: ((String) -> Void)? = nil,
+        onDebugEvent: ((BackendTalkDebugEvent) -> Void)? = nil
+    ) async throws -> BackendTalkResult {
+        do {
+            let resolvedBaseURL = try await resolveBaseURL()
+            onDebugEvent?(
+                BackendTalkDebugEvent(
+                    stage: "resolve_base_url_ok",
+                    resolvedBaseURL: resolvedBaseURL.absoluteString,
+                    requestURL: nil,
+                    clientTokenResolved: nil,
+                    errorDomain: nil,
+                    errorCode: nil,
+                    errorDescription: nil
+                )
+            )
+            let userID = resolveUserID()
+            let clientToken = try await resolveTalkClientTokenOrFallback(
+                for: resolvedBaseURL,
+                userID: userID,
+                onDebugEvent: onDebugEvent
+            )
+            let stableIdempotencyKey = normalizedIdempotencyKey(idempotencyKey) ?? "ios-\(UUID().uuidString)"
+            return try await performTalk(
+                fileURL: fileURL,
+                fileDataOverride: fileDataOverride,
+                baseURL: resolvedBaseURL,
+                userID: userID,
+                clientToken: clientToken,
+                systemPrompt: systemPrompt,
+                stage: stage,
+                depthScore: depthScore,
+                romanceTension: romanceTension,
+                sessionCount: sessionCount,
+                personaPreset: personaPreset,
+                memoryCue: memoryCue,
+                idempotencyKey: stableIdempotencyKey,
+                tailSilenceMs: tailSilenceMs,
+                vadThreshold: vadThreshold,
+                speechMs: speechMs,
+                noiseFloorRms: noiseFloorRms,
+                speechRms: speechRms,
+                userName: userName,
+                partialTranscriptHint: partialTranscriptHint,
+                speculativeReuseKey: speculativeReuseKey,
+                speculativePromptHash: speculativePromptHash,
+                studioMetadata: studioMetadata,
+                clientTranscriptOverride: clientTranscriptOverride,
+                onResponseMetadataReady: onResponseMetadataReady,
+                onFirstAudioSegmentReady: onFirstAudioSegmentReady,
+                onTextReady: onTextReady,
+                onDebugEvent: onDebugEvent,
+                allowClientTokenRefresh: true,
+                allowAudioValidationRetry: maxAudioValidationRetries > 0,
+                forceNoStreamAudio: false
+            )
+        } catch {
+            let nsError = error as NSError
+            onDebugEvent?(
+                BackendTalkDebugEvent(
+                    stage: "talk_dispatch_failed",
+                    resolvedBaseURL: nil,
+                    requestURL: nil,
+                    clientTokenResolved: nil,
+                    errorDomain: nsError.domain,
+                    errorCode: nsError.code,
+                    errorDescription: error.localizedDescription
+                )
+            )
+            throw error
+        }
+    }
+
+    func talkText(
+        transcript: String,
+        systemPrompt: String? = nil,
+        stage: Int? = nil,
+        depthScore: Double? = nil,
+        romanceTension: Double? = nil,
+        sessionCount: Int? = nil,
+        personaPreset: String? = nil,
+        memoryCue: String? = nil,
+        idempotencyKey: String? = nil,
+        userName: String? = nil,
+        onResponseMetadataReady: ((BackendTalkResponseMetadata) -> Void)? = nil,
+        onFirstAudioSegmentReady: ((URL) -> Void)? = nil,
+        onTextReady: ((String) -> Void)? = nil
+    ) async throws -> BackendTalkResult {
+        let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTranscript.isEmpty else {
+            throw BackendError.stage("stt", "Prompt text is empty.")
+        }
+
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let clientToken = try await resolveTalkClientTokenOrFallback(
+            for: resolvedBaseURL,
+            userID: userID,
+            onDebugEvent: nil
+        )
+        let stableIdempotencyKey = normalizedIdempotencyKey(idempotencyKey) ?? "ios-text-\(UUID().uuidString)"
+        let silentUploadURL = try makeSilentTalkUploadFile()
+        defer { try? FileManager.default.removeItem(at: silentUploadURL) }
+
+        return try await performTalk(
+            fileURL: silentUploadURL,
+            fileDataOverride: nil,
+            baseURL: resolvedBaseURL,
+            userID: userID,
+            clientToken: clientToken,
+            systemPrompt: systemPrompt,
+            stage: stage,
+            depthScore: depthScore,
+            romanceTension: romanceTension,
+            sessionCount: sessionCount,
+            personaPreset: personaPreset,
+            memoryCue: memoryCue,
+            idempotencyKey: stableIdempotencyKey,
+            tailSilenceMs: nil,
+            vadThreshold: nil,
+            speechMs: nil,
+            noiseFloorRms: nil,
+            speechRms: nil,
+            userName: userName,
+            partialTranscriptHint: nil,
+            speculativeReuseKey: nil,
+            speculativePromptHash: nil,
+            studioMetadata: nil,
+            clientTranscriptOverride: cleanTranscript,
+            onResponseMetadataReady: onResponseMetadataReady,
+            onFirstAudioSegmentReady: onFirstAudioSegmentReady,
+            onTextReady: onTextReady,
+            onDebugEvent: nil,
+            allowClientTokenRefresh: true,
+            allowAudioValidationRetry: maxAudioValidationRetries > 0,
+            forceNoStreamAudio: false
+        )
+    }
+
+    func prewarmTalkSession() async throws {
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        _ = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+    }
+
+    func prepareSpeculativeTalk(
+        audioSnapshot: Data,
+        systemPrompt: String,
+        userName: String?,
+        partialTranscriptHint: String?,
+        speculativeKey: String,
+        speculativePromptHash: String
+    ) async throws -> BackendSpeculativePrepareReceipt {
+        let cleanKey = speculativeKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPromptHash = speculativePromptHash.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty, !cleanPromptHash.isEmpty else {
+            throw BackendError.stage("speculative_prepare", "Missing speculative key or prompt hash.")
+        }
+
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let clientToken = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+        let boundary = "Boundary-\(UUID().uuidString)"
+        let audioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("them_speculative_\(UUID().uuidString).wav")
+        try audioSnapshot.write(to: audioURL, options: [.atomic])
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+
+        var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("talk"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = requestTimeout
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("off", forHTTPHeaderField: "X-Talk-Stream")
+        request.setValue("prepare", forHTTPHeaderField: "X-Speculative-Mode")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let uploadMeta = uploadMetadata(for: audioURL, data: audioSnapshot)
+        var body = Data()
+        if let prompt = normalizedSystemPrompt(systemPrompt) {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"system_prompt\"\r\n\r\n")
+            body.appendString(prompt)
+            body.appendString("\r\n")
+        }
+        let cleanUserName = String(userName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanUserName.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"user_name\"\r\n\r\n")
+            body.appendString(String(cleanUserName.prefix(48)))
+            body.appendString("\r\n")
+        }
+        let partialHint = String(partialTranscriptHint ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !partialHint.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"partial_transcript_hint\"\r\n\r\n")
+            body.appendString(String(partialHint.prefix(320)))
+            body.appendString("\r\n")
+        }
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"speculative_mode\"\r\n\r\n")
+        body.appendString("prepare")
+        body.appendString("\r\n")
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"speculative_key\"\r\n\r\n")
+        body.appendString(String(cleanKey.prefix(96)))
+        body.appendString("\r\n")
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"speculative_prompt_hash\"\r\n\r\n")
+        body.appendString(String(cleanPromptHash.prefix(32)))
+        body.appendString("\r\n")
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"file\"; filename=\"\(uploadMeta.filename)\"\r\n")
+        body.appendString("Content-Type: \(uploadMeta.mimeType)\r\n\r\n")
+        body.append(audioSnapshot)
+        body.appendString("\r\n")
+        body.appendString("--\(boundary)--\r\n")
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid speculative prepare response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+
+        let payload: BackendSpeculativePreparePayload
+        do {
+            payload = try JSONDecoder().decode(BackendSpeculativePreparePayload.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid speculative prepare payload." : raw)
+        }
+
+        return BackendSpeculativePrepareReceipt(
+            speculativeKey: (payload.speculativeKey ?? cleanKey).trimmingCharacters(in: .whitespacesAndNewlines),
+            promptHash: (payload.promptHash ?? cleanPromptHash).trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    func fetchRealtimeClientSecret(
+        systemPrompt: String? = nil,
+        userName: String? = nil,
+        isScreenplayMode: Bool = false,
+        voice: String? = nil,
+        model: String? = nil
+    ) async throws -> BackendRealtimeBootstrap {
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let clientToken = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+
+        var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/client_secret"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let body: [String: Any] = [
+            "system_prompt": systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "user_name": userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "is_screenplay_mode": isScreenplayMode,
+            "voice": voice?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "model": model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid realtime session response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+
+        let payload: BackendRealtimeBootstrapPayload
+        do {
+            payload = try JSONDecoder().decode(BackendRealtimeBootstrapPayload.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid realtime bootstrap payload." : raw)
+        }
+
+        return BackendRealtimeBootstrap(
+            transport: payload.transport,
+            assistantName: payload.assistantName ?? "CLEMENTINE",
+            model: payload.model,
+            voice: payload.voice,
+            session: BackendRealtimeSessionDescriptor(
+                model: payload.session.model,
+                voice: payload.session.voice,
+                instructions: payload.session.instructions,
+                type: payload.session.type,
+                outputModalities: payload.session.outputModalities
+            ),
+            clientSecret: BackendRealtimeClientSecret(
+                value: payload.clientSecret.value,
+                expiresAt: payload.clientSecret.expiresAt,
+                sessionExpiresAt: payload.clientSecret.sessionExpiresAt
+            ),
+            issuedAt: payload.issuedAt
+        )
+    }
+
+    func renderRealtimeStudioText(
+        transcript: String,
+        systemPrompt: String
+    ) async throws -> String {
+        let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTranscript.isEmpty else {
+            throw BackendError.stage("studio_render", "Studio render transcript was empty.")
+        }
+
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveStudioRenderUserID()
+        let body: [String: Any] = [
+            "transcript": cleanTranscript,
+            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+        let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
+
+        func performRequest(
+            clientToken: String,
+            allowClientTokenRefresh: Bool
+        ) async throws -> String {
+            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render"))
+            request.httpMethod = "POST"
+            request.timeoutInterval = 20
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+            if let token = appToken() {
+                request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+            }
+            request.httpBody = requestBody
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendError.http(-1, "Invalid Studio render response.")
+            }
+            guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401, allowClientTokenRefresh {
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
+                }
+                if let stageError = parseStageError(from: data) {
+                    if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
+                        clearSessionToken()
+                        let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                        return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
+                    }
+                    throw BackendError.stage(stageError.stage, stageError.message)
+                }
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                throw BackendError.http(http.statusCode, raw)
+            }
+
+            let payload: BackendRealtimeStudioRenderPayload
+            do {
+                payload = try JSONDecoder().decode(BackendRealtimeStudioRenderPayload.self, from: data)
+            } catch {
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                throw BackendError.http(502, raw.isEmpty ? "Invalid Studio render payload." : raw)
+            }
+
+            let reply = (payload.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !reply.isEmpty else {
+                throw BackendError.stage("studio_render", "Studio render response was empty.")
+            }
+            return reply
+        }
+
+        let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
+        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: true)
+    }
+
+    func streamRealtimeStudioText(
+        transcript: String,
+        systemPrompt: String,
+        onPartial: (@Sendable (String) async -> Void)? = nil,
+        onTrace: (@Sendable (BackendRealtimeStudioRenderStreamTrace) async -> Void)? = nil
+    ) async throws -> String {
+        let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTranscript.isEmpty else {
+            throw BackendError.stage("studio_render", "Studio render transcript was empty.")
+        }
+
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveStudioRenderUserID()
+        let body: [String: Any] = [
+            "transcript": cleanTranscript,
+            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+        let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
+
+        func performRequest(
+            clientToken: String,
+            allowClientTokenRefresh: Bool
+        ) async throws -> String {
+            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render_stream"))
+            request.httpMethod = "POST"
+            request.timeoutInterval = 30
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+            if let token = appToken() {
+                request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+            }
+            request.httpBody = requestBody
+
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendError.http(-1, "Invalid Studio render stream response.")
+            }
+            guard (200...299).contains(http.statusCode) else {
+                let data = try await collectAsyncBytes(bytes)
+                if http.statusCode == 401, allowClientTokenRefresh {
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
+                }
+                if let stageError = parseStageError(from: data) {
+                    if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
+                        clearSessionToken()
+                        let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                        return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
+                    }
+                    throw BackendError.stage(stageError.stage, stageError.message)
+                }
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                throw BackendError.http(http.statusCode, raw)
+            }
+
+            var pending = ""
+            var eventName = "message"
+            var dataLines: [String] = []
+            var accumulated = ""
+            var finalReply = ""
+
+            func trace(
+                from payload: BackendRealtimeStudioRenderStreamEvent?,
+                fallbackKind: String
+            ) -> BackendRealtimeStudioRenderStreamTrace? {
+                let action = (payload?.action ?? "studio_render_stream")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let kind = (payload?.kind ?? fallbackKind)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let requestID = (payload?.requestID ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let startedAtISO8601 = payload?.startedAtISO8601?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalizedStartedAt = startedAtISO8601?.isEmpty == true ? nil : startedAtISO8601
+                let hasSignal =
+                    !action.isEmpty ||
+                    !kind.isEmpty ||
+                    !requestID.isEmpty ||
+                    normalizedStartedAt != nil ||
+                    payload?.firstDeltaMs != nil ||
+                    payload?.totalMs != nil ||
+                    payload?.deltaChunks != nil
+                guard hasSignal else { return nil }
+                return BackendRealtimeStudioRenderStreamTrace(
+                    action: action.isEmpty ? "studio_render_stream" : action,
+                    kind: kind.isEmpty ? fallbackKind : kind,
+                    requestID: requestID,
+                    startedAtISO8601: normalizedStartedAt,
+                    firstDeltaMs: payload?.firstDeltaMs,
+                    totalMs: payload?.totalMs,
+                    deltaChunks: payload?.deltaChunks
+                )
+            }
+
+            func dispatchEvent() async throws {
+                guard !dataLines.isEmpty else { return }
+                let payloadText = dataLines.joined(separator: "\n")
+                defer {
+                    dataLines.removeAll(keepingCapacity: true)
+                    eventName = "message"
+                }
+
+                let payloadData = Data(payloadText.utf8)
+                let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
+
+                switch eventName {
+                case "meta":
+                    if let onTrace,
+                       let trace = trace(from: payload, fallbackKind: "meta") {
+                        await onTrace(trace)
+                    }
+                case "trace":
+                    if let onTrace,
+                       let trace = trace(from: payload, fallbackKind: "trace") {
+                        await onTrace(trace)
+                    }
+                case "delta":
+                    let delta = (payload?.delta ?? "").trimmingCharacters(in: .newlines)
+                    guard !delta.isEmpty else { return }
+                    accumulated += delta
+                    if let onPartial {
+                        await onPartial(accumulated)
+                    }
+                case "done":
+                    if let onTrace,
+                       let trace = trace(from: payload, fallbackKind: "done") {
+                        await onTrace(trace)
+                    }
+                    let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !reply.isEmpty else { return }
+                    finalReply = reply
+                case "error":
+                    let stage = (payload?.stage ?? "studio_render").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let message = (payload?.error ?? "Studio render stream failed.")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    throw BackendError.stage(stage.isEmpty ? "studio_render" : stage, message.isEmpty ? "Studio render stream failed." : message)
+                default:
+                    break
+                }
+            }
+
+            for try await chunk in bytes.allChunks(ofSize: 1024) {
+                pending += String(decoding: chunk, as: UTF8.self)
+                while let newlineRange = pending.range(of: "\n") {
+                    let rawLine = String(pending[..<newlineRange.lowerBound])
+                    pending.removeSubrange(pending.startIndex..<newlineRange.upperBound)
+                    let line = rawLine.replacingOccurrences(of: "\r", with: "")
+                    if line.isEmpty {
+                        try await dispatchEvent()
+                        continue
+                    }
+                    if line.hasPrefix(":") {
+                        continue
+                    }
+                    if line.hasPrefix("event:") {
+                        eventName = line.dropFirst("event:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                        continue
+                    }
+                    if line.hasPrefix("data:") {
+                        dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                }
+            }
+
+            if !pending.isEmpty {
+                let line = pending.replacingOccurrences(of: "\r", with: "")
+                if line.hasPrefix("data:") {
+                    dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+            }
+            try await dispatchEvent()
+
+            let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
+            guard !resolvedReply.isEmpty else {
+                throw BackendError.stage("studio_render", "Studio render stream response was empty.")
+            }
+            return resolvedReply
+        }
+
+        let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
+        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: true)
+    }
+
+    // Legacy compatibility shim for older realtime callers still wired to the
+    // pre-refactor Studio streaming surface.
+    func streamStudioText(
+        transcript: String,
+        systemPrompt: String,
+        onDelta: @escaping @Sendable (String) -> Void,
+        onComplete: @escaping @Sendable (String) -> Void
+    ) async throws {
+        var lastPartial = ""
+        let reply = try await streamRealtimeStudioText(
+            transcript: transcript,
+            systemPrompt: systemPrompt,
+            onPartial: { partial in
+                let delta: String
+                if partial.hasPrefix(lastPartial) {
+                    delta = String(partial.dropFirst(lastPartial.count))
+                } else {
+                    delta = partial
+                }
+                lastPartial = partial
+                guard !delta.isEmpty else { return }
+                await MainActor.run {
+                    onDelta(delta)
+                }
+            }
+        )
+        await MainActor.run {
+            onComplete(reply)
+        }
+    }
+
+    func summarizeVisualContext(
+        imageData: Data,
+        mimeType: String = "image/jpeg",
+        transcript: String,
+        appName: String,
+        windowTitle: String,
+        isScreenplayMode: Bool
+    ) async throws -> BackendVisualContextEnvelope {
+        guard !imageData.isEmpty else {
+            throw BackendError.stage("visual_context", "Visual context image was empty.")
+        }
+
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let clientToken = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+        var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("visual/context"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let cleanMimeType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "image/jpeg"
+            : mimeType.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dataURL = "data:\(cleanMimeType);base64,\(imageData.base64EncodedString())"
+        let body: [String: Any] = [
+            "image_data_url": dataURL,
+            "transcript": transcript.trimmingCharacters(in: .whitespacesAndNewlines),
+            "app_name": appName.trimmingCharacters(in: .whitespacesAndNewlines),
+            "window_title": windowTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+            "is_screenplay_mode": isScreenplayMode
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid visual context response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+
+        let payload: BackendVisualContextPayload
+        do {
+            payload = try JSONDecoder().decode(BackendVisualContextPayload.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid visual context payload." : raw)
+        }
+
+        let summary = (payload.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let promptAddendum = (payload.promptAddendum ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !summary.isEmpty, !promptAddendum.isEmpty else {
+            throw BackendError.stage("visual_context", "Visual context response was empty.")
+        }
+
+        return BackendVisualContextEnvelope(
+            summary: summary,
+            promptAddendum: promptAddendum,
+            appName: (payload.appName ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            windowTitle: (payload.windowTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            source: (payload.source ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            capturedAt: payload.capturedAt ?? 0
+        )
+    }
+
+    func realtimeBridgeRequest() async throws -> URLRequest {
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let clientToken = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
+
+        var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/bridge"))
+        request.timeoutInterval = 15
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        return request
+    }
+
+    private func performTalk(
+        fileURL: URL,
+        fileDataOverride: Data?,
+        baseURL: URL,
+        userID: String,
+        clientToken: String,
+        systemPrompt: String?,
+        stage: Int?,
+        depthScore: Double?,
+        romanceTension: Double?,
+        sessionCount: Int?,
+        personaPreset: String?,
+        memoryCue: String?,
+        idempotencyKey: String?,
+        tailSilenceMs: Int?,
+        vadThreshold: Float?,
+        speechMs: Int?,
+        noiseFloorRms: Float?,
+        speechRms: Float?,
+        userName: String?,
+        partialTranscriptHint: String?,
+        speculativeReuseKey: String?,
+        speculativePromptHash: String?,
+        studioMetadata: BackendStudioThreadCommitMetadata?,
+        clientTranscriptOverride: String?,
+        onResponseMetadataReady: ((BackendTalkResponseMetadata) -> Void)?,
+        onFirstAudioSegmentReady: ((URL) -> Void)?,
+        onTextReady: ((String) -> Void)? = nil,
+        onDebugEvent: ((BackendTalkDebugEvent) -> Void)?,
+        allowClientTokenRefresh: Bool,
+        allowAudioValidationRetry: Bool,
+        forceNoStreamAudio: Bool
+    ) async throws -> BackendTalkResult {
+        let boundary = "Boundary-\(UUID().uuidString)"
+        let url = baseURL.appendingPathComponent("talk")
+        onDebugEvent?(
+            BackendTalkDebugEvent(
+                stage: "request_built",
+                resolvedBaseURL: baseURL.absoluteString,
+                requestURL: url.absoluteString,
+                clientTokenResolved: !clientToken.isEmpty,
+                errorDomain: nil,
+                errorCode: nil,
+                errorDescription: nil
+            )
+        )
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = requestTimeout
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if preferStreamedTalkAudio && !forceNoStreamAudio {
+            request.setValue("audio", forHTTPHeaderField: "X-Talk-Stream")
+        } else if forceNoStreamAudio {
+            request.setValue("off", forHTTPHeaderField: "X-Talk-Stream")
+        }
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if !clientToken.isEmpty {
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        }
+        let appToken = appToken()
+        if let token = appToken {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        if let key = normalizedIdempotencyKey(idempotencyKey) {
+            request.setValue(key, forHTTPHeaderField: "X-Idempotency-Key")
+        }
+        print(
+            "POST /talk -> url=\(url.absoluteString) has_app_token=\(appToken != nil) app_token=\(redactedTokenInfo(appToken)) has_client_token=\(!clientToken.isEmpty)"
+        )
+
+        let audioData = try fileDataOverride ?? Data(contentsOf: fileURL)
+        guard audioData.count <= maxUploadBytes else {
+            throw BackendError.stage("upload", "Recording too large. Max is 25MB.")
+        }
+        let uploadMeta = uploadMetadata(for: fileURL, data: audioData)
+
+        var body = Data()
+        if let prompt = normalizedSystemPrompt(systemPrompt) {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"system_prompt\"\r\n\r\n")
+            body.appendString(prompt)
+            body.appendString("\r\n")
+        }
+        if let stage {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"stage\"\r\n\r\n")
+            body.appendString(String(max(1, min(5, stage))))
+            body.appendString("\r\n")
+        }
+        if let depthScore {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"depth_score\"\r\n\r\n")
+            body.appendString(String(format: "%.2f", max(0, min(10, depthScore))))
+            body.appendString("\r\n")
+        }
+        if let romanceTension {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"romance_tension\"\r\n\r\n")
+            body.appendString(String(format: "%.2f", max(0, min(10, romanceTension))))
+            body.appendString("\r\n")
+        }
+        if let sessionCount {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"session_count\"\r\n\r\n")
+            body.appendString(String(max(0, sessionCount)))
+            body.appendString("\r\n")
+        }
+        if let personaPreset, !personaPreset.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"persona_preset\"\r\n\r\n")
+            body.appendString(personaPreset)
+            body.appendString("\r\n")
+        }
+        if let memoryCue = normalizedSystemPrompt(memoryCue) {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"memory_cue\"\r\n\r\n")
+            body.appendString(memoryCue)
+            body.appendString("\r\n")
+        }
+        if let tailSilenceMs, tailSilenceMs > 0 {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"tail_silence_ms\"\r\n\r\n")
+            body.appendString(String(max(300, min(2200, tailSilenceMs))))
+            body.appendString("\r\n")
+        }
+        if let vadThreshold {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"vad_threshold\"\r\n\r\n")
+            body.appendString(String(format: "%.5f", max(0.0015, min(0.0300, vadThreshold))))
+            body.appendString("\r\n")
+        }
+        if let speechMs, speechMs > 0 {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"speech_ms\"\r\n\r\n")
+            body.appendString(String(max(1, min(600_000, speechMs))))
+            body.appendString("\r\n")
+        }
+        if let noiseFloorRms {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"noise_floor_rms\"\r\n\r\n")
+            body.appendString(String(format: "%.5f", max(0, min(0.2, noiseFloorRms))))
+            body.appendString("\r\n")
+        }
+        if let speechRms {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"speech_rms\"\r\n\r\n")
+            body.appendString(String(format: "%.5f", max(0, min(0.2, speechRms))))
+            body.appendString("\r\n")
+        }
+        let cleanUserName = String(userName ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanUserName.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"user_name\"\r\n\r\n")
+            body.appendString(String(cleanUserName.prefix(48)))
+            body.appendString("\r\n")
+        }
+        let partialHint = String(partialTranscriptHint ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !partialHint.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"partial_transcript_hint\"\r\n\r\n")
+            body.appendString(String(partialHint.prefix(320)))
+            body.appendString("\r\n")
+        }
+        let clientTranscript = String(clientTranscriptOverride ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !clientTranscript.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"client_transcript\"\r\n\r\n")
+            body.appendString(String(clientTranscript.prefix(1200)))
+            body.appendString("\r\n")
+        }
+        let cleanSpeculativeReuseKey = String(speculativeReuseKey ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanSpeculativeReuseKey.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"speculative_reuse_key\"\r\n\r\n")
+            body.appendString(String(cleanSpeculativeReuseKey.prefix(96)))
+            body.appendString("\r\n")
+        }
+        let cleanSpeculativePromptHash = String(speculativePromptHash ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanSpeculativePromptHash.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"speculative_prompt_hash\"\r\n\r\n")
+            body.appendString(String(cleanSpeculativePromptHash.prefix(32)))
+            body.appendString("\r\n")
+        }
+        if let studioMetadata, studioMetadata.isMeaningful {
+            let projectId = studioMetadata.screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !projectId.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_project_id\"\r\n\r\n")
+                body.appendString(String(projectId.prefix(96)))
+                body.appendString("\r\n")
+            }
+            let target = studioMetadata.screenplayTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !target.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_target\"\r\n\r\n")
+                body.appendString(String(target.prefix(24)))
+                body.appendString("\r\n")
+            }
+            let promptSource = studioMetadata.screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !promptSource.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_prompt_source\"\r\n\r\n")
+                body.appendString(String(promptSource.prefix(24)))
+                body.appendString("\r\n")
+            }
+            let writeID = studioMetadata.screenplayWriteId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !writeID.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_write_id\"\r\n\r\n")
+                body.appendString(String(writeID.prefix(72)))
+                body.appendString("\r\n")
+            }
+            if let anchorLine = studioMetadata.screenplayAnchorLine {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_anchor_line\"\r\n\r\n")
+                body.appendString(String(max(1, min(200_000, anchorLine))))
+                body.appendString("\r\n")
+            }
+            if let anchorEndLine = studioMetadata.screenplayAnchorEndLine {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_anchor_end_line\"\r\n\r\n")
+                body.appendString(String(max(1, min(200_000, anchorEndLine))))
+                body.appendString("\r\n")
+            }
+            let sceneLabel = studioMetadata.screenplayAnchorSceneLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sceneLabel.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_anchor_scene_label\"\r\n\r\n")
+                body.appendString(String(sceneLabel.prefix(120)))
+                body.appendString("\r\n")
+            }
+            let noteTitle = studioMetadata.screenplayNoteTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !noteTitle.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_note_title\"\r\n\r\n")
+                body.appendString(String(noteTitle.prefix(120)))
+                body.appendString("\r\n")
+            }
+            let noteBody = studioMetadata.screenplayNoteBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !noteBody.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_note_body\"\r\n\r\n")
+                body.appendString(String(noteBody.prefix(280)))
+                body.appendString("\r\n")
+            }
+            let insertedText = studioMetadata.screenplayInsertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !insertedText.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_inserted_text\"\r\n\r\n")
+                body.appendString(String(insertedText.prefix(6000)))
+                body.appendString("\r\n")
+            }
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"screenplay_replacement_applied\"\r\n\r\n")
+            body.appendString(studioMetadata.screenplayReplacementApplied ? "true" : "false")
+            body.appendString("\r\n")
+            let replacedWriteID = studioMetadata.screenplayReplacedWriteId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !replacedWriteID.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_replaced_write_id\"\r\n\r\n")
+                body.appendString(String(replacedWriteID.prefix(72)))
+                body.appendString("\r\n")
+            }
+            let revisedBlockText = studioMetadata.screenplayRevisedBlockText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !revisedBlockText.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_revised_block_text\"\r\n\r\n")
+                body.appendString(String(revisedBlockText.prefix(6000)))
+                body.appendString("\r\n")
+            }
+            let resolvedAnchorExcerpt = studioMetadata.screenplayResolvedAnchorExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !resolvedAnchorExcerpt.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_resolved_anchor_excerpt\"\r\n\r\n")
+                body.appendString(String(resolvedAnchorExcerpt.prefix(280)))
+                body.appendString("\r\n")
+            }
+        }
+        body.appendString("--\(boundary)\r\n")
+        body.appendString("Content-Disposition: form-data; name=\"file\"; filename=\"\(uploadMeta.filename)\"\r\n")
+        body.appendString("Content-Type: \(uploadMeta.mimeType)\r\n\r\n")
+        body.append(audioData)
+        body.appendString("\r\n")
+        body.appendString("--\(boundary)--\r\n")
+        request.httpBody = body
+
+        HerLog.talk.info("TALK request start")
+        HerLog.talk.info(
+            "TALK upload file=\(uploadMeta.filename, privacy: .public) mime=\(uploadMeta.mimeType, privacy: .public) bytes=\(audioData.count)"
+        )
+        let startedAt = Date()
+        var responseFirstSegmentBytesHint = 0
+        var emittedFirstSegment = false
+        var firstSegmentBuffer = Data()
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await dataForTalkRequest(
+                request,
+                onResponse: { [self] http in
+                responseFirstSegmentBytesHint = self.parseHeaderInt(
+                    http,
+                    field: "x-tts-first-bytes",
+                    default: 0,
+                    min: 0,
+                    max: 8_000_000
+                )
+                let screenplayTarget = self.parseOptionalHeaderString(http, field: "x-screenplay-target")?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() ?? ""
+                let shouldEmitHeaderText = screenplayTarget.isEmpty || screenplayTarget == "page"
+                let responseMetadata = BackendTalkResponseMetadata(
+                    audioDurationMs: {
+                        let headerDuration = self.parseHeaderInt(
+                            http,
+                            field: "x-audio-duration-ms",
+                            default: 0,
+                            min: 0,
+                            max: 600_000
+                        )
+                        return headerDuration > 0 ? headerDuration : nil
+                    }(),
+                    timingSource: self.parseOptionalHeaderString(http, field: "x-screenplay-timing-source"),
+                    screenplayOutput: self.parseScreenplayOutput(from: http),
+                    screenplayCues: self.parseScreenplayCues(from: http),
+                    reply: self.parseOptionalHeaderString(http, field: "x-reply")
+                )
+                if let onResponseMetadataReady, http.statusCode == 200 {
+                    DispatchQueue.main.async {
+                        onResponseMetadataReady(responseMetadata)
+                    }
+                }
+                if let onTextReady,
+                   http.statusCode == 200,
+                   shouldEmitHeaderText,
+                    let reply = self.parseOptionalHeaderString(http, field: "x-reply"),
+                   !reply.isEmpty {
+                    DispatchQueue.main.async {
+                        onTextReady(reply)
+                    }
+                }
+            },
+            onChunk: { [self] chunk, response in
+                guard !emittedFirstSegment else { return }
+                guard let onFirstAudioSegmentReady else { return }
+                guard response.statusCode == 200 else { return }
+                let segmentHint = responseFirstSegmentBytesHint
+                guard segmentHint >= self.minPlayableSegmentBytes else { return }
+                guard !chunk.isEmpty else { return }
+
+                let remaining = max(0, segmentHint - firstSegmentBuffer.count)
+                if remaining > 0 {
+                    firstSegmentBuffer.append(chunk.prefix(remaining))
+                }
+                guard firstSegmentBuffer.count >= segmentHint else { return }
+
+                let segmentData = Data(firstSegmentBuffer.prefix(segmentHint))
+                guard self.looksLikeMP3(segmentData) || self.looksLikeWav(segmentData) else { return }
+                let segmentExt = self.looksLikeWav(segmentData) ? "wav" : "mp3"
+                do {
+                    let segmentURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("them_backend_first_\(UUID().uuidString).\(segmentExt)")
+                    try segmentData.write(to: segmentURL, options: [.atomic])
+                    emittedFirstSegment = true
+                    DispatchQueue.main.async {
+                        onFirstAudioSegmentReady(segmentURL)
+                    }
+                } catch {
+                    print("POST /talk -> failed to persist first stream segment: \(error.localizedDescription)")
+                }
+                }
+            )
+        } catch {
+            let nsError = error as NSError
+            onDebugEvent?(
+                BackendTalkDebugEvent(
+                    stage: "request_transport_failed",
+                    resolvedBaseURL: baseURL.absoluteString,
+                    requestURL: url.absoluteString,
+                    clientTokenResolved: !clientToken.isEmpty,
+                    errorDomain: nsError.domain,
+                    errorCode: nsError.code,
+                    errorDescription: error.localizedDescription
+                )
+            )
+            throw error
+        }
+        let http = response as? HTTPURLResponse
+        let statusCode = http?.statusCode ?? -1
+        let contentType = http?.value(forHTTPHeaderField: "Content-Type") ?? "-"
+        let requestID = http?.value(forHTTPHeaderField: "X-Request-Id") ?? "-"
+        let latencyMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+
+        HerLog.talk.info("TALK response status=\(statusCode)")
+        HerLog.talk.info("TALK bytes=\(data.count)")
+        HerLog.talk.info("TALK status=\(statusCode) contentType=\(contentType, privacy: .public)")
+        HerLog.talk.info("bytes=\(data.count)")
+        print("POST /talk -> id=\(requestID) status=\(statusCode) type=\(contentType) bytes=\(data.count) latency=\(latencyMs)ms")
+        func retryAudioValidationIfAllowed(_ reason: String) async throws -> BackendTalkResult? {
+            guard allowAudioValidationRetry else { return nil }
+            print("POST /talk -> \(reason), retrying once with stream off")
+            return try await performTalk(
+                fileURL: fileURL,
+                fileDataOverride: fileDataOverride,
+                baseURL: baseURL,
+                userID: userID,
+                clientToken: clientToken,
+                systemPrompt: systemPrompt,
+                stage: stage,
+                depthScore: depthScore,
+                romanceTension: romanceTension,
+                sessionCount: sessionCount,
+                personaPreset: personaPreset,
+                memoryCue: memoryCue,
+                idempotencyKey: idempotencyKey,
+                tailSilenceMs: tailSilenceMs,
+                vadThreshold: vadThreshold,
+                speechMs: speechMs,
+                noiseFloorRms: noiseFloorRms,
+                speechRms: speechRms,
+                userName: userName,
+                partialTranscriptHint: partialTranscriptHint,
+                speculativeReuseKey: speculativeReuseKey,
+                speculativePromptHash: speculativePromptHash,
+                studioMetadata: studioMetadata,
+                clientTranscriptOverride: clientTranscriptOverride,
+                onResponseMetadataReady: onResponseMetadataReady,
+                onFirstAudioSegmentReady: onFirstAudioSegmentReady,
+                onTextReady: onTextReady,
+                onDebugEvent: onDebugEvent,
+                allowClientTokenRefresh: allowClientTokenRefresh,
+                allowAudioValidationRetry: false,
+                forceNoStreamAudio: true
+            )
+        }
+
+        guard statusCode == 200 else {
+            if statusCode == 401, allowClientTokenRefresh {
+                print("POST /talk -> 401 unauthorized, refreshing session token and retrying once")
+                clearSessionToken()
+                let refreshed = try await refreshClientToken(for: baseURL, userID: userID)
+                return try await performTalk(
+                    fileURL: fileURL,
+                    fileDataOverride: fileDataOverride,
+                    baseURL: baseURL,
+                    userID: userID,
+                    clientToken: refreshed,
+                    systemPrompt: systemPrompt,
+                    stage: stage,
+                    depthScore: depthScore,
+                    romanceTension: romanceTension,
+                    sessionCount: sessionCount,
+                    personaPreset: personaPreset,
+                    memoryCue: memoryCue,
+                    idempotencyKey: idempotencyKey,
+                    tailSilenceMs: tailSilenceMs,
+                    vadThreshold: vadThreshold,
+                    speechMs: speechMs,
+                    noiseFloorRms: noiseFloorRms,
+                    speechRms: speechRms,
+                    userName: userName,
+                    partialTranscriptHint: partialTranscriptHint,
+                    speculativeReuseKey: speculativeReuseKey,
+                    speculativePromptHash: speculativePromptHash,
+                    studioMetadata: studioMetadata,
+                    clientTranscriptOverride: clientTranscriptOverride,
+                    onResponseMetadataReady: onResponseMetadataReady,
+                    onFirstAudioSegmentReady: onFirstAudioSegmentReady,
+                    onTextReady: onTextReady,
+                    onDebugEvent: onDebugEvent,
+                    allowClientTokenRefresh: false,
+                    allowAudioValidationRetry: allowAudioValidationRetry,
+                    forceNoStreamAudio: forceNoStreamAudio
+                )
+            }
+            if statusCode == 204 {
+                let turnStatus = http?.value(forHTTPHeaderField: "x-turn-status")?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() ?? ""
+                let continueListening = http?.value(forHTTPHeaderField: "x-continue-listening")?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() ?? ""
+                if turnStatus == "continue_listening" || continueListening == "1" || continueListening == "true" {
+                    HerLog.talk.info("TALK continue_listening status=204")
+                    throw BackendError.continueListening
+                }
+            }
+            if let stageError = parseStageError(from: data) {
+                if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
+                    print("POST /talk -> auth_client received, refreshing session token and retrying once")
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: baseURL, userID: userID)
+                    return try await performTalk(
+                        fileURL: fileURL,
+                        fileDataOverride: fileDataOverride,
+                        baseURL: baseURL,
+                        userID: userID,
+                        clientToken: refreshed,
+                        systemPrompt: systemPrompt,
+                        stage: stage,
+                        depthScore: depthScore,
+                        romanceTension: romanceTension,
+                        sessionCount: sessionCount,
+                        personaPreset: personaPreset,
+                        memoryCue: memoryCue,
+                        idempotencyKey: idempotencyKey,
+                        tailSilenceMs: tailSilenceMs,
+                        vadThreshold: vadThreshold,
+                        speechMs: speechMs,
+                        noiseFloorRms: noiseFloorRms,
+                        speechRms: speechRms,
+                        userName: userName,
+                        partialTranscriptHint: partialTranscriptHint,
+                        speculativeReuseKey: speculativeReuseKey,
+                        speculativePromptHash: speculativePromptHash,
+                        studioMetadata: studioMetadata,
+                        clientTranscriptOverride: clientTranscriptOverride,
+                        onResponseMetadataReady: onResponseMetadataReady,
+                        onFirstAudioSegmentReady: onFirstAudioSegmentReady,
+                        onTextReady: onTextReady,
+                        onDebugEvent: onDebugEvent,
+                        allowClientTokenRefresh: false,
+                        allowAudioValidationRetry: allowAudioValidationRetry,
+                        forceNoStreamAudio: forceNoStreamAudio
+                    )
+                }
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(statusCode, raw)
+        }
+
+        let normalizedType = contentType.lowercased()
+        let mimeType = normalizedType
+            .split(separator: ";", maxSplits: 1)
+            .first
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            ?? normalizedType
+
+        let isMP3 = mimeType == "audio/mpeg"
+        let isWAV = mimeType == "audio/wav" || mimeType == "audio/x-wav"
+
+        guard isMP3 || isWAV else {
+            if let retried = try await retryAudioValidationIfAllowed("non-audio content-type on 200") {
+                return retried
+            }
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            throw BackendError.invalidAudioType(contentType)
+        }
+
+        let commitSignal = parseCommitSignal(from: http)
+        if let commitSignal,
+           clientToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !commitSignal.sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let bootstrapExpiresIn = parseHeaderInt(
+                http,
+                field: "x-session-expires-in",
+                default: 24 * 60 * 60,
+                min: 60,
+                max: 7 * 24 * 60 * 60
+            )
+            let expiry = Date().addingTimeInterval(TimeInterval(bootstrapExpiresIn))
+            persistResolvedClientToken(commitSignal.sessionId, expiry: expiry)
+        }
+        var audioDurationMs = parseHeaderInt(
+            http,
+            field: "x-audio-duration-ms",
+            default: 0,
+            min: 0,
+            max: 600_000
+        )
+        var timingSource = parseOptionalHeaderString(http, field: "x-screenplay-timing-source")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if audioDurationMs <= 0 {
+            audioDurationMs = parseHeaderInt(
+                http,
+                field: "x-tts-total-ms",
+                default: 0,
+                min: 0,
+                max: 600_000
+            )
+        }
+        var transcript = http?.value(forHTTPHeaderField: "x-transcript")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var reply = http?.value(forHTTPHeaderField: "x-reply")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var screenplayOutput = parseScreenplayOutput(from: http)
+        var screenplayCues = parseScreenplayCues(from: http)
+        var knowledgeTopics = parseDelimitedHeader(http, field: "x-knowledge-topics", separator: ",")
+        var knowledgeCitations = parseDelimitedHeader(http, field: "x-knowledge-citations", separator: "|")
+        var knowledgeRawQuery = parseOptionalHeaderString(http, field: "x-knowledge-query-raw")
+        var knowledgeRewrittenQuery = parseOptionalHeaderString(http, field: "x-knowledge-query-rewrite")
+        var knowledgeContradictionRisk = parseHeaderDouble(
+            http,
+            field: "x-knowledge-contradiction-risk",
+            default: 0,
+            min: 0,
+            max: 1
+        )
+        let knowledgeContradictionGuard = parseHeaderBool(
+            http,
+            field: "x-knowledge-contradiction-guard",
+            default: false
+        )
+        let confidenceClass = (http?.value(forHTTPHeaderField: "x-confidence-class") ?? "UNKNOWN")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        let turnMetaAvailable = parseHeaderBool(http, field: "x-turn-meta-available", default: false)
+        let screenplayOutputAvailable = parseHeaderBool(
+            http,
+            field: "x-screenplay-output-available",
+            default: false
+        )
+        let shouldFetchTurnMeta = turnMetaAvailable && (
+            (transcript?.isEmpty ?? true) ||
+            (reply?.isEmpty ?? true) ||
+            (timingSource?.isEmpty ?? true) && screenplayOutputAvailable ||
+            screenplayOutput == nil && screenplayOutputAvailable ||
+            screenplayCues.isEmpty && screenplayOutputAvailable ||
+            (knowledgeTopics.isEmpty && knowledgeCitations.isEmpty)
+        )
+        if shouldFetchTurnMeta, let commitSignal {
+            do {
+                let payload = try await fetchTurnMeta(
+                    baseURL: baseURL,
+                    userID: userID,
+                    clientToken: clientToken,
+                    turnID: commitSignal.turnId
+                )
+                if transcript?.isEmpty ?? true {
+                    transcript = payload.transcript?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if reply?.isEmpty ?? true {
+                    reply = payload.reply?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if audioDurationMs <= 0 {
+                    audioDurationMs = max(0, payload.audioDurationMs ?? 0)
+                }
+                if timingSource?.isEmpty ?? true {
+                    timingSource = payload.timingSource?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if screenplayOutput == nil {
+                    screenplayOutput = payload.screenplayOutput
+                }
+                if screenplayCues.isEmpty {
+                    screenplayCues = payload.screenplayCues ?? []
+                }
+                if knowledgeTopics.isEmpty {
+                    knowledgeTopics = payload.knowledgeTopics ?? []
+                }
+                if knowledgeCitations.isEmpty {
+                    knowledgeCitations = payload.knowledgeCitations ?? []
+                }
+                if knowledgeRawQuery?.isEmpty ?? true {
+                    knowledgeRawQuery = payload.knowledgeQueryRaw?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if knowledgeRewrittenQuery?.isEmpty ?? true {
+                    knowledgeRewrittenQuery = payload.knowledgeQueryRewrite?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if knowledgeContradictionRisk <= 0 {
+                    knowledgeContradictionRisk = min(max(payload.knowledgeContradictionRisk ?? 0, 0), 1)
+                }
+            } catch {
+                print("GET /talk/turn/\(commitSignal.turnId) failed: \(error.localizedDescription)")
+            }
+        }
+        let knowledgeTrace = BackendTalkKnowledgeTrace(
+            topics: knowledgeTopics,
+            citations: knowledgeCitations,
+            confidenceClass: confidenceClass.isEmpty ? "UNKNOWN" : confidenceClass,
+            contradictionRisk: min(max(knowledgeContradictionRisk, 0), 1),
+            contradictionGuard: knowledgeContradictionGuard,
+            rawQuery: knowledgeRawQuery,
+            rewrittenQuery: knowledgeRewrittenQuery
+        )
+        let screenplayModeEnabled = parseHeaderBool(
+            http,
+            field: "x-screenplay-mode",
+            default: false
+        )
+        let screenplayPhase = parseOptionalHeaderString(http, field: "x-screenplay-phase") ?? ""
+        let screenplayPackRaw = parseOptionalHeaderString(http, field: "x-screenplay-pack") ?? ""
+        let screenplayPack = screenplayPackRaw.lowercased() == "none" ? "" : screenplayPackRaw
+        let screenplayPackLock = parseHeaderBool(
+            http,
+            field: "x-screenplay-pack-lock",
+            default: false
+        )
+        let screenplayTrace = BackendTalkScreenplayTrace(
+            modeEnabled: screenplayModeEnabled,
+            phase: screenplayPhase,
+            pack: screenplayPack,
+            packLock: screenplayPackLock,
+            projectId: parseOptionalHeaderString(http, field: "x-screenplay-project-id"),
+            versionId: parseOptionalHeaderString(http, field: "x-screenplay-version-id")
+        )
+        let noteAction = parseNoteCaptureAction(from: http)
+        let emailAction = parseEmailComposeAction(from: http)
+        let calendarAction = parseCalendarComposeAction(from: http)
+        let taskAction = parseTaskAction(from: http)
+        let assistantSelfName = http?.value(forHTTPHeaderField: "x-assistant-self-name")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let userName = http?.value(forHTTPHeaderField: "x-user-name")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let turnStatus = (http?.value(forHTTPHeaderField: "x-turn-status") ?? "responded")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let responsePersonaKey = (http?.value(forHTTPHeaderField: "x-persona-key") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if !responsePersonaKey.isEmpty, responsePersonaKey != personaFlowKey {
+            print("POST /talk -> persona contract mismatch response=\(responsePersonaKey) expected=\(personaFlowKey)")
+        }
+        let turnContinueReason = parseOptionalHeaderString(http, field: "x-continue-reason")
+        let turnErrorStage = parseOptionalHeaderString(http, field: "x-turn-error-stage")
+        let turnErrorMessage = parseOptionalHeaderString(http, field: "x-turn-error-message")
+        let speculativeTrace = BackendTalkSpeculativeTrace(
+            reused: parseHeaderBool(http, field: "x-speculative-reuse", default: false),
+            speculativeKey: parseOptionalHeaderString(http, field: "x-speculative-key"),
+            promptHash: parseOptionalHeaderString(http, field: "x-speculative-prompt-hash")
+        )
+        let uiReflection = BackendTalkUIReflection(
+            cycleIndex: parseHeaderInt(
+                http,
+                field: "x-cycle-index",
+                default: BackendTalkUIReflection.default.cycleIndex,
+                min: 0,
+                max: 10_000
+            ),
+            orbSaturation: parseHeaderDouble(
+                http,
+                field: "x-ui-orb-saturation",
+                default: BackendTalkUIReflection.default.orbSaturation,
+                min: 0.35,
+                max: 1.0
+            ),
+            orbReactivity: parseHeaderDouble(
+                http,
+                field: "x-ui-orb-reactivity",
+                default: BackendTalkUIReflection.default.orbReactivity,
+                min: 0.20,
+                max: 1.0
+            ),
+            orbSmoothing: parseHeaderDouble(
+                http,
+                field: "x-ui-orb-smoothing",
+                default: BackendTalkUIReflection.default.orbSmoothing,
+                min: 0.10,
+                max: 1.0
+            ),
+            voiceSpeed: parseHeaderDouble(
+                http,
+                field: "x-ui-voice-speed",
+                default: BackendTalkUIReflection.default.voiceSpeed,
+                min: 0.25,
+                max: 4.0
+            ),
+            overAttachmentSafeguardActive: parseHeaderBool(
+                http,
+                field: "x-safeguard-over-attachment",
+                default: BackendTalkUIReflection.default.overAttachmentSafeguardActive
+            )
+        )
+
+        guard !data.isEmpty else {
+            if let retried = try await retryAudioValidationIfAllowed("empty audio payload") {
+                return retried
+            }
+            throw BackendError.emptyAudio
+        }
+
+        if isMP3, !looksLikeMP3(data) {
+            if let retried = try await retryAudioValidationIfAllowed("invalid mp3 signature") {
+                return retried
+            }
+            throw BackendError.invalidAudioType(contentType)
+        }
+        if isWAV, !looksLikeWav(data) {
+            if let retried = try await retryAudioValidationIfAllowed("invalid wav signature") {
+                return retried
+            }
+            throw BackendError.invalidAudioType(contentType)
+        }
+
+        let audioExt = isWAV ? "wav" : "mp3"
+        let audioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("them_backend_\(UUID().uuidString).\(audioExt)")
+        try data.write(to: audioURL, options: [.atomic])
+
+        let firstSegmentBytes = parseHeaderInt(
+            http,
+            field: "x-tts-first-bytes",
+            default: 0,
+            min: 0,
+            max: data.count
+        )
+        let streamedRemainderURL: URL?
+        if emittedFirstSegment,
+           firstSegmentBytes >= minPlayableSegmentBytes,
+           data.count > firstSegmentBytes {
+            let remainderData = Data(data.dropFirst(firstSegmentBytes))
+            if !remainderData.isEmpty {
+                let remainderExt = isWAV ? "wav" : "mp3"
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("them_backend_remainder_\(UUID().uuidString).\(remainderExt)")
+                try remainderData.write(to: url, options: [.atomic])
+                streamedRemainderURL = url
+            } else {
+                streamedRemainderURL = nil
+            }
+        } else {
+            streamedRemainderURL = nil
+        }
+
+        return BackendTalkResult(
+            audioURL: audioURL,
+            streamedFirstSegment: emittedFirstSegment,
+            streamedRemainderURL: streamedRemainderURL,
+            audioDurationMs: audioDurationMs > 0 ? audioDurationMs : nil,
+            timingSource: timingSource,
+            transcript: transcript,
+            reply: reply,
+            screenplayOutput: screenplayOutput,
+            screenplayCues: screenplayCues,
+            assistantSelfName: assistantSelfName,
+            userName: userName,
+            uiReflection: uiReflection,
+            knowledgeTrace: knowledgeTrace,
+            screenplayTrace: screenplayTrace,
+            turnStatus: turnStatus,
+            turnContinueReason: turnContinueReason,
+            turnErrorStage: turnErrorStage,
+            turnErrorMessage: turnErrorMessage,
+            noteAction: noteAction,
+            emailAction: emailAction,
+            calendarAction: calendarAction,
+            taskAction: taskAction,
+            speculativeTrace: speculativeTrace,
+            commit: commitSignal
+        )
+    }
+
+    private func fetchTurnMeta(
+        baseURL: URL,
+        userID: String,
+        clientToken: String,
+        turnID: String
+    ) async throws -> BackendTalkTurnMetaPayload {
+        let normalizedTurnID = turnID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTurnID.isEmpty else {
+            throw BackendError.http(400, "Missing turn id")
+        }
+
+        let url = baseURL
+            .appendingPathComponent("talk")
+            .appendingPathComponent("turn")
+            .appendingPathComponent(normalizedTurnID)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = min(15, requestTimeout)
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid turn metadata response")
+        }
+        guard http.statusCode == 200 else {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+
+        do {
+            return try JSONDecoder().decode(BackendTalkTurnMetaPayload.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid turn metadata payload" : raw)
+        }
+    }
+
+    private func resolveClientToken(for baseURL: URL, userID: String) async throws -> String {
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        let sharedToken = readSharedClientToken()
+        let sharedExpiry: Date? = {
+            guard
+                let raw = UserDefaults.standard.string(forKey: sharedClientTokenExpiryDefaultsKey),
+                let parsed = formatter.date(from: raw)
+            else { return nil }
+            return parsed
+        }()
+
+        if
+            let token = cachedClientToken,
+            let expiry = cachedClientTokenExpiry,
+            expiry.timeIntervalSince(now) > sessionRefreshSkew
+        {
+            writeSharedClientToken(token, expiry: expiry)
+            return token
+        }
+
+        if
+            let token = readKeychainString(account: keychainTokenAccount),
+            let expiryRaw = readKeychainString(account: keychainExpiryAccount),
+            let expiry = formatter.date(from: expiryRaw),
+            expiry.timeIntervalSince(now) > sessionRefreshSkew
+        {
+            cachedClientToken = token
+            cachedClientTokenExpiry = expiry
+            writeSharedClientToken(token, expiry: expiry)
+            return token
+        }
+
+        if let sharedToken {
+            let expiry = sharedExpiry ?? now.addingTimeInterval(5 * 60)
+            if expiry.timeIntervalSince(now) > sessionRefreshSkew {
+                cachedClientToken = sharedToken
+                cachedClientTokenExpiry = expiry
+                writeKeychainString(sharedToken, account: keychainTokenAccount)
+                writeKeychainString(formatter.string(from: expiry), account: keychainExpiryAccount)
+                writeSharedClientToken(sharedToken, expiry: expiry)
+                return sharedToken
+            }
+        }
+
+        return try await refreshClientToken(for: baseURL, userID: userID)
+    }
+
+    private func resolveStudioRenderClientToken(for baseURL: URL, userID: String) async throws -> String {
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        if
+            let token = cachedClientToken,
+            let expiry = cachedClientTokenExpiry,
+            expiry.timeIntervalSince(now) > sessionRefreshSkew
+        {
+            writeSharedClientToken(token, expiry: expiry)
+            return token
+        }
+
+        if
+            let sharedToken = readSharedClientToken(),
+            let expiryRaw = UserDefaults.standard.string(forKey: sharedClientTokenExpiryDefaultsKey),
+            let expiry = formatter.date(from: expiryRaw),
+            expiry.timeIntervalSince(now) > sessionRefreshSkew
+        {
+            cachedClientToken = sharedToken
+            cachedClientTokenExpiry = expiry
+            writeSharedClientToken(sharedToken, expiry: expiry)
+            return sharedToken
+        }
+
+        return try await refreshClientToken(for: baseURL, userID: userID)
+    }
+
+    private func resolveStudioRenderUserID() -> String {
+        if let cached = cachedUserID, !cached.isEmpty {
+            writeSharedUserID(cached)
+            return cached
+        }
+        let fromDefaults = normalizeStoredUserID(readSharedUserID())
+        if !fromDefaults.isEmpty {
+            cachedUserID = fromDefaults
+            writeSharedUserID(fromDefaults)
+            return fromDefaults
+        }
+        let generated = generateStableUserID()
+        cachedUserID = generated
+        writeSharedUserID(generated)
+        return generated
+    }
+
+    private func refreshClientToken(for baseURL: URL, userID: String) async throws -> String {
+        var request = URLRequest(url: baseURL.appendingPathComponent("session"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        let appToken = appToken()
+        print("APP_TOKEN info:", redactedTokenInfo(appToken))
+        if let token = appToken {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        request.httpBody = Data("{}".utf8)
+
+        print("POST /session -> url=\(request.url?.absoluteString ?? "-") has_app_token=\(appToken != nil)")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? -1
+        let requestID = http?.value(forHTTPHeaderField: "X-Request-Id") ?? "-"
+        let responsePersonaKey = (http?.value(forHTTPHeaderField: "x-persona-key") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if !responsePersonaKey.isEmpty, responsePersonaKey != personaFlowKey {
+            print("POST /session -> persona contract mismatch response=\(responsePersonaKey) expected=\(personaFlowKey)")
+        }
+        print("POST /session -> id=\(requestID) status=\(status) bytes=\(data.count)")
+
+        guard (200...299).contains(status) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(status, raw)
+        }
+
+        guard
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let token = obj["client_token"] as? String,
+            !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw BackendError.stage("session", "Invalid session response payload.")
+        }
+
+        if let rawUserID = obj["user_id"] as? String {
+            let normalized = normalizeStoredUserID(rawUserID)
+            if !normalized.isEmpty {
+                writeUserID(normalized)
+            }
+        }
+
+        let expiresIn: TimeInterval
+        if let number = obj["expires_in"] as? NSNumber {
+            expiresIn = max(60, number.doubleValue)
+        } else {
+            expiresIn = 24 * 60 * 60
+        }
+
+        let expiry = Date().addingTimeInterval(expiresIn)
+        persistResolvedClientToken(token, expiry: expiry)
+
+        return token
+    }
+
+    private func clearSessionToken() {
+        cachedClientToken = nil
+        cachedClientTokenExpiry = nil
+        cachedHealthyURL = nil      // force re-check on next turn after auth failure
+        cachedHealthyAt = .distantPast
+        deleteKeychainString(account: keychainTokenAccount)
+        deleteKeychainString(account: keychainExpiryAccount)
+        clearSharedClientToken()
+    }
+
+    private func persistResolvedClientToken(_ token: String, expiry: Date) {
+        cachedClientToken = token
+        cachedClientTokenExpiry = expiry
+
+        let expiryRaw = ISO8601DateFormatter().string(from: expiry)
+        writeKeychainString(token, account: keychainTokenAccount)
+        writeKeychainString(expiryRaw, account: keychainExpiryAccount)
+        writeSharedClientToken(token, expiry: expiry)
+    }
+
+    private func parseStageError(from data: Data) -> (stage: String, message: String)? {
+        guard
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let stage = obj["stage"] as? String
+        else { return nil }
+
+        if let message = obj["error"] as? String {
+            return (stage, message)
+        }
+
+        if let errorObj = obj["error"] as? [String: Any] {
+            if let message = errorObj["message"] as? String {
+                return (stage, message)
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: errorObj, options: []),
+               let raw = String(data: data, encoding: .utf8) {
+                return (stage, raw)
+            }
+        }
+
+        return (stage, "Unknown error")
+    }
+
+    private func dataForTalkRequest(
+        _ request: URLRequest,
+        onResponse: ((HTTPURLResponse) -> Void)? = nil,
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+    ) async throws -> (Data, URLResponse) {
+        var attempt = 0
+        while true {
+            do {
+                let result: (Data, URLResponse)
+                if onResponse != nil || onChunk != nil {
+                    result = try await dataForTalkRequestStreaming(
+                        request,
+                        onResponse: onResponse,
+                        onChunk: onChunk
+                    )
+                } else {
+                    result = try await URLSession.shared.data(for: request)
+                }
+                if let http = result.1 as? HTTPURLResponse,
+                   retryableHTTPStatus.contains(http.statusCode),
+                   attempt + 1 < maxTalkAttempts {
+                    attempt += 1
+                    let delayNs = UInt64(300 * attempt) * 1_000_000
+                    print("POST /talk -> transient status \(http.statusCode), retry \(attempt + 1)/\(maxTalkAttempts)")
+                    try await Task.sleep(nanoseconds: delayNs)
+                    continue
+                }
+                return result
+            } catch {
+                if (onResponse != nil || onChunk != nil),
+                   shouldFallbackToPlainTalkTransport(for: error) {
+                    print("POST /talk -> streaming transport fell back to shared data: \(error.localizedDescription)")
+                    return try await dataForTalkRequestViaSharedData(
+                        request,
+                        onResponse: onResponse,
+                        onChunk: onChunk
+                    )
+                }
+                if shouldRetryTalk(for: error), attempt + 1 < maxTalkAttempts {
+                    attempt += 1
+                    let delayNs = UInt64(300 * attempt) * 1_000_000
+                    print("POST /talk -> transient network error retry \(attempt + 1)/\(maxTalkAttempts): \(error.localizedDescription)")
+                    try await Task.sleep(nanoseconds: delayNs)
+                    continue
+                }
+                throw error
+            }
+        }
+    }
+
+    private final class TalkStreamingDelegate: NSObject, URLSessionDataDelegate {
+        private let onResponse: ((HTTPURLResponse) -> Void)?
+        private let onChunk: ((Data, HTTPURLResponse) -> Void)?
+        private let streamChunkFlushBytes: Int
+        private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+        private var response: URLResponse?
+        private var accumulatedData = Data()
+        private var bufferedChunk = Data()
+        private var finished = false
+
+        init(
+            onResponse: ((HTTPURLResponse) -> Void)?,
+            onChunk: ((Data, HTTPURLResponse) -> Void)?,
+            streamChunkFlushBytes: Int
+        ) {
+            self.onResponse = onResponse
+            self.onChunk = onChunk
+            self.streamChunkFlushBytes = streamChunkFlushBytes
+        }
+
+        func attach(_ continuation: CheckedContinuation<(Data, URLResponse), Error>) {
+            self.continuation = continuation
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            self.response = response
+            if let http = response as? HTTPURLResponse {
+                onResponse?(http)
+            }
+            completionHandler(.allow)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            accumulatedData.append(data)
+            bufferedChunk.append(data)
+            guard let http = response as? HTTPURLResponse else { return }
+            if bufferedChunk.count >= streamChunkFlushBytes {
+                onChunk?(bufferedChunk, http)
+                bufferedChunk.removeAll(keepingCapacity: true)
+            }
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            guard !finished else { return }
+            finished = true
+            defer { continuation = nil }
+            if let error {
+                continuation?.resume(throwing: error)
+                return
+            }
+            guard let response else {
+                continuation?.resume(throwing: BackendError.http(-1, "Missing talk response."))
+                return
+            }
+            if let http = response as? HTTPURLResponse, !bufferedChunk.isEmpty {
+                onChunk?(bufferedChunk, http)
+                bufferedChunk.removeAll(keepingCapacity: true)
+            }
+            continuation?.resume(returning: (accumulatedData, response))
+        }
+    }
+
+    private func dataForTalkRequestStreaming(
+        _ request: URLRequest,
+        onResponse: ((HTTPURLResponse) -> Void)? = nil,
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+    ) async throws -> (Data, URLResponse) {
+        do {
+            return try await dataForTalkRequestStreamingViaDelegate(
+                request,
+                onResponse: onResponse,
+                onChunk: onChunk
+            )
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSPOSIXErrorDomain && nsError.code == 1 {
+                print("POST /talk -> delegate streaming transport fell back to shared async bytes: \(error.localizedDescription)")
+                return try await dataForTalkRequestStreamingViaAsyncBytes(
+                    request,
+                    onResponse: onResponse,
+                    onChunk: onChunk
+                )
+            }
+            throw error
+        }
+    }
+
+    private func dataForTalkRequestStreamingViaDelegate(
+        _ request: URLRequest,
+        onResponse: ((HTTPURLResponse) -> Void)? = nil,
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+    ) async throws -> (Data, URLResponse) {
+        let delegate = TalkStreamingDelegate(
+            onResponse: onResponse,
+            onChunk: onChunk,
+            streamChunkFlushBytes: streamChunkFlushBytes
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = false
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = requestTimeout
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        defer {
+            session.finishTasksAndInvalidate()
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            delegate.attach(continuation)
+            session.dataTask(with: request).resume()
+        }
+    }
+
+    private func dataForTalkRequestViaSharedData(
+        _ request: URLRequest,
+        onResponse: ((HTTPURLResponse) -> Void)? = nil,
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+    ) async throws -> (Data, URLResponse) {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            onResponse?(http)
+            if !data.isEmpty {
+                onChunk?(data, http)
+            }
+        }
+        return (data, response)
+    }
+
+    private func dataForTalkRequestStreamingViaAsyncBytes(
+        _ request: URLRequest,
+        onResponse: ((HTTPURLResponse) -> Void)? = nil,
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+    ) async throws -> (Data, URLResponse) {
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        if let http = response as? HTTPURLResponse {
+            onResponse?(http)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            let data = try await collectAsyncBytes(bytes)
+            return (data, response)
+        }
+
+        var accumulated = Data()
+        for try await chunk in bytes.allChunks(ofSize: streamChunkFlushBytes) {
+            accumulated.append(chunk)
+            onChunk?(chunk, http)
+        }
+        return (accumulated, response)
+    }
+
+    private func resolveTalkClientTokenOrFallback(
+        for baseURL: URL,
+        userID: String,
+        onDebugEvent: ((BackendTalkDebugEvent) -> Void)?
+    ) async throws -> String {
+        do {
+            let clientToken = try await resolveClientToken(for: baseURL, userID: userID)
+            onDebugEvent?(
+                BackendTalkDebugEvent(
+                    stage: "resolve_client_token_ok",
+                    resolvedBaseURL: baseURL.absoluteString,
+                    requestURL: nil,
+                    clientTokenResolved: !clientToken.isEmpty,
+                    errorDomain: nil,
+                    errorCode: nil,
+                    errorDescription: nil
+                )
+            )
+            return clientToken
+        } catch {
+            let nsError = error as NSError
+            onDebugEvent?(
+                BackendTalkDebugEvent(
+                    stage: "resolve_client_token_bootstrap_fallback",
+                    resolvedBaseURL: baseURL.absoluteString,
+                    requestURL: nil,
+                    clientTokenResolved: false,
+                    errorDomain: nsError.domain,
+                    errorCode: nsError.code,
+                    errorDescription: error.localizedDescription
+                )
+            )
+            return ""
+        }
+    }
+
+    private func shouldRetryTalk(for error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        return retryableURLErrors.contains(urlError.code)
+    }
+
+    private func shouldFallbackToPlainTalkTransport(for error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == NSPOSIXErrorDomain && nsError.code == 1
+    }
+
+    private func normalizedIdempotencyKey(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let filtered = trimmed.filter { char in
+            char.isLetter || char.isNumber || char == "-" || char == "_" || char == "."
+        }
+        guard !filtered.isEmpty else { return nil }
+        return String(filtered.prefix(96))
+    }
+
+    private func resolveBaseURL() async throws -> URL {
+        // Return cached healthy URL within TTL — avoids a /health round-trip before every /talk.
+        let now = Date()
+        if let cached = cachedHealthyURL,
+           now.timeIntervalSince(cachedHealthyAt) < healthCacheTTL {
+            return cached
+        }
+
+        if await isHealthy(baseURL) {
+            cachedHealthyURL = baseURL
+            cachedHealthyAt = now
+            persistSharedBackendBaseURL(baseURL)
+            return baseURL
+        }
+        if await isHealthy(fallbackURL) {
+            baseURL = fallbackURL
+            cachedHealthyURL = fallbackURL
+            cachedHealthyAt = now
+            persistSharedBackendBaseURL(fallbackURL)
+            return fallbackURL
+        }
+        // Don't block /talk solely on preflight health checks.
+        // Some local setups can return transient non-2xx/304 on /health while /talk still works.
+        // Cache nothing on failure so the next turn retries.
+        persistSharedBackendBaseURL(baseURL)
+        return baseURL
+    }
+
+    private func isHealthy(_ url: URL) async -> Bool {
+        let healthURL = url.appendingPathComponent("health")
+        do {
+            var request = URLRequest(url: healthURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 5
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let http = response as? HTTPURLResponse
+            let status = http?.statusCode ?? -1
+            guard status == 304 || (200...299).contains(status) else { return false }
+
+            if
+                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let ok = obj["ok"] as? Bool
+            {
+                return ok
+            }
+
+            if let text = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+               text == "ok"
+            {
+                return true
+            }
+
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func appToken() -> String? {
+        let plistRaw = (Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let envRaw = (ProcessInfo.processInfo.environment["APP_TOKEN"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let plist = isUsableTokenValue(plistRaw) ? plistRaw : nil
+        let env = isUsableTokenValue(envRaw) ? envRaw : nil
+
+        if let plist, let env, plist != env {
+            print("APP_TOKEN mismatch env/plist -> using plist value")
+        }
+
+        if let plist { return plist }
+        if let env { return env }
+        return devFallbackAppToken
+    }
+
+    private func isUsableTokenValue(_ value: String) -> Bool {
+        guard !value.isEmpty else { return false }
+        // Protect against unresolved placeholders like "$(APP_TOKEN)".
+        if value.hasPrefix("$("), value.hasSuffix(")") { return false }
+        return true
+    }
+
+    private func redactedTokenInfo(_ token: String?) -> String {
+        guard let token, !token.isEmpty else { return "nil" }
+        let prefix = token.prefix(3)
+        let suffix = token.suffix(2)
+        return "\(prefix)...\(suffix) len=\(token.count)"
+    }
+    private static func resolveURL(fromEnv envName: String, infoPlistKey: String, fallback: URL) -> URL {
+        let defaultsValue = (UserDefaults.standard.string(forKey: sharedBackendBaseURLDefaultsKeyStatic) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if isUsableConfigValue(defaultsValue),
+           let url = URL(string: defaultsValue),
+           isUsableBackendURL(url) {
+            return canonicalizeLoopbackURL(url)
+        }
+
+        let envValue = (ProcessInfo.processInfo.environment[envName] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if isUsableConfigValue(envValue), let url = URL(string: envValue), isUsableBackendURL(url) {
+            return canonicalizeLoopbackURL(url)
+        }
+
+        if
+            let plistValue = Bundle.main.object(forInfoDictionaryKey: infoPlistKey) as? String,
+            isUsableConfigValue(plistValue),
+            let url = URL(string: plistValue),
+            isUsableBackendURL(url)
+        {
+            return canonicalizeLoopbackURL(url)
+        }
+
+        return canonicalizeLoopbackURL(fallback)
+    }
+
+    private static func isUsableConfigValue(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        if value.hasPrefix("$("), value.hasSuffix(")") {
+            return false
+        }
+        return true
+    }
+
+    private static func isUsableBackendURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
+            return false
+        }
+        return true
+    }
+
+    private static func canonicalizeLoopbackURL(_ url: URL) -> URL {
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return url
+        }
+        guard host == "localhost" || host == "::1" || host == "[::1]" else {
+            return url
+        }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.host = "127.0.0.1"
+        return components.url ?? url
+    }
+
+    private func looksLikeMP3(_ data: Data) -> Bool {
+        if data.starts(with: [0x49, 0x44, 0x33]) { // ID3
+            return true
+        }
+        guard data.count >= 2 else { return false }
+        return data[0] == 0xFF && (data[1] & 0xE0) == 0xE0
+    }
+
+    private func looksLikeWav(_ data: Data) -> Bool {
+        guard data.count >= 12 else { return false }
+        let riff = data.prefix(4)
+        let wave = data.subdata(in: 8..<12)
+        return riff == Data([0x52, 0x49, 0x46, 0x46]) && wave == Data([0x57, 0x41, 0x56, 0x45])
+    }
+
+    private func looksLikeM4A(_ data: Data) -> Bool {
+        // MP4 family starts with size + "ftyp"
+        guard data.count >= 12 else { return false }
+        return data[4] == 0x66 && data[5] == 0x74 && data[6] == 0x79 && data[7] == 0x70
+    }
+
+    private func makeSilentTalkUploadFile() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("them_text_turn_\(UUID().uuidString).wav")
+        try makeSilentWavData(durationMs: 320).write(to: url, options: [.atomic])
+        return url
+    }
+
+    private func makeSilentWavData(durationMs: Int, sampleRate: Int = 16_000) -> Data {
+        let safeDurationMs = max(120, min(2_000, durationMs))
+        let channels: UInt16 = 1
+        let bitsPerSample: UInt16 = 16
+        let bytesPerSample = Int(bitsPerSample / 8)
+        let frameCount = max(1, (sampleRate * safeDurationMs) / 1_000)
+        let dataSize = frameCount * Int(channels) * bytesPerSample
+        let byteRate = UInt32(sampleRate * Int(channels) * bytesPerSample)
+        let blockAlign = UInt16(Int(channels) * bytesPerSample)
+        let riffChunkSize = UInt32(36 + dataSize)
+
+        var data = Data()
+        data.appendString("RIFF")
+        data.append(littleEndianBytes(riffChunkSize))
+        data.appendString("WAVE")
+        data.appendString("fmt ")
+        data.append(littleEndianBytes(UInt32(16)))
+        data.append(littleEndianBytes(UInt16(1)))
+        data.append(littleEndianBytes(channels))
+        data.append(littleEndianBytes(UInt32(sampleRate)))
+        data.append(littleEndianBytes(byteRate))
+        data.append(littleEndianBytes(blockAlign))
+        data.append(littleEndianBytes(bitsPerSample))
+        data.appendString("data")
+        data.append(littleEndianBytes(UInt32(dataSize)))
+        data.append(Data(repeating: 0, count: dataSize))
+        return data
+    }
+
+    private func littleEndianBytes(_ value: UInt16) -> Data {
+        var littleEndian = value.littleEndian
+        return Data(bytes: &littleEndian, count: MemoryLayout<UInt16>.size)
+    }
+
+    private func littleEndianBytes(_ value: UInt32) -> Data {
+        var littleEndian = value.littleEndian
+        return Data(bytes: &littleEndian, count: MemoryLayout<UInt32>.size)
+    }
+
+    private func uploadMetadata(for fileURL: URL, data: Data) -> (filename: String, mimeType: String) {
+        let ext = fileURL.pathExtension.lowercased()
+        let byExt: [String: String] = [
+            "wav": "audio/wav",
+            "m4a": "audio/m4a",
+            "mp3": "audio/mpeg",
+            "aac": "audio/aac",
+            "ogg": "audio/ogg",
+            "flac": "audio/flac",
+            "webm": "audio/webm",
+            "aif": "audio/aiff",
+            "aiff": "audio/aiff",
+        ]
+
+        if let mime = byExt[ext], !ext.isEmpty {
+            return ("recording.\(ext)", mime)
+        }
+        if looksLikeWav(data) {
+            return ("recording.wav", "audio/wav")
+        }
+        if looksLikeMP3(data) {
+            return ("recording.mp3", "audio/mpeg")
+        }
+        if looksLikeM4A(data) {
+            return ("recording.m4a", "audio/m4a")
+        }
+        return ("recording.m4a", "audio/m4a")
+    }
+
+    private func normalizedSystemPrompt(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let maxChars = 12_000
+        if trimmed.count <= maxChars { return trimmed }
+        return String(trimmed.prefix(maxChars))
+    }
+
+    private func parseHeaderDouble(
+        _ response: HTTPURLResponse?,
+        field: String,
+        default fallback: Double,
+        min: Double,
+        max: Double
+    ) -> Double {
+        guard let raw = response?.value(forHTTPHeaderField: field) else {
+            return fallback
+        }
+        guard let value = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return fallback
+        }
+        return Swift.max(min, Swift.min(max, value))
+    }
+
+    private func parseHeaderInt(
+        _ response: HTTPURLResponse?,
+        field: String,
+        default fallback: Int,
+        min: Int,
+        max: Int
+    ) -> Int {
+        guard let raw = response?.value(forHTTPHeaderField: field) else {
+            return fallback
+        }
+        guard let value = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return fallback
+        }
+        return Swift.max(min, Swift.min(max, value))
+    }
+
+    private func parseHeaderBool(
+        _ response: HTTPURLResponse?,
+        field: String,
+        default fallback: Bool
+    ) -> Bool {
+        guard let raw = response?.value(forHTTPHeaderField: field)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        else {
+            return fallback
+        }
+        if raw == "1" || raw == "true" || raw == "yes" { return true }
+        if raw == "0" || raw == "false" || raw == "no" { return false }
+        return fallback
+    }
+
+    private func parseOptionalHeaderString(
+        _ response: HTTPURLResponse?,
+        field: String
+    ) -> String? {
+        guard
+            let raw = response?.value(forHTTPHeaderField: field)?
+                .removingPercentEncoding?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty
+        else {
+            return nil
+        }
+        return raw
+    }
+
+    private func parseScreenplayCues(from response: HTTPURLResponse?) -> [BackendTalkScreenplayCue] {
+        guard
+            let raw = response?.value(forHTTPHeaderField: "x-screenplay-cues")?
+                .removingPercentEncoding?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty,
+            let data = raw.data(using: .utf8)
+        else {
+            return []
+        }
+        return (try? JSONDecoder().decode([BackendTalkScreenplayCue].self, from: data)) ?? []
+    }
+
+    private func parseScreenplayOutput(from response: HTTPURLResponse?) -> BackendTalkScreenplayOutput? {
+        guard
+            let raw = response?.value(forHTTPHeaderField: "x-screenplay-output")?
+                .removingPercentEncoding?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty,
+            let data = raw.data(using: .utf8)
+        else {
+            return nil
+        }
+        return try? JSONDecoder().decode(BackendTalkScreenplayOutput.self, from: data)
+    }
+
+    private func parseDelimitedHeader(
+        _ response: HTTPURLResponse?,
+        field: String,
+        separator: Character
+    ) -> [String] {
+        guard
+            let decoded = response?.value(forHTTPHeaderField: field)?
+                .removingPercentEncoding?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !decoded.isEmpty
+        else {
+            return []
+        }
+        return decoded
+            .split(separator: separator)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func parseCommitSignal(from response: HTTPURLResponse?) -> BackendTurnCommitSignal? {
+        guard let response else { return nil }
+        let turnId = (response.value(forHTTPHeaderField: "x-turn-id") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if turnId.isEmpty { return nil }
+        let requestId = (response.value(forHTTPHeaderField: "x-request-id") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessionId = (response.value(forHTTPHeaderField: "x-session-id") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let stateVersion = (response.value(forHTTPHeaderField: "x-state-version") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastUpdatedAt = Double(
+            (response.value(forHTTPHeaderField: "x-last-updated-at") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ) ?? 0
+        let historyUpdatedAt = Double(
+            (response.value(forHTTPHeaderField: "x-history-updated-at") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ) ?? 0
+        let memoryUpdatedAt = Double(
+            (response.value(forHTTPHeaderField: "x-memory-updated-at") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ) ?? 0
+        return BackendTurnCommitSignal(
+            sessionId: sessionId,
+            turnId: turnId,
+            requestId: requestId.isEmpty ? nil : requestId,
+            stateVersion: stateVersion,
+            lastUpdatedAt: lastUpdatedAt,
+            historyUpdatedAt: historyUpdatedAt,
+            memoryUpdatedAt: memoryUpdatedAt
+        )
+    }
+
+    private func parseEmailComposeAction(from response: HTTPURLResponse?) -> BackendEmailComposeAction? {
+        guard let response else { return nil }
+
+        let status = (response.value(forHTTPHeaderField: "x-email-status") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let action = (response.value(forHTTPHeaderField: "x-email-action") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let target = (response.value(forHTTPHeaderField: "x-email-target") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let composed = parseHeaderBool(response, field: "x-email-composed", default: false)
+            || status == "composed"
+            || action == "compose"
+
+        guard composed || !status.isEmpty || !action.isEmpty else { return nil }
+
+        let to = response.value(forHTTPHeaderField: "x-email-to")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let subject = response.value(forHTTPHeaderField: "x-email-subject")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let composeURL: URL? = {
+            guard
+                let raw = response.value(forHTTPHeaderField: "x-email-compose-url")?
+                    .removingPercentEncoding?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !raw.isEmpty
+            else {
+                return nil
+            }
+            return URL(string: raw)
+        }()
+
+        return BackendEmailComposeAction(
+            action: action,
+            status: status,
+            target: target,
+            to: to,
+            subject: subject,
+            composeURL: composeURL,
+            composed: composed
+        )
+    }
+
+    private func parseNoteCaptureAction(from response: HTTPURLResponse?) -> BackendNoteCaptureAction? {
+        guard let response else { return nil }
+        let captured = parseHeaderBool(response, field: "x-note-captured", default: false)
+        let status = (response.value(forHTTPHeaderField: "x-note-status") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let target = (response.value(forHTTPHeaderField: "x-note-target") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let title = response.value(forHTTPHeaderField: "x-note-title")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let noteText = response.value(forHTTPHeaderField: "x-note-text")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let createdAtRaw = (response.value(forHTTPHeaderField: "x-note-created-at") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let createdAt = Double(createdAtRaw)
+        let path = response.value(forHTTPHeaderField: "x-note-path")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackFrom = response.value(forHTTPHeaderField: "x-note-fallback-from")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let error = response.value(forHTTPHeaderField: "x-note-error")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard captured || !status.isEmpty || !target.isEmpty else { return nil }
+        return BackendNoteCaptureAction(
+            captured: captured,
+            status: status,
+            target: target,
+            title: title,
+            noteText: noteText,
+            createdAt: createdAt,
+            path: path,
+            fallbackFrom: fallbackFrom,
+            error: error
+        )
+    }
+
+    private func parseCalendarComposeAction(from response: HTTPURLResponse?) -> BackendCalendarComposeAction? {
+        guard let response else { return nil }
+
+        let status = (response.value(forHTTPHeaderField: "x-calendar-status") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let action = (response.value(forHTTPHeaderField: "x-calendar-action") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let target = (response.value(forHTTPHeaderField: "x-calendar-target") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let composed = parseHeaderBool(response, field: "x-calendar-composed", default: false)
+            || status == "composed"
+            || action == "compose"
+
+        guard composed || !status.isEmpty || !action.isEmpty else { return nil }
+
+        let title = response.value(forHTTPHeaderField: "x-calendar-title")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let startAt = Double(
+            (response.value(forHTTPHeaderField: "x-calendar-start-at") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let endAt = Double(
+            (response.value(forHTTPHeaderField: "x-calendar-end-at") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let composeURL: URL? = {
+            guard
+                let raw = response.value(forHTTPHeaderField: "x-calendar-compose-url")?
+                    .removingPercentEncoding?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !raw.isEmpty
+            else {
+                return nil
+            }
+            return URL(string: raw)
+        }()
+
+        return BackendCalendarComposeAction(
+            action: action,
+            status: status,
+            target: target,
+            title: title,
+            startAt: startAt,
+            endAt: endAt,
+            composeURL: composeURL,
+            composed: composed
+        )
+    }
+
+    private func parseTaskAction(from response: HTTPURLResponse?) -> BackendTaskAction? {
+        guard let response else { return nil }
+
+        let status = (response.value(forHTTPHeaderField: "x-task-status") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let action = (response.value(forHTTPHeaderField: "x-task-action") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !status.isEmpty || !action.isEmpty else { return nil }
+        if status == "none", action == "none" { return nil }
+
+        let taskID = response.value(forHTTPHeaderField: "x-task-id")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = response.value(forHTTPHeaderField: "x-task-title")?
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let priority = response.value(forHTTPHeaderField: "x-task-priority")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let dueAt = Double(
+            (response.value(forHTTPHeaderField: "x-task-due-at") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let completedAt = Double(
+            (response.value(forHTTPHeaderField: "x-task-completed-at") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        return BackendTaskAction(
+            action: action,
+            status: status,
+            taskID: taskID,
+            title: title,
+            priority: priority,
+            dueAt: dueAt,
+            completedAt: completedAt
+        )
+    }
+
+    private func writeKeychainString(_ value: String, account: String) {
+        guard let data = value.data(using: .utf8) else { return }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+        ]
+
+        SecItemDelete(query as CFDictionary)
+
+        var item = query
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        SecItemAdd(item as CFDictionary, nil)
+    }
+
+    private func readKeychainString(account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true,
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func deleteKeychainString(account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private func resolveUserID() -> String {
+        if let cached = cachedUserID, !cached.isEmpty {
+            writeSharedUserID(cached)
+            return cached
+        }
+        let fromKeychain = normalizeStoredUserID(readKeychainString(account: keychainUserIDAccount))
+        if !fromKeychain.isEmpty {
+            cachedUserID = fromKeychain
+            writeSharedUserID(fromKeychain)
+            return fromKeychain
+        }
+        let fromDefaults = normalizeStoredUserID(readSharedUserID())
+        if !fromDefaults.isEmpty {
+            cachedUserID = fromDefaults
+            writeKeychainString(fromDefaults, account: keychainUserIDAccount)
+            writeSharedUserID(fromDefaults)
+            return fromDefaults
+        }
+        let generated = generateStableUserID()
+        cachedUserID = generated
+        writeKeychainString(generated, account: keychainUserIDAccount)
+        writeSharedUserID(generated)
+        return generated
+    }
+
+    private func writeUserID(_ userID: String) {
+        let normalized = normalizeStoredUserID(userID)
+        guard !normalized.isEmpty else { return }
+        cachedUserID = normalized
+        writeKeychainString(normalized, account: keychainUserIDAccount)
+        writeSharedUserID(normalized)
+    }
+
+    private func generateStableUserID() -> String {
+        let compact = UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        return "usr_\(compact)"
+    }
+
+    private func normalizeStoredUserID(_ raw: String?) -> String {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        guard trimmed.count >= 8 && trimmed.count <= 128 else { return "" }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-")
+        if trimmed.rangeOfCharacter(from: allowed.inverted) != nil { return "" }
+        return trimmed
+    }
+
+    private func readSharedClientToken() -> String? {
+        let raw = UserDefaults.standard.string(forKey: sharedClientTokenDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return raw.isEmpty ? nil : raw
+    }
+
+    private func readSharedUserID() -> String? {
+        let raw = UserDefaults.standard.string(forKey: sharedUserIDDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return raw.isEmpty ? nil : raw
+    }
+
+    private func writeSharedClientToken(_ token: String, expiry: Date?) {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            clearSharedClientToken()
+            return
+        }
+        UserDefaults.standard.set(trimmed, forKey: sharedClientTokenDefaultsKey)
+        if let expiry {
+            let raw = ISO8601DateFormatter().string(from: expiry)
+            UserDefaults.standard.set(raw, forKey: sharedClientTokenExpiryDefaultsKey)
+        }
+    }
+
+    private func clearSharedClientToken() {
+        UserDefaults.standard.removeObject(forKey: sharedClientTokenDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: sharedClientTokenExpiryDefaultsKey)
+    }
+
+    private func writeSharedUserID(_ userID: String) {
+        let trimmed = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        UserDefaults.standard.set(trimmed, forKey: sharedUserIDDefaultsKey)
+    }
+
+    private func persistSharedBackendBaseURL(_ url: URL) {
+        UserDefaults.standard.set(url.absoluteString, forKey: sharedBackendBaseURLDefaultsKey)
+    }
+}
+
+private extension Data {
+    mutating func appendString(_ s: String) {
+        if let d = s.data(using: .utf8) { append(d) }
+    }
+}
+
+// Reads URLSession.AsyncBytes in fixed-size chunks instead of byte-by-byte,
+// dramatically reducing the number of async hops and Data reallocations.
+private extension URLSession.AsyncBytes {
+    func allChunks(ofSize chunkSize: Int) -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                var buffer = Data(capacity: chunkSize)
+                do {
+                    for try await byte in self {
+                        buffer.append(byte)
+                        if buffer.count >= chunkSize {
+                            continuation.yield(buffer)
+                            buffer = Data(capacity: chunkSize)
+                        }
+                    }
+                    if !buffer.isEmpty {
+                        continuation.yield(buffer)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+private func collectAsyncBytes(_ bytes: URLSession.AsyncBytes) async throws -> Data {
+    var data = Data()
+    for try await chunk in bytes.allChunks(ofSize: 2048) {
+        data.append(chunk)
+    }
+    return data
+}

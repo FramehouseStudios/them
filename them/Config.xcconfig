@@ -1,0 +1,11 @@
+// Local debug token for development backend
+APP_TOKEN_DEBUG = them-dev
+
+// Set this before App Store/TestFlight distribution.
+APP_TOKEN_RELEASE = REPLACE_WITH_PROD_APP_TOKEN
+
+// Shared plist key wiring
+INFOPLIST_KEY_APP_TOKEN = $(APP_TOKEN)
+
+// Fill this with your Apple Team ID (10 chars) before archive/upload.
+DEVELOPMENT_TEAM_ID =

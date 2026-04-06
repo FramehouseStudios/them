@@ -1,0 +1,32 @@
+# App Store Privacy Mapping (THEM)
+
+Last updated: 2026-02-28
+
+## Data Collected (current manifest)
+Source: `/Users/halfmutantfilms/Desktop/io.them/them/them/PrivacyInfo.xcprivacy`
+
+1. Audio Data
+- Linked to user: Yes
+- Used for tracking: No
+- Purpose: App Functionality
+
+2. User Content
+- Linked to user: Yes
+- Used for tracking: No
+- Purpose: App Functionality
+
+## Required Reason API Usage (current manifest)
+1. UserDefaults
+- Category: `NSPrivacyAccessedAPICategoryUserDefaults`
+- Reason: `CA92.1`
+
+## Operational Data Flow Summary
+1. Mic audio is captured for voice turns.
+2. Audio/text may be sent to AI providers for STT/chat/TTS to generate responses.
+3. Conversation history and memory summaries are stored for continuity.
+4. User can clear history and memories in app data controls.
+
+## App Store Connect Alignment Notes
+1. Keep Privacy Nutrition Label aligned with the two collected data types above unless SDK behavior changes.
+2. If you add analytics/crash SDKs later, re-audit and update both manifest and App Store privacy answers.
+3. Keep privacy policy text consistent with third-party AI processing disclosure.

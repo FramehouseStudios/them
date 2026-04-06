@@ -1,0 +1,337 @@
+{
+  "version": 1,
+  "maxDrop": 0.06,
+  "floors": {
+    "avgScore": 0.5171046999999999,
+    "specificity": 0.55375,
+    "continuity": 0.5224999999999999,
+    "attunement": 0.2775,
+    "conversationalPull": 0.5,
+    "brevity": 0.7499999999999999,
+    "completionRate": 0.95
+  },
+  "updatedAt": "2026-03-02T03:32:28.771Z",
+  "snapshot": {
+    "generatedAt": "2026-03-02T03:32:28.771Z",
+    "caseCount": 16,
+    "avgScore": 0.5671046999999999,
+    "avgComponents": {
+      "specificity": 0.60375,
+      "continuity": 0.5724999999999999,
+      "attunement": 0.3275,
+      "conversationalPull": 0.55,
+      "brevity": 0.7999999999999999,
+      "completionRate": 1
+    },
+    "cases": [
+      {
+        "id": "betrayal_depth",
+        "model": "gpt-4o",
+        "lane": "therapeutic_depth",
+        "intent": "therapeutic_depth_processing",
+        "score": 0.5506894,
+        "components": {
+          "specificity": 0.275,
+          "continuity": 0.52,
+          "attunement": 0.44,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "under_specific",
+          "good_question"
+        ]
+      },
+      {
+        "id": "family_trauma_pattern",
+        "model": "gpt-4o",
+        "lane": "therapeutic_depth",
+        "intent": "therapeutic_depth_processing",
+        "score": 0.6318207999999998,
+        "components": {
+          "specificity": 0.6249999999999999,
+          "continuity": 0.52,
+          "attunement": 0.32999999999999996,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "good_question",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "avoidance_loop",
+        "model": "gpt-4o",
+        "lane": "therapeutic_depth",
+        "intent": "therapeutic_depth_processing",
+        "score": 0.5913447999999999,
+        "components": {
+          "specificity": 0.7999999999999999,
+          "continuity": 0.9,
+          "attunement": 0.06,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "memory_continuity",
+          "good_question",
+          "low_empathy",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "venting_container",
+        "model": "gpt-4o",
+        "lane": "high_distress_safety",
+        "intent": "emotional_safety",
+        "score": 0.34553160000000005,
+        "components": {
+          "specificity": 0.1,
+          "continuity": 0.18,
+          "attunement": 0.52,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "missed_intent",
+          "under_specific",
+          "good_question"
+        ]
+      },
+      {
+        "id": "knowledge_movies",
+        "model": "gpt-4o",
+        "lane": "normal_rotation",
+        "intent": "knowledge_answer",
+        "score": 0.720397,
+        "components": {
+          "specificity": 0.9199999999999999,
+          "continuity": 0.9,
+          "attunement": 0.32999999999999996,
+          "conversationalPull": 0.24,
+          "brevity": 0.54,
+          "completionRate": 1
+        },
+        "tags": [
+          "too_long",
+          "memory_continuity"
+        ]
+      },
+      {
+        "id": "knowledge_art_history",
+        "model": "gpt-4o",
+        "lane": "creative",
+        "intent": "creative_reflection",
+        "score": 0.5929048,
+        "components": {
+          "specificity": 0.7449999999999999,
+          "continuity": 0.52,
+          "attunement": 0.32999999999999996,
+          "conversationalPull": 0.24,
+          "brevity": 0.54,
+          "completionRate": 1
+        },
+        "tags": [
+          "too_long"
+        ]
+      },
+      {
+        "id": "knowledge_philosophy",
+        "model": "gpt-4o",
+        "lane": "normal_rotation",
+        "intent": "practical_action",
+        "score": 0.6663376000000001,
+        "components": {
+          "specificity": 0.7449999999999999,
+          "continuity": 0.52,
+          "attunement": 0.44999999999999996,
+          "conversationalPull": 0.52,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "knowledge_learning_science",
+        "model": "gpt-4o",
+        "lane": "normal_rotation",
+        "intent": "reflective_checkin",
+        "score": 0.6318207999999998,
+        "components": {
+          "specificity": 0.6249999999999999,
+          "continuity": 0.52,
+          "attunement": 0.32999999999999996,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "good_question",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "knowledge_compatibility",
+        "model": "gpt-4o",
+        "lane": "normal_rotation",
+        "intent": "practical_action",
+        "score": 0.5434110000000001,
+        "components": {
+          "specificity": 0.57,
+          "continuity": 0.9,
+          "attunement": 0.32999999999999996,
+          "conversationalPull": 0.28,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "memory_continuity",
+          "question_stack",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "knowledge_friendship_repair",
+        "model": "gpt-4o",
+        "lane": "therapeutic_depth",
+        "intent": "therapeutic_depth_processing",
+        "score": 0.5251876,
+        "components": {
+          "specificity": 0.57,
+          "continuity": 0.9,
+          "attunement": 0.06,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "memory_continuity",
+          "good_question",
+          "low_empathy",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "knowledge_betrayal_recovery",
+        "model": "gpt-4o",
+        "lane": "therapeutic_depth",
+        "intent": "therapeutic_depth_processing",
+        "score": 0.6977242000000001,
+        "components": {
+          "specificity": 0.9199999999999999,
+          "continuity": 0.52,
+          "attunement": 0.32999999999999996,
+          "conversationalPull": 0.7,
+          "brevity": 0.54,
+          "completionRate": 1
+        },
+        "tags": [
+          "good_question"
+        ]
+      },
+      {
+        "id": "knowledge_empathy_depth",
+        "model": "gpt-4o",
+        "lane": "normal_rotation",
+        "intent": "knowledge_answer",
+        "score": 0.647218,
+        "components": {
+          "specificity": 0.7999999999999999,
+          "continuity": 0.52,
+          "attunement": 0.44,
+          "conversationalPull": 0.24,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "knowledge_human_connection",
+        "model": "gpt-4o",
+        "lane": "normal_rotation",
+        "intent": "practical_action",
+        "score": 0.7379938,
+        "components": {
+          "specificity": 0.9199999999999999,
+          "continuity": 0.52,
+          "attunement": 0.44999999999999996,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "good_question",
+          "strong_clarity"
+        ]
+      },
+      {
+        "id": "direct_practical",
+        "model": "gpt-4o",
+        "lane": "normal_rotation",
+        "intent": "practical_action",
+        "score": 0.602803,
+        "components": {
+          "specificity": 0.44999999999999996,
+          "continuity": 0.52,
+          "attunement": 0.44999999999999996,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "under_specific",
+          "good_question"
+        ]
+      },
+      {
+        "id": "continuity_detail",
+        "model": "gpt-4o",
+        "lane": "vulnerability_quiet",
+        "intent": "reflective_checkin",
+        "score": 0.20708880000000007,
+        "components": {
+          "specificity": 0.32,
+          "continuity": 0.18,
+          "attunement": 0.06,
+          "conversationalPull": 0.7,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "missed_intent",
+          "under_specific",
+          "good_question",
+          "low_empathy"
+        ]
+      },
+      {
+        "id": "love_topic_continuation",
+        "model": "gpt-4o",
+        "lane": "normal_rotation",
+        "intent": "reflective_checkin",
+        "score": 0.381402,
+        "components": {
+          "specificity": 0.275,
+          "continuity": 0.52,
+          "attunement": 0.32999999999999996,
+          "conversationalPull": 0.28,
+          "brevity": 0.8600000000000001,
+          "completionRate": 1
+        },
+        "tags": [
+          "under_specific",
+          "question_stack"
+        ]
+      }
+    ]
+  }
+}

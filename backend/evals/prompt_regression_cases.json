@@ -1,0 +1,303 @@
+{
+  "version": 3,
+  "cases": [
+    {
+      "id": "casual_snack_banter",
+      "transcript": "okay, serious question: fries or pizza after midnight?",
+      "minScore": 0.68,
+      "expect": {
+        "requireCasualFit": true,
+        "minContinuity": 0.66,
+        "minNoFiller": 0.90,
+        "minCasualFit": 0.80,
+        "maxWords": 70
+      }
+    },
+    {
+      "id": "casual_exhausted_checkin",
+      "transcript": "long day. i'm horizontal now.",
+      "minScore": 0.68,
+      "expect": {
+        "requireCasualFit": true,
+        "minAttunement": 0.58,
+        "minNoFiller": 0.90,
+        "minCasualFit": 0.80,
+        "maxWords": 65
+      }
+    },
+    {
+      "id": "simple_difference_question",
+      "transcript": "Quick one: what's the difference between jealousy and envy?",
+      "minScore": 0.70,
+      "expect": {
+        "minContinuity": 0.72,
+        "minSpecificity": 0.60,
+        "minNoFiller": 0.92,
+        "minTurnTaking": 0.88,
+        "maxWords": 90
+      }
+    },
+    {
+      "id": "gratitude_clean_close",
+      "transcript": "haha okay fair. thank you.",
+      "minScore": 0.68,
+      "expect": {
+        "requireCasualFit": true,
+        "noQuestion": true,
+        "minNoFiller": 0.94,
+        "minCasualFit": 0.84,
+        "maxWords": 45
+      }
+    },
+    {
+      "id": "vulnerable_shame_restart",
+      "transcript": "I froze again and I feel stupid about it.",
+      "minScore": 0.72,
+      "expect": {
+        "minAttunement": 0.72,
+        "minContinuity": 0.68,
+        "minNoFiller": 0.88,
+        "forbidTerms": ["lol", "haha"]
+      }
+    },
+    {
+      "id": "anxious_present_moment",
+      "transcript": "my chest is tight and i'm spinning out a little.",
+      "minScore": 0.73,
+      "expect": {
+        "minAttunement": 0.76,
+        "minContinuity": 0.70,
+        "minTurnTaking": 0.86,
+        "forbidTerms": ["lol", "haha"]
+      }
+    },
+    {
+      "id": "topic_shift_trap_old_heartbreak_now_dinner",
+      "recentTurns": [
+        {
+          "user": "I keep checking my ex's profile every night.",
+          "assistant": "That loop is hurting you more than helping. Tonight needs one small interruption."
+        }
+      ],
+      "transcript": "anyway. tacos or pasta tonight?",
+      "minScore": 0.68,
+      "expect": {
+        "requireCasualFit": true,
+        "minContinuity": 0.70,
+        "minCasualFit": 0.82,
+        "minNoFiller": 0.90,
+        "forbidTerms": ["ex", "profile", "heartbreak", "betray", "relationship"],
+        "maxWords": 70
+      }
+    },
+    {
+      "id": "topic_shift_trap_old_screenplay_now_outfit",
+      "recentTurns": [
+        {
+          "user": "I'm stuck on act two of my short film.",
+          "assistant": "The midpoint needs to cost her something visible."
+        }
+      ],
+      "transcript": "be honest, does this jacket make me look like a divorced magician?",
+      "minScore": 0.70,
+      "expect": {
+        "requireCasualFit": true,
+        "minCasualFit": 0.78,
+        "minNoFiller": 0.88,
+        "forbidTerms": ["script", "scene", "act two", "midpoint", "short film"],
+        "maxWords": 80
+      }
+    },
+    {
+      "id": "playful_roast_gentle",
+      "transcript": "roast me gently: i reread my own text five times before sending it.",
+      "minScore": 0.70,
+      "expect": {
+        "requireCasualFit": true,
+        "requirePlayfulHumor": true,
+        "minHumorTiming": 0.72,
+        "minCasualFit": 0.78,
+        "minNoFiller": 0.88,
+        "maxWords": 80
+      }
+    },
+    {
+      "id": "direct_short_cancel_text",
+      "transcript": "Give me one short text to cancel dinner politely.",
+      "minScore": 0.72,
+      "expect": {
+        "noQuestion": true,
+        "minContinuity": 0.72,
+        "minSpecificity": 0.60,
+        "minNoFiller": 0.92,
+        "minTurnTaking": 0.90,
+        "maxWords": 70
+      }
+    },
+    {
+      "id": "screenplay_shift_now_break_drink",
+      "recentTurns": [
+        {
+          "user": "I'm stuck on act two of my short film.",
+          "assistant": "The midpoint needs to cost her something visible."
+        }
+      ],
+      "transcript": "also, coffee or tea while i rewrite this?",
+      "minScore": 0.69,
+      "expect": {
+        "requireCasualFit": true,
+        "minSpecificity": 0.58,
+        "minCasualFit": 0.82,
+        "minNoFiller": 0.90,
+        "forbidTerms": ["script", "scene", "act two", "midpoint", "short film"],
+        "maxWords": 75
+      }
+    },
+    {
+      "id": "screenplay_casual_title_opinion",
+      "recentTurns": [
+        {
+          "user": "I'm trying to make this thriller feel clean and spare.",
+          "assistant": "Then the title should feel sharp too, not ornamental."
+        }
+      ],
+      "transcript": "be honest, is 'Blue Motel' too try-hard for a short title?",
+      "minScore": 0.72,
+      "expect": {
+        "minSpecificity": 0.62,
+        "minNoFiller": 0.90,
+        "requireTerms": ["blue motel"],
+        "forbidTerms": ["act two", "midpoint", "screenplay structure"],
+        "maxWords": 85
+      }
+    },
+    {
+      "id": "screenplay_playful_notebook_vibe",
+      "recentTurns": [
+        {
+          "user": "I still can't tell if this opening image is working.",
+          "assistant": "The image is good. It just needs less explanation around it."
+        }
+      ],
+      "transcript": "does this notebook make me look like i own three unfinished drafts?",
+      "minScore": 0.70,
+      "expect": {
+        "requireCasualFit": true,
+        "requirePlayfulHumor": true,
+        "minHumorTiming": 0.72,
+        "minCasualFit": 0.80,
+        "minNoFiller": 0.88,
+        "forbidTerms": ["opening image", "scene", "script needs", "midpoint"],
+        "maxWords": 85
+      }
+    },
+    {
+      "id": "screenplay_quick_character_name_check",
+      "recentTurns": [
+        {
+          "user": "I'm writing a contained thriller set in one motel room.",
+          "assistant": "Good. Keep the pressure in the room and let the threat arrive early."
+        }
+      ],
+      "transcript": "quick one: is Mara a good name for a thriller lead or too obvious?",
+      "minScore": 0.72,
+      "expect": {
+        "minSpecificity": 0.62,
+        "minNoFiller": 0.90,
+        "requireTerms": ["mara"],
+        "forbidTerms": ["motel room", "threat arrives early", "act two"],
+        "maxWords": 90
+      }
+    },
+    {
+      "id": "screenplay_collab_next_beat_thriller",
+      "transcript": "what should happen next in this motel scene?",
+      "recentTurns": [
+        {
+          "user": "I'm stuck on what happens next.",
+          "assistant": "The scene wants a turn, not another lap of tension."
+        }
+      ],
+      "screenplay": {
+        "isScreenplayMode": true,
+        "screenplayGenre": "thriller",
+        "screenplayPhaseHint": "voice_pin",
+        "screenplayDraftExcerpt": "INT. MOTEL ROOM - NIGHT\nA neon vacancy sign buzzes through the curtains. Mara stands by the bed, listening to a slow knock she still hasn't answered.",
+        "isAskingForStoryHelp": true
+      },
+      "minScore": 0.67,
+      "expect": {
+        "forbidFountainLike": true,
+        "minNoFiller": 0.90,
+        "maxQuestions": 1,
+        "minQuestions": 1,
+        "maxWords": 95
+      }
+    },
+    {
+      "id": "screenplay_collab_on_the_nose_dialogue",
+      "transcript": "is this scene too on the nose?",
+      "screenplay": {
+        "isScreenplayMode": true,
+        "screenplayGenre": "drama",
+        "screenplayPhaseHint": "voice_pin",
+        "screenplayDraftExcerpt": "INT. KITCHEN - NIGHT\nMOTHER\nI'm disappointed in you.\nDAUGHTER\nYou always are.\nMOTHER\nBecause you never change.",
+        "isAskingForStoryHelp": true
+      },
+      "minScore": 0.67,
+      "expect": {
+        "forbidFountainLike": true,
+        "minNoFiller": 0.90,
+        "maxQuestions": 1,
+        "minQuestions": 1,
+        "maxWords": 100
+      }
+    },
+    {
+      "id": "screenplay_confirmed_page_write",
+      "transcript": "yes, write that",
+      "recentTurns": [
+        {
+          "user": "What should happen next?",
+          "assistant": "Have Mara finally open the motel door and find the coffee cup already waiting outside. It means someone has been there longer than she thought."
+        }
+      ],
+      "screenplay": {
+        "isScreenplayMode": true,
+        "screenplayGenre": "thriller",
+        "screenplayPhaseHint": "draft_page",
+        "screenplayDraftExcerpt": "INT. MOTEL ROOM - NIGHT\nA neon vacancy sign buzzes through the curtains. Mara watches the door but doesn't touch it.",
+        "hasConfirmedScreenplayPageWrite": true,
+        "confirmedScreenplayStoryDirection": "Mara finally opens the motel door and finds a coffee cup already waiting outside. Nobody is there, but the cup is still warm."
+      },
+      "minScore": 0.62,
+      "expect": {
+        "requireFountainLike": true,
+        "noQuestion": true,
+        "minNoFiller": 0.92,
+        "maxWords": 180,
+        "forbidTerms": ["what if", "i think", "the problem is", "you could"]
+      }
+    },
+    {
+      "id": "screenplay_character_collab_want",
+      "transcript": "what does she want in this scene?",
+      "screenplay": {
+        "isScreenplayMode": true,
+        "screenplayGenre": "drama",
+        "screenplayPhaseHint": "voice_pin",
+        "screenplayDraftExcerpt": "INT. APARTMENT HALLWAY - DAY\nLeah stands outside her father's door with a grocery bag and never knocks.",
+        "isAskingForStoryHelp": true,
+        "isCharacterFocused": true
+      },
+      "minScore": 0.68,
+      "expect": {
+        "forbidFountainLike": true,
+        "minNoFiller": 0.90,
+        "maxQuestions": 1,
+        "minQuestions": 1,
+        "maxWords": 95
+      }
+    }
+  ]
+}

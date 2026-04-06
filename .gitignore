@@ -1,0 +1,47 @@
+# ── Secrets & Environment ──
+.env
+.env.*
+*.env
+
+# ── User data stores (never commit user data) ──
+backend/user_memory_store.json
+backend/screenplay_store.json
+backend/outbox_store.json
+backend/knowledge_embeddings_cache.json
+
+# ── Node ──
+node_modules/
+npm-debug.log*
+
+# ── Xcode / macOS ──
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ── macOS system files ──
+.DS_Store
+**/.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ── Claude Code worktrees ──
+.claude/worktrees/
+
+# ── Build artifacts ──
+build/
+*.o
+*.swp
+*.swo
+*~
+
+# ── Logs & temp ──
+*.log
+/tmp/

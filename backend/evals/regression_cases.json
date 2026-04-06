@@ -1,0 +1,174 @@
+{
+  "version": 2,
+  "cases": [
+    {
+      "id": "betrayal_depth",
+      "transcript": "I found out my partner lied to me for months and now I don't trust my own judgment.",
+      "minScore": 0.74
+    },
+    {
+      "id": "family_trauma_pattern",
+      "transcript": "My family keeps saying I'm too sensitive, and I shut down every time because it reminds me of childhood.",
+      "minScore": 0.74
+    },
+    {
+      "id": "avoidance_loop",
+      "transcript": "I keep choosing avoidant people and then I feel abandoned. I hate that this keeps repeating.",
+      "minScore": 0.73
+    },
+    {
+      "id": "venting_container",
+      "transcript": "I'm angry and exhausted. Everyone keeps taking from me and I can't breathe right now.",
+      "minScore": 0.72
+    },
+    {
+      "id": "knowledge_movies",
+      "transcript": "Can you compare Ozu and Bergman in how they handle silence and emotional tension?",
+      "minScore": 0.70
+    },
+    {
+      "id": "knowledge_art_history",
+      "transcript": "What changed between Renaissance art and Baroque art, and why does it matter?",
+      "minScore": 0.70
+    },
+    {
+      "id": "knowledge_philosophy",
+      "transcript": "Explain Stoicism like I'm in high school, then give me one deeper philosophical criticism.",
+      "minScore": 0.70
+    },
+    {
+      "id": "knowledge_learning_science",
+      "transcript": "What's the fastest evidence-based way to learn a hard skill without burning out?",
+      "minScore": 0.70
+    },
+    {
+      "id": "knowledge_compatibility",
+      "transcript": "How do I tell chemistry from real compatibility in a relationship?",
+      "minScore": 0.71
+    },
+    {
+      "id": "knowledge_friendship_repair",
+      "transcript": "My close friend hurt me and apologized. What should trust repair actually look like?",
+      "minScore": 0.71
+    },
+    {
+      "id": "knowledge_betrayal_recovery",
+      "transcript": "What's a healthy framework for recovering after betrayal without becoming paranoid?",
+      "minScore": 0.72
+    },
+    {
+      "id": "knowledge_empathy_depth",
+      "transcript": "Teach me how to show empathy without sounding fake or overdoing reassurance.",
+      "minScore": 0.71
+    },
+    {
+      "id": "knowledge_human_connection",
+      "transcript": "What builds deep human connection over time? Give me practical and philosophical layers.",
+      "minScore": 0.71
+    },
+    {
+      "id": "direct_practical",
+      "transcript": "Give me one clear boundary text I can send to someone who keeps canceling last minute.",
+      "minScore": 0.69
+    },
+    {
+      "id": "continuity_detail",
+      "transcript": "Earlier I told you filmmaking is when I feel most alive. Today I froze again and did nothing.",
+      "minScore": 0.72
+    },
+    {
+      "id": "love_topic_continuation",
+      "transcript": "I think I'm in love but scared. Continue this with more depth, not clichés.",
+      "minScore": 0.72,
+      "expect": {
+        "minNoFiller": 0.84,
+        "minTurnTaking": 0.80
+      }
+    },
+    {
+      "id": "heartbreak_recovery_plan",
+      "transcript": "I got dumped two weeks ago and I keep checking my ex's profile every night. Give me a healthy plan for tonight.",
+      "minScore": 0.75,
+      "expect": {
+        "requireHeartbreakAdvice": true,
+        "forbidLaugh": true,
+        "minHeartbreakAdvice": 0.74,
+        "minNoFiller": 0.86,
+        "minTurnTaking": 0.84
+      }
+    },
+    {
+      "id": "heartbreak_betrayal_boundary",
+      "transcript": "He lied, cheated, and now says he misses me. I feel weak and confused. What's the healthy move?",
+      "minScore": 0.76,
+      "expect": {
+        "requireHeartbreakAdvice": true,
+        "forbidLaugh": true,
+        "minHeartbreakAdvice": 0.78,
+        "minNoFiller": 0.86,
+        "minTurnTaking": 0.84
+      }
+    },
+    {
+      "id": "playful_banter_humor",
+      "transcript": "Okay roast me gently: I sent a risky text and now I'm overthinking everything lol.",
+      "minScore": 0.72,
+      "expect": {
+        "requirePlayfulHumor": true,
+        "minHumorTiming": 0.74,
+        "minNoFiller": 0.82,
+        "minTurnTaking": 0.80
+      }
+    },
+    {
+      "id": "gratitude_clean_close",
+      "transcript": "thank you, that helped a lot.",
+      "minScore": 0.68,
+      "expect": {
+        "noQuestion": true,
+        "forbidLaugh": true,
+        "minNoFiller": 0.90,
+        "minTurnTaking": 0.90
+      }
+    },
+    {
+      "id": "filler_guard_direct_ask",
+      "transcript": "Define avoidant attachment in plain English, then give one practical sign.",
+      "minScore": 0.72,
+      "expect": {
+        "minNoFiller": 0.90,
+        "minTurnTaking": 0.84
+      }
+    },
+    {
+      "id": "no_advice_venting",
+      "transcript": "I don't want advice right now. Just listen. I'm wrecked after that fight and I am not ready to fix anything yet.",
+      "minScore": 0.72,
+      "expect": {
+        "forbidLaugh": true,
+        "minNoFiller": 0.90,
+        "minTurnTaking": 0.86
+      }
+    },
+    {
+      "id": "motivation_followup_completed",
+      "transcript": "Quick update: I actually sent the email and finished the outline we talked about.",
+      "minScore": 0.74,
+      "expect": {
+        "forbidLaugh": true,
+        "minNoFiller": 0.88,
+        "minTurnTaking": 0.86
+      }
+    },
+    {
+      "id": "motivation_followup_setback",
+      "transcript": "I froze again and didn't do the task. I feel ashamed. Help me restart with one tiny step.",
+      "minScore": 0.75,
+      "expect": {
+        "forbidLaugh": true,
+        "minNoFiller": 0.88,
+        "minTurnTaking": 0.86
+      }
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>127.0.0.1</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+			<key>localhost</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+	<key>NSContactsUsageDescription</key>
+	<string>THEM uses your contacts to suggest recipient emails in Quick Email.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>THEM uses your microphone to have real-time conversations.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>THEM uses speech recognition to show live transcript previews while you talk.</string>
+	<key>PRIVACY_POLICY_URL</key>
+	<string>https://them.io/privacy</string>
+	<key>SUPPORT_EMAIL</key>
+	<string>support@them.io</string>
+</dict>
+</plist>

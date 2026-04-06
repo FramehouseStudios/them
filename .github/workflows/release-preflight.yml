@@ -1,0 +1,103 @@
+name: release-preflight
+
+on:
+  push:
+    tags:
+      - "rc-*"
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+      APP_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-preflight-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-preflight:
+    name: Release Preflight
+    runs-on: macos-latest
+    env:
+      RUN_QUALITY_GATE: 1
+      RUN_SERVER: 1
+      RUN_EVAL: 1
+      RUN_SPECULATIVE_REUSE_GATE: 1
+      RUN_SMOKE: 1
+      RUN_TALK_RECOVERY_GATE: 1
+      RUN_ALERT: 1
+      RUN_LOAD: 0
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      APP_TOKEN: ${{ secrets.APP_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Required Secrets
+        run: |
+          missing=()
+          if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+            missing+=("OPENAI_API_KEY")
+          fi
+          if [[ -z "${APP_TOKEN:-}" ]]; then
+            missing+=("APP_TOKEN")
+          fi
+          if (( ${#missing[@]} > 0 )); then
+            {
+              echo "## Release Preflight Summary"
+              echo
+              echo "- Trigger: ${{ github.event_name }}"
+              echo "- Ref: ${{ github.ref }}"
+              echo "- Status: failed before preflight execution"
+              echo "- Missing required secrets: ${missing[*]}"
+            } | tee -a "${GITHUB_STEP_SUMMARY}"
+            printf 'Missing required GitHub Actions secrets: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Ensure gate scripts are executable
+        run: chmod +x ./scripts/quality_gate.sh ./scripts/appstore_preflight.sh
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Run Release Preflight With Quality Gate
+        run: bash ./scripts/appstore_preflight.sh
+
+      - name: Release automation summary
+        if: always()
+        run: |
+          {
+            echo "## Release Preflight Summary"
+            echo
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Ref: ${{ github.ref }}"
+            echo "- RUN_QUALITY_GATE: enforced"
+            echo "- Backend/app gate: enforced before macOS preflight"
+            echo "- Release-candidate tag convention: \`rc-*\`"
+            echo "- Required workflow secrets with current defaults: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Failure Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-preflight-failure-logs
+          if-no-files-found: ignore
+          path: |
+            /tmp/them-quality-gate-backend.log
+            /tmp/them_release_preflight_build.log
+            /tmp/them-smoke/them-home.png
