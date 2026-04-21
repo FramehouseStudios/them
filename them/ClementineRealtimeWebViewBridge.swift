@@ -14,18 +14,41 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         case failed(String)
     }
 
+    enum Activity: Equatable {
+        case idle
+        case listening
+        case thinking
+        case speaking
+
+        var label: String {
+            switch self {
+            case .idle:
+                return "Standby"
+            case .listening:
+                return "Listening"
+            case .thinking:
+                return "Thinking"
+            case .speaking:
+                return "Speaking"
+            }
+        }
+    }
+
     @Published private(set) var status: Status = .idle
+    @Published private(set) var activity: Activity = .idle
 
     var onUserTranscriptPartial: ((String) -> Void)?
     var onUserTranscriptFinal: ((String) -> Void)?
     var onAssistantTranscriptFinal: ((String) -> Void)?
     var onAssistantTextFinal: ((String) -> Void)?
+    var onAssistantSpeakingChanged: ((Bool) -> Void)?
 
     private weak var webView: WKWebView?
     private var bridgeRequest: URLRequest?
     private var bridgeReady = false
     private var pendingBootstrap: BackendRealtimeBootstrap?
     private var shouldStartWhenReady = false
+    private var cancelledResponseOrdinal = 0
 
     var isLive: Bool {
         if case .live = status {
@@ -54,10 +77,14 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         case .connecting:
             return "Connecting live voice…"
         case .live:
-            return "Live voice connected"
+            return "Live voice connected · \(activity.label)"
         case let .failed(message):
             return message.isEmpty ? "Realtime bridge unavailable" : "Realtime bridge unavailable · \(message)"
         }
+    }
+
+    var isAssistantSpeaking: Bool {
+        activity == .speaking
     }
 
     func attach(webView: WKWebView) {
@@ -91,6 +118,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     func connect(bootstrap: BackendRealtimeBootstrap, bridgeRequest: URLRequest) {
         pendingBootstrap = bootstrap
         shouldStartWhenReady = true
+        cancelledResponseOrdinal = 0
         loadBridgeIfNeeded(request: bridgeRequest)
         startIfPossible()
     }
@@ -100,10 +128,16 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         pendingBootstrap = nil
         guard bridgeReady else {
             status = .idle
+            activity = .idle
+            cancelledResponseOrdinal = 0
+            onAssistantSpeakingChanged?(false)
             return
         }
         evaluate(script: "window.clementineRealtime && window.clementineRealtime.stop && window.clementineRealtime.stop();")
         status = .ready
+        activity = .idle
+        cancelledResponseOrdinal = 0
+        onAssistantSpeakingChanged?(false)
     }
 
     func clear() {
@@ -114,7 +148,18 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         onUserTranscriptFinal = nil
         onAssistantTranscriptFinal = nil
         onAssistantTextFinal = nil
+        onAssistantSpeakingChanged = nil
         status = .idle
+        activity = .idle
+        cancelledResponseOrdinal = 0
+    }
+
+    func interruptAssistant() {
+        activity = .listening
+        onAssistantSpeakingChanged?(false)
+        evaluate(
+            script: "window.clementineRealtime && window.clementineRealtime.interrupt && window.clementineRealtime.interrupt();"
+        )
     }
 
     private func startIfPossible() {
@@ -179,6 +224,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let message = String(describing: payload["message"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let responseOrdinal = Int(String(describing: payload["responseOrdinal"] ?? "")) ?? 0
 
         switch eventType {
         case "bridge_ready":
@@ -188,27 +234,57 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             } else if case .idle = status {
                 status = .ready
             }
+            activity = .idle
             startIfPossible()
         case "connecting":
             status = .connecting
+            activity = .idle
         case "connected":
             status = .live
+            activity = .listening
         case "disconnected":
             status = bridgeReady ? .ready : .idle
+            activity = .idle
+            onAssistantSpeakingChanged?(false)
+        case "assistant_thinking":
+            activity = .thinking
+            onAssistantSpeakingChanged?(false)
+        case "assistant_speaking":
+            guard responseOrdinal == 0 || responseOrdinal > cancelledResponseOrdinal else { return }
+            activity = .speaking
+            onAssistantSpeakingChanged?(true)
+        case "assistant_idle":
+            guard responseOrdinal == 0 || responseOrdinal > cancelledResponseOrdinal else { return }
+            activity = .listening
+            onAssistantSpeakingChanged?(false)
+        case "assistant_interrupted":
+            cancelledResponseOrdinal = max(cancelledResponseOrdinal, responseOrdinal)
+            activity = .listening
+            onAssistantSpeakingChanged?(false)
         case "user_transcript_partial":
             guard !text.isEmpty else { return }
+            activity = .listening
             onUserTranscriptPartial?(text)
         case "user_transcript_final":
             guard !text.isEmpty else { return }
+            activity = .thinking
             onUserTranscriptFinal?(text)
         case "assistant_transcript_final":
             guard !text.isEmpty else { return }
+            guard responseOrdinal == 0 || responseOrdinal > cancelledResponseOrdinal else { return }
+            activity = .listening
+            onAssistantSpeakingChanged?(false)
             onAssistantTranscriptFinal?(text)
         case "assistant_text_final":
             guard !text.isEmpty else { return }
+            guard responseOrdinal == 0 || responseOrdinal > cancelledResponseOrdinal else { return }
+            activity = .listening
+            onAssistantSpeakingChanged?(false)
             onAssistantTextFinal?(text)
         case "error":
             status = .failed(message.isEmpty ? "Unknown Realtime bridge error." : message)
+            activity = .idle
+            onAssistantSpeakingChanged?(false)
         default:
             break
         }

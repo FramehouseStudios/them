@@ -91,6 +91,7 @@ final class SpeculativeTalkEngine: ObservableObject {
     struct Snapshot {
         let seedText: String
         let isScreenplayMode: Bool
+        let shouldWriteToPage: Bool
         let preparedPrompt: String
         let preparedPromptHash: String
         var speculativeKey: String
@@ -118,7 +119,8 @@ final class SpeculativeTalkEngine: ObservableObject {
     func prepareIfNeeded(
         seedText: String,
         isScreenplayMode: Bool,
-        builder: @escaping @MainActor (String, Bool) async -> String?
+        shouldWriteToPage: Bool,
+        builder: @escaping @MainActor (String, Bool, Bool) async -> String?
     ) {
         guard ClementineVoiceSettings.speculativeTalkEnabled() else {
             cancel()
@@ -136,6 +138,7 @@ final class SpeculativeTalkEngine: ObservableObject {
 
         if let snapshot,
            snapshot.isScreenplayMode == isScreenplayMode,
+           snapshot.shouldWriteToPage == shouldWriteToPage,
            Date().timeIntervalSince(snapshot.preparedAt) < 18 {
             let normalizedSnapshot = normalize(snapshot.seedText)
             let normalizedSeed = normalize(cleanSeed)
@@ -153,13 +156,15 @@ final class SpeculativeTalkEngine: ObservableObject {
         prepareTask?.cancel()
         prepareTask = Task { [weak self] in
             guard let self else { return }
-            let prompt = await builder(cleanSeed, isScreenplayMode)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let prompt = await builder(cleanSeed, isScreenplayMode, shouldWriteToPage)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !Task.isCancelled else { return }
             guard let prompt, !prompt.isEmpty else { return }
             guard currentGeneration == self.generation else { return }
             self.snapshot = Snapshot(
                 seedText: cleanSeed,
                 isScreenplayMode: isScreenplayMode,
+                shouldWriteToPage: shouldWriteToPage,
                 preparedPrompt: prompt,
                 preparedPromptHash: self.promptHash(prompt),
                 speculativeKey: "",
@@ -168,9 +173,14 @@ final class SpeculativeTalkEngine: ObservableObject {
         }
     }
 
-    func preparedPromptIfCompatible(finalText: String, isScreenplayMode: Bool) -> String? {
+    func preparedPromptIfCompatible(
+        finalText: String,
+        isScreenplayMode: Bool,
+        shouldWriteToPage: Bool
+    ) -> String? {
         guard let snapshot else { return nil }
         guard snapshot.isScreenplayMode == isScreenplayMode else { return nil }
+        guard snapshot.shouldWriteToPage == shouldWriteToPage else { return nil }
         guard Date().timeIntervalSince(snapshot.preparedAt) < 18 else { return nil }
         return isCompatible(seed: snapshot.seedText, finalText: finalText)
             ? snapshot.preparedPrompt
@@ -179,13 +189,18 @@ final class SpeculativeTalkEngine: ObservableObject {
 
     func reuseCandidateIfCompatible(
         finalText: String,
-        isScreenplayMode: Bool
+        isScreenplayMode: Bool,
+        shouldWriteToPage: Bool
     ) -> SpeculativeTalkReuseCandidate? {
         guard let snapshot else {
             telemetry.lastCompatiblePreparedPromptReused = false
             return nil
         }
         guard snapshot.isScreenplayMode == isScreenplayMode else {
+            telemetry.lastCompatiblePreparedPromptReused = false
+            return nil
+        }
+        guard snapshot.shouldWriteToPage == shouldWriteToPage else {
             telemetry.lastCompatiblePreparedPromptReused = false
             return nil
         }

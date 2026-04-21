@@ -40,6 +40,8 @@ private struct BackendTalkTurnMetaPayload: Decodable {
     let timingSource: String?
     let screenplayCues: [BackendTalkScreenplayCue]?
     let screenplayOutput: BackendTalkScreenplayOutput?
+    let dialogueTimeline: BackendTalkDialogueTimelineRevision?
+    let renderContract: BackendTalkTurnMetaRenderContractPayload?
     let knowledgeTopics: [String]?
     let knowledgeCitations: [String]?
     let knowledgeQueryRaw: String?
@@ -56,11 +58,35 @@ private struct BackendTalkTurnMetaPayload: Decodable {
         case timingSource = "timing_source"
         case screenplayCues = "screenplay_cues"
         case screenplayOutput = "screenplay_output"
+        case dialogueTimeline = "dialogue_timeline"
+        case renderContract = "render_contract"
         case knowledgeTopics = "knowledge_topics"
         case knowledgeCitations = "knowledge_citations"
         case knowledgeQueryRaw = "knowledge_query_raw"
         case knowledgeQueryRewrite = "knowledge_query_rewrite"
         case knowledgeContradictionRisk = "knowledge_contradiction_risk"
+    }
+}
+
+private struct BackendTalkTurnMetaRenderContractPayload: Decodable {
+    let replyRoleRaw: String?
+    let authoritativePageTextAvailable: Bool?
+    let syncReady: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case replyRoleRaw = "reply_role"
+        case authoritativePageTextAvailable = "authoritative_page_text_available"
+        case syncReady = "sync_ready"
+    }
+
+    var renderContract: BackendTalkRenderContract {
+        BackendTalkRenderContract(
+            replyRole: BackendTalkRenderContract.ReplyRole(
+                rawValue: String(replyRoleRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            ) ?? .final,
+            authoritativePageTextAvailable: authoritativePageTextAvailable ?? false,
+            syncReady: syncReady ?? false
+        )
     }
 }
 
@@ -143,6 +169,86 @@ struct BackendTalkScreenplayCue: Codable, Equatable {
     }
 }
 
+struct BackendTalkPageAnchor: Codable, Equatable {
+    let projectId: String
+    let sceneId: String
+    let beatId: String?
+    let scriptNodeId: String
+    let pageIndex: Int?
+    let rangeStart: Int
+    let rangeEnd: Int
+
+    enum CodingKeys: String, CodingKey {
+        case projectId = "project_id"
+        case sceneId = "scene_id"
+        case beatId = "beat_id"
+        case scriptNodeId = "script_node_id"
+        case pageIndex = "page_index"
+        case rangeStart = "range_start"
+        case rangeEnd = "range_end"
+    }
+}
+
+struct BackendTalkRevealUnit: Codable, Equatable {
+    let id: String
+    let text: String
+    let startMs: Int
+    let endMs: Int
+    let utf16Start: Int
+    let utf16End: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case text
+        case startMs = "start_ms"
+        case endMs = "end_ms"
+        case utf16Start = "utf16_start"
+        case utf16End = "utf16_end"
+    }
+}
+
+struct BackendTalkDialogueSegment: Codable, Equatable {
+    let id: String
+    let lineId: String
+    let kind: String
+    let text: String
+    let startMs: Int
+    let endMs: Int
+    let pageAnchor: BackendTalkPageAnchor
+    let revealUnits: [BackendTalkRevealUnit]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case lineId = "line_id"
+        case kind
+        case text
+        case startMs = "start_ms"
+        case endMs = "end_ms"
+        case pageAnchor = "page_anchor"
+        case revealUnits = "reveal_units"
+    }
+}
+
+struct BackendTalkDialogueTimelineRevision: Codable, Equatable {
+    let turnId: String
+    let revisionId: String
+    let audioAssetId: String
+    let durationMs: Int
+    let documentRevisionId: String
+    let insertionAnchor: BackendTalkPageAnchor
+    let segments: [BackendTalkDialogueSegment]
+
+    enum CodingKeys: String, CodingKey {
+        case turnId = "turn_id"
+        case revisionId = "revision_id"
+        case audioAssetId = "audio_asset_id"
+        case durationMs = "duration_ms"
+        case documentRevisionId = "document_revision_id"
+        case insertionAnchor = "insertion_anchor"
+        case segments
+    }
+}
+
 struct BackendTalkSpeculativeTrace {
     let reused: Bool
     let speculativeKey: String?
@@ -160,11 +266,13 @@ struct BackendTalkResult {
     let streamedFirstSegment: Bool
     let streamedRemainderURL: URL?
     let audioDurationMs: Int?
+    let renderContract: BackendTalkRenderContract
     let timingSource: String?
     let transcript: String?
     let reply: String?
     let screenplayOutput: BackendTalkScreenplayOutput?
     let screenplayCues: [BackendTalkScreenplayCue]
+    let dialogueTimeline: BackendTalkDialogueTimelineRevision?
     let assistantSelfName: String?
     let userName: String?
     let uiReflection: BackendTalkUIReflection
@@ -182,11 +290,43 @@ struct BackendTalkResult {
     let commit: BackendTurnCommitSignal?
 }
 
+struct BackendTalkRenderContract: Equatable {
+    enum ReplyRole: String, Equatable {
+        case preview
+        case final
+    }
+
+    let replyRole: ReplyRole
+    let authoritativePageTextAvailable: Bool
+    let syncReady: Bool
+
+    static let `default` = BackendTalkRenderContract(
+        replyRole: .final,
+        authoritativePageTextAvailable: false,
+        syncReady: false
+    )
+
+    var previewReplyOnly: Bool {
+        replyRole == .preview
+    }
+
+    func merged(with fallback: BackendTalkRenderContract?) -> BackendTalkRenderContract {
+        guard let fallback else { return self }
+        return BackendTalkRenderContract(
+            replyRole: (replyRole == .preview || fallback.replyRole == .preview) ? .preview : .final,
+            authoritativePageTextAvailable: authoritativePageTextAvailable || fallback.authoritativePageTextAvailable,
+            syncReady: syncReady || fallback.syncReady
+        )
+    }
+}
+
 struct BackendTalkResponseMetadata {
     let audioDurationMs: Int?
+    let renderContract: BackendTalkRenderContract
     let timingSource: String?
     let screenplayOutput: BackendTalkScreenplayOutput?
     let screenplayCues: [BackendTalkScreenplayCue]
+    let dialogueTimeline: BackendTalkDialogueTimelineRevision?
     let reply: String?
 }
 
@@ -543,6 +683,7 @@ final class BackendClient {
         speculativePromptHash: String? = nil,
         studioMetadata: BackendStudioThreadCommitMetadata? = nil,
         clientTranscriptOverride: String? = nil,
+        screenplayGenerationTranscriptOverride: String? = nil,
         onResponseMetadataReady: ((BackendTalkResponseMetadata) -> Void)? = nil,
         onFirstAudioSegmentReady: ((URL) -> Void)? = nil,
         onTextReady: ((String) -> Void)? = nil,
@@ -593,6 +734,7 @@ final class BackendClient {
                 speculativePromptHash: speculativePromptHash,
                 studioMetadata: studioMetadata,
                 clientTranscriptOverride: clientTranscriptOverride,
+                screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
                 onResponseMetadataReady: onResponseMetadataReady,
                 onFirstAudioSegmentReady: onFirstAudioSegmentReady,
                 onTextReady: onTextReady,
@@ -674,6 +816,7 @@ final class BackendClient {
             speculativePromptHash: nil,
             studioMetadata: nil,
             clientTranscriptOverride: cleanTranscript,
+            screenplayGenerationTranscriptOverride: nil,
             onResponseMetadataReady: onResponseMetadataReady,
             onFirstAudioSegmentReady: onFirstAudioSegmentReady,
             onTextReady: onTextReady,
@@ -1286,6 +1429,7 @@ final class BackendClient {
         speculativePromptHash: String?,
         studioMetadata: BackendStudioThreadCommitMetadata?,
         clientTranscriptOverride: String?,
+        screenplayGenerationTranscriptOverride: String?,
         onResponseMetadataReady: ((BackendTalkResponseMetadata) -> Void)?,
         onFirstAudioSegmentReady: ((URL) -> Void)?,
         onTextReady: ((String) -> Void)? = nil,
@@ -1438,6 +1582,14 @@ final class BackendClient {
             body.appendString(String(clientTranscript.prefix(1200)))
             body.appendString("\r\n")
         }
+        let screenplayGenerationTranscript = String(screenplayGenerationTranscriptOverride ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !screenplayGenerationTranscript.isEmpty {
+            body.appendString("--\(boundary)\r\n")
+            body.appendString("Content-Disposition: form-data; name=\"screenplay_generation_transcript\"\r\n\r\n")
+            body.appendString(String(screenplayGenerationTranscript.prefix(8000)))
+            body.appendString("\r\n")
+        }
         let cleanSpeculativeReuseKey = String(speculativeReuseKey ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !cleanSpeculativeReuseKey.isEmpty {
@@ -1460,6 +1612,13 @@ final class BackendClient {
                 body.appendString("--\(boundary)\r\n")
                 body.appendString("Content-Disposition: form-data; name=\"screenplay_project_id\"\r\n\r\n")
                 body.appendString(String(projectId.prefix(96)))
+                body.appendString("\r\n")
+            }
+            let documentRevisionId = studioMetadata.screenplayDocumentRevisionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !documentRevisionId.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_document_revision_id\"\r\n\r\n")
+                body.appendString(String(documentRevisionId.prefix(96)))
                 body.appendString("\r\n")
             }
             let target = studioMetadata.screenplayTarget.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1500,6 +1659,35 @@ final class BackendClient {
                 body.appendString("--\(boundary)\r\n")
                 body.appendString("Content-Disposition: form-data; name=\"screenplay_anchor_scene_label\"\r\n\r\n")
                 body.appendString(String(sceneLabel.prefix(120)))
+                body.appendString("\r\n")
+            }
+            let draftSceneId = studioMetadata.screenplayAnchorDraftSceneId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !draftSceneId.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_anchor_draft_scene_id\"\r\n\r\n")
+                body.appendString(String(draftSceneId.prefix(96)))
+                body.appendString("\r\n")
+            }
+            let outlineSceneId = studioMetadata.screenplayAnchorOutlineSceneId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !outlineSceneId.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_anchor_outline_scene_id\"\r\n\r\n")
+                body.appendString(String(outlineSceneId.prefix(96)))
+                body.appendString("\r\n")
+            }
+            if !studioMetadata.screenplayAnchorOutlineBeatIds.isEmpty,
+               let beatIdsData = try? JSONEncoder().encode(studioMetadata.screenplayAnchorOutlineBeatIds),
+               let beatIdsJson = String(data: beatIdsData, encoding: .utf8) {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_anchor_outline_beat_ids\"\r\n\r\n")
+                body.appendString(beatIdsJson)
+                body.appendString("\r\n")
+            }
+            let anchorScriptNodeId = studioMetadata.screenplayAnchorScriptNodeId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !anchorScriptNodeId.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"screenplay_anchor_script_node_id\"\r\n\r\n")
+                body.appendString(String(anchorScriptNodeId.prefix(160)))
                 body.appendString("\r\n")
             }
             let noteTitle = studioMetadata.screenplayNoteTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1582,6 +1770,11 @@ final class BackendClient {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .lowercased() ?? ""
                 let shouldEmitHeaderText = screenplayTarget.isEmpty || screenplayTarget == "page"
+                let screenplayOutput = self.parseScreenplayOutput(from: http)
+                let renderContract = self.parseRenderContract(
+                    from: http,
+                    screenplayOutput: screenplayOutput
+                )
                 let responseMetadata = BackendTalkResponseMetadata(
                     audioDurationMs: {
                         let headerDuration = self.parseHeaderInt(
@@ -1593,9 +1786,11 @@ final class BackendClient {
                         )
                         return headerDuration > 0 ? headerDuration : nil
                     }(),
+                    renderContract: renderContract,
                     timingSource: self.parseOptionalHeaderString(http, field: "x-screenplay-timing-source"),
-                    screenplayOutput: self.parseScreenplayOutput(from: http),
+                    screenplayOutput: screenplayOutput,
                     screenplayCues: self.parseScreenplayCues(from: http),
+                    dialogueTimeline: self.parseDialogueTimeline(from: http),
                     reply: self.parseOptionalHeaderString(http, field: "x-reply")
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
@@ -1606,7 +1801,7 @@ final class BackendClient {
                 if let onTextReady,
                    http.statusCode == 200,
                    shouldEmitHeaderText,
-                    let reply = self.parseOptionalHeaderString(http, field: "x-reply"),
+                   let reply = self.parseOptionalHeaderString(http, field: "x-reply"),
                    !reply.isEmpty {
                     DispatchQueue.main.async {
                         onTextReady(reply)
@@ -1697,6 +1892,7 @@ final class BackendClient {
                 speculativePromptHash: speculativePromptHash,
                 studioMetadata: studioMetadata,
                 clientTranscriptOverride: clientTranscriptOverride,
+                screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
                 onResponseMetadataReady: onResponseMetadataReady,
                 onFirstAudioSegmentReady: onFirstAudioSegmentReady,
                 onTextReady: onTextReady,
@@ -1737,6 +1933,7 @@ final class BackendClient {
                     speculativePromptHash: speculativePromptHash,
                     studioMetadata: studioMetadata,
                     clientTranscriptOverride: clientTranscriptOverride,
+                    screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
                     onResponseMetadataReady: onResponseMetadataReady,
                     onFirstAudioSegmentReady: onFirstAudioSegmentReady,
                     onTextReady: onTextReady,
@@ -1788,6 +1985,7 @@ final class BackendClient {
                         speculativePromptHash: speculativePromptHash,
                         studioMetadata: studioMetadata,
                         clientTranscriptOverride: clientTranscriptOverride,
+                        screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
                         onResponseMetadataReady: onResponseMetadataReady,
                         onFirstAudioSegmentReady: onFirstAudioSegmentReady,
                         onTextReady: onTextReady,
@@ -1864,6 +2062,11 @@ final class BackendClient {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var screenplayOutput = parseScreenplayOutput(from: http)
         var screenplayCues = parseScreenplayCues(from: http)
+        var dialogueTimeline = parseDialogueTimeline(from: http)
+        var renderContract = parseRenderContract(
+            from: http,
+            screenplayOutput: screenplayOutput
+        )
         var knowledgeTopics = parseDelimitedHeader(http, field: "x-knowledge-topics", separator: ",")
         var knowledgeCitations = parseDelimitedHeader(http, field: "x-knowledge-citations", separator: "|")
         var knowledgeRawQuery = parseOptionalHeaderString(http, field: "x-knowledge-query-raw")
@@ -1895,6 +2098,8 @@ final class BackendClient {
             (timingSource?.isEmpty ?? true) && screenplayOutputAvailable ||
             screenplayOutput == nil && screenplayOutputAvailable ||
             screenplayCues.isEmpty && screenplayOutputAvailable ||
+            (dialogueTimeline == nil && screenplayOutputAvailable) ||
+            (screenplayOutput?.writesToPage == true && !renderContract.previewReplyOnly) ||
             (knowledgeTopics.isEmpty && knowledgeCitations.isEmpty)
         )
         if shouldFetchTurnMeta, let commitSignal {
@@ -1926,6 +2131,10 @@ final class BackendClient {
                 if screenplayCues.isEmpty {
                     screenplayCues = payload.screenplayCues ?? []
                 }
+                if dialogueTimeline == nil {
+                    dialogueTimeline = payload.dialogueTimeline
+                }
+                renderContract = renderContract.merged(with: payload.renderContract?.renderContract)
                 if knowledgeTopics.isEmpty {
                     knowledgeTopics = payload.knowledgeTopics ?? []
                 }
@@ -1945,6 +2154,13 @@ final class BackendClient {
                 }
             } catch {
                 print("GET /talk/turn/\(commitSignal.turnId) failed: \(error.localizedDescription)")
+            }
+        }
+        if let screenplayOutput, screenplayOutput.writesToPage {
+            let authoritativeReply = screenplayOutput.text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !authoritativeReply.isEmpty {
+                reply = authoritativeReply
             }
         }
         let knowledgeTrace = BackendTalkKnowledgeTrace(
@@ -2102,11 +2318,13 @@ final class BackendClient {
             streamedFirstSegment: emittedFirstSegment,
             streamedRemainderURL: streamedRemainderURL,
             audioDurationMs: audioDurationMs > 0 ? audioDurationMs : nil,
+            renderContract: renderContract,
             timingSource: timingSource,
             transcript: transcript,
             reply: reply,
             screenplayOutput: screenplayOutput,
             screenplayCues: screenplayCues,
+            dialogueTimeline: dialogueTimeline,
             assistantSelfName: assistantSelfName,
             userName: userName,
             uiReflection: uiReflection,
@@ -2422,11 +2640,9 @@ final class BackendClient {
     private final class TalkStreamingDelegate: NSObject, URLSessionDataDelegate {
         private let onResponse: ((HTTPURLResponse) -> Void)?
         private let onChunk: ((Data, HTTPURLResponse) -> Void)?
-        private let streamChunkFlushBytes: Int
         private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
         private var response: URLResponse?
         private var accumulatedData = Data()
-        private var bufferedChunk = Data()
         private var finished = false
 
         init(
@@ -2436,7 +2652,6 @@ final class BackendClient {
         ) {
             self.onResponse = onResponse
             self.onChunk = onChunk
-            self.streamChunkFlushBytes = streamChunkFlushBytes
         }
 
         func attach(_ continuation: CheckedContinuation<(Data, URLResponse), Error>) {
@@ -2458,12 +2673,8 @@ final class BackendClient {
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             accumulatedData.append(data)
-            bufferedChunk.append(data)
             guard let http = response as? HTTPURLResponse else { return }
-            if bufferedChunk.count >= streamChunkFlushBytes {
-                onChunk?(bufferedChunk, http)
-                bufferedChunk.removeAll(keepingCapacity: true)
-            }
+            onChunk?(data, http)
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -2477,10 +2688,6 @@ final class BackendClient {
             guard let response else {
                 continuation?.resume(throwing: BackendError.http(-1, "Missing talk response."))
                 return
-            }
-            if let http = response as? HTTPURLResponse, !bufferedChunk.isEmpty {
-                onChunk?(bufferedChunk, http)
-                bufferedChunk.removeAll(keepingCapacity: true)
             }
             continuation?.resume(returning: (accumulatedData, response))
         }
@@ -2565,8 +2772,9 @@ final class BackendClient {
             return (data, response)
         }
 
+        let chunkSize = max(512, min(1_024, streamChunkFlushBytes))
         var accumulated = Data()
-        for try await chunk in bytes.allChunks(ofSize: streamChunkFlushBytes) {
+        for try await chunk in bytes.allChunks(ofSize: chunkSize) {
             accumulated.append(chunk)
             onChunk?(chunk, http)
         }
@@ -2695,18 +2903,24 @@ final class BackendClient {
     }
 
     private func appToken() -> String? {
+        let defaultsRaw = (UserDefaults.standard.string(forKey: "app_token") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let plistRaw = (Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let envRaw = (ProcessInfo.processInfo.environment["APP_TOKEN"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let defaults = isUsableTokenValue(defaultsRaw) ? defaultsRaw : nil
         let plist = isUsableTokenValue(plistRaw) ? plistRaw : nil
         let env = isUsableTokenValue(envRaw) ? envRaw : nil
 
-        if let plist, let env, plist != env {
+        if let defaults, let plist, defaults != plist {
+            print("APP_TOKEN mismatch defaults/plist -> using defaults value")
+        } else if let plist, let env, plist != env {
             print("APP_TOKEN mismatch env/plist -> using plist value")
         }
 
+        if let defaults { return defaults }
         if let plist { return plist }
         if let env { return env }
         return devFallbackAppToken
@@ -2954,6 +3168,30 @@ final class BackendClient {
         return raw
     }
 
+    private func parseRenderContract(
+        from response: HTTPURLResponse?,
+        screenplayOutput: BackendTalkScreenplayOutput?
+    ) -> BackendTalkRenderContract {
+        let replyRoleRaw = parseOptionalHeaderString(response, field: "x-reply-role")?
+            .lowercased() ?? ""
+        let replyRole = BackendTalkRenderContract.ReplyRole(rawValue: replyRoleRaw) ?? .final
+        let authoritativePageTextAvailable = parseHeaderBool(
+            response,
+            field: "x-screenplay-authoritative",
+            default: screenplayOutput?.writesToPage == true
+        )
+        let syncReady = parseHeaderBool(
+            response,
+            field: "x-screenplay-sync-ready",
+            default: authoritativePageTextAvailable
+        )
+        return BackendTalkRenderContract(
+            replyRole: replyRole,
+            authoritativePageTextAvailable: authoritativePageTextAvailable,
+            syncReady: syncReady
+        )
+    }
+
     private func parseScreenplayCues(from response: HTTPURLResponse?) -> [BackendTalkScreenplayCue] {
         guard
             let raw = response?.value(forHTTPHeaderField: "x-screenplay-cues")?
@@ -2978,6 +3216,19 @@ final class BackendClient {
             return nil
         }
         return try? JSONDecoder().decode(BackendTalkScreenplayOutput.self, from: data)
+    }
+
+    private func parseDialogueTimeline(from response: HTTPURLResponse?) -> BackendTalkDialogueTimelineRevision? {
+        guard
+            let raw = response?.value(forHTTPHeaderField: "x-dialogue-timeline")?
+                .removingPercentEncoding?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty,
+            let data = raw.data(using: .utf8)
+        else {
+            return nil
+        }
+        return try? JSONDecoder().decode(BackendTalkDialogueTimelineRevision.self, from: data)
     }
 
     private func parseDelimitedHeader(

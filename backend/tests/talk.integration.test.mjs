@@ -1,22 +1,19 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { after, before, test } from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { startBackend } from "./helpers/backend_test_server.mjs";
+
 const THIS_DIR = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(THIS_DIR, "..");
 const DOTENV_PATH = resolve(BACKEND_DIR, ".env");
 const WAV_PATH = resolve(BACKEND_DIR, "test.wav");
-const BASE_URL = String(process.env.TEST_BACKEND_URL || "http://127.0.0.1:3000");
+const DEFAULT_BASE_URL = String(process.env.TEST_BACKEND_URL || "http://127.0.0.1:3000");
 const SPAWN_BACKEND_FOR_TESTS = String(process.env.TEST_SPAWN_BACKEND || "") === "1";
 const TALK_TEST_ENFORCE = String(process.env.TALK_TEST_ENFORCE || "").trim().toLowerCase();
 const TALK_TEST_RECOVERY_ONLY = String(process.env.TALK_TEST_RECOVERY_ONLY || "").trim().toLowerCase();
-const BACKEND_PORT = String(
-  process.env.TEST_PORT ||
-  Number(new URL(BASE_URL).port || 3000)
-);
 
 function parseDotEnvFile(filePath) {
   if (!existsSync(filePath)) return {};
@@ -42,6 +39,69 @@ function lowerHeaderMap(headers) {
   return map;
 }
 
+function decodeHeaderValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw);
+  } catch (_) {
+    return raw;
+  }
+}
+
+function decodeHeaderJson(value) {
+  const decoded = decodeHeaderValue(value);
+  if (!decoded) return null;
+  try {
+    return JSON.parse(decoded);
+  } catch (_) {
+    return null;
+  }
+}
+
+function assertDialogueTimeline(
+  timeline,
+  {
+    expectedText = "",
+    expectedDocumentRevisionId = "",
+    expectedSceneId = "",
+    expectedBeatId = "",
+    expectedFirstScriptNodeId = "",
+  } = {}
+) {
+  assert.ok(timeline && typeof timeline === "object", "missing dialogue timeline payload");
+  assert.ok(String(timeline.turn_id || "").trim(), "dialogue timeline missing turn_id");
+  assert.ok(String(timeline.revision_id || "").trim(), "dialogue timeline missing revision_id");
+  assert.ok(Number(timeline.duration_ms || 0) > 0, "dialogue timeline missing duration_ms");
+  assert.ok(timeline.insertion_anchor && typeof timeline.insertion_anchor === "object", "dialogue timeline missing insertion_anchor");
+  assert.ok(Array.isArray(timeline.segments), "dialogue timeline missing segments");
+  assert.ok(timeline.segments.length > 0, "dialogue timeline expected at least one segment");
+  const firstSegment = timeline.segments[0];
+  assert.ok(String(firstSegment.line_id || "").trim(), "dialogue timeline segment missing line_id");
+  assert.ok(firstSegment.page_anchor && typeof firstSegment.page_anchor === "object", "dialogue timeline segment missing page_anchor");
+  assert.ok(String(firstSegment.page_anchor.script_node_id || "").trim(), "dialogue timeline segment missing script_node_id");
+  assert.ok(Array.isArray(firstSegment.reveal_units), "dialogue timeline segment missing reveal_units");
+  assert.ok(firstSegment.reveal_units.length > 0, "dialogue timeline segment expected at least one reveal_unit");
+  if (expectedDocumentRevisionId) {
+    assert.equal(String(timeline.document_revision_id || "").trim(), expectedDocumentRevisionId);
+  }
+  if (expectedSceneId) {
+    assert.equal(String(timeline.insertion_anchor?.scene_id || "").trim(), expectedSceneId);
+    assert.equal(String(firstSegment.page_anchor?.scene_id || "").trim(), expectedSceneId);
+  }
+  if (expectedBeatId) {
+    assert.equal(String(timeline.insertion_anchor?.beat_id || "").trim(), expectedBeatId);
+    assert.equal(String(firstSegment.page_anchor?.beat_id || "").trim(), expectedBeatId);
+  }
+  if (expectedFirstScriptNodeId) {
+    assert.equal(String(firstSegment.page_anchor?.script_node_id || "").trim(), expectedFirstScriptNodeId);
+  }
+  if (expectedText) {
+    const joined = timeline.segments.map((segment) => String(segment.text || "").trim()).filter(Boolean).join("\n");
+    assert.ok(joined.length > 0, "dialogue timeline joined segment text should not be empty");
+  }
+}
+
 async function waitForHealth(url, timeoutMs = 20_000) {
   const startedAt = Date.now();
   while ((Date.now() - startedAt) < timeoutMs) {
@@ -59,7 +119,7 @@ async function waitForHealth(url, timeoutMs = 20_000) {
 const envFile = parseDotEnvFile(DOTENV_PATH);
 const APP_TOKEN = process.env.APP_TOKEN || envFile.APP_TOKEN || "them-dev";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || envFile.OPENAI_API_KEY || "";
-const TALK_TESTS_ENABLED = Boolean(OPENAI_API_KEY);
+const TALK_TESTS_ENABLED = Boolean(OPENAI_API_KEY) || SPAWN_BACKEND_FOR_TESTS;
 const TALK_TESTS_REQUIRED = TALK_TEST_ENFORCE === "1" || TALK_TEST_ENFORCE === "true" || TALK_TEST_ENFORCE === "yes";
 const RECOVERY_ONLY_MODE = TALK_TEST_RECOVERY_ONLY === "1" || TALK_TEST_RECOVERY_ONLY === "true" || TALK_TEST_RECOVERY_ONLY === "yes";
 const TALK_TEST_DEBUG_FAILURE_ENABLED = (() => {
@@ -71,6 +131,10 @@ const TALK_TEST_DEBUG_FAILURE_ENABLED = (() => {
   return raw === "1" || raw === "true" || raw === "yes";
 })();
 const FORCED_FAILURE_TEST_ENABLED = TALK_TESTS_ENABLED && (SPAWN_BACKEND_FOR_TESTS || TALK_TEST_DEBUG_FAILURE_ENABLED);
+const LIVE_PAGE_SYNC_TEST_ENABLED = (() => {
+  const raw = String(process.env.TALK_TEST_PAGE_SYNC_LIVE || envFile.TALK_TEST_PAGE_SYNC_LIVE || "").trim().toLowerCase();
+  return (raw === "1" || raw === "true" || raw === "yes") && Boolean(OPENAI_API_KEY);
+})();
 
 if (TALK_TESTS_REQUIRED && !TALK_TESTS_ENABLED) {
   throw new Error(
@@ -79,10 +143,11 @@ if (TALK_TESTS_REQUIRED && !TALK_TESTS_ENABLED) {
 }
 
 let serverProc = null;
-let serverLogs = "";
 let testAudioBuffer = null;
 let clientToken = "";
 let lastTurnId = "";
+let baseUrl = DEFAULT_BASE_URL;
+let appToken = APP_TOKEN;
 
 before(async () => {
   assert.ok(existsSync(WAV_PATH), `Missing test audio fixture: ${WAV_PATH}`);
@@ -90,37 +155,32 @@ before(async () => {
   assert.ok(testAudioBuffer.length > 0, "test.wav is empty");
 
   if (SPAWN_BACKEND_FOR_TESTS) {
-    const childEnv = {
-      ...process.env,
-      ...envFile,
-      PORT: BACKEND_PORT,
-      RUN_SERVER: "1",
-      TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: "1",
-      TALK_TEST_DEBUG_FAILURE_ENABLED: "1",
-      TALK_STREAM_AUDIO_ENABLED: "0",
-    };
-    serverProc = spawn(process.execPath, ["index.js"], {
-      cwd: BACKEND_DIR,
-      env: childEnv,
-      stdio: ["ignore", "pipe", "pipe"],
+    serverProc = await startBackend({
+      env: {
+        REQUIRE_USER_AUTH: "0",
+        TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: "1",
+        TALK_TEST_DEBUG_FAILURE_ENABLED: "1",
+        TALK_TEST_DEBUG_OFFLINE_ENABLED: "1",
+        TALK_STREAM_AUDIO_ENABLED: "0",
+      },
     });
-    serverProc.stdout.on("data", (chunk) => { serverLogs += String(chunk || ""); });
-    serverProc.stderr.on("data", (chunk) => { serverLogs += String(chunk || ""); });
+    baseUrl = serverProc.baseUrl;
+    appToken = serverProc.env.APP_TOKEN;
   }
 
-  const healthy = await waitForHealth(BASE_URL, 25_000);
-  assert.equal(
-    healthy,
-    true,
-    SPAWN_BACKEND_FOR_TESTS
-      ? `Backend failed to start on ${BASE_URL}\n${serverLogs}`
-      : `Backend not reachable at ${BASE_URL}. Start it first, or run with TEST_SPAWN_BACKEND=1.`
-  );
+  if (!SPAWN_BACKEND_FOR_TESTS) {
+    const healthy = await waitForHealth(baseUrl, 25_000);
+    assert.equal(
+      healthy,
+      true,
+      `Backend not reachable at ${baseUrl}. Start it first, or run with TEST_SPAWN_BACKEND=1.`
+    );
+  }
 
-  const sessionRes = await fetch(`${BASE_URL}/session`, {
+  const sessionRes = await fetch(`${baseUrl}/session`, {
     method: "POST",
     headers: {
-      "X-APP-TOKEN": APP_TOKEN,
+      "X-APP-TOKEN": appToken,
     },
   });
   assert.equal(sessionRes.status, 201, `POST /session failed: ${sessionRes.status}`);
@@ -130,11 +190,8 @@ before(async () => {
 });
 
 after(async () => {
-  if (!SPAWN_BACKEND_FOR_TESTS) return;
-  if (!serverProc || serverProc.killed) return;
-  serverProc.kill("SIGTERM");
-  await new Promise((resolveDone) => setTimeout(resolveDone, 300));
-  if (!serverProc.killed) serverProc.kill("SIGKILL");
+  await serverProc?.stop();
+  serverProc = null;
 });
 
 async function postTalk(debugTranscript, options = {}) {
@@ -152,10 +209,10 @@ async function postTalk(debugTranscript, options = {}) {
   }
   form.append("file", new Blob([testAudioBuffer], { type: "audio/wav" }), "test.wav");
 
-  const res = await fetch(`${BASE_URL}/talk`, {
+  const res = await fetch(`${baseUrl}/talk`, {
     method: "POST",
     headers: {
-      "X-APP-TOKEN": APP_TOKEN,
+      "X-APP-TOKEN": appToken,
       "X-Client-Token": clientToken,
       ...extraHeaders,
     },
@@ -167,9 +224,9 @@ async function postTalk(debugTranscript, options = {}) {
 }
 
 async function getTurnMeta(turnId) {
-  const response = await fetch(`${BASE_URL}/talk/turn/${encodeURIComponent(String(turnId || ""))}`, {
+  const response = await fetch(`${baseUrl}/talk/turn/${encodeURIComponent(String(turnId || ""))}`, {
     headers: {
-      "X-APP-TOKEN": APP_TOKEN,
+      "X-APP-TOKEN": appToken,
       "X-Client-Token": clientToken,
     },
   });
@@ -212,6 +269,157 @@ test(
     assert.equal(String(body.turn_id || "").trim(), lastTurnId);
     assert.ok(String(body.transcript || "").length > 0, "missing transcript in turn meta");
     assert.ok(String(body.reply || "").length > 0, "missing reply in turn meta");
+    assert.equal(String(body.render_contract?.reply_role || "").trim(), "final");
+    assert.equal(Boolean(body.render_contract?.authoritative_page_text_available), false);
+    assert.equal(Boolean(body.render_contract?.sync_ready), false);
+  }
+);
+
+test(
+  "talk debug-offline page-write responses expose deterministic authoritative sync payload",
+  { timeout: 120_000, skip: !SPAWN_BACKEND_FOR_TESTS || RECOVERY_ONLY_MODE },
+  async () => {
+    const screenplayTranscript = [
+      "INT. DINER - NIGHT",
+      "",
+      "Rain needles the front window while neon bleeds across the counter.",
+      "",
+      "MARA",
+      "(low)",
+      "He came back."
+    ].join("\n");
+
+    const { res, headers } = await postTalk("", {
+      fields: {
+        client_transcript: "Write the prepared screenplay block to the page.",
+        screenplay_generation_transcript: screenplayTranscript,
+        screenplay_project_id: "integration-debug-sync-project",
+        screenplay_document_revision_id: "integration-version-42",
+        screenplay_target: "page",
+        screenplay_prompt_source: "voice",
+        screenplay_anchor_line: "42",
+        screenplay_anchor_end_line: "48",
+        screenplay_anchor_scene_label: "INT. DINER - NIGHT",
+        screenplay_anchor_draft_scene_id: "draft-scene-diner",
+        screenplay_anchor_outline_scene_id: "outline-scene-diner",
+        screenplay_anchor_outline_beat_ids: JSON.stringify(["beat-diner"]),
+        screenplay_anchor_script_node_id: "draft-scene-diner:line:42",
+      },
+    });
+    assert.equal(res.status, 200, `POST /talk debug page-write status=${res.status}`);
+    assert.equal(String(headers["x-stt-model"] || "").trim(), "client_transcript");
+    assert.equal(String(headers["x-reply-role"] || "").trim(), "preview");
+    assert.equal(String(headers["x-screenplay-authoritative"] || "").trim(), "1");
+    assert.equal(String(headers["x-screenplay-sync-ready"] || "").trim(), "1");
+    assert.equal(String(headers["x-screenplay-output-available"] || "").trim(), "1");
+    assert.equal(String(headers["x-screenplay-timing-source"] || "").trim(), "fixture_estimated");
+    assert.ok(Number(headers["x-audio-duration-ms"] || 0) > 0, "expected debug audio duration");
+    assert.equal(decodeHeaderValue(headers["x-screenplay-target"]), "page");
+
+    const previewReply = decodeHeaderValue(headers["x-reply"]);
+    assert.ok(previewReply.length > 0, "missing preview x-reply header");
+
+    const screenplayOutput = decodeHeaderJson(headers["x-screenplay-output"]);
+    assert.ok(screenplayOutput && typeof screenplayOutput === "object", "missing x-screenplay-output payload");
+    assert.equal(String(screenplayOutput.target || ""), "page");
+    assert.equal(String(screenplayOutput.text || "").trim(), screenplayTranscript.trim());
+    assert.ok(String(screenplayOutput.text || "").length > previewReply.length, "authoritative page text should exceed preview");
+
+    const screenplayCues = decodeHeaderJson(headers["x-screenplay-cues"]);
+    assert.ok(Array.isArray(screenplayCues), "missing x-screenplay-cues payload");
+    assert.ok(screenplayCues.length > 0, "expected at least one screenplay cue");
+    const dialogueTimeline = decodeHeaderJson(headers["x-dialogue-timeline"]);
+    assertDialogueTimeline(dialogueTimeline, {
+      expectedText: screenplayTranscript,
+      expectedDocumentRevisionId: "integration-version-42",
+      expectedSceneId: "outline-scene-diner",
+      expectedBeatId: "beat-diner",
+      expectedFirstScriptNodeId: "draft-scene-diner:line:42",
+    });
+
+    const turnId = String(headers["x-turn-id"] || "").trim();
+    assert.ok(turnId, "debug page-write turn missing x-turn-id");
+    const meta = await getTurnMeta(turnId);
+    assert.equal(meta.response.status, 200, `GET /talk/turn failed status=${meta.response.status} body=${meta.raw}`);
+    assert.equal(String(meta.body.turn_id || "").trim(), turnId);
+    assert.equal(Number(meta.body.audio_duration_ms || 0) > 0, true, "turn meta missing audio duration");
+    assert.equal(String(meta.body.timing_source || "").trim(), "fixture_estimated");
+    assert.equal(String(meta.body.screenplay_output?.target || ""), "page");
+    assert.equal(String(meta.body.screenplay_output?.text || "").trim(), screenplayTranscript.trim());
+    assert.ok(Array.isArray(meta.body.screenplay_cues), "turn meta missing screenplay_cues");
+    assert.ok(meta.body.screenplay_cues.length > 0, "turn meta should preserve screenplay cues");
+    assertDialogueTimeline(meta.body.dialogue_timeline, {
+      expectedText: screenplayTranscript,
+      expectedDocumentRevisionId: "integration-version-42",
+      expectedSceneId: "outline-scene-diner",
+      expectedBeatId: "beat-diner",
+      expectedFirstScriptNodeId: "draft-scene-diner:line:42",
+    });
+    assert.equal(String(meta.body.render_contract?.reply_role || "").trim(), "preview");
+    assert.equal(Boolean(meta.body.render_contract?.authoritative_page_text_available), true);
+    assert.equal(Boolean(meta.body.render_contract?.sync_ready), true);
+  }
+);
+
+test(
+  "talk page-write responses expose preview headers and authoritative sync payload",
+  { timeout: 180_000, skip: !LIVE_PAGE_SYNC_TEST_ENABLED || RECOVERY_ONLY_MODE },
+  async () => {
+    const screenplayTranscript = [
+      "Write exactly this screenplay block and nothing else:",
+      "INT. DINER - NIGHT",
+      "",
+      "Rain needles the front window while neon bleeds across the counter.",
+      "",
+      "MARA",
+      "(low)",
+      "He came back."
+    ].join("\n");
+
+    const { res, headers } = await postTalk("", {
+      fields: {
+        client_transcript: screenplayTranscript,
+        screenplay_project_id: "integration-sync-project",
+        screenplay_target: "page",
+        screenplay_prompt_source: "voice",
+      },
+    });
+    assert.equal(res.status, 200, `POST /talk page-write status=${res.status}`);
+
+    const turnId = String(headers["x-turn-id"] || "").trim();
+    assert.ok(turnId, "page-write turn missing x-turn-id");
+    assert.equal(String(headers["x-reply-role"] || "").trim(), "preview");
+    assert.equal(String(headers["x-screenplay-authoritative"] || "").trim(), "1");
+    assert.equal(String(headers["x-screenplay-sync-ready"] || "").trim(), "1");
+    assert.equal(String(headers["x-screenplay-output-available"] || "").trim(), "1");
+    assert.equal(decodeHeaderValue(headers["x-screenplay-target"]), "page");
+
+    const previewReply = decodeHeaderValue(headers["x-reply"]);
+    assert.ok(previewReply.length > 0, "missing preview x-reply header");
+
+    const screenplayOutput = decodeHeaderJson(headers["x-screenplay-output"]);
+    assert.ok(screenplayOutput && typeof screenplayOutput === "object", "missing x-screenplay-output payload");
+    assert.equal(String(screenplayOutput.target || ""), "page");
+    assert.ok(String(screenplayOutput.text || "").length > previewReply.length, "authoritative page text should exceed preview");
+
+    const screenplayCues = decodeHeaderJson(headers["x-screenplay-cues"]);
+    assert.ok(Array.isArray(screenplayCues), "missing x-screenplay-cues payload");
+    assert.ok(screenplayCues.length > 0, "expected at least one screenplay cue");
+    const dialogueTimeline = decodeHeaderJson(headers["x-dialogue-timeline"]);
+    assertDialogueTimeline(dialogueTimeline);
+    assert.ok(String(headers["x-screenplay-timing-source"] || "").trim(), "missing x-screenplay-timing-source");
+
+    const meta = await getTurnMeta(turnId);
+    assert.equal(meta.response.status, 200, `GET /talk/turn failed status=${meta.response.status} body=${meta.raw}`);
+    assert.equal(String(meta.body.turn_id || "").trim(), turnId);
+    assert.equal(String(meta.body.screenplay_output?.target || ""), "page");
+    assert.equal(String(meta.body.screenplay_output?.text || "").trim(), String(screenplayOutput.text || "").trim());
+    assert.ok(Array.isArray(meta.body.screenplay_cues), "turn meta missing screenplay_cues");
+    assert.ok(meta.body.screenplay_cues.length > 0, "turn meta should preserve screenplay cues");
+    assertDialogueTimeline(meta.body.dialogue_timeline);
+    assert.equal(String(meta.body.render_contract?.reply_role || "").trim(), "preview");
+    assert.equal(Boolean(meta.body.render_contract?.authoritative_page_text_available), true);
+    assert.equal(Boolean(meta.body.render_contract?.sync_ready), true);
   }
 );
 

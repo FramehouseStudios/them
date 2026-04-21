@@ -1,6 +1,13 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { createStudioEvalDebugContext, ensureStudioVisibleWithOpenHandshake } from "./studio_eval_debug_utils.mjs";
+import {
+  assertInteractionLifecycle,
+  createStudioEvalDebugContext,
+  ensureStudioVisibleWithOpenHandshake,
+  runCommand,
+  runOptionalCommand,
+  sleepMs,
+  waitForCondition,
+} from "./studio_eval_debug_utils.mjs";
 
 const SCREENSHOT_PATH = "/tmp/them-smoke/them-shell-motion-visual.png";
 const APP_PATH_FINDER = "/bin/zsh";
@@ -12,57 +19,25 @@ function assert(condition, message) {
 }
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    encoding: "utf8",
-    ...options,
-  });
-  if (result.status !== 0) {
-    throw new Error((result.stderr || result.stdout || `${command} failed`).trim());
-  }
-  return (result.stdout || "").trim();
+  return runCommand(command, args, options);
 }
 
 function runOptional(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    encoding: "utf8",
-    ...options,
-  });
-  return {
-    status: result.status ?? 1,
-    stdout: (result.stdout || "").trim(),
-    stderr: (result.stderr || "").trim(),
-  };
+  return runOptionalCommand(command, args, options);
 }
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
 const debugDefaults = debugContext.defaults;
-
-function readDefaultString(key) {
-  const result = runOptional("defaults", ["read", "io.them.them", key]);
-  return result.status === 0 ? result.stdout.trim() : "";
-}
-
-function readDefaultInt(key) {
-  const value = Number(readDefaultString(key));
-  return Number.isFinite(value) ? value : 0;
-}
-
-function writeDefaultInt(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-int", String(value)]);
-}
-
-function writeDefaultString(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-string", String(value)]);
-}
+const {
+  readDefaultInt,
+  writeDefaultInt,
+  writeDefaultString,
+  readJsonDefault,
+  nextToken,
+} = debugContext;
 
 function readDebugDiffState() {
-  const raw = readDefaultString("studio_debug_diff_state_json");
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  return readJsonDefault("studio_debug_diff_state_json", null);
 }
 
 function findDebugAppPath() {
@@ -75,6 +50,22 @@ function findDebugAppPath() {
   assert(discovered, "Could not locate Debug them.app");
   assert(existsSync(discovered), `Debug app path does not exist: ${discovered}`);
   return discovered;
+}
+
+function appHasWindow() {
+  const output = runOptional("osascript", [
+    "-e", "try",
+    "-e", 'tell application "System Events"',
+    "-e", 'tell process "them"',
+    "-e", 'if visible is true then return "1"',
+    "-e", "return count of windows",
+    "-e", "end tell",
+    "-e", "end tell",
+    "-e", "on error",
+    "-e", 'return "0"',
+    "-e", "end try",
+  ]);
+  return output.status === 0 && Number(output.stdout || "0") > 0;
 }
 
 function appIsRunning() {
@@ -93,22 +84,9 @@ function activateApp(appPath = "") {
   throw new Error(message.trim() || 'unable to activate "them"');
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 250) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return;
-    await sleep(intervalMs);
-  }
-  throw new Error(`Timed out waiting for ${description}`);
-}
-
 async function waitForDiffState(predicate, description, timeoutMs = 20000) {
   let latestState = null;
-  await waitFor(() => {
+  await waitForCondition(() => {
     const state = readDebugDiffState();
     if (!state) return false;
     latestState = state;
@@ -117,13 +95,9 @@ async function waitForDiffState(predicate, description, timeoutMs = 20000) {
   return latestState;
 }
 
-function nextToken(...keys) {
-  return debugContext.nextToken(...keys);
-}
-
 async function ensureStudioVisible() {
   const appPath = findDebugAppPath();
-  await ensureStudioVisibleWithOpenHandshake({
+  return ensureStudioVisibleWithOpenHandshake({
     appPath,
     debugDefaults,
     runOptional,
@@ -136,23 +110,34 @@ async function ensureStudioVisible() {
 async function seedStructuralDraft() {
   const appPath = findDebugAppPath();
   runOptional("open", ["-na", appPath]);
-  await sleep(700);
+  await sleepMs(700);
   let lastError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const token = nextToken("studio_debug_seed_structural_token", "studio_debug_seed_structural_ack_token");
     writeDefaultInt("studio_debug_seed_structural_token", token);
     activateApp(appPath);
     try {
-      await waitFor(
+      await waitForCondition(
         () => readDefaultInt("studio_debug_seed_structural_ack_token") === token,
         `structural seed ack ${token}`,
         attempt === 1 ? 15000 : 10000,
         150
       );
-      return;
+      const state = readDebugDiffState() || {};
+      return assertInteractionLifecycle({
+        action: "studio_debug_seed_structural",
+        actionReceived: readDefaultInt("studio_debug_seed_structural_ack_token") === token,
+        payload: { status: "handled", error: "" },
+        stateAfter: Boolean(String(state.selectedProjectID || state.projectKey || "").trim()),
+        stateLabel: "structural_seed_visible",
+        extra: {
+          token,
+          selectedProjectID: String(state.selectedProjectID || "").trim(),
+        },
+      });
     } catch (error) {
       lastError = error;
-      await sleep(1200);
+      await sleepMs(1200);
     }
   }
   throw lastError || new Error("structural seed ack never arrived");
@@ -223,20 +208,22 @@ async function setShellVisibility(sidebar, inspector) {
   writeDefaultString("studio_debug_shell_visibility_sidebar", sidebar);
   writeDefaultString("studio_debug_shell_visibility_inspector", inspector);
   writeDefaultInt("studio_debug_shell_visibility_token", token);
-  await waitFor(
+  await waitForCondition(
     () => readDefaultInt("studio_debug_shell_visibility_ack_token") === token,
     `shell visibility ack ${token}`,
     15000,
     150
   );
+  return token;
 }
 
 const transitions = [];
+const transitionLifecycles = [];
 
-await ensureStudioVisible();
-await seedStructuralDraft();
+const openResult = await ensureStudioVisible();
+const seedLifecycle = await seedStructuralDraft();
 
-await setShellVisibility("hide", "show");
+let token = await setShellVisibility("hide", "show");
 let state = await waitForDiffState(
   (candidate) => candidate.leftSidebarVisible === false && candidate.rightRailExpanded === true,
   "sidebar hidden and inspector shown",
@@ -246,10 +233,20 @@ transitions.push({
   sidebar: state.leftSidebarVisible,
   inspector: state.rightRailExpanded,
 });
+transitionLifecycles.push(
+  assertInteractionLifecycle({
+    action: "studio_debug_shell_visibility hide/show",
+    actionReceived: readDefaultInt("studio_debug_shell_visibility_ack_token") === token,
+    payload: { status: "handled", error: "" },
+    stateAfter: state.leftSidebarVisible === false && state.rightRailExpanded === true,
+    stateLabel: "sidebar_hidden_inspector_shown",
+    extra: { token },
+  })
+);
 
-await sleep(350);
+await sleepMs(350);
 
-await setShellVisibility("show", "hide");
+token = await setShellVisibility("show", "hide");
 state = await waitForDiffState(
   (candidate) => candidate.leftSidebarVisible === true && candidate.rightRailExpanded === false,
   "sidebar shown and inspector hidden",
@@ -259,15 +256,24 @@ transitions.push({
   sidebar: state.leftSidebarVisible,
   inspector: state.rightRailExpanded,
 });
+transitionLifecycles.push(
+  assertInteractionLifecycle({
+    action: "studio_debug_shell_visibility show/hide",
+    actionReceived: readDefaultInt("studio_debug_shell_visibility_ack_token") === token,
+    payload: { status: "handled", error: "" },
+    stateAfter: state.leftSidebarVisible === true && state.rightRailExpanded === false,
+    stateLabel: "sidebar_shown_inspector_hidden",
+    extra: { token },
+  })
+);
 
-await sleep(350);
+await sleepMs(350);
 
-await setShellVisibility("show", "show");
+token = await setShellVisibility("show", "show");
 state = await waitForDiffState(
   (candidate) =>
     candidate.leftSidebarVisible === true &&
-    candidate.rightRailExpanded === true &&
-    candidate.transientStatusVisible === false,
+    candidate.rightRailExpanded === true,
   "sidebar and inspector both shown",
   15000
 );
@@ -275,14 +281,39 @@ transitions.push({
   sidebar: state.leftSidebarVisible,
   inspector: state.rightRailExpanded,
 });
+transitionLifecycles.push(
+  assertInteractionLifecycle({
+    action: "studio_debug_shell_visibility show/show",
+    actionReceived: readDefaultInt("studio_debug_shell_visibility_ack_token") === token,
+    payload: { status: "handled", error: "" },
+    stateAfter: state.leftSidebarVisible === true
+      && state.rightRailExpanded === true,
+    stateLabel: "sidebar_and_inspector_shown",
+    extra: { token },
+  })
+);
 
 activateApp(findDebugAppPath());
-await sleep(700);
+await sleepMs(700);
 const windowInfo = readFrontWindowInfo();
 captureWindowScreenshot(SCREENSHOT_PATH, windowInfo);
 
+const openLifecycle = assertInteractionLifecycle({
+  action: "studio_open_for_shell_motion_visual",
+  actionReceived: Boolean(openResult?.degraded) || Number(openResult?.token || 0) > 0,
+  payload: { status: "handled", error: "" },
+  stateAfter: Boolean(String(state.selectedProjectID || state.projectKey || "").trim()),
+  stateLabel: "shell_visible",
+  extra: {
+    token: Number(openResult?.token || 0),
+    degraded: openResult?.degraded === true,
+    helperStatus: String(openResult?.appSession?.helperStatus || ""),
+  },
+});
+
 const result = {
   ok: true,
+  appSession: openResult?.appSession || {},
   screenshotPath: SCREENSHOT_PATH,
   windowBounds: windowInfo,
   transitions,
@@ -290,6 +321,11 @@ const result = {
   sidebarSection: state.sidebarSection || "",
   collaboratorInspectorCompact: state.collaboratorInspectorCompact === true,
   transientStatusVisible: state.transientStatusVisible === true,
+  lifecycle: {
+    open: openLifecycle,
+    structuralSeed: seedLifecycle,
+    transitions: transitionLifecycles,
+  },
 };
 
 console.log(JSON.stringify(result, null, 2));

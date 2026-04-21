@@ -85,11 +85,12 @@ private struct DebugBundleSyncSnapshot: Codable {
     let stateVersion: String
 }
 
-#if DEBUG
+#if DEBUG || os(macOS)
 private struct StudioDebugVoiceDraftBreadcrumb: Codable {
     let token: Int
     let event: String
     let detail: String
+    let interruptionReason: String?
     let promptPreview: String
     let replyPreview: String
     let restorePreview: Bool?
@@ -102,11 +103,17 @@ private struct StudioDebugVoiceTurnResultSnapshot: Codable {
     let error: String
     let prompt: String
     let turnID: String
+    let preparedUseScreenplayMode: Bool
+    let preparedShouldWriteToPage: Bool
+    let preparedMemoryDomain: String
+    let requestedScreenplayTarget: String
     let timingSource: String
     let screenplayOutputTarget: String
+    let screenplayOutputSource: String
     let screenplayOutputText: String
     let screenplayCueCount: Int
     let screenplayCues: [BackendTalkScreenplayCue]
+    let dialogueTimeline: BackendTalkDialogueTimelineRevision?
     let acknowledgedAtISO8601: String?
     let renderRequestID: String
     let renderServerFirstDeltaMs: Int?
@@ -124,15 +131,216 @@ private struct StudioDebugVoiceTurnResultSnapshot: Codable {
     let draftStartedAtISO8601: String?
     let headerTextCommittedAtISO8601: String?
     let commitAtISO8601: String?
+    let firstAudioSegmentReadyAtISO8601: String?
     let playbackStartedAtISO8601: String?
+    let playbackStartSource: String
     let playbackFinishedAtISO8601: String?
     let draftStartedBeforePlaybackFinished: Bool
     let committedWhileAssistantSpeaking: Bool
+    let syncedInsertInterruptionReason: String
+    let syncedVoicePhase: String
+    let syncedVoiceAppliedCueCount: Int
+    let syncedVoiceCueCount: Int
+    let syncedVoiceCueDensified: Bool
+    let syncedVoiceTimingSource: String
+    let syncedVoiceFallbackCommitted: Bool
+    let syncedVoiceFallbackReason: String
+    let syncedVoicePlaybackDriftMs: Int
+    let syncedVoiceActiveSegmentID: String?
+    let syncedVoiceActiveSceneID: String
+    let syncedVoiceActiveBeatID: String?
+    let syncedVoiceActiveScriptNodeID: String
+    let syncedVoiceSeekApplied: Bool
+    let syncedVoiceSeekCount: Int
+    let syncedVoiceSeekFromMs: Int?
+    let syncedVoiceSeekToMs: Int?
+    let syncedVoicePreviewReplyOnly: Bool
+    let syncedVoiceSyncReady: Bool
+    let syncedVoiceAuthoritativePageTextAvailable: Bool
     let breadcrumbs: [StudioDebugVoiceDraftBreadcrumb]
 }
 
 #if os(macOS)
 private let studioDebugPreferencesDomain = "io.them.them" as CFString
+private let studioDebugLoadProjectRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_load_project_request.json")
+
+private struct StudioDebugLoadProjectRequest: Codable {
+    let token: Int
+    let projectID: String
+    let versionID: String
+}
+
+private func studioDebugPreferenceDomains() -> [String] {
+    var domains: [String] = []
+    if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !bundleID.isEmpty {
+        domains.append(bundleID)
+    }
+    let fallbackDomain = String(studioDebugPreferencesDomain)
+    if !domains.contains(fallbackDomain) {
+        domains.append(fallbackDomain)
+    }
+    return domains
+}
+
+private func studioDebugPreferencePlistURLs(for domain: String) -> [URL] {
+    let libraryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
+    let filename = domain.hasSuffix(".plist") ? domain : "\(domain).plist"
+    return [
+        libraryURL
+            .appendingPathComponent("Containers")
+            .appendingPathComponent(domain)
+            .appendingPathComponent("Data/Library/Preferences")
+            .appendingPathComponent(filename),
+        libraryURL
+            .appendingPathComponent("Preferences")
+            .appendingPathComponent(filename),
+    ]
+}
+
+private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
+    var values: [Any] = []
+    var seenFingerprints: Set<String> = []
+
+    func append(_ value: Any?) {
+        guard let value else { return }
+        let fingerprint = "\(type(of: value))::\(String(describing: value))"
+        guard seenFingerprints.insert(fingerprint).inserted else { return }
+        values.append(value)
+    }
+
+    for domain in studioDebugPreferenceDomains() {
+        for url in studioDebugPreferencePlistURLs(for: domain) {
+            if let dictionary = NSDictionary(contentsOf: url) {
+                append(dictionary[key])
+            }
+        }
+        if let suite = UserDefaults(suiteName: domain) {
+            suite.synchronize()
+            append(suite.object(forKey: key))
+        }
+        let domainRef = domain as CFString
+        CFPreferencesAppSynchronize(domainRef)
+        append(CFPreferencesCopyAppValue(key as CFString, domainRef))
+    }
+    UserDefaults.standard.synchronize()
+    append(UserDefaults.standard.object(forKey: key))
+    return values
+}
+
+private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+    UserDefaults.standard.set(value, forKey: key)
+    for domain in studioDebugPreferenceDomains() {
+        UserDefaults(suiteName: domain)?.set(value, forKey: key)
+        UserDefaults(suiteName: domain)?.synchronize()
+        let domainRef = domain as CFString
+        CFPreferencesSetAppValue(key as CFString, NSNumber(value: value), domainRef)
+        CFPreferencesAppSynchronize(domainRef)
+        mirrorStudioDebugPreferenceValue(NSNumber(value: value), forKey: key, domain: domain)
+    }
+    UserDefaults.standard.synchronize()
+}
+
+private func writeStudioDebugPreferenceString(_ value: String, forKey key: String) {
+    UserDefaults.standard.set(value, forKey: key)
+    for domain in studioDebugPreferenceDomains() {
+        UserDefaults(suiteName: domain)?.set(value, forKey: key)
+        UserDefaults(suiteName: domain)?.synchronize()
+        let domainRef = domain as CFString
+        CFPreferencesSetAppValue(key as CFString, value as CFString, domainRef)
+        CFPreferencesAppSynchronize(domainRef)
+        mirrorStudioDebugPreferenceValue(value as NSString, forKey: key, domain: domain)
+    }
+    UserDefaults.standard.synchronize()
+}
+
+private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, domain: String) {
+    for url in studioDebugPreferencePlistURLs(for: domain) {
+        let directoryURL = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let dictionary = (NSMutableDictionary(contentsOf: url) ?? NSMutableDictionary())
+        dictionary[key] = value
+        dictionary.write(to: url, atomically: true)
+    }
+}
+
+@MainActor
+final class StudioDebugDefaultsBridge: ObservableObject {
+    static let shared = StudioDebugDefaultsBridge()
+
+    @Published private(set) var openToken: Int = 0
+    @Published private(set) var loadProjectToken: Int = 0
+    @Published private(set) var voiceTurnToken: Int = 0
+
+    private var pollTask: Task<Void, Never>?
+
+    init() {
+        noteLifecycle("polling_started")
+        startPolling()
+    }
+
+    deinit {
+        pollTask?.cancel()
+    }
+
+    private func startPolling() {
+        pollTask?.cancel()
+        pollTask = Task { @MainActor in
+            while !Task.isCancelled {
+                let nextOpenToken = Self.readInt(forKey: "studio_debug_open_token")
+                if nextOpenToken != openToken {
+                    openToken = nextOpenToken
+                }
+
+                let nextLoadProjectToken = Self.readInt(forKey: "studio_debug_load_project_token")
+                if nextLoadProjectToken != loadProjectToken {
+                    loadProjectToken = nextLoadProjectToken
+                }
+
+                let nextVoiceTurnToken = Self.readInt(forKey: "studio_debug_voice_turn_token")
+                if nextVoiceTurnToken != voiceTurnToken {
+                    voiceTurnToken = nextVoiceTurnToken
+                }
+
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+    }
+
+    private func noteLifecycle(_ stage: String) {
+        let cleanStage = stage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanStage.isEmpty else { return }
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        writeStudioDebugPreferenceString(cleanStage, forKey: "studio_debug_lifecycle_stage")
+        writeStudioDebugPreferenceInt(timestamp, forKey: "studio_debug_lifecycle_timestamp_ms")
+    }
+
+    private static func readInt(forKey key: String, fallback: Int = 0) -> Int {
+        for value in studioDebugPreferenceValues(forKey: key) {
+            if let number = value as? NSNumber {
+                return number.intValue
+            }
+            if let string = value as? String,
+               let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return parsed
+            }
+        }
+        return fallback
+    }
+}
+#else
+private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
+    guard let value = UserDefaults.standard.object(forKey: key) else { return [] }
+    return [value]
+}
+
+private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+    UserDefaults.standard.set(value, forKey: key)
+}
+
+private func writeStudioDebugPreferenceString(_ value: String, forKey key: String) {
+    UserDefaults.standard.set(value, forKey: key)
+}
 #endif
 #endif
 
@@ -444,10 +652,14 @@ struct ContentView: View {
     @AppStorage("clementine_visual_context_enabled") private var visualContextEnabled: Bool = false
     @AppStorage("clementine_voice_transport_mode")
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
-#if DEBUG
+#if DEBUG || os(macOS)
     @AppStorage("studio_debug_submit_transport_mode") private var studioDebugSubmitTransportMode: String = "live"
     @AppStorage("studio_debug_open_token") private var studioDebugOpenToken: Int = 0
     @AppStorage("studio_debug_open_ack_token") private var studioDebugOpenAckToken: Int = 0
+    @AppStorage("studio_debug_load_project_token") private var studioDebugLoadProjectToken: Int = 0
+    @AppStorage("studio_debug_load_project_id") private var studioDebugLoadProjectID: String = ""
+    @AppStorage("studio_debug_load_project_version_id") private var studioDebugLoadProjectVersionID: String = ""
+    @AppStorage("studio_debug_load_project_ack_token") private var studioDebugLoadProjectAckToken: Int = 0
     @AppStorage("studio_debug_voice_turn_token") private var studioDebugVoiceTurnToken: Int = 0
     @AppStorage("studio_debug_voice_turn_command_received_token") private var studioDebugVoiceTurnCommandReceivedToken: Int = 0
     @AppStorage("studio_debug_voice_turn_ack_token") private var studioDebugVoiceTurnAckToken: Int = 0
@@ -464,10 +676,15 @@ struct ContentView: View {
     @AppStorage("orb_echo_debug_assistant_text") private var orbEchoDebugAssistantText: String = ""
     @AppStorage("home_turn_cue_debug_token") private var homeTurnCueDebugToken: Int = 0
     @AppStorage("home_turn_cue_debug_text") private var homeTurnCueDebugText: String = ""
+#if os(macOS)
+    @StateObject private var studioDebugDefaultsBridge = StudioDebugDefaultsBridge.shared
+#endif
     @State private var activeStudioDebugVoiceTurnToken: Int?
     @State private var activeStudioDebugVoiceTurnPrompt: String = ""
     @State private var studioDebugCommandPollTask: Task<Void, Never>?
     @State private var lastHandledStudioDebugOpenToken: Int = 0
+    @State private var lastHandledStudioDebugLoadProjectToken: Int = 0
+    @State private var lastHandledStudioDebugLoadProjectRequestToken: Int = 0
     @State private var lastHandledStudioDebugVoiceTurnToken: Int = 0
 #endif
     @State private var lastVisualContextEnvelope: ClementineVisualContextEnvelope?
@@ -523,7 +740,7 @@ struct ContentView: View {
         )
     }
 
-    #if DEBUG
+    #if DEBUG || os(macOS)
     private static let studioPageWriteTransportRoutingChecked: Bool = {
         precondition(
             shouldUseStreamingStudioPageWriteTransport(
@@ -573,6 +790,10 @@ struct ContentView: View {
         return realtimeVoice.statusText
     }
 
+    private var activeCompanionSignals: CreativeCompanionSignalState {
+        screenplayDraftBridge.companionSignalState
+    }
+
     private var bodyBackground: some View {
         LinearGradient(
             gradient: Gradient(colors: [
@@ -595,6 +816,48 @@ struct ContentView: View {
         } else {
             homeSurface
                 .zIndex(0)
+        }
+    }
+
+    @ViewBuilder
+    private var homeCompanionSignalCard: some View {
+        let signalState = activeCompanionSignals
+        if signalState.hasContent {
+            VStack(spacing: 6) {
+                if !signalState.presence.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(signalState.presence.title)
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundColor(.herText.opacity(0.86))
+                        .textCase(.uppercase)
+                        .tracking(0.8)
+                }
+                if !signalState.intent.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(signalState.intent.summary)
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundColor(.herText.opacity(0.84))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let proactive = signalState.proactiveSuggestion,
+                   !proactive.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(proactive.prompt)
+                        .font(.system(size: 11, weight: .medium, design: .default))
+                        .foregroundColor(.herText.opacity(0.76))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: 440)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
+            )
         }
     }
 
@@ -630,9 +893,23 @@ struct ContentView: View {
                 .onChange(of: studioDebugOpenToken) { _, _ in
                     handleStudioDebugOpenChange()
                 }
+                .onChange(of: studioDebugLoadProjectToken) { _, newValue in
+                    handleStudioDebugLoadProjectTokenChange(newValue)
+                }
                 .onChange(of: studioDebugVoiceTurnToken) { _, newValue in
                     handleStudioDebugVoiceTurnTokenChange(newValue)
                 }
+#if os(macOS)
+                .onReceive(studioDebugDefaultsBridge.$openToken.removeDuplicates()) { token in
+                    handleStudioDebugOpenChange(token)
+                }
+                .onReceive(studioDebugDefaultsBridge.$loadProjectToken.removeDuplicates()) { token in
+                    handleStudioDebugLoadProjectTokenChange(token)
+                }
+                .onReceive(studioDebugDefaultsBridge.$voiceTurnToken.removeDuplicates()) { token in
+                    handleStudioDebugVoiceTurnTokenChange(token)
+                }
+#endif
                 .onChange(of: homeTurnCueDebugToken) { _, newValue in
                     handleHomeTurnCueDebugTokenChange(newValue)
                 }
@@ -671,19 +948,45 @@ struct ContentView: View {
     }
 
     private func handleStudioDebugOpenChange(_ newValue: Int? = nil) {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         let token = newValue ?? studioDebugOpenToken
         guard token > 0 else { return }
         guard token != lastHandledStudioDebugOpenToken else { return }
         lastHandledStudioDebugOpenToken = token
+        noteStudioDebugLifecycle("open_token_consumed")
         studioDebugOpenAckToken = token
         setStudioDebugPreferenceInt(token, forKey: "studio_debug_open_ack_token")
         openStudio()
         #endif
     }
 
+    private func handleStudioDebugLoadProjectTokenChange(_ newValue: Int) {
+        #if DEBUG || os(macOS)
+        guard newValue > 0 else { return }
+        guard newValue != lastHandledStudioDebugLoadProjectToken else { return }
+        lastHandledStudioDebugLoadProjectToken = newValue
+        noteStudioDebugLifecycle("load_token_consumed")
+        let debugProjectID = studioDebugPreferenceString("studio_debug_load_project_id")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let debugVersionID = studioDebugPreferenceString("studio_debug_load_project_version_id")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !debugProjectID.isEmpty {
+            screenplayDraftBridge.preferredProjectID = debugProjectID
+            screenplayDraftBridge.debugRequestedProjectID = debugProjectID
+            liveScreenplayProjectID = debugProjectID
+        }
+        screenplayDraftBridge.preferredVersionID = debugVersionID
+        screenplayDraftBridge.debugRequestedVersionID = debugVersionID
+        screenplayDraftBridge.debugProjectLoadToken = newValue
+        liveScreenplayVersionID = debugVersionID
+        // Stage the requested project in the shell and open Studio, but let the
+        // Studio screen acknowledge once the actual selectProject path completes.
+        openStudio()
+        #endif
+    }
+
     private func handleStudioDebugVoiceTurnTokenChange(_ newValue: Int) {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         handleStudioDebugVoiceTurnCommand(
             token: newValue,
             promptOverride: nil,
@@ -697,7 +1000,7 @@ struct ContentView: View {
         promptOverride: String?,
         projectIDOverride: String?
     ) {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard token > 0 else { return }
         guard token != lastHandledStudioDebugVoiceTurnToken else { return }
         lastHandledStudioDebugVoiceTurnToken = token
@@ -725,7 +1028,7 @@ struct ContentView: View {
     }
 
     private func handleOrbEchoDebugShowChange(_ newValue: Int) {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard newValue > 0 else { return }
         showReplyEcho(
             user: orbEchoDebugUserText,
@@ -736,14 +1039,14 @@ struct ContentView: View {
     }
 
     private func handleOrbEchoDebugHideChange(_ newValue: Int) {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard newValue > 0 else { return }
         hideReplyEcho(debugToken: newValue)
         #endif
     }
 
     private func handleHomeTurnCueDebugTokenChange(_ newValue: Int) {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard newValue > 0 else { return }
         let cleaned = homeTurnCueDebugText.trimmingCharacters(in: .whitespacesAndNewlines)
         let probeText = cleaned.isEmpty ? "Hey, can we talk for a second?" : cleaned
@@ -757,15 +1060,9 @@ struct ContentView: View {
         #endif
     }
 
-#if DEBUG
+#if DEBUG || os(macOS)
     private func copyStudioDebugPreferenceValue(forKey key: String) -> Any? {
-        #if os(macOS)
-        CFPreferencesAppSynchronize(studioDebugPreferencesDomain)
-        return CFPreferencesCopyAppValue(key as CFString, studioDebugPreferencesDomain)
-        #else
-        UserDefaults.standard.synchronize()
-        return UserDefaults.standard.object(forKey: key)
-        #endif
+        studioDebugPreferenceValues(forKey: key).first
     }
 
     private func studioDebugPreferenceInt(_ key: String, fallback: Int = 0) -> Int {
@@ -790,21 +1087,11 @@ struct ContentView: View {
     }
 
     private func setStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
-        UserDefaults.standard.set(value, forKey: key)
-        #if os(macOS)
-        CFPreferencesSetAppValue(key as CFString, NSNumber(value: value), studioDebugPreferencesDomain)
-        CFPreferencesAppSynchronize(studioDebugPreferencesDomain)
-        #endif
-        UserDefaults.standard.synchronize()
+        writeStudioDebugPreferenceInt(value, forKey: key)
     }
 
     private func setStudioDebugPreferenceString(_ value: String, forKey key: String) {
-        UserDefaults.standard.set(value, forKey: key)
-        #if os(macOS)
-        CFPreferencesSetAppValue(key as CFString, value as CFString, studioDebugPreferencesDomain)
-        CFPreferencesAppSynchronize(studioDebugPreferencesDomain)
-        #endif
-        UserDefaults.standard.synchronize()
+        writeStudioDebugPreferenceString(value, forKey: key)
     }
 
     private func currentStudioDebugVoiceTurnTextFromDefaults() -> String {
@@ -815,6 +1102,14 @@ struct ContentView: View {
     private func currentStudioDebugVoiceTurnProjectIDFromDefaults() -> String {
         let value = studioDebugPreferenceString("studio_debug_voice_turn_project_id")
         return value.isEmpty ? studioDebugVoiceTurnProjectID : value
+    }
+
+    private func noteStudioDebugLifecycle(_ stage: String) {
+        let cleanStage = stage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanStage.isEmpty else { return }
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        setStudioDebugPreferenceString(cleanStage, forKey: "studio_debug_lifecycle_stage")
+        setStudioDebugPreferenceInt(timestamp, forKey: "studio_debug_lifecycle_timestamp_ms")
     }
 
     @MainActor
@@ -851,9 +1146,18 @@ struct ContentView: View {
     }
 
     private func processPendingStudioDebugCommandsIfNeeded() {
+        handleStudioDebugLoadProjectRequestFileIfNeeded()
+
         let openToken = studioDebugPreferenceInt("studio_debug_open_token")
         if openToken > 0 {
+            noteStudioDebugLifecycle("open_token_seen")
             handleStudioDebugOpenChange(openToken)
+        }
+
+        let loadProjectToken = studioDebugPreferenceInt("studio_debug_load_project_token")
+        if loadProjectToken > 0 {
+            noteStudioDebugLifecycle("load_token_seen")
+            handleStudioDebugLoadProjectTokenChange(loadProjectToken)
         }
 
         let voiceToken = studioDebugPreferenceInt("studio_debug_voice_turn_token")
@@ -862,9 +1166,40 @@ struct ContentView: View {
         }
     }
 
+    private func handleStudioDebugLoadProjectRequestFileIfNeeded() {
+        #if os(macOS)
+        guard let data = try? Data(contentsOf: studioDebugLoadProjectRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {
+            return
+        }
+        guard request.token > 0 else { return }
+        guard request.token != lastHandledStudioDebugLoadProjectRequestToken else { return }
+        lastHandledStudioDebugLoadProjectRequestToken = request.token
+        noteStudioDebugLifecycle("load_request_file_consumed")
+        try? FileManager.default.removeItem(at: studioDebugLoadProjectRequestURL)
+        let debugProjectID = request.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let debugVersionID = request.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !debugProjectID.isEmpty {
+            screenplayDraftBridge.preferredProjectID = debugProjectID
+            screenplayDraftBridge.debugRequestedProjectID = debugProjectID
+            liveScreenplayProjectID = debugProjectID
+        }
+        screenplayDraftBridge.preferredVersionID = debugVersionID
+        screenplayDraftBridge.debugRequestedVersionID = debugVersionID
+        screenplayDraftBridge.debugProjectLoadToken = request.token
+        liveScreenplayVersionID = debugVersionID
+        setStudioDebugPreferenceString(debugProjectID, forKey: "studio_debug_load_project_id")
+        setStudioDebugPreferenceString(debugVersionID, forKey: "studio_debug_load_project_version_id")
+        setStudioDebugPreferenceInt(0, forKey: "studio_debug_load_project_ack_token")
+        setStudioDebugPreferenceInt(request.token, forKey: "studio_debug_load_project_token")
+        openStudio()
+        #endif
+    }
+
     #if os(macOS)
     private func startStudioDebugCommandPolling() {
         studioDebugCommandPollTask?.cancel()
+        noteStudioDebugLifecycle("polling_started")
         studioDebugCommandPollTask = Task { @MainActor in
             while !Task.isCancelled {
                 processPendingStudioDebugCommandsIfNeeded()
@@ -1000,6 +1335,7 @@ struct ContentView: View {
     private func appendStudioDebugVoiceDraftBreadcrumb(
         event: String,
         detail: String,
+        interruptionReason: String? = nil,
         replyPreview: String = "",
         restorePreview: Bool? = nil,
         tokenOverride: Int? = nil,
@@ -1022,6 +1358,9 @@ struct ContentView: View {
             token: effectiveToken,
             event: cleanEvent,
             detail: detail,
+            interruptionReason: interruptionReason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? interruptionReason?.trimmingCharacters(in: .whitespacesAndNewlines)
+                : nil,
             promptPreview: String(promptPreviewSource.prefix(220)),
             replyPreview: String(replyPreview.prefix(220)),
             restorePreview: restorePreview,
@@ -1055,10 +1394,16 @@ struct ContentView: View {
         error: String,
         prompt: String,
         turnID: String,
+        preparedUseScreenplayMode: Bool = false,
+        preparedShouldWriteToPage: Bool = false,
+        preparedMemoryDomain: String = "",
+        requestedScreenplayTarget: String = "",
         timingSource: String = "",
         screenplayOutputTarget: String = "",
+        screenplayOutputSource: String = "",
         screenplayOutputText: String = "",
         screenplayCues: [BackendTalkScreenplayCue] = [],
+        dialogueTimeline: BackendTalkDialogueTimelineRevision? = nil,
         insertedPreview: String,
         replyPreview: String,
         finalCommittedPageText: String = "",
@@ -1069,6 +1414,10 @@ struct ContentView: View {
         dispatchErrorDomain: String = "",
         dispatchErrorCode: Int? = nil,
         dispatchErrorDescription: String = "",
+        syncedVoiceSeekApplied: Bool = false,
+        syncedVoiceSeekCount: Int = 0,
+        syncedVoiceSeekFromMs: Int? = nil,
+        syncedVoiceSeekToMs: Int? = nil,
         appendPersistenceBreadcrumb: Bool = true
     ) {
         let formatter = ISO8601DateFormatter()
@@ -1081,6 +1430,10 @@ struct ContentView: View {
 
         func firstMatchingDetail(for event: String) -> String {
             breadcrumbs.first(where: { $0.event == event })?.detail ?? ""
+        }
+
+        func firstInterruptionReason(for event: String) -> String {
+            breadcrumbs.first(where: { $0.event == event })?.interruptionReason ?? ""
         }
 
         func requestID(from detail: String) -> String {
@@ -1135,6 +1488,7 @@ struct ContentView: View {
         let draftStartedAt = firstDate(for: "request_started")
         let headerTextCommittedAt = firstDate(for: "header_text_committed")
         let commitAt = firstDate(for: "request_committed")
+        let firstAudioSegmentReadyAt = firstDate(for: "first_audio_segment_ready")
         let playbackStartedAt = firstDate(for: "assistant_playback_started")
         let playbackFinishedAt = firstDate(for: "assistant_playback_finished")
         let renderMetaDetail = firstMatchingDetail(for: "render_stream_meta_received")
@@ -1159,6 +1513,16 @@ struct ContentView: View {
         } else {
             committedWhileAssistantSpeaking = false
         }
+        let syncedInsertInterruptionReason = firstInterruptionReason(for: "synced_insert_cancelled")
+        let syncedVoiceState = screenplayDraftBridge.syncedVoiceTurnState
+        let syncedVoiceFallbackCommitted = screenplayDraftBridge.syncedVoiceFallbackCommitted
+            || breadcrumbs.contains(where: { $0.event == "synced_insert_fallback_committed" })
+        let syncedVoiceFallbackReason = {
+            let bridgeReason = screenplayDraftBridge.syncedVoiceFallbackReason
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !bridgeReason.isEmpty { return bridgeReason }
+            return firstMatchingDetail(for: "synced_insert_fallback_committed")
+        }()
         let resolvedDispatchBaseURL = dispatchResolvedBaseURL.isEmpty
             ? firstFieldValue(for: "talk_dispatch_base_url_resolved", key: "base_url")
             : dispatchResolvedBaseURL
@@ -1182,6 +1546,9 @@ struct ContentView: View {
         let resolvedDispatchErrorDescription = dispatchErrorDescription.isEmpty
             ? firstFieldValue(for: "talk_dispatch_failed", key: "description")
             : dispatchErrorDescription
+        let playbackStartSource = firstFieldValue(for: "assistant_playback_started", key: "source")
+        let syncedVoiceCueDensified = syncedVoiceState.cueCount > screenplayCues.count
+            && screenplayCues.count > 0
 
         let snapshot = StudioDebugVoiceTurnResultSnapshot(
             token: token,
@@ -1189,11 +1556,17 @@ struct ContentView: View {
             error: error,
             prompt: prompt,
             turnID: turnID,
+            preparedUseScreenplayMode: preparedUseScreenplayMode,
+            preparedShouldWriteToPage: preparedShouldWriteToPage,
+            preparedMemoryDomain: preparedMemoryDomain,
+            requestedScreenplayTarget: requestedScreenplayTarget,
             timingSource: timingSource,
             screenplayOutputTarget: screenplayOutputTarget,
+            screenplayOutputSource: screenplayOutputSource,
             screenplayOutputText: screenplayOutputText,
             screenplayCueCount: screenplayCues.count,
             screenplayCues: screenplayCues,
+            dialogueTimeline: dialogueTimeline,
             acknowledgedAtISO8601: acknowledgedAt.map { formatter.string(from: $0) },
             renderRequestID: renderRequestID,
             renderServerFirstDeltaMs: milliseconds(from: renderFirstDeltaDetail),
@@ -1211,10 +1584,32 @@ struct ContentView: View {
             draftStartedAtISO8601: draftStartedAt.map { formatter.string(from: $0) },
             headerTextCommittedAtISO8601: headerTextCommittedAt.map { formatter.string(from: $0) },
             commitAtISO8601: commitAt.map { formatter.string(from: $0) },
+            firstAudioSegmentReadyAtISO8601: firstAudioSegmentReadyAt.map { formatter.string(from: $0) },
             playbackStartedAtISO8601: playbackStartedAt.map { formatter.string(from: $0) },
+            playbackStartSource: playbackStartSource,
             playbackFinishedAtISO8601: playbackFinishedAt.map { formatter.string(from: $0) },
             draftStartedBeforePlaybackFinished: draftStartedBeforePlaybackFinished,
             committedWhileAssistantSpeaking: committedWhileAssistantSpeaking,
+            syncedInsertInterruptionReason: syncedInsertInterruptionReason,
+            syncedVoicePhase: syncedVoiceState.phase.rawValue,
+            syncedVoiceAppliedCueCount: screenplayDraftBridge.syncedVoiceAppliedCueCount,
+            syncedVoiceCueCount: syncedVoiceState.cueCount,
+            syncedVoiceCueDensified: syncedVoiceCueDensified,
+            syncedVoiceTimingSource: syncedVoiceState.timingSource,
+            syncedVoiceFallbackCommitted: syncedVoiceFallbackCommitted,
+            syncedVoiceFallbackReason: syncedVoiceFallbackReason,
+            syncedVoicePlaybackDriftMs: screenplayDraftBridge.syncedVoicePlaybackDriftMs,
+            syncedVoiceActiveSegmentID: syncedVoiceState.activeSegmentID,
+            syncedVoiceActiveSceneID: syncedVoiceState.activeSceneID,
+            syncedVoiceActiveBeatID: syncedVoiceState.activeBeatID,
+            syncedVoiceActiveScriptNodeID: syncedVoiceState.activeScriptNodeID,
+            syncedVoiceSeekApplied: syncedVoiceSeekApplied,
+            syncedVoiceSeekCount: syncedVoiceSeekCount,
+            syncedVoiceSeekFromMs: syncedVoiceSeekFromMs,
+            syncedVoiceSeekToMs: syncedVoiceSeekToMs,
+            syncedVoicePreviewReplyOnly: syncedVoiceState.previewReplyOnly,
+            syncedVoiceSyncReady: syncedVoiceState.renderContract.syncReady,
+            syncedVoiceAuthoritativePageTextAvailable: syncedVoiceState.renderContract.authoritativePageTextAvailable,
             breadcrumbs: breadcrumbs
         )
 
@@ -1239,6 +1634,7 @@ struct ContentView: View {
                     "token": breadcrumb.token,
                     "event": breadcrumb.event,
                     "detail": breadcrumb.detail,
+                    "interruptionReason": breadcrumb.interruptionReason as Any,
                     "promptPreview": breadcrumb.promptPreview,
                     "replyPreview": breadcrumb.replyPreview,
                     "restorePreview": breadcrumb.restorePreview as Any,
@@ -1254,17 +1650,31 @@ struct ContentView: View {
                     "end_ms": cue.endMs,
                 ]
             }
+            let manualDialogueTimeline: Any = {
+                guard let dialogueTimeline,
+                      let data = try? JSONEncoder().encode(dialogueTimeline),
+                      let object = try? JSONSerialization.jsonObject(with: data, options: []) else {
+                    return NSNull()
+                }
+                return object
+            }()
             let manualSnapshot: [String: Any] = [
                 "token": token,
                 "status": status,
                 "error": error,
                 "prompt": prompt,
                 "turnID": turnID,
+                "preparedUseScreenplayMode": preparedUseScreenplayMode,
+                "preparedShouldWriteToPage": preparedShouldWriteToPage,
+                "preparedMemoryDomain": preparedMemoryDomain,
+                "requestedScreenplayTarget": requestedScreenplayTarget,
                 "timingSource": timingSource,
                 "screenplayOutputTarget": screenplayOutputTarget,
+                "screenplayOutputSource": screenplayOutputSource,
                 "screenplayOutputText": screenplayOutputText,
                 "screenplayCueCount": screenplayCues.count,
                 "screenplayCues": manualScreenplayCues,
+                "dialogueTimeline": manualDialogueTimeline,
                 "acknowledgedAtISO8601": acknowledgedAt.map { formatter.string(from: $0) } as Any,
                 "renderRequestID": renderRequestID,
                 "renderServerFirstDeltaMs": milliseconds(from: renderFirstDeltaDetail) as Any,
@@ -1282,10 +1692,32 @@ struct ContentView: View {
                 "draftStartedAtISO8601": draftStartedAt.map { formatter.string(from: $0) } as Any,
                 "headerTextCommittedAtISO8601": headerTextCommittedAt.map { formatter.string(from: $0) } as Any,
                 "commitAtISO8601": commitAt.map { formatter.string(from: $0) } as Any,
+                "firstAudioSegmentReadyAtISO8601": firstAudioSegmentReadyAt.map { formatter.string(from: $0) } as Any,
                 "playbackStartedAtISO8601": playbackStartedAt.map { formatter.string(from: $0) } as Any,
+                "playbackStartSource": playbackStartSource,
                 "playbackFinishedAtISO8601": playbackFinishedAt.map { formatter.string(from: $0) } as Any,
                 "draftStartedBeforePlaybackFinished": draftStartedBeforePlaybackFinished,
                 "committedWhileAssistantSpeaking": committedWhileAssistantSpeaking,
+                "syncedInsertInterruptionReason": syncedInsertInterruptionReason,
+                "syncedVoicePhase": syncedVoiceState.phase.rawValue,
+                "syncedVoiceAppliedCueCount": screenplayDraftBridge.syncedVoiceAppliedCueCount,
+                "syncedVoiceCueCount": syncedVoiceState.cueCount,
+                "syncedVoiceCueDensified": syncedVoiceCueDensified,
+                "syncedVoiceTimingSource": syncedVoiceState.timingSource,
+                "syncedVoiceFallbackCommitted": syncedVoiceFallbackCommitted,
+                "syncedVoiceFallbackReason": syncedVoiceFallbackReason,
+                "syncedVoicePlaybackDriftMs": screenplayDraftBridge.syncedVoicePlaybackDriftMs,
+                "syncedVoiceActiveSegmentID": syncedVoiceState.activeSegmentID as Any,
+                "syncedVoiceActiveSceneID": syncedVoiceState.activeSceneID,
+                "syncedVoiceActiveBeatID": syncedVoiceState.activeBeatID as Any,
+                "syncedVoiceActiveScriptNodeID": syncedVoiceState.activeScriptNodeID,
+                "syncedVoiceSeekApplied": syncedVoiceSeekApplied,
+                "syncedVoiceSeekCount": syncedVoiceSeekCount,
+                "syncedVoiceSeekFromMs": syncedVoiceSeekFromMs as Any,
+                "syncedVoiceSeekToMs": syncedVoiceSeekToMs as Any,
+                "syncedVoicePreviewReplyOnly": syncedVoiceState.previewReplyOnly,
+                "syncedVoiceSyncReady": syncedVoiceState.renderContract.syncReady,
+                "syncedVoiceAuthoritativePageTextAvailable": syncedVoiceState.renderContract.authoritativePageTextAvailable,
                 "breadcrumbs": manualBreadcrumbs,
             ]
             if JSONSerialization.isValidJSONObject(manualSnapshot),
@@ -1340,6 +1772,7 @@ struct ContentView: View {
         turnID: String,
         insertedPreview: String,
         replyPreview: String,
+        dialogueTimeline: BackendTalkDialogueTimelineRevision? = nil,
         finalCommittedPageText: String = "",
         dispatchResolvedBaseURL: String = "",
         talkRequestURL: String = "",
@@ -1355,6 +1788,7 @@ struct ContentView: View {
             error: error,
             prompt: prompt,
             turnID: turnID,
+            dialogueTimeline: dialogueTimeline,
             insertedPreview: insertedPreview,
             replyPreview: replyPreview,
             finalCommittedPageText: finalCommittedPageText,
@@ -1410,6 +1844,13 @@ struct ContentView: View {
 #endif
 
     private func handleContentViewAppear() {
+        #if DEBUG || os(macOS)
+        noteStudioDebugLifecycle("content_view_appear")
+        #if os(macOS)
+        startStudioDebugCommandPolling()
+        #endif
+        processPendingStudioDebugCommandsIfNeeded()
+        #endif
         ensureSessionBumped()
         onboardingName = evolution.preferredName
         if evolution.needsOnboardingName {
@@ -1441,12 +1882,6 @@ struct ContentView: View {
         }
 
         installMacKeyMonitorIfNeeded()
-#if DEBUG
-        #if os(macOS)
-        startStudioDebugCommandPolling()
-        #endif
-        processPendingStudioDebugCommandsIfNeeded()
-#endif
     }
 
     private func configureVoiceCallbacks() {
@@ -1463,7 +1898,7 @@ struct ContentView: View {
             HerLog.ui.info("barge-in detected -> interrupting assistant audio")
             isThinking = false
             speculativeTalk.cancel()
-            screenplayDraftBridge.cancelStream()
+            screenplayDraftBridge.cancelStream(reason: .bargeIn)
         }
         voice.onPartialTranscript = { partial in
             livePartialTranscript = partial
@@ -1477,20 +1912,21 @@ struct ContentView: View {
             let cleaned = partial.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
             let screenplayModeHint = isStudioSurfaceActive || shouldAutoOpenStudioForScriptIntent(cleaned)
+            let speculativePreparedPrompt = buildPreparedTurnPrompt(
+                confirmedTranscript: cleaned,
+                partialHint: cleaned,
+                isScreenplayModeOverride: screenplayModeHint,
+                turnKeyNamespace: "speculative"
+            )
             speculativeTalk.prepareIfNeeded(
                 seedText: cleaned,
-                isScreenplayMode: screenplayModeHint
-            ) { seedText, isScreenplayMode in
-                let prepared = buildPreparedTurnPrompt(
-                    confirmedTranscript: seedText,
-                    partialHint: seedText,
-                    isScreenplayModeOverride: isScreenplayMode,
-                    turnKeyNamespace: "speculative"
-                )
+                isScreenplayMode: speculativePreparedPrompt.useScreenplayMode,
+                shouldWriteToPage: speculativePreparedPrompt.shouldWriteToPage
+            ) { _, _, _ in
                 return await systemPromptWithVisualContext(
-                    prepared.baseSystemPrompt,
-                    userMessage: prepared.directorText,
-                    isScreenplayMode: prepared.useScreenplayMode
+                    speculativePreparedPrompt.baseSystemPrompt,
+                    userMessage: speculativePreparedPrompt.directorText,
+                    isScreenplayMode: speculativePreparedPrompt.useScreenplayMode
                 )
             }
             speculativeTalk.consider(
@@ -1535,6 +1971,14 @@ struct ContentView: View {
         realtimeTransport.onUserTranscriptPartial = { partial in
             let cleaned = partial.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
+            if realtimeTransport.isAssistantSpeaking {
+                realtimeAssistantTranscriptFallbackTask?.cancel()
+                realtimeAssistantTranscriptFallbackTask = nil
+                realtimeTransport.interruptAssistant()
+                if isStudioSurfaceActive {
+                    cancelRealtimeStudioDraftStream(restorePreview: true)
+                }
+            }
             livePartialTranscript = String(cleaned.prefix(320))
             lastNonEmptyPartialTranscriptHint = String(cleaned.prefix(320))
             hideReplyEcho()
@@ -1542,11 +1986,29 @@ struct ContentView: View {
         realtimeTransport.onUserTranscriptFinal = { finalTranscript in
             let cleaned = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
-            transcript = cleaned
+            let preparedPrompt = buildPreparedTurnPrompt(
+                confirmedTranscript: cleaned,
+                partialHint: cleaned,
+                turnKeyNamespace: "realtime"
+            )
+            screenplayDraftBridge.applyCompanionSignalState(
+                preparedPrompt.companionSignals,
+                persist: false
+            )
+            if preparedPrompt.memoryDomain != .companion {
+                HerEvolutionStore.shared.noteCreativeContext(
+                    from: preparedPrompt.directorText,
+                    isScreenplayMode: preparedPrompt.useScreenplayMode
+                )
+            }
+            if preparedPrompt.shouldAutoOpenStudio, !isStudioSurfaceActive {
+                openStudio()
+            }
+            transcript = preparedPrompt.directorText
             livePartialTranscript = ""
-            lastNonEmptyPartialTranscriptHint = String(cleaned.prefix(320))
+            lastNonEmptyPartialTranscriptHint = String(preparedPrompt.directorText.prefix(320))
             let localCommand = runLocalStudioCommandIfNeeded(
-                cleaned,
+                preparedPrompt.directorText,
                 source: .voice,
                 shouldSpeakConfirmation: true
             )
@@ -1554,8 +2016,10 @@ struct ContentView: View {
                 realtimePendingUserTranscript = ""
                 return
             }
-            realtimePendingUserTranscript = cleaned
-            startRealtimeStudioDraftStreamIfNeeded(for: cleaned)
+            realtimePendingUserTranscript = preparedPrompt.directorText
+            if isStudioSurfaceActive || preparedPrompt.shouldAutoOpenStudio {
+                startRealtimeStudioDraftStreamIfNeeded(for: preparedPrompt.directorText)
+            }
         }
         realtimeTransport.onAssistantTranscriptFinal = { finalTranscript in
             let cleaned = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1593,7 +2057,7 @@ struct ContentView: View {
     }
 
     private func handleContentViewDisappear() {
-#if DEBUG
+#if DEBUG || os(macOS)
         #if os(macOS)
         stopStudioDebugCommandPolling()
         #endif
@@ -1634,13 +2098,13 @@ struct ContentView: View {
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
         guard newPhase == .active else { return }
+#if DEBUG || os(macOS)
+        processPendingStudioDebugCommandsIfNeeded()
+#endif
         scheduleBackendHydration()
         Task { @MainActor in
             await screenplayDraftBridge.hydrateBackendCompanionState(force: false)
         }
-#if DEBUG
-        processPendingStudioDebugCommandsIfNeeded()
-#endif
     }
 
     private func handleVoiceTransportModeChange(_ newValue: String) {
@@ -1981,6 +2445,7 @@ struct ContentView: View {
                                 .padding(.top, 2)
                                 .transition(.opacity)
                         }
+                        homeCompanionSignalCard
                         if !lastKnowledgeCitations.isEmpty {
                             VStack(alignment: .center, spacing: 4) {
                                 Text("Sources: \(lastKnowledgeCitations.prefix(2).joined(separator: " • "))")
@@ -2553,6 +3018,7 @@ struct ContentView: View {
         let shouldAutoOpenStudio: Bool
         let memoryDomain: StudioMemoryDomain
         let director: HerDirectorContext
+        let companionSignals: CreativeCompanionSignalState
         let baseSystemPrompt: String
     }
 
@@ -2649,7 +3115,15 @@ struct ContentView: View {
         return systemPrompt + "\n\n" + instruction
     }
 
-#if DEBUG
+    private func appendingCreativeIntentInstruction(
+        to systemPrompt: String,
+        signalState: CreativeCompanionSignalState
+    ) -> String {
+        guard signalState.hasContent else { return systemPrompt }
+        return systemPrompt + "\n\n" + signalState.promptGuidance()
+    }
+
+#if DEBUG || os(macOS)
     private struct DebugStudioPromptStubReply {
         let target: ScreenplayStudioUserPrompt.Target
         let pack: String
@@ -2665,6 +3139,131 @@ struct ContentView: View {
         studioDebugSubmitTransportMode
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() == "stub"
+    }
+
+    private func debugStudioPromptLooksLikeRewriteIntent(_ prompt: String) -> Bool {
+        let clean = prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !clean.isEmpty else { return false }
+        let cues = [
+            "rewrite",
+            "replace",
+            "restore",
+            "shorter",
+            "sharper",
+            "same line",
+            "last line",
+            "last write"
+        ]
+        return cues.contains(where: { clean.contains($0) })
+    }
+
+    private func debugStudioStubRewriteBlock(
+        from source: String,
+        prompt: String
+    ) -> String {
+        let cleanSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanSource.isEmpty else { return source }
+        let normalizedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var lines = cleanSource.components(separatedBy: .newlines)
+        guard let lastIndex = lines.lastIndex(where: {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            return cleanSource
+        }
+
+        let currentLine = lines[lastIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        let rewrittenLine: String
+        if normalizedPrompt.contains("shorter") {
+            rewrittenLine = currentLine.uppercased().hasPrefix("FRANK")
+                ? "FRANK meets her eyes."
+                : String(currentLine.prefix(32)).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if normalizedPrompt.contains("sharper") {
+            rewrittenLine = currentLine.uppercased().hasPrefix("FRANK")
+                ? "FRANK finally looks up."
+                : currentLine
+        } else {
+            rewrittenLine = currentLine.uppercased().hasPrefix("FRANK")
+                ? "FRANK looks up."
+                : currentLine
+        }
+        lines[lastIndex] = rewrittenLine
+        return lines.joined(separator: "\n")
+    }
+
+    private func debugStudioStubCommittedPageWrite(
+        existingDraft: String,
+        requestID: String,
+        insertedText: String
+    ) -> ScreenplayCommittedWrite {
+        let replacementTarget = screenplayDraftBridge.submittedReplacementTarget
+            ?? screenplayDraftBridge.pendingReplacementTarget
+        let writeID = "debug-write-\(requestID.lowercased())"
+        let cleanInsertedText = insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let replacementTarget {
+            screenplayDraftBridge.debugTraceReplacementTarget(
+                kind: "capture-submit",
+                target: replacementTarget,
+                detail: "Captured replacement target for stub submit.",
+                requestID: requestID
+            )
+            let originalLines = existingDraft.components(separatedBy: .newlines)
+            let safeStartLine = max(1, replacementTarget.startLine)
+            let safeEndLine = max(safeStartLine, replacementTarget.endLine)
+            if !originalLines.isEmpty, safeStartLine <= originalLines.count {
+                let startIndex = max(0, safeStartLine - 1)
+                let endIndex = min(max(startIndex, safeEndLine - 1), originalLines.count - 1)
+                var rewrittenLines = originalLines
+                rewrittenLines.replaceSubrange(
+                    startIndex...endIndex,
+                    with: cleanInsertedText.components(separatedBy: .newlines)
+                )
+                screenplayDraftBridge.debugTraceReplacementTarget(
+                    kind: "resolve-fallback-line-range",
+                    target: replacementTarget,
+                    detail: "Resolved stub replacement using stored line range.",
+                    requestID: requestID
+                )
+                screenplayDraftBridge.debugTraceReplacementTarget(
+                    kind: "commit-standard-replacement",
+                    target: replacementTarget,
+                    detail: "Committed stub replacement write.",
+                    requestID: requestID
+                )
+                return ScreenplayCommittedWrite(
+                    id: UUID(),
+                    writeID: writeID,
+                    previousDraft: existingDraft,
+                    committedDraft: rewrittenLines.joined(separator: "\n"),
+                    insertedText: cleanInsertedText,
+                    replacementApplied: true,
+                    replacedWriteID: replacementTarget.sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? nil
+                        : replacementTarget.sourceWriteID,
+                    startLine: safeStartLine,
+                    endLine: safeStartLine + max(1, cleanInsertedText.components(separatedBy: .newlines).count) - 1,
+                    committedAt: Date()
+                )
+            }
+        }
+
+        let committedDraft = mergedStudioDraft(existing: existingDraft, insertion: cleanInsertedText)
+        let previousLines = existingDraft.components(separatedBy: .newlines)
+        let cleanPreviousDraft = existingDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let startLine = cleanPreviousDraft.isEmpty ? 1 : previousLines.count + 2
+        let insertedLineCount = max(1, cleanInsertedText.components(separatedBy: .newlines).count)
+        return ScreenplayCommittedWrite(
+            id: UUID(),
+            writeID: writeID,
+            previousDraft: existingDraft,
+            committedDraft: committedDraft,
+            insertedText: cleanInsertedText,
+            replacementApplied: false,
+            replacedWriteID: nil,
+            startLine: startLine,
+            endLine: startLine + insertedLineCount - 1,
+            committedAt: Date()
+        )
     }
 
     private func makeDebugStudioPromptStubReply(
@@ -2684,7 +3283,7 @@ struct ContentView: View {
             : screenplayDraftBridge.preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if shouldWriteToPage {
-            let insertedText = """
+            let defaultInsertedText = """
 INT. KITCHEN - DAY
 
 LUCY hovers in the doorway, jaw set, while FRANK keeps his eyes on the cold coffee in front of him.
@@ -2694,6 +3293,16 @@ You don't get to disappear every time the truth gets loud.
 
 FRANK looks up, finally forced to meet her.
 """
+            let insertedText: String
+            if debugStudioPromptLooksLikeRewriteIntent(prompt),
+               let replacementTarget = screenplayDraftBridge.submittedReplacementTarget ?? screenplayDraftBridge.pendingReplacementTarget {
+                insertedText = debugStudioStubRewriteBlock(
+                    from: replacementTarget.currentText,
+                    prompt: prompt
+                )
+            } else {
+                insertedText = defaultInsertedText
+            }
             return DebugStudioPromptStubReply(
                 target: .page,
                 pack: pack,
@@ -2771,27 +3380,14 @@ You're carrying both the scene problem and the pressure around it. For the midpo
         )
 
         if stub.target == .page {
-            let previousDraft = screenplayDraftBridge.draftText
-            let committedDraft = mergedStudioDraft(existing: previousDraft, insertion: stub.insertedText)
-            let previousLines = previousDraft.components(separatedBy: .newlines)
-            let cleanPreviousDraft = previousDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            let startLine = cleanPreviousDraft.isEmpty ? 1 : previousLines.count + 2
-            let insertedLineCount = max(1, stub.insertedText.components(separatedBy: .newlines).count)
-            let endLine = startLine + insertedLineCount - 1
-
-            screenplayDraftBridge.draftText = committedDraft
-            screenplayDraftBridge.lastCommittedWrite = ScreenplayCommittedWrite(
-                id: UUID(),
-                writeID: "stub-\(requestID)",
-                previousDraft: previousDraft,
-                committedDraft: committedDraft,
-                insertedText: stub.insertedText,
-                replacementApplied: false,
-                replacedWriteID: nil,
-                startLine: startLine,
-                endLine: endLine,
-                committedAt: Date()
+            let committedWrite = debugStudioStubCommittedPageWrite(
+                existingDraft: screenplayDraftBridge.draftText,
+                requestID: requestID,
+                insertedText: stub.insertedText
             )
+
+            screenplayDraftBridge.draftText = committedWrite.committedDraft
+            screenplayDraftBridge.lastCommittedWrite = committedWrite
             screenplayDraftBridge.lastUpdatedAt = Date()
             liveScreenplayText = stub.insertedText
             liveScreenplayPack = stub.pack
@@ -2799,11 +3395,14 @@ You're carrying both the scene problem and the pressure around it. For the midpo
             liveScreenplayProjectID = stub.projectID
             liveScreenplayVersionID = stub.versionID
             liveScreenplayUpdatedAt = Date()
+            screenplayDraftBridge.clearPendingPageWriteReplacement()
             screenplayDraftBridge.updateAssistantPin(
                 mode: "page",
                 category: "Scene",
                 title: stub.noteTitle,
-                body: "Stubbed page write committed for deterministic Studio route validation.",
+                body: committedWrite.replacementApplied
+                    ? "Stubbed page rewrite committed for deterministic Studio route validation."
+                    : "Stubbed page write committed for deterministic Studio route validation.",
                 badge: stub.pack,
                 actionSummary: stub.insertedText.components(separatedBy: .newlines).first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? "Page write"
             )
@@ -3025,6 +3624,10 @@ You're carrying both the scene problem and the pressure around it. For the midpo
             turnKey: turnKey,
             isScreenplayMode: useScreenplayModeForTurn
         )
+        let recentTurns = studioRecentTurns(
+            for: memoryDomain,
+            isScreenplayMode: useScreenplayModeForTurn
+        )
         let shouldWriteToPage = useScreenplayModeForTurn
             ? shouldRouteStudioPromptToPage(
                 directorText,
@@ -3071,19 +3674,31 @@ You're carrying both the scene problem and the pressure around it. For the midpo
             isGrief: director.isGrief,
             isAnxious: director.isAnxious,
             isCelebrating: director.isCelebrating,
-            recentTurns: studioRecentTurns(
-                for: memoryDomain,
-                isScreenplayMode: useScreenplayModeForTurn
-            ),
+            recentTurns: recentTurns,
             partialTranscriptHint: partialHint,
             voicedRatio: voice.lastFinalTurnHints.voicedRatio,
             speechAgeSeconds: voice.lastFinalTurnHints.speechAgeSeconds,
             hasStrongPartial: voice.lastFinalTurnHints.hasStrongPartial
         )))
-        let baseSystemPrompt = appendingStudioMemoryDomainInstruction(
+        let companionSignals = CreativeCompanionSignalEngine.build(
+            context: director,
+            memoryDomain: memoryDomain,
+            companionMode: screenplayDraftBridge.companionMode,
+            isScreenplayMode: useScreenplayModeForTurn,
+            shouldWriteToPage: shouldWriteToPage,
+            screenplayPhaseHint: screenplayPhaseHint,
+            screenplayPackHint: screenplayPackHint,
+            recentTurns: recentTurns,
+            sourceText: directorText
+        )
+        let memoryRoutedSystemPrompt = appendingStudioMemoryDomainInstruction(
             to: rawBaseSystemPrompt,
             memoryDomain: memoryDomain,
             shouldWriteToPage: shouldWriteToPage
+        )
+        let baseSystemPrompt = appendingCreativeIntentInstruction(
+            to: memoryRoutedSystemPrompt,
+            signalState: companionSignals
         )
 
         return PreparedTurnPrompt(
@@ -3094,6 +3709,7 @@ You're carrying both the scene problem and the pressure around it. For the midpo
             shouldAutoOpenStudio: shouldAutoOpenStudioForTurn,
             memoryDomain: memoryDomain,
             director: director,
+            companionSignals: companionSignals,
             baseSystemPrompt: baseSystemPrompt
         )
     }
@@ -3334,6 +3950,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if isSynopsisDevelopmentPrompt(userText) && !isExplicitStudioPageDestinationCue(userText) {
             return false
         }
+        let directPageWritePatterns = [
+            #"\bwrite\b.*\b(?:screenplay\s+)?action\s+line(?:s)?\b"#,
+            #"\bwrite\b.*\b(?:screenplay\s+)?dialogue\s+line(?:s)?\b"#
+        ]
+        if directPageWritePatterns.contains(where: {
+            normalized.range(of: $0, options: .regularExpression) != nil
+        }) {
+            return true
+        }
         let cues = [
             " write the scene ",
             " write a scene ",
@@ -3388,6 +4013,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     private func isExplicitStudioPageWritePrompt(_ userText: String) -> Bool {
         let normalized = " \(userText.lowercased()) "
+        let directPageWritePatterns = [
+            #"\bwrite\b.*\b(?:screenplay\s+)?action\s+line(?:s)?\b"#,
+            #"\bwrite\b.*\b(?:screenplay\s+)?dialogue\s+line(?:s)?\b"#
+        ]
+        if directPageWritePatterns.contains(where: {
+            normalized.range(of: $0, options: .regularExpression) != nil
+        }) {
+            return true
+        }
         let cues = [
             " write the scene ",
             " write a scene ",
@@ -3795,7 +4429,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             preferredTarget: requestedPromptTarget == .page ? .page : .voicePin
         )
         let promptTarget: ScreenplayStudioUserPrompt.Target
-        if cleanInsertedText.isEmpty || memoryDomain == .companion {
+        if !cleanInsertedText.isEmpty {
+            promptTarget = .page
+        } else if memoryDomain == .companion {
             promptTarget = .voicePin
         } else {
             promptTarget = requestedPromptTarget
@@ -4085,16 +4721,97 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let allowEarlyStreamPlayback = true
         var didStartEarlyStudioDraftStream = false
         var didStartEarlyStreamPlayback = false
+        var didRecordAssistantPlaybackStart = false
         var didStartSyncedVoiceInsert = false
+        var didCommitSyncedVoiceFallback = false
         var didCommitEarlyStudioDraftPreviewFallback = false
         var pendingStreamRemainderURL: URL?
-        var activeSyncedVoiceInsertText = ""
-        var pendingSyncedVoiceInsertText = ""
-        var pendingSyncedVoiceInsertCues: [ScreenplayVoiceCue] = []
-        var pendingSyncedVoiceInsertTimingSource = "estimated"
-        var pendingSyncedVoiceInsertAudioDuration: TimeInterval?
-        var pendingSyncedVoiceInsertRequestID = ""
-        var playbackTimeProvider: (@MainActor @Sendable () -> TimeInterval?)?
+        let syncedPlaybackClock = SegmentedPlaybackClock()
+        var debugSyncedPlaybackSeekApplied = false
+        var debugSyncedPlaybackSeekCount = 0
+        var debugSyncedPlaybackSeekFromMs: Int?
+        var debugSyncedPlaybackSeekToMs: Int?
+        var debugSyncedPlaybackTimeAdjustment: TimeInterval = 0
+
+        func resolvedDebugSyncedPlaybackObservation(
+            from observation: SegmentedPlaybackObservation?
+        ) -> SegmentedPlaybackObservation? {
+            guard var observation else { return nil }
+#if DEBUG || os(macOS)
+            let freezeAfterMs = max(
+                UserDefaults.standard.integer(forKey: "studio_debug_freeze_synced_voice_playback_after_ms"),
+                0
+            )
+            if freezeAfterMs > 0 {
+                let freezeAt = TimeInterval(freezeAfterMs) / 1_000.0
+                if observation.currentTime >= freezeAt {
+                    let estimatedTime = max(observation.estimatedTime, freezeAt)
+                    observation = SegmentedPlaybackObservation(
+                        currentTime: freezeAt,
+                        estimatedTime: estimatedTime,
+                        driftMs: max(Int(((estimatedTime - freezeAt) * 1_000.0).rounded()), 0),
+                        hasActiveSegment: observation.hasActiveSegment
+                    )
+                }
+            }
+
+            let seekAfterMs = max(
+                UserDefaults.standard.integer(forKey: "studio_debug_seek_synced_voice_playback_after_ms"),
+                0
+            )
+            let seekToMs = max(
+                UserDefaults.standard.integer(forKey: "studio_debug_seek_synced_voice_playback_to_ms"),
+                0
+            )
+            if seekAfterMs > 0 && seekToMs >= 0 {
+                let currentTimeMs = Int((observation.currentTime * 1_000.0).rounded())
+                if !debugSyncedPlaybackSeekApplied && currentTimeMs >= seekAfterMs {
+                    debugSyncedPlaybackSeekApplied = true
+                    debugSyncedPlaybackSeekCount += 1
+                    debugSyncedPlaybackSeekFromMs = currentTimeMs
+                    debugSyncedPlaybackSeekToMs = seekToMs
+                    debugSyncedPlaybackTimeAdjustment = (TimeInterval(seekToMs) / 1_000.0) - observation.currentTime
+                    if didStartSyncedVoiceInsert {
+                        let didSeekSyncedInsert = screenplayDraftBridge.seekActiveSyncedVoiceInsert(to: seekToMs)
+                        if didSeekSyncedInsert, let debugVoiceTurnToken {
+                            let hasRecordedSeekRecompute = currentStudioDebugVoiceDraftBreadcrumbs().contains {
+                                $0.token == debugVoiceTurnToken && $0.event == "synced_insert_seeked"
+                            }
+                            if !hasRecordedSeekRecompute {
+                                let syncedState = screenplayDraftBridge.syncedVoiceTurnState
+                                appendStudioDebugVoiceDraftBreadcrumb(
+                                    event: "synced_insert_seeked",
+                                    detail: "Synced voice insert recomputed from a debug playback seek at reveal unit \(syncedState.appliedCueCount)/\(syncedState.cueCount). from_ms=\(currentTimeMs) to_ms=\(seekToMs) request_id=\(syncedState.requestID)",
+                                    replyPreview: String(syncedState.authoritativeText.prefix(220)),
+                                    tokenOverride: debugVoiceTurnToken,
+                                    promptPreviewOverride: effectiveTranscript
+                                )
+                                persistDebugVoiceTurnProgress()
+                            }
+                        }
+                    }
+                }
+                if debugSyncedPlaybackSeekApplied {
+                    let adjustedCurrentTime = max(0, observation.currentTime + debugSyncedPlaybackTimeAdjustment)
+                    let adjustedEstimatedTime = max(
+                        adjustedCurrentTime,
+                        observation.estimatedTime + debugSyncedPlaybackTimeAdjustment
+                    )
+                    observation = SegmentedPlaybackObservation(
+                        currentTime: adjustedCurrentTime,
+                        estimatedTime: adjustedEstimatedTime,
+                        driftMs: max(Int(((adjustedEstimatedTime - adjustedCurrentTime) * 1_000.0).rounded()), 0),
+                        hasActiveSegment: observation.hasActiveSegment
+                    )
+                }
+            }
+            return observation
+#else
+            return observation
+#endif
+        }
+
+        var didReceiveTalkResponse = false
         var debugSyncedInsertCancelTask: Task<Void, Never>?
         let cleanClientTranscriptOverride = String(clientTranscriptOverride ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4105,16 +4822,22 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ? currentPartialHintForTalk()
             : String(cleanClientTranscriptOverride.prefix(320))
 
-#if DEBUG
+#if DEBUG || os(macOS)
         var debugVoiceTurnDidFinalize = false
         var debugTurnID = ""
         var debugInsertedPreview = ""
         var debugReplyPreview = ""
         var debugFinalCommittedPageText = ""
+        var debugPreparedUseScreenplayMode = false
+        var debugPreparedShouldWriteToPage = false
+        var debugPreparedMemoryDomain = ""
+        var debugRequestedScreenplayTarget = ""
         var debugTimingSource = ""
         var debugScreenplayOutputTarget = ""
+        var debugScreenplayOutputSource = ""
         var debugScreenplayOutputText = ""
         var debugScreenplayCues: [BackendTalkScreenplayCue] = []
+        var debugDialogueTimeline: BackendTalkDialogueTimelineRevision?
         var debugDispatchResolvedBaseURL = ""
         var debugTalkRequestURL = ""
         var debugTalkDispatchStage = "acknowledged"
@@ -4124,17 +4847,39 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var debugDispatchErrorDescription = ""
 
         func refreshDebugCommittedPageText() {
-            guard let lastCommittedWrite = screenplayDraftBridge.lastCommittedWrite else { return }
-            let committedText = lastCommittedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !committedText.isEmpty else { return }
-            guard abs(lastCommittedWrite.committedAt.timeIntervalSinceNow) < 20 else { return }
-            debugFinalCommittedPageText = committedText
+            if let lastCommittedWrite = screenplayDraftBridge.lastCommittedWrite {
+                let committedText = lastCommittedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !committedText.isEmpty,
+                   abs(lastCommittedWrite.committedAt.timeIntervalSinceNow) < 20 {
+                    debugFinalCommittedPageText = committedText
+                    return
+                }
+            }
+            let syncedState = screenplayDraftBridge.syncedVoiceTurnState
+            let authoritativeText = syncedState.authoritativeText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if syncedState.phase == .completed, !authoritativeText.isEmpty {
+                debugFinalCommittedPageText = authoritativeText
+            }
         }
 
         func finalizeDebugVoiceTurn(status: String, error: String = "") {
             guard let debugVoiceTurnToken, !debugVoiceTurnDidFinalize else { return }
             debugVoiceTurnDidFinalize = true
             refreshDebugCommittedPageText()
+            if debugSyncedPlaybackSeekApplied {
+                let hasRecordedSeekEvent = currentStudioDebugVoiceDraftBreadcrumbs().contains {
+                    $0.token == debugVoiceTurnToken && $0.event == "synced_playback_seek_applied"
+                }
+                if !hasRecordedSeekEvent {
+                    appendStudioDebugVoiceDraftBreadcrumb(
+                        event: "synced_playback_seek_applied",
+                        detail: "Debug playback seek adjusted the synced voice playhead. from_ms=\(debugSyncedPlaybackSeekFromMs ?? 0) to_ms=\(debugSyncedPlaybackSeekToMs ?? 0)",
+                        tokenOverride: debugVoiceTurnToken,
+                        promptPreviewOverride: effectiveTranscript
+                    )
+                }
+            }
             if debugInsertedPreview.isEmpty, didStartEarlyStudioDraftStream {
                 let committedPreview = screenplayDraftBridge.lastCommittedWrite?.insertedText
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -4162,10 +4907,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 error: error,
                 prompt: effectiveTranscript,
                 turnID: debugTurnID,
+                preparedUseScreenplayMode: debugPreparedUseScreenplayMode,
+                preparedShouldWriteToPage: debugPreparedShouldWriteToPage,
+                preparedMemoryDomain: debugPreparedMemoryDomain,
+                requestedScreenplayTarget: debugRequestedScreenplayTarget,
                 timingSource: debugTimingSource,
                 screenplayOutputTarget: debugScreenplayOutputTarget,
+                screenplayOutputSource: debugScreenplayOutputSource,
                 screenplayOutputText: debugScreenplayOutputText,
                 screenplayCues: debugScreenplayCues,
+                dialogueTimeline: debugDialogueTimeline,
                 insertedPreview: debugInsertedPreview,
                 replyPreview: debugReplyPreview,
                 finalCommittedPageText: debugFinalCommittedPageText,
@@ -4175,7 +4926,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 clientTokenResolved: debugClientTokenResolved,
                 dispatchErrorDomain: debugDispatchErrorDomain,
                 dispatchErrorCode: debugDispatchErrorCode,
-                dispatchErrorDescription: debugDispatchErrorDescription
+                dispatchErrorDescription: debugDispatchErrorDescription,
+                syncedVoiceSeekApplied: debugSyncedPlaybackSeekApplied,
+                syncedVoiceSeekCount: debugSyncedPlaybackSeekCount,
+                syncedVoiceSeekFromMs: debugSyncedPlaybackSeekFromMs,
+                syncedVoiceSeekToMs: debugSyncedPlaybackSeekToMs
             )
             if activeStudioDebugVoiceTurnToken == debugVoiceTurnToken {
                 activeStudioDebugVoiceTurnToken = nil
@@ -4194,6 +4949,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 turnID: debugTurnID,
                 insertedPreview: debugInsertedPreview,
                 replyPreview: debugReplyPreview,
+                dialogueTimeline: debugDialogueTimeline,
                 finalCommittedPageText: debugFinalCommittedPageText,
                 dispatchResolvedBaseURL: debugDispatchResolvedBaseURL,
                 talkRequestURL: debugTalkRequestURL,
@@ -4204,14 +4960,48 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 dispatchErrorDescription: debugDispatchErrorDescription
             )
         }
+
+        let playbackObservationProvider: (@MainActor @Sendable () -> SegmentedPlaybackObservation?) = {
+            resolvedDebugSyncedPlaybackObservation(from: syncedPlaybackClock.currentObservation)
+        }
+        let playbackTimeProvider: (@MainActor @Sendable () -> TimeInterval?) = {
+            playbackObservationProvider()?.currentTime
+        }
 #endif
 
+        func beginSyncedPlaybackClockSegment(for url: URL) {
+            let expectedDuration = audioDurationSeconds(at: url) ?? 0
+            syncedPlaybackClock.beginSegment(expectedDuration: expectedDuration) {
+                orbAudio.currentPlayer?.currentTime
+            }
+        }
+
+        func authoritativePageWriteText(from screenplayOutput: BackendTalkScreenplayOutput?) -> String {
+            guard let screenplayOutput, screenplayOutput.writesToPage else { return "" }
+            return screenplayOutput.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func resolvedPendingSyncedVoiceInsertTimingSource(
+            _ rawSource: String?,
+            cues: [ScreenplayVoiceCue]
+        ) -> String {
+            let cleanSource = (rawSource ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cues.isEmpty else { return "estimated" }
+            return cleanSource.isEmpty ? "backend_cues" : cleanSource
+        }
+
         func finishPlaybackAndResumeMic() {
+            syncedPlaybackClock.completeCurrentSegment()
             if didStartSyncedVoiceInsert {
                 screenplayDraftBridge.completeActiveSyncedVoiceInsertIfNeeded()
+            } else {
+                _ = commitSyncedVoiceFallbackIfNeeded(
+                    trigger: "playback_finished",
+                    markCompleted: true
+                )
             }
             voice.markAssistantPlaybackEnded()
-#if DEBUG
+#if DEBUG || os(macOS)
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "assistant_playback_finished",
@@ -4236,7 +5026,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         func playStreamRemainderOrFinish() {
+            syncedPlaybackClock.completeCurrentSegment()
             guard let remainderURL = pendingStreamRemainderURL else {
+                guard didReceiveTalkResponse else {
+                    HerLog.audio.info("waiting for full streamed audio before finishing playback")
+                    return
+                }
                 finishPlaybackAndResumeMic()
                 return
             }
@@ -4249,11 +5044,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         finishPlaybackAndResumeMic()
                     }
                 })
+                beginSyncedPlaybackClockSegment(for: remainderURL)
             } catch {
+                _ = commitSyncedVoiceFallbackIfNeeded(
+                    trigger: "stream_remainder_playback_error",
+                    markCompleted: true
+                )
                 HerLog.ui.error("stream remainder playback error=\(error.localizedDescription, privacy: .public), resume mic")
                 voice.markRequestFailed()
                 voice.resumeRecordingIfNeeded()
-#if DEBUG
+#if DEBUG || os(macOS)
                 finalizeDebugVoiceTurn(status: "error", error: error.localizedDescription)
 #endif
             }
@@ -4279,7 +5079,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isThinking = false
             voice.markAssistantPlaybackEnded()
             voice.resumeRecordingIfNeeded()
-#if DEBUG
+#if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: "Duplicate utterance suppressed.")
 #endif
             return
@@ -4297,7 +5097,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             voice.stopRecording()
         } catch {
             voice.mode = .armedListening
-#if DEBUG
+#if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: "Could not write utterance WAV.")
 #endif
             return
@@ -4307,6 +5107,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let preparedPrompt = buildPreparedTurnPrompt(
             confirmedTranscript: effectiveTranscript,
             partialHint: effectivePartialHintForTalk
+        )
+        screenplayDraftBridge.applyCompanionSignalState(
+            preparedPrompt.companionSignals,
+            persist: false
         )
         if preparedPrompt.memoryDomain != .companion {
             HerEvolutionStore.shared.noteCreativeContext(
@@ -4326,7 +5130,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isThinking = false
             speculativeTalk.cancel()
             voice.markAssistantPlaybackEnded()
-#if DEBUG
+#if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(
                 status: localStudioCommand.error == nil ? "ok" : "error",
                 error: localStudioCommand.error ?? ""
@@ -4336,10 +5140,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
         let shouldUseSyncedStudioVoiceInsert =
             preparedPrompt.useScreenplayMode &&
-            preparedPrompt.shouldWriteToPage
+            preparedPrompt.shouldWriteToPage &&
+            screenplayDraftBridge.autoInsertEnabled
         let shouldStartEarlyStudioDraftStream =
             preparedPrompt.useScreenplayMode &&
             preparedPrompt.shouldWriteToPage &&
+            screenplayDraftBridge.autoInsertEnabled &&
             !shouldUseSyncedStudioVoiceInsert
         if shouldStartEarlyStudioDraftStream {
             startRealtimeStudioDraftStreamIfNeeded(
@@ -4356,7 +5162,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
         let turnHints = voice.lastFinalTurnHints
         let effectiveTurnTailSilenceMs: Int = {
-#if DEBUG
+#if DEBUG || os(macOS)
             if debugVoiceTurnToken != nil {
                 return max(turnHints.tailSilenceMs, 1_650)
             }
@@ -4364,7 +5170,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return turnHints.tailSilenceMs
         }()
         let effectiveTurnVadThreshold: Float = {
-#if DEBUG
+#if DEBUG || os(macOS)
             if debugVoiceTurnToken != nil {
                 return max(turnHints.vadThreshold, 0.006)
             }
@@ -4372,7 +5178,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return turnHints.vadThreshold
         }()
         let effectiveTurnSpeechMs: Int = {
-#if DEBUG
+#if DEBUG || os(macOS)
             if debugVoiceTurnToken != nil {
                 return max(turnHints.speechMs, 1_850)
             }
@@ -4381,9 +5187,21 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }()
         let speculativeReuseCandidate = speculativeTalk.reuseCandidateIfCompatible(
             finalText: preparedPrompt.directorText,
-            isScreenplayMode: preparedPrompt.useScreenplayMode
+            isScreenplayMode: preparedPrompt.useScreenplayMode,
+            shouldWriteToPage: preparedPrompt.shouldWriteToPage
         )
         speculativeTalk.cancel()
+#if DEBUG || os(macOS)
+        if let debugVoiceTurnToken {
+            appendStudioDebugVoiceDraftBreadcrumb(
+                event: "speculative_prompt_reuse_evaluated",
+                detail: "Speculative prompt reuse candidate=\(speculativeReuseCandidate == nil ? "0" : "1") should_write_to_page=\(preparedPrompt.shouldWriteToPage)",
+                tokenOverride: debugVoiceTurnToken,
+                promptPreviewOverride: preparedPrompt.directorText
+            )
+            persistDebugVoiceTurnProgress()
+        }
+#endif
         let systemPrompt: String
         if let speculativeReuseCandidate {
             systemPrompt = speculativeReuseCandidate.preparedPrompt
@@ -4400,65 +5218,142 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
         }
         let initialStudioMetadata = initialStudioTalkMetadata(from: preparedPrompt)
-        screenplayDraftBridge.onSyncedInsertLifecycleEvent = { event, plan, appliedCueCount in
-#if DEBUG
+        let talkScreenplayGenerationTranscript: String? = {
+            guard preparedPrompt.shouldWriteToPage else { return nil }
+            let confirmedContext = confirmedStudioPageWriteContext(for: preparedPrompt.directorText)
+            let renderTranscript = studioRenderTranscript(
+                for: preparedPrompt.directorText,
+                confirmedContext: confirmedContext,
+                preferredTarget: .page
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+            return renderTranscript.isEmpty ? nil : renderTranscript
+        }()
+#if DEBUG || os(macOS)
+        debugPreparedUseScreenplayMode = preparedPrompt.useScreenplayMode
+        debugPreparedShouldWriteToPage = preparedPrompt.shouldWriteToPage
+        debugPreparedMemoryDomain = preparedPrompt.memoryDomain.rawValue
+        debugRequestedScreenplayTarget = initialStudioMetadata?.screenplayTarget
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let debugVoiceTurnToken {
+            let generationTranscriptState = (talkScreenplayGenerationTranscript ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty ? "0" : "1"
+            appendStudioDebugVoiceDraftBreadcrumb(
+                event: "talk_route_decided",
+                detail: "Route decided. use_screenplay_mode=\(preparedPrompt.useScreenplayMode) should_write_to_page=\(preparedPrompt.shouldWriteToPage) memory_domain=\(preparedPrompt.memoryDomain.rawValue) requested_target=\(debugRequestedScreenplayTarget.isEmpty ? "none" : debugRequestedScreenplayTarget) generation_transcript=\(generationTranscriptState)",
+                tokenOverride: debugVoiceTurnToken,
+                promptPreviewOverride: preparedPrompt.directorText
+            )
+            persistDebugVoiceTurnProgress()
+        }
+#endif
+        screenplayDraftBridge.onSyncedInsertLifecycleEvent = { event, plan, appliedCueCount, interruptionReason in
+#if DEBUG || os(macOS)
             guard let debugVoiceTurnToken else { return }
             let detail: String
             switch event {
             case "started":
-                detail = "Synced voice insert started with \(plan.cues.count) cues. timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
+                detail = "Synced voice insert started with \(plan.cueCount) reveal units. timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
             case "cue_applied":
-                detail = "Synced voice insert applied cue \(appliedCueCount)/\(plan.cues.count). timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
+                detail = "Synced voice insert applied reveal unit \(appliedCueCount)/\(plan.cueCount). timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
+            case "seeked":
+                detail = "Synced voice insert recomputed from a playback seek at reveal unit \(appliedCueCount)/\(plan.cueCount). timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
             case "finished":
-                detail = "Synced voice insert finished with \(plan.cues.count) cues. timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
+                detail = "Synced voice insert finished with \(plan.cueCount) reveal units. timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
             case "cancelled":
-                detail = "Synced voice insert cancelled after \(appliedCueCount) cues. timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
+                let reason = (interruptionReason ?? .other).rawValue
+                detail = "Synced voice insert cancelled after \(appliedCueCount) reveal units. reason=\(reason) timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
+            case "fallback_committed":
+                let reason = screenplayDraftBridge.syncedVoiceFallbackReason
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                detail = "Synced voice insert finalized from authoritative fallback after \(appliedCueCount) reveal units. reason=\(reason.isEmpty ? "unknown" : reason) timing_source=\(plan.timingSource) request_id=\(plan.requestID)"
             default:
                 detail = "Synced voice insert event \(event). request_id=\(plan.requestID)"
             }
             appendStudioDebugVoiceDraftBreadcrumb(
                 event: "synced_insert_\(event)",
                 detail: detail,
+                interruptionReason: event == "cancelled"
+                    ? (interruptionReason ?? .other).rawValue
+                    : nil,
                 replyPreview: String(plan.fullText.prefix(220)),
                 tokenOverride: debugVoiceTurnToken,
                 promptPreviewOverride: preparedPrompt.directorText
             )
+            persistDebugVoiceTurnProgress()
 #endif
+        }
+
+        @discardableResult
+        func commitSyncedVoiceFallbackIfNeeded(
+            trigger: String,
+            markCompleted: Bool
+        ) -> String? {
+            guard shouldUseSyncedStudioVoiceInsert else { return nil }
+            guard !didStartSyncedVoiceInsert else { return nil }
+            guard !didCommitSyncedVoiceFallback else { return nil }
+            let authoritativeText = screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !authoritativeText.isEmpty else { return nil }
+            guard let committedText = commitCurrentStudioPagePreviewIfNeeded(
+                preferredText: authoritativeText,
+                userTranscript: effectiveTranscript,
+                promptSource: .voice
+            ) else {
+                return nil
+            }
+            didCommitSyncedVoiceFallback = true
+            if markCompleted {
+                _ = screenplayDraftBridge.completePendingSyncedVoiceTurnImmediately()
+            }
+#if DEBUG || os(macOS)
+            debugInsertedPreview = String(committedText.prefix(220))
+            refreshDebugCommittedPageText()
+            if let debugVoiceTurnToken {
+                appendStudioDebugVoiceDraftBreadcrumb(
+                    event: "synced_insert_fallback_committed",
+                    detail: "Committed authoritative screenplay text without cue streaming. trigger=\(trigger)",
+                    replyPreview: String(committedText.prefix(220)),
+                    tokenOverride: debugVoiceTurnToken,
+                    promptPreviewOverride: preparedPrompt.directorText
+                )
+                persistDebugVoiceTurnProgress()
+            }
+#endif
+            return committedText
         }
 
         func startSyncedVoiceInsertIfPossible(trigger: String, audioURL: URL? = nil) {
             guard shouldUseSyncedStudioVoiceInsert else { return }
             guard !didStartSyncedVoiceInsert else { return }
-            let cleanText = pendingSyncedVoiceInsertText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard didRecordAssistantPlaybackStart else { return }
+            let cleanText = screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleanText.isEmpty else { return }
             let resolvedDuration = resolvedStudioVoiceInsertDuration(
                 for: cleanText,
                 audioURL: audioURL,
-                backendDurationMs: nil
+                backendDurationMs: screenplayDraftBridge.syncedVoiceTurnState.audioDurationMs
             )
             if resolvedDuration > 0 {
-                pendingSyncedVoiceInsertAudioDuration = max(pendingSyncedVoiceInsertAudioDuration ?? 0, resolvedDuration)
+                screenplayDraftBridge.stageSyncedVoiceTurnAudioDuration(resolvedDuration)
             }
-            guard let audioDuration = pendingSyncedVoiceInsertAudioDuration, audioDuration > 0 else { return }
-            let provider = playbackTimeProvider ?? { nil }
-            guard let plan = screenplayDraftBridge.streamInsertSynced(
-                cleanText,
-                audioDuration: audioDuration,
-                cues: pendingSyncedVoiceInsertCues,
-                requestID: pendingSyncedVoiceInsertRequestID,
-                timingSource: pendingSyncedVoiceInsertTimingSource,
-                playbackTimeProvider: provider
+            guard let audioDurationMs = screenplayDraftBridge.syncedVoiceTurnState.audioDurationMs,
+                  audioDurationMs > 0 else { return }
+            guard let plan = screenplayDraftBridge.startStagedSyncedVoiceInsert(
+                audioDuration: TimeInterval(audioDurationMs) / 1_000.0,
+                playbackTimeProvider: playbackTimeProvider,
+                playbackObservationProvider: playbackObservationProvider
             ) else {
                 return
             }
             didStartSyncedVoiceInsert = true
-            activeSyncedVoiceInsertText = cleanText
-#if DEBUG
+#if DEBUG || os(macOS)
             debugInsertedPreview = String(cleanText.prefix(220))
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "header_text_committed",
-                    detail: "Header-time screenplay text entered synced insert at playback start. trigger=\(trigger) timing_source=\(plan.timingSource) cues=\(plan.cues.count)",
+                    detail: "Screenplay page text entered synced insert at playback start. trigger=\(trigger) timing_source=\(plan.timingSource) reveal_units=\(plan.cueCount)",
                     replyPreview: String(cleanText.prefix(220)),
                     tokenOverride: debugVoiceTurnToken,
                     promptPreviewOverride: preparedPrompt.directorText
@@ -4469,7 +5364,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 if !hasRecordedRequestCommit {
                     appendStudioDebugVoiceDraftBreadcrumb(
                         event: "request_committed",
-                        detail: "Synced voice insert began from header-time screenplay text. trigger=\(trigger)",
+                        detail: "Synced voice insert began from screenplay page text. trigger=\(trigger)",
                         replyPreview: String(cleanText.prefix(220)),
                         tokenOverride: debugVoiceTurnToken,
                         promptPreviewOverride: preparedPrompt.directorText
@@ -4483,10 +5378,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 debugSyncedInsertCancelTask = Task { @MainActor in
                     try? await Task.sleep(nanoseconds: UInt64(debugCancelAfterMs) * 1_000_000)
                     guard !Task.isCancelled else { return }
-                    screenplayDraftBridge.cancelStream()
+                    screenplayDraftBridge.cancelStream(reason: .cancel)
                     appendStudioDebugVoiceDraftBreadcrumb(
                         event: "synced_insert_cancelled",
-                        detail: "Debug hook cancelled synced voice insert after \(debugCancelAfterMs)ms.",
+                        detail: "Debug hook cancelled synced voice insert after \(debugCancelAfterMs)ms. reason=cancel",
+                        interruptionReason: ScreenplaySyncedInsertInterruptionReason.cancel.rawValue,
                         replyPreview: String(cleanText.prefix(220)),
                         tokenOverride: debugVoiceTurnToken,
                         promptPreviewOverride: preparedPrompt.directorText
@@ -4498,7 +5394,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         do {
             HerLog.talk.info("TALK sending file=\(wavURL.lastPathComponent, privacy: .public)")
-#if DEBUG
+#if DEBUG || os(macOS)
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "talk_request_started",
@@ -4578,7 +5474,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let onBackendTalkDebugEvent: ((BackendTalkDebugEvent) -> Void)? = nil
 #endif
             let idempotencyKey = "them-\(fingerprint)-\(Int(now.timeIntervalSince1970 * 1000))"
-            pendingSyncedVoiceInsertRequestID = idempotencyKey
+            if shouldUseSyncedStudioVoiceInsert {
+                screenplayDraftBridge.prepareSyncedVoiceTurn(
+                    requestID: idempotencyKey,
+                    renderContract: .pageWritePreview
+                )
+            } else {
+                screenplayDraftBridge.resetSyncedVoiceTurnTracking()
+            }
             let requestTalk = {
                 try await backend.talk(
                     fileURL: wavURL,
@@ -4602,30 +5505,66 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     speculativePromptHash: speculativeReuseCandidate?.preparedPromptHash,
                     studioMetadata: initialStudioMetadata,
                     clientTranscriptOverride: cleanClientTranscriptOverride.isEmpty ? nil : cleanClientTranscriptOverride,
+                    screenplayGenerationTranscriptOverride: talkScreenplayGenerationTranscript,
                     onResponseMetadataReady: { metadata in
                         Task { @MainActor in
+#if DEBUG || os(macOS)
+                            debugTimingSource = metadata.timingSource?
+                                .trimmingCharacters(in: .whitespacesAndNewlines) ?? debugTimingSource
+                            if let screenplayOutput = metadata.screenplayOutput {
+                                debugScreenplayOutputTarget = screenplayOutput.target
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                debugScreenplayOutputSource = screenplayOutput.source
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                debugScreenplayOutputText = screenplayOutput.text
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                            if !metadata.screenplayCues.isEmpty {
+                                debugScreenplayCues = metadata.screenplayCues
+                            }
+                            if let metadataDialogueTimeline = metadata.dialogueTimeline {
+                                debugDialogueTimeline = metadataDialogueTimeline
+                            }
+                            if let debugVoiceTurnToken {
+                                let headerTarget = metadata.screenplayOutput?.target
+                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                let headerSource = metadata.screenplayOutput?.source
+                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                let headerTimingSource = metadata.timingSource?
+                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                appendStudioDebugVoiceDraftBreadcrumb(
+                                    event: "talk_response_metadata_ready",
+                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) cue_count=\(metadata.screenplayCues.count)",
+                                    replyPreview: String((metadata.screenplayOutput?.text ?? "").prefix(220)),
+                                    tokenOverride: debugVoiceTurnToken,
+                                    promptPreviewOverride: preparedPrompt.directorText
+                                )
+                                persistDebugVoiceTurnProgress()
+                            }
+#endif
                             guard preparedPrompt.useScreenplayMode else { return }
                             guard preparedPrompt.shouldWriteToPage else { return }
-                            pendingSyncedVoiceInsertCues = studioVoiceInsertCues(from: metadata.screenplayCues)
-                            pendingSyncedVoiceInsertTimingSource = {
-                                let typedSource = metadata.timingSource?
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                if let typedSource, !typedSource.isEmpty {
-                                    return typedSource
-                                }
-                                return pendingSyncedVoiceInsertCues.isEmpty ? "estimated" : "backend_cues"
-                            }()
-                            if let responseDurationMs = metadata.audioDurationMs, responseDurationMs > 0 {
-                                pendingSyncedVoiceInsertAudioDuration = max(
-                                    pendingSyncedVoiceInsertAudioDuration ?? 0,
-                                    TimeInterval(responseDurationMs) / 1_000.0
-                                )
-                            }
-                            if pendingSyncedVoiceInsertText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                               let typedText = metadata.screenplayOutput?.text
-                                   .trimmingCharacters(in: .whitespacesAndNewlines),
-                               !typedText.isEmpty {
-                                pendingSyncedVoiceInsertText = typedText
+                            let voiceTimeline = studioDialogueTimeline(from: metadata.dialogueTimeline)
+                            let voiceInsertCues = studioVoiceInsertCues(
+                                from: metadata.screenplayCues,
+                                timeline: voiceTimeline
+                            )
+                            let renderContract = syncedVoiceRenderContract(from: metadata.renderContract)
+                            let resolvedTimingSource = resolvedPendingSyncedVoiceInsertTimingSource(
+                                metadata.timingSource,
+                                cues: voiceInsertCues
+                            )
+                            screenplayDraftBridge.updateSyncedVoiceTurnRenderContract(renderContract)
+                            screenplayDraftBridge.stageSyncedVoiceTurnAuthoritativeContent(
+                                text: authoritativePageWriteText(from: metadata.screenplayOutput),
+                                cues: voiceInsertCues,
+                                timeline: voiceTimeline,
+                                timingSource: resolvedTimingSource,
+                                audioDuration: metadata.audioDurationMs.map { TimeInterval($0) / 1_000.0 },
+                                renderContract: renderContract
+                            )
+                            if didStartEarlyStreamPlayback, renderContract.syncReady {
+                                startSyncedVoiceInsertIfPossible(trigger: "response_metadata_ready")
                             }
                         }
                     },
@@ -4637,11 +5576,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             HerLog.ui.info("stream first segment ready -> start playback early")
                             isThinking = false
                             voice.markAssistantPlaybackStarted()
-#if DEBUG
+                            didRecordAssistantPlaybackStart = true
+#if DEBUG || os(macOS)
                             if let debugVoiceTurnToken {
                                 appendStudioDebugVoiceDraftBreadcrumb(
+                                    event: "first_audio_segment_ready",
+                                    detail: "First streamed audio segment became playable. source=streamed_first_segment",
+                                    tokenOverride: debugVoiceTurnToken,
+                                    promptPreviewOverride: preparedPrompt.directorText
+                                )
+                                appendStudioDebugVoiceDraftBreadcrumb(
                                     event: "assistant_playback_started",
-                                    detail: "Assistant playback started from first streamed segment.",
+                                    detail: "Assistant playback started from first streamed segment. source=streamed_first_segment",
                                     tokenOverride: debugVoiceTurnToken,
                                     promptPreviewOverride: preparedPrompt.directorText
                                 )
@@ -4654,14 +5600,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                         playStreamRemainderOrFinish()
                                     }
                                 })
-                                playbackTimeProvider = { orbAudio.currentPlayer?.currentTime }
+                                syncedPlaybackClock.reset()
+                                beginSyncedPlaybackClockSegment(for: firstSegmentURL)
                                 if shouldUseSyncedStudioVoiceInsert {
-                                    pendingSyncedVoiceInsertAudioDuration = max(
-                                        pendingSyncedVoiceInsertAudioDuration ?? 0,
+                                    screenplayDraftBridge.markSyncedVoiceTurnPlaybackStarted()
+                                    let authoritativeText = screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
+                                    screenplayDraftBridge.stageSyncedVoiceTurnAudioDuration(
                                         resolvedStudioVoiceInsertDuration(
-                                            for: pendingSyncedVoiceInsertText,
+                                            for: authoritativeText,
                                             audioURL: firstSegmentURL,
-                                            backendDurationMs: nil
+                                            backendDurationMs: screenplayDraftBridge.syncedVoiceTurnState.audioDurationMs
                                         )
                                     )
                                     startSyncedVoiceInsertIfPossible(
@@ -4670,11 +5618,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                     )
                                 }
                             } catch {
+                                _ = commitSyncedVoiceFallbackIfNeeded(
+                                    trigger: "first_audio_segment_playback_error",
+                                    markCompleted: true
+                                )
                                 HerLog.ui.error("early stream playback error=\(error.localizedDescription, privacy: .public)")
                                 didStartEarlyStreamPlayback = false
                                 voice.markRequestFailed()
                                 voice.resumeRecordingIfNeeded()
-#if DEBUG
+#if DEBUG || os(macOS)
                                 finalizeDebugVoiceTurn(status: "error", error: error.localizedDescription)
 #endif
                             }
@@ -4685,7 +5637,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             guard preparedPrompt.useScreenplayMode else { return }
                             guard preparedPrompt.shouldWriteToPage else { return }
                             guard isStudioSurfaceActive else { return }
-#if DEBUG
+                            if shouldUseSyncedStudioVoiceInsert {
+                                screenplayDraftBridge.stageSyncedVoiceTurnPreviewText(rawReply)
+                            }
+#if DEBUG || os(macOS)
                             if let debugVoiceTurnToken {
                                 appendStudioDebugVoiceDraftBreadcrumb(
                                     event: "header_text_ready",
@@ -4696,20 +5651,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 )
                             }
 #endif
+                            if shouldUseSyncedStudioVoiceInsert {
+                                return
+                            }
                             HerLog.ui.info("early screenplay text ready -> applying draft preview")
                             if let previewText = applyLiveScreenplayPreviewFromRawReply(
                                 rawReply,
                                 userTranscript: effectiveTranscript,
                                 memoryDomainOverride: preparedPrompt.memoryDomain
                             ) {
-                                pendingSyncedVoiceInsertText = previewText
-                                if pendingSyncedVoiceInsertCues.isEmpty {
-                                    pendingSyncedVoiceInsertTimingSource = "estimated"
-                                }
-                                if shouldUseSyncedStudioVoiceInsert {
-                                    startSyncedVoiceInsertIfPossible(trigger: "header_text_ready")
-                                }
-#if DEBUG
+#if DEBUG || os(macOS)
                                 debugInsertedPreview = String(previewText.prefix(220))
                                 if let debugVoiceTurnToken {
                                     appendStudioDebugVoiceDraftBreadcrumb(
@@ -4743,7 +5694,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 try await Task.sleep(nanoseconds: 250_000_000)
                 result = try await requestTalk()
             }
-#if DEBUG
+            didReceiveTalkResponse = true
+#if DEBUG || os(macOS)
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "talk_response_received",
@@ -4770,49 +5722,87 @@ Write this approved story direction directly into screenplay pages now. Maintain
             lastKnowledgeConfidenceClass = result.knowledgeTrace.confidenceClass
             lastKnowledgeContradictionRisk = min(max(result.knowledgeTrace.contradictionRisk, 0), 1)
             updateTransientTurnBanner(from: result)
-            if shouldUseSyncedStudioVoiceInsert {
-                debugTimingSource = (result.timingSource ?? "")
+#if DEBUG || os(macOS)
+            debugTimingSource = (result.timingSource ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            debugScreenplayCues = result.screenplayCues
+            if let resultDialogueTimeline = result.dialogueTimeline {
+                debugDialogueTimeline = resultDialogueTimeline
+            }
+            if let screenplayOutput = result.screenplayOutput {
+                debugScreenplayOutputTarget = screenplayOutput.target
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                debugScreenplayCues = result.screenplayCues
-                if let screenplayOutput = result.screenplayOutput {
-                    debugScreenplayOutputTarget = screenplayOutput.target
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    debugScreenplayOutputText = screenplayOutput.text
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                debugScreenplayOutputSource = screenplayOutput.source
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                debugScreenplayOutputText = screenplayOutput.text
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let debugVoiceTurnToken {
+                let resolvedOutputTarget = result.screenplayOutput?.target
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let resolvedOutputSource = result.screenplayOutput?.source
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let resolvedTimingSource = (result.timingSource ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                appendStudioDebugVoiceDraftBreadcrumb(
+                    event: "talk_result_received_meta",
+                    detail: "Talk result received. output_target=\(resolvedOutputTarget.isEmpty ? "none" : resolvedOutputTarget) output_source=\(resolvedOutputSource.isEmpty ? "none" : resolvedOutputSource) timing_source=\(resolvedTimingSource.isEmpty ? "none" : resolvedTimingSource) cue_count=\(result.screenplayCues.count)",
+                    replyPreview: String((result.screenplayOutput?.text ?? result.reply ?? "").prefix(220)),
+                    tokenOverride: debugVoiceTurnToken,
+                    promptPreviewOverride: preparedPrompt.directorText
+                )
+                persistDebugVoiceTurnProgress()
+            }
+#endif
+            if shouldUseSyncedStudioVoiceInsert {
+                let voiceTimeline = studioDialogueTimeline(from: result.dialogueTimeline)
+                let voiceInsertCues = studioVoiceInsertCues(
+                    from: result.screenplayCues,
+                    timeline: voiceTimeline
+                )
+                let renderContract = syncedVoiceRenderContract(from: result.renderContract)
+                let resolvedTimingSource = resolvedPendingSyncedVoiceInsertTimingSource(
+                    result.timingSource,
+                    cues: voiceInsertCues
+                )
+                screenplayDraftBridge.updateSyncedVoiceTurnRenderContract(renderContract)
+                let authoritativeSyncedText = authoritativePageWriteText(from: result.screenplayOutput)
+                if !authoritativeSyncedText.isEmpty {
+                    screenplayDraftBridge.stageSyncedVoiceTurnAuthoritativeContent(
+                        text: authoritativeSyncedText,
+                        cues: voiceInsertCues,
+                        timeline: voiceTimeline,
+                        timingSource: resolvedTimingSource,
+                        audioDuration: result.audioDurationMs.map { TimeInterval($0) / 1_000.0 },
+                        renderContract: renderContract
+                    )
                 }
-                pendingSyncedVoiceInsertCues = studioVoiceInsertCues(from: result)
-                pendingSyncedVoiceInsertTimingSource = {
-                    let typedSource = result.timingSource?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let typedSource, !typedSource.isEmpty {
-                        return typedSource
-                    }
-                    return pendingSyncedVoiceInsertCues.isEmpty ? "estimated" : "backend_cues"
-                }()
-                pendingSyncedVoiceInsertAudioDuration = max(
-                    pendingSyncedVoiceInsertAudioDuration ?? 0,
+                screenplayDraftBridge.stageSyncedVoiceTurnAudioDuration(
                     resolvedStudioVoiceInsertDuration(
-                        for: pendingSyncedVoiceInsertText.isEmpty
-                            ? ((result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
-                            : pendingSyncedVoiceInsertText,
+                        for: screenplayDraftBridge.syncedVoiceTurnState.authoritativeText,
                         audioURL: result.audioURL,
                         backendDurationMs: result.audioDurationMs
                     )
                 )
-                if pendingSyncedVoiceInsertText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    pendingSyncedVoiceInsertText = (result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if renderContract.syncReady {
+                    startSyncedVoiceInsertIfPossible(
+                        trigger: "talk_result_received",
+                        audioURL: result.audioURL
+                    )
+                } else {
+                    screenplayDraftBridge.failSyncedVoiceTurn(reason: "Missing authoritative screenplay sync payload.")
                 }
-                startSyncedVoiceInsertIfPossible(
-                    trigger: "talk_result_received",
-                    audioURL: result.audioURL
-                )
             }
             let talkInsertedScreenplayText = applyLiveScreenplayPreview(
                 from: result,
                 promptSource: .voice,
                 memoryDomainOverride: preparedPrompt.memoryDomain,
                 preferredTargetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin,
-                skipCommitIfMatchesActiveText: didStartSyncedVoiceInsert ? activeSyncedVoiceInsertText : nil
+                skipCommitIfMatchesActiveText: didStartSyncedVoiceInsert
+                    ? screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
+                    : nil,
+                allowImmediateCommit: !shouldUseSyncedStudioVoiceInsert,
+                requireAuthoritativePageOutput: shouldUseSyncedStudioVoiceInsert
             )
             let insertedScreenplayText: String?
             if let talkInsertedScreenplayText {
@@ -4857,14 +5847,33 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
                 }
             }
+            let effectiveInsertedScreenplayText: String? = {
+                let cleanInsertedText = (insertedScreenplayText ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleanInsertedText.isEmpty {
+                    return cleanInsertedText
+                }
+                guard preparedPrompt.shouldWriteToPage else { return nil }
+                let syncedInsertedText = screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !syncedInsertedText.isEmpty {
+                    return syncedInsertedText
+                }
+                return nil
+            }()
             updateStudioAssistantPin(
                 from: result,
-                insertedText: insertedScreenplayText,
+                insertedText: effectiveInsertedScreenplayText,
                 promptSource: .voice,
                 promptTextOverride: preparedPrompt.directorText,
                 promptTargetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin
             )
-            await annotateStudioTalkTurnIfNeeded(result: result, promptSource: .voice)
+            await annotateStudioTalkTurnIfNeeded(
+                result: result,
+                promptSource: .voice,
+                targetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin,
+                insertedTextOverride: effectiveInsertedScreenplayText
+            )
 
             let confirmedTranscript = result.transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
             let confirmedReply = result.reply?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4878,24 +5887,24 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 )
                 showReplyEcho(user: confirmedTranscript, assistant: confirmedReply)
             }
-#if DEBUG
+#if DEBUG || os(macOS)
             debugTurnID = result.commit?.turnId ?? ""
             debugReplyPreview = String((confirmedReply ?? "").prefix(220))
-            if let insertedScreenplayText {
-                debugInsertedPreview = String(insertedScreenplayText.prefix(220))
+            if let effectiveInsertedScreenplayText {
+                debugInsertedPreview = String(effectiveInsertedScreenplayText.prefix(220))
             }
             let hasRecordedRequestCommit = debugVoiceTurnToken.map { token in
                 currentStudioDebugVoiceDraftBreadcrumbs().contains {
                     $0.token == token && $0.event == "request_committed"
                 }
             } ?? false
-            if didStartEarlyStudioDraftStream, let insertedScreenplayText, !hasRecordedRequestCommit {
+            if didStartEarlyStudioDraftStream, let effectiveInsertedScreenplayText, !hasRecordedRequestCommit {
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "request_committed",
                     detail: didCommitEarlyStudioDraftPreviewFallback
                         ? "Early Studio draft preview committed to the page."
                         : "Final Studio draft write committed.",
-                    replyPreview: String(insertedScreenplayText.prefix(220)),
+                    replyPreview: String(effectiveInsertedScreenplayText.prefix(220)),
                     tokenOverride: debugVoiceTurnToken,
                     promptPreviewOverride: preparedPrompt.directorText
                 )
@@ -4957,11 +5966,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
             } else {
                 voice.markAssistantPlaybackStarted()
-#if DEBUG
+                didRecordAssistantPlaybackStart = true
+#if DEBUG || os(macOS)
                 if let debugVoiceTurnToken {
                     appendStudioDebugVoiceDraftBreadcrumb(
                         event: "assistant_playback_started",
-                        detail: "Assistant playback started from full response audio.",
+                        detail: "Assistant playback started from full response audio. source=full_response_audio",
                         tokenOverride: debugVoiceTurnToken,
                         promptPreviewOverride: preparedPrompt.directorText
                     )
@@ -4974,11 +5984,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         finishPlaybackAndResumeMic()
                     }
                 })
+                syncedPlaybackClock.reset()
+                beginSyncedPlaybackClockSegment(for: result.audioURL)
+                if shouldUseSyncedStudioVoiceInsert {
+                    screenplayDraftBridge.markSyncedVoiceTurnPlaybackStarted()
+                    startSyncedVoiceInsertIfPossible(
+                        trigger: "full_response_audio_started",
+                        audioURL: result.audioURL
+                    )
+                }
             }
         } catch BackendError.continueListening {
             backendConnectionState = .up
             backendFailureCount = 0
             isThinking = false
+            if shouldUseSyncedStudioVoiceInsert {
+                screenplayDraftBridge.interruptSyncedVoiceTurn(reason: .other)
+            }
             if didStartEarlyStudioDraftStream {
                 cancelRealtimeStudioDraftStream(
                     restorePreview: true,
@@ -4992,11 +6014,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
             voice.markAssistantPlaybackEnded()
             HerLog.ui.info("backend requested continue listening (turn-end guard)")
             voice.resumeRecordingIfNeeded()
-#if DEBUG
+#if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: "Backend requested continue listening.")
 #endif
         } catch is CancellationError {
             isThinking = false
+            if shouldUseSyncedStudioVoiceInsert {
+                screenplayDraftBridge.interruptSyncedVoiceTurn(reason: .cancel)
+            }
             if didStartEarlyStudioDraftStream {
                 cancelRealtimeStudioDraftStream(
                     restorePreview: true,
@@ -5010,12 +6035,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             voice.markRequestFailed()
             HerLog.ui.info("talk request cancelled, resume mic")
             voice.resumeRecordingIfNeeded()
-#if DEBUG
+#if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: "Talk request cancelled.")
 #endif
         } catch {
             markBackendUnavailable(reason: error.localizedDescription)
             lastIssueSummary = error.localizedDescription
+            let committedSyncedFallback = commitSyncedVoiceFallbackIfNeeded(
+                trigger: "talk_or_playback_error",
+                markCompleted: true
+            )
+            if shouldUseSyncedStudioVoiceInsert, committedSyncedFallback == nil {
+                screenplayDraftBridge.failSyncedVoiceTurn(reason: error.localizedDescription)
+            }
             if didStartEarlyStudioDraftStream {
                 cancelRealtimeStudioDraftStream(
                     restorePreview: true,
@@ -5029,7 +6061,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             voice.markRequestFailed()
             HerLog.ui.error("playback error=\(error.localizedDescription, privacy: .public), resume mic")
             voice.resumeRecordingIfNeeded()
-#if DEBUG
+#if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: error.localizedDescription)
 #endif
         }
@@ -5091,6 +6123,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             turnKey: turnKey,
             isScreenplayMode: true
         )
+        let recentTurns = studioRecentTurns(
+            for: memoryDomain,
+            isScreenplayMode: true
+        )
         let confirmedStudioStoryContext = confirmedStudioPageWriteContext(for: cleanPrompt)
         let renderTranscript = studioRenderTranscript(
             for: cleanPrompt,
@@ -5138,19 +6174,32 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isGrief: director.isGrief,
             isAnxious: director.isAnxious,
             isCelebrating: director.isCelebrating,
-            recentTurns: studioRecentTurns(
-                for: memoryDomain,
-                isScreenplayMode: true
-            ),
+            recentTurns: recentTurns,
             partialTranscriptHint: cleanPrompt,
             voicedRatio: 1.0,
             speechAgeSeconds: 2.0,
             hasStrongPartial: true
         )))
-        let baseSystemPrompt = appendingStudioMemoryDomainInstruction(
+        let companionSignals = CreativeCompanionSignalEngine.build(
+            context: director,
+            memoryDomain: memoryDomain,
+            companionMode: screenplayDraftBridge.companionMode,
+            isScreenplayMode: true,
+            shouldWriteToPage: shouldWriteToPage,
+            screenplayPhaseHint: screenplayPhaseHint,
+            screenplayPackHint: screenplayPackHint,
+            recentTurns: recentTurns,
+            sourceText: directorText
+        )
+        screenplayDraftBridge.applyCompanionSignalState(companionSignals, persist: false)
+        let memoryRoutedSystemPrompt = appendingStudioMemoryDomainInstruction(
             to: rawBaseSystemPrompt,
             memoryDomain: memoryDomain,
             shouldWriteToPage: shouldWriteToPage
+        )
+        let baseSystemPrompt = appendingCreativeIntentInstruction(
+            to: memoryRoutedSystemPrompt,
+            signalState: companionSignals
         )
         let systemPrompt = await systemPromptWithVisualContext(
             baseSystemPrompt,
@@ -5158,7 +6207,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isScreenplayMode: true
         )
 
-#if DEBUG
+#if DEBUG || os(macOS)
         if shouldUseDebugStudioPromptStubTransport {
             let requestToken = requestID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 ? requestID!.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5186,7 +6235,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             HerLog.talk.info("STUDIO render text sending chars=\(renderTranscript.count)")
 
             let renderedReply: String
-            #if DEBUG
+            #if DEBUG || os(macOS)
             _ = Self.studioPageWriteTransportRoutingChecked
             #endif
             let shouldStreamStudioPageWrite = shouldUseStreamingStudioPageWriteTransport(
@@ -5303,8 +6352,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 userMessage: cleanPrompt,
                 assistantMessage: cleanReply,
                 promptSource: .typed,
-                requestId: requestID
+                requestId: requestID,
+                targetOverride: shouldWriteToPage ? .page : .voicePin,
+                insertedTextOverride: insertedScreenplayText
             )
+            if shouldWriteToPage {
+                await annotateLatestRealtimeStudioTurnIfNeeded(
+                    promptSource: .typed,
+                    targetOverride: .page,
+                    insertedTextOverride: insertedScreenplayText
+                )
+            }
             return nil
         } catch BackendError.continueListening {
             backendConnectionState = .up
@@ -5499,11 +6557,38 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private func studioVoiceInsertCues(from result: BackendTalkResult) -> [ScreenplayVoiceCue] {
-        studioVoiceInsertCues(from: result.screenplayCues)
+        studioVoiceInsertCues(
+            from: result.screenplayCues,
+            timeline: studioDialogueTimeline(from: result.dialogueTimeline)
+        )
     }
 
-    private func studioVoiceInsertCues(from cues: [BackendTalkScreenplayCue]) -> [ScreenplayVoiceCue] {
-        cues.map { cue in
+    private func syncedVoiceRenderContract(
+        from renderContract: BackendTalkRenderContract
+    ) -> ScreenplaySyncedVoiceRenderContract {
+        ScreenplaySyncedVoiceRenderContract(
+            replyRole: renderContract.previewReplyOnly ? .preview : .final,
+            authoritativePageTextAvailable: renderContract.authoritativePageTextAvailable,
+            syncReady: renderContract.syncReady
+        )
+    }
+
+    private func studioVoiceInsertCues(
+        from cues: [BackendTalkScreenplayCue],
+        timeline: ScreenplayDialogueTimelineRevision? = nil
+    ) -> [ScreenplayVoiceCue] {
+        if let timeline, !timeline.compatibilityCues.isEmpty {
+            return timeline.compatibilityCues.enumerated().map { offset, cue in
+                ScreenplayVoiceCue(
+                    index: offset,
+                    text: cue.text,
+                    elementRaw: cue.elementRaw,
+                    startMs: cue.startMs,
+                    endMs: cue.endMs
+                )
+            }
+        }
+        return cues.map { cue in
             ScreenplayVoiceCue(
                 index: cue.index,
                 text: cue.text,
@@ -5512,6 +6597,180 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 endMs: cue.endMs
             )
         }
+    }
+
+    private func isLegacyStudioParagraphAnchorID(_ value: String) -> Bool {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return false }
+        if clean.hasPrefix("line-") {
+            return true
+        }
+        return clean.range(
+            of: #":line:\d+$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    @MainActor
+    private func studioDialogueTimeline(
+        from timeline: BackendTalkDialogueTimelineRevision?
+    ) -> ScreenplayDialogueTimelineRevision? {
+        guard let timeline else { return nil }
+        let localAnchorMetadata = resolvedStudioDialogueAnchorMetadata()
+        let localBaseLine = max(1, localAnchorMetadata.startLine ?? 1)
+        let localDraft = screenplayDraftBridge.structuredDraft
+        let localAnchorScriptNodeID = localAnchorMetadata.scriptNodeID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let localScriptNodeBase = localAnchorScriptNodeID.isEmpty ||
+            isLegacyStudioParagraphAnchorID(localAnchorScriptNodeID)
+            ? (localAnchorMetadata.documentRevisionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? timeline.revisionId
+                : localAnchorMetadata.documentRevisionID.trimmingCharacters(in: .whitespacesAndNewlines))
+            : localAnchorScriptNodeID
+        func localParagraphId(for absoluteLine: Int) -> String? {
+            guard let paragraphId = localDraft.paragraphs.first(where: { $0.line == absoluteLine })?.id else {
+                return nil
+            }
+            let cleanParagraphId = paragraphId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanParagraphId.isEmpty,
+                  !isLegacyStudioParagraphAnchorID(cleanParagraphId) else {
+                return nil
+            }
+            return cleanParagraphId
+        }
+        func localSceneBinding(for absoluteLine: Int) -> ScreenplayProjectSceneBindingSnapshot? {
+            guard let scene = localDraft.scenes.last(where: {
+                absoluteLine >= $0.line && absoluteLine <= max($0.endLine, $0.line)
+            }) ?? localDraft.scenes.last(where: { $0.line <= absoluteLine }) else {
+                return nil
+            }
+            return screenplayDraftBridge.projectBindingSnapshot(forDraftSceneID: scene.id)
+        }
+        func localSceneId(for absoluteLine: Int) -> String? {
+            localSceneBinding(for: absoluteLine)?.outlineSceneID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? localSceneBinding(for: absoluteLine)?.outlineSceneID?.trimmingCharacters(in: .whitespacesAndNewlines)
+                : (localDraft.scenes.last(where: {
+                    absoluteLine >= $0.line && absoluteLine <= max($0.endLine, $0.line)
+                }) ?? localDraft.scenes.last(where: { $0.line <= absoluteLine }))?.id
+        }
+        func localBeatId(for absoluteLine: Int) -> String? {
+            localSceneBinding(for: absoluteLine)?.outlineBeatIDs
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first(where: { !$0.isEmpty })
+        }
+        func resolvedSceneId(_ existing: String, absoluteLine: Int) -> String {
+            let cleanExisting = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let resolvedLocalSceneID = localSceneId(for: absoluteLine), !resolvedLocalSceneID.isEmpty &&
+                (cleanExisting.isEmpty || cleanExisting.hasPrefix("scene:")) {
+                return resolvedLocalSceneID
+            }
+            if !localAnchorMetadata.draftSceneID.isEmpty &&
+                (cleanExisting.isEmpty || cleanExisting.hasPrefix("scene:")) {
+                return localAnchorMetadata.draftSceneID
+            }
+            return cleanExisting
+        }
+        func resolvedBeatId(_ existing: String?, absoluteLine: Int) -> String? {
+            let cleanExisting = (existing ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanExisting.isEmpty {
+                return cleanExisting
+            }
+            return localBeatId(for: absoluteLine) ?? localAnchorMetadata.outlineBeatIDs.first
+        }
+        func resolvedScriptNodeId(_ existing: String, absoluteLine: Int, isInsertionAnchor: Bool) -> String {
+            if let paragraphId = localParagraphId(for: absoluteLine), !paragraphId.isEmpty {
+                return paragraphId
+            }
+            let cleanExisting = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanExisting.isEmpty &&
+                !isLegacyStudioParagraphAnchorID(cleanExisting) &&
+                !cleanExisting.contains(":node:") &&
+                !cleanExisting.hasSuffix(":root") &&
+                !cleanExisting.contains(":segment:") &&
+                cleanExisting.range(of: #":line:\d+$"#, options: .regularExpression) == nil {
+                return cleanExisting
+            }
+            if isInsertionAnchor &&
+                !localAnchorScriptNodeID.isEmpty &&
+                !isLegacyStudioParagraphAnchorID(localAnchorScriptNodeID) {
+                return localAnchorScriptNodeID
+            }
+            let ordinal = max(1, absoluteLine - localBaseLine + 1)
+            return "\(localScriptNodeBase):segment:\(ordinal)"
+        }
+        func resolvedLineId(_ existing: String, absoluteLine: Int) -> String {
+            if let paragraphId = localParagraphId(for: absoluteLine), !paragraphId.isEmpty {
+                return paragraphId
+            }
+            let cleanExisting = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cleanExisting.isEmpty ||
+                cleanExisting.hasPrefix(timeline.revisionId) ||
+                isLegacyStudioParagraphAnchorID(cleanExisting) {
+                let ordinal = max(1, absoluteLine - localBaseLine + 1)
+                return "\(localScriptNodeBase):line:\(ordinal)"
+            }
+            return cleanExisting
+        }
+        return ScreenplayDialogueTimelineRevision(
+            turnId: timeline.turnId,
+            revisionId: timeline.revisionId,
+            audioAssetId: timeline.audioAssetId,
+            durationMs: timeline.durationMs,
+            documentRevisionId: timeline.documentRevisionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? localAnchorMetadata.documentRevisionID
+                : timeline.documentRevisionId,
+            insertionAnchor: ScreenplayPageAnchor(
+                projectId: timeline.insertionAnchor.projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    : timeline.insertionAnchor.projectId,
+                sceneId: resolvedSceneId(timeline.insertionAnchor.sceneId, absoluteLine: localBaseLine),
+                beatId: resolvedBeatId(timeline.insertionAnchor.beatId, absoluteLine: localBaseLine),
+                scriptNodeId: resolvedScriptNodeId(
+                    timeline.insertionAnchor.scriptNodeId,
+                    absoluteLine: localBaseLine,
+                    isInsertionAnchor: true
+                ),
+                pageIndex: timeline.insertionAnchor.pageIndex,
+                rangeStart: timeline.insertionAnchor.rangeStart,
+                rangeEnd: timeline.insertionAnchor.rangeEnd
+            ),
+            segments: timeline.segments.enumerated().map { index, segment in
+                let absoluteLine = localBaseLine + index
+                return ScreenplayDialogueSegment(
+                    id: segment.id,
+                    lineId: resolvedLineId(segment.lineId, absoluteLine: absoluteLine),
+                    kind: ScreenplayDialogueSegmentKind(rawValue: segment.kind.lowercased()) ?? .action,
+                    text: segment.text,
+                    startMs: segment.startMs,
+                    endMs: segment.endMs,
+                    pageAnchor: ScreenplayPageAnchor(
+                        projectId: segment.pageAnchor.projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+                            : segment.pageAnchor.projectId,
+                        sceneId: resolvedSceneId(segment.pageAnchor.sceneId, absoluteLine: absoluteLine),
+                        beatId: resolvedBeatId(segment.pageAnchor.beatId, absoluteLine: absoluteLine),
+                        scriptNodeId: resolvedScriptNodeId(
+                            segment.pageAnchor.scriptNodeId,
+                            absoluteLine: absoluteLine,
+                            isInsertionAnchor: false
+                        ),
+                        pageIndex: segment.pageAnchor.pageIndex,
+                        rangeStart: segment.pageAnchor.rangeStart,
+                        rangeEnd: segment.pageAnchor.rangeEnd
+                    ),
+                    revealUnits: segment.revealUnits.map { unit in
+                        ScreenplayRevealUnit(
+                            id: unit.id,
+                            text: unit.text,
+                            startMs: unit.startMs,
+                            endMs: unit.endMs,
+                            utf16Start: unit.utf16Start,
+                            utf16End: unit.utf16End
+                        )
+                    }
+                )
+            }
+        )
     }
 
     private func audioDurationSeconds(at url: URL) -> TimeInterval? {
@@ -5715,7 +6974,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         promptSource: ScreenplayStudioUserPrompt.Source = .voice,
         memoryDomainOverride: StudioMemoryDomain? = nil,
         preferredTargetOverride: ScreenplayStudioScreen.PromptRoutingMode = .automatic,
-        skipCommitIfMatchesActiveText: String? = nil
+        skipCommitIfMatchesActiveText: String? = nil,
+        allowImmediateCommit: Bool = true,
+        requireAuthoritativePageOutput: Bool = false
     ) -> String? {
         let trace = result.screenplayTrace
         guard trace.modeEnabled || result.screenplayOutput != nil else { return nil }
@@ -5733,6 +6994,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         guard trace.hasRenderableOutput || result.screenplayOutput?.writesToPage == true else { return nil }
         guard !cleanReply.isEmpty || result.screenplayOutput?.writesToPage == true else { return nil }
+        if requireAuthoritativePageOutput, result.screenplayOutput?.writesToPage != true {
+            return nil
+        }
 
         guard let textToInsert = resolvedStudioScreenplayInsertionText(
             reply: cleanReply,
@@ -5752,6 +7016,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let activeText = skipCommitIfMatchesActiveText?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !activeText.isEmpty, activeText == textToInsert {
+            screenplayDraftBridge.latestVoiceTurn = textToInsert
+            screenplayDraftBridge.latestPack = cleanPack
+            screenplayDraftBridge.latestPhase = cleanPhase
+            screenplayDraftBridge.latestUserTranscript = (result.transcript ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            screenplayDraftBridge.preferredProjectID = cleanProject
+            screenplayDraftBridge.preferredVersionID = cleanVersion
+            screenplayDraftBridge.lastUpdatedAt = Date()
+            return textToInsert
+        }
+
+        if !allowImmediateCommit {
             screenplayDraftBridge.latestVoiceTurn = textToInsert
             screenplayDraftBridge.latestPack = cleanPack
             screenplayDraftBridge.latestPhase = cleanPhase
@@ -5979,11 +7254,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             streamedFirstSegment: false,
             streamedRemainderURL: nil,
             audioDurationMs: nil,
+            renderContract: .default,
             timingSource: nil,
             transcript: userMessage,
             reply: assistantMessage,
             screenplayOutput: nil,
             screenplayCues: [],
+            dialogueTimeline: nil,
             assistantSelfName: nil,
             userName: evolution.preferredName,
             uiReflection: uiReflection,
@@ -6111,7 +7388,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if restorePreview {
             screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
         }
-#if DEBUG
+#if DEBUG || os(macOS)
         if shouldRecordBreadcrumb {
             appendStudioDebugVoiceDraftBreadcrumb(
                 event: restorePreview ? "request_cancelled" : "request_cleared",
@@ -6148,7 +7425,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         )
         realtimeStudioRenderUserMessage = cleanUser
         realtimeStudioRenderedReply = ""
-#if DEBUG
+#if DEBUG || os(macOS)
         appendStudioDebugVoiceDraftBreadcrumb(
             event: "request_started",
             detail: "Early Studio draft stream started.",
@@ -6164,7 +7441,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 userMessage: cleanUser,
                 assistantMessage: placeholderReply
             )
-#if DEBUG
+#if DEBUG || os(macOS)
             appendStudioDebugVoiceDraftBreadcrumb(
                 event: "placeholder_inserted",
                 detail: "Inserted transcript-derived placeholder while waiting for Studio render stream.",
@@ -6178,7 +7455,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimeStudioRenderTask = Task { @MainActor in
             let systemPrompt = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: true)
             do {
-#if DEBUG
+#if DEBUG || os(macOS)
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "render_request_started",
                     detail: "Studio draft render request started.",
@@ -6193,7 +7470,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         await MainActor.run {
                             guard self.realtimeStudioRenderUserMessage == cleanUser else { return }
                             self.realtimeStudioRenderedReply = partial
-#if DEBUG
+#if DEBUG || os(macOS)
                             let hasRecordedFirstPartial = self.currentStudioDebugVoiceDraftBreadcrumbs().contains {
                                 $0.token == (debugVoiceTurnToken ?? self.activeStudioDebugVoiceTurnToken ?? 0) &&
                                 $0.event == "render_partial_received"
@@ -6218,7 +7495,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     onTrace: { trace in
                         await MainActor.run {
                             guard self.realtimeStudioRenderUserMessage == cleanUser else { return }
-#if DEBUG
+#if DEBUG || os(macOS)
                             let cleanKind = trace.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                             let requestID = trace.requestID.trimmingCharacters(in: .whitespacesAndNewlines)
                             switch cleanKind {
@@ -6269,7 +7546,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 )
                 let sanitizedReply = sanitizedRealtimeStudioRenderReply(renderedReply)
                 realtimeStudioRenderedReply = sanitizedReply
-#if DEBUG
+#if DEBUG || os(macOS)
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "render_response_received",
                     detail: "Studio draft render response completed.",
@@ -6279,7 +7556,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 )
 #endif
                 if let committedPreviewText = commitActiveRealtimeStudioDraftPreviewIfNeeded() {
-#if DEBUG
+#if DEBUG || os(macOS)
                     appendStudioDebugVoiceDraftBreadcrumb(
                         event: "request_committed",
                         detail: "Early Studio draft preview committed to the page.",
@@ -6330,7 +7607,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         userMessage: cleanUser,
                         assistantMessage: fallbackReply
                     )
-#if DEBUG
+#if DEBUG || os(macOS)
                     appendStudioDebugVoiceDraftBreadcrumb(
                         event: "render_response_received",
                         detail: "Studio draft render fallback completed.",
@@ -6340,7 +7617,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     )
 #endif
                     if let committedPreviewText = commitActiveRealtimeStudioDraftPreviewIfNeeded() {
-#if DEBUG
+#if DEBUG || os(macOS)
                         appendStudioDebugVoiceDraftBreadcrumb(
                             event: "request_committed",
                             detail: "Early Studio draft preview committed to the page from fallback render.",
@@ -6619,7 +7896,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         )
         if let prompt = speculativeTalk.preparedPromptIfCompatible(
             finalText: prepared.directorText,
-            isScreenplayMode: prepared.useScreenplayMode
+            isScreenplayMode: prepared.useScreenplayMode,
+            shouldWriteToPage: prepared.shouldWriteToPage
         ) {
             return prompt
         }
@@ -6985,7 +8263,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         withAnimation(.easeIn(duration: 0.35)) {
             replyEchoOpacity = 1
         }
-        #if DEBUG
+        #if DEBUG || os(macOS)
         writeOrbEchoDebugState(token: debugToken, stage: "shown")
         #endif
     }
@@ -6996,7 +8274,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         withAnimation(.easeOut(duration: 0.25)) {
             replyEchoOpacity = 0
         }
-        #if DEBUG
+        #if DEBUG || os(macOS)
         writeOrbEchoDebugState(token: debugToken, stage: "hiding")
         #endif
         replyEchoClearTask = Task { @MainActor in
@@ -7005,14 +8283,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
             guard replyEchoOpacity <= 0.001 else { return }
             userReplyEcho = ""
             assistantReplyEcho = ""
-            #if DEBUG
+            #if DEBUG || os(macOS)
             writeOrbEchoDebugState(token: debugToken, stage: "hidden")
             #endif
             replyEchoClearTask = nil
         }
     }
 
-    #if DEBUG
+    #if DEBUG || os(macOS)
     private func writeOrbEchoDebugState(token: Int?, stage: String) {
         let defaults = UserDefaults.standard
         if let token, token > 0 {
@@ -7151,20 +8429,102 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private struct StudioDialogueAnchorMetadata {
+        let startLine: Int?
+        let endLine: Int?
+        let sceneLabel: String
+        let draftSceneID: String
+        let outlineSceneID: String
+        let outlineBeatIDs: [String]
+        let scriptNodeID: String
+        let documentRevisionID: String
+    }
+
+    @MainActor
+    private func resolvedStudioDialogueAnchorMetadata(
+        startLine: Int? = nil,
+        endLine: Int? = nil,
+        sceneLabelOverride: String? = nil,
+        writeID: String = ""
+    ) -> StudioDialogueAnchorMetadata {
+        let fallbackTarget: (start: Int, end: Int?) = {
+            if let replacement = screenplayDraftBridge.pendingReplacementTarget
+                ?? screenplayDraftBridge.submittedReplacementTarget {
+                return (replacement.startLine, replacement.endLine)
+            }
+            if let selection = screenplayDraftBridge.selectedEditorSnapshot() {
+                return (selection.startLine, selection.endLine)
+            }
+            let line = max(1, screenplayDraftBridge.currentCursorLine)
+            return (line, line)
+        }()
+        let safeStartLine = max(1, startLine ?? fallbackTarget.start)
+        let safeEndLine = max(safeStartLine, endLine ?? fallbackTarget.end ?? safeStartLine)
+        let resolvedScene = screenplayDraftBridge.structuredDraft.scenes.last(where: {
+            safeStartLine >= $0.line && safeStartLine <= max($0.endLine, $0.line)
+        }) ?? screenplayDraftBridge.structuredDraft.scenes.last(where: { $0.line <= safeStartLine })
+        let resolvedParagraph = screenplayDraftBridge.structuredDraft.paragraphs.first(where: {
+            $0.line == safeStartLine
+        }) ?? screenplayDraftBridge.structuredDraft.paragraphs.first(where: {
+            $0.line >= safeStartLine && $0.line <= safeEndLine
+        })
+        let binding = resolvedScene.flatMap { screenplayDraftBridge.projectBindingSnapshot(forDraftSceneID: $0.id) }
+        let cleanSceneLabelOverride = (sceneLabelOverride ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedSceneLabel = cleanSceneLabelOverride.isEmpty
+            ? (resolvedScene?.slugline ?? studioSceneLabelForDraftLine(safeStartLine) ?? "")
+            : cleanSceneLabelOverride
+        let resolvedDocumentRevisionID = screenplayDraftBridge.preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? liveScreenplayVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            : screenplayDraftBridge.preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedDraftSceneID = resolvedScene?.id.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedOutlineSceneID = binding?.outlineSceneID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedOutlineBeatIDs = (binding?.outlineBeatIDs ?? []).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+        let cleanWriteID = writeID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackScriptNodeBase = !resolvedDraftSceneID.isEmpty
+            ? resolvedDraftSceneID
+            : (!cleanWriteID.isEmpty ? cleanWriteID : (!resolvedDocumentRevisionID.isEmpty ? resolvedDocumentRevisionID : "draft"))
+        let resolvedParagraphID = resolvedParagraph?.id.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedScriptNodeID = !resolvedParagraphID.isEmpty &&
+            !isLegacyStudioParagraphAnchorID(resolvedParagraphID)
+            ? resolvedParagraphID
+            : "\(fallbackScriptNodeBase):line:\(safeStartLine)"
+        return StudioDialogueAnchorMetadata(
+            startLine: safeStartLine,
+            endLine: safeEndLine,
+            sceneLabel: resolvedSceneLabel,
+            draftSceneID: resolvedDraftSceneID,
+            outlineSceneID: resolvedOutlineSceneID,
+            outlineBeatIDs: resolvedOutlineBeatIDs,
+            scriptNodeID: resolvedScriptNodeID,
+            documentRevisionID: resolvedDocumentRevisionID
+        )
+    }
+
+    @MainActor
     private func initialStudioTalkMetadata(from preparedPrompt: PreparedTurnPrompt) -> BackendStudioThreadCommitMetadata? {
         guard preparedPrompt.useScreenplayMode else { return nil }
         let projectId = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
             : screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let target = preparedPrompt.shouldWriteToPage ? "page" : "voice_pin"
+        let anchorMetadata = preparedPrompt.shouldWriteToPage
+            ? resolvedStudioDialogueAnchorMetadata()
+            : nil
         let metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: projectId,
+            screenplayDocumentRevisionId: anchorMetadata?.documentRevisionID ?? "",
             screenplayTarget: target,
             screenplayPromptSource: ScreenplayStudioUserPrompt.Source.voice.rawValue,
             screenplayWriteId: "",
-            screenplayAnchorLine: nil,
-            screenplayAnchorEndLine: nil,
-            screenplayAnchorSceneLabel: "",
+            screenplayAnchorLine: anchorMetadata?.startLine,
+            screenplayAnchorEndLine: anchorMetadata?.endLine,
+            screenplayAnchorSceneLabel: anchorMetadata?.sceneLabel ?? "",
+            screenplayAnchorDraftSceneId: anchorMetadata?.draftSceneID ?? "",
+            screenplayAnchorOutlineSceneId: anchorMetadata?.outlineSceneID ?? "",
+            screenplayAnchorOutlineBeatIds: anchorMetadata?.outlineBeatIDs ?? [],
+            screenplayAnchorScriptNodeId: anchorMetadata?.scriptNodeID ?? "",
             screenplayNoteTitle: "",
             screenplayNoteBody: "",
             screenplayInsertedText: "",
@@ -7179,13 +8539,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
     @MainActor
     private func annotateStudioTalkTurnIfNeeded(
         result: BackendTalkResult,
-        promptSource: ScreenplayStudioUserPrompt.Source
+        promptSource: ScreenplayStudioUserPrompt.Source,
+        targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
+        insertedTextOverride: String? = nil
     ) async {
         guard isStudioSurfaceActive || result.screenplayTrace.modeEnabled else { return }
         guard let rawTurnId = result.commit?.turnId else { return }
         let turnId = rawTurnId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !turnId.isEmpty else { return }
-        guard let studioMetadata = studioThreadCommitMetadata(promptSource: promptSource) else { return }
+        await waitForStudioPageWriteCommitIfNeeded(
+            targetOverride: targetOverride,
+            insertedTextOverride: insertedTextOverride
+        )
+        guard let studioMetadata = studioThreadCommitMetadata(
+            promptSource: promptSource,
+            targetOverride: targetOverride,
+            insertedTextOverride: insertedTextOverride
+        ) else { return }
 
         do {
             let annotation = try await BackendMemoryAPI.shared.annotateTurnHistory(
@@ -7202,23 +8572,35 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func studioThreadCommitMetadata(
-        promptSource: ScreenplayStudioUserPrompt.Source
+        promptSource: ScreenplayStudioUserPrompt.Source,
+        targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
+        insertedTextOverride: String? = nil
     ) -> BackendStudioThreadCommitMetadata? {
         guard isStudioSurfaceActive else { return nil }
 
         let projectId = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
             : screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanInsertedTextOverride = (insertedTextOverride ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasInsertedTextOverride = !cleanInsertedTextOverride.isEmpty
         let pin = screenplayDraftBridge.assistantPin
         let pinMode = pin.mode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let isPageWrite = pinMode == "page"
-        let committedWrite = isPageWrite ? screenplayDraftBridge.lastCommittedWrite : nil
+        let latestCommittedWrite = screenplayDraftBridge.lastCommittedWrite?.isAuthoritativeWrite == true
+            ? screenplayDraftBridge.lastCommittedWrite
+            : nil
+        let explicitPageWrite = targetOverride == .page && (hasInsertedTextOverride || latestCommittedWrite != nil)
+        let isPageWrite = pinMode == "page" || explicitPageWrite
+        let committedWrite = isPageWrite ? latestCommittedWrite : nil
         let noteTitle: String
         let noteBody: String
 
         if let committedWrite {
             noteTitle = "Wrote to page"
             noteBody = clippedStudioAssistantText(committedWrite.insertedText, limit: 280)
+        } else if isPageWrite && hasInsertedTextOverride {
+            noteTitle = "Wrote to page"
+            noteBody = clippedStudioAssistantText(cleanInsertedTextOverride, limit: 280)
         } else {
             let cleanTitle = pin.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanBody = pin.body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7232,28 +8614,77 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         let anchorLine = committedWrite?.startLine
         let anchorEndLine = committedWrite?.endLine
-        let anchorSceneLabel = committedWrite.flatMap { studioSceneLabelForDraftLine($0.startLine) } ?? ""
+        let anchorMetadata = resolvedStudioDialogueAnchorMetadata(
+            startLine: anchorLine,
+            endLine: anchorEndLine,
+            sceneLabelOverride: committedWrite.flatMap { studioSceneLabelForDraftLine($0.startLine) },
+            writeID: committedWrite?.writeID ?? ""
+        )
+        let anchorSceneLabel = anchorMetadata.sceneLabel
         let replacementApplied = committedWrite?.replacementApplied == true
         let replacedWriteID = replacementApplied ? (committedWrite?.replacedWriteID ?? "") : ""
         let revisedBlockText = replacementApplied ? (committedWrite?.insertedText ?? "") : ""
-        let resolvedAnchorExcerpt = committedWrite.map { clippedStudioAssistantText($0.insertedText, limit: 220) } ?? ""
+        let resolvedAnchorExcerpt = committedWrite.map { clippedStudioAssistantText($0.insertedText, limit: 220) }
+            ?? (isPageWrite && hasInsertedTextOverride
+                ? clippedStudioAssistantText(cleanInsertedTextOverride, limit: 220)
+                : "")
         let metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: projectId,
+            screenplayDocumentRevisionId: anchorMetadata.documentRevisionID,
             screenplayTarget: isPageWrite ? "page" : "voice_pin",
             screenplayPromptSource: promptSource.rawValue,
             screenplayWriteId: committedWrite?.writeID ?? "",
-            screenplayAnchorLine: anchorLine,
-            screenplayAnchorEndLine: anchorEndLine,
+            screenplayAnchorLine: anchorMetadata.startLine,
+            screenplayAnchorEndLine: anchorMetadata.endLine,
             screenplayAnchorSceneLabel: anchorSceneLabel,
+            screenplayAnchorDraftSceneId: anchorMetadata.draftSceneID,
+            screenplayAnchorOutlineSceneId: anchorMetadata.outlineSceneID,
+            screenplayAnchorOutlineBeatIds: anchorMetadata.outlineBeatIDs,
+            screenplayAnchorScriptNodeId: anchorMetadata.scriptNodeID,
             screenplayNoteTitle: noteTitle,
             screenplayNoteBody: noteBody,
-            screenplayInsertedText: committedWrite?.insertedText ?? "",
+            screenplayInsertedText: committedWrite?.insertedText ?? (isPageWrite ? cleanInsertedTextOverride : ""),
             screenplayReplacementApplied: replacementApplied,
             screenplayReplacedWriteId: replacedWriteID,
             screenplayRevisedBlockText: revisedBlockText,
             screenplayResolvedAnchorExcerpt: resolvedAnchorExcerpt
         )
         return metadata.isMeaningful ? metadata : nil
+    }
+
+    @MainActor
+    private func waitForStudioPageWriteCommitIfNeeded(
+        targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
+        insertedTextOverride: String? = nil,
+        timeoutMs: UInt64 = 8_000
+    ) async {
+        guard isStudioSurfaceActive else { return }
+        let shouldWaitForPageWrite = targetOverride == .page
+            || !(insertedTextOverride ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard shouldWaitForPageWrite else { return }
+
+        let expectedInsertedText = (insertedTextOverride ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
+
+        while ContinuousClock.now < deadline {
+            if let committedWrite = screenplayDraftBridge.lastCommittedWrite {
+                guard committedWrite.isAuthoritativeWrite else {
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    continue
+                }
+                let committedText = committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalizedCommitted = committedText.replacingOccurrences(of: "\r\n", with: "\n")
+                let normalizedExpected = expectedInsertedText.replacingOccurrences(of: "\r\n", with: "\n")
+                if normalizedExpected.isEmpty
+                    || normalizedCommitted == normalizedExpected
+                    || normalizedCommitted.contains(normalizedExpected)
+                    || normalizedExpected.contains(normalizedCommitted) {
+                    return
+                }
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
     }
 
     @MainActor
@@ -7287,7 +8718,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         userMessage: String,
         assistantMessage: String,
         promptSource: ScreenplayStudioUserPrompt.Source = .voice,
-        requestId: String? = nil
+        requestId: String? = nil,
+        targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
+        insertedTextOverride: String? = nil
     ) async {
         let cleanUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanAssistant = assistantMessage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7308,7 +8741,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
             : .companion
 
         do {
-            let studioMetadata = studioThreadCommitMetadata(promptSource: promptSource)
+            await waitForStudioPageWriteCommitIfNeeded(
+                targetOverride: targetOverride,
+                insertedTextOverride: insertedTextOverride
+            )
+            let studioMetadata = studioThreadCommitMetadata(
+                promptSource: promptSource,
+                targetOverride: targetOverride,
+                insertedTextOverride: insertedTextOverride
+            )
             let result = try await BackendMemoryAPI.shared.commitRealtimeTurn(
                 userMessage: cleanUser,
                 assistantMessage: cleanAssistant,
@@ -7330,6 +8771,39 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
         } catch {
             lastRealtimeCommitError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func annotateLatestRealtimeStudioTurnIfNeeded(
+        promptSource: ScreenplayStudioUserPrompt.Source,
+        targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
+        insertedTextOverride: String? = nil,
+        turnIdOverride: String? = nil
+    ) async {
+        let turnId = (turnIdOverride ?? lastRealtimeCommittedTurnID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !turnId.isEmpty else { return }
+        await waitForStudioPageWriteCommitIfNeeded(
+            targetOverride: targetOverride,
+            insertedTextOverride: insertedTextOverride
+        )
+        guard let studioMetadata = studioThreadCommitMetadata(
+            promptSource: promptSource,
+            targetOverride: targetOverride,
+            insertedTextOverride: insertedTextOverride
+        ) else { return }
+
+        do {
+            let annotation = try await BackendMemoryAPI.shared.annotateTurnHistory(
+                turnId: turnId,
+                studioMetadata: studioMetadata
+            )
+            if !annotation.sync.stateVersion.isEmpty {
+                localStateVersion = annotation.sync.stateVersion
+            }
+        } catch {
+            HerLog.talk.error("studio turn post-commit annotate error=\(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -7448,7 +8922,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             case .connecting:
                 return "Connecting…"
             case .live:
-                return "Live"
+                return realtimeTransport.activity.label + "…"
             case .failed:
                 return "Offline"
             }

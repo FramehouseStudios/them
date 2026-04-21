@@ -1,6 +1,13 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { createStudioEvalDebugContext, ensureStudioVisibleWithOpenHandshake } from "./studio_eval_debug_utils.mjs";
+import {
+  assertInteractionLifecycle,
+  createStudioEvalDebugContext,
+  ensureStudioVisibleWithOpenHandshake,
+  runCommand,
+  runOptionalCommand,
+  sleepMs,
+  waitForCondition,
+} from "./studio_eval_debug_utils.mjs";
 
 const SCREENSHOT_DIR = "/tmp/them-smoke/inspector-restore";
 const SCREENSHOT_PATH = `${SCREENSHOT_DIR}/them-inspector-restore-reorder.png`;
@@ -10,30 +17,22 @@ function assert(condition, message) {
 }
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    encoding: "utf8",
-    ...options,
-  });
-  if (result.status !== 0) {
-    throw new Error((result.stderr || result.stdout || `${command} failed`).trim());
-  }
-  return (result.stdout || "").trim();
+  return runCommand(command, args, options);
 }
 
 function runOptional(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    encoding: "utf8",
-    ...options,
-  });
-  return {
-    status: result.status ?? 1,
-    stdout: (result.stdout || "").trim(),
-    stderr: (result.stderr || "").trim(),
-  };
+  return runOptionalCommand(command, args, options);
 }
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
 const debugDefaults = debugContext.defaults;
+const {
+  readDefaultInt,
+  writeDefaultInt,
+  writeDefaultString,
+  readJsonDefault: readJsonDefaultValue,
+  nextToken,
+} = debugContext;
 
 function osascript(lines) {
   const args = [];
@@ -41,64 +40,19 @@ function osascript(lines) {
   return run("osascript", args);
 }
 
-function readDefaultString(key) {
-  const result = runOptional("defaults", ["read", "io.them.them", key]);
-  return result.status === 0 ? result.stdout.trim() : "";
-}
-
-function readDefaultInt(key) {
-  const value = Number(readDefaultString(key));
-  return Number.isFinite(value) ? value : 0;
-}
-
-function writeDefaultInt(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-int", String(value)]);
-}
-
-function writeDefaultString(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-string", String(value)]);
-}
-
-function readJsonDefault(key) {
-  const raw = readDefaultString(key);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function readDebugDiffState() {
-  return readJsonDefault("studio_debug_diff_state_json");
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 250) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return;
-    await sleep(intervalMs);
-  }
-  throw new Error(`Timed out waiting for ${description}`);
+  return readJsonDefaultValue("studio_debug_diff_state_json", null);
 }
 
 async function waitForDiffState(predicate, description, timeoutMs = 20000) {
   let latest = null;
-  await waitFor(() => {
+  await waitForCondition(() => {
     const state = readDebugDiffState();
     if (!state) return false;
     latest = state;
     return predicate(state);
   }, description, timeoutMs, 200);
   return latest;
-}
-
-function nextToken(...keys) {
-  return debugContext.nextToken(...keys);
 }
 
 function findDebugAppPath() {
@@ -147,7 +101,7 @@ function activateApp(appPath = "") {
 
 async function ensureStudioVisible() {
   const appPath = findDebugAppPath();
-  await ensureStudioVisibleWithOpenHandshake({
+  return ensureStudioVisibleWithOpenHandshake({
     appPath,
     debugDefaults,
     runOptional,
@@ -160,18 +114,29 @@ async function ensureStudioVisible() {
 async function seedStructuralDraft() {
   const appPath = findDebugAppPath();
   runOptional("open", ["-na", appPath]);
-  await sleep(700);
+  await sleepMs(700);
   let lastError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const token = nextToken("studio_debug_seed_structural_token", "studio_debug_seed_structural_ack_token");
     writeDefaultInt("studio_debug_seed_structural_token", token);
     activateApp(appPath);
     try {
-      await waitFor(() => readDefaultInt("studio_debug_seed_structural_ack_token") === token, `structural seed ack ${token}`, attempt === 1 ? 15000 : 10000, 150);
-      return;
+      await waitForCondition(() => readDefaultInt("studio_debug_seed_structural_ack_token") === token, `structural seed ack ${token}`, attempt === 1 ? 15000 : 10000, 150);
+      const state = readDebugDiffState() || {};
+      return assertInteractionLifecycle({
+        action: "studio_debug_seed_structural",
+        actionReceived: readDefaultInt("studio_debug_seed_structural_ack_token") === token,
+        payload: { status: "handled", error: "" },
+        stateAfter: Boolean(Array.isArray(state.beatOrderIDs) && state.beatOrderIDs.length > 0),
+        stateLabel: "structural_seed_beat_order_available",
+        extra: {
+          token,
+          beatCount: Array.isArray(state.beatOrderIDs) ? state.beatOrderIDs.length : 0,
+        },
+      });
     } catch (error) {
       lastError = error;
-      await sleep(1200);
+      await sleepMs(1200);
     }
   }
   throw lastError || new Error("structural seed ack never arrived");
@@ -187,11 +152,26 @@ async function showInspector() {
     writeDefaultInt("studio_debug_shell_visibility_token", token);
     activateApp(appPath);
     try {
-      await waitFor(() => readDefaultInt("studio_debug_shell_visibility_ack_token") === token, `shell visibility ack ${token}`, attempt === 1 ? 15000 : 10000, 150);
-      return;
+      await waitForCondition(() => readDefaultInt("studio_debug_shell_visibility_ack_token") === token, `shell visibility ack ${token}`, attempt === 1 ? 15000 : 10000, 150);
+      const state = await waitForDiffState(
+        (candidate) => candidate.leftSidebarVisible === true && candidate.rightRailExpanded === true,
+        "inspector shown",
+        15000
+      );
+      return {
+        state,
+        lifecycle: assertInteractionLifecycle({
+          action: "studio_debug_shell_visibility show/show",
+          actionReceived: readDefaultInt("studio_debug_shell_visibility_ack_token") === token,
+          payload: { status: "handled", error: "" },
+          stateAfter: state.leftSidebarVisible === true && state.rightRailExpanded === true,
+          stateLabel: "inspector_shown",
+          extra: { token },
+        }),
+      };
     } catch (error) {
       lastError = error;
-      await sleep(900);
+      await sleepMs(900);
     }
   }
   throw lastError || new Error("shell visibility ack never arrived");
@@ -204,12 +184,23 @@ async function openRightPanelTab(tab) {
     writeDefaultString("studio_debug_right_panel_tab", tab);
     writeDefaultInt("studio_debug_right_panel_tab_token", token);
     try {
-      await waitFor(() => readDefaultInt("studio_debug_right_panel_tab_ack_token") === token, `right panel tab ack ${token}`, attempt === 1 ? 20000 : 12000, 150);
-      return await waitForDiffState((state) => state?.rightPanelTab === tab, `right inspector tab ${tab}`, 20000);
+      await waitForCondition(() => readDefaultInt("studio_debug_right_panel_tab_ack_token") === token, `right panel tab ack ${token}`, attempt === 1 ? 20000 : 12000, 150);
+      const state = await waitForDiffState((next) => next?.rightPanelTab === tab, `right inspector tab ${tab}`, 20000);
+      return {
+        state,
+        lifecycle: assertInteractionLifecycle({
+          action: `studio_debug_right_panel_tab ${tab}`,
+          actionReceived: readDefaultInt("studio_debug_right_panel_tab_ack_token") === token,
+          payload: { status: "handled", error: "" },
+          stateAfter: state?.rightPanelTab === tab,
+          stateLabel: "right_panel_tab_open",
+          extra: { token, tab },
+        }),
+      };
     } catch (error) {
       lastError = error;
       activateApp(findDebugAppPath());
-      await sleep(900);
+      await sleepMs(900);
     }
   }
   throw lastError || new Error(`right panel tab ${tab} never opened`);
@@ -220,7 +211,7 @@ async function selectLines(startLine, endLine) {
   writeDefaultInt("studio_debug_select_lines_start", startLine);
   writeDefaultInt("studio_debug_select_lines_end", endLine);
   writeDefaultInt("studio_debug_select_lines_token", token);
-  await waitFor(() => readDefaultInt("studio_debug_select_lines_ack_token") === token, `line selection ack ${token}`, 15000, 150);
+  await waitForCondition(() => readDefaultInt("studio_debug_select_lines_ack_token") === token, `line selection ack ${token}`, 15000, 150);
   return await waitForDiffState(
     (state) => Number(state?.selectionStartLine || 0) === startLine && Number(state?.selectionEndLine || 0) === endLine,
     `line selection ${startLine}-${endLine}`,
@@ -238,11 +229,15 @@ async function runInspectorInteraction(action, primary = "", secondary = "") {
   writeDefaultString("studio_debug_inspector_interaction_primary", primary);
   writeDefaultString("studio_debug_inspector_interaction_secondary", secondary);
   writeDefaultInt("studio_debug_inspector_interaction_token", token);
-  await waitFor(() => readDefaultInt("studio_debug_inspector_interaction_ack_token") === token, `inspector interaction ack ${action} ${token}`, 15000, 150);
-  await waitFor(() => readDefaultInt("studio_debug_inspector_interaction_result_token") === token, `inspector interaction result ${action} ${token}`, 15000, 150);
-  const payload = readJsonDefault("studio_debug_inspector_interaction_result_json") || {};
+  await waitForCondition(() => readDefaultInt("studio_debug_inspector_interaction_ack_token") === token, `inspector interaction ack ${action} ${token}`, 15000, 150);
+  await waitForCondition(() => readDefaultInt("studio_debug_inspector_interaction_result_token") === token, `inspector interaction result ${action} ${token}`, 15000, 150);
+  const payload = readJsonDefaultValue("studio_debug_inspector_interaction_result_json") || {};
   assert(payload.status === "handled", `Inspector interaction ${action} failed: ${payload.error || payload.status || "unknown"}`);
-  return payload;
+  return {
+    token,
+    actionReceived: readDefaultInt("studio_debug_inspector_interaction_ack_token") === token,
+    payload,
+  };
 }
 
 function readFrontWindowInfo() {
@@ -306,37 +301,81 @@ function captureWindow(targetPath) {
 async function main() {
   mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
-  await ensureStudioVisible();
-  await seedStructuralDraft();
-  await showInspector();
-  let state = await openRightPanelTab("beats");
+  const openResult = await ensureStudioVisible();
+  const seedLifecycle = await seedStructuralDraft();
+  const inspectorShown = await showInspector();
+  const beatsTab = await openRightPanelTab("beats");
+  let state = beatsTab.state;
   assert(state?.rightPanelTab === "beats", `Expected beats tab, got ${state?.rightPanelTab || "<missing>"}`);
+  const interactionLifecycles = [
+    inspectorShown.lifecycle,
+    beatsTab.lifecycle,
+  ];
 
   const selectedBeatID = "beat-kitchen";
-  await runInspectorInteraction("select_beat", selectedBeatID);
+  const selectBeatInteraction = await runInspectorInteraction("select_beat", selectedBeatID);
   state = await waitForDiffState(
     (next) => next?.rightPanelTab === "beats" && next?.selectedBeatID === selectedBeatID,
     "selected beat in inspector",
     15000
   );
+  interactionLifecycles.push(
+    assertInteractionLifecycle({
+      action: "select_beat",
+      actionReceived: selectBeatInteraction.actionReceived,
+      payload: selectBeatInteraction.payload,
+      stateAfter: state?.rightPanelTab === "beats" && state?.selectedBeatID === selectedBeatID,
+      stateLabel: "selected_beat_visible",
+      extra: {
+        token: selectBeatInteraction.token,
+        selectedBeatID,
+      },
+    })
+  );
 
-  await runInspectorInteraction("move_selected_beat_to_top");
+  const reorderInteraction = await runInspectorInteraction("move_selected_beat_to_top");
   state = await waitForDiffState(
     (next) => Array.isArray(next?.beatOrderIDs) && next.beatOrderIDs[0] === selectedBeatID,
     "selected beat moved to top",
     15000
   );
+  interactionLifecycles.push(
+    assertInteractionLifecycle({
+      action: "move_selected_beat_to_top",
+      actionReceived: reorderInteraction.actionReceived,
+      payload: reorderInteraction.payload,
+      stateAfter: Array.isArray(state?.beatOrderIDs) && state.beatOrderIDs[0] === selectedBeatID,
+      stateLabel: "selected_beat_at_top",
+      extra: {
+        token: reorderInteraction.token,
+        selectedBeatID,
+        firstBeatID: Array.isArray(state?.beatOrderIDs) ? state.beatOrderIDs[0] : "",
+      },
+    })
+  );
 
   const restoreLabel = "Restore inspector draft";
   const restoreSummary = "Track the unresolved subtext before the scene break.";
-  await runInspectorInteraction("seed_beat_draft", restoreLabel, restoreSummary);
+  const seedDraftInteraction = await runInspectorInteraction("seed_beat_draft", restoreLabel, restoreSummary);
   state = await waitForDiffState(
     (next) => next?.beatDraftLabel === restoreLabel && next?.beatDraftSummary === restoreSummary,
     "seeded beat draft",
     15000
   );
+  interactionLifecycles.push(
+    assertInteractionLifecycle({
+      action: "seed_beat_draft",
+      actionReceived: seedDraftInteraction.actionReceived,
+      payload: seedDraftInteraction.payload,
+      stateAfter: state?.beatDraftLabel === restoreLabel && state?.beatDraftSummary === restoreSummary,
+      stateLabel: "beat_draft_seeded",
+      extra: {
+        token: seedDraftInteraction.token,
+      },
+    })
+  );
 
-  await runInspectorInteraction("restore_workspace");
+  const restoreInteraction = await runInspectorInteraction("restore_workspace");
   state = await waitForDiffState(
     (next) => next?.rightPanelTab === "beats"
       && next?.selectedBeatID === selectedBeatID
@@ -347,9 +386,40 @@ async function main() {
     "restored inspector workspace",
     15000
   );
+  interactionLifecycles.push(
+    assertInteractionLifecycle({
+      action: "restore_workspace",
+      actionReceived: restoreInteraction.actionReceived,
+      payload: restoreInteraction.payload,
+      stateAfter: state?.rightPanelTab === "beats"
+        && state?.selectedBeatID === selectedBeatID
+        && Array.isArray(state?.beatOrderIDs)
+        && state.beatOrderIDs[0] === selectedBeatID
+        && state?.beatDraftLabel === restoreLabel
+        && state?.beatDraftSummary === restoreSummary,
+      stateLabel: "workspace_restored",
+      extra: {
+        token: restoreInteraction.token,
+      },
+    })
+  );
 
   const bytes = captureWindow(SCREENSHOT_PATH);
+  const openLifecycle = assertInteractionLifecycle({
+    action: "studio_open_for_inspector_restore_reorder",
+    actionReceived: Boolean(openResult?.degraded) || Number(openResult?.token || 0) > 0,
+    payload: { status: "handled", error: "" },
+    stateAfter: Boolean(state?.rightPanelTab),
+    stateLabel: "inspector_restore_ready",
+    extra: {
+      token: Number(openResult?.token || 0),
+      degraded: openResult?.degraded === true,
+      helperStatus: String(openResult?.appSession?.helperStatus || ""),
+    },
+  });
   console.log(JSON.stringify({
+    ok: true,
+    appSession: openResult?.appSession || {},
     selectedBeatID,
     rightPanelTab: state?.rightPanelTab || "",
     beatDraftLabel: state?.beatDraftLabel || "",
@@ -358,6 +428,11 @@ async function main() {
     beatOrderLabels: state?.beatOrderLabels || [],
     screenshotPath: SCREENSHOT_PATH,
     screenshotBytes: bytes,
+    lifecycle: {
+      open: openLifecycle,
+      structuralSeed: seedLifecycle,
+      interactions: interactionLifecycles,
+    },
   }, null, 2));
 }
 

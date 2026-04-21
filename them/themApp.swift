@@ -5,6 +5,16 @@ import os
 @main
 struct themApp: App {
     init() {
+        #if DEBUG || os(macOS)
+        #if os(macOS)
+        let launchProbeValue = String(Int(Date().timeIntervalSince1970 * 1000))
+        UserDefaults.standard.set(launchProbeValue, forKey: "studio_debug_launch_probe")
+        UserDefaults.standard.synchronize()
+        UserDefaults(suiteName: "io.them.them")?.set(launchProbeValue, forKey: "studio_debug_launch_probe")
+        UserDefaults(suiteName: "io.them.them")?.synchronize()
+        _ = StudioDebugDefaultsBridge.shared
+        #endif
+        #endif
         configureAudioSession()
     }
 

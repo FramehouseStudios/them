@@ -7,6 +7,54 @@ import AppKit
 import UIKit
 #endif
 
+#if os(macOS)
+private func screenplayDebugMirroredDomains() -> [String] {
+    ["io.them.them"]
+}
+
+private func screenplayDebugMirroredPlistURLs(for domain: String) -> [URL] {
+    let filename = domain.hasSuffix(".plist") ? domain : "\(domain).plist"
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    return [
+        home
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Containers")
+            .appendingPathComponent(domain)
+            .appendingPathComponent("Data")
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Preferences")
+            .appendingPathComponent(filename),
+        home
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Preferences")
+            .appendingPathComponent(filename),
+    ]
+}
+
+private func mirrorScreenplayDebugPreferenceValue(_ value: Any, forKey key: String, domain: String) {
+    for url in screenplayDebugMirroredPlistURLs(for: domain) {
+        let directoryURL = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let dictionary = (NSMutableDictionary(contentsOf: url) ?? NSMutableDictionary())
+        dictionary[key] = value
+        dictionary.write(to: url, atomically: true)
+    }
+}
+
+private func writeMirroredScreenplayDebugPreferenceString(_ value: String, forKey key: String) {
+    UserDefaults.standard.set(value, forKey: key)
+    for domain in screenplayDebugMirroredDomains() {
+        UserDefaults(suiteName: domain)?.set(value, forKey: key)
+        UserDefaults(suiteName: domain)?.synchronize()
+        let domainRef = domain as CFString
+        CFPreferencesSetAppValue(key as CFString, value as CFString, domainRef)
+        CFPreferencesAppSynchronize(domainRef)
+        mirrorScreenplayDebugPreferenceValue(value as NSString, forKey: key, domain: domain)
+    }
+    UserDefaults.standard.synchronize()
+}
+#endif
+
 struct ScreenplayInsertionRequest: Identifiable, Equatable {
     enum Mode: String, Equatable {
         case insert
@@ -16,16 +64,30 @@ struct ScreenplayInsertionRequest: Identifiable, Equatable {
         case streamInsertProgress
         case streamInsertFinalize
         case streamInsertCancel
+        case voiceRevealPrepare
+        case voiceRevealUpdate
+        case voiceRevealFinalize
+        case voiceRevealCancel
     }
 
     let id: UUID
     let text: String
     let mode: Mode
+    let replacementTarget: ScreenplayPendingReplacementTarget?
+    let voiceRevealState: ScreenplayVoiceRevealPresentationState?
 
-    init(id: UUID = UUID(), text: String, mode: Mode = .insert) {
+    init(
+        id: UUID = UUID(),
+        text: String,
+        mode: Mode = .insert,
+        replacementTarget: ScreenplayPendingReplacementTarget? = nil,
+        voiceRevealState: ScreenplayVoiceRevealPresentationState? = nil
+    ) {
         self.id = id
         self.text = text
         self.mode = mode
+        self.replacementTarget = replacementTarget
+        self.voiceRevealState = voiceRevealState
     }
 }
 
@@ -66,12 +128,270 @@ struct ScreenplayVoiceCue: Codable, Equatable {
     let endMs: Int
 }
 
-struct ScreenplayVoiceInsertPlan: Equatable {
+enum ScreenplayDialogueSegmentKind: String, Codable, Equatable {
+    case character
+    case dialogue
+    case parenthetical
+    case action
+    case pause
+}
+
+struct ScreenplayPageAnchor: Codable, Equatable {
+    let projectId: String
+    let sceneId: String
+    let beatId: String?
+    let scriptNodeId: String
+    let pageIndex: Int?
+    let rangeStart: Int
+    let rangeEnd: Int
+}
+
+struct ScreenplayRevealUnit: Codable, Equatable {
+    let id: String
+    let text: String
+    let startMs: Int
+    let endMs: Int
+    let utf16Start: Int
+    let utf16End: Int
+}
+
+struct ScreenplayDialogueSegment: Codable, Equatable {
+    let id: String
+    let lineId: String
+    let kind: ScreenplayDialogueSegmentKind
+    let text: String
+    let startMs: Int
+    let endMs: Int
+    let pageAnchor: ScreenplayPageAnchor
+    let revealUnits: [ScreenplayRevealUnit]
+
+    var compatibilityCue: ScreenplayVoiceCue {
+        ScreenplayVoiceCue(
+            index: 0,
+            text: text,
+            elementRaw: kind.rawValue,
+            startMs: startMs,
+            endMs: endMs
+        )
+    }
+}
+
+struct ScreenplayDialogueTimelineRevision: Codable, Equatable {
+    let turnId: String
+    let revisionId: String
+    let audioAssetId: String
+    let durationMs: Int
+    let documentRevisionId: String
+    let insertionAnchor: ScreenplayPageAnchor
+    let segments: [ScreenplayDialogueSegment]
+
+    var totalRevealUnitCount: Int {
+        segments.reduce(into: 0) { count, segment in
+            count += max(segment.revealUnits.count, 1)
+        }
+    }
+
+    var compatibilityCues: [ScreenplayVoiceCue] {
+        segments.enumerated().map { index, segment in
+            ScreenplayVoiceCue(
+                index: index,
+                text: segment.text,
+                elementRaw: segment.kind.rawValue,
+                startMs: segment.startMs,
+                endMs: segment.endMs
+            )
+        }
+    }
+
+    func revealSnapshot(at playbackTimeMs: Int) -> (
+        visibleUTF16Length: Int,
+        appliedRevealUnitCount: Int,
+        activeSegment: ScreenplayDialogueSegment?
+    ) {
+        let safePlaybackTime = max(playbackTimeMs, 0)
+        guard !segments.isEmpty else {
+            return (0, 0, nil)
+        }
+
+        var visibleUTF16Length = 0
+        var appliedRevealUnitCount = 0
+        var activeSegment: ScreenplayDialogueSegment?
+
+        for segment in segments {
+            let segmentStart = max(segment.pageAnchor.rangeStart, 0)
+            let segmentEnd = max(segment.pageAnchor.rangeEnd, segmentStart)
+            let revealUnits = segment.revealUnits.isEmpty
+                ? [
+                    ScreenplayRevealUnit(
+                        id: "\(segment.id):unit:0",
+                        text: segment.text,
+                        startMs: segment.startMs,
+                        endMs: max(segment.endMs, segment.startMs + 1),
+                        utf16Start: 0,
+                        utf16End: max((segment.text as NSString).length, 0)
+                    )
+                ]
+                : segment.revealUnits
+
+            if safePlaybackTime < segment.startMs {
+                activeSegment = activeSegment ?? segment
+                break
+            }
+
+            if safePlaybackTime >= segment.endMs {
+                visibleUTF16Length = max(visibleUTF16Length, segmentEnd)
+                appliedRevealUnitCount += revealUnits.count
+                continue
+            }
+
+            activeSegment = segment
+            var segmentVisibleUTF16 = segmentStart
+            for unit in revealUnits {
+                if safePlaybackTime >= unit.startMs {
+                    segmentVisibleUTF16 = max(segmentVisibleUTF16, segmentStart + unit.utf16End)
+                    appliedRevealUnitCount += 1
+                } else {
+                    break
+                }
+            }
+            visibleUTF16Length = max(visibleUTF16Length, min(segmentVisibleUTF16, segmentEnd))
+            break
+        }
+
+        if activeSegment == nil && visibleUTF16Length > 0 {
+            activeSegment = segments.last
+        }
+
+        return (visibleUTF16Length, appliedRevealUnitCount, activeSegment)
+    }
+}
+
+struct ScreenplayVoiceRevealPresentationState: Equatable {
+    enum Phase: String, Equatable {
+        case prepared
+        case playing
+        case completed
+    }
+
+    let sessionID: String
+    let timeline: ScreenplayDialogueTimelineRevision
+    let visibleUTF16Length: Int
+    let activeSegmentID: String?
+    let phase: Phase
+}
+
+struct ScreenplayTurnPlaybackSession: Equatable {
     let fullText: String
-    let cues: [ScreenplayVoiceCue]
+    let timeline: ScreenplayDialogueTimelineRevision
     let audioDurationMs: Int
     let requestID: String
     let timingSource: String
+    let replacementTarget: ScreenplayPendingReplacementTarget?
+
+    var cues: [ScreenplayVoiceCue] {
+        timeline.compatibilityCues
+    }
+
+    var cueCount: Int {
+        timeline.totalRevealUnitCount
+    }
+}
+
+typealias ScreenplayVoiceInsertPlan = ScreenplayTurnPlaybackSession
+
+enum ScreenplaySyncedInsertInterruptionReason: String, Codable, Equatable {
+    case manualTyping = "manual_typing"
+    case bargeIn = "barge_in"
+    case cancel = "cancel"
+    case other = "other"
+}
+
+enum ScreenplaySyncedVoiceReplyRole: String, Codable, Equatable {
+    case preview
+    case final
+}
+
+struct ScreenplaySyncedVoiceRenderContract: Equatable {
+    let replyRole: ScreenplaySyncedVoiceReplyRole
+    let authoritativePageTextAvailable: Bool
+    let syncReady: Bool
+
+    nonisolated static let `default` = ScreenplaySyncedVoiceRenderContract(
+        replyRole: .final,
+        authoritativePageTextAvailable: false,
+        syncReady: false
+    )
+
+    nonisolated static let pageWritePreview = ScreenplaySyncedVoiceRenderContract(
+        replyRole: .preview,
+        authoritativePageTextAvailable: false,
+        syncReady: false
+    )
+}
+
+enum ScreenplaySyncedVoiceTurnPhase: String, Codable, Equatable {
+    case idle
+    case loading
+    case buffering
+    case playback
+    case syncedInsertion
+    case completed
+    case interrupted
+    case failed
+}
+
+struct ScreenplaySyncedVoiceTurnState: Equatable {
+    let requestID: String
+    let phase: ScreenplaySyncedVoiceTurnPhase
+    let previewText: String
+    let authoritativeText: String
+    let timingSource: String
+    let appliedCueCount: Int
+    let cueCount: Int
+    let audioDurationMs: Int?
+    let renderContract: ScreenplaySyncedVoiceRenderContract
+    let fallbackCommitted: Bool
+    let fallbackReason: String
+    let playbackDriftMs: Int
+    let activeSegmentID: String?
+    let activeSceneID: String
+    let activeBeatID: String?
+    let activeScriptNodeID: String
+    let interruptionReason: ScreenplaySyncedInsertInterruptionReason?
+    let failureReason: String?
+
+    static let idle = ScreenplaySyncedVoiceTurnState(
+        requestID: "",
+        phase: .idle,
+        previewText: "",
+        authoritativeText: "",
+        timingSource: "",
+        appliedCueCount: 0,
+        cueCount: 0,
+        audioDurationMs: nil,
+        renderContract: .default,
+        fallbackCommitted: false,
+        fallbackReason: "",
+        playbackDriftMs: 0,
+        activeSegmentID: nil,
+        activeSceneID: "",
+        activeBeatID: nil,
+        activeScriptNodeID: "",
+        interruptionReason: nil,
+        failureReason: nil
+    )
+
+    var hasAuthoritativeText: Bool {
+        !authoritativeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var previewReplyOnly: Bool {
+        renderContract.replyRole == .preview
+    }
+
+    var hasPlaybackDrift: Bool {
+        playbackDriftMs > 0
+    }
 }
 
 struct ScreenplayEditorSelectionSnapshot: Equatable {
@@ -191,6 +511,18 @@ struct ScreenplayCommittedWrite: Identifiable, Equatable {
     let startLine: Int
     let endLine: Int
     let committedAt: Date
+
+    var normalizedWriteID: String {
+        writeID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var isPlaceholderWrite: Bool {
+        normalizedWriteID.hasPrefix("stub-")
+    }
+
+    var isAuthoritativeWrite: Bool {
+        !normalizedWriteID.isEmpty && !isPlaceholderWrite
+    }
 }
 
 struct ScreenplayPendingReplacementTarget: Identifiable, Equatable {
@@ -1030,6 +1362,22 @@ private func screenplayLineTexts(_ text: String) -> [String] {
     text.components(separatedBy: .newlines)
 }
 
+private func normalizedScreenplayNodeText(_ text: String) -> String {
+    text
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+}
+
+private func stableScreenplayNodeFingerprint(_ raw: String) -> String {
+    var hash: UInt64 = 1_469_598_103_934_665_603
+    for byte in raw.utf8 {
+        hash ^= UInt64(byte)
+        hash &*= 1_099_511_628_211
+    }
+    return String(hash, radix: 16, uppercase: false)
+}
+
 private func screenplayLineIndex(for location: Int, in text: String) -> Int {
     let safeText = text as NSString
     let maxLength = safeText.length
@@ -1257,6 +1605,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var latestUserTranscript: String = ""
     @Published var preferredProjectID: String = ""
     @Published var preferredVersionID: String = ""
+    @Published var debugProjectLoadToken: Int = 0
+    @Published var debugRequestedProjectID: String = ""
+    @Published var debugRequestedVersionID: String = ""
     @Published var structuredDraft: ScreenplayStructuredDraft = .empty {
         didSet {
             persistStructuredDraft()
@@ -1294,6 +1645,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             UserDefaults.standard.set(companionMode.rawValue, forKey: Self.companionModeStorageKey)
         }
     }
+    @Published var companionSignalState: CreativeCompanionSignalState = .empty
     @Published var autoInsertEnabled: Bool = true {
         didSet {
             UserDefaults.standard.set(autoInsertEnabled, forKey: Self.autoInsertStorageKey)
@@ -1328,6 +1680,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var lastUpdatedAt: Date = .distantPast
     @Published var isStreamingDraftPreviewActive: Bool = false
     @Published var streamingProgress: Double = 0
+    @Published private(set) var syncedVoiceTurnState: ScreenplaySyncedVoiceTurnState = .idle
     @Published var currentCursorLine: Int = 1
     @Published var intelligenceReport: ScreenplayIntelligenceReport = .empty
     @Published var companionAnalytics: ScreenplayCompanionAnalyticsSnapshot = .empty
@@ -1345,15 +1698,51 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private let streamCharDelay: TimeInterval = 0.022
     private(set) var activeSyncedVoiceInsertPlan: ScreenplayVoiceInsertPlan?
     private var activeSyncedVoiceAppliedCueCount: Int = 0
+    private var activeSyncedVoiceVisibleUTF16Length: Int = 0
+    private var activeSyncedVoiceActiveSegmentID: String?
+    private var stagedSyncedVoiceTurnPreviewText: String = ""
+    private var stagedSyncedVoiceTurnAuthoritativeText: String = ""
+    private var stagedSyncedVoiceTurnCues: [ScreenplayVoiceCue] = []
+    private var stagedSyncedVoiceTurnTimeline: ScreenplayDialogueTimelineRevision?
+    private var stagedSyncedVoiceTurnTimingSource: String = ""
+    private var stagedSyncedVoiceTurnAudioDurationMs: Int?
+    private var stagedSyncedVoiceTurnRequestID: String = ""
+    private var stagedSyncedVoiceTurnPlaybackStarted: Bool = false
+    private var stagedSyncedVoiceTurnRenderContract: ScreenplaySyncedVoiceRenderContract = .default
+    private var stagedSyncedVoiceTurnFailureReason: String?
+    private var stagedSyncedVoiceTurnInterruptionReason: ScreenplaySyncedInsertInterruptionReason?
+    private var stagedSyncedVoiceTurnFallbackCommitted = false
+    private var stagedSyncedVoiceTurnFallbackReason: String = ""
+    private var stagedSyncedVoiceTurnPlaybackDriftMs: Int = 0
     private var projectBindingContext: ProjectBindingContext?
     private var isHydratingBackendCompanionState = false
     private var companionBackendSyncTask: Task<Void, Never>?
-    var onSyncedInsertLifecycleEvent: ((String, ScreenplayVoiceInsertPlan, Int) -> Void)?
+    private var activeSyncedVoiceInsertStartedAt: Date?
+    private var activeSyncedVoiceLastPlaybackAdvanceAt: Date?
+    private var activeSyncedVoiceLastObservedPlaybackTimeMs: Int = 0
+    private var activeSyncedVoiceAnchorLineHint: Int?
+    var onSyncedInsertLifecycleEvent: ((String, ScreenplayVoiceInsertPlan, Int, ScreenplaySyncedInsertInterruptionReason?) -> Void)?
 
 #if DEBUG
     private let debugReplacementTraceStorageKey = "studio_debug_replacement_trace_json"
     private var debugActiveReplacementRequestID: String = ""
 #endif
+
+    var syncedVoiceAppliedCueCount: Int {
+        syncedVoiceTurnState.appliedCueCount
+    }
+
+    var syncedVoiceFallbackCommitted: Bool {
+        syncedVoiceTurnState.fallbackCommitted
+    }
+
+    var syncedVoiceFallbackReason: String {
+        syncedVoiceTurnState.fallbackReason
+    }
+
+    var syncedVoicePlaybackDriftMs: Int {
+        syncedVoiceTurnState.playbackDriftMs
+    }
 
     private init() {
         self.autoInsertEnabled = UserDefaults.standard.object(forKey: Self.autoInsertStorageKey) as? Bool ?? true
@@ -1624,11 +2013,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         text: String,
         elements explicitElements: [ScreenplayEditorElement?]? = nil
     ) {
+        let previousStructuredDraft = structuredDraft
         let resolvedElements = explicitElements ?? bootstrapScreenplayParagraphElements(for: text)
         let lines = screenplayLineTexts(text)
         let lineCount = lines.count
-        var paragraphs: [ScreenplayDraftParagraphSnapshot] = []
-        paragraphs.reserveCapacity(lineCount)
 
         struct MutableScene {
             var line: Int
@@ -1644,14 +2032,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             let element = index < resolvedElements.count ? resolvedElements[index] : nil
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             let lineNumber = index + 1
-            paragraphs.append(
-                ScreenplayDraftParagraphSnapshot(
-                    id: "line-\(lineNumber)",
-                    line: lineNumber,
-                    element: element,
-                    text: trimmed
-                )
-            )
 
             guard !trimmed.isEmpty, let element else { continue }
             switch element {
@@ -1670,10 +2050,35 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             }
         }
 
-        let sceneSnapshots = scenes.enumerated().map { index, scene in
+        var previousSceneCandidates: [String: [ScreenplayDraftSceneSnapshot]] = [:]
+        for scene in previousStructuredDraft.scenes {
+            let key = sceneCandidateKey(for: scene.slugline)
+            previousSceneCandidates[key, default: []].append(scene)
+        }
+        var consumedPreviousSceneIDs: Set<String> = []
+        var generatedSceneOccurrences: [String: Int] = [:]
+
+        let sceneSnapshots = scenes.enumerated().map { index, scene -> ScreenplayDraftSceneSnapshot in
             let endLine = index + 1 < scenes.count ? max(scene.line, scenes[index + 1].line - 1) : max(scene.line, lineCount)
+            let sceneKey = sceneCandidateKey(for: scene.slugline)
+            let reusedSceneID: String? = previousSceneCandidates[sceneKey]?
+                .filter { !consumedPreviousSceneIDs.contains($0.id) && !isLegacyScreenplaySceneID($0.id) }
+                .sorted { lhs, rhs in
+                    abs(lhs.line - scene.line) < abs(rhs.line - scene.line)
+                }
+                .first?
+                .id
+            let sceneID: String = {
+                if let reusedSceneID {
+                    consumedPreviousSceneIDs.insert(reusedSceneID)
+                    return reusedSceneID
+                }
+                let occurrence = generatedSceneOccurrences[sceneKey, default: 0] + 1
+                generatedSceneOccurrences[sceneKey] = occurrence
+                return makeScreenplaySceneNodeID(slugline: scene.slugline, occurrence: occurrence)
+            }()
             return ScreenplayDraftSceneSnapshot(
-                id: "scene-\(scene.line)-\(scene.slugline)",
+                id: sceneID,
                 line: scene.line,
                 endLine: endLine,
                 slugline: scene.slugline,
@@ -1683,7 +2088,73 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             )
         }
 
-        structuredDraft = ScreenplayStructuredDraft(
+        func sceneID(for lineNumber: Int, in sceneSnapshots: [ScreenplayDraftSceneSnapshot]) -> String {
+            guard let scene = sceneSnapshot(for: lineNumber, in: sceneSnapshots) else { return "" }
+            return scene.id
+        }
+
+        func previousSceneID(for lineNumber: Int) -> String {
+            guard let scene = sceneSnapshot(for: lineNumber, in: previousStructuredDraft.scenes) else { return "" }
+            return scene.id
+        }
+
+        var previousParagraphCandidates: [String: [ScreenplayDraftParagraphSnapshot]] = [:]
+        for paragraph in previousStructuredDraft.paragraphs {
+            let paragraphKey = paragraphCandidateKey(
+                sceneID: previousSceneID(for: paragraph.line),
+                element: paragraph.element,
+                text: paragraph.text
+            )
+            previousParagraphCandidates[paragraphKey, default: []].append(paragraph)
+        }
+
+        var paragraphs: [ScreenplayDraftParagraphSnapshot] = []
+        paragraphs.reserveCapacity(lineCount)
+        var consumedPreviousParagraphIDs: Set<String> = []
+        var generatedParagraphOccurrences: [String: Int] = [:]
+
+        for (index, line) in lines.enumerated() {
+            let element = index < resolvedElements.count ? resolvedElements[index] : nil
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lineNumber = index + 1
+            let resolvedSceneID = sceneID(for: lineNumber, in: sceneSnapshots)
+            let paragraphKey = paragraphCandidateKey(
+                sceneID: resolvedSceneID,
+                element: element,
+                text: trimmed
+            )
+            let reusableParagraph = previousParagraphCandidates[paragraphKey]?
+                .filter { !consumedPreviousParagraphIDs.contains($0.id) && !isLegacyScreenplayParagraphID($0.id) }
+                .sorted { lhs, rhs in
+                    abs(lhs.line - lineNumber) < abs(rhs.line - lineNumber)
+                }
+                .first
+            let paragraphID: String = {
+                if let reusableParagraph {
+                    consumedPreviousParagraphIDs.insert(reusableParagraph.id)
+                    return reusableParagraph.id
+                }
+                let occurrence = generatedParagraphOccurrences[paragraphKey, default: 0] + 1
+                generatedParagraphOccurrences[paragraphKey] = occurrence
+                return makeScreenplayParagraphNodeID(
+                    sceneID: resolvedSceneID,
+                    element: element,
+                    text: trimmed,
+                    occurrence: occurrence,
+                    lineNumber: lineNumber
+                )
+            }()
+            paragraphs.append(
+                ScreenplayDraftParagraphSnapshot(
+                    id: paragraphID,
+                    line: lineNumber,
+                    element: element,
+                    text: trimmed
+                )
+            )
+        }
+
+        let nextStructuredDraft = ScreenplayStructuredDraft(
             updatedAt: Date(),
             lineCount: lineCount,
             sceneCount: sceneSnapshots.count,
@@ -1691,7 +2162,284 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             scenes: sceneSnapshots,
             characters: discoveredCharacters.sorted()
         )
+        structuredDraft = nextStructuredDraft
+        realignSyncedVoiceTimelineAnchorsIfNeeded(to: nextStructuredDraft, rawLines: lines)
         refreshProjectBindingSnapshot()
+    }
+
+    private func sceneCandidateKey(for slugline: String) -> String {
+        normalizedScreenplayNodeText(slugline)
+    }
+
+    private func paragraphCandidateKey(
+        sceneID: String,
+        element: ScreenplayEditorElement?,
+        text: String
+    ) -> String {
+        let cleanSceneID = sceneID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let elementKey = element?.rawValue ?? "blank"
+        return [cleanSceneID, elementKey, normalizedScreenplayNodeText(text)].joined(separator: "|")
+    }
+
+    private func makeScreenplaySceneNodeID(slugline: String, occurrence: Int) -> String {
+        let normalizedSlugline = normalizedScreenplayNodeText(slugline)
+        let fingerprint = String(
+            stableScreenplayNodeFingerprint("\(normalizedSlugline)|\(occurrence)").prefix(12)
+        )
+        return "draft-scene:\(occurrence):\(fingerprint)"
+    }
+
+    private func isLegacyScreenplaySceneID(_ value: String) -> Bool {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.hasPrefix("scene-")
+    }
+
+    private func makeScreenplayParagraphNodeID(
+        sceneID: String,
+        element: ScreenplayEditorElement?,
+        text: String,
+        occurrence: Int,
+        lineNumber: Int
+    ) -> String {
+        let cleanSceneID = sceneID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nodeScope = cleanSceneID.isEmpty ? "draft-root" : cleanSceneID
+        let elementKey = element?.rawValue ?? "blank"
+        let fingerprint = String(
+            stableScreenplayNodeFingerprint(
+                "\(nodeScope)|\(elementKey)|\(normalizedScreenplayNodeText(text))|\(occurrence)|\(lineNumber)"
+            ).prefix(12)
+        )
+        return "\(nodeScope):node:\(elementKey):\(occurrence):\(fingerprint)"
+    }
+
+    private func isLegacyScreenplayParagraphID(_ value: String) -> Bool {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.hasPrefix("line-") || !clean.contains(":node:")
+    }
+
+    private func sceneSnapshot(
+        for lineNumber: Int,
+        in scenes: [ScreenplayDraftSceneSnapshot]
+    ) -> ScreenplayDraftSceneSnapshot? {
+        scenes.last(where: {
+            lineNumber >= $0.line && lineNumber <= max($0.endLine, $0.line)
+        }) ?? scenes.last(where: { $0.line <= lineNumber })
+    }
+
+    private func paragraphSnapshot(
+        for lineNumber: Int,
+        in paragraphs: [ScreenplayDraftParagraphSnapshot]
+    ) -> ScreenplayDraftParagraphSnapshot? {
+        paragraphs.first(where: { $0.line == lineNumber })
+    }
+
+    private func currentSyncedVoiceAnchorLineHint() -> Int {
+        if let replacementTarget = currentInsertionReplacementTarget() {
+            return max(1, replacementTarget.startLine)
+        }
+        if let selection = selectedEditorSnapshot() {
+            return max(1, selection.startLine)
+        }
+        return max(1, currentCursorLine)
+    }
+
+    private func realignSyncedVoiceTimelineAnchorsIfNeeded(
+        to draft: ScreenplayStructuredDraft,
+        rawLines: [String]
+    ) {
+        let anchorLineHint = max(1, activeSyncedVoiceAnchorLineHint ?? currentSyncedVoiceAnchorLineHint())
+
+        func realignedPlan(
+            from plan: ScreenplayVoiceInsertPlan?
+        ) -> ScreenplayVoiceInsertPlan? {
+            guard let plan else { return nil }
+            guard let timeline = realignedDialogueTimeline(
+                plan.timeline,
+                in: draft,
+                rawLines: rawLines,
+                anchorLineHint: anchorLineHint
+            ) else {
+                return plan
+            }
+            guard timeline != plan.timeline else { return plan }
+            return ScreenplayVoiceInsertPlan(
+                fullText: plan.fullText,
+                timeline: timeline,
+                audioDurationMs: plan.audioDurationMs,
+                requestID: plan.requestID,
+                timingSource: plan.timingSource,
+                replacementTarget: plan.replacementTarget
+            )
+        }
+
+        if let updatedPlan = realignedPlan(from: activeSyncedVoiceInsertPlan) {
+            activeSyncedVoiceInsertPlan = updatedPlan
+            if stagedSyncedVoiceTurnTimeline == nil || stagedSyncedVoiceTurnTimeline?.revisionId == updatedPlan.timeline.revisionId {
+                stagedSyncedVoiceTurnTimeline = updatedPlan.timeline
+            }
+            refreshSyncedVoiceTurnState(
+                phaseOverride: activeSyncedVoiceInsertPlan == nil ? nil : .syncedInsertion
+            )
+            return
+        }
+
+        guard let stagedTimeline = stagedSyncedVoiceTurnTimeline else { return }
+        guard let realignedTimeline = realignedDialogueTimeline(
+            stagedTimeline,
+            in: draft,
+            rawLines: rawLines,
+            anchorLineHint: anchorLineHint
+        ) else {
+            return
+        }
+        guard realignedTimeline != stagedTimeline else { return }
+        stagedSyncedVoiceTurnTimeline = realignedTimeline
+        refreshSyncedVoiceTurnState()
+    }
+
+    private func realignedDialogueTimeline(
+        _ timeline: ScreenplayDialogueTimelineRevision,
+        in draft: ScreenplayStructuredDraft,
+        rawLines: [String],
+        anchorLineHint: Int
+    ) -> ScreenplayDialogueTimelineRevision? {
+        guard !timeline.segments.isEmpty else { return nil }
+        guard let matchedLineNumbers = matchedDialogueTimelineLineNumbers(
+            timeline,
+            in: rawLines,
+            anchorLineHint: anchorLineHint
+        ), matchedLineNumbers.count == timeline.segments.count else {
+            return nil
+        }
+
+        var didRealign = false
+        var resolvedSegments: [ScreenplayDialogueSegment] = []
+        resolvedSegments.reserveCapacity(timeline.segments.count)
+
+        for (index, segment) in timeline.segments.enumerated() {
+            let lineNumber = matchedLineNumbers[index]
+            let paragraph = paragraphSnapshot(for: lineNumber, in: draft.paragraphs)
+            let scene = sceneSnapshot(for: lineNumber, in: draft.scenes)
+            let binding = scene.flatMap { projectBindingSnapshot(forDraftSceneID: $0.id) }
+            let resolvedSceneID = (binding?.outlineSceneID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                ? binding?.outlineSceneID?.trimmingCharacters(in: .whitespacesAndNewlines)
+                : scene?.id
+            let resolvedBeatID = binding?.outlineBeatIDs.first?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedScriptNodeID = paragraph?.id ?? segment.pageAnchor.scriptNodeId
+            let resolvedLineID = paragraph?.id ?? segment.lineId
+            if resolvedScriptNodeID != segment.pageAnchor.scriptNodeId || resolvedLineID != segment.lineId {
+                didRealign = true
+            }
+            if let resolvedSceneID, resolvedSceneID != segment.pageAnchor.sceneId {
+                didRealign = true
+            }
+            resolvedSegments.append(
+                ScreenplayDialogueSegment(
+                    id: segment.id,
+                    lineId: resolvedLineID,
+                    kind: segment.kind,
+                    text: segment.text,
+                    startMs: segment.startMs,
+                    endMs: segment.endMs,
+                    pageAnchor: ScreenplayPageAnchor(
+                        projectId: segment.pageAnchor.projectId,
+                        sceneId: resolvedSceneID ?? segment.pageAnchor.sceneId,
+                        beatId: resolvedBeatID?.isEmpty == false ? resolvedBeatID : segment.pageAnchor.beatId,
+                        scriptNodeId: resolvedScriptNodeID,
+                        pageIndex: segment.pageAnchor.pageIndex,
+                        rangeStart: segment.pageAnchor.rangeStart,
+                        rangeEnd: segment.pageAnchor.rangeEnd
+                    ),
+                    revealUnits: segment.revealUnits
+                )
+            )
+        }
+
+        let insertionLineNumber = matchedLineNumbers.first ?? anchorLineHint
+        let insertionParagraph = paragraphSnapshot(for: insertionLineNumber, in: draft.paragraphs)
+        let insertionScene = sceneSnapshot(for: insertionLineNumber, in: draft.scenes)
+        let insertionBinding = insertionScene.flatMap { projectBindingSnapshot(forDraftSceneID: $0.id) }
+        let insertionSceneID = (insertionBinding?.outlineSceneID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? insertionBinding?.outlineSceneID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            : insertionScene?.id
+        let insertionBeatID = insertionBinding?.outlineBeatIDs.first?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedInsertionAnchor = ScreenplayPageAnchor(
+            projectId: timeline.insertionAnchor.projectId,
+            sceneId: insertionSceneID ?? timeline.insertionAnchor.sceneId,
+            beatId: insertionBeatID?.isEmpty == false ? insertionBeatID : timeline.insertionAnchor.beatId,
+            scriptNodeId: insertionParagraph?.id ?? timeline.insertionAnchor.scriptNodeId,
+            pageIndex: timeline.insertionAnchor.pageIndex,
+            rangeStart: timeline.insertionAnchor.rangeStart,
+            rangeEnd: timeline.insertionAnchor.rangeEnd
+        )
+
+        if resolvedInsertionAnchor.scriptNodeId != timeline.insertionAnchor.scriptNodeId
+            || resolvedInsertionAnchor.sceneId != timeline.insertionAnchor.sceneId
+            || resolvedInsertionAnchor.beatId != timeline.insertionAnchor.beatId {
+            didRealign = true
+        }
+
+        guard didRealign else { return timeline }
+        return ScreenplayDialogueTimelineRevision(
+            turnId: timeline.turnId,
+            revisionId: timeline.revisionId,
+            audioAssetId: timeline.audioAssetId,
+            durationMs: timeline.durationMs,
+            documentRevisionId: timeline.documentRevisionId,
+            insertionAnchor: resolvedInsertionAnchor,
+            segments: resolvedSegments
+        )
+    }
+
+    private func matchedDialogueTimelineLineNumbers(
+        _ timeline: ScreenplayDialogueTimelineRevision,
+        in rawLines: [String],
+        anchorLineHint: Int
+    ) -> [Int]? {
+        let normalizedLines = rawLines.map(normalizedScreenplayNodeText)
+        let targetLines = timeline.segments.map { normalizedScreenplayNodeText($0.text) }
+        guard let firstTarget = targetLines.first, !firstTarget.isEmpty else { return nil }
+
+        let preferredFirstLineIndices = normalizedLines.enumerated()
+            .filter { $0.element == firstTarget }
+            .map(\.offset)
+            .sorted { lhs, rhs in
+                abs(lhs - (anchorLineHint - 1)) < abs(rhs - (anchorLineHint - 1))
+            }
+
+        func resolveMatch(startingAt firstLineIndex: Int) -> [Int]? {
+            guard firstLineIndex >= 0, firstLineIndex < normalizedLines.count else { return nil }
+            guard normalizedLines[firstLineIndex] == firstTarget else { return nil }
+            var matchedLines = [firstLineIndex + 1]
+            var lineCursor = firstLineIndex + 1
+            for target in targetLines.dropFirst() {
+                guard !target.isEmpty else { return nil }
+                var resolvedLineIndex: Int?
+                while lineCursor < normalizedLines.count {
+                    let candidate = normalizedLines[lineCursor]
+                    if candidate.isEmpty {
+                        lineCursor += 1
+                        continue
+                    }
+                    if candidate == target {
+                        resolvedLineIndex = lineCursor
+                        lineCursor += 1
+                        break
+                    }
+                    lineCursor += 1
+                }
+                guard let resolvedLineIndex else { return nil }
+                matchedLines.append(resolvedLineIndex + 1)
+            }
+            return matchedLines
+        }
+
+        for firstLineIndex in preferredFirstLineIndices {
+            if let matchedLines = resolveMatch(startingAt: firstLineIndex) {
+                return matchedLines
+            }
+        }
+        return nil
     }
 
     func recordStudioConversationTurn(
@@ -1737,6 +2485,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             }
             recordCompanionInteraction(surface: .studio, source: source)
         }
+
+        schedulePersistBackendCompanionState()
     }
 
     func recordCompanionHomeTurn(user: String, assistant: String) {
@@ -1756,6 +2506,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
         latestMemoryDomain = .companion
         recordCompanionInteraction(surface: .home, source: .voice)
+    }
+
+    func applyCompanionSignalState(
+        _ state: CreativeCompanionSignalState,
+        persist: Bool = false
+    ) {
+        companionSignalState = state
+        if persist {
+            schedulePersistBackendCompanionState()
+        }
     }
 
     func recentTurnPairs(for memoryDomain: StudioMemoryDomain) -> [(user: String, assistant: String)] {
@@ -1782,6 +2542,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             }
             companionRecentTurns = Array(result.payload.recentTurns.suffix(6))
             companionAnalytics = result.payload.analytics
+            companionSignalState = result.payload.signals
         } catch {
             // Keep local state as fallback when the backend companion lane is unavailable.
         }
@@ -1813,13 +2574,15 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let mode = companionMode
         let recentTurns = Array(companionRecentTurns.suffix(6))
         let analytics = companionAnalytics
+        let signals = companionSignalState
         companionBackendSyncTask = Task {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
             _ = try? await BackendMemoryAPI.shared.updateScreenplayCompanionState(
                 mode: mode,
                 recentTurns: recentTurns,
-                analytics: analytics
+                analytics: analytics,
+                signals: signals
             )
         }
     }
@@ -1872,7 +2635,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let text = latestVoiceTurn.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         cancelStream()
-        pendingInsertion = ScreenplayInsertionRequest(text: text, mode: .insert)
+        pendingInsertion = ScreenplayInsertionRequest(
+            text: text,
+            mode: .insert,
+            replacementTarget: currentInsertionReplacementTarget()
+        )
         autoInsertStatusText = ""
     }
 
@@ -1910,7 +2677,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
         guard streamingPreviewText != text else { return }
         streamingPreviewText = text
-        pendingInsertion = ScreenplayInsertionRequest(text: text, mode: .streamPreview)
+        pendingInsertion = ScreenplayInsertionRequest(
+            text: text,
+            mode: .streamPreview,
+            replacementTarget: currentInsertionReplacementTarget()
+        )
         autoInsertStatusText = "Clementine is writing..."
     }
 
@@ -1949,7 +2720,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         streamingPreviewText = text
 
         if autoInsertEnabled || forceInsert {
-            pendingInsertion = ScreenplayInsertionRequest(text: text, mode: .streamCommit)
+            pendingInsertion = ScreenplayInsertionRequest(
+                text: text,
+                mode: .streamCommit,
+                replacementTarget: currentInsertionReplacementTarget()
+            )
             autoInsertStatusText = ""
         } else {
             autoInsertStatusText = ""
@@ -1970,7 +2745,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func streamInsert(_ text: String) {
-        _ = cancelActiveSyncedVoiceInsert(notifyCancellation: false)
+        _ = cancelActiveSyncedVoiceInsert(notifyCancellation: false, reason: .other)
         streamTask?.cancel()
         streamTask = nil
         streamingProgress = 0
@@ -1982,7 +2757,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
 
         if trimmed.count < 40 {
-            pendingInsertion = ScreenplayInsertionRequest(text: trimmed, mode: .insert)
+            pendingInsertion = ScreenplayInsertionRequest(
+                text: trimmed,
+                mode: .insert,
+                replacementTarget: currentInsertionReplacementTarget()
+            )
             autoInsertStatusText = ""
             return
         }
@@ -2005,7 +2784,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
                 let isLast = lineIndex == lines.count - 1
                 let mode: ScreenplayInsertionRequest.Mode = isLast ? .streamInsertFinalize : .streamInsertProgress
-                pendingInsertion = ScreenplayInsertionRequest(text: streamedText, mode: mode)
+                pendingInsertion = ScreenplayInsertionRequest(
+                    text: streamedText,
+                    mode: mode,
+                    replacementTarget: currentInsertionReplacementTarget()
+                )
                 streamingProgress = min(Double(streamedText.count) / Double(totalChars), 1.0)
 
                 guard !isLast else {
@@ -2026,14 +2809,276 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
     }
 
+    func prepareSyncedVoiceTurn(
+        requestID: String,
+        renderContract: ScreenplaySyncedVoiceRenderContract = .default
+    ) {
+        _ = cancelActiveSyncedVoiceInsert(notifyCancellation: false, reason: .other)
+        let cleanRequestID = requestID.trimmingCharacters(in: .whitespacesAndNewlines)
+        resetSyncedVoiceTurnTracking()
+        stagedSyncedVoiceTurnRequestID = cleanRequestID
+        stagedSyncedVoiceTurnRenderContract = renderContract
+        syncedVoiceTurnState = ScreenplaySyncedVoiceTurnState(
+            requestID: cleanRequestID,
+            phase: .loading,
+            previewText: "",
+            authoritativeText: "",
+            timingSource: "",
+            appliedCueCount: 0,
+            cueCount: 0,
+            audioDurationMs: nil,
+            renderContract: renderContract,
+            fallbackCommitted: false,
+            fallbackReason: "",
+            playbackDriftMs: 0,
+            activeSegmentID: nil,
+            activeSceneID: "",
+            activeBeatID: nil,
+            activeScriptNodeID: "",
+            interruptionReason: nil,
+            failureReason: nil
+        )
+        autoInsertStatusText = "Clementine is preparing the page..."
+    }
+
+    func resetSyncedVoiceTurnTracking() {
+        stagedSyncedVoiceTurnPreviewText = ""
+        stagedSyncedVoiceTurnAuthoritativeText = ""
+        stagedSyncedVoiceTurnCues = []
+        stagedSyncedVoiceTurnTimeline = nil
+        stagedSyncedVoiceTurnTimingSource = ""
+        stagedSyncedVoiceTurnAudioDurationMs = nil
+        stagedSyncedVoiceTurnRequestID = ""
+        stagedSyncedVoiceTurnPlaybackStarted = false
+        stagedSyncedVoiceTurnRenderContract = .default
+        stagedSyncedVoiceTurnFailureReason = nil
+        stagedSyncedVoiceTurnInterruptionReason = nil
+        stagedSyncedVoiceTurnFallbackCommitted = false
+        stagedSyncedVoiceTurnFallbackReason = ""
+        stagedSyncedVoiceTurnPlaybackDriftMs = 0
+        activeSyncedVoiceVisibleUTF16Length = 0
+        activeSyncedVoiceActiveSegmentID = nil
+        activeSyncedVoiceAnchorLineHint = nil
+        resetSyncedVoiceInsertWatchdog()
+        syncedVoiceTurnState = .idle
+    }
+
+    func updateSyncedVoiceTurnRenderContract(_ renderContract: ScreenplaySyncedVoiceRenderContract) {
+        guard !stagedSyncedVoiceTurnRequestID.isEmpty || syncedVoiceTurnState.phase != .idle else { return }
+        stagedSyncedVoiceTurnRenderContract = renderContract
+        refreshSyncedVoiceTurnState()
+    }
+
+    func stageSyncedVoiceTurnPreviewText(_ text: String?) {
+        let cleanText = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else { return }
+        stagedSyncedVoiceTurnPreviewText = cleanText
+        if autoInsertStatusText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            autoInsertStatusText = "Clementine is preparing the page..."
+        }
+        refreshSyncedVoiceTurnState()
+    }
+
+    func stageSyncedVoiceTurnAuthoritativeContent(
+        text: String?,
+        cues: [ScreenplayVoiceCue] = [],
+        timeline: ScreenplayDialogueTimelineRevision? = nil,
+        timingSource: String,
+        audioDuration: TimeInterval? = nil,
+        renderContract: ScreenplaySyncedVoiceRenderContract? = nil
+    ) {
+        let cleanText = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else { return }
+        let activeCuePlan = activeSyncedVoiceInsertPlan
+        let incomingTimeline = timeline ?? compatibilityDialogueTimeline(
+            from: cues,
+            fullText: cleanText,
+            audioDurationMs: stagedSyncedVoiceTurnAudioDurationMs,
+            requestID: stagedSyncedVoiceTurnRequestID,
+            timingSource: timingSource
+        )
+        let shouldPreserveActiveCuePlan = activeCuePlan?.fullText == cleanText
+            && (activeCuePlan?.timeline.totalRevealUnitCount ?? 0) > (incomingTimeline?.totalRevealUnitCount ?? cues.count)
+        let resolvedTimeline = shouldPreserveActiveCuePlan
+            ? activeCuePlan?.timeline
+            : incomingTimeline
+        let resolvedCues = resolvedTimeline?.compatibilityCues ?? cues
+        let resolvedTimingSource = shouldPreserveActiveCuePlan
+            ? String(activeCuePlan?.timingSource ?? timingSource)
+            : timingSource
+        stagedSyncedVoiceTurnAuthoritativeText = cleanText
+        stagedSyncedVoiceTurnCues = resolvedCues
+        stagedSyncedVoiceTurnTimeline = resolvedTimeline
+        stagedSyncedVoiceTurnTimingSource = resolvedTimingSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let renderContract {
+            stagedSyncedVoiceTurnRenderContract = renderContract
+        }
+        stagedSyncedVoiceTurnFallbackCommitted = false
+        stagedSyncedVoiceTurnFallbackReason = ""
+        stagedSyncedVoiceTurnPlaybackDriftMs = 0
+        stageSyncedVoiceTurnAudioDuration(audioDuration)
+        refreshSyncedVoiceTurnState()
+    }
+
+    func stageSyncedVoiceTurnAudioDuration(_ audioDuration: TimeInterval?) {
+        guard let audioDuration, audioDuration > 0 else { return }
+        let durationMs = max(Int((audioDuration * 1_000.0).rounded()), 1)
+        if let existing = stagedSyncedVoiceTurnAudioDurationMs {
+            stagedSyncedVoiceTurnAudioDurationMs = max(existing, durationMs)
+        } else {
+            stagedSyncedVoiceTurnAudioDurationMs = durationMs
+        }
+        refreshSyncedVoiceTurnState()
+    }
+
+    func markSyncedVoiceTurnPlaybackStarted() {
+        stagedSyncedVoiceTurnPlaybackStarted = true
+        refreshSyncedVoiceTurnState()
+    }
+
+    func failSyncedVoiceTurn(reason: String) {
+        stagedSyncedVoiceTurnFailureReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        stagedSyncedVoiceTurnInterruptionReason = nil
+        stagedSyncedVoiceTurnFallbackCommitted = false
+        stagedSyncedVoiceTurnFallbackReason = ""
+        stagedSyncedVoiceTurnPlaybackDriftMs = 0
+        refreshSyncedVoiceTurnState(phaseOverride: .failed)
+        autoInsertStatusText = ""
+    }
+
+    func interruptSyncedVoiceTurn(reason: ScreenplaySyncedInsertInterruptionReason) {
+        stagedSyncedVoiceTurnInterruptionReason = reason
+        stagedSyncedVoiceTurnFailureReason = nil
+        stagedSyncedVoiceTurnFallbackCommitted = false
+        stagedSyncedVoiceTurnFallbackReason = ""
+        stagedSyncedVoiceTurnPlaybackDriftMs = 0
+        refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
+        autoInsertStatusText = ""
+    }
+
+    @discardableResult
+    func startStagedSyncedVoiceInsert(
+        audioDuration: TimeInterval,
+        playbackTimeProvider: @escaping @MainActor @Sendable () -> TimeInterval?,
+        playbackObservationProvider: @escaping @MainActor @Sendable () -> SegmentedPlaybackObservation?
+    ) -> ScreenplayVoiceInsertPlan? {
+        let cleanText = stagedSyncedVoiceTurnAuthoritativeText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else { return nil }
+        guard audioDuration > 0 else { return nil }
+        stageSyncedVoiceTurnAudioDuration(audioDuration)
+        let requestID = stagedSyncedVoiceTurnRequestID.isEmpty
+            ? UUID().uuidString
+            : stagedSyncedVoiceTurnRequestID
+        let timeline = stagedSyncedVoiceTurnTimeline ?? compatibilityDialogueTimeline(
+            from: stagedSyncedVoiceTurnCues,
+            fullText: cleanText,
+            audioDurationMs: stagedSyncedVoiceTurnAudioDurationMs,
+            requestID: requestID,
+            timingSource: stagedSyncedVoiceTurnTimingSource
+        )
+        guard let timeline else { return nil }
+        let plan = streamInsertSynced(
+            cleanText,
+            audioDuration: audioDuration,
+            timeline: timeline,
+            requestID: requestID,
+            timingSource: stagedSyncedVoiceTurnTimingSource,
+            playbackTimeProvider: playbackTimeProvider,
+            playbackObservationProvider: playbackObservationProvider
+        )
+        if plan != nil {
+            refreshSyncedVoiceTurnState(phaseOverride: .syncedInsertion)
+        }
+        return plan
+    }
+
+    private func refreshSyncedVoiceTurnState(
+        phaseOverride: ScreenplaySyncedVoiceTurnPhase? = nil
+    ) {
+        let requestID = stagedSyncedVoiceTurnRequestID
+        let hasPreview = !stagedSyncedVoiceTurnPreviewText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        let hasAuthoritative = !stagedSyncedVoiceTurnAuthoritativeText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        let nextPhase: ScreenplaySyncedVoiceTurnPhase = {
+            if let phaseOverride {
+                return phaseOverride
+            }
+            if requestID.isEmpty && !hasPreview && !hasAuthoritative {
+                return .idle
+            }
+            if stagedSyncedVoiceTurnFailureReason?.isEmpty == false {
+                return .failed
+            }
+            if stagedSyncedVoiceTurnInterruptionReason != nil {
+                return .interrupted
+            }
+            if activeSyncedVoiceInsertPlan != nil {
+                return .syncedInsertion
+            }
+            if stagedSyncedVoiceTurnPlaybackStarted {
+                return hasAuthoritative ? .playback : .buffering
+            }
+            if hasPreview || hasAuthoritative {
+                return .buffering
+            }
+            return .loading
+        }()
+        let activeTimeline = activeSyncedVoiceInsertPlan?.timeline ?? stagedSyncedVoiceTurnTimeline
+        let resolvedActiveSegment = syncedVoiceActiveSegment(from: activeTimeline, phase: nextPhase)
+        syncedVoiceTurnState = ScreenplaySyncedVoiceTurnState(
+            requestID: requestID,
+            phase: nextPhase,
+            previewText: stagedSyncedVoiceTurnPreviewText,
+            authoritativeText: stagedSyncedVoiceTurnAuthoritativeText,
+            timingSource: stagedSyncedVoiceTurnTimingSource,
+            appliedCueCount: min(activeSyncedVoiceAppliedCueCount, stagedSyncedVoiceTurnTimeline?.totalRevealUnitCount ?? stagedSyncedVoiceTurnCues.count),
+            cueCount: stagedSyncedVoiceTurnTimeline?.totalRevealUnitCount ?? stagedSyncedVoiceTurnCues.count,
+            audioDurationMs: stagedSyncedVoiceTurnAudioDurationMs,
+            renderContract: stagedSyncedVoiceTurnRenderContract,
+            fallbackCommitted: stagedSyncedVoiceTurnFallbackCommitted,
+            fallbackReason: stagedSyncedVoiceTurnFallbackReason,
+            playbackDriftMs: stagedSyncedVoiceTurnPlaybackDriftMs,
+            activeSegmentID: resolvedActiveSegment?.id,
+            activeSceneID: resolvedActiveSegment?.pageAnchor.sceneId ?? "",
+            activeBeatID: resolvedActiveSegment?.pageAnchor.beatId,
+            activeScriptNodeID: resolvedActiveSegment?.pageAnchor.scriptNodeId ?? "",
+            interruptionReason: stagedSyncedVoiceTurnInterruptionReason,
+            failureReason: stagedSyncedVoiceTurnFailureReason
+        )
+    }
+
+    private func syncedVoiceActiveSegment(
+        from timeline: ScreenplayDialogueTimelineRevision?,
+        phase: ScreenplaySyncedVoiceTurnPhase
+    ) -> ScreenplayDialogueSegment? {
+        guard let timeline, !timeline.segments.isEmpty else { return nil }
+        if let activeSegmentID = activeSyncedVoiceActiveSegmentID,
+           let matched = timeline.segments.first(where: { $0.id == activeSegmentID }) {
+            return matched
+        }
+        switch phase {
+        case .completed:
+            return timeline.segments.last
+        case .interrupted, .failed:
+            return nil
+        default:
+            return timeline.segments.first
+        }
+    }
+
     @discardableResult
     func streamInsertSynced(
         _ text: String,
         audioDuration: TimeInterval,
-        cues: [ScreenplayVoiceCue],
+        timeline: ScreenplayDialogueTimelineRevision,
         requestID: String,
         timingSource: String,
-        playbackTimeProvider: @escaping @MainActor @Sendable () -> TimeInterval?
+        playbackTimeProvider: @escaping @MainActor @Sendable () -> TimeInterval?,
+        playbackObservationProvider: @escaping @MainActor @Sendable () -> SegmentedPlaybackObservation?
     ) -> ScreenplayVoiceInsertPlan? {
         cancelStream()
 
@@ -2044,47 +3089,106 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
 
         let durationMs = max(Int((audioDuration * 1_000.0).rounded()), 1)
-        let normalizedCues = normalizedVoiceCues(
-            cues,
-            for: trimmed,
-            audioDurationMs: durationMs
-        )
-        guard !normalizedCues.isEmpty else {
-            pendingInsertion = ScreenplayInsertionRequest(text: trimmed, mode: .insert)
-            autoInsertStatusText = ""
-            return nil
-        }
-
         let resolvedRequestID = requestID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? UUID().uuidString
             : requestID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedTimingSource = timingSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (cues.isEmpty ? "estimated" : "backend_cues")
-            : timingSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTimingSource = timingSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTimingSource = cleanTimingSource.isEmpty ? "dialogue_timeline" : cleanTimingSource
+        let resolvedTimeline = timeline.durationMs > 0
+            ? timeline
+            : ScreenplayDialogueTimelineRevision(
+                turnId: timeline.turnId,
+                revisionId: timeline.revisionId,
+                audioAssetId: timeline.audioAssetId,
+                durationMs: durationMs,
+                documentRevisionId: timeline.documentRevisionId,
+                insertionAnchor: timeline.insertionAnchor,
+                segments: timeline.segments
+            )
 
         let plan = ScreenplayVoiceInsertPlan(
             fullText: trimmed,
-            cues: normalizedCues,
+            timeline: resolvedTimeline,
             audioDurationMs: durationMs,
             requestID: resolvedRequestID,
-            timingSource: resolvedTimingSource
+            timingSource: resolvedTimingSource,
+            replacementTarget: currentInsertionReplacementTarget()
         )
         activeSyncedVoiceInsertPlan = plan
         activeSyncedVoiceAppliedCueCount = 0
+        activeSyncedVoiceVisibleUTF16Length = 0
+        activeSyncedVoiceActiveSegmentID = nil
+        activeSyncedVoiceAnchorLineHint = max(
+            1,
+            plan.replacementTarget?.startLine ?? currentSyncedVoiceAnchorLineHint()
+        )
         autoInsertStatusText = "Clementine is writing..."
         streamingProgress = 0
-        onSyncedInsertLifecycleEvent?("started", plan, 0)
+        stagedSyncedVoiceTurnRequestID = resolvedRequestID
+        stagedSyncedVoiceTurnAuthoritativeText = trimmed
+        stagedSyncedVoiceTurnCues = plan.cues
+        stagedSyncedVoiceTurnTimeline = resolvedTimeline
+        stagedSyncedVoiceTurnTimingSource = resolvedTimingSource
+        stagedSyncedVoiceTurnAudioDurationMs = durationMs
+        stagedSyncedVoiceTurnFailureReason = nil
+        stagedSyncedVoiceTurnInterruptionReason = nil
+        stagedSyncedVoiceTurnFallbackCommitted = false
+        stagedSyncedVoiceTurnFallbackReason = ""
+        stagedSyncedVoiceTurnPlaybackDriftMs = 0
+        resetSyncedVoiceInsertWatchdog()
+        activeSyncedVoiceInsertStartedAt = Date()
+        activeSyncedVoiceLastPlaybackAdvanceAt = activeSyncedVoiceInsertStartedAt
+        pendingInsertion = ScreenplayInsertionRequest(
+            text: plan.fullText,
+            mode: .voiceRevealPrepare,
+            replacementTarget: plan.replacementTarget,
+            voiceRevealState: voiceRevealState(
+                for: plan,
+                visibleUTF16Length: 0,
+                activeSegmentID: plan.timeline.segments.first?.id,
+                phase: .prepared
+            )
+        )
+        refreshSyncedVoiceTurnState(phaseOverride: .syncedInsertion)
+        onSyncedInsertLifecycleEvent?("started", plan, 0, nil)
 
         syncedVoiceInsertTask = Task { @MainActor in
             while !Task.isCancelled {
-                let playbackTimeMs = max(Int(((playbackTimeProvider() ?? 0) * 1_000.0).rounded()), 0)
+                if let observation = playbackObservationProvider() {
+                    stagedSyncedVoiceTurnPlaybackDriftMs = max(observation.driftMs, 0)
+                }
+                guard let playbackTime = playbackTimeProvider() else {
+                    if shouldFallbackActiveSyncedVoiceInsertForTimeout(plan: plan) {
+                        fallbackCompleteActiveSyncedVoiceInsert(reason: "playback_timeout")
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: 16_000_000)
+                    continue
+                }
+                let playbackTimeMs = max(Int((playbackTime * 1_000.0).rounded()), 0)
+                if playbackTimeMs != activeSyncedVoiceLastObservedPlaybackTimeMs {
+                    activeSyncedVoiceLastPlaybackAdvanceAt = Date()
+                }
                 advanceSyncedVoiceInsert(playbackTimeMs: playbackTimeMs)
+                activeSyncedVoiceLastObservedPlaybackTimeMs = playbackTimeMs
 
                 if activeSyncedVoiceInsertPlan == nil {
                     return
                 }
-                if activeSyncedVoiceAppliedCueCount >= plan.cues.count {
+                if activeSyncedVoiceAppliedCueCount >= plan.cueCount {
                     completeActiveSyncedVoiceInsertIfNeeded()
+                    return
+                }
+                if let observation = playbackObservationProvider(),
+                   shouldFallbackActiveSyncedVoiceInsert(
+                    plan: plan,
+                    observation: observation
+                   ) {
+                    fallbackCompleteActiveSyncedVoiceInsert(reason: "playback_desynced")
+                    return
+                }
+                if shouldFallbackActiveSyncedVoiceInsertForTimeout(plan: plan) {
+                    fallbackCompleteActiveSyncedVoiceInsert(reason: "playback_timeout")
                     return
                 }
 
@@ -2099,26 +3203,103 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard let plan = activeSyncedVoiceInsertPlan else { return }
         syncedVoiceInsertTask?.cancel()
         syncedVoiceInsertTask = nil
-        activeSyncedVoiceAppliedCueCount = plan.cues.count
-        pendingInsertion = ScreenplayInsertionRequest(text: plan.fullText, mode: .streamInsertFinalize)
+        activeSyncedVoiceAppliedCueCount = plan.cueCount
+        activeSyncedVoiceVisibleUTF16Length = max((plan.fullText as NSString).length, activeSyncedVoiceVisibleUTF16Length)
+        activeSyncedVoiceActiveSegmentID = plan.timeline.segments.last?.id
+        pendingInsertion = ScreenplayInsertionRequest(
+            text: plan.fullText,
+            mode: .voiceRevealFinalize,
+            replacementTarget: plan.replacementTarget,
+            voiceRevealState: voiceRevealState(
+                for: plan,
+                visibleUTF16Length: (plan.fullText as NSString).length,
+                activeSegmentID: plan.timeline.segments.last?.id,
+                phase: .completed
+            )
+        )
         streamingProgress = 1.0
         autoInsertStatusText = ""
-        onSyncedInsertLifecycleEvent?("finished", plan, plan.cues.count)
+        onSyncedInsertLifecycleEvent?("finished", plan, plan.cueCount, nil)
         activeSyncedVoiceInsertPlan = nil
+        stagedSyncedVoiceTurnFailureReason = nil
+        stagedSyncedVoiceTurnInterruptionReason = nil
+        stagedSyncedVoiceTurnFallbackCommitted = false
+        stagedSyncedVoiceTurnFallbackReason = ""
+        stagedSyncedVoiceTurnPlaybackDriftMs = 0
+        activeSyncedVoiceVisibleUTF16Length = 0
+        activeSyncedVoiceActiveSegmentID = nil
+        activeSyncedVoiceAnchorLineHint = nil
+        resetSyncedVoiceInsertWatchdog()
+        refreshSyncedVoiceTurnState(phaseOverride: .completed)
     }
 
-    func cancelStream() {
-        let wasStreaming = streamTask != nil || streamingProgress > 0
+    @discardableResult
+    func completePendingSyncedVoiceTurnImmediately() -> Bool {
+        let cleanText = stagedSyncedVoiceTurnAuthoritativeText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else { return false }
+        syncedVoiceInsertTask?.cancel()
+        syncedVoiceInsertTask = nil
+        activeSyncedVoiceInsertPlan = nil
+        activeSyncedVoiceAppliedCueCount = stagedSyncedVoiceTurnTimeline?.totalRevealUnitCount ?? stagedSyncedVoiceTurnCues.count
+        activeSyncedVoiceVisibleUTF16Length = 0
+        activeSyncedVoiceActiveSegmentID = nil
+        activeSyncedVoiceAnchorLineHint = nil
+        stagedSyncedVoiceTurnFailureReason = nil
+        stagedSyncedVoiceTurnInterruptionReason = nil
+        stagedSyncedVoiceTurnFallbackCommitted = true
+        if stagedSyncedVoiceTurnFallbackReason.isEmpty {
+            stagedSyncedVoiceTurnFallbackReason = "preplayback_fallback"
+        }
+        stagedSyncedVoiceTurnPlaybackDriftMs = 0
+        resetSyncedVoiceInsertWatchdog()
+        streamingProgress = 1.0
+        autoInsertStatusText = ""
+        refreshSyncedVoiceTurnState(phaseOverride: .completed)
+        return true
+    }
+
+    func cancelStream(reason: ScreenplaySyncedInsertInterruptionReason = .other) {
+        _ = cancelStream(rollbackDraft: true, reason: reason)
+    }
+
+    @discardableResult
+    func cancelStreamPreservingCurrentDraft(
+        reason: ScreenplaySyncedInsertInterruptionReason = .other
+    ) -> Bool {
+        cancelStream(rollbackDraft: false, reason: reason)
+    }
+
+    @discardableResult
+    private func cancelStream(
+        rollbackDraft: Bool,
+        reason: ScreenplaySyncedInsertInterruptionReason
+    ) -> Bool {
+        let queuedInsertMode = pendingInsertion?.mode
+        let hadQueuedSyncedInsert = queuedInsertMode == .streamInsertProgress
+            || queuedInsertMode == .streamInsertFinalize
+            || queuedInsertMode == .streamInsertCancel
+            || queuedInsertMode == .voiceRevealPrepare
+            || queuedInsertMode == .voiceRevealUpdate
+            || queuedInsertMode == .voiceRevealFinalize
+            || queuedInsertMode == .voiceRevealCancel
+        let wasStreaming = streamTask != nil || streamingProgress > 0 || hadQueuedSyncedInsert
         streamTask?.cancel()
         streamTask = nil
-        let cancelledSynced = cancelActiveSyncedVoiceInsert(notifyCancellation: true)
+        let cancelledSynced = cancelActiveSyncedVoiceInsert(
+            notifyCancellation: true,
+            reason: reason
+        )
         streamingProgress = 0
-        if wasStreaming || cancelledSynced {
+        if rollbackDraft, wasStreaming || cancelledSynced {
             pendingInsertion = ScreenplayInsertionRequest(text: "", mode: .streamInsertCancel)
+        } else if !rollbackDraft, hadQueuedSyncedInsert {
+            pendingInsertion = nil
         }
         if autoInsertStatusText == "Clementine is writing..." {
             autoInsertStatusText = ""
         }
+        return wasStreaming || cancelledSynced
     }
 
     func jumpToLine(_ line: Int) {
@@ -2156,45 +3337,312 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         pendingEditorFocus = ScreenplayEditorFocusRequest(id: UUID())
     }
 
+    @discardableResult
+    func seekActiveSyncedVoiceInsert(to playbackTimeMs: Int) -> Bool {
+        guard let plan = activeSyncedVoiceInsertPlan else { return false }
+        let previousPlaybackTimeMs = activeSyncedVoiceLastObservedPlaybackTimeMs
+        let clampedPlaybackTimeMs = max(0, min(playbackTimeMs, plan.audioDurationMs))
+        activeSyncedVoiceLastObservedPlaybackTimeMs = clampedPlaybackTimeMs
+        activeSyncedVoiceLastPlaybackAdvanceAt = Date()
+        let didApply = applySyncedVoiceInsertSnapshot(
+            plan: plan,
+            playbackTimeMs: clampedPlaybackTimeMs,
+            allowRegression: true,
+            finalizeIfComplete: false
+        )
+        if !didApply && clampedPlaybackTimeMs != previousPlaybackTimeMs {
+            onSyncedInsertLifecycleEvent?("seeked", plan, activeSyncedVoiceAppliedCueCount, nil)
+        }
+        return didApply || clampedPlaybackTimeMs != previousPlaybackTimeMs
+    }
+
     private func advanceSyncedVoiceInsert(playbackTimeMs: Int) {
         guard let plan = activeSyncedVoiceInsertPlan else { return }
-
-        let cuesToApply = plan.cues.prefix { cue in
-            playbackTimeMs >= max(cue.startMs, 0)
-        }.count
-
-        guard cuesToApply > activeSyncedVoiceAppliedCueCount else {
-            return
-        }
-
-        activeSyncedVoiceAppliedCueCount = min(cuesToApply, plan.cues.count)
-        let visibleText = visibleVoiceInsertText(for: plan, appliedCueCount: activeSyncedVoiceAppliedCueCount)
-        let isFinal = activeSyncedVoiceAppliedCueCount >= plan.cues.count
-        pendingInsertion = ScreenplayInsertionRequest(
-            text: visibleText,
-            mode: isFinal ? .streamInsertFinalize : .streamInsertProgress
+        let previousPlaybackTimeMs = activeSyncedVoiceLastObservedPlaybackTimeMs
+        let allowRegression = playbackTimeMs < previousPlaybackTimeMs
+        let didApply = applySyncedVoiceInsertSnapshot(
+            plan: plan,
+            playbackTimeMs: playbackTimeMs,
+            allowRegression: allowRegression,
+            finalizeIfComplete: true
         )
-        streamingProgress = min(
-            max(Double(activeSyncedVoiceAppliedCueCount) / Double(max(plan.cues.count, 1)), 0),
-            1
-        )
-        onSyncedInsertLifecycleEvent?("cue_applied", plan, activeSyncedVoiceAppliedCueCount)
-
-        if isFinal {
-            completeActiveSyncedVoiceInsertIfNeeded()
+        if !didApply && allowRegression && playbackTimeMs != previousPlaybackTimeMs {
+            onSyncedInsertLifecycleEvent?("seeked", plan, activeSyncedVoiceAppliedCueCount, nil)
         }
     }
 
-    private func cancelActiveSyncedVoiceInsert(notifyCancellation: Bool) -> Bool {
+    @discardableResult
+    private func applySyncedVoiceInsertSnapshot(
+        plan: ScreenplayVoiceInsertPlan,
+        playbackTimeMs: Int,
+        allowRegression: Bool,
+        finalizeIfComplete: Bool
+    ) -> Bool {
+        let snapshot = plan.timeline.revealSnapshot(at: playbackTimeMs)
+        let nextAppliedCount = min(snapshot.appliedRevealUnitCount, plan.cueCount)
+        let nextVisibleUTF16Length = min(snapshot.visibleUTF16Length, (plan.fullText as NSString).length)
+        let nextActiveSegmentID = snapshot.activeSegment?.id
+
+        guard nextAppliedCount != activeSyncedVoiceAppliedCueCount ||
+                nextVisibleUTF16Length != activeSyncedVoiceVisibleUTF16Length ||
+                nextActiveSegmentID != activeSyncedVoiceActiveSegmentID else {
+            return false
+        }
+
+        activeSyncedVoiceAppliedCueCount = nextAppliedCount
+        activeSyncedVoiceVisibleUTF16Length = nextVisibleUTF16Length
+        activeSyncedVoiceActiveSegmentID = nextActiveSegmentID
+        let reachedEnd = activeSyncedVoiceAppliedCueCount >= plan.cueCount
+        let shouldFinalize = reachedEnd && finalizeIfComplete
+        pendingInsertion = ScreenplayInsertionRequest(
+            text: plan.fullText,
+            mode: shouldFinalize ? .voiceRevealFinalize : .voiceRevealUpdate,
+            replacementTarget: plan.replacementTarget,
+            voiceRevealState: voiceRevealState(
+                for: plan,
+                visibleUTF16Length: nextVisibleUTF16Length,
+                activeSegmentID: nextActiveSegmentID,
+                phase: reachedEnd ? .completed : .playing
+            )
+        )
+        streamingProgress = min(
+            max(Double(activeSyncedVoiceAppliedCueCount) / Double(max(plan.cueCount, 1)), 0),
+            1
+        )
+        refreshSyncedVoiceTurnState(
+            phaseOverride: activeSyncedVoiceInsertPlan == nil ? nil : .syncedInsertion
+        )
+        onSyncedInsertLifecycleEvent?(
+            allowRegression ? "seeked" : "cue_applied",
+            plan,
+            activeSyncedVoiceAppliedCueCount,
+            nil
+        )
+
+        if shouldFinalize {
+            completeActiveSyncedVoiceInsertIfNeeded()
+        }
+        return true
+    }
+
+    private func cancelActiveSyncedVoiceInsert(
+        notifyCancellation: Bool,
+        reason: ScreenplaySyncedInsertInterruptionReason
+    ) -> Bool {
         guard let plan = activeSyncedVoiceInsertPlan else { return false }
         syncedVoiceInsertTask?.cancel()
         syncedVoiceInsertTask = nil
         if notifyCancellation {
-            onSyncedInsertLifecycleEvent?("cancelled", plan, activeSyncedVoiceAppliedCueCount)
+            onSyncedInsertLifecycleEvent?("cancelled", plan, activeSyncedVoiceAppliedCueCount, reason)
         }
         activeSyncedVoiceInsertPlan = nil
         activeSyncedVoiceAppliedCueCount = 0
+        activeSyncedVoiceVisibleUTF16Length = 0
+        activeSyncedVoiceActiveSegmentID = nil
+        activeSyncedVoiceAnchorLineHint = nil
+        stagedSyncedVoiceTurnFallbackCommitted = false
+        stagedSyncedVoiceTurnFallbackReason = ""
+        stagedSyncedVoiceTurnPlaybackDriftMs = 0
+        resetSyncedVoiceInsertWatchdog()
+        stagedSyncedVoiceTurnInterruptionReason = reason
+        stagedSyncedVoiceTurnFailureReason = nil
+        pendingInsertion = ScreenplayInsertionRequest(
+            text: plan.fullText,
+            mode: .voiceRevealCancel,
+            replacementTarget: plan.replacementTarget,
+            voiceRevealState: nil
+        )
+        refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
         return true
+    }
+
+    private func shouldFallbackActiveSyncedVoiceInsert(
+        plan: ScreenplayVoiceInsertPlan,
+        observation: SegmentedPlaybackObservation
+    ) -> Bool {
+        guard activeSyncedVoiceAppliedCueCount < plan.cueCount else { return false }
+        guard observation.hasActiveSegment else { return false }
+        guard observation.driftMs > 0 else { return false }
+        guard let lastAdvanceAt = activeSyncedVoiceLastPlaybackAdvanceAt else { return false }
+
+        let stallThresholdMs = min(max(plan.audioDurationMs / 3, 1_250), 3_000)
+        let driftThresholdMs = min(max(plan.audioDurationMs / 10, 350), 1_100)
+        let stalledForMs = Int((Date().timeIntervalSince(lastAdvanceAt) * 1_000.0).rounded())
+        return stalledForMs >= stallThresholdMs && observation.driftMs >= driftThresholdMs
+    }
+
+    private func shouldFallbackActiveSyncedVoiceInsertForTimeout(
+        plan: ScreenplayVoiceInsertPlan
+    ) -> Bool {
+        guard activeSyncedVoiceAppliedCueCount < plan.cueCount else { return false }
+        guard let startedAt = activeSyncedVoiceInsertStartedAt else { return false }
+
+        let timeoutMs = max(plan.audioDurationMs + 2_000, Int((Double(plan.audioDurationMs) * 1.35).rounded()))
+        let elapsedMs = Int((Date().timeIntervalSince(startedAt) * 1_000.0).rounded())
+        return elapsedMs >= timeoutMs
+    }
+
+    private func fallbackCompleteActiveSyncedVoiceInsert(reason: String) {
+        guard let plan = activeSyncedVoiceInsertPlan else { return }
+        let appliedCueCount = activeSyncedVoiceAppliedCueCount
+        syncedVoiceInsertTask?.cancel()
+        syncedVoiceInsertTask = nil
+        pendingInsertion = ScreenplayInsertionRequest(
+            text: plan.fullText,
+            mode: .voiceRevealFinalize,
+            replacementTarget: plan.replacementTarget,
+            voiceRevealState: voiceRevealState(
+                for: plan,
+                visibleUTF16Length: (plan.fullText as NSString).length,
+                activeSegmentID: plan.timeline.segments.last?.id,
+                phase: .completed
+            )
+        )
+        streamingProgress = 1.0
+        autoInsertStatusText = ""
+        stagedSyncedVoiceTurnFailureReason = nil
+        stagedSyncedVoiceTurnInterruptionReason = nil
+        stagedSyncedVoiceTurnFallbackCommitted = true
+        stagedSyncedVoiceTurnFallbackReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        activeSyncedVoiceInsertPlan = nil
+        activeSyncedVoiceVisibleUTF16Length = 0
+        activeSyncedVoiceActiveSegmentID = nil
+        activeSyncedVoiceAnchorLineHint = nil
+        resetSyncedVoiceInsertWatchdog()
+        refreshSyncedVoiceTurnState(phaseOverride: .completed)
+        onSyncedInsertLifecycleEvent?("fallback_committed", plan, appliedCueCount, nil)
+    }
+
+    private func resetSyncedVoiceInsertWatchdog() {
+        activeSyncedVoiceInsertStartedAt = nil
+        activeSyncedVoiceLastPlaybackAdvanceAt = nil
+        activeSyncedVoiceLastObservedPlaybackTimeMs = 0
+    }
+
+    private func voiceRevealState(
+        for plan: ScreenplayVoiceInsertPlan,
+        visibleUTF16Length: Int,
+        activeSegmentID: String?,
+        phase: ScreenplayVoiceRevealPresentationState.Phase
+    ) -> ScreenplayVoiceRevealPresentationState {
+        ScreenplayVoiceRevealPresentationState(
+            sessionID: plan.requestID,
+            timeline: plan.timeline,
+            visibleUTF16Length: max(0, min(visibleUTF16Length, (plan.fullText as NSString).length)),
+            activeSegmentID: activeSegmentID,
+            phase: phase
+        )
+    }
+
+    private func compatibilityDialogueTimeline(
+        from cues: [ScreenplayVoiceCue],
+        fullText: String,
+        audioDurationMs: Int?,
+        requestID: String,
+        timingSource: String
+    ) -> ScreenplayDialogueTimelineRevision? {
+        let trimmed = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let resolvedDurationMs = max(audioDurationMs ?? 0, 1)
+        let normalizedCues = normalizedVoiceCues(
+            cues,
+            for: trimmed,
+            audioDurationMs: resolvedDurationMs
+        )
+        let effectiveCues: [ScreenplayVoiceCue]
+        if normalizedCues.isEmpty {
+            let inferredElementRaw = ScreenplayEditorElement.inferredSequence(for: trimmed)
+                .compactMap { $0 }
+                .first?
+                .rawValue ?? ScreenplayEditorElement.action.rawValue
+            effectiveCues = [
+                ScreenplayVoiceCue(
+                    index: 0,
+                    text: trimmed,
+                    elementRaw: inferredElementRaw,
+                    startMs: 0,
+                    endMs: resolvedDurationMs
+                )
+            ]
+        } else {
+            effectiveCues = normalizedCues
+        }
+
+        let revisionID = requestID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? UUID().uuidString
+            : requestID.trimmingCharacters(in: .whitespacesAndNewlines)
+        var searchStart = trimmed.startIndex
+        var fallbackCursorUTF16 = 0
+        var segments: [ScreenplayDialogueSegment] = []
+        segments.reserveCapacity(effectiveCues.count)
+
+        for (offset, cue) in effectiveCues.enumerated() {
+            let cueText = cue.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let range = trimmed.range(of: cueText, range: searchStart..<trimmed.endIndex) ??
+                trimmed.range(of: cueText)
+            let startUTF16: Int
+            let endUTF16: Int
+            if let range {
+                let lowerBound = range.lowerBound.samePosition(in: trimmed.utf16) ?? trimmed.utf16.startIndex
+                let upperBound = range.upperBound.samePosition(in: trimmed.utf16) ?? trimmed.utf16.startIndex
+                startUTF16 = trimmed.utf16.distance(from: trimmed.utf16.startIndex, to: lowerBound)
+                endUTF16 = trimmed.utf16.distance(from: trimmed.utf16.startIndex, to: upperBound)
+                searchStart = range.upperBound
+                fallbackCursorUTF16 = endUTF16
+            } else {
+                startUTF16 = fallbackCursorUTF16
+                endUTF16 = startUTF16 + (cueText as NSString).length
+                fallbackCursorUTF16 = endUTF16
+            }
+            let kind = ScreenplayDialogueSegmentKind(rawValue: cue.elementRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) ?? .action
+            let revealUnits = cueText.isEmpty
+                ? []
+                : [ScreenplayRevealUnit(
+                    id: "\(revisionID):segment:\(offset):unit:0",
+                    text: cueText,
+                    startMs: max(cue.startMs, 0),
+                    endMs: max(cue.endMs, cue.startMs + 1),
+                    utf16Start: 0,
+                    utf16End: (cueText as NSString).length
+                )]
+            segments.append(ScreenplayDialogueSegment(
+                id: "\(revisionID):segment:\(offset)",
+                lineId: "\(revisionID):line:\(offset)",
+                kind: kind,
+                text: cueText,
+                startMs: max(cue.startMs, 0),
+                endMs: max(cue.endMs, cue.startMs + 1),
+                pageAnchor: ScreenplayPageAnchor(
+                    projectId: "",
+                    sceneId: "",
+                    beatId: nil,
+                    scriptNodeId: "\(revisionID):node:\(offset)",
+                    pageIndex: nil,
+                    rangeStart: max(startUTF16, 0),
+                    rangeEnd: max(endUTF16, startUTF16)
+                ),
+                revealUnits: revealUnits
+            ))
+        }
+
+        return ScreenplayDialogueTimelineRevision(
+            turnId: revisionID,
+            revisionId: revisionID,
+            audioAssetId: revisionID + ":audio",
+            durationMs: max(resolvedDurationMs, segments.last?.endMs ?? 0),
+            documentRevisionId: revisionID,
+            insertionAnchor: ScreenplayPageAnchor(
+                projectId: "",
+                sceneId: "",
+                beatId: nil,
+                scriptNodeId: revisionID + ":root",
+                pageIndex: nil,
+                rangeStart: 0,
+                rangeEnd: (trimmed as NSString).length
+            ),
+            segments: segments
+        )
     }
 
     private func normalizedVoiceCues(
@@ -2213,7 +3661,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }.filter { !$0.text.isEmpty }
 
         if !trimmedProvided.isEmpty {
-            return trimmedProvided.enumerated().map { offset, cue in
+            let normalizedProvided = trimmedProvided.enumerated().map { offset, cue in
                 ScreenplayVoiceCue(
                     index: offset,
                     text: cue.text,
@@ -2222,6 +3670,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                     endMs: max(cue.endMs, cue.startMs)
                 )
             }
+            return densifiedVoiceCues(
+                normalizedProvided,
+                audioDurationMs: audioDurationMs
+            )
         }
 
         let lines = text
@@ -2235,7 +3687,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let nonEmptyElements = inferredElements.compactMap { $0 }
         let segmentDuration = max(audioDurationMs / max(lines.count, 1), 1)
 
-        return lines.enumerated().map { offset, line in
+        let estimatedLineCues = lines.enumerated().map { offset, line in
             let startMs = offset * segmentDuration
             let endMs = offset == lines.count - 1
                 ? audioDurationMs
@@ -2249,6 +3701,197 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 endMs: max(endMs, startMs + 1)
             )
         }
+        return densifiedVoiceCues(
+            estimatedLineCues,
+            audioDurationMs: audioDurationMs
+        )
+    }
+
+    private func densifiedVoiceCues(
+        _ cues: [ScreenplayVoiceCue],
+        audioDurationMs: Int
+    ) -> [ScreenplayVoiceCue] {
+        guard !cues.isEmpty else { return [] }
+
+        var densified: [ScreenplayVoiceCue] = []
+        densified.reserveCapacity(cues.count * 2)
+        var nextIndex = 0
+
+        for (cueIndex, cue) in cues.enumerated() {
+            let segments = segmentedVoiceCueTexts(
+                cue.text,
+                elementRaw: cue.elementRaw
+            )
+            guard segments.count > 1 else {
+                densified.append(
+                    ScreenplayVoiceCue(
+                        index: nextIndex,
+                        text: cue.text,
+                        elementRaw: cue.elementRaw,
+                        startMs: max(cue.startMs, 0),
+                        endMs: max(cue.endMs, cue.startMs + 1)
+                    )
+                )
+                nextIndex += 1
+                continue
+            }
+
+            let startMs = max(cue.startMs, 0)
+            let nextCueStartMs = cueIndex + 1 < cues.count
+                ? max(cues[cueIndex + 1].startMs, startMs + 1)
+                : max(audioDurationMs, startMs + 1)
+            let endMs = min(
+                max(cue.endMs, startMs + 1),
+                max(nextCueStartMs, startMs + 1)
+            )
+            let spanMs = endMs - startMs
+            guard spanMs >= segments.count else {
+                densified.append(
+                    ScreenplayVoiceCue(
+                        index: nextIndex,
+                        text: cue.text,
+                        elementRaw: cue.elementRaw,
+                        startMs: startMs,
+                        endMs: endMs
+                    )
+                )
+                nextIndex += 1
+                continue
+            }
+
+            let weights = segments.map(voiceCueSegmentWeight)
+            let totalWeight = max(weights.reduce(0, +), 1)
+            var accumulatedWeight = 0
+            var segmentStartMs = startMs
+
+            for segmentIndex in segments.indices {
+                accumulatedWeight += weights[segmentIndex]
+                let remainingSegments = segments.count - segmentIndex - 1
+                let rawSegmentEndMs = segmentIndex == segments.count - 1
+                    ? endMs
+                    : startMs + Int(
+                        (
+                            Double(spanMs)
+                            * Double(accumulatedWeight)
+                            / Double(totalWeight)
+                        ).rounded()
+                    )
+                let segmentEndMs = segmentIndex == segments.count - 1
+                    ? endMs
+                    : max(
+                        segmentStartMs + 1,
+                        min(rawSegmentEndMs, endMs - remainingSegments)
+                    )
+                densified.append(
+                    ScreenplayVoiceCue(
+                        index: nextIndex,
+                        text: segments[segmentIndex],
+                        elementRaw: cue.elementRaw,
+                        startMs: segmentStartMs,
+                        endMs: segmentEndMs
+                    )
+                )
+                nextIndex += 1
+                segmentStartMs = segmentEndMs
+            }
+        }
+
+        return densified
+    }
+
+    private func segmentedVoiceCueTexts(
+        _ rawText: String,
+        elementRaw: String
+    ) -> [String] {
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let element = ScreenplayEditorElement(
+            rawValue: elementRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let words = trimmed.split { $0.isWhitespace || $0.isNewline }
+        guard (element == .dialogue || element == .action), words.count > 5, trimmed.count > 28 else {
+            return [trimmed]
+        }
+
+        let punctuatedSegments = punctuatedVoiceCueSegments(from: trimmed)
+        if punctuatedSegments.count > 1 {
+            return punctuatedSegments
+        }
+
+        let groupedSegments = groupedVoiceCueSegments(from: trimmed)
+        return groupedSegments.count > 1 ? groupedSegments : [trimmed]
+    }
+
+    private func punctuatedVoiceCueSegments(from text: String) -> [String] {
+        var segments: [String] = []
+        var current = ""
+
+        for character in text {
+            current.append(character)
+            if character == "," || character == ";" || character == ":" ||
+                character == "." || character == "!" || character == "?" || character == "—" {
+                let cleaned = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty {
+                    segments.append(cleaned)
+                }
+                current = ""
+            }
+        }
+
+        let trailing = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trailing.isEmpty {
+            segments.append(trailing)
+        }
+
+        return segments
+    }
+
+    private func groupedVoiceCueSegments(from text: String) -> [String] {
+        let words = text.split { $0.isWhitespace || $0.isNewline }
+        guard words.count > 5 else { return [text] }
+
+        var segments: [String] = []
+        var currentWords: [Substring] = []
+        var currentCharacterCount = 0
+
+        for (index, word) in words.enumerated() {
+            currentWords.append(word)
+            currentCharacterCount += word.count
+            let remainingWords = words.count - index - 1
+            let shouldFlush = (
+                currentWords.count >= 4 ||
+                currentCharacterCount >= 22
+            ) && remainingWords >= 2
+            if shouldFlush {
+                let segment = currentWords.joined(separator: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !segment.isEmpty {
+                    segments.append(segment)
+                }
+                currentWords.removeAll(keepingCapacity: true)
+                currentCharacterCount = 0
+            }
+        }
+
+        if !currentWords.isEmpty {
+            let segment = currentWords.joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !segment.isEmpty {
+                segments.append(segment)
+            }
+        }
+
+        return segments
+    }
+
+    private func voiceCueSegmentWeight(_ text: String) -> Int {
+        let wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
+        let punctuationBonus = text.filter { character in
+            character == "," || character == ";" || character == ":" ||
+            character == "." || character == "!" || character == "?"
+        }.count
+        return max(1, wordCount * 3 + punctuationBonus)
     }
 
     private func visibleVoiceInsertText(
@@ -2369,11 +4012,19 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             )
         }
         companionMode = mode
+        if companionSignalState.hasContent {
+            companionSignalState = CreativeCompanionSignalEngine.retone(
+                companionSignalState,
+                companionMode: mode,
+                memoryDomain: latestMemoryDomain
+            )
+        }
         schedulePersistBackendCompanionState()
     }
 
     func clearCompanionMemory() {
         companionRecentTurns = []
+        companionSignalState = .empty
         companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
             updatedAt: Date(),
             totalTurns: companionAnalytics.totalTurns,
@@ -2521,6 +4172,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
     }
 
+    private func currentInsertionReplacementTarget() -> ScreenplayPendingReplacementTarget? {
+        pendingReplacementTarget ?? submittedReplacementTarget
+    }
+
     func clearDraft() {
         cancelStream()
         draftText = ""
@@ -2589,6 +4244,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard let data = try? encoder.encode(events),
               let encoded = String(data: data, encoding: .utf8) else { return }
         UserDefaults.standard.set(encoded, forKey: debugReplacementTraceStorageKey)
+#if os(macOS)
+        writeMirroredScreenplayDebugPreferenceString(encoded, forKey: debugReplacementTraceStorageKey)
+#else
+        UserDefaults.standard.synchronize()
+#endif
 #endif
     }
 
@@ -4686,9 +6346,15 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
         var streamingPreviewSuffix: String = ""
         var streamingPreviewBaseText: String = ""
         var streamingInsertRange: NSRange?
+        var streamingInsertOriginalSelection: NSRange = NSRange(location: 0, length: 0)
         var streamingInsertPrefix: String = ""
         var streamingInsertSuffix: String = ""
         var streamingInsertBaseText: String = ""
+        var voiceRevealInsertedRange: NSRange?
+        var voiceRevealContentRange: NSRange?
+        var voiceRevealOriginalSelection: NSRange = NSRange(location: 0, length: 0)
+        var voiceRevealBaseText: String = ""
+        var activeVoiceRevealState: ScreenplayVoiceRevealPresentationState?
         var commitHighlightRange: NSRange?
         var commitHighlightWorkItem: DispatchWorkItem?
         weak var scrollView: NSScrollView?
@@ -4776,6 +6442,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard !isApplyingProgrammaticChange else { return }
             guard let textView else { return }
+            interruptStreamingInsertForUserEditIfNeeded()
             synchronizeParagraphElementsWithCurrentText(in: textView)
             normalizeCurrentLineIfNeeded(in: textView)
             syncActiveElementFromSelection()
@@ -4787,6 +6454,34 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             parent.onUserEdit?()
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
+        }
+
+        private func interruptStreamingInsertForUserEditIfNeeded() {
+            if voiceRevealContentRange != nil {
+                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                    kind: "voice-reveal-manual-edit-interrupt",
+                    target: parent.pendingReplacementTarget ?? parent.submittedReplacementTarget,
+                    detail: "Cancelled voice reveal playback after a user edit and preserved the authoritative page text."
+                )
+                _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .manualTyping)
+                clearVoiceRevealPresentation(in: textView, preserveCurrentText: true)
+                parent.insertionRequest = nil
+                parent.pendingReplacementTarget = nil
+                parent.submittedReplacementTarget = nil
+                return
+            }
+            guard streamingInsertRange != nil else { return }
+            let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                kind: "streaming-lines-manual-edit-interrupt",
+                target: replacementTarget,
+                detail: "Cancelled streamed line insertion after a user edit to preserve the current draft."
+            )
+            _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .manualTyping)
+            parent.insertionRequest = nil
+            parent.pendingReplacementTarget = nil
+            parent.submittedReplacementTarget = nil
+            resetStreamingInsertState()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -4836,6 +6531,20 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             case .streamInsertFinalize:
                 finalizeStreamingInsert(request)
             case .streamInsertCancel:
+                cancelStreamingInsert()
+                lastAppliedInsertionID = request.id
+                DispatchQueue.main.async {
+                    if self.parent.insertionRequest?.id == request.id {
+                        self.parent.insertionRequest = nil
+                    }
+                }
+            case .voiceRevealPrepare:
+                applyStreamingInsertProgress(request)
+            case .voiceRevealUpdate:
+                applyStreamingInsertProgress(request)
+            case .voiceRevealFinalize:
+                finalizeStreamingInsert(request)
+            case .voiceRevealCancel:
                 cancelStreamingInsert()
                 lastAppliedInsertionID = request.id
                 DispatchQueue.main.async {
@@ -5031,6 +6740,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 
         func refreshScreenplayPresentationAndTyping() {
             applyScreenplayParagraphStyles()
+            applyActiveVoiceRevealPresentationIfNeeded()
             refreshTypingAttributesOnly()
         }
 
@@ -5259,7 +6969,8 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             let insertionContext = resolvedInsertionContext(
                 raw: request.text,
                 existing: current,
-                fallbackSelection: fallbackSelection
+                fallbackSelection: fallbackSelection,
+                requestReplacementTarget: request.replacementTarget
             )
             let selection = insertionContext.selection
             let insertion = insertionContext.text
@@ -5299,7 +7010,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
             parent.text = nextText
-            let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: insertionContext.isReplacement ? "commit-standard-replacement" : "commit-standard-insert",
                 target: replacementTarget,
@@ -5354,7 +7065,8 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 let selection = clampedSelection(from: textView.selectedRange(), maxLength: (current as NSString).length)
                 let replacementContext = resolvedReplacementContext(
                     existing: current,
-                    fallbackSelection: selection
+                    fallbackSelection: selection,
+                    requestReplacementTarget: request.replacementTarget
                 )
                 streamingPreviewBaseText = current
                 let affixes: (prefix: String, suffix: String)
@@ -5406,7 +7118,14 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             }
 
             if streamingPreviewRange == nil {
-                applyStandardInsertion(ScreenplayInsertionRequest(id: request.id, text: request.text, mode: .insert))
+                applyStandardInsertion(
+                    ScreenplayInsertionRequest(
+                        id: request.id,
+                        text: request.text,
+                        mode: .insert,
+                        replacementTarget: request.replacementTarget
+                    )
+                )
                 resetStreamingPreviewState()
                 return
             }
@@ -5431,7 +7150,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
             parent.text = nextText
-            let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: replacementTarget != nil ? "commit-stream-replacement" : "commit-stream-insert",
                 target: replacementTarget,
@@ -5491,9 +7210,11 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 let selection = clampedSelection(from: textView.selectedRange(), maxLength: (current as NSString).length)
                 let replacementContext = resolvedReplacementContext(
                     existing: current,
-                    fallbackSelection: selection
+                    fallbackSelection: selection,
+                    requestReplacementTarget: request.replacementTarget
                 )
                 streamingInsertBaseText = current
+                streamingInsertOriginalSelection = selection
                 let affixes: (prefix: String, suffix: String)
                 if replacementContext.isReplacement {
                     affixes = ("", "")
@@ -5539,7 +7260,14 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             }
 
             if streamingInsertRange == nil {
-                applyStandardInsertion(ScreenplayInsertionRequest(id: request.id, text: request.text, mode: .insert))
+                applyStandardInsertion(
+                    ScreenplayInsertionRequest(
+                        id: request.id,
+                        text: request.text,
+                        mode: .insert,
+                        replacementTarget: request.replacementTarget
+                    )
+                )
                 resetStreamingInsertState()
                 return
             }
@@ -5564,7 +7292,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
             parent.text = nextText
-            let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: replacementTarget != nil ? "commit-streaming-lines-replacement" : "commit-streaming-lines-insert",
                 target: replacementTarget,
@@ -5636,7 +7364,39 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
         }
 
         private func cancelStreamingInsert() {
+            guard let textView else {
+                resetStreamingInsertState()
+                return
+            }
+            guard streamingInsertRange != nil || !streamingInsertBaseText.isEmpty else {
+                resetStreamingInsertState()
+                return
+            }
+
+            let baseText = streamingInsertBaseText
+            let caretLocation = min(
+                streamingInsertOriginalSelection.location + streamingInsertOriginalSelection.length,
+                (baseText as NSString).length
+            )
+
+            isApplyingProgrammaticChange = true
+            textView.string = baseText
+            textView.setSelectedRange(NSRange(location: caretLocation, length: 0))
+            isApplyingProgrammaticChange = false
+            synchronizeParagraphElementsWithCurrentText(in: textView)
+            parent.text = baseText
+            updateCurrentCursorLine()
             resetStreamingInsertState()
+            refreshAnchoredTextRectSnapshot()
+            DispatchQueue.main.async {
+                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                    kind: "streaming-lines-cancel-clear",
+                    target: self.parent.pendingReplacementTarget ?? self.parent.submittedReplacementTarget,
+                    detail: "Cancelled streamed line insertion and restored the pre-insert draft."
+                )
+                self.parent.pendingReplacementTarget = nil
+                self.parent.submittedReplacementTarget = nil
+            }
         }
 
         private func resetStreamingPreviewState() {
@@ -5650,9 +7410,253 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 
         private func resetStreamingInsertState() {
             streamingInsertRange = nil
+            streamingInsertOriginalSelection = NSRange(location: 0, length: 0)
             streamingInsertPrefix = ""
             streamingInsertSuffix = ""
             streamingInsertBaseText = ""
+        }
+
+        private func applyVoiceRevealPrepare(_ request: ScreenplayInsertionRequest) {
+            guard let textView else { return }
+            guard let revealState = request.voiceRevealState else {
+                applyStandardInsertion(
+                    ScreenplayInsertionRequest(
+                        id: request.id,
+                        text: request.text,
+                        mode: .insert,
+                        replacementTarget: request.replacementTarget
+                    )
+                )
+                return
+            }
+            if streamingPreviewRange != nil {
+                cancelStreamingPreview()
+            }
+            if voiceRevealContentRange != nil {
+                clearVoiceRevealPresentation(in: textView, preserveCurrentText: true)
+            }
+
+            let current = textView.string
+            let trimmed = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fallbackSelection = clampedSelection(from: textView.selectedRange(), maxLength: (current as NSString).length)
+            let insertionContext = resolvedInsertionContext(
+                raw: request.text,
+                existing: current,
+                fallbackSelection: fallbackSelection,
+                requestReplacementTarget: request.replacementTarget
+            )
+            let selection = insertionContext.selection
+            let insertion = insertionContext.text
+            guard !insertion.isEmpty else { return }
+
+            let mutable = NSMutableString(string: current)
+            mutable.replaceCharacters(in: selection, with: insertion)
+            let nextText = String(mutable)
+            let insertedRange = NSRange(location: selection.location, length: (insertion as NSString).length)
+            let coreText = trimmed.isEmpty ? request.text : trimmed
+            let coreRange = ((insertion as NSString).range(of: coreText))
+            let resolvedCoreRange = coreRange.location != NSNotFound
+                ? NSRange(location: insertedRange.location + coreRange.location, length: coreRange.length)
+                : insertedRange
+            let caretLocation = min(selection.location + insertedRange.length, (nextText as NSString).length)
+
+            isApplyingProgrammaticChange = true
+            textView.string = nextText
+            textView.setSelectedRange(NSRange(location: caretLocation, length: 0))
+            isApplyingProgrammaticChange = false
+            synchronizeParagraphElementsWithCurrentText(in: textView)
+            parent.text = nextText
+            voiceRevealBaseText = current
+            voiceRevealOriginalSelection = selection
+            voiceRevealInsertedRange = insertedRange
+            voiceRevealContentRange = resolvedCoreRange
+            activeVoiceRevealState = revealState
+            refreshScreenplayPresentationAndTyping()
+            updateCurrentCursorLine()
+            refreshAnchoredTextRectSnapshot()
+            lastAppliedInsertionID = request.id
+
+            DispatchQueue.main.async {
+                if self.parent.insertionRequest?.id == request.id {
+                    self.parent.insertionRequest = nil
+                }
+            }
+        }
+
+        private func applyVoiceRevealUpdate(_ request: ScreenplayInsertionRequest) {
+            guard textView != nil else { return }
+            guard voiceRevealContentRange != nil else {
+                applyVoiceRevealPrepare(request)
+                return
+            }
+            activeVoiceRevealState = request.voiceRevealState
+            applyActiveVoiceRevealPresentationIfNeeded()
+            refreshAnchoredTextRectSnapshot()
+            lastAppliedInsertionID = request.id
+            DispatchQueue.main.async {
+                if self.parent.insertionRequest?.id == request.id {
+                    self.parent.insertionRequest = nil
+                }
+            }
+        }
+
+        private func finalizeVoiceReveal(_ request: ScreenplayInsertionRequest) {
+            guard let textView else { return }
+            guard voiceRevealContentRange != nil else {
+                applyStandardInsertion(
+                    ScreenplayInsertionRequest(
+                        id: request.id,
+                        text: request.text,
+                        mode: .insert,
+                        replacementTarget: request.replacementTarget
+                    )
+                )
+                return
+            }
+            activeVoiceRevealState = request.voiceRevealState
+            applyActiveVoiceRevealPresentationIfNeeded(forceCompletedReveal: true)
+            let current = textView.string
+            let contentRange = voiceRevealContentRange ?? NSRange(location: 0, length: 0)
+            let safeRange = clampedSelection(from: contentRange, maxLength: (current as NSString).length)
+            let insertedText = safeRange.length > 0
+                ? (current as NSString).substring(with: safeRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                : request.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let committedLines = committedLineRange(for: safeRange, in: current)
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+                id: request.id,
+                writeID: request.id.uuidString.lowercased(),
+                previousDraft: voiceRevealInsertedRange != nil ? voiceRevealBaseText : current,
+                committedDraft: current,
+                insertedText: insertedText,
+                replacementApplied: replacementTarget != nil,
+                replacedWriteID: replacementTarget?.sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? replacementTarget?.sourceWriteID
+                    : nil,
+                startLine: committedLines.start,
+                endLine: committedLines.end,
+                committedAt: Date()
+            )
+            resetVoiceRevealState()
+            refreshScreenplayPresentationAndTyping()
+            applyCommitHighlight(safeRange, in: textView, contentLength: (current as NSString).length)
+            refreshAnchoredTextRectSnapshot()
+            lastAppliedInsertionID = request.id
+            DispatchQueue.main.async {
+                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                    kind: "voice-reveal-clear",
+                    target: self.parent.pendingReplacementTarget ?? self.parent.submittedReplacementTarget,
+                    detail: "Clearing replacement targets after voice reveal finalize."
+                )
+                self.parent.pendingReplacementTarget = nil
+                self.parent.submittedReplacementTarget = nil
+                if self.parent.insertionRequest?.id == request.id {
+                    self.parent.insertionRequest = nil
+                }
+            }
+        }
+
+        private func cancelVoiceReveal() {
+            clearVoiceRevealPresentation(in: textView, preserveCurrentText: false)
+        }
+
+        private func resetVoiceRevealState() {
+            voiceRevealInsertedRange = nil
+            voiceRevealContentRange = nil
+            voiceRevealOriginalSelection = NSRange(location: 0, length: 0)
+            voiceRevealBaseText = ""
+            activeVoiceRevealState = nil
+        }
+
+        private func clearVoiceRevealPresentation(
+            in textView: NSTextView?,
+            preserveCurrentText: Bool
+        ) {
+            guard let textView else {
+                resetVoiceRevealState()
+                return
+            }
+            if preserveCurrentText {
+                resetVoiceRevealState()
+                refreshScreenplayPresentationAndTyping()
+                return
+            }
+            guard voiceRevealInsertedRange != nil || !voiceRevealBaseText.isEmpty else {
+                resetVoiceRevealState()
+                return
+            }
+            let baseText = voiceRevealBaseText
+            let caretLocation = min(
+                voiceRevealOriginalSelection.location + voiceRevealOriginalSelection.length,
+                (baseText as NSString).length
+            )
+            isApplyingProgrammaticChange = true
+            textView.string = baseText
+            textView.setSelectedRange(NSRange(location: caretLocation, length: 0))
+            isApplyingProgrammaticChange = false
+            synchronizeParagraphElementsWithCurrentText(in: textView)
+            parent.text = baseText
+            updateCurrentCursorLine()
+            resetVoiceRevealState()
+            refreshScreenplayPresentationAndTyping()
+            refreshAnchoredTextRectSnapshot()
+            DispatchQueue.main.async {
+                self.parent.pendingReplacementTarget = nil
+                self.parent.submittedReplacementTarget = nil
+            }
+        }
+
+        private func applyActiveVoiceRevealPresentationIfNeeded(forceCompletedReveal: Bool = false) {
+            guard let textView,
+                  let textStorage = textView.textStorage,
+                  let contentRange = voiceRevealContentRange,
+                  var revealState = activeVoiceRevealState else {
+                return
+            }
+            let contentLength = (textView.string as NSString).length
+            let safeContentRange = clampedSelection(from: contentRange, maxLength: contentLength)
+            guard safeContentRange.length > 0 else { return }
+            if forceCompletedReveal {
+                revealState = ScreenplayVoiceRevealPresentationState(
+                    sessionID: revealState.sessionID,
+                    timeline: revealState.timeline,
+                    visibleUTF16Length: safeContentRange.length,
+                    activeSegmentID: revealState.timeline.segments.last?.id,
+                    phase: .completed
+                )
+                activeVoiceRevealState = revealState
+            }
+
+            textStorage.addAttribute(.foregroundColor, value: NSColor.black, range: safeContentRange)
+            textStorage.removeAttribute(.backgroundColor, range: safeContentRange)
+
+            let visibleLength = max(0, min(revealState.visibleUTF16Length, safeContentRange.length))
+            let hiddenStart = safeContentRange.location + visibleLength
+            if hiddenStart < safeContentRange.location + safeContentRange.length {
+                let hiddenRange = NSRange(
+                    location: hiddenStart,
+                    length: safeContentRange.location + safeContentRange.length - hiddenStart
+                )
+                textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: hiddenRange)
+            }
+
+            if let activeSegment = revealState.timeline.segments.first(where: { $0.id == revealState.activeSegmentID }) {
+                let start = safeContentRange.location + max(activeSegment.pageAnchor.rangeStart, 0)
+                let end = min(
+                    safeContentRange.location + safeContentRange.length,
+                    safeContentRange.location + max(activeSegment.pageAnchor.rangeEnd, activeSegment.pageAnchor.rangeStart)
+                )
+                if end > start {
+                    let activeRange = NSRange(location: start, length: end - start)
+                    textStorage.addAttribute(
+                        .backgroundColor,
+                        value: NSColor.systemBlue.withAlphaComponent(0.10),
+                        range: activeRange
+                    )
+                    textView.scrollRangeToVisible(activeRange)
+                    parent.currentCursorLine = lineNumber(for: activeRange.location, in: textView.string)
+                }
+            }
         }
 
         private func committedHighlightRange(
@@ -5852,9 +7856,10 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 
         private func resolvedReplacementContext(
             existing: String,
-            fallbackSelection: NSRange
+            fallbackSelection: NSRange,
+            requestReplacementTarget: ScreenplayPendingReplacementTarget? = nil
         ) -> (range: NSRange, isReplacement: Bool) {
-            guard let target = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget else {
+            guard let target = requestReplacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget else {
                 ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                     kind: "resolve-miss-no-target",
                     target: nil,
@@ -5927,13 +7932,18 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
         private func resolvedInsertionContext(
             raw: String,
             existing: String,
-            fallbackSelection: NSRange
+            fallbackSelection: NSRange,
+            requestReplacementTarget: ScreenplayPendingReplacementTarget? = nil
         ) -> (selection: NSRange, text: String, isReplacement: Bool) {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return (fallbackSelection, "", false) }
             guard !existing.isEmpty else { return (fallbackSelection, trimmed, false) }
 
-            let replacement = resolvedReplacementContext(existing: existing, fallbackSelection: fallbackSelection)
+            let replacement = resolvedReplacementContext(
+                existing: existing,
+                fallbackSelection: fallbackSelection,
+                requestReplacementTarget: requestReplacementTarget
+            )
             if replacement.isReplacement {
                 return (replacement.range, trimmed, true)
             }
@@ -6213,9 +8223,15 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var streamingPreviewSuffix: String = ""
         var streamingPreviewBaseText: String = ""
         var streamingInsertRange: NSRange?
+        var streamingInsertOriginalSelection: NSRange = NSRange(location: 0, length: 0)
         var streamingInsertPrefix: String = ""
         var streamingInsertSuffix: String = ""
         var streamingInsertBaseText: String = ""
+        var voiceRevealInsertedRange: NSRange?
+        var voiceRevealContentRange: NSRange?
+        var voiceRevealOriginalSelection: NSRange = NSRange(location: 0, length: 0)
+        var voiceRevealBaseText: String = ""
+        var activeVoiceRevealState: ScreenplayVoiceRevealPresentationState?
         var commitHighlightRange: NSRange?
         var commitHighlightWorkItem: DispatchWorkItem?
         var lastAppliedAnchoredTextRectRequestID: UUID?
@@ -6277,6 +8293,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             guard !isApplyingProgrammaticChange else { return }
+            interruptStreamingInsertForUserEditIfNeeded()
             synchronizeParagraphElementsWithCurrentText(in: textView)
             normalizeCurrentLineIfNeeded(in: textView)
             syncActiveElementFromSelection()
@@ -6288,6 +8305,28 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             parent.onUserEdit?()
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
+        }
+
+        private func interruptStreamingInsertForUserEditIfNeeded() {
+            let hadStreamingInsert = streamingInsertRange != nil
+            let hadVoiceReveal = voiceRevealContentRange != nil
+            guard hadStreamingInsert || hadVoiceReveal else { return }
+            let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                kind: hadVoiceReveal
+                    ? "ios-voice-reveal-manual-edit-interrupt"
+                    : "ios-streaming-lines-manual-edit-interrupt",
+                target: replacementTarget,
+                detail: hadVoiceReveal
+                    ? "Cancelled voice reveal after a user edit to preserve the current draft."
+                    : "Cancelled streamed line insertion after a user edit to preserve the current draft."
+            )
+            _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .manualTyping)
+            parent.insertionRequest = nil
+            parent.pendingReplacementTarget = nil
+            parent.submittedReplacementTarget = nil
+            resetStreamingInsertState()
+            clearVoiceRevealPresentation(in: textView, preserveCurrentText: true)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -6332,6 +8371,20 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 finalizeStreamingInsert(request)
             case .streamInsertCancel:
                 cancelStreamingInsert()
+                lastAppliedInsertionID = request.id
+                DispatchQueue.main.async {
+                    if self.parent.insertionRequest?.id == request.id {
+                        self.parent.insertionRequest = nil
+                    }
+                }
+            case .voiceRevealPrepare:
+                applyVoiceRevealPrepare(request)
+            case .voiceRevealUpdate:
+                applyVoiceRevealUpdate(request)
+            case .voiceRevealFinalize:
+                finalizeVoiceReveal(request)
+            case .voiceRevealCancel:
+                cancelVoiceReveal()
                 lastAppliedInsertionID = request.id
                 DispatchQueue.main.async {
                     if self.parent.insertionRequest?.id == request.id {
@@ -6560,6 +8613,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 font: hollywoodScreenplayEditorUIFont(),
                 foregroundColor: UIColor.black
             )
+            applyActiveVoiceRevealPresentationIfNeeded()
         }
 
         private func normalizeCurrentLineIfNeeded(in textView: UITextView) {
@@ -6764,7 +8818,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let insertionContext = resolvedInsertionContext(
                 raw: request.text,
                 existing: current,
-                fallbackSelection: fallbackSelection
+                fallbackSelection: fallbackSelection,
+                requestReplacementTarget: request.replacementTarget
             )
             let selection = insertionContext.selection
             let insertion = insertionContext.text
@@ -6800,7 +8855,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
             parent.text = nextText
-            let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: insertionContext.isReplacement ? "ios-commit-standard-replacement" : "ios-commit-standard-insert",
                 target: replacementTarget,
@@ -6855,7 +8910,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 let selection = clampedSelection(from: textView.selectedRange, maxLength: (current as NSString).length)
                 let replacementContext = resolvedReplacementContext(
                     existing: current,
-                    fallbackSelection: selection
+                    fallbackSelection: selection,
+                    requestReplacementTarget: request.replacementTarget
                 )
                 streamingPreviewBaseText = current
                 let affixes: (prefix: String, suffix: String)
@@ -6907,7 +8963,14 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             }
 
             if streamingPreviewRange == nil {
-                applyStandardInsertion(ScreenplayInsertionRequest(id: request.id, text: request.text, mode: .insert))
+                applyStandardInsertion(
+                    ScreenplayInsertionRequest(
+                        id: request.id,
+                        text: request.text,
+                        mode: .insert,
+                        replacementTarget: request.replacementTarget
+                    )
+                )
                 resetStreamingPreviewState()
                 return
             }
@@ -6932,7 +8995,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
             parent.text = nextText
-            let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: replacementTarget != nil ? "ios-commit-stream-replacement" : "ios-commit-stream-insert",
                 target: replacementTarget,
@@ -6992,9 +9055,11 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 let selection = clampedSelection(from: textView.selectedRange, maxLength: (current as NSString).length)
                 let replacementContext = resolvedReplacementContext(
                     existing: current,
-                    fallbackSelection: selection
+                    fallbackSelection: selection,
+                    requestReplacementTarget: request.replacementTarget
                 )
                 streamingInsertBaseText = current
+                streamingInsertOriginalSelection = selection
                 let affixes: (prefix: String, suffix: String)
                 if replacementContext.isReplacement {
                     affixes = ("", "")
@@ -7040,7 +9105,14 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             }
 
             if streamingInsertRange == nil {
-                applyStandardInsertion(ScreenplayInsertionRequest(id: request.id, text: request.text, mode: .insert))
+                applyStandardInsertion(
+                    ScreenplayInsertionRequest(
+                        id: request.id,
+                        text: request.text,
+                        mode: .insert,
+                        replacementTarget: request.replacementTarget
+                    )
+                )
                 resetStreamingInsertState()
                 return
             }
@@ -7065,7 +9137,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             isApplyingProgrammaticChange = false
             synchronizeParagraphElementsWithCurrentText(in: textView)
             parent.text = nextText
-            let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: replacementTarget != nil ? "ios-commit-streaming-lines-replacement" : "ios-commit-streaming-lines-insert",
                 target: replacementTarget,
@@ -7137,7 +9209,39 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         private func cancelStreamingInsert() {
+            guard let textView else {
+                resetStreamingInsertState()
+                return
+            }
+            guard streamingInsertRange != nil || !streamingInsertBaseText.isEmpty else {
+                resetStreamingInsertState()
+                return
+            }
+
+            let baseText = streamingInsertBaseText
+            let caretLocation = min(
+                streamingInsertOriginalSelection.location + streamingInsertOriginalSelection.length,
+                (baseText as NSString).length
+            )
+
+            isApplyingProgrammaticChange = true
+            textView.text = baseText
+            textView.selectedRange = NSRange(location: caretLocation, length: 0)
+            isApplyingProgrammaticChange = false
+            synchronizeParagraphElementsWithCurrentText(in: textView)
+            parent.text = baseText
+            updateCurrentCursorLine()
             resetStreamingInsertState()
+            refreshAnchoredTextRectSnapshot()
+            DispatchQueue.main.async {
+                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                    kind: "ios-streaming-lines-cancel-clear",
+                    target: self.parent.pendingReplacementTarget ?? self.parent.submittedReplacementTarget,
+                    detail: "Cancelled streamed line insertion and restored the pre-insert draft."
+                )
+                self.parent.pendingReplacementTarget = nil
+                self.parent.submittedReplacementTarget = nil
+            }
         }
 
         private func resetStreamingPreviewState() {
@@ -7151,9 +9255,253 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         private func resetStreamingInsertState() {
             streamingInsertRange = nil
+            streamingInsertOriginalSelection = NSRange(location: 0, length: 0)
             streamingInsertPrefix = ""
             streamingInsertSuffix = ""
             streamingInsertBaseText = ""
+        }
+
+        private func applyVoiceRevealPrepare(_ request: ScreenplayInsertionRequest) {
+            guard let textView else { return }
+            guard let revealState = request.voiceRevealState else {
+                applyStandardInsertion(
+                    ScreenplayInsertionRequest(
+                        id: request.id,
+                        text: request.text,
+                        mode: .insert,
+                        replacementTarget: request.replacementTarget
+                    )
+                )
+                return
+            }
+            if streamingPreviewRange != nil {
+                cancelStreamingPreview()
+            }
+            if voiceRevealContentRange != nil {
+                clearVoiceRevealPresentation(in: textView, preserveCurrentText: true)
+            }
+
+            let current = textView.text ?? ""
+            let trimmed = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fallbackSelection = clampedSelection(from: textView.selectedRange, maxLength: (current as NSString).length)
+            let insertionContext = resolvedInsertionContext(
+                raw: request.text,
+                existing: current,
+                fallbackSelection: fallbackSelection,
+                requestReplacementTarget: request.replacementTarget
+            )
+            let selection = insertionContext.selection
+            let insertion = insertionContext.text
+            guard !insertion.isEmpty else { return }
+
+            let mutable = NSMutableString(string: current)
+            mutable.replaceCharacters(in: selection, with: insertion)
+            let nextText = String(mutable)
+            let insertedRange = NSRange(location: selection.location, length: (insertion as NSString).length)
+            let coreText = trimmed.isEmpty ? request.text : trimmed
+            let coreRange = (insertion as NSString).range(of: coreText)
+            let resolvedCoreRange = coreRange.location != NSNotFound
+                ? NSRange(location: insertedRange.location + coreRange.location, length: coreRange.length)
+                : insertedRange
+            let caretLocation = min(selection.location + insertedRange.length, (nextText as NSString).length)
+
+            isApplyingProgrammaticChange = true
+            textView.text = nextText
+            textView.selectedRange = NSRange(location: caretLocation, length: 0)
+            isApplyingProgrammaticChange = false
+            synchronizeParagraphElementsWithCurrentText(in: textView)
+            parent.text = nextText
+            voiceRevealBaseText = current
+            voiceRevealOriginalSelection = selection
+            voiceRevealInsertedRange = insertedRange
+            voiceRevealContentRange = resolvedCoreRange
+            activeVoiceRevealState = revealState
+            refreshScreenplayPresentationAndTyping()
+            updateCurrentCursorLine()
+            refreshAnchoredTextRectSnapshot()
+            lastAppliedInsertionID = request.id
+
+            DispatchQueue.main.async {
+                if self.parent.insertionRequest?.id == request.id {
+                    self.parent.insertionRequest = nil
+                }
+            }
+        }
+
+        private func applyVoiceRevealUpdate(_ request: ScreenplayInsertionRequest) {
+            guard textView != nil else { return }
+            guard voiceRevealContentRange != nil else {
+                applyVoiceRevealPrepare(request)
+                return
+            }
+            activeVoiceRevealState = request.voiceRevealState
+            applyActiveVoiceRevealPresentationIfNeeded()
+            refreshAnchoredTextRectSnapshot()
+            lastAppliedInsertionID = request.id
+            DispatchQueue.main.async {
+                if self.parent.insertionRequest?.id == request.id {
+                    self.parent.insertionRequest = nil
+                }
+            }
+        }
+
+        private func finalizeVoiceReveal(_ request: ScreenplayInsertionRequest) {
+            guard let textView else { return }
+            guard voiceRevealContentRange != nil else {
+                applyStandardInsertion(
+                    ScreenplayInsertionRequest(
+                        id: request.id,
+                        text: request.text,
+                        mode: .insert,
+                        replacementTarget: request.replacementTarget
+                    )
+                )
+                return
+            }
+            activeVoiceRevealState = request.voiceRevealState
+            applyActiveVoiceRevealPresentationIfNeeded(forceCompletedReveal: true)
+            let current = textView.text ?? ""
+            let contentRange = voiceRevealContentRange ?? NSRange(location: 0, length: 0)
+            let safeRange = clampedSelection(from: contentRange, maxLength: (current as NSString).length)
+            let insertedText = safeRange.length > 0
+                ? (current as NSString).substring(with: safeRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                : request.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let committedLines = committedLineRange(for: safeRange, in: current)
+            let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+                id: request.id,
+                writeID: request.id.uuidString.lowercased(),
+                previousDraft: voiceRevealInsertedRange != nil ? voiceRevealBaseText : current,
+                committedDraft: current,
+                insertedText: insertedText,
+                replacementApplied: replacementTarget != nil,
+                replacedWriteID: replacementTarget?.sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? replacementTarget?.sourceWriteID
+                    : nil,
+                startLine: committedLines.start,
+                endLine: committedLines.end,
+                committedAt: Date()
+            )
+            resetVoiceRevealState()
+            refreshScreenplayPresentationAndTyping()
+            applyCommitHighlight(safeRange, in: textView, contentLength: (current as NSString).length)
+            refreshAnchoredTextRectSnapshot()
+            lastAppliedInsertionID = request.id
+            DispatchQueue.main.async {
+                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
+                    kind: "ios-voice-reveal-clear",
+                    target: self.parent.pendingReplacementTarget ?? self.parent.submittedReplacementTarget,
+                    detail: "Clearing replacement targets after iOS voice reveal finalize."
+                )
+                self.parent.pendingReplacementTarget = nil
+                self.parent.submittedReplacementTarget = nil
+                if self.parent.insertionRequest?.id == request.id {
+                    self.parent.insertionRequest = nil
+                }
+            }
+        }
+
+        private func cancelVoiceReveal() {
+            clearVoiceRevealPresentation(in: textView, preserveCurrentText: false)
+        }
+
+        private func resetVoiceRevealState() {
+            voiceRevealInsertedRange = nil
+            voiceRevealContentRange = nil
+            voiceRevealOriginalSelection = NSRange(location: 0, length: 0)
+            voiceRevealBaseText = ""
+            activeVoiceRevealState = nil
+        }
+
+        private func clearVoiceRevealPresentation(
+            in textView: UITextView?,
+            preserveCurrentText: Bool
+        ) {
+            guard let textView else {
+                resetVoiceRevealState()
+                return
+            }
+            if preserveCurrentText {
+                resetVoiceRevealState()
+                refreshScreenplayPresentationAndTyping()
+                return
+            }
+            guard voiceRevealInsertedRange != nil || !voiceRevealBaseText.isEmpty else {
+                resetVoiceRevealState()
+                return
+            }
+            let baseText = voiceRevealBaseText
+            let caretLocation = min(
+                voiceRevealOriginalSelection.location + voiceRevealOriginalSelection.length,
+                (baseText as NSString).length
+            )
+            isApplyingProgrammaticChange = true
+            textView.text = baseText
+            textView.selectedRange = NSRange(location: caretLocation, length: 0)
+            isApplyingProgrammaticChange = false
+            synchronizeParagraphElementsWithCurrentText(in: textView)
+            parent.text = baseText
+            updateCurrentCursorLine()
+            resetVoiceRevealState()
+            refreshScreenplayPresentationAndTyping()
+            refreshAnchoredTextRectSnapshot()
+            DispatchQueue.main.async {
+                self.parent.pendingReplacementTarget = nil
+                self.parent.submittedReplacementTarget = nil
+            }
+        }
+
+        private func applyActiveVoiceRevealPresentationIfNeeded(forceCompletedReveal: Bool = false) {
+            guard let textView,
+                  let contentRange = voiceRevealContentRange,
+                  var revealState = activeVoiceRevealState else {
+                return
+            }
+            let textStorage = textView.textStorage
+            let contentLength = ((textView.text ?? "") as NSString).length
+            let safeContentRange = clampedSelection(from: contentRange, maxLength: contentLength)
+            guard safeContentRange.length > 0 else { return }
+            if forceCompletedReveal {
+                revealState = ScreenplayVoiceRevealPresentationState(
+                    sessionID: revealState.sessionID,
+                    timeline: revealState.timeline,
+                    visibleUTF16Length: safeContentRange.length,
+                    activeSegmentID: revealState.timeline.segments.last?.id,
+                    phase: .completed
+                )
+                activeVoiceRevealState = revealState
+            }
+
+            textStorage.addAttribute(.foregroundColor, value: UIColor.black, range: safeContentRange)
+            textStorage.removeAttribute(.backgroundColor, range: safeContentRange)
+
+            let visibleLength = max(0, min(revealState.visibleUTF16Length, safeContentRange.length))
+            let hiddenStart = safeContentRange.location + visibleLength
+            if hiddenStart < safeContentRange.location + safeContentRange.length {
+                let hiddenRange = NSRange(
+                    location: hiddenStart,
+                    length: safeContentRange.location + safeContentRange.length - hiddenStart
+                )
+                textStorage.addAttribute(.foregroundColor, value: UIColor.clear, range: hiddenRange)
+            }
+
+            if let activeSegment = revealState.timeline.segments.first(where: { $0.id == revealState.activeSegmentID }) {
+                let start: Int = safeContentRange.location + Swift.max(activeSegment.pageAnchor.rangeStart, 0)
+                let end: Int = Swift.min(
+                    safeContentRange.location + safeContentRange.length,
+                    safeContentRange.location + Swift.max(activeSegment.pageAnchor.rangeEnd, activeSegment.pageAnchor.rangeStart)
+                )
+                if end > start {
+                    let activeRange = NSRange(location: start, length: end - start)
+                    textStorage.addAttribute(
+                        .backgroundColor,
+                        value: UIColor.systemBlue.withAlphaComponent(0.10),
+                        range: activeRange
+                    )
+                    textView.scrollRangeToVisible(activeRange)
+                    parent.currentCursorLine = lineNumber(for: activeRange.location, in: textView.text ?? "")
+                }
+            }
         }
 
         private func committedHighlightRange(trimmedText: String, insertion: String, selection: NSRange) -> NSRange {
@@ -7331,9 +9679,10 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         private func resolvedReplacementContext(
             existing: String,
-            fallbackSelection: NSRange
+            fallbackSelection: NSRange,
+            requestReplacementTarget: ScreenplayPendingReplacementTarget? = nil
         ) -> (range: NSRange, isReplacement: Bool) {
-            guard let target = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget else {
+            guard let target = requestReplacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget else {
                 ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                     kind: "ios-resolve-miss-no-target",
                     target: nil,
@@ -7403,13 +9752,18 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         private func resolvedInsertionContext(
             raw: String,
             existing: String,
-            fallbackSelection: NSRange
+            fallbackSelection: NSRange,
+            requestReplacementTarget: ScreenplayPendingReplacementTarget? = nil
         ) -> (selection: NSRange, text: String, isReplacement: Bool) {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return (fallbackSelection, "", false) }
             guard !existing.isEmpty else { return (fallbackSelection, trimmed, false) }
 
-            let replacement = resolvedReplacementContext(existing: existing, fallbackSelection: fallbackSelection)
+            let replacement = resolvedReplacementContext(
+                existing: existing,
+                fallbackSelection: fallbackSelection,
+                requestReplacementTarget: requestReplacementTarget
+            )
             if replacement.isReplacement {
                 return (replacement.range, trimmed, true)
             }

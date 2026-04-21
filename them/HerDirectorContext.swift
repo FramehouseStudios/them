@@ -125,8 +125,8 @@ extension HerDirectorContext {
         ], in: t)
 
         let isLowEnergyAnalytical = affirmedAny([
-            "i guess", "i suppose", "not really sure", "logically",
-            "rationally", "analyze this", "overthinking"
+            "i guess", "i don't know", "not really sure", "cringe",
+            "i'm shy", "what do you think", "overthinking"
         ], in: t)
             || rawContainsAny(["idk", "idc"])
             || (t.count < 36 && rawContainsAny(["okay", "yeah", "fine", "whatever", "sure"]))

@@ -109,8 +109,18 @@ if (latestEntry && Object.keys(latestEntry).length > 0) {
   assert(normalizeKey(latestEntry.target) === "page", "Preview/commit smoke did not land on the page target");
 }
 
+const headerReplyPreview = normalizeText(result.voiceTurnMeta?.reply || "");
 const insertedText = normalizeText(latestEntry.insertedText || result.voiceResult?.insertedPreview || "");
 assert(insertedText, "Preview/commit smoke did not surface inserted page text");
+assert(headerReplyPreview, "Preview/commit smoke did not surface a reply preview");
+assert(
+  headerReplyPreview !== insertedText,
+  "Preview/commit smoke still surfaced the full page block through the reply preview"
+);
+assert(
+  insertedText.startsWith(headerReplyPreview),
+  `Preview/commit smoke reply preview was not a prefix of the committed page block.\nPreview: ${headerReplyPreview}\nInserted: ${insertedText}`
+);
 
 const diffState = readDebugDiffState();
 assert(diffState, "Preview/commit smoke could not read studio debug diff state");
@@ -144,6 +154,7 @@ const summary = {
   ok: true,
   projectKey,
   voiceTurn: result.voiceTurn,
+  replyPreview: headerReplyPreview.slice(0, 220),
   insertedPreview: insertedText.slice(0, 220),
   pageEntryCount: pageEntries.length,
   matchingPageEntryCount: matchingPageEntries.length,
