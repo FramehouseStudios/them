@@ -45,3 +45,13 @@ build/
 # ── Logs & temp ──
 *.log
 /tmp/
+
+# ── Local workspace support (per README) ──
+.System/
+
+# ── Multi-agent worktrees (per AGENTS.md) ──
+.agents/worktrees/
+
+# ── Office lock files & misc temp ──
+.~lock.*
+*.tmp
