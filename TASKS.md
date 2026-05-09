@@ -31,7 +31,7 @@
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T15  | Fix iOS simulator test host configuration          | codex  | ready             |
 | T16  | Exclude local tooling artifacts from app bundle    | codex  | ready             |
-| T17  | Add Swift craft report and beat-sheet models       | codex  | in-progress       |
+| T17  | Add Swift craft report and beat-sheet models       | codex  | review            |
 | T18  | Add backend craft schemas and analysis endpoints   | claude | ready-for-claude  |
 | T19  | Add BackendClient craft API methods                | codex  | blocked-T18       |
 | T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | blocked-T19       |
@@ -160,7 +160,7 @@
 - **Owner:** codex
 - **Branch:** codex/T17-craft-report-models
 - **Pillar:** voice-to-scene + living companion
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** Swift Codable models cover craft frameworks, beat sheets, major turns, drift reports, snapshots, and user override metadata; decode/encode tests pass against a representative backend-shaped fixture.
 
 ### T18 — Add backend craft schemas and analysis endpoints
