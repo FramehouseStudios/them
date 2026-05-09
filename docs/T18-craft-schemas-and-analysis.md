@@ -210,10 +210,35 @@ For each documented error code, assert:
 
 - [x] Row claimed in TASKS.md with branch, status, scope.
 - [x] Design doc lands documenting contract and plan.
-- [ ] `backend/lib/craft_frameworks.js`, `craft_schemas.js`, `craft_analysis.js` exist.
-- [ ] `backend/routes/craft.js` mounted; all 8 endpoints respond.
-- [ ] `backend/fixtures/craft/*.json` checked in.
-- [ ] `backend/tests/craft_endpoints.test.mjs` and `craft_schemas.test.mjs` exist and pass.
-- [ ] `npm test` and `npm run eval:gate` green.
-- [ ] PR opened, base = `codex/T17-craft-report-models`.
-- [ ] This file updated with final shipped state.
+- [x] `backend/lib/craft_frameworks.js`, `craft_schemas.js`, `craft_analysis.js` exist.
+- [x] `backend/lib/craft_routes.js` `mountCraftRoutes(app)` wired into `backend/index.js`; all 8 endpoints respond.
+- [x] `backend/fixtures/craft/*.json` checked in (5 fixtures); each validates against its schema.
+- [x] `backend/tests/craft_endpoints.test.mjs` (13 tests) and `craft_schemas.test.mjs` (13 tests) pass.
+- [x] `backend/evals/run_craft_classification_eval.mjs` skeleton exists; `npm run eval:craft-classification` passes.
+- [x] `npm test` green: 51 tests, 50 pass / 1 skipped / 0 fail.
+- [ ] `npm run eval:gate` execution deferred to CI — gate requires a full backend boot with secrets (`OPENAI_API_KEY`, `APP_TOKEN`) not present in the worktree. The new craft code does not modify any path exercised by `eval:gate`.
+- [x] PR ready to open with base = `codex/T17-craft-report-models`.
+
+## Final shipped state (T18 PR contents)
+
+Five reviewable commits on `claude/T18-craft-schemas-analysis`:
+
+1. **T18 row claim** — `TASKS.md` update, branch and scope recorded.
+2. **Design doc** — this file's pre-implementation version.
+3. **Schemas, frameworks, fixtures** — pure data drop. `craft_frameworks.js`, `craft_schemas.js`, five JSON fixtures.
+4. **Routes, analysis stub, `index.js` wire** — `craft_analysis.js`, `craft_routes.js`, two surgical edits to `backend/index.js`.
+5. **Tests, eval skeleton, package script, this doc updated.**
+
+Next dependent tasks become unblockable:
+
+- **T19 (Codex)** — `BackendClient.fetchFrameworks()`, `fetchReport(...)`, `analyze(...)`, `recordOverride(...)`, etc. The five fixtures power decode tests; the live endpoints power request-construction tests once the backend is running.
+- **T21 (Claude)** — replace the `analyzeScreenplay` stub with real LLM-driven beat classification; extend `run_craft_classification_eval.mjs` with labeled accuracy assertions.
+- **T22 (Claude)** — replace the in-memory report and override stores with persistent storage (Postgres-backed via T07's adapter).
+- **T23 (Claude)** — RC release gate fails when `coverage.complete === false` after overrides applied.
+
+Open question resolutions:
+
+1. **Sync vs. async analysis** — shipped sync. Async semantics deferred to T21 if needed.
+2. **Scope of fixtures** — shipped two frameworks (Save the Cat!, three-act). Story Circle / Hero's Journey are TASKS.md follow-ups when needed.
+3. **Override authorization** — shipped per the proposal: if `req.user.id` is set, override body's `userId` must match (`403 craft_override_user_mismatch`). Public requests without auth accepted so macOS and iOS clients are equally first-class. Test case included.
+4. **Coding-key compatibility** — shipped a backend test asserting that `"override"` (not `"overrideRecord"`) is the valid JSON key. Swift-side decode test owned by T17.
