@@ -70,6 +70,7 @@ import {
   screenplayStoreByOwner,
 } from "./lib/screenplay_store.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
+import { mountCraftRoutes } from "./lib/craft_routes.js";
 import {
   configureUserStore,
   loadUserStore,
@@ -32605,6 +32606,8 @@ mountTalkPipelineRoutes(app, {
   getTalkTurnMeta: (turnId) => readTalkTurnMeta(turnId, Date.now()),
   canReadTalkTurnMeta,
 });
+
+mountCraftRoutes(app);
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
