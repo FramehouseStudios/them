@@ -30,7 +30,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T15  | Fix iOS simulator test host configuration          | codex  | review            |
-| T16  | Exclude local tooling artifacts from app bundle    | codex  | in-progress       |
+| T16  | Exclude local tooling artifacts from app bundle    | codex  | review            |
 
 ---
 
@@ -146,7 +146,7 @@
 - **Owner:** codex
 - **Branch:** codex/T16-exclude-local-artifacts
 - **Pillar:** infra (App Review hygiene)
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** local tooling and scratch paths such as `.codex_tmp/`, `.claude/`, `tmp/`, and non-app docs are excluded from app resources; iOS and macOS builds stay green; a bundle audit finds no local-only artifacts.
 
 ---
