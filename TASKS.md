@@ -29,6 +29,8 @@
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
+| T15  | Fix iOS simulator test host configuration          | codex  | ready             |
+| T16  | Exclude local tooling artifacts from app bundle    | codex  | ready             |
 
 ---
 
@@ -132,6 +134,20 @@
 - **Status:** ready
 - **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
 - **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
+
+### T15 — Fix iOS simulator test host configuration
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** infra (enables all)
+- **Status:** ready
+- **Done when:** `themTests` runs successfully on an iOS Simulator destination via `xcodebuild`; the macOS test path still passes; the verified test commands are documented in `them/QUALITY_GATE.md` or the release runbook.
+
+### T16 — Exclude local tooling artifacts from app bundle
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** infra (App Review hygiene)
+- **Status:** ready
+- **Done when:** local tooling and scratch paths such as `.codex_tmp/`, `.claude/`, `tmp/`, and non-app docs are excluded from app resources; iOS and macOS builds stay green; a bundle audit finds no local-only artifacts.
 
 ---
 
