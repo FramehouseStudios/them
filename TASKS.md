@@ -33,7 +33,7 @@
 | T16  | Exclude local tooling artifacts from app bundle    | codex  | review            |
 | T17  | Add Swift craft report and beat-sheet models       | codex  | review            |
 | T18  | Add backend craft schemas and analysis endpoints   | claude | in-progress       |
-| T19  | Add BackendClient craft API methods                | codex  | in-progress       |
+| T19  | Add BackendClient craft API methods                | codex  | review            |
 | T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | blocked-T19       |
 | T21  | Add craft-aware prompts and beat classification    | claude | blocked-T18       |
 | T22  | Persist craft snapshots and turn overrides         | claude | blocked-T18       |
@@ -181,8 +181,9 @@
 - **Owner:** codex
 - **Branch:** codex/T19-backend-client-craft-api
 - **Pillar:** voice-to-scene + living companion
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** `BackendClient` can fetch frameworks, schemas, analysis reports, snapshots, and override mutations; Swift tests cover request construction, decoding, and unavailable backend states.
+- **Review note:** Implemented on `codex/T19-backend-client-craft-api` and verified on macOS plus iOS via a temporary T15 test-host merge. Rebase/check against Claude's final T18 backend contract before merge.
 
 ### T20 — Build Craft tab, turn timeline, and beat sheet
 - **Owner:** codex
