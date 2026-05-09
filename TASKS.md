@@ -29,7 +29,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T19  | Add BackendClient craft API methods                | codex  | review            |
-| T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | blocked-T19       |
+| T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | in-progress       |
 | T21  | Add craft-aware prompts and beat classification    | claude | ready-for-claude  |
 | T22  | Persist craft snapshots and turn overrides         | claude | ready-for-claude  |
 | T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
@@ -146,9 +146,9 @@
 
 ### T20 — Build Craft tab, turn timeline, and beat sheet
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** codex/T20-craft-tab-timeline-beats
 - **Pillar:** mobile-first + voice-to-scene
-- **Status:** blocked-T19
+- **Status:** in-progress
 - **Done when:** the studio right rail has a Craft tab with loading/empty/error states, major-turn drift timeline, framework switcher, and beat-sheet table that works on mobile and desktop targets.
 
 ### T21 — Add craft-aware prompts and beat classification
