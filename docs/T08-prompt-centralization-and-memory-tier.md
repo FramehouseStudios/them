@@ -202,10 +202,33 @@ Each commit is independently reviewable. The PR opens after commit 5 and referen
 
 ## Done when (recap)
 
-- [ ] `backend/lib/creative_memory_store.js` exists with read/write API and JSON persistence.
-- [ ] Schema documented as JSDoc at top of file.
-- [ ] `backend/lib/prompt_assembly.js` exposes `buildModelPrompt(...)` as the only path used by `handleTalkRequest`.
-- [ ] Write triggers wired into `handleTalkRequest` post-processing.
-- [ ] `backend/evals/run_creative_memory_eval.mjs` exists and passes both memory-present and memory-absent cases.
-- [ ] `npm run eval:gate` green.
-- [ ] This file updated with final shipped state (post-implementation summary).
+- [x] `backend/lib/creative_memory_store.js` exists with read/write API and JSON persistence.
+- [x] Schema documented at the top of the file; helper functions for the four pillar write triggers (`recordCharacterMention`, `recordSceneCompletion` + `recordSceneAttempt`, `recordToneSignal`, `recordSessionEnd`, `recordLexicalFingerprint`).
+- [x] `backend/lib/prompt_assembly.js` exposes `buildModelPrompt(...)` as the canonical prompt-construction function.
+- [x] `backend/evals/run_creative_memory_eval.mjs` exists; both memory-present and memory-absent cases pass.
+- [x] `backend/tests/creative_memory_and_prompt_assembly.test.mjs` covers both modules (15 tests, all pass).
+- [ ] **Wire `handleTalkRequest` to call `buildModelPrompt` and write triggers.** Deferred to a focused follow-up PR — see "Final shipped state" below.
+- [ ] `npm run eval:gate` green. Deferred to CI; gate requires backend boot with secrets and the `handleTalkRequest` wiring landed.
+- [x] This file updated with final shipped state (post-implementation summary).
+
+## Final shipped state (this PR)
+
+Five reviewable commits on `claude/backend-T08-memory-tier`:
+
+1. **T08 row claim** — TASKS.md update.
+2. **Design doc** — `docs/T08-prompt-centralization-and-memory-tier.md` (this file's pre-implementation version).
+3. **`creative_memory_store.js`** — file-backed MVP with the full schema, six write triggers, and the read API used by prompt assembly.
+4. **`prompt_assembly.js`** — `buildModelPrompt(...)` as the canonical entry point. Memory-absent users produce no memory block (no `<empty>` markers, no null serialization). Memory-present users get a compact, model-friendly block ordered: persona → memory → session → user.
+5. **Tests + eval + final docs** — 15 node:test unit tests covering both modules, 9-case eval skeleton, this doc updated, `eval:creative-memory` script added.
+
+### What is intentionally NOT in this PR
+
+- **`handleTalkRequest` wiring.** The two-line edit that calls `buildModelPrompt(...)` and the post-processing that fires the write triggers is a follow-up commit on its own branch, since it touches the 30k-line `backend/index.js`. The follow-up's diff against the current `index.js` should be small and surgical, mirroring the T18 pattern.
+- **Postgres-backed persistence.** When [T07](../../docs/T07-persistence-canonical.md) lands, a small follow-up swaps the file I/O in `creative_memory_store.js` for `createPersistence({ ... })` calls without changing the public API.
+- **iOS-side prompt-path consolidation.** `ScreenplayPromptBuilder` consolidation is Codex's follow-up; the contract that the iOS side will route through the backend's `buildModelPrompt` is now established here.
+
+### Verification
+
+- `cd backend && node --test tests/creative_memory_and_prompt_assembly.test.mjs` → 15 pass, 0 fail.
+- `cd backend && node evals/run_creative_memory_eval.mjs` → 9 pass.
+- `npm run eval:gate` is **not** run in this PR — gate requires backend boot with secrets and the `handleTalkRequest` wiring; this PR adds the modules but does not yet wire them into `/talk`. The follow-up wiring PR will run the gate.
