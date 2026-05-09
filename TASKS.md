@@ -31,6 +31,13 @@
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T15  | Fix iOS simulator test host configuration          | codex  | ready             |
 | T16  | Exclude local tooling artifacts from app bundle    | codex  | ready             |
+| T17  | Add Swift craft report and beat-sheet models       | codex  | in-progress       |
+| T18  | Add backend craft schemas and analysis endpoints   | claude | ready-for-claude  |
+| T19  | Add BackendClient craft API methods                | codex  | blocked-T18       |
+| T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | blocked-T19       |
+| T21  | Add craft-aware prompts and beat classification    | claude | blocked-T18       |
+| T22  | Persist craft snapshots and turn overrides         | claude | blocked-T18       |
+| T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
 
 ---
 
@@ -148,6 +155,55 @@
 - **Pillar:** infra (App Review hygiene)
 - **Status:** ready
 - **Done when:** local tooling and scratch paths such as `.codex_tmp/`, `.claude/`, `tmp/`, and non-app docs are excluded from app resources; iOS and macOS builds stay green; a bundle audit finds no local-only artifacts.
+
+### T17 — Add Swift craft report and beat-sheet models
+- **Owner:** codex
+- **Branch:** codex/T17-craft-report-models
+- **Pillar:** voice-to-scene + living companion
+- **Status:** in-progress
+- **Done when:** Swift Codable models cover craft frameworks, beat sheets, major turns, drift reports, snapshots, and user override metadata; decode/encode tests pass against a representative backend-shaped fixture.
+
+### T18 — Add backend craft schemas and analysis endpoints
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** voice-to-scene + longitudinal learning
+- **Status:** ready-for-claude
+- **Done when:** backend exposes craft frameworks, JSON schemas, analysis, and schema-versioned responses; backend tests validate success and failure shapes; Codex can consume the fixture without client-side special cases.
+
+### T19 — Add BackendClient craft API methods
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** voice-to-scene + living companion
+- **Status:** blocked-T18
+- **Done when:** `BackendClient` can fetch frameworks, schemas, analysis reports, snapshots, and override mutations; Swift tests cover request construction, decoding, and unavailable backend states.
+
+### T20 — Build Craft tab, turn timeline, and beat sheet
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** mobile-first + voice-to-scene
+- **Status:** blocked-T19
+- **Done when:** the studio right rail has a Craft tab with loading/empty/error states, major-turn drift timeline, framework switcher, and beat-sheet table that works on mobile and desktop targets.
+
+### T21 — Add craft-aware prompts and beat classification
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** voice-to-scene + living companion
+- **Status:** blocked-T18
+- **Done when:** structure-help and page-write prompts receive craft schema context; LLM-assisted scene-to-beat classification uses the shared JSON schema; prompt regression and classification evals are green.
+
+### T22 — Persist craft snapshots and turn overrides
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** longitudinal learning + living companion
+- **Status:** blocked-T18
+- **Done when:** craft snapshots persist per screenplay version; user overrides for false-positive major-turn detections round-trip through storage; backend tests prove overrides affect later analysis responses.
+
+### T23 — Add craft completeness RC release gate
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** infra (enables all)
+- **Status:** blocked-T22
+- **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
 
 ---
 
