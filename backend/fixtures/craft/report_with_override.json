@@ -1,0 +1,54 @@
+{
+  "id": "report_proj17_v2_with_override",
+  "schemaVersion": 1,
+  "projectId": "proj-17",
+  "versionId": "v2",
+  "screenplayTitle": "Vapor Trail",
+  "generatedAt": "2026-05-09T18:30:00Z",
+  "generatedBy": "craft-analysis-stub@1.0",
+  "framework": {
+    "id": "save-the-cat",
+    "title": "Save the Cat!",
+    "version": "1.0"
+  },
+  "pageCount": 102,
+  "summary": "All required major turns satisfied. The 'All Is Lost' beat was overridden by the writer — they identified scene s048 as the lowest point even though the auto-classifier did not surface it.",
+  "coverage": {
+    "requiredMajorTurnCount": 4,
+    "detectedMajorTurnCount": 3,
+    "overriddenMajorTurnCount": 1,
+    "missingMajorTurnCount": 0,
+    "complete": true,
+    "confidence": 0.82
+  },
+  "beatSheet": {
+    "id": "beats_proj17_v2",
+    "frameworkId": "save-the-cat",
+    "title": "Save the Cat! — Vapor Trail (v2)",
+    "beats": [
+      { "id": "b_catalyst",  "frameworkBeatId": "catalyst",   "label": "Catalyst",   "expectedPageRange": { "start": 12, "end": 12 }, "actualPageRange": { "start": 14, "end": 16 }, "sceneId": "s011", "sceneTitle": "INT. CAR - DUSK",       "status": "present",    "confidence": 0.79, "classificationSource": "stub",          "evidence": [], "majorTurnId": "catalyst" },
+      { "id": "b_midpoint",  "frameworkBeatId": "midpoint",   "label": "Midpoint",   "expectedPageRange": { "start": 55, "end": 55 }, "actualPageRange": { "start": 50, "end": 52 }, "sceneId": "s033", "sceneTitle": "EXT. AIRSTRIP - NIGHT", "status": "present",    "confidence": 0.81, "classificationSource": "stub",          "evidence": [], "majorTurnId": "midpoint" },
+      { "id": "b_all_lost",  "frameworkBeatId": "all-is-lost","label": "All Is Lost","expectedPageRange": { "start": 75, "end": 75 }, "actualPageRange": { "start": 73, "end": 74 }, "sceneId": "s048", "sceneTitle": "INT. MOTEL - NIGHT",     "status": "manually_present", "confidence": 1.0,  "classificationSource": "user-override", "evidence": [], "majorTurnId": "all-is-lost" },
+      { "id": "b_finale",    "frameworkBeatId": "finale",     "label": "Finale",     "expectedPageRange": { "start": 85, "end": 110 }, "actualPageRange": { "start": 84, "end": 102 }, "sceneId": "s068", "sceneTitle": "EXT. AIRSTRIP - DAY",   "status": "present",    "confidence": 0.88, "classificationSource": "stub",          "evidence": [], "majorTurnId": "finale" }
+    ]
+  },
+  "majorTurns": [
+    { "id": "mt_catalyst", "turnId": "catalyst",    "label": "Catalyst",    "required": true, "expectedPage": 12, "expectedPageRange": { "start": 12, "end": 12 }, "actualPage": 15, "actualPageRange": { "start": 14, "end": 16 }, "sceneId": "s011", "sceneTitle": "INT. CAR - DUSK",       "status": "present",          "detected": true,  "driftPages": 3,  "confidence": 0.79, "evidence": [] },
+    { "id": "mt_midpoint", "turnId": "midpoint",    "label": "Midpoint",    "required": true, "expectedPage": 55, "expectedPageRange": { "start": 55, "end": 55 }, "actualPage": 51, "actualPageRange": { "start": 50, "end": 52 }, "sceneId": "s033", "sceneTitle": "EXT. AIRSTRIP - NIGHT", "status": "present",          "detected": true,  "driftPages": -4, "confidence": 0.81, "evidence": [] },
+    { "id": "mt_all_lost", "turnId": "all-is-lost", "label": "All Is Lost", "required": true, "expectedPage": 75, "expectedPageRange": { "start": 75, "end": 75 }, "actualPage": 73, "actualPageRange": { "start": 73, "end": 74 }, "sceneId": "s048", "sceneTitle": "INT. MOTEL - NIGHT",     "status": "manually_present", "detected": false, "driftPages": -2, "confidence": 1.0,  "evidence": [], "override": { "id": "ov_all_lost_001", "turnId": "all-is-lost", "action": "mark-present", "reason": "Writer flagged scene s048 as the protagonist's lowest moment.", "sceneId": "s048", "page": 73, "userId": "user-7", "createdAt": "2026-05-09T18:25:00Z" } },
+    { "id": "mt_finale",   "turnId": "finale",      "label": "Finale",      "required": true, "expectedPage": 95, "expectedPageRange": { "start": 85, "end": 110 }, "actualPage": 92, "actualPageRange": { "start": 84, "end": 102 }, "sceneId": "s068", "sceneTitle": "EXT. AIRSTRIP - DAY",   "status": "present",          "detected": true,  "driftPages": -3, "confidence": 0.88, "evidence": [] }
+  ],
+  "drift": {
+    "status": "on-target-with-overrides",
+    "summary": "All required major turns satisfied; one was added via writer override.",
+    "timeline": [
+      { "id": "td_catalyst", "turnId": "catalyst",    "label": "Catalyst",    "expectedPage": 12, "actualPage": 15, "driftPages": 3,  "status": "late" },
+      { "id": "td_midpoint", "turnId": "midpoint",    "label": "Midpoint",    "expectedPage": 55, "actualPage": 51, "driftPages": -4, "status": "early" },
+      { "id": "td_all_lost", "turnId": "all-is-lost", "label": "All Is Lost", "expectedPage": 75, "actualPage": 73, "driftPages": -2, "status": "overridden" },
+      { "id": "td_finale",   "turnId": "finale",      "label": "Finale",      "expectedPage": 95, "actualPage": 92, "driftPages": -3, "status": "early" }
+    ]
+  },
+  "overrides": [
+    { "id": "ov_all_lost_001", "turnId": "all-is-lost", "action": "mark-present", "reason": "Writer flagged scene s048 as the protagonist's lowest moment.", "sceneId": "s048", "page": 73, "userId": "user-7", "createdAt": "2026-05-09T18:25:00Z" }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "id": "report_proj42_v3_complete",
+  "schemaVersion": 1,
+  "projectId": "proj-42",
+  "versionId": "v3",
+  "screenplayTitle": "Last Light at the Magnolia",
+  "generatedAt": "2026-05-09T18:00:00Z",
+  "generatedBy": "craft-analysis-stub@1.0",
+  "framework": {
+    "id": "save-the-cat",
+    "title": "Save the Cat!",
+    "version": "1.0"
+  },
+  "pageCount": 108,
+  "summary": "Complete craft coverage. All four required major turns detected with high confidence. No drift outside accepted tolerance.",
+  "coverage": {
+    "requiredMajorTurnCount": 4,
+    "detectedMajorTurnCount": 4,
+    "overriddenMajorTurnCount": 0,
+    "missingMajorTurnCount": 0,
+    "complete": true,
+    "confidence": 0.91
+  },
+  "beatSheet": {
+    "id": "beats_proj42_v3",
+    "frameworkId": "save-the-cat",
+    "title": "Save the Cat! — Last Light at the Magnolia",
+    "beats": [
+      { "id": "b_opening", "frameworkBeatId": "opening-image", "label": "Opening Image", "expectedPageRange": { "start": 1, "end": 1 }, "actualPageRange": { "start": 1, "end": 2 }, "sceneId": "s001", "sceneTitle": "EXT. MAGNOLIA HOTEL - DAWN", "status": "present", "confidence": 0.92, "classificationSource": "stub", "evidence": [] },
+      { "id": "b_catalyst", "frameworkBeatId": "catalyst", "label": "Catalyst", "expectedPageRange": { "start": 12, "end": 12 }, "actualPageRange": { "start": 11, "end": 13 }, "sceneId": "s007", "sceneTitle": "INT. KITCHEN - NIGHT", "status": "present", "confidence": 0.88, "classificationSource": "stub", "evidence": [{ "id": "ev_cat1", "sceneId": "s007", "page": 12, "lineStart": 14, "lineEnd": 22, "excerpt": "JUNE\nSomething is wrong with the house.", "confidence": 0.88 }], "majorTurnId": "catalyst" },
+      { "id": "b_midpoint", "frameworkBeatId": "midpoint", "label": "Midpoint", "expectedPageRange": { "start": 55, "end": 55 }, "actualPageRange": { "start": 54, "end": 56 }, "sceneId": "s039", "sceneTitle": "EXT. MAGNOLIA HOTEL - NIGHT", "status": "present", "confidence": 0.85, "classificationSource": "stub", "evidence": [], "majorTurnId": "midpoint" },
+      { "id": "b_all_lost", "frameworkBeatId": "all-is-lost", "label": "All Is Lost", "expectedPageRange": { "start": 75, "end": 75 }, "actualPageRange": { "start": 74, "end": 76 }, "sceneId": "s055", "sceneTitle": "INT. MAGNOLIA HOTEL LOBBY - DAY", "status": "present", "confidence": 0.93, "classificationSource": "stub", "evidence": [], "majorTurnId": "all-is-lost" },
+      { "id": "b_finale", "frameworkBeatId": "finale", "label": "Finale", "expectedPageRange": { "start": 85, "end": 110 }, "actualPageRange": { "start": 88, "end": 108 }, "sceneId": "s072", "sceneTitle": "EXT. MAGNOLIA HOTEL - SUNRISE", "status": "present", "confidence": 0.96, "classificationSource": "stub", "evidence": [], "majorTurnId": "finale" }
+    ]
+  },
+  "majorTurns": [
+    { "id": "mt_catalyst",  "turnId": "catalyst",   "label": "Catalyst",   "required": true, "expectedPage": 12, "expectedPageRange": { "start": 12, "end": 12 }, "actualPage": 12, "actualPageRange": { "start": 11, "end": 13 }, "sceneId": "s007", "sceneTitle": "INT. KITCHEN - NIGHT", "status": "present", "detected": true, "driftPages": 0, "confidence": 0.88, "evidence": [] },
+    { "id": "mt_midpoint",  "turnId": "midpoint",   "label": "Midpoint",   "required": true, "expectedPage": 55, "expectedPageRange": { "start": 55, "end": 55 }, "actualPage": 55, "actualPageRange": { "start": 54, "end": 56 }, "sceneId": "s039", "sceneTitle": "EXT. MAGNOLIA HOTEL - NIGHT", "status": "present", "detected": true, "driftPages": 0, "confidence": 0.85, "evidence": [] },
+    { "id": "mt_all_lost",  "turnId": "all-is-lost","label": "All Is Lost","required": true, "expectedPage": 75, "expectedPageRange": { "start": 75, "end": 75 }, "actualPage": 75, "actualPageRange": { "start": 74, "end": 76 }, "sceneId": "s055", "sceneTitle": "INT. MAGNOLIA HOTEL LOBBY - DAY", "status": "present", "detected": true, "driftPages": 0, "confidence": 0.93, "evidence": [] },
+    { "id": "mt_finale",    "turnId": "finale",     "label": "Finale",     "required": true, "expectedPage": 95, "expectedPageRange": { "start": 85, "end": 110 }, "actualPage": 96, "actualPageRange": { "start": 88, "end": 108 }, "sceneId": "s072", "sceneTitle": "EXT. MAGNOLIA HOTEL - SUNRISE", "status": "present", "detected": true, "driftPages": 1, "confidence": 0.96, "evidence": [] }
+  ],
+  "drift": {
+    "status": "on-target",
+    "summary": "All required major turns within ±2 pages of expected.",
+    "timeline": [
+      { "id": "td_catalyst", "turnId": "catalyst",    "label": "Catalyst",    "expectedPage": 12, "actualPage": 12, "driftPages": 0, "status": "on-target" },
+      { "id": "td_midpoint", "turnId": "midpoint",    "label": "Midpoint",    "expectedPage": 55, "actualPage": 55, "driftPages": 0, "status": "on-target" },
+      { "id": "td_all_lost", "turnId": "all-is-lost", "label": "All Is Lost", "expectedPage": 75, "actualPage": 75, "driftPages": 0, "status": "on-target" },
+      { "id": "td_finale",   "turnId": "finale",      "label": "Finale",      "expectedPage": 95, "actualPage": 96, "driftPages": 1, "status": "on-target" }
+    ]
+  },
+  "overrides": []
+}
