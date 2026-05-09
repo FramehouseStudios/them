@@ -567,6 +567,7 @@ final class BackendClient {
     private var baseURL: URL
     private let fallbackURL: URL
     private let urlSession: URLSession
+    private let shouldPersistBackendBaseURL: Bool
     private let devFallbackAppToken: String? = {
 #if DEBUG
         "them-dev"
@@ -644,11 +645,13 @@ final class BackendClient {
             infoPlistKey: "BACKEND_FALLBACK_URL",
             fallback: BackendClient.defaultFallbackBaseURL
         ),
-        urlSession: URLSession = .shared
+        urlSession: URLSession = .shared,
+        persistBackendBaseURL: Bool = true
     ) {
         self.baseURL = baseURL
         self.fallbackURL = fallbackURL
         self.urlSession = urlSession
+        self.shouldPersistBackendBaseURL = persistBackendBaseURL
         persistSharedBackendBaseURL(baseURL)
     }
 
@@ -3829,6 +3832,7 @@ final class BackendClient {
     }
 
     private func persistSharedBackendBaseURL(_ url: URL) {
+        guard shouldPersistBackendBaseURL else { return }
         UserDefaults.standard.set(url.absoluteString, forKey: sharedBackendBaseURLDefaultsKey)
     }
 }

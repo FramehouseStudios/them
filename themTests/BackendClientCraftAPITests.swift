@@ -153,7 +153,7 @@ final class BackendClientCraftAPITests: XCTestCase {
         configuration.protocolClasses = [CraftURLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let baseURL = URL(string: "https://craft.test")!
-        return BackendClient(baseURL: baseURL, fallbackURL: baseURL, urlSession: session)
+        return BackendClient(baseURL: baseURL, fallbackURL: baseURL, urlSession: session, persistBackendBaseURL: false)
     }
 
     private static let frameworkJSON = #"""
@@ -323,7 +323,8 @@ private final class CraftRequestRecorder {
 
     func record(_ request: URLRequest) {
         let bodyObject: [String: Any]? = {
-            guard let data = request.httpBody else { return nil }
+            let data = request.httpBody ?? request.httpBodyStream?.readAllData()
+            guard let data else { return nil }
             return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         }()
         let recorded = RecordedCraftRequest(
@@ -335,6 +336,24 @@ private final class CraftRequestRecorder {
         lock.withLock {
             requests.append(recorded)
         }
+    }
+}
+
+private extension InputStream {
+    func readAllData() -> Data {
+        open()
+        defer { close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while hasBytesAvailable {
+            let count = read(&buffer, maxLength: buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+            } else {
+                break
+            }
+        }
+        return data
     }
 }
 
