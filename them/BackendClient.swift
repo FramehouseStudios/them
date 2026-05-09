@@ -562,9 +562,11 @@ enum BackendError: LocalizedError {
 }
 
 final class BackendClient {
+    private static let craftSchemaVersion = 1
     private static let sharedBackendBaseURLDefaultsKeyStatic = "backend_base_url"
     private var baseURL: URL
     private let fallbackURL: URL
+    private let urlSession: URLSession
     private let devFallbackAppToken: String? = {
 #if DEBUG
         "them-dev"
@@ -641,10 +643,12 @@ final class BackendClient {
             fromEnv: "BACKEND_FALLBACK_URL",
             infoPlistKey: "BACKEND_FALLBACK_URL",
             fallback: BackendClient.defaultFallbackBaseURL
-        )
+        ),
+        urlSession: URLSession = .shared
     ) {
         self.baseURL = baseURL
         self.fallbackURL = fallbackURL
+        self.urlSession = urlSession
         persistSharedBackendBaseURL(baseURL)
     }
 
@@ -659,6 +663,101 @@ final class BackendClient {
             return true
         }
         throw BackendError.http(-1, "Server offline")
+    }
+
+    func fetchCraftFrameworks() async throws -> ScreenplayCraftFrameworkListResponse {
+        try await performCraftRequest(
+            pathComponents: ["craft", "frameworks"],
+            responseType: ScreenplayCraftFrameworkListResponse.self
+        )
+    }
+
+    func fetchCraftFramework(id frameworkId: String) async throws -> ScreenplayCraftFramework {
+        try await performCraftRequest(
+            pathComponents: ["craft", "frameworks", try requiredCraftPathValue(frameworkId, field: "frameworkId")],
+            responseType: ScreenplayCraftFramework.self
+        )
+    }
+
+    func fetchCraftReportSchema() async throws -> ScreenplayCraftSchemaDocument {
+        try await performCraftRequest(
+            pathComponents: ["craft", "schemas", "report"],
+            responseType: ScreenplayCraftSchemaDocument.self
+        )
+    }
+
+    func fetchCraftFrameworkSchema() async throws -> ScreenplayCraftSchemaDocument {
+        try await performCraftRequest(
+            pathComponents: ["craft", "schemas", "framework"],
+            responseType: ScreenplayCraftSchemaDocument.self
+        )
+    }
+
+    func fetchCraftReport(
+        projectId: String,
+        versionId: String? = nil
+    ) async throws -> ScreenplayCraftReport {
+        var components = [
+            "craft",
+            "reports",
+            try requiredCraftPathValue(projectId, field: "projectId")
+        ]
+        if let versionId = try optionalCraftPathValue(versionId, field: "versionId") {
+            components.append(versionId)
+        }
+        return try await performCraftRequest(
+            pathComponents: components,
+            responseType: ScreenplayCraftReport.self
+        )
+    }
+
+    func fetchCraftSnapshot(
+        projectId: String,
+        versionId: String? = nil
+    ) async throws -> ScreenplayCraftSnapshotReference? {
+        try await fetchCraftReport(projectId: projectId, versionId: versionId).snapshot
+    }
+
+    func analyzeCraft(
+        projectId: String,
+        versionId: String? = nil,
+        frameworkId: String? = nil,
+        screenplay: ScreenplayCraftAnalysisScreenplay
+    ) async throws -> ScreenplayCraftReport {
+        let request = ScreenplayCraftAnalysisRequest(
+            projectId: try requiredCraftBodyValue(projectId, field: "projectId"),
+            versionId: try optionalCraftBodyValue(versionId, field: "versionId"),
+            frameworkId: try optionalCraftBodyValue(frameworkId, field: "frameworkId"),
+            screenplay: screenplay
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "analyze"],
+            body: request,
+            responseType: ScreenplayCraftReport.self
+        )
+    }
+
+    func recordCraftTurnOverride(
+        _ override: ScreenplayCraftTurnOverrideMutation
+    ) async throws -> ScreenplayCraftTurnOverride {
+        _ = try requiredCraftBodyValue(override.turnId, field: "turnId")
+        _ = try requiredCraftBodyValue(override.action, field: "action")
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "overrides"],
+            body: override,
+            responseType: ScreenplayCraftTurnOverride.self
+        )
+    }
+
+    func deleteCraftTurnOverride(id overrideId: String) async throws -> Bool {
+        let response: ScreenplayCraftDeleteOverrideResponse = try await performCraftRequest(
+            method: "DELETE",
+            pathComponents: ["craft", "overrides", try requiredCraftPathValue(overrideId, field: "overrideId")],
+            responseType: ScreenplayCraftDeleteOverrideResponse.self
+        )
+        return response.ok
     }
 
     func talk(
@@ -2562,6 +2661,142 @@ final class BackendClient {
         writeKeychainString(token, account: keychainTokenAccount)
         writeKeychainString(expiryRaw, account: keychainExpiryAccount)
         writeSharedClientToken(token, expiry: expiry)
+    }
+
+    private func performCraftRequest<T: Decodable>(
+        method: String = "GET",
+        pathComponents: [String],
+        responseType: T.Type
+    ) async throws -> T {
+        try await performCraftRequestData(
+            method: method,
+            pathComponents: pathComponents,
+            bodyData: nil,
+            responseType: responseType
+        )
+    }
+
+    private func performCraftRequest<T: Decodable, Body: Encodable>(
+        method: String,
+        pathComponents: [String],
+        body: Body,
+        responseType: T.Type
+    ) async throws -> T {
+        let encoder = JSONEncoder()
+        let bodyData = try encoder.encode(body)
+        return try await performCraftRequestData(
+            method: method,
+            pathComponents: pathComponents,
+            bodyData: bodyData,
+            responseType: responseType
+        )
+    }
+
+    private func performCraftRequestData<T: Decodable>(
+        method: String,
+        pathComponents: [String],
+        bodyData: Data?,
+        responseType: T.Type
+    ) async throws -> T {
+        var request = makeCraftRequest(
+            method: method,
+            pathComponents: pathComponents,
+            hasJSONBody: bodyData != nil
+        )
+        request.httpBody = bodyData
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid craft response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let craftError = parseCraftError(from: data) {
+                throw BackendError.stage("craft", craftError.message)
+            }
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+
+        do {
+            return try JSONDecoder().decode(responseType, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid craft payload." : raw)
+        }
+    }
+
+    private func makeCraftRequest(
+        method: String,
+        pathComponents: [String],
+        hasJSONBody: Bool
+    ) -> URLRequest {
+        persistSharedBackendBaseURL(baseURL)
+        var url = baseURL
+        for component in pathComponents {
+            url.appendPathComponent(component)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = requestTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("\(Self.craftSchemaVersion)", forHTTPHeaderField: "X-Craft-Schema-Version")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if hasJSONBody {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let userID = resolveUserID()
+        if !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        return request
+    }
+
+    private func parseCraftError(from data: Data) -> (code: String, message: String)? {
+        guard
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let code = obj["error"] as? String
+        else { return nil }
+        let message = (obj["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (code, (message?.isEmpty == false ? message : code) ?? code)
+    }
+
+    private func requiredCraftPathValue(_ raw: String, field: String) throws -> String {
+        let value = try requiredCraftBodyValue(raw, field: field)
+        if value.contains("/") {
+            throw BackendError.stage("craft", "\(field) cannot contain a slash.")
+        }
+        return value
+    }
+
+    private func optionalCraftPathValue(_ raw: String?, field: String) throws -> String? {
+        guard let value = try optionalCraftBodyValue(raw, field: field) else { return nil }
+        if value.contains("/") {
+            throw BackendError.stage("craft", "\(field) cannot contain a slash.")
+        }
+        return value
+    }
+
+    private func requiredCraftBodyValue(_ raw: String, field: String) throws -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw BackendError.stage("craft", "\(field) is required.")
+        }
+        return value
+    }
+
+    private func optionalCraftBodyValue(_ raw: String?, field: String) throws -> String? {
+        guard let raw else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        return value
     }
 
     private func parseStageError(from data: Data) -> (stage: String, message: String)? {
