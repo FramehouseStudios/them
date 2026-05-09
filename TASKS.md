@@ -28,6 +28,7 @@
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T09       |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
+| T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 
 ---
 
@@ -123,6 +124,14 @@
 - **Pillar:** living companion (resilience)
 - **Status:** ready-for-claude
 - **Done when:** a second supplier ships behind the existing `Realtime` interface; the supplier choice is configurable at runtime; smoke test exercises both paths.
+
+### T14 — Triage G3 backend feature snapshot
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** living companion + longitudinal learning
+- **Status:** ready
+- **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
+- **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
 
 ---
 
