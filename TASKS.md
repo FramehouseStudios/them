@@ -32,7 +32,7 @@
 | T15  | Fix iOS simulator test host configuration          | codex  | ready             |
 | T16  | Exclude local tooling artifacts from app bundle    | codex  | ready             |
 | T17  | Add Swift craft report and beat-sheet models       | codex  | review            |
-| T18  | Add backend craft schemas and analysis endpoints   | claude | ready-for-claude  |
+| T18  | Add backend craft schemas and analysis endpoints   | claude | in-progress       |
 | T19  | Add BackendClient craft API methods                | codex  | blocked-T18       |
 | T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | blocked-T19       |
 | T21  | Add craft-aware prompts and beat classification    | claude | blocked-T18       |
@@ -165,10 +165,11 @@
 
 ### T18 — Add backend craft schemas and analysis endpoints
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T18-craft-schemas-analysis`
 - **Pillar:** voice-to-scene + longitudinal learning
-- **Status:** ready-for-claude
-- **Done when:** backend exposes craft frameworks, JSON schemas, analysis, and schema-versioned responses; backend tests validate success and failure shapes; Codex can consume the fixture without client-side special cases.
+- **Status:** in-progress
+- **Base:** stacked on `codex/T17-craft-report-models` so the backend contract can match the Swift Codable models added in PR #3 without translation.
+- **Done when:** backend exposes craft frameworks, JSON schemas, analysis, and schema-versioned responses matching the Swift `ScreenplayCraft*` models from T17 byte-for-byte; backend tests validate success and failure shapes; an API fixture is checked in so Codex can consume it directly for T19; no platform-specific assumptions in the API surface (macOS and iOS clients are equally first-class); `npm test` and `npm run eval:gate` green.
 
 ### T19 — Add BackendClient craft API methods
 - **Owner:** codex
