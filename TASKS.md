@@ -17,7 +17,7 @@
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
 | T02  | Resolve `archive/` vs `Archive/` case collision    | codex  | ready             |
-| T03  | Strip `test.mp3` / `test.wav` from app target      | codex  | ready             |
+| T03  | Strip `test.mp3` / `test.wav` from app target      | codex  | in-progress       |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
 | T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | ready-for-claude  |
@@ -51,7 +51,7 @@
 - **Owner:** codex
 - **Branch:** —
 - **Pillar:** infra (App Review hygiene)
-- **Status:** ready
+- **Status:** in-progress
 - **Done when:** files removed from the app target and from the repo; app builds and signs without them; `appstore_preflight.sh` passes.
 
 ### T04 — Apply canonical product name `io.them` end-to-end
