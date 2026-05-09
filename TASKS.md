@@ -29,7 +29,7 @@
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
-| T15  | Fix iOS simulator test host configuration          | codex  | in-progress       |
+| T15  | Fix iOS simulator test host configuration          | codex  | review            |
 | T16  | Exclude local tooling artifacts from app bundle    | codex  | ready             |
 
 ---
@@ -139,7 +139,7 @@
 - **Owner:** codex
 - **Branch:** codex/T15-ios-test-host
 - **Pillar:** infra (enables all)
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** `themTests` runs successfully on an iOS Simulator destination via `xcodebuild`; the macOS test path still passes; the verified test commands are documented in `them/QUALITY_GATE.md` or the release runbook.
 
 ### T16 — Exclude local tooling artifacts from app bundle
