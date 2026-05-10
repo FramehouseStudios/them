@@ -15,6 +15,18 @@
 		D699072D2F43F6F100F55BE4 /* Exceptions for "them" folder in "them" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				"Config.xcconfig",
+				".claude",
+				".codex_tmp",
+				"APP_REVIEW_NOTES_TEMPLATE.md",
+				"APP_STORE_PRIVACY_MAPPING.md",
+				"APP_STORE_SUBMISSION_CHECKLIST.md",
+				"PRIVACY_POLICY.md",
+				"QUALITY_GATE.md",
+				"RELEASE_RUNBOOK.md",
+				"docs",
+				"them.xcworkspace",
+				"tmp",
 				"Network/BackendClient.swift",
 				OrbAudioDriver.swift,
 				"Info-Debug.plist",
@@ -398,6 +410,20 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"Config.xcconfig",
+					".claude",
+					".claude/*",
+					".codex_tmp",
+					".codex_tmp/*",
+					"*.md",
+					"docs",
+					"docs/*",
+					"them.xcworkspace",
+					"them.xcworkspace/*",
+					"tmp",
+					"tmp/*",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "them/Info.plist";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -442,6 +468,20 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				EXCLUDED_SOURCE_FILE_NAMES = (
+					"Config.xcconfig",
+					".claude",
+					".claude/*",
+					".codex_tmp",
+					".codex_tmp/*",
+					"*.md",
+					"docs",
+					"docs/*",
+					"them.xcworkspace",
+					"them.xcworkspace/*",
+					"tmp",
+					"tmp/*",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "them/Info.plist";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

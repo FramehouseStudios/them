@@ -30,7 +30,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T15  | Fix iOS simulator test host configuration          | codex  | review            |
-| T16  | Exclude local tooling artifacts from app bundle    | codex  | ready             |
+| T16  | Exclude local tooling artifacts from app bundle    | codex  | review            |
 | T17  | Add Swift craft report and beat-sheet models       | codex  | review            |
 | T18  | Add backend craft schemas and analysis endpoints   | claude | ready-for-claude  |
 | T19  | Add BackendClient craft API methods                | codex  | blocked-T18       |
@@ -157,9 +157,9 @@
 
 ### T16 — Exclude local tooling artifacts from app bundle
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** codex/T16-exclude-local-artifacts
 - **Pillar:** infra (App Review hygiene)
-- **Status:** ready
+- **Status:** review
 - **Done when:** local tooling and scratch paths such as `.codex_tmp/`, `.claude/`, `tmp/`, and non-app docs are excluded from app resources; iOS and macOS builds stay green; a bundle audit finds no local-only artifacts.
 
 ### T17 — Add Swift craft report and beat-sheet models
