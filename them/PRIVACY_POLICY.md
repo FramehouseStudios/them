@@ -1,9 +1,9 @@
-# THEM Privacy Policy
+# io.them Privacy Policy
 
 Last updated: 2026-02-28
 
 ## 1. Scope
-This Privacy Policy explains how THEM collects, uses, stores, and shares information when you use the app.
+This Privacy Policy explains how io.them collects, uses, stores, and shares information when you use the app.
 
 ## 2. Data We Collect
 - Audio you record in-app to talk with the assistant.
@@ -35,7 +35,7 @@ We do not sell personal data. We only share data with service providers required
 We use reasonable technical and organizational safeguards to protect data in transit and at rest.
 
 ## 9. Children
-THEM is not directed to children under 13.
+io.them is not directed to children under 13.
 
 ## 10. Contact
 For privacy requests, contact: privacy@them.io

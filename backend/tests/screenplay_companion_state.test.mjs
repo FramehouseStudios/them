@@ -28,9 +28,13 @@ test("screenplay companion state defaults creative signals when none are stored"
   assert.equal(result.json?.signals?.intent?.kind, "reflective_support");
   assert.equal(result.json?.signals?.presence?.title ?? "", "");
   assert.equal(result.json?.signals?.proactive_suggestion, null);
+  assert.equal(result.json?.analytics?.first_page_written_at, null);
+  assert.equal(result.json?.analytics?.first_page_written_source_raw, "");
+  assert.equal(result.json?.analytics?.first_page_written_project_id, "");
+  assert.equal(result.json?.analytics?.first_page_written_version_id, "");
 });
 
-test("screenplay companion state persists creative signals", async () => {
+test("screenplay companion state persists creative signals and first_page_written telemetry", async () => {
   const payload = {
     mode_raw: "coach",
     recent_turns: [
@@ -54,6 +58,10 @@ test("screenplay companion state persists creative signals", async () => {
       thread_clears: 0,
       last_surface_raw: "studio",
       last_source_raw: "voice",
+      first_page_written_at: "2026-04-18T19:07:30.000Z",
+      first_page_written_source_raw: "voice",
+      first_page_written_project_id: "project-telemetry",
+      first_page_written_version_id: "version-first-page",
     },
     signals: {
       intent: {
@@ -86,6 +94,10 @@ test("screenplay companion state persists creative signals", async () => {
   assert.equal(saved.status, 200);
   assert.equal(saved.json?.signals?.intent?.kind, "story_development");
   assert.equal(saved.json?.signals?.presence?.title, "Co-writer Presence");
+  assert.equal(saved.json?.analytics?.first_page_written_at, payload.analytics.first_page_written_at);
+  assert.equal(saved.json?.analytics?.first_page_written_source_raw, "voice");
+  assert.equal(saved.json?.analytics?.first_page_written_project_id, "project-telemetry");
+  assert.equal(saved.json?.analytics?.first_page_written_version_id, "version-first-page");
   assert.equal(
     saved.json?.signals?.proactive_suggestion?.prompt,
     "Ask: give me three stronger turns for this sequence"
@@ -102,4 +114,34 @@ test("screenplay companion state persists creative signals", async () => {
     reloaded.json?.signals?.proactive_suggestion?.reason,
     payload.signals.proactive_suggestion.reason
   );
+  assert.equal(reloaded.json?.analytics?.first_page_written_at, payload.analytics.first_page_written_at);
+  assert.equal(reloaded.json?.analytics?.first_page_written_source_raw, "voice");
+  assert.equal(reloaded.json?.analytics?.first_page_written_project_id, "project-telemetry");
+  assert.equal(reloaded.json?.analytics?.first_page_written_version_id, "version-first-page");
+
+  const legacyPayload = {
+    ...payload,
+    analytics: {
+      updated_at: "2026-04-18T19:09:00.000Z",
+      total_turns: 4,
+      home_turns: 1,
+      studio_turns: 3,
+      voice_turns: 2,
+      typed_turns: 2,
+      mode_switches: 1,
+      memory_clears: 0,
+      thread_clears: 0,
+      last_surface_raw: "studio",
+      last_source_raw: "typed",
+    },
+  };
+  const legacySaved = await apiRequest(server, "/screenplay/companion/state", {
+    method: "POST",
+    json: legacyPayload,
+  });
+  assert.equal(legacySaved.status, 200);
+  assert.equal(legacySaved.json?.analytics?.first_page_written_at, payload.analytics.first_page_written_at);
+  assert.equal(legacySaved.json?.analytics?.first_page_written_source_raw, "voice");
+  assert.equal(legacySaved.json?.analytics?.first_page_written_project_id, "project-telemetry");
+  assert.equal(legacySaved.json?.analytics?.first_page_written_version_id, "version-first-page");
 });

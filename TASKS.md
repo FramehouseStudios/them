@@ -16,8 +16,8 @@
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
-| T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
-| T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
+| T04  | Apply canonical product name `io.them` end-to-end  | codex  | review            |
+| T05  | Add `first_page_written` client telemetry event    | codex  | completed         |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
 | T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
 | T07-eval-gate | Verify eval gate against Postgres          | claude | ready-for-claude  |
@@ -25,30 +25,28 @@
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
 | T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
-| T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | review            |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
-| T11  | 60-second magic-moment onboarding                  | codex  | blocked-T09       |
-| T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
-| T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
+| T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
+| T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
+| T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
-| T21  | Add craft-aware prompts and beat classification    | claude | in-progress       |
-| T22  | Persist craft snapshots and turn overrides         | claude | in-progress       |
-| T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
+| T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
+| T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
 
 ---
 
-## Current next-10 checklist (2026-05-09 post-drain)
+## Current next-10 checklist (2026-05-09 post-T05)
 
-1. Claude starts T07a: wire outbox durability through the persistence adapter.
-2. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
-3. Claude starts T08w-triggers: write creative-memory signals from `/talk` post-processing.
+1. Codex/Claude review and merge PR #26: T08w creative-memory write triggers from `/talk`.
+2. Claude starts T07a: wire outbox durability through the persistence adapter.
+3. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
 4. Claude starts T08-postgres: move `creative_memory_store` onto the persistence adapter.
-5. Claude starts T21: feed craft schemas into prompts and add scene-to-beat classification.
-6. Claude starts T22: persist craft snapshots and turn overrides.
-7. Claude starts T23 after T22: enforce missing-major-turn RC gate.
-8. Codex completed T02: `archive/` is normalized as the canonical tracked casing.
-9. Codex has T09 in review: local `DraftStudio` and `ScreenplayStudio` packages are wired into the app; `ContentView.swift` is now under 500 LOC.
-10. Codex starts T04 or T05, depending whether identity polish or telemetry is the stronger product move.
+5. Claude starts T23: enforce the missing-major-turn RC gate.
+6. Codex starts T04: apply canonical `io.them` naming end-to-end.
+7. Codex starts T10: codify the shared design system.
+8. Codex starts T14: triage the G3 backend feature snapshot into mergeable work.
+9. Codex starts T11 after T08 lands: 60-second magic-moment onboarding using the completed T05 telemetry.
+10. Codex starts T12 after T11: perceived-speed primitives for the magic-moment path.
 
 ---
 
@@ -63,16 +61,16 @@
 
 ### T04 — Apply canonical product name `io.them` end-to-end
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T04-io-them-canonical-name`
 - **Pillar:** living companion (identity)
-- **Status:** ready
+- **Status:** review
 - **Done when:** `Info.plist` `CFBundleDisplayName`, `README.md` title line, onboarding copy, and any user-visible string read `io.them` (or final agreed casing); no user-visible surface still reads `Framehouse`, `them`, `Clementine`, or `Her*`. References `D001`.
 
 ### T05 — Add `first_page_written` client telemetry event
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T05-first-page-telemetry`
 - **Pillar:** voice→scene (measurement)
-- **Status:** ready
+- **Status:** completed
 - **Done when:** event fires once per user the first time they ship a screenplay-formatted page; visible in the analytics destination; documented in `docs/`.
 
 ### T07 — Promote backend persistence to Postgres canonical
@@ -129,13 +127,6 @@
 - **Status:** ready-for-claude
 - **Done when:** `creative_memory_store.js` uses `createPersistence(...)` for the chosen memory domain, its public API stays unchanged, and the eval suite stays green.
 
-### T09 — Modularize `DraftStudio` and `ScreenplayStudio` into SwiftPM packages
-- **Owner:** codex
-- **Branch:** `codex/T09-studio-modularization`
-- **Pillar:** infra (enables all)
-- **Status:** review
-- **Done when:** `DraftStudio` and `ScreenplayStudio` are local SwiftPM packages; `ContentView.swift` is below 500 LOC; clean build green; `themTests` pass.
-
 ### T10 — Codify single design system (color, typography, spacing)
 - **Owner:** codex
 - **Branch:** —
@@ -147,22 +138,25 @@
 - **Owner:** codex
 - **Branch:** —
 - **Pillar:** voice→scene + mobile-first
-- **Status:** blocked-T09
+- **Status:** blocked-T05/T08
 - **Done when:** cold-start to a properly formatted screenplay page in ≤60 seconds on a real iPhone, validated by the human; `first_page_written` (T05) fires; flow uses centralized prompts (T08).
 
 ### T12 — Adopt perceived-speed primitives system-wide
 - **Owner:** codex
 - **Branch:** —
 - **Pillar:** mobile-first + voice→scene
-- **Status:** blocked-T09
+- **Status:** blocked-T11
 - **Done when:** skeletons, optimistic writes, and audio-first responses are the default in the studio surface; measured time-to-perceived-response is ≤100 ms for the magic-moment path.
 
 ### T13 — Add second realtime supplier behind existing interface
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T13-realtime-supplier-interface`
 - **Pillar:** living companion (resilience)
-- **Status:** ready-for-claude
-- **Done when:** a second supplier ships behind the existing `Realtime` interface; the supplier choice is configurable at runtime; smoke test exercises both paths.
+- **Status:** in-progress
+- **Scope (this PR — foundation):** extract a `RealtimeSupplier` interface; wrap the existing OpenAI client-secret minting path as `OpenAIRealtimeSupplier`; ship a `StubRealtimeSupplier` that satisfies the interface deterministically (placeholder for a future real second supplier); factory selects via `REALTIME_PROVIDER` env var; `POST /realtime/client_secret` routes through the supplier interface; smoke tests assert both suppliers satisfy the interface contract.
+- **Scope (follow-up):** integrate a real second supplier (ElevenLabs Conversational AI / Anthropic Realtime / etc.) once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
+- **Done when (foundation, this PR):** OpenAI logic extracted behind the interface; stub second supplier passes the same contract test; runtime config via `REALTIME_PROVIDER` defaults to `openai`; `POST /realtime/client_secret` returns the supplier's mint result regardless of provider; tests exercise both paths.
+- **Done when (overall T13):** a real second supplier ships behind the same interface and is exercised end-to-end against a live account in CI.
 
 ### T14 — Triage G3 backend feature snapshot
 - **Owner:** codex
@@ -172,31 +166,42 @@
 - **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
 - **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
 
-### T21 — Add craft-aware prompts and beat classification
-- **Owner:** claude
-- **Branch:** `claude/T21-craft-prompts-classification`
-- **Pillar:** voice-to-scene + living companion
-- **Status:** in-progress
-- **Scope:** craft-aware prompt blocks (`backend/lib/craft_prompts.js`); beat classifier with two implementations — deterministic stub (default; same output as the prior `analyzeScreenplay` body) and LLM-driven (gated on `OPENAI_API_KEY`, falls back to stub when absent); page-write prompts in `handleTalkRequest` receive a craft-context block when a known framework is in scope; classification eval extended to cover both modes (LLM mode skipped without the key).
-- **Done when:** prompt-construction sites for screenplay page-write include a craft-context block; classifier interface is the only path used by `analyzeScreenplay`; deterministic + LLM modes both pass their respective evals; `backend/tests/craft_*` tests stay green; design notes in `docs/T21-craft-prompts-and-classification.md`.
-
-### T22 — Persist craft snapshots and turn overrides
-- **Owner:** claude
-- **Branch:** `claude/T22-craft-snapshots-persistence`
-- **Pillar:** longitudinal learning + living companion
-- **Status:** in-progress
-- **Done when:** craft snapshots persist per screenplay version through the T07 persistence adapter (`craft_reports` domain); overrides round-trip through storage (`craft_overrides` domain); UUID-based override IDs survive process restarts; backend tests prove overrides affect later analysis responses by clearing the in-memory cache between write and read; the in-memory `Map`-backed MVP in `craft_analysis.js` is replaced.
-
 ### T23 — Add craft completeness RC release gate
 - **Owner:** claude
 - **Branch:** —
 - **Pillar:** infra (enables all)
-- **Status:** blocked-T22
+- **Status:** ready-for-claude
 - **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
+
+### T-format-linter — Hollywood format linter (rules v1)
+- **Owner:** claude
+- **Branch:** `claude/T-format-linter`
+- **Pillar:** voice-to-scene + living companion (industry-rule layer of the Craft Intelligence Suite)
+- **Status:** in-progress
+- **Scope:** purely rule-based (no LLM). Rules v1 covers scene-heading shape, character-cue caps + own-line, parenthetical density, action-line voice flags, page-economy heuristic. Each violation is a structured suggestion with severity (`hard` | `medium` | `soft`), not a rejection. Endpoint `POST /craft/format/lint` accepts a screenplay text payload + framework hint and returns suggestions. No iOS work in this PR; Codex's `T-format-iOS` row consumes the endpoint when it's ready.
+- **Done when:** `backend/lib/format_linter.js` exposes `lintScreenplay({ text, frameworkId? })` returning structured suggestions; route mounts under `/craft/format/lint`; ≥15 unit tests cover each rule (positive + negative cases); fixture-driven tests against the existing `report_complete.json` source screenplay shape; full backend test suite stays green; design notes in `docs/T-format-linter.md`.
 
 ---
 
 ## Completed (last 30 days)
+
+### T09 — Modularize `DraftStudio` and `ScreenplayStudio` into SwiftPM packages
+- **Owner:** codex
+- **Branch:** `codex/T09-studio-modularization`
+- **Merged:** 2026-05-09 via PR #24.
+- **Note:** Added local SwiftPM packages, wired them into app and tests, reduced `ContentView.swift` to 7 LOC, and verified macOS tests plus iOS generic build.
+
+### T21 — Add craft-aware prompts and beat classification
+- **Owner:** claude
+- **Branch:** `claude/T21-craft-prompts-classification`
+- **Merged:** 2026-05-09 via PR #23.
+- **Note:** Added craft prompt blocks and deterministic/LLM beat classification; merged after resolving the T22 persistence overlap.
+
+### T22 — Persist craft snapshots and turn overrides
+- **Owner:** claude
+- **Branch:** `claude/T22-craft-snapshots-persistence`
+- **Merged:** 2026-05-09 via PR #20.
+- **Note:** Persisted craft reports and overrides through the T07 adapter, including restart-safe override IDs.
 
 ### T02 — Resolve `archive/` vs `Archive/` case collision
 - **Owner:** codex

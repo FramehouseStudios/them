@@ -19,29 +19,30 @@ import {
   MEMORY_BLOCK_OPEN,
   MEMORY_BLOCK_CLOSE,
 } from "../lib/prompt_assembly.js";
+import { createJsonPersistence } from "../lib/persistence_json.js";
 
-function tempStorePath() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-creative-memory-"));
-  return path.join(dir, "creative_memory_store.json");
+function freshPersistence() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-creative-memory-"));
+  return createJsonPersistence({ jsonRoot: root });
 }
 
 // ---------- creative_memory_store ----------
 
-test("getCreativeMemoryForPrompt returns null for cold user", () => {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
-  assert.equal(store.getCreativeMemoryForPrompt({ userId: "cold" }), null);
-  assert.equal(store.hasMemoryForUser("cold"), false);
+test("getCreativeMemoryForPrompt returns null for cold user", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  assert.equal(await store.getCreativeMemoryForPrompt({ userId: "cold" }), null);
+  assert.equal(await store.hasMemoryForUser("cold"), false);
 });
 
 test("recordCharacterMention round-trips", async () => {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({
     userId: "u1",
     characterName: "June",
     voice: "tightly coiled, sparse",
     tags: ["protagonist"],
   });
-  const mem = store.getCreativeMemoryForPrompt({ userId: "u1" });
+  const mem = await store.getCreativeMemoryForPrompt({ userId: "u1" });
   assert.ok(mem);
   assert.equal(mem.version, CREATIVE_MEMORY_SCHEMA_VERSION);
   assert.equal(mem.characters.length, 1);
@@ -50,60 +51,60 @@ test("recordCharacterMention round-trips", async () => {
 });
 
 test("recordCharacterMention dedupes by name and merges tags + last_referenced", async () => {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({ userId: "u2", characterName: "Bob", tags: ["antagonist"] });
   await new Promise((r) => setTimeout(r, 5));
   await store.recordCharacterMention({ userId: "u2", characterName: "Bob", tags: ["comic-relief"] });
-  const mem = store.getCreativeMemoryForPrompt({ userId: "u2" });
+  const mem = await store.getCreativeMemoryForPrompt({ userId: "u2" });
   assert.equal(mem.characters.length, 1);
   assert.deepEqual(new Set(mem.characters[0].tags), new Set(["antagonist", "comic-relief"]));
   assert.ok(mem.characters[0].last_referenced >= mem.characters[0].first_seen);
 });
 
 test("recordToneSignal stores tone and preferredTone", async () => {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordToneSignal({
     userId: "u3",
     signal: { emotional_default: "wry", humor_register: "absurd", preferredTone: "hardboiled" },
   });
-  const mem = store.getCreativeMemoryForPrompt({ userId: "u3" });
+  const mem = await store.getCreativeMemoryForPrompt({ userId: "u3" });
   assert.equal(mem.tone.emotional_default, "wry");
   assert.equal(mem.tone.humor_register, "absurd");
   assert.equal(mem.style.preferredTone, "hardboiled");
 });
 
 test("recordSceneCompletion + recordSceneAttempt update completion rate", async () => {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordSceneAttempt({ userId: "u4" });
   await store.recordSceneAttempt({ userId: "u4" });
   await store.recordSceneCompletion({ userId: "u4", scenePageCount: 2.0 });
-  const mem = store.getCreativeMemoryForPrompt({ userId: "u4" });
+  const mem = await store.getCreativeMemoryForPrompt({ userId: "u4" });
   assert.equal(mem.habits.page_completion_rate, 0.5);
   assert.equal(mem.habits.preferred_scene_length_pages, 2.0);
 });
 
 test("recordSessionEnd buckets session pattern by start hour", async () => {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   // 22:30 local = late-night
   const lateNight = new Date();
   lateNight.setHours(22, 30, 0, 0);
   await store.recordSessionEnd({ userId: "u5", sessionDurationMs: 600_000, sessionStartedAt: lateNight.getTime() });
-  const mem = store.getCreativeMemoryForPrompt({ userId: "u5" });
+  const mem = await store.getCreativeMemoryForPrompt({ userId: "u5" });
   assert.equal(mem.habits.session_pattern, "late-night");
 });
 
 test("recordLexicalFingerprint accumulates and dedupes case-insensitively", async () => {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordLexicalFingerprint({ userId: "u6", phrases: ["she stared at the door", "he waited"] });
   await store.recordLexicalFingerprint({ userId: "u6", phrases: ["She Stared At The Door", "she walked away"] });
-  const mem = store.getCreativeMemoryForPrompt({ userId: "u6" });
+  const mem = await store.getCreativeMemoryForPrompt({ userId: "u6" });
   assert.deepEqual(mem.style.lexicalFingerprint, ["she stared at the door", "he waited", "she walked away"]);
 });
 
 test("getCreativeMemoryForPrompt strips empty containers", async () => {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({ userId: "u7", characterName: "Alice" });
-  const mem = store.getCreativeMemoryForPrompt({ userId: "u7" });
+  const mem = await store.getCreativeMemoryForPrompt({ userId: "u7" });
   // tone, habits should be absent because they were never written.
   assert.equal("tone" in mem, false);
   assert.equal("habits" in mem, false);
