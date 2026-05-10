@@ -62,6 +62,48 @@ Now runs in two modes:
 - `cd backend && node evals/run_craft_classification_eval.mjs` → all deterministic-mode checks pass; LLM mode skipped without `OPENAI_API_KEY` (expected).
 - `npm run eval:gate` → not run in worktree; gate requires backend boot with secrets.
 
+## Follow-up: per-scene cache (added 2026-05-09)
+
+`backend/lib/craft_scene_cache.js` adds an opportunistic per-scene
+classification cache so per-scene LLM calls don't re-fire for unchanged
+scenes. The cache is independent of the classifier — callers compose:
+
+```js
+import { createCraftSceneCache } from "./lib/craft_scene_cache.js";
+import { createDefaultClassifier } from "./lib/craft_classifier.js";
+import { createPersistence } from "./lib/persistence_adapter.js";
+
+const cache = createCraftSceneCache({ persistence: createPersistence() });
+const classifier = createDefaultClassifier();
+
+const results = await cache.classifyWithCache({
+  frameworkId: "save-the-cat",
+  scenes,
+  classifyOne: (scene) =>
+    classifier.classifyScene({ framework: "save-the-cat", scene }),
+});
+// results[i] = { scene, value, fromCache, hash, [error] }
+```
+
+- Key shape: `<frameworkId>:<sceneContentHash>` where the hash is sha-256
+  over a normalized scene representation (title + content text;
+  trailing-whitespace and CRLF tolerant).
+- Storage: persistence adapter under `domain="craft_classifications"`
+  (Postgres in prod via the new `004_craft_classifications.sql`
+  migration; JSON-file otherwise).
+- TTL: optional via `ttlMs`. Default 0 means cache entries never
+  expire; callers that want freshness pass a TTL.
+- Cache writes are best-effort — a write failure logs and the
+  classification still returns to the caller.
+- Bulk path `classifyWithCache(...)` aligns results array with the
+  input scenes, returning `{ scene, value, fromCache, hash }` per
+  position. Per-scene errors land in the position rather than
+  aborting the whole batch.
+
+Different `frameworkId` → different cache entry for the same scene.
+This is by design: a scene's beat assignment depends on the framework,
+so cache hits must be framework-scoped.
+
 ## What is NOT in this PR
 
 - **Per-scene LLM calls during `analyzeScreenplay`.** The high-frequency analyze path stays bounded — it uses the deterministic source tag and macro coverage. Per-scene LLM calls happen via `classifyScene` from evals and future explicit triggers. If/when fast per-scene classification is needed at analyze-time, it lands in a follow-up that adds caching by scene-content hash.
