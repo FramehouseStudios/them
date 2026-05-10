@@ -46,6 +46,7 @@
 | T-twist-engine | Beat-aware reversal suggestion engine         | claude | merged            |
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
+| T33  | Add Claude command center and prompt printer      | codex  | in-progress       |
 
 ---
 
@@ -372,6 +373,15 @@
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** the iOS reply-side character mention hook defaults on now that T30 is merged; explicit user/debug defaults can still disable it; focused tests cover default-on, explicit-off, and request-shape behavior; the handoff ledger records the completion for Claude.
+
+---
+
+### T33 — Add Claude command center and prompt printer
+- **Owner:** codex
+- **Branch:** `codex/T33-claude-command-center`
+- **Pillar:** infra (enables all)
+- **Status:** in-progress
+- **Done when:** a short repo-visible Claude inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send Claude; `docs/codex-claude-live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
 
 ---
 
