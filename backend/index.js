@@ -40,6 +40,7 @@ import {
   getPersistedUserMemoryForClientToken,
   getPersistedUserMemoryForIp,
   loadUserMemoryStore,
+  loadUserMemoryStoreFromAdapter,
   sanitizePersistedSessionMemory,
   sanitizeClientTokenAliasList,
   saveUserMemoryStore,
@@ -2789,14 +2790,19 @@ const scaleBackplane = await createScaleBackplane({
   logger: console,
 });
 await scaleBackplane.init();
+// T07b/c: shared persistence adapter (Postgres if DATABASE_URL is set, JSON-file
+// fallback otherwise). Stores opt-in by passing it via configureXxxStore deps.
+// Declared early so configureMemoryStore (the first store init) can consume it.
+const sharedPersistence = createPersistence();
+console.log(`[persistence] kind=${sharedPersistence.kind}`);
 
-// T08: creative memory tier — per-user style/characters/tone/habits.
+// T08: creative memory tier - per-user style/characters/tone/habits.
 // File-backed MVP; T08-postgres follow-up swaps for the T07 adapter
 // without changing the public API. Read by handleTalkRequest below.
 const creativeMemoryStore = createCreativeMemoryStore();
 
 // T08: wraps a final system prompt with the user's creative-companion
-// memory if any is present. No-op for cold users — the memory block is
+// memory if any is present. No-op for cold users - the memory block is
 // omitted rather than serialized as null/empty (see prompt_assembly.js).
 function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
   const userId = req?.user?.id || null;
@@ -2852,13 +2858,11 @@ configureMemoryStore({
   sanitizeTurnHistoryItems,
   syncUserMemoryRecordToBackplane,
   trimToMax,
+  // T07c: enable dual-write to the persistence adapter alongside the
+  // existing JSON-file path. Loads prefer the adapter when it has data.
+  persistence: sharedPersistence,
   writeJsonFileAtomic,
 });
-// T07b: shared persistence adapter (Postgres if DATABASE_URL is set, JSON-file
-// fallback otherwise). Stores opt-in by passing it via configureXxxStore deps.
-const sharedPersistence = createPersistence();
-console.log(`[persistence] kind=${sharedPersistence.kind}`);
-
 configureScreenplayStore({
   SCREENPLAY_STORE_PATH,
   buildDraftExcerpt,
@@ -2911,7 +2915,11 @@ const userAuth = createUserAuthSubsystem({
 });
 app.use(userAuth.attachUserAuth);
 app.use(userAuth.protectUserRoutes);
-loadUserMemoryStore(userMemoryByIp, userMemoryByClientToken);
+// T07c: prefer adapter when it has data; fall back to legacy JSON-file load.
+const memoryLoadedFromAdapter = await loadUserMemoryStoreFromAdapter(userMemoryByIp, userMemoryByClientToken);
+if (!memoryLoadedFromAdapter) {
+  loadUserMemoryStore(userMemoryByIp, userMemoryByClientToken);
+}
 // T07b: prefer adapter when it has data; fall back to the legacy JSON file.
 // During the migration window, both paths coexist. Once Postgres is canonical
 // and stable, the JSON load can be retired in a follow-up PR.

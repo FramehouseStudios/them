@@ -370,27 +370,93 @@ function cleanupUserMemoryStore(now = Date.now()) {
 }
 
 function saveUserMemoryStore(now = Date.now()) {
+  const deps = memoryStoreDeps();
   const {
     USER_MEMORY_STORE_PATH,
     writeJsonFileAtomic,
-  } = memoryStoreDeps();
+    persistence,
+  } = deps;
   cleanupUserMemoryStore(now);
+  const entries = [...userMemoryByIp.entries()].map(([ip, record]) => ({
+    ip,
+    updatedAt: Number(record?.updatedAt || now),
+    clientTokens: sanitizeClientTokenAliasList(record?.clientTokens, 24),
+    memory: sanitizePersistedSessionMemory(record?.memory),
+  }));
+  const users = [...userMemoryByUserId.entries()].map(([userId, record]) => ({
+    userId,
+    updatedAt: Number(record?.updatedAt || now),
+    memory: sanitizePersistedSessionMemory(record?.memory),
+  }));
   const payload = {
     version: 3,
     updatedAt: now,
-    entries: [...userMemoryByIp.entries()].map(([ip, record]) => ({
-      ip,
-      updatedAt: Number(record?.updatedAt || now),
-      clientTokens: sanitizeClientTokenAliasList(record?.clientTokens, 24),
-      memory: sanitizePersistedSessionMemory(record?.memory),
-    })),
-    users: [...userMemoryByUserId.entries()].map(([userId, record]) => ({
-      userId,
-      updatedAt: Number(record?.updatedAt || now),
-      memory: sanitizePersistedSessionMemory(record?.memory),
-    })),
+    entries,
+    users,
   };
+  // Existing JSON-file path stays canonical until cutover completes.
   writeJsonFileAtomic(USER_MEMORY_STORE_PATH, payload, "user_memory");
+  // T07c: dual-write to the persistence adapter when configured.
+  // Records are namespaced by source bucket so reverse migration can
+  // reconstruct the legacy byUserId / byIp / byClientToken structure.
+  if (persistence && typeof persistence.put === "function") {
+    for (const entry of entries) {
+      void Promise.resolve(persistence.put({
+        domain: "user_memory",
+        key: `byIp:${entry.ip}`,
+        value: entry,
+      })).catch((err) => {
+        console.error(`[user_memory] adapter put byIp:${entry.ip} failed:`, err?.message || err);
+      });
+    }
+    for (const userEntry of users) {
+      void Promise.resolve(persistence.put({
+        domain: "user_memory",
+        key: `byUserId:${userEntry.userId}`,
+        value: userEntry,
+      })).catch((err) => {
+        console.error(`[user_memory] adapter put byUserId:${userEntry.userId} failed:`, err?.message || err);
+      });
+    }
+  }
+}
+
+// T07c: load user-memory records from the persistence adapter.
+// Returns true if any records were loaded so callers can fall back
+// to the legacy JSON-file load when the adapter is empty.
+async function loadUserMemoryStoreFromAdapter(
+  targetByIp = userMemoryByIp,
+  targetByToken = userMemoryByClientToken,
+) {
+  const deps = memoryStoreDeps();
+  const { persistence, normalizeClientIp } = deps;
+  if (!persistence || typeof persistence.list !== "function") return false;
+  let records;
+  try {
+    records = await persistence.list({ domain: "user_memory", limit: 10_000 });
+  } catch (err) {
+    console.error("[user_memory] adapter list failed:", err?.message || err);
+    return false;
+  }
+  if (!Array.isArray(records) || records.length === 0) return false;
+  targetByIp.clear();
+  targetByToken.clear();
+  for (const { key, value } of records) {
+    if (key.startsWith("byIp:")) {
+      const ip = (typeof normalizeClientIp === "function") ? normalizeClientIp(value?.ip) : value?.ip;
+      if (!ip) continue;
+      targetByIp.set(ip, value);
+      if (Array.isArray(value?.clientTokens)) {
+        for (const token of value.clientTokens) {
+          if (token) targetByToken.set(token, ip);
+        }
+      }
+    } else if (key.startsWith("byUserId:")) {
+      const userId = key.slice("byUserId:".length);
+      if (userId) userMemoryByUserId.set(userId, value);
+    }
+  }
+  return true;
 }
 
 function loadUserMemoryStore(targetByIp = userMemoryByIp, targetByToken = userMemoryByClientToken) {
@@ -548,6 +614,7 @@ export {
   getPersistedUserMemoryForUserId,
   getPersistedUserMemoryForIp,
   loadUserMemoryStore,
+  loadUserMemoryStoreFromAdapter,
   sanitizeClientTokenAliasList,
   sanitizePersistedSessionMemory,
   saveUserMemoryStore,
