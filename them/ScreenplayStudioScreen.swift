@@ -385,6 +385,12 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isFormatLinting: Bool = false
     @Published var formatLintErrorText: String = ""
     @Published var formatLintSourceText: String = ""
+    @Published var craftLogline: ScreenplayCraftLoglineDistillResponse?
+    @Published var craftLoglineDrift: ScreenplayCraftLoglineDriftResponse?
+    @Published var craftLoglineHistory: [ScreenplayCraftLoglineEntry] = []
+    @Published var isCraftLoglineLoading: Bool = false
+    @Published var craftLoglineErrorText: String = ""
+    @Published var craftLoglineInfoText: String = ""
 
     var formatLintCards: [ScreenplayFormatLintCard] {
         ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
@@ -2126,6 +2132,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         craftReport = nil
         craftErrorText = ""
         craftInfoText = ""
+        craftLogline = nil
+        craftLoglineDrift = nil
+        craftLoglineHistory = []
+        craftLoglineErrorText = ""
+        craftLoglineInfoText = ""
         if clearFrameworks {
             craftFrameworks = []
             selectedCraftFrameworkID = ""
@@ -2245,6 +2256,71 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             formatLintReport = nil
             formatLintErrorText = error.localizedDescription
             formatLintSourceText = source
+        }
+    }
+
+    func refreshCraftLogline(source: String = "Draft") async {
+        guard let project = selectedProject else {
+            craftLogline = nil
+            craftLoglineDrift = nil
+            craftLoglineHistory = []
+            craftLoglineErrorText = ""
+            craftLoglineInfoText = "Select a screenplay project to track a logline."
+            return
+        }
+        guard !isCraftLoglineLoading else { return }
+
+        let draft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else {
+            craftLogline = nil
+            craftLoglineDrift = nil
+            craftLoglineErrorText = ""
+            craftLoglineInfoText = "Draft text is empty."
+            await loadCraftLoglineHistoryOnly(projectId: project.id)
+            return
+        }
+
+        isCraftLoglineLoading = true
+        defer { isCraftLoglineLoading = false }
+        craftLoglineErrorText = ""
+        do {
+            let versionId = activeCraftVersionID
+            let frameworkId = normalizedOrNil(selectedCraftFrameworkID)
+            let response = try await craftClient.distillCraftLogline(
+                text: draft,
+                projectId: project.id,
+                versionId: versionId,
+                frameworkId: frameworkId
+            )
+            let drift = try? await craftClient.fetchCraftLoglineDrift(
+                projectId: project.id,
+                currentLogline: response.logline
+            )
+            let history = try? await craftClient.fetchCraftLoglineHistory(projectId: project.id)
+            guard selectedProject?.id == project.id else { return }
+            guard draft == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            craftLogline = response
+            craftLoglineDrift = drift
+            craftLoglineHistory = history?.entries ?? craftLoglineHistory
+            craftLoglineInfoText = source
+        } catch BackendError.http(400, _) {
+            craftLogline = nil
+            craftLoglineErrorText = "Draft text is required before distilling a logline."
+            craftLoglineInfoText = source
+        } catch {
+            craftLogline = nil
+            craftLoglineErrorText = error.localizedDescription
+            craftLoglineInfoText = source
+        }
+    }
+
+    private func loadCraftLoglineHistoryOnly(projectId: String) async {
+        do {
+            let history = try await craftClient.fetchCraftLoglineHistory(projectId: projectId)
+            guard selectedProject?.id == projectId else { return }
+            craftLoglineHistory = history.entries
+        } catch {
+            craftLoglineHistory = []
         }
     }
 
@@ -3881,6 +3957,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 if directionOneRightPanelTab == .craft {
                     vm.resetCraftReportForProjectChange()
                     Task { await vm.loadCraftReport(force: true) }
+                    Task { await vm.refreshCraftLogline(source: "Version") }
                 }
                 publishDebugStudioDiffState()
             }
@@ -3938,6 +4015,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 if newValue == .craft {
                     Task { await vm.loadCraftReport() }
+                    Task { await vm.refreshCraftLogline(source: "Craft rail") }
                 }
                 persistInspectorWorkspaceState()
                 publishDebugStudioDiffState()
@@ -7951,12 +8029,21 @@ Detail:
             infoText: vm.craftInfoText,
             fallbackPageCount: vm.craftFallbackPageCount,
             isSavingOverride: vm.isCraftOverrideSaving,
+            logline: vm.craftLogline,
+            loglineDrift: vm.craftLoglineDrift,
+            loglineHistory: vm.craftLoglineHistory,
+            isLoglineLoading: vm.isCraftLoglineLoading,
+            loglineErrorText: vm.craftLoglineErrorText,
+            loglineInfoText: vm.craftLoglineInfoText,
             formatLintCards: vm.formatLintCards,
             isFormatLinting: vm.isFormatLinting,
             formatLintErrorText: vm.formatLintErrorText,
             formatLintSource: vm.formatLintSourceText,
             onRefresh: {
                 Task { await vm.loadCraftReport(force: true) }
+            },
+            onRefreshLogline: {
+                Task { await vm.refreshCraftLogline(source: "Manual check") }
             },
             onRefreshFormatLint: {
                 Task { await vm.refreshFormatLint(source: "Manual check") }

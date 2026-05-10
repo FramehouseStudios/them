@@ -165,6 +165,85 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
     }
 
+    func testLoglineEndpointsBuildExpectedRequests() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/craft/logline/distill"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "logline": "A pilot chases a vanished signal through a haunted airport.",
+                  "source": "stub",
+                  "distilledAt": "2026-05-10T21:00:00.000Z",
+                  "stored": true
+                }
+                """#)
+            case ("GET", "/craft/logline/drift"):
+                XCTAssertEqual(request.url?.query?.contains("projectId=proj-17"), true)
+                XCTAssertEqual(request.url?.query?.contains("currentLogline=A%20pilot"), true)
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "score": 0.42,
+                  "current": "A pilot chases a vanished signal through a haunted airport.",
+                  "earliest": "A pilot searches for a missing tower voice.",
+                  "historyCount": 2,
+                  "summary": "Logline has drifted meaningfully from the original pitch."
+                }
+                """#)
+            case ("GET", "/craft/logline/history"):
+                XCTAssertEqual(request.url?.query, "projectId=proj-17")
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "projectId": "proj-17",
+                  "entries": [
+                    {
+                      "schemaVersion": 1,
+                      "projectId": "proj-17",
+                      "versionId": "v1",
+                      "logline": "A pilot searches for a missing tower voice.",
+                      "frameworkId": "save-the-cat",
+                      "source": "stub",
+                      "distilledAt": "2026-05-10T20:00:00.000Z",
+                      "distilledAtMs": 1770000000000
+                    }
+                  ]
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let distilled = try await client.distillCraftLogline(
+            text: "INT. AIRPORT - NIGHT",
+            projectId: "proj-17",
+            versionId: "v1",
+            frameworkId: "save-the-cat"
+        )
+        let drift = try await client.fetchCraftLoglineDrift(
+            projectId: "proj-17",
+            currentLogline: distilled.logline
+        )
+        let history = try await client.fetchCraftLoglineHistory(projectId: "proj-17")
+
+        XCTAssertEqual(distilled.stored, true)
+        XCTAssertEqual(drift.score, 0.42)
+        XCTAssertEqual(history.entries.first?.logline, "A pilot searches for a missing tower voice.")
+        XCTAssertEqual(recorder.methodsAndPaths, [
+            "POST /craft/logline/distill",
+            "GET /craft/logline/drift",
+            "GET /craft/logline/history"
+        ])
+        XCTAssertEqual(recorder.allHeaders(named: "X-Craft-Schema-Version"), ["1", "1", "1"])
+        let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
+        XCTAssertEqual(body["projectId"] as? String, "proj-17")
+        XCTAssertEqual(body["versionId"] as? String, "v1")
+        XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+    }
+
     func testRealtimeSupplierBodyOmitsServerDefaultAndIncludesExplicitProviders() throws {
         let serverDefault = BackendClient.realtimeClientSecretBody(
             systemPrompt: "  write in screenplay mode  ",

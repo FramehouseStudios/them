@@ -747,6 +747,53 @@ final class BackendClient {
         )
     }
 
+    func distillCraftLogline(
+        text: String,
+        projectId: String,
+        versionId: String? = nil,
+        frameworkId: String? = nil
+    ) async throws -> ScreenplayCraftLoglineDistillResponse {
+        let request = ScreenplayCraftLoglineDistillRequest(
+            text: try requiredCraftBodyValue(text, field: "text"),
+            projectId: try requiredCraftBodyValue(projectId, field: "projectId"),
+            versionId: try optionalCraftBodyValue(versionId, field: "versionId"),
+            frameworkId: try optionalCraftBodyValue(frameworkId, field: "frameworkId")
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "logline", "distill"],
+            body: request,
+            responseType: ScreenplayCraftLoglineDistillResponse.self
+        )
+    }
+
+    func fetchCraftLoglineDrift(
+        projectId: String,
+        currentLogline: String? = nil
+    ) async throws -> ScreenplayCraftLoglineDriftResponse {
+        var queryItems = [
+            URLQueryItem(name: "projectId", value: try requiredCraftBodyValue(projectId, field: "projectId"))
+        ]
+        if let current = try optionalCraftBodyValue(currentLogline, field: "currentLogline") {
+            queryItems.append(URLQueryItem(name: "currentLogline", value: current))
+        }
+        return try await performCraftRequest(
+            pathComponents: ["craft", "logline", "drift"],
+            queryItems: queryItems,
+            responseType: ScreenplayCraftLoglineDriftResponse.self
+        )
+    }
+
+    func fetchCraftLoglineHistory(
+        projectId: String
+    ) async throws -> ScreenplayCraftLoglineHistoryResponse {
+        try await performCraftRequest(
+            pathComponents: ["craft", "logline", "history"],
+            queryItems: [URLQueryItem(name: "projectId", value: try requiredCraftBodyValue(projectId, field: "projectId"))],
+            responseType: ScreenplayCraftLoglineHistoryResponse.self
+        )
+    }
+
     func lintCraftFormat(
         text: String,
         frameworkId: String? = nil
@@ -2782,11 +2829,13 @@ final class BackendClient {
     private func performCraftRequest<T: Decodable>(
         method: String = "GET",
         pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
         responseType: T.Type
     ) async throws -> T {
         try await performCraftRequestData(
             method: method,
             pathComponents: pathComponents,
+            queryItems: queryItems,
             bodyData: nil,
             responseType: responseType
         )
@@ -2795,6 +2844,7 @@ final class BackendClient {
     private func performCraftRequest<T: Decodable, Body: Encodable>(
         method: String,
         pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
         body: Body,
         responseType: T.Type
     ) async throws -> T {
@@ -2803,6 +2853,7 @@ final class BackendClient {
         return try await performCraftRequestData(
             method: method,
             pathComponents: pathComponents,
+            queryItems: queryItems,
             bodyData: bodyData,
             responseType: responseType
         )
@@ -2811,12 +2862,14 @@ final class BackendClient {
     private func performCraftRequestData<T: Decodable>(
         method: String,
         pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
         bodyData: Data?,
         responseType: T.Type
     ) async throws -> T {
         var request = makeCraftRequest(
             method: method,
             pathComponents: pathComponents,
+            queryItems: queryItems,
             hasJSONBody: bodyData != nil
         )
         request.httpBody = bodyData
@@ -2847,12 +2900,23 @@ final class BackendClient {
     private func makeCraftRequest(
         method: String,
         pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
         hasJSONBody: Bool
     ) -> URLRequest {
         persistSharedBackendBaseURL(baseURL)
         var url = baseURL
         for component in pathComponents {
             url.appendPathComponent(component)
+        }
+        if !queryItems.isEmpty {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = queryItems.filter { item in
+                guard let value = item.value else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if let componentURL = components?.url {
+                url = componentURL
+            }
         }
 
         var request = URLRequest(url: url)
