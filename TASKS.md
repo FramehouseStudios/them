@@ -29,7 +29,7 @@
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
-| T14  | Triage G3 backend feature snapshot                 | codex  | in-progress       |
+| T14  | Triage G3 backend feature snapshot                 | codex  | review            |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
 
@@ -162,7 +162,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T14-g3-snapshot-triage`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
 - **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
 
