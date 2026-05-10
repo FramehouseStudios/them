@@ -62,6 +62,7 @@ import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
 import { buildModelPrompt } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
+import { createOutboxSnapshotter } from "./lib/outbox_snapshotter.js";
 import {
   configureScreenplayStore,
   ensureScreenplayOutline,
@@ -2891,6 +2892,23 @@ configureScreenplayStore({
   writeJsonFileAtomic,
   persistence: sharedPersistence,
 });
+// T07a: outbox snapshotter — periodic best-effort snapshots of outbox
+// state into the persistence adapter for diagnostics + recovery
+// visibility. Does NOT replace scaleBackplane. See
+// docs/T07a-outbox-architecture.md for the architectural decision.
+const outboxSnapshotter = createOutboxSnapshotter({
+  scaleBackplane,
+  persistence: sharedPersistence,
+  intervalMs: parsePositiveInt(process.env.OUTBOX_SNAPSHOT_INTERVAL_MS, 60_000),
+  keepLast: parsePositiveInt(process.env.OUTBOX_SNAPSHOT_KEEP_LAST, 10),
+  logger: console,
+});
+if (process.env.OUTBOX_SNAPSHOT_ENABLED == null
+  ? true
+  : parseBool(process.env.OUTBOX_SNAPSHOT_ENABLED)) {
+  outboxSnapshotter.start();
+}
+
 configureOutboxStore({
   CALENDAR_COMPOSE_TARGET,
   OUTBOX_ENABLED,
