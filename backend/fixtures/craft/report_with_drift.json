@@ -1,0 +1,52 @@
+{
+  "id": "report_proj17_v1_drifting",
+  "schemaVersion": 1,
+  "projectId": "proj-17",
+  "versionId": "v1",
+  "screenplayTitle": "Vapor Trail",
+  "generatedAt": "2026-05-09T18:15:00Z",
+  "generatedBy": "craft-analysis-stub@1.0",
+  "framework": {
+    "id": "save-the-cat",
+    "title": "Save the Cat!",
+    "version": "1.0"
+  },
+  "pageCount": 102,
+  "summary": "Three of four required major turns detected. The All Is Lost beat is missing — the third act lacks a clear lowest moment.",
+  "coverage": {
+    "requiredMajorTurnCount": 4,
+    "detectedMajorTurnCount": 3,
+    "overriddenMajorTurnCount": 0,
+    "missingMajorTurnCount": 1,
+    "complete": false,
+    "confidence": 0.74
+  },
+  "beatSheet": {
+    "id": "beats_proj17_v1",
+    "frameworkId": "save-the-cat",
+    "title": "Save the Cat! — Vapor Trail",
+    "beats": [
+      { "id": "b_catalyst",  "frameworkBeatId": "catalyst",  "label": "Catalyst",  "expectedPageRange": { "start": 12, "end": 12 }, "actualPageRange": { "start": 14, "end": 16 }, "sceneId": "s011", "sceneTitle": "INT. CAR - DUSK", "status": "present", "confidence": 0.79, "classificationSource": "stub", "evidence": [], "majorTurnId": "catalyst" },
+      { "id": "b_midpoint",  "frameworkBeatId": "midpoint",  "label": "Midpoint",  "expectedPageRange": { "start": 55, "end": 55 }, "actualPageRange": { "start": 50, "end": 52 }, "sceneId": "s033", "sceneTitle": "EXT. AIRSTRIP - NIGHT", "status": "present", "confidence": 0.81, "classificationSource": "stub", "evidence": [], "majorTurnId": "midpoint" },
+      { "id": "b_all_lost",  "frameworkBeatId": "all-is-lost","label": "All Is Lost","expectedPageRange": { "start": 75, "end": 75 }, "status": "missing", "confidence": 0.12, "classificationSource": "stub", "evidence": [], "majorTurnId": "all-is-lost" },
+      { "id": "b_finale",    "frameworkBeatId": "finale",    "label": "Finale",    "expectedPageRange": { "start": 85, "end": 110 }, "actualPageRange": { "start": 84, "end": 102 }, "sceneId": "s068", "sceneTitle": "EXT. AIRSTRIP - DAY", "status": "present", "confidence": 0.88, "classificationSource": "stub", "evidence": [], "majorTurnId": "finale" }
+    ]
+  },
+  "majorTurns": [
+    { "id": "mt_catalyst", "turnId": "catalyst",    "label": "Catalyst",    "required": true, "expectedPage": 12, "expectedPageRange": { "start": 12, "end": 12 }, "actualPage": 15, "actualPageRange": { "start": 14, "end": 16 }, "sceneId": "s011", "sceneTitle": "INT. CAR - DUSK", "status": "present", "detected": true, "driftPages": 3, "confidence": 0.79, "evidence": [] },
+    { "id": "mt_midpoint", "turnId": "midpoint",    "label": "Midpoint",    "required": true, "expectedPage": 55, "expectedPageRange": { "start": 55, "end": 55 }, "actualPage": 51, "actualPageRange": { "start": 50, "end": 52 }, "sceneId": "s033", "sceneTitle": "EXT. AIRSTRIP - NIGHT", "status": "present", "detected": true, "driftPages": -4, "confidence": 0.81, "evidence": [] },
+    { "id": "mt_all_lost", "turnId": "all-is-lost", "label": "All Is Lost", "required": true, "expectedPage": 75, "expectedPageRange": { "start": 75, "end": 75 }, "status": "missing", "detected": false, "confidence": 0.12, "evidence": [] },
+    { "id": "mt_finale",   "turnId": "finale",      "label": "Finale",      "required": true, "expectedPage": 95, "expectedPageRange": { "start": 85, "end": 110 }, "actualPage": 92, "actualPageRange": { "start": 84, "end": 102 }, "sceneId": "s068", "sceneTitle": "EXT. AIRSTRIP - DAY", "status": "present", "detected": true, "driftPages": -3, "confidence": 0.88, "evidence": [] }
+  ],
+  "drift": {
+    "status": "drifting",
+    "summary": "Catalyst landing 3 pages late; midpoint 4 pages early; All Is Lost beat absent in Act 2-3 boundary.",
+    "timeline": [
+      { "id": "td_catalyst", "turnId": "catalyst",    "label": "Catalyst",    "expectedPage": 12, "actualPage": 15, "driftPages": 3,  "status": "late" },
+      { "id": "td_midpoint", "turnId": "midpoint",    "label": "Midpoint",    "expectedPage": 55, "actualPage": 51, "driftPages": -4, "status": "early" },
+      { "id": "td_all_lost", "turnId": "all-is-lost", "label": "All Is Lost", "expectedPage": 75,                     "status": "missing" },
+      { "id": "td_finale",   "turnId": "finale",      "label": "Finale",      "expectedPage": 95, "actualPage": 92, "driftPages": -3, "status": "early" }
+    ]
+  },
+  "overrides": []
+}

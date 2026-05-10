@@ -1,0 +1,179 @@
+// Craft routes — mounts /craft/* endpoints onto an Express app.
+// All handlers return typed envelopes and the schema-versioned shapes
+// documented in docs/T18-craft-schemas-and-analysis.md.
+
+import {
+  listFrameworkReferences,
+  getFrameworkById,
+  serializeFramework,
+} from "./craft_frameworks.js";
+import {
+  CRAFT_SCHEMA_VERSION,
+  FRAMEWORK_SCHEMA,
+  REPORT_SCHEMA,
+} from "./craft_schemas.js";
+import {
+  analyzeScreenplay,
+  storeReport,
+  getStoredReport,
+  recordOverride,
+  deleteOverride,
+  getOverride,
+} from "./craft_analysis.js";
+
+function errorEnvelope(error, message) {
+  const out = { error };
+  if (message) out.message = message;
+  return out;
+}
+
+function errorCodeToStatus(code) {
+  switch (code) {
+    case "craft_framework_not_found":
+    case "craft_report_not_found":
+    case "craft_override_not_found":
+      return 404;
+    case "craft_invalid_framework_id":
+    case "craft_invalid_screenplay":
+    case "craft_schema_version_unsupported":
+      return 400;
+    case "craft_override_user_mismatch":
+      return 403;
+    default:
+      return 500;
+  }
+}
+
+function sendKnownError(res, error, message) {
+  return res.status(errorCodeToStatus(error)).json(errorEnvelope(error, message));
+}
+
+function readClientSchemaVersionHeader(req) {
+  const raw = req.headers?.["x-craft-schema-version"];
+  if (raw === undefined || raw === null || raw === "") return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return NaN;
+  return n;
+}
+
+function checkClientSchemaVersion(req, res) {
+  const v = readClientSchemaVersionHeader(req);
+  if (v === null) return true; // header not provided; accept
+  if (Number.isNaN(v) || v > CRAFT_SCHEMA_VERSION) {
+    sendKnownError(
+      res,
+      "craft_schema_version_unsupported",
+      `server supports schemaVersion ${CRAFT_SCHEMA_VERSION}; client requested ${req.headers["x-craft-schema-version"]}`,
+    );
+    return false;
+  }
+  return true;
+}
+
+function requestingUserIdFor(req) {
+  // The existing auth middleware sets req.user.id when an authenticated
+  // user resolves. Read defensively — public/unauthenticated requests
+  // are allowed for read endpoints; mutations enforce userId match
+  // when a user is present.
+  return req?.user?.id || null;
+}
+
+function mountCraftRoutes(app) {
+  app.get("/craft/frameworks", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json({
+      schemaVersion: CRAFT_SCHEMA_VERSION,
+      frameworks: listFrameworkReferences(),
+    });
+  });
+
+  app.get("/craft/frameworks/:frameworkId", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const framework = getFrameworkById(req.params.frameworkId);
+    if (!framework) {
+      return sendKnownError(res, "craft_framework_not_found");
+    }
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json(serializeFramework(framework));
+  });
+
+  app.get("/craft/schemas/report", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json(REPORT_SCHEMA);
+  });
+
+  app.get("/craft/schemas/framework", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json(FRAMEWORK_SCHEMA);
+  });
+
+  app.get("/craft/reports/:projectId/:versionId?", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const report = getStoredReport({
+      projectId: req.params.projectId,
+      versionId: req.params.versionId,
+    });
+    if (!report) return sendKnownError(res, "craft_report_not_found");
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json(report);
+  });
+
+  app.post("/craft/analyze", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    try {
+      const report = analyzeScreenplay({
+        screenplay: body.screenplay || {},
+        frameworkId: body.frameworkId,
+        projectId: body.projectId,
+        versionId: body.versionId,
+      });
+      storeReport(report);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json(report);
+    } catch (e) {
+      if (e?.code) return sendKnownError(res, e.code, e.message);
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "analysis failed");
+    }
+  });
+
+  app.post("/craft/overrides", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    try {
+      const stored = recordOverride({
+        override: req.body || {},
+        requestingUserId: requestingUserIdFor(req),
+      });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json(stored);
+    } catch (e) {
+      if (e?.code) return sendKnownError(res, e.code, e.message);
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "invalid override");
+    }
+  });
+
+  app.delete("/craft/overrides/:overrideId", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const id = req.params.overrideId;
+    const existing = getOverride(id);
+    if (!existing) return sendKnownError(res, "craft_override_not_found");
+    const requesting = requestingUserIdFor(req);
+    if (requesting && existing.userId && existing.userId !== requesting) {
+      return sendKnownError(
+        res,
+        "craft_override_user_mismatch",
+        "only the owning user may delete this override",
+      );
+    }
+    try {
+      deleteOverride(id);
+    } catch (e) {
+      if (e?.code) return sendKnownError(res, e.code, e.message);
+      return sendKnownError(res, "craft_override_not_found", e?.message);
+    }
+    return res.status(200).json({ ok: true });
+  });
+}
+
+export { mountCraftRoutes };

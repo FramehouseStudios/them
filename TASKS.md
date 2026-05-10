@@ -17,7 +17,6 @@
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
 | T02  | Resolve `archive/` vs `Archive/` case collision    | codex  | ready             |
-| T03  | Strip `test.mp3` / `test.wav` from app target      | codex  | ready             |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
 | T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | in-progress       |
@@ -28,6 +27,25 @@
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T09       |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
+| T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
+| T21  | Add craft-aware prompts and beat classification    | claude | ready-for-claude  |
+| T22  | Persist craft snapshots and turn overrides         | claude | ready-for-claude  |
+| T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
+
+---
+
+## Current next-10 checklist (2026-05-09)
+
+1. Done - Claude finished T18: /craft/* routes, analysis stub, tests, fixtures, and eval scaffold.
+2. Done - Claude pushed and opened the T18 PR against codex/T17-craft-report-models.
+3. Done - Human reviewed/merged the current stack: PR #1, PR #3, PR #4, PR #5, then T18 PR #6.
+4. Done - Codex implemented T19 BackendClient craft frameworks, schemas, reports, analyze, snapshots, and overrides.
+5. Done - Codex added T19 Swift tests for request construction, fixture decoding, and backend-unavailable states.
+6. Done - Codex implemented the T20 Craft tab in the studio right rail, adaptive for macOS and iOS.
+7. Done - Codex rendered major-turn drift as a page timeline.
+8. Done - Codex added framework switching and a beat-sheet table.
+9. Ready for Claude - start T21: feed craft schemas into prompts and add scene-to-beat classification.
+10. Ready for Claude - start the T22/T23 chain: persist craft snapshots and overrides, then add the missing-major-turn RC gate.
 
 ---
 
@@ -46,13 +64,6 @@
 - **Pillar:** infra (enables all)
 - **Status:** ready
 - **Done when:** only one casing exists in the repo; contents are migrated; commit explicitly states the casing chosen and why; entry recorded in `DECISIONS.md`.
-
-### T03 — Strip `test.mp3` / `test.wav` from app target
-- **Owner:** codex
-- **Branch:** —
-- **Pillar:** infra (App Review hygiene)
-- **Status:** ready
-- **Done when:** files removed from the app target and from the repo; app builds and signs without them; `appstore_preflight.sh` passes.
 
 ### T04 — Apply canonical product name `io.them` end-to-end
 - **Owner:** codex
@@ -130,11 +141,73 @@
 - **Status:** ready-for-claude
 - **Done when:** a second supplier ships behind the existing `Realtime` interface; the supplier choice is configurable at runtime; smoke test exercises both paths.
 
+### T14 — Triage G3 backend feature snapshot
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** living companion + longitudinal learning
+- **Status:** ready
+- **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
+- **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
+
+### T21 — Add craft-aware prompts and beat classification
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** voice-to-scene + living companion
+- **Status:** ready-for-claude
+- **Done when:** structure-help and page-write prompts receive craft schema context; LLM-assisted scene-to-beat classification uses the shared JSON schema; prompt regression and classification evals are green.
+
+### T22 — Persist craft snapshots and turn overrides
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** longitudinal learning + living companion
+- **Status:** ready-for-claude
+- **Done when:** craft snapshots persist per screenplay version; user overrides for false-positive major-turn detections round-trip through storage; backend tests prove overrides affect later analysis responses.
+
+### T23 — Add craft completeness RC release gate
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** infra (enables all)
+- **Status:** blocked-T22
+- **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
+
 ---
 
 ## Completed (last 30 days)
 
-_None yet under this protocol._
+### T03 — Strip `test.mp3` / `test.wav` from app target
+- **Owner:** codex
+- **Branch:** `codex/T03-strip-test-assets`
+- **Merged:** 2026-05-09 via PR #1.
+
+### T15 — Fix iOS simulator test host configuration
+- **Owner:** codex
+- **Branch:** `codex/T15-ios-test-host`
+- **Merged:** 2026-05-09 via PR #4.
+
+### T16 — Exclude local tooling artifacts from app bundle
+- **Owner:** codex
+- **Branch:** `codex/T16-exclude-local-artifacts`
+- **Merged:** 2026-05-09 via PR #5.
+
+### T17 — Add Swift craft report and beat-sheet models
+- **Owner:** codex
+- **Branch:** `codex/T17-craft-report-models`
+- **Merged:** 2026-05-09 via PR #3.
+
+### T18 — Add backend craft schemas and analysis endpoints
+- **Owner:** claude
+- **Branch:** `claude/T18-craft-schemas-analysis`
+- **Merged:** 2026-05-09 via PR #6.
+
+### T19 — Add BackendClient craft API methods
+- **Owner:** codex
+- **Branch:** `codex/T19-backend-client-craft-api`
+- **Merged:** 2026-05-09 via PR #14.
+
+### T20 — Build Craft tab, turn timeline, and beat sheet
+- **Owner:** codex
+- **Branch:** `codex/T20-craft-tab-timeline-beats`
+- **Merged:** 2026-05-09 via PR #16.
 
 ---
 
