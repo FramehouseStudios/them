@@ -20,7 +20,7 @@
 | T03  | Strip `test.mp3` / `test.wav` from app target      | codex  | ready             |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
-| T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | ready-for-claude  |
+| T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | in-progress       |
 | T07  | Promote backend persistence to Postgres canonical  | claude | ready-for-claude  |
 | T08  | Centralize prompt assembly + first memory tier     | claude | ready-for-claude  |
 | T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | blocked-T02       |
@@ -70,10 +70,11 @@
 
 ### T06 — Flip `RUN_QUALITY_GATE=1` default in release CI
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T06-quality-gate-default`
 - **Pillar:** infra (enables all)
-- **Status:** ready-for-claude
-- **Done when:** `.github/workflows/release-preflight.yml` runs the gate by default; a smoke run on a synthetic `rc-*` tag confirms the gate executes; `QUALITY_GATE.md` updated.
+- **Status:** in-progress
+- **Done when:** `.github/workflows/release-preflight.yml` runs the gate by default (already true via `env:`) AND fails fast if the gate is silently skipped; `docs/quality-gate-enforcement.md` documents the policy and verification procedure; `QUALITY_GATE.md` (iOS-app copy at `them/QUALITY_GATE.md`) updated to reference the new enforcement step — flagged as **Codex follow-up** because `them/**` is denied to Claude by `.claude/settings.json`.
+- **Scope split:** Claude lands the workflow verification step + repo-root doc. Codex updates `them/QUALITY_GATE.md` in a follow-up row when convenient.
 
 ### T07 — Promote backend persistence to Postgres canonical
 - **Owner:** claude

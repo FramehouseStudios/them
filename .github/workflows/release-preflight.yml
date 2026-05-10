@@ -77,6 +77,34 @@ jobs:
       - name: Run Release Preflight With Quality Gate
         run: bash ./scripts/appstore_preflight.sh
 
+      - name: Verify Quality Gate Was Enforced
+        run: |
+          if [[ "${RUN_QUALITY_GATE:-}" != "1" ]]; then
+            {
+              echo "::error::RUN_QUALITY_GATE=${RUN_QUALITY_GATE:-unset}. Release preflight requires the quality gate to be enforced. The workflow's env: block must keep RUN_QUALITY_GATE=1 for every release-candidate run."
+              echo
+              echo "## Release Preflight Summary"
+              echo
+              echo "- Status: failed — quality gate was not enforced"
+              echo "- RUN_QUALITY_GATE: ${RUN_QUALITY_GATE:-unset}"
+              echo "- Required: 1"
+            } | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          if [[ ! -s /tmp/them-quality-gate-backend.log ]]; then
+            {
+              echo "::error::Expected quality gate evidence at /tmp/them-quality-gate-backend.log was not produced or is empty. The gate may have been skipped despite RUN_QUALITY_GATE=1."
+              echo
+              echo "## Release Preflight Summary"
+              echo
+              echo "- Status: failed — quality gate evidence missing"
+              echo "- Expected: /tmp/them-quality-gate-backend.log (non-empty)"
+            } | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          gate_size=$(wc -c < /tmp/them-quality-gate-backend.log | tr -d ' ')
+          echo "Quality gate ran. Evidence: /tmp/them-quality-gate-backend.log (${gate_size} bytes)"
+
       - name: Release automation summary
         if: always()
         run: |
