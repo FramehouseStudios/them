@@ -21,6 +21,7 @@ import {
   getOverride,
 } from "./craft_analysis.js";
 import { lintScreenplay } from "./format_linter.js";
+import { suggestTwists } from "./twist_engine.js";
 
 function errorEnvelope(error, message) {
   const out = { error };
@@ -196,6 +197,31 @@ function mountCraftRoutes(app) {
       return res.status(200).json(result);
     } catch (e) {
       return sendKnownError(res, "craft_invalid_screenplay", e?.message || "lint failed");
+    }
+  });
+
+  // T-twist-engine: structured beat-aware reversal suggestions.
+  app.post("/craft/twist/suggest", async (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const frameworkId = typeof body.frameworkId === "string" ? body.frameworkId : "";
+    const currentBeatId = typeof body.currentBeatId === "string" ? body.currentBeatId : "";
+    const sceneSummary = typeof body.sceneSummary === "string" ? body.sceneSummary : "";
+    const count = body.count;
+    if (!frameworkId) return sendKnownError(res, "craft_invalid_framework_id", "frameworkId is required");
+    if (!currentBeatId) return sendKnownError(res, "craft_invalid_screenplay", "currentBeatId is required");
+    try {
+      const result = await suggestTwists({ frameworkId, currentBeatId, sceneSummary, count });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json(result);
+    } catch (e) {
+      if (e?.code === "twist_unknown_framework") {
+        return sendKnownError(res, "craft_invalid_framework_id", e.message);
+      }
+      if (e?.code === "twist_unknown_beat") {
+        return sendKnownError(res, "craft_invalid_screenplay", e.message);
+      }
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "twist failed");
     }
   });
 }
