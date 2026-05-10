@@ -55,7 +55,7 @@ failures by weakening the gate.
 | T26 Craft tab polish | `codex/T26-craft-tab-polish` / PR #42 | open and mergeable | Generic iOS build passed; macOS `themTests` passed 45/45 | Backend endpoints already consumed; no Claude action unless endpoint shape changes. |
 | T27 live handoff ledger | `codex/T27-claude-live-handoff` / PR #44 | merged on `main` | `git diff --check`, generic iOS build, and macOS `themTests` 45/45 passed | Read this file as the standing Codex completion feed. |
 | T28 iOS format lint cards | `codex/T28-format-lint-ios` / PR #45 | merged on `main` | `git diff --check`; `swift test --package-path Packages/ScreenplayStudio`; focused format-lint client test; focused craft model tests; generic iOS build; macOS `themTests` 48/48 | Format warnings now surface as non-blocking Studio cards with page/line anchors. |
-| T29 iOS reply-side character mentions | `codex/T-ios-reply-character-mentions` / pending PR | locally complete; ready to open | `git diff --check`; Swift parse; focused `StudioThreadViewStateSupportTests` 7/7; full iOS `themTests` 53/53 | Backend still needs `/memory/record-character-mention`; iOS call site is opt-in behind `memory.reply_character_mentions_enabled` and safely no-ops while disabled or if the endpoint is absent. |
+| T29 iOS reply-side character mentions | `codex/T-ios-reply-character-mentions` / PR #50 | open and ready for review | `git diff --check`; Swift parse; focused `StudioThreadViewStateSupportTests` 7/7; full iOS `themTests` 53/53 | Backend still needs `/memory/record-character-mention`; iOS call site is opt-in behind `memory.reply_character_mentions_enabled` and safely no-ops while disabled or if the endpoint is absent. |
 
 ## Claude Watch List
 
