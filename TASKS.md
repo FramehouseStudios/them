@@ -45,6 +45,7 @@
 | T-trait-library | Build per-character trait and voice inventory | claude | ready-for-claude  |
 | T-twist-engine | Beat-aware reversal suggestion engine         | claude | ready-for-claude  |
 | T31  | Refresh coordination statuses after merge stack    | codex  | review            |
+| T32  | Enable reply-side character mention memory flag | codex  | in-progress       |
 
 ---
 
@@ -54,7 +55,7 @@
 2. Claude refreshes PR #48 (`T-logline-distiller`) against latest `main`, resolves conflicts, and reruns `cd backend && npm test`.
 3. Codex reviews/merges PR #48 once clean, then starts the iOS logline rail follow-up.
 4. Codex starts T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
-5. Codex enables and smoke-tests `memory.reply_character_mentions_enabled` now T30 is merged.
+5. Codex finishes T32: enable and smoke-test `memory.reply_character_mentions_enabled` now T30 is merged.
 6. Claude starts `T-block-detector`: writer-block signals from `/talk` telemetry and scene-attempt gaps.
 7. Claude starts `T-trait-library`: persistence-backed character trait/voice inventory.
 8. Claude starts `T-twist-engine`: beat-aware reversal suggestions on top of craft classifications.
@@ -363,6 +364,15 @@
 - **Owner:** codex
 - **Branch:** `codex/T20-craft-tab-timeline-beats`
 - **Merged:** 2026-05-09 via PR #16.
+
+---
+
+### T32 — Enable reply-side character mention memory flag
+- **Owner:** codex
+- **Branch:** `codex/T32-enable-reply-mentions`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** in-progress
+- **Done when:** the iOS reply-side character mention hook defaults on now that T30 is merged; explicit user/debug defaults can still disable it; focused tests cover default-on, explicit-off, and request-shape behavior; the handoff ledger records the completion for Claude.
 
 ---
 
