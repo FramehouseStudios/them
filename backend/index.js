@@ -62,6 +62,7 @@ import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
 import { buildModelPrompt } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
+import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
 import {
   configureScreenplayStore,
   ensureScreenplayOutline,
@@ -2796,6 +2797,31 @@ await scaleBackplane.init();
 // fallback otherwise). Stores opt-in by passing it via configureXxxStore deps.
 // Declared early so configureMemoryStore (the first store init) can consume it.
 const sharedPersistence = createPersistence();
+
+// T13: realtime supplier (OpenAI by default; configurable via
+// REALTIME_PROVIDER env). Falls back to the OpenAI supplier even on
+// supplier load errors so the endpoint always has SOMETHING to call.
+let realtimeSupplier = null;
+try {
+  realtimeSupplier = await createRealtimeSupplier({
+    apiKey: OPENAI_API_KEY,
+    defaultModel: OPENAI_REALTIME_MODEL,
+    defaultVoice: OPENAI_REALTIME_VOICE,
+    defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+    defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  });
+  console.log(`[realtime_supplier] kind=${realtimeSupplier.kind}`);
+} catch (e) {
+  console.error(`[realtime_supplier] failed to construct (${e?.code || "unknown"}); using OpenAI default. err=${e?.message || e}`);
+  const mod = await import("./lib/realtime_supplier_openai.js");
+  realtimeSupplier = mod.createOpenAIRealtimeSupplier({
+    apiKey: OPENAI_API_KEY,
+    defaultModel: OPENAI_REALTIME_MODEL,
+    defaultVoice: OPENAI_REALTIME_VOICE,
+    defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+    defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  });
+}
 console.log(`[persistence] kind=${sharedPersistence.kind}`);
 
 // T08: creative memory tier - per-user style/characters/tone/habits.
