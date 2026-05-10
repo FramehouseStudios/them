@@ -19,7 +19,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #55: `T-trait-library`.
 - Merged PR #57: `T-twist-engine`.
 - Merged PR #56: `T32` reply-side character mentions default-on.
-- T34 iOS logline rail consumer is review-ready on `codex/T34-ios-logline-rail`; it consumes PR #48 logline endpoints.
+- T34 iOS logline rail consumer is review-ready in PR #61 on `codex/T34-ios-logline-rail`; it consumes PR #48 logline endpoints.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next
