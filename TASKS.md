@@ -19,8 +19,6 @@
 | T02  | Resolve `archive/` vs `Archive/` case collision    | codex  | ready             |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
-| T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | in-progress       |
-| T06-iOS | Update iOS quality gate doc for CI enforcement  | codex  | review            |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
 | T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
 | T07-eval-gate | Verify eval gate against Postgres          | claude | ready-for-claude  |
@@ -42,16 +40,16 @@
 
 ## Current next-10 checklist (2026-05-09 post-drain)
 
-1. Done - Codex aligned `them/QUALITY_GATE.md` with CI enforcement docs.
-2. Claude starts T07a: wire outbox durability through the persistence adapter.
-3. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
-4. Claude starts T08w-triggers: write creative-memory signals from `/talk` post-processing.
-5. Claude starts T08-postgres: move `creative_memory_store` onto the persistence adapter.
-6. Claude starts T21: feed craft schemas into prompts and add scene-to-beat classification.
-7. Claude starts T22: persist craft snapshots and turn overrides.
-8. Claude starts T23 after T22: enforce missing-major-turn RC gate.
-9. Codex starts T02: resolve `archive/` vs `Archive/` to unblock T09.
-10. Codex starts T10: consolidate the app design system once T02 is clear.
+1. Claude starts T07a: wire outbox durability through the persistence adapter.
+2. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
+3. Claude starts T08w-triggers: write creative-memory signals from `/talk` post-processing.
+4. Claude starts T08-postgres: move `creative_memory_store` onto the persistence adapter.
+5. Claude starts T21: feed craft schemas into prompts and add scene-to-beat classification.
+6. Claude starts T22: persist craft snapshots and turn overrides.
+7. Claude starts T23 after T22: enforce missing-major-turn RC gate.
+8. Codex starts T02: resolve `archive/` vs `Archive/` to unblock T09.
+9. Codex starts T10: consolidate the app design system once T02 is clear.
+10. Codex starts T04 or T05, depending whether identity polish or telemetry is the stronger product move.
 
 ---
 
@@ -84,22 +82,6 @@
 - **Pillar:** voice→scene (measurement)
 - **Status:** ready
 - **Done when:** event fires once per user the first time they ship a screenplay-formatted page; visible in the analytics destination; documented in `docs/`.
-
-### T06 — Flip `RUN_QUALITY_GATE=1` default in release CI
-- **Owner:** claude
-- **Branch:** `claude/T06-quality-gate-default`
-- **Pillar:** infra (enables all)
-- **Status:** in-progress
-- **Done when:** `.github/workflows/release-preflight.yml` runs the gate by default (already true via `env:`) AND fails fast if the gate is silently skipped; `docs/quality-gate-enforcement.md` documents the policy and verification procedure; `QUALITY_GATE.md` (iOS-app copy at `them/QUALITY_GATE.md`) updated to reference the new enforcement step — flagged as **Codex follow-up** because `them/**` is denied to Claude by `.claude/settings.json`.
-- **Scope split:** Claude lands the workflow verification step + repo-root doc. Codex updates `them/QUALITY_GATE.md` in a follow-up row when convenient.
-
-### T06-iOS — Update iOS quality gate doc for CI enforcement
-- **Owner:** codex
-- **Branch:** `codex/T06-ios-quality-gate-doc`
-- **Pillar:** infra (enables all)
-- **Status:** review
-- **Done when:** `them/QUALITY_GATE.md` links `docs/quality-gate-enforcement.md` and names the `Verify Quality Gate Was Enforced` step so the app-side release notes match CI enforcement.
-- **Review note:** Implemented on `codex/T06-ios-quality-gate-doc`; documentation-only change verified with markdown/link greps.
 
 ### T07 — Promote backend persistence to Postgres canonical
 - **Owner:** claude
@@ -222,6 +204,16 @@
 ---
 
 ## Completed (last 30 days)
+
+### T06 — Flip `RUN_QUALITY_GATE=1` default in release CI
+- **Owner:** claude
+- **Branch:** `claude/T06-quality-gate-default`
+- **Merged:** 2026-05-09 via PR #7, completed by Codex app-doc follow-up PR #18.
+
+### T06-iOS — Update iOS quality gate doc for CI enforcement
+- **Owner:** codex
+- **Branch:** `codex/T06-ios-quality-gate-doc`
+- **Merged:** 2026-05-09 via PR #18.
 
 ### T03 — Strip `test.mp3` / `test.wav` from app target
 - **Owner:** codex
