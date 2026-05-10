@@ -596,6 +596,7 @@ struct RootExperienceView: View {
     @StateObject private var screenplayDraftBridge = ScreenplayLiveDraftBridge.shared
 
     @State private var backend = BackendClient()
+    private let screenplayPromptBuilder = ScreenplayPromptBuilder()
     @StateObject private var orbAudio = OrbAudioDriver()
     @StateObject private var speculativeTalk = SpeculativeTalkEngine()
     @State private var promptSpeaker = PersonalityPromptSpeaker()
@@ -1925,10 +1926,11 @@ struct RootExperienceView: View {
                 isScreenplayMode: speculativePreparedPrompt.useScreenplayMode,
                 shouldWriteToPage: speculativePreparedPrompt.shouldWriteToPage
             ) { _, _, _ in
-                return await systemPromptWithVisualContext(
+                return await buildCanonicalModelPrompt(
                     speculativePreparedPrompt.baseSystemPrompt,
                     userMessage: speculativePreparedPrompt.directorText,
-                    isScreenplayMode: speculativePreparedPrompt.useScreenplayMode
+                    isScreenplayMode: speculativePreparedPrompt.useScreenplayMode,
+                    shouldWriteToPage: speculativePreparedPrompt.shouldWriteToPage
                 )
             }
             speculativeTalk.consider(
@@ -3097,34 +3099,6 @@ struct RootExperienceView: View {
         return routedTurns
     }
 
-    private func appendingStudioMemoryDomainInstruction(
-        to systemPrompt: String,
-        memoryDomain: StudioMemoryDomain,
-        shouldWriteToPage: Bool
-    ) -> String {
-        let companionInstruction = screenplayDraftBridge.companionMode.promptInstruction
-        let instruction: String
-        switch memoryDomain {
-        case .project:
-            instruction = shouldWriteToPage
-                ? "MEMORY ROUTE: Treat this as project memory. Prioritize screenplay continuity, story facts, and draft state over companion chat."
-                : "MEMORY ROUTE: Treat this as project memory. Respond as a focused screenwriting collaborator, not as a romantic or dependency-seeking companion."
-        case .companion:
-            instruction = "MEMORY ROUTE: Treat this as companion memory. Stay relational and supportive. Do not change the screenplay page unless the user explicitly asks. If you suggest screenplay language, frame it as optional support and do not describe yourself in page mode or tool-state language.\n\(companionInstruction)"
-        case .mixed:
-            instruction = "MEMORY ROUTE: This is mixed. Acknowledge the user's emotional state briefly, then return to the screenplay problem with concrete craft help. If you draft lines, present them as a grounded suggestion rather than generic page-mode status copy.\n\(companionInstruction)"
-        }
-        return systemPrompt + "\n\n" + instruction
-    }
-
-    private func appendingCreativeIntentInstruction(
-        to systemPrompt: String,
-        signalState: CreativeCompanionSignalState
-    ) -> String {
-        guard signalState.hasContent else { return systemPrompt }
-        return systemPrompt + "\n\n" + signalState.promptGuidance()
-    }
-
 #if DEBUG || os(macOS)
     private struct DebugStudioPromptStubReply {
         let target: ScreenplayStudioUserPrompt.Target
@@ -3558,25 +3532,6 @@ You're carrying both the scene problem and the pressure around it. For the midpo
         return Date().timeIntervalSince(lastHandledLocalStudioCommandAt) < 8
     }
 
-    private func appendingSpeakingPaceInstruction(to systemPrompt: String) -> String {
-        let clampedPace = min(max(clementineSpeakingPace, 0.7), 1.5)
-        guard abs(clampedPace - 1.0) > 0.001 else { return systemPrompt }
-
-        let instruction: String
-        switch clampedPace {
-        case ..<0.95:
-            instruction = "SPEAKING PACE: Slower. Speak more slowly and deliberately than usual, with a little more space between thoughts."
-        case ..<1.15:
-            instruction = "SPEAKING PACE: Natural. Keep a natural conversational pace, clear and unforced."
-        case ..<1.32:
-            instruction = "SPEAKING PACE: Brisk. Keep the pace a bit quicker than natural, efficient but still clear."
-        default:
-            instruction = "SPEAKING PACE: Fast. Speak quickly and efficiently, keep momentum high, and avoid lingering."
-        }
-
-        return systemPrompt + "\n\n" + instruction
-    }
-
     @MainActor
     private func currentPartialHintForTalk() -> String {
         let live = livePartialTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3639,7 +3594,7 @@ You're carrying both the scene problem and the pressure around it. For the midpo
         let confirmedStudioStoryContext = useScreenplayModeForTurn
             ? confirmedStudioPageWriteContext(for: directorText)
             : nil
-        let rawBaseSystemPrompt = appendingSpeakingPaceInstruction(to: HerVoiceSpec.makeSystemPrompt(.init(
+        let promptContext = HerVoiceSpec.Context(
             stage: director.stage,
             depthScore: director.depth,
             romanceTension: director.romance,
@@ -3681,7 +3636,7 @@ You're carrying both the scene problem and the pressure around it. For the midpo
             voicedRatio: voice.lastFinalTurnHints.voicedRatio,
             speechAgeSeconds: voice.lastFinalTurnHints.speechAgeSeconds,
             hasStrongPartial: voice.lastFinalTurnHints.hasStrongPartial
-        )))
+        )
         let companionSignals = CreativeCompanionSignalEngine.build(
             context: director,
             memoryDomain: memoryDomain,
@@ -3693,14 +3648,13 @@ You're carrying both the scene problem and the pressure around it. For the midpo
             recentTurns: recentTurns,
             sourceText: directorText
         )
-        let memoryRoutedSystemPrompt = appendingStudioMemoryDomainInstruction(
-            to: rawBaseSystemPrompt,
+        let baseSystemPrompt = ScreenplayPromptBuilder.makeLocalPersonaPrompt(
+            context: promptContext,
+            speakingPace: clementineSpeakingPace,
             memoryDomain: memoryDomain,
-            shouldWriteToPage: shouldWriteToPage
-        )
-        let baseSystemPrompt = appendingCreativeIntentInstruction(
-            to: memoryRoutedSystemPrompt,
-            signalState: companionSignals
+            shouldWriteToPage: shouldWriteToPage,
+            companionInstruction: screenplayDraftBridge.companionMode.promptInstruction,
+            companionSignals: companionSignals
         )
 
         return PreparedTurnPrompt(
@@ -5214,12 +5168,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isScreenplayMode: preparedPrompt.useScreenplayMode,
             shouldWriteToPage: preparedPrompt.shouldWriteToPage
         ) {
-            systemPrompt = preparedPrompt.baseSystemPrompt
-        } else {
-            systemPrompt = await systemPromptWithVisualContext(
+            systemPrompt = await buildCanonicalModelPrompt(
                 preparedPrompt.baseSystemPrompt,
                 userMessage: preparedPrompt.directorText,
-                isScreenplayMode: preparedPrompt.useScreenplayMode
+                isScreenplayMode: preparedPrompt.useScreenplayMode,
+                shouldWriteToPage: preparedPrompt.shouldWriteToPage,
+                includeVisualContext: false
+            )
+        } else {
+            systemPrompt = await buildCanonicalModelPrompt(
+                preparedPrompt.baseSystemPrompt,
+                userMessage: preparedPrompt.directorText,
+                isScreenplayMode: preparedPrompt.useScreenplayMode,
+                shouldWriteToPage: preparedPrompt.shouldWriteToPage
             )
         }
         let initialStudioMetadata = initialStudioTalkMetadata(from: preparedPrompt)
@@ -6142,7 +6103,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if !shouldWriteToPage {
             screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
         }
-        let rawBaseSystemPrompt = appendingSpeakingPaceInstruction(to: HerVoiceSpec.makeSystemPrompt(.init(
+        let promptContext = HerVoiceSpec.Context(
             stage: director.stage,
             depthScore: director.depth,
             romanceTension: director.romance,
@@ -6184,7 +6145,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             voicedRatio: 1.0,
             speechAgeSeconds: 2.0,
             hasStrongPartial: true
-        )))
+        )
         let companionSignals = CreativeCompanionSignalEngine.build(
             context: director,
             memoryDomain: memoryDomain,
@@ -6197,19 +6158,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             sourceText: directorText
         )
         screenplayDraftBridge.applyCompanionSignalState(companionSignals, persist: false)
-        let memoryRoutedSystemPrompt = appendingStudioMemoryDomainInstruction(
-            to: rawBaseSystemPrompt,
+        let baseSystemPrompt = ScreenplayPromptBuilder.makeLocalPersonaPrompt(
+            context: promptContext,
+            speakingPace: clementineSpeakingPace,
             memoryDomain: memoryDomain,
-            shouldWriteToPage: shouldWriteToPage
+            shouldWriteToPage: shouldWriteToPage,
+            companionInstruction: screenplayDraftBridge.companionMode.promptInstruction,
+            companionSignals: companionSignals
         )
-        let baseSystemPrompt = appendingCreativeIntentInstruction(
-            to: memoryRoutedSystemPrompt,
-            signalState: companionSignals
-        )
-        let systemPrompt = await systemPromptWithVisualContext(
+        let systemPrompt = await buildCanonicalModelPrompt(
             baseSystemPrompt,
             userMessage: cleanPrompt,
-            isScreenplayMode: true
+            isScreenplayMode: true,
+            shouldWriteToPage: shouldWriteToPage
         )
 
 #if DEBUG || os(macOS)
@@ -7798,6 +7759,45 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func buildCanonicalModelPrompt(
+        _ basePrompt: String,
+        userMessage: String,
+        isScreenplayMode: Bool,
+        shouldWriteToPage: Bool,
+        includeVisualContext: Bool = true
+    ) async -> String {
+        let projectId = screenplayDraftBridge.preferredProjectID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayProjectID : screenplayDraftBridge.preferredProjectID
+        let versionId = screenplayDraftBridge.preferredVersionID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayVersionID : screenplayDraftBridge.preferredVersionID
+        let result = await screenplayPromptBuilder.buildModelPrompt(
+            backend: backend,
+            request: ScreenplayPromptBuilder.Request(
+                persona: basePrompt,
+                // The live turn text still rides the /talk request; this endpoint assembles prompt scaffolding.
+                userInput: "",
+                projectId: projectId,
+                versionId: versionId,
+                scene: "",
+                isScreenplayMode: isScreenplayMode,
+                shouldWriteToPage: shouldWriteToPage,
+                craftFrameworkId: ""
+            )
+        )
+        let canonicalPrompt = result.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? basePrompt
+            : result.prompt
+        guard includeVisualContext else { return canonicalPrompt }
+        return await systemPromptWithVisualContext(
+            canonicalPrompt,
+            userMessage: userMessage,
+            isScreenplayMode: isScreenplayMode
+        )
+    }
+
+    @MainActor
     private func loadVisualContextIfNeeded(
         userMessage: String,
         isScreenplayMode: Bool
@@ -7910,12 +7910,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isScreenplayMode: prepared.useScreenplayMode,
             shouldWriteToPage: prepared.shouldWriteToPage
         ) {
-            return prepared.baseSystemPrompt
+            return await buildCanonicalModelPrompt(
+                prepared.baseSystemPrompt,
+                userMessage: prepared.directorText,
+                isScreenplayMode: prepared.useScreenplayMode,
+                shouldWriteToPage: prepared.shouldWriteToPage,
+                includeVisualContext: false
+            )
         }
-        return await systemPromptWithVisualContext(
+        return await buildCanonicalModelPrompt(
             prepared.baseSystemPrompt,
             userMessage: prepared.directorText,
-            isScreenplayMode: prepared.useScreenplayMode
+            isScreenplayMode: prepared.useScreenplayMode,
+            shouldWriteToPage: prepared.shouldWriteToPage
         )
     }
 

@@ -25,14 +25,16 @@
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
 | T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
-| T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
+| T10  | Codify single design system (color/typo/spacing)   | codex  | review            |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
+| T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | review            |
+| T27  | Add Codex-to-Claude live handoff ledger            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
-| T28  | Surface format lint cards in iOS Studio            | codex  | in-progress       |
+| T28  | Surface format lint cards in iOS Studio            | codex  | review            |
 
 ---
 
@@ -130,9 +132,9 @@
 
 ### T10 — Codify single design system (color, typography, spacing)
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T10-design-system`
 - **Pillar:** mobile-first
-- **Status:** ready
+- **Status:** review
 - **Done when:** one color file, one typography file, one spacing scale; legacy `HerColors`, `FountainTypography`, and `*Chrome*` styling consolidated or deprecated; lint or build rule fails any new file that bypasses them.
 
 ### T11 — 60-second magic-moment onboarding
@@ -174,6 +176,20 @@
 - **Status:** ready-for-claude
 - **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
 
+### T24 — Consolidate iOS ScreenplayPromptBuilder path
+- **Owner:** codex
+- **Branch:** `codex/T24-prompt-builder-consolidation`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** review
+- **Done when:** every model-bound prompt request from iOS is produced through one Swift `ScreenplayPromptBuilder` entry point; legacy prompt-construction sites are replaced; the builder routes screenplay requests through the backend endpoint that runs canonical `buildModelPrompt(...)`; tests cover the single-path contract.
+
+### T27 — Add Codex-to-Claude live handoff ledger
+- **Owner:** codex
+- **Branch:** `codex/T27-claude-live-handoff`
+- **Pillar:** infra (enables all)
+- **Status:** review
+- **Done when:** a repo-visible Codex-maintained handoff ledger exists, records each completed Codex task/PR with verification and Claude action items, and PR descriptions point Claude to the ledger as the real-time supervisor status source.
+
 ### T-format-linter — Hollywood format linter (rules v1)
 - **Owner:** claude
 - **Branch:** `claude/T-format-linter`
@@ -187,7 +203,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T28-format-lint-ios`
 - **Pillar:** voice-to-scene + living companion
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** iOS has typed client/models for `POST /craft/format/lint`; Studio import/export/document warnings surface severity, rule id, message, and page/line hints as craft lint cards; formatting suggestions are available without blocking save/export; focused tests cover decoding and warning mapping.
 
 ---

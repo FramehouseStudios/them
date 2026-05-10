@@ -23,7 +23,7 @@ public struct FountainRevealView: View {
                     revealedWordCount: revealedWordCount,
                     isLastLine: index == lines.count - 1 && isStreaming
                 )
-                .padding(.top, FountainTypography.topSpacing(for: line.kind, afterKind: previousKind))
+                .padding(.top, IOThemTypography.Screenplay.topSpacing(for: line.kind, afterKind: previousKind))
                 .id(index)
             }
         }
@@ -35,7 +35,7 @@ public struct FountainRevealView: View {
         var globalWordOffset = 0
 
         for (_, line) in lines.enumerated() {
-            let kind = FountainTypography.classifyLine(line)
+            let kind = IOThemTypography.Screenplay.classifyLine(line)
             let words = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
             result.append(FountainLine(
                 text: line,
@@ -68,23 +68,23 @@ private struct FountainLineView: View {
             Spacer().frame(height: 8)
         } else {
             HStack(spacing: 0) {
-                if FountainTypography.alignment(for: line.kind) == .trailing {
+                if IOThemTypography.Screenplay.alignment(for: line.kind) == .trailing {
                     Spacer()
                 }
 
                 revealedText
-                    .font(FountainTypography.font(for: line.kind))
-                    .multilineTextAlignment(FountainTypography.alignment(for: line.kind))
+                    .font(IOThemTypography.Screenplay.font(for: line.kind))
+                    .multilineTextAlignment(IOThemTypography.Screenplay.alignment(for: line.kind))
 
                 if isLastLine && !allRevealed {
                     cursor
                 }
 
-                if FountainTypography.alignment(for: line.kind) != .trailing {
+                if IOThemTypography.Screenplay.alignment(for: line.kind) != .trailing {
                     Spacer()
                 }
             }
-            .padding(.leading, FountainTypography.indent(for: line.kind))
+            .padding(.leading, IOThemSpacing.ScreenplayIndent.indent(for: line.kind))
         }
     }
 
@@ -108,15 +108,15 @@ private struct FountainLineView: View {
             if idx > 0 {
                 var space = AttributedString(" ")
                 space.foregroundColor = idx < revealedInLine
-                    ? FountainTypography.textColor
-                    : FountainTypography.hiddenColor
+                    ? IOThemColors.Screenplay.text
+                    : IOThemColors.Screenplay.hidden
                 attributed += space
             }
 
             var wordAttr = AttributedString(word)
             wordAttr.foregroundColor = idx < revealedInLine
-                ? FountainTypography.textColor
-                : FountainTypography.hiddenColor
+                ? IOThemColors.Screenplay.text
+                : IOThemColors.Screenplay.hidden
             attributed += wordAttr
         }
 
@@ -124,8 +124,8 @@ private struct FountainLineView: View {
     }
 
     private var cursor: some View {
-        FountainTypography.cursorColor
-            .frame(width: 2, height: FountainTypography.baseFontSize + 2)
+        IOThemColors.Screenplay.cursor
+            .frame(width: 2, height: IOThemTypography.Screenplay.baseFontSize + 2)
             .opacity(cursorOpacity)
     }
 
