@@ -21,7 +21,7 @@
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
 | T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | in-progress       |
-| T07  | Promote backend persistence to Postgres canonical  | claude | ready-for-claude  |
+| T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | blocked-T02       |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
@@ -78,10 +78,13 @@
 
 ### T07 — Promote backend persistence to Postgres canonical
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T07-postgres-canonical`
 - **Pillar:** longitudinal learning
-- **Status:** ready-for-claude
-- **Done when:** all `*_store.json` files at backend root are deprecated; backend code reads/writes only Postgres for these domains; migration script ships and is reversible; `npm run eval:gate` green.
+- **Status:** in-progress
+- **Scope (this PR — foundation):** adapter interface + JSON impl + Postgres impl + initial schema for all four store domains + forward and reverse migration scripts + adapter contract tests. Outbox is the proof-wired store.
+- **Scope (follow-up rows, claimed by Claude after this PR merges):** wire `memory_store` (T07a), `screenplay_store` (T07b), and the knowledge embeddings cache (T07c) onto the adapter. Each is a focused PR.
+- **Done when (this PR):** adapter contract tests green; both backends pass the same contract; `scripts/migrate_stores_to_postgres.mjs` and `scripts/dump_stores_to_json.mjs` round-trip a sample dataset; outbox_store reads/writes via the adapter when `DATABASE_URL` is set, falls back to JSON when unset; `docs/T07-persistence-canonical.md` documents the architecture and the migration runbook.
+- **Done when (overall T07):** all four `*_store.json` paths at backend root deprecated; backend reads/writes only via the adapter (Postgres in CI/prod, JSON in local dev as the explicit fallback); `npm run eval:gate` green with `DATABASE_URL` set.
 
 ### T08 — Centralize prompt assembly + first memory tier (backend)
 - **Owner:** claude

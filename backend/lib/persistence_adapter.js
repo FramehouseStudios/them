@@ -1,0 +1,75 @@
+// Persistence adapter — canonical interface for backend stores.
+//
+// Stores (memory_store, screenplay_store, outbox_store, knowledge
+// embeddings cache) all want the same primitive operations on JSON
+// documents keyed by string ID, scoped to a "domain" (logical table).
+//
+// Two implementations live alongside this interface:
+//   - persistence_json.js     — file-backed; default for local dev.
+//   - persistence_postgres.js — pg-backed; default in CI / prod.
+//
+// Adapter selection is driven by DATABASE_URL: present → Postgres,
+// absent → JSON. A single createPersistence() factory returns the
+// correct one. All stores accept a persistence handle via DI; no
+// store imports either implementation directly.
+//
+// Both implementations satisfy the same contract, exercised by
+// backend/tests/persistence_adapter.test.mjs.
+
+import { createJsonPersistence } from "./persistence_json.js";
+import { createPostgresPersistence } from "./persistence_postgres.js";
+
+const KNOWN_DOMAINS = Object.freeze([
+  "outbox",
+  "user_memory",
+  "screenplay",
+  "knowledge_embeddings",
+]);
+
+function isKnownDomain(domain) {
+  return KNOWN_DOMAINS.includes(domain);
+}
+
+function assertDomain(domain) {
+  if (!isKnownDomain(domain)) {
+    throw new Error(`unknown persistence domain: ${domain}`);
+  }
+}
+
+function assertKey(key) {
+  if (typeof key !== "string" || key.length === 0) {
+    throw new Error("persistence key must be a non-empty string");
+  }
+  if (key.length > 512) {
+    throw new Error("persistence key must be <= 512 characters");
+  }
+}
+
+function assertValue(value) {
+  if (value === undefined) {
+    throw new Error("persistence value cannot be undefined; use null to represent absence");
+  }
+  // JSON.stringify will throw on circular refs; let it.
+  JSON.stringify(value);
+}
+
+// Factory. Reads env if config not passed.
+function createPersistence({
+  databaseUrl = process.env.DATABASE_URL || "",
+  jsonRoot = process.env.PERSISTENCE_JSON_ROOT || "",
+  pgClient = null, // for tests — caller may supply a mock pg-shaped client
+} = {}) {
+  if (databaseUrl || pgClient) {
+    return createPostgresPersistence({ databaseUrl, pgClient });
+  }
+  return createJsonPersistence({ jsonRoot });
+}
+
+export {
+  KNOWN_DOMAINS,
+  isKnownDomain,
+  assertDomain,
+  assertKey,
+  assertValue,
+  createPersistence,
+};
