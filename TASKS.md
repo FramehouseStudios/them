@@ -58,6 +58,7 @@
 | T-decisions-queue | One-file queue for human decisions               | claude | merged         |
 | T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
+| T-trust-tiers | Trust tiers + standing pre-approvals (AGENTS.md)   | claude | review         |
 
 ---
 
@@ -447,6 +448,14 @@
 - **Status:** merged
 - **Scope:** new GitHub Actions workflow `.github/workflows/auto-merge-tier1.yml`. Activates on PRs (open/sync/label/comment) and on completion of the `quality-gate` workflow. For PRs carrying the `tier-1` label (and not `tier-2`/`tier-3`/`needs-human`/`do-not-merge`), the workflow verifies the merge state is `CLEAN`, then checks for explicit approval through a trusted formal review or trusted `Codex supervisor update: approved` / `Claude supervisor update: approved` comment. There is no quiet-time fallback. If all gates pass, it squash-merges and deletes the branch. Tier 3 PRs are never auto-merged. Companion to T-trust-tiers (PR #63).
 - **Done when:** workflow file lands; PR description names the exact gates the workflow checks; the `tier-1` label can be created in the repo (workflow tolerates the label not existing by simply skipping).
+
+### T-trust-tiers — Trust tiers + standing pre-approvals (AGENTS.md)
+- **Owner:** claude
+- **Branch:** `claude/T-trust-tiers`
+- **Pillar:** infra (enables all)
+- **Status:** review
+- **Scope:** adds a new `## Trust Tiers (standing pre-approvals)` section to `AGENTS.md` defining three merge tiers — Tier 1 (agent-owned, auto-mergeable when suite is green and the other agent has explicitly approved via formal review or `supervisor update: approved` comment), Tier 2 (cross-agent review required), Tier 3 (human approval required). Codifies which classes of PRs can ship without the human becoming the merge bottleneck. Canonical reference point for the `auto-merge-tier1.yml` workflow (PR #64 + #72).
+- **Done when:** AGENTS.md carries the Trust Tiers section with explicit lists of what's Tier 1 / 2 / 3 and the escalation rules; the section names the `tier-1` / `tier-2` / `tier-3` labels the auto-merge workflow reads; the section does NOT reference a quiet-time fallback (per the 2026-05-11 human rule).
 
 ---
 
