@@ -171,6 +171,101 @@ public nonisolated struct ScreenplayCraftDeleteOverrideResponse: Codable, Hashab
     public let ok: Bool
 }
 
+public nonisolated struct ScreenplayCraftLoglineDistillRequest: Codable, Hashable {
+    public let text: String
+    public let projectId: String
+    public let versionId: String?
+    public let frameworkId: String?
+
+    public init(text: String, projectId: String, versionId: String?, frameworkId: String?) {
+        self.text = text
+        self.projectId = projectId
+        self.versionId = versionId
+        self.frameworkId = frameworkId
+    }
+}
+
+public nonisolated struct ScreenplayCraftLoglineDistillResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let logline: String
+    public let source: String
+    public let distilledAt: String
+    public let stored: Bool
+
+    public init(schemaVersion: Int, logline: String, source: String, distilledAt: String, stored: Bool) {
+        self.schemaVersion = schemaVersion
+        self.logline = logline
+        self.source = source
+        self.distilledAt = distilledAt
+        self.stored = stored
+    }
+}
+
+public nonisolated struct ScreenplayCraftLoglineDriftResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let score: Double
+    public let current: String
+    public let earliest: String
+    public let historyCount: Int
+    public let summary: String
+
+    public init(schemaVersion: Int, score: Double, current: String, earliest: String, historyCount: Int, summary: String) {
+        self.schemaVersion = schemaVersion
+        self.score = score
+        self.current = current
+        self.earliest = earliest
+        self.historyCount = historyCount
+        self.summary = summary
+    }
+}
+
+public nonisolated struct ScreenplayCraftLoglineHistoryResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let projectId: String
+    public let entries: [ScreenplayCraftLoglineEntry]
+
+    public init(schemaVersion: Int, projectId: String, entries: [ScreenplayCraftLoglineEntry]) {
+        self.schemaVersion = schemaVersion
+        self.projectId = projectId
+        self.entries = entries
+    }
+}
+
+public nonisolated struct ScreenplayCraftLoglineEntry: Codable, Hashable, Identifiable {
+    public let schemaVersion: Int
+    public let projectId: String
+    public let versionId: String?
+    public let logline: String
+    public let frameworkId: String?
+    public let source: String
+    public let distilledAt: String
+    public let distilledAtMs: Int?
+
+    public init(
+        schemaVersion: Int,
+        projectId: String,
+        versionId: String?,
+        logline: String,
+        frameworkId: String?,
+        source: String,
+        distilledAt: String,
+        distilledAtMs: Int?
+    ) {
+        self.schemaVersion = schemaVersion
+        self.projectId = projectId
+        self.versionId = versionId
+        self.logline = logline
+        self.frameworkId = frameworkId
+        self.source = source
+        self.distilledAt = distilledAt
+        self.distilledAtMs = distilledAtMs
+    }
+
+    public var id: String {
+        [projectId, versionId ?? "draft", distilledAt, logline].joined(separator: ":")
+    }
+}
+
 public nonisolated struct ScreenplayFormatLintRequest: Codable, Hashable {
     public let text: String
     public let frameworkId: String?

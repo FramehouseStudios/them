@@ -47,13 +47,13 @@
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
 | T33  | Add Claude command center and prompt printer      | codex  | merged            |
-| T34  | Build iOS logline rail consumer                   | codex  | in-progress       |
+| T34  | Build iOS logline rail consumer                   | codex  | review            |
 
 ---
 
 ## Current next-10 checklist (2026-05-10 after Layer 2 backend merge stack)
 
-1. Build the iOS logline rail consumer for the merged logline endpoints.
+1. Review and merge the T34 iOS logline rail consumer.
 2. Build the iOS block-signal nudge surface for the merged `/memory/block-signal` endpoint.
 3. Build the iOS character-traits side-rail consumer for the merged trait endpoints.
 4. Build the iOS twist-card consumer for `POST /craft/twist/suggest`.
@@ -390,7 +390,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T34-ios-logline-rail`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** iOS has typed client/models for `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; the Studio rail surfaces current logline, drift, and recent history without blocking writing; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
 
 ---

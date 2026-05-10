@@ -136,6 +136,100 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(cards.first?.ruleLabel, "Character Cue Caps")
     }
 
+    func testLoglineResponsesDecodeBackendEnvelopes() throws {
+        let distilled = try JSONDecoder().decode(ScreenplayCraftLoglineDistillResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "logline": "A pilot chases a vanished signal through a haunted airport.",
+          "source": "stub",
+          "distilledAt": "2026-05-10T21:00:00.000Z",
+          "stored": true
+        }
+        """#.utf8))
+        let drift = try JSONDecoder().decode(ScreenplayCraftLoglineDriftResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "score": 0.42,
+          "current": "A pilot chases a vanished signal through a haunted airport.",
+          "earliest": "A pilot searches for a missing tower voice.",
+          "historyCount": 2,
+          "summary": "Logline has drifted meaningfully from the original pitch."
+        }
+        """#.utf8))
+        let history = try JSONDecoder().decode(ScreenplayCraftLoglineHistoryResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "projectId": "proj-17",
+          "entries": [
+            {
+              "schemaVersion": 1,
+              "projectId": "proj-17",
+              "versionId": "v1",
+              "logline": "A pilot searches for a missing tower voice.",
+              "frameworkId": "save-the-cat",
+              "source": "stub",
+              "distilledAt": "2026-05-10T20:00:00.000Z",
+              "distilledAtMs": 1770000000000
+            }
+          ]
+        }
+        """#.utf8))
+
+        XCTAssertEqual(distilled.logline, "A pilot chases a vanished signal through a haunted airport.")
+        XCTAssertEqual(drift.historyCount, 2)
+        XCTAssertEqual(history.entries.first?.frameworkId, "save-the-cat")
+        XCTAssertEqual(history.entries.first?.id.contains("proj-17"), true)
+    }
+
+    func testLoglineRailStateMapsCurrentDriftAndHistory() throws {
+        let state = ScreenplayCraftLoglineRailState.make(
+            logline: ScreenplayCraftLoglineDistillResponse(
+                schemaVersion: 1,
+                logline: "  A pilot chases a vanished signal.  ",
+                source: "stub",
+                distilledAt: "2026-05-10T21:00:00.000Z",
+                stored: true
+            ),
+            drift: ScreenplayCraftLoglineDriftResponse(
+                schemaVersion: 1,
+                score: 1.4,
+                current: "A pilot chases a vanished signal.",
+                earliest: "A pilot searches for a missing tower voice.",
+                historyCount: 4,
+                summary: "Logline has diverged sharply from the original pitch."
+            ),
+            history: [
+                ScreenplayCraftLoglineEntry(
+                    schemaVersion: 1,
+                    projectId: "proj-17",
+                    versionId: "v1",
+                    logline: "First",
+                    frameworkId: nil,
+                    source: "stub",
+                    distilledAt: "2026-05-10T20:00:00.000Z",
+                    distilledAtMs: nil
+                ),
+                ScreenplayCraftLoglineEntry(
+                    schemaVersion: 1,
+                    projectId: "proj-17",
+                    versionId: "v2",
+                    logline: "Second",
+                    frameworkId: nil,
+                    source: "stub",
+                    distilledAt: "2026-05-10T21:00:00.000Z",
+                    distilledAtMs: nil
+                )
+            ]
+        )
+
+        XCTAssertEqual(state.currentLogline, "A pilot chases a vanished signal.")
+        XCTAssertEqual(state.sourceLabel, "Stored · Stub")
+        XCTAssertEqual(state.driftLabel, "Drift 100%")
+        XCTAssertEqual(state.historyCountLabel, "4 saved")
+        XCTAssertEqual(state.recentHistory, ["Second", "First"])
+        XCTAssertTrue(state.hasCurrentLogline)
+    }
+
     private func decodeReportFixture() throws -> ScreenplayCraftReport {
         let data = Data(#"""
         {
