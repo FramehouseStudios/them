@@ -31,7 +31,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
-| T25  | Add Story Circle + Hero Journey craft frameworks   | codex  | in-progress       |
+| T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
 
 ---
@@ -174,12 +174,12 @@
 - **Status:** ready-for-claude
 - **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
 
-### T25 — Add Story Circle + Hero Journey craft frameworks
+### T25 — Add Story Circle + Hero's Journey craft frameworks
 - **Owner:** codex
 - **Branch:** `codex/T25-additional-craft-frameworks`
 - **Pillar:** voice→scene + living companion
-- **Status:** in-progress
-- **Done when:** `backend/lib/craft_frameworks.js` exposes Story Circle and Hero Journey definitions; each has a JSON fixture under `backend/fixtures/craft/`; framework list/lookup endpoints include them; schema and backend tests validate all four frameworks; macOS tests and generic iOS build remain green.
+- **Status:** review
+- **Done when:** `backend/lib/craft_frameworks.js` exposes Story Circle and Hero's Journey definitions; each has a JSON fixture under `backend/fixtures/craft/`; framework list/lookup endpoints include them; schema and backend tests validate all four frameworks; macOS tests and generic iOS build remain green.
 
 ### T-format-linter — Hollywood format linter (rules v1)
 - **Owner:** claude
