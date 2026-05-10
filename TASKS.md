@@ -20,7 +20,7 @@
 | T05  | Add `first_page_written` client telemetry event    | codex  | completed         |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
 | T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
-| T07-eval-gate | Verify eval gate against Postgres          | claude | ready-for-claude  |
+| T07-eval-gate | Verify eval gate against Postgres          | claude | in-progress       |
 | T07-cutover | Drop dual-write JSON paths after Postgres soak | claude | blocked-T07-eval |
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
@@ -91,10 +91,10 @@
 
 ### T07-eval-gate — Verify eval gate against Postgres
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T07-eval-gate-postgres`
 - **Pillar:** longitudinal learning + infra (enables all)
-- **Status:** ready-for-claude
-- **Done when:** CI runs the full `npm run eval:gate` path against a live Postgres instance and passes; the result is recorded in `docs/T07-persistence-canonical.md`.
+- **Status:** in-progress
+- **Done when:** new `.github/workflows/eval-gate-postgres.yml` workflow boots a Postgres service container, runs the persistence migrations (`001` + `002` + `003`), runs `npm run eval:gate`, and reports green; the workflow is `workflow_dispatch` plus auto-runs on `claude/T07*` branches; `docs/T07-persistence-canonical.md` documents the runbook (how to invoke locally + in CI, expected outcomes, what changes when the gate is added to release-preflight).
 
 ### T07-cutover — Drop dual-write JSON paths after Postgres soak
 - **Owner:** claude
