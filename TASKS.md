@@ -29,7 +29,7 @@
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
-| T29  | Hook iOS reply-side character mentions             | codex  | in-progress       |
+| T29  | Hook iOS reply-side character mentions             | codex  | review            |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | review            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
@@ -167,7 +167,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T-ios-reply-character-mentions`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** the iOS screenplay-render path extracts likely rendered character cues from final page text and posts them to `/memory/record-character-mention` behind an opt-in feature flag; missing endpoint or disabled flag is a safe no-op; tests cover extraction, feature flag behavior, and request shape.
 - **Dependency:** Claude/backend still needs to ship `/memory/record-character-mention`; Codex will leave the call site guarded until that endpoint exists.
 
