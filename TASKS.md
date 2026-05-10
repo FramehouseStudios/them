@@ -31,6 +31,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
+| T27  | Add Codex-to-Claude live handoff ledger            | codex  | in-progress       |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
 
 ---
@@ -172,6 +173,13 @@
 - **Pillar:** infra (enables all)
 - **Status:** ready-for-claude
 - **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
+
+### T27 — Add Codex-to-Claude live handoff ledger
+- **Owner:** codex
+- **Branch:** `codex/T27-claude-live-handoff`
+- **Pillar:** infra (enables all)
+- **Status:** in-progress
+- **Done when:** a repo-visible Codex-maintained handoff ledger exists, records each completed Codex task/PR with verification and Claude action items, and PR descriptions point Claude to the ledger as the real-time supervisor status source.
 
 ### T-format-linter — Hollywood format linter (rules v1)
 - **Owner:** claude
