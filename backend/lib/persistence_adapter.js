@@ -27,6 +27,10 @@ const KNOWN_DOMAINS = Object.freeze([
   // T22: craft analysis domains.
   "craft_reports",
   "craft_overrides",
+  // T21 follow-up: per-scene classifier cache keyed by content hash.
+  "craft_classifications",
+  // T08-postgres: creative-companion memory tier.
+  "creative_memory",
 ]);
 
 function isKnownDomain(domain) {

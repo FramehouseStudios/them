@@ -1,4 +1,4 @@
-# THEM Release Runbook
+# io.them Release Runbook
 
 Last updated: 2026-03-27
 

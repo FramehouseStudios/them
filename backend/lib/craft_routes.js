@@ -20,6 +20,7 @@ import {
   deleteOverride,
   getOverride,
 } from "./craft_analysis.js";
+import { lintScreenplay } from "./format_linter.js";
 
 function errorEnvelope(error, message) {
   const out = { error };
@@ -178,6 +179,24 @@ function mountCraftRoutes(app) {
       return sendKnownError(res, "craft_override_not_found", e?.message);
     }
     return res.status(200).json({ ok: true });
+  });
+
+  // T-format-linter: Hollywood format linter v1. Pure rule-based; no LLM.
+  app.post("/craft/format/lint", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const text = typeof body.text === "string" ? body.text : "";
+    const frameworkId = typeof body.frameworkId === "string" ? body.frameworkId : null;
+    if (!text) {
+      return sendKnownError(res, "craft_invalid_screenplay", "text is required");
+    }
+    try {
+      const result = lintScreenplay({ text, frameworkId });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json(result);
+    } catch (e) {
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "lint failed");
+    }
   });
 }
 

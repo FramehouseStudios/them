@@ -46,7 +46,7 @@ final class WebRTCRealtimeSession: ObservableObject {
         // 6. Set remote description
         // 7. Wait for ICE connection
         // 8. Handle data channel events for text
-        // 9. Handle remote audio track for Clementine's voice
+        // 9. Handle remote audio track for io.them voice
 
         // For now, mark as connected and use the turn-based path with
         // streaming text as a bridge until native WebRTC is integrated
