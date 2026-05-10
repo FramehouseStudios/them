@@ -51,6 +51,7 @@
 | T35  | Build iOS block-signal nudge surface              | codex  | merged            |
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
 | T37  | Build iOS twist-card consumer                     | codex  | merged            |
+| T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | in-progress    |
 
 ---
 
@@ -386,6 +387,14 @@
 - **Pillar:** infra (enables all)
 - **Status:** merged
 - **Done when:** a short repo-visible Claude inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send Claude; `docs/codex-claude-live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
+
+### T-accepted-twist-log — Persist accepted twist cards for prompt context
+- **Owner:** claude
+- **Branch:** `claude/T-accepted-twist-log`
+- **Pillar:** living companion + longitudinal learning (Craft Intelligence Suite, Layer 2 follow-up)
+- **Status:** in-progress
+- **Scope:** when a writer accepts a twist card surfaced by `POST /craft/twist/suggest` (T-twist-engine), the choice should persist so subsequent prompt-assembly can reference the chosen reversal. New persistence domain `accepted_twists` keyed by `projectId:versionId:twistId` (migration 006). Pure analysis module `backend/lib/accepted_twist_log.js` exposes `recordAcceptedTwist`, `getAcceptedTwistsForProject`, `removeAcceptedTwist`, `buildAcceptedTwistsBlockForPrompt`. Two endpoints under `/craft/twist/accepted`: `POST` to record an acceptance; `GET` to fetch the chronological log for a project; `DELETE /craft/twist/accepted/:twistId?projectId=` to un-accept. Twist shape mirrors the merged T-twist-engine `{ id, label, hook, severity, rationale }`. iOS twist-card consumer (Codex follow-up) can POST on acceptance and consume the GET when re-loading the timeline.
+- **Done when:** module exposes the four functions; new `accepted_twists` domain in `KNOWN_DOMAINS` + migration `006_accepted_twists.sql`; endpoints mounted under `/craft/twist/accepted*`; ≥10 unit tests + ≥4 endpoint integration tests; full backend test suite stays green; design notes in `docs/T-accepted-twist-log.md`.
 
 ---
 
