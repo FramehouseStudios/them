@@ -59,6 +59,7 @@ import {
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
 import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
+import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention_route.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
@@ -32845,6 +32846,13 @@ mountPromptRoutes(app, {
   creativeMemoryStore,
   buildCraftContextBlock,
 });
+
+// T30: /memory/record-character-mention — Codex PR #50 (T29) calls this
+// endpoint from the iOS screenplay-render path. The route persists each
+// rendered character cue through `creativeMemoryStore.recordCharacterMention`
+// (canonical creative-memory path) so reply-side mentions are
+// distinguishable from user-input mentions via the persisted `source`.
+mountMemoryCharacterMentionRoute(app, { creativeMemoryStore });
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
