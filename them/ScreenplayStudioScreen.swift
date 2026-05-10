@@ -399,6 +399,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isCharacterTraitsLoading: Bool = false
     @Published var characterTraitsErrorText: String = ""
     @Published var characterTraitsInfoText: String = ""
+    @Published var craftTwists: ScreenplayCraftTwistSuggestResponse?
+    @Published var isCraftTwistLoading: Bool = false
+    @Published var craftTwistErrorText: String = ""
+    @Published var craftTwistInfoText: String = ""
+    @Published var craftTwistBeatLabel: String = ""
 
     var formatLintCards: [ScreenplayFormatLintCard] {
         ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
@@ -2145,6 +2150,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         craftLoglineHistory = []
         craftLoglineErrorText = ""
         craftLoglineInfoText = ""
+        craftTwists = nil
+        craftTwistErrorText = ""
+        craftTwistInfoText = ""
+        craftTwistBeatLabel = ""
         if clearFrameworks {
             craftFrameworks = []
             selectedCraftFrameworkID = ""
@@ -2359,6 +2368,73 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         } catch {
             characterTraitsErrorText = error.localizedDescription
             characterTraitsInfoText = source
+        }
+    }
+
+    func refreshCraftTwists(source: String = "io.them") async {
+        guard !isCraftTwistLoading else { return }
+        let context = preferredCraftTwistContext()
+        isCraftTwistLoading = true
+        defer { isCraftTwistLoading = false }
+        craftTwistBeatLabel = context.beatLabel
+        do {
+            let response = try await craftClient.suggestCraftTwists(
+                frameworkId: context.frameworkId,
+                currentBeatId: context.beatId,
+                sceneSummary: context.sceneSummary,
+                count: 3
+            )
+            craftTwists = response
+            craftTwistErrorText = ""
+            craftTwistInfoText = source
+        } catch {
+            craftTwistErrorText = error.localizedDescription
+            craftTwistInfoText = source
+        }
+    }
+
+    private struct CraftTwistContext {
+        let frameworkId: String
+        let beatId: String
+        let beatLabel: String
+        let sceneSummary: String?
+    }
+
+    private func preferredCraftTwistContext() -> CraftTwistContext {
+        let selectedFramework = normalizedOrNil(selectedCraftFrameworkID) ?? craftReport?.framework.id ?? "save-the-cat"
+        if let report = craftReport {
+            let unsatisfied = report.majorTurns.first { !$0.isSatisfied }
+            let drifting = report.majorTurns.first { abs($0.driftPages ?? 0) >= 4 }
+            let midpoint = report.majorTurns.first { $0.turnId.lowercased().contains("midpoint") }
+            if let turn = unsatisfied ?? drifting ?? midpoint ?? report.majorTurns.first {
+                let sceneSummaryParts: [String?] = [turn.sceneTitle, report.summary]
+                let sceneSummary = sceneSummaryParts
+                    .compactMap { $0 }
+                    .compactMap { normalizedOrNil($0) }
+                    .joined(separator: " | ")
+                return CraftTwistContext(
+                    frameworkId: report.framework.id,
+                    beatId: turn.turnId,
+                    beatLabel: turn.label,
+                    sceneSummary: sceneSummary.isEmpty ? nil : sceneSummary
+                )
+            }
+        }
+        let fallback = Self.fallbackTwistBeat(for: selectedFramework)
+        return CraftTwistContext(
+            frameworkId: selectedFramework,
+            beatId: fallback.id,
+            beatLabel: fallback.label,
+            sceneSummary: normalizedOrNil(fountainDraft).map { String($0.prefix(480)) }
+        )
+    }
+
+    private static func fallbackTwistBeat(for frameworkId: String) -> (id: String, label: String) {
+        switch frameworkId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "three-act": return ("midpoint-twist", "Midpoint Twist")
+        case "story-circle": return ("find", "Find")
+        case "hero-journey": return ("ordeal", "Ordeal")
+        default: return ("midpoint", "Midpoint")
         }
     }
 
@@ -4052,6 +4128,7 @@ Replace is best when this file should become the script you edit. Append is safe
                     Task {
                         await vm.refreshBlockSignal(source: "io.them rail")
                         await vm.refreshCharacterTraits(source: "io.them rail")
+                        await vm.refreshCraftTwists(source: "io.them rail")
                     }
                 }
                 if newValue == .saved {
@@ -4236,6 +4313,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 if directionOneRightPanelTab == .them {
                     await vm.refreshBlockSignal(source: "Studio open")
                     await vm.refreshCharacterTraits(source: "Studio open")
+                    await vm.refreshCraftTwists(source: "Studio open")
                 }
             }
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
@@ -8196,6 +8274,7 @@ private var directionOneThemPanel: some View {
     let signalState = liveDraftBridge.companionSignalState
     let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
     let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits)
+    let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists)
 
     return VStack(alignment: .leading, spacing: 16) {
         VStack(alignment: .leading, spacing: 6) {
@@ -8283,6 +8362,12 @@ private var directionOneThemPanel: some View {
             !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             vm.characterTraits != nil {
             directionOneCharacterTraitsCard(characterTraitCards)
+        }
+
+        if vm.isCraftTwistLoading ||
+            !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            vm.craftTwists != nil {
+            directionOneTwistCardsCard(twistCards)
         }
 
         directionOneThemCollaboratorSection
@@ -8458,6 +8543,95 @@ private var directionOneThemPanel: some View {
             }
         }
     }
+
+    private func directionOneTwistCardsCard(_ cards: [ScreenplayCraftTwistCardState]) -> some View {
+        intelligenceCollectionCard(title: "Reversal Cards", icon: "sparkles") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(vm.craftTwistBeatLabel.isEmpty ? "Beat-aware twist pass" : vm.craftTwistBeatLabel)
+                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.78))
+                        Text("Derived from the current craft framework.")
+                            .font(.system(size: 10, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.48))
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { await vm.refreshCraftTwists(source: "Manual check") }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Refresh reversal cards")
+                }
+
+                if vm.isCraftTwistLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Asking the twist engine for reversible pressure.")
+                            .font(.system(size: 12, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.70))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else if !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(vm.craftTwistErrorText)
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if cards.isEmpty {
+                    Text("No reversal cards yet. Run craft analysis or refresh once the draft has a major turn to pressure-test.")
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(cards) { card in
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack(spacing: 8) {
+                                Text(card.label)
+                                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                                    .foregroundStyle(Color.herText.opacity(0.88))
+                                Text(card.severityLabel)
+                                    .font(.system(size: 9, weight: .semibold, design: .default))
+                                    .foregroundStyle(twistSeverityTint(card.severity))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(twistSeverityTint(card.severity).opacity(0.12))
+                                    .clipShape(Capsule())
+                                Spacer(minLength: 0)
+                            }
+
+                            Text(card.hook)
+                                .font(.system(size: 12, weight: .semibold, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.76))
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            if !card.rationale.isEmpty {
+                                Text(card.rationale)
+                                    .font(.system(size: 10, weight: .medium, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.48))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(10)
+                        .background(Color.white.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
+    private func twistSeverityTint(_ severity: String) -> Color {
+        switch severity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "high": return Color.red.opacity(0.76)
+        case "medium": return Color.orange.opacity(0.76)
+        default: return Color.herText.opacity(0.58)
+        }
+    }
+
     private var directionOneSavedPanel: some View {
         let hasDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)

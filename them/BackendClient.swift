@@ -1039,6 +1039,26 @@ final class BackendClient {
         )
     }
 
+    func suggestCraftTwists(
+        frameworkId: String,
+        currentBeatId: String,
+        sceneSummary: String? = nil,
+        count: Int? = 3
+    ) async throws -> ScreenplayCraftTwistSuggestResponse {
+        let request = ScreenplayCraftTwistSuggestRequest(
+            frameworkId: try requiredCraftBodyValue(frameworkId, field: "frameworkId"),
+            currentBeatId: try requiredCraftBodyValue(currentBeatId, field: "currentBeatId"),
+            sceneSummary: try optionalCraftBodyValue(sceneSummary, field: "sceneSummary"),
+            count: count
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "twist", "suggest"],
+            body: request,
+            responseType: ScreenplayCraftTwistSuggestResponse.self
+        )
+    }
+
     func fetchMemoryBlockSignal() async throws -> BackendBlockSignalResponse {
         persistSharedBackendBaseURL(baseURL)
         var url = baseURL

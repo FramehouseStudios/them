@@ -285,6 +285,58 @@ final class ScreenplayCraftModelsTests: XCTestCase {
     }
 
 
+
+    func testTwistSuggestResponseDecodesBackendEnvelope() throws {
+        let response = try JSONDecoder().decode(ScreenplayCraftTwistSuggestResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "frameworkId": "save-the-cat",
+          "currentBeatId": "midpoint",
+          "source": "stub",
+          "twists": [
+            {
+              "id": "stc-midpoint-1",
+              "label": "False Victory",
+              "hook": "The win is real, but the cost was paid by the wrong person.",
+              "severity": "high",
+              "rationale": "Converts triumph into a trap."
+            }
+          ]
+        }
+        """#.utf8))
+
+        XCTAssertEqual(response.frameworkId, "save-the-cat")
+        XCTAssertEqual(response.currentBeatId, "midpoint")
+        XCTAssertEqual(response.twists.first?.severity, "high")
+    }
+
+    func testTwistCardStateMapsSeverityAndCopy() throws {
+        let response = ScreenplayCraftTwistSuggestResponse(
+            schemaVersion: 1,
+            frameworkId: "save-the-cat",
+            currentBeatId: "midpoint",
+            source: "stub",
+            twists: [
+                ScreenplayCraftTwistSuggestion(
+                    id: "stc-midpoint-1",
+                    label: " False Victory ",
+                    hook: " The win turns into a trap. ",
+                    severity: "HIGH",
+                    rationale: " Re-aims the third act. "
+                )
+            ]
+        )
+
+        let cards = ScreenplayCraftTwistCardState.cards(from: response)
+
+        XCTAssertEqual(cards.count, 1)
+        XCTAssertEqual(cards.first?.label, "False Victory")
+        XCTAssertEqual(cards.first?.hook, "The win turns into a trap.")
+        XCTAssertEqual(cards.first?.severity, "high")
+        XCTAssertEqual(cards.first?.severityLabel, "High")
+        XCTAssertEqual(cards.first?.rationale, "Re-aims the third act.")
+    }
+
     func testCharacterTraitsResponseDecodesBackendEnvelope() throws {
         let response = try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: Data(#"""
         {
