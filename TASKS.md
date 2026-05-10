@@ -47,6 +47,7 @@
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
 | T33  | Add Claude command center and prompt printer      | codex  | merged            |
+| T34  | Build iOS logline rail consumer                   | codex  | in-progress       |
 
 ---
 
@@ -382,6 +383,15 @@
 - **Pillar:** infra (enables all)
 - **Status:** merged
 - **Done when:** a short repo-visible Claude inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send Claude; `docs/codex-claude-live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
+
+---
+
+### T34 — Build iOS logline rail consumer
+- **Owner:** codex
+- **Branch:** `codex/T34-ios-logline-rail`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** in-progress
+- **Done when:** iOS has typed client/models for `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; the Studio rail surfaces current logline, drift, and recent history without blocking writing; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
 
 ---
 
