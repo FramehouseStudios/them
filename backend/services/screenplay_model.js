@@ -493,6 +493,10 @@ function createEmptyScreenplayCompanionAnalytics() {
     threadClears: 0,
     lastSurfaceRaw: "",
     lastSourceRaw: "",
+    firstPageWrittenAt: 0,
+    firstPageWrittenSourceRaw: "",
+    firstPageWrittenProjectId: "",
+    firstPageWrittenVersionId: "",
   };
 }
 
@@ -683,6 +687,19 @@ function normalizeStoredScreenplayCompanionAnalytics(entry) {
     threadClears: Math.max(0, Number(entry.threadClears ?? entry.thread_clears ?? 0)),
     lastSurfaceRaw: normalizeSnippet(entry.lastSurfaceRaw ?? entry.last_surface_raw, 32),
     lastSourceRaw: normalizeSnippet(entry.lastSourceRaw ?? entry.last_source_raw, 32),
+    firstPageWrittenAt: normalizeScreenplayCompanionTimestamp(entry.firstPageWrittenAt ?? entry.first_page_written_at),
+    firstPageWrittenSourceRaw: normalizeSnippet(
+      entry.firstPageWrittenSourceRaw ?? entry.first_page_written_source_raw,
+      32
+    ),
+    firstPageWrittenProjectId: normalizeSnippet(
+      entry.firstPageWrittenProjectId ?? entry.firstPageWrittenProjectID ?? entry.first_page_written_project_id,
+      96
+    ),
+    firstPageWrittenVersionId: normalizeSnippet(
+      entry.firstPageWrittenVersionId ?? entry.firstPageWrittenVersionID ?? entry.first_page_written_version_id,
+      96
+    ),
   };
 }
 
@@ -786,6 +803,12 @@ function toScreenplayCompanionStatePayload(state) {
       thread_clears: safeState.analytics.threadClears,
       last_surface_raw: safeState.analytics.lastSurfaceRaw,
       last_source_raw: safeState.analytics.lastSourceRaw,
+      first_page_written_at: safeState.analytics.firstPageWrittenAt > 0
+        ? new Date(safeState.analytics.firstPageWrittenAt).toISOString()
+        : null,
+      first_page_written_source_raw: safeState.analytics.firstPageWrittenSourceRaw,
+      first_page_written_project_id: safeState.analytics.firstPageWrittenProjectId,
+      first_page_written_version_id: safeState.analytics.firstPageWrittenVersionId,
     },
     signals: {
       intent: {

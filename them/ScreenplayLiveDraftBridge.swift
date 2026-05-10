@@ -723,6 +723,81 @@ nonisolated struct ScreenplayCompanionAnalyticsSnapshot: Codable, Equatable, Has
     let threadClears: Int
     let lastSurfaceRaw: String
     let lastSourceRaw: String
+    let firstPageWrittenAt: Date?
+    let firstPageWrittenSourceRaw: String
+    let firstPageWrittenProjectId: String
+    let firstPageWrittenVersionId: String
+
+    init(
+        updatedAt: Date,
+        totalTurns: Int,
+        homeTurns: Int,
+        studioTurns: Int,
+        voiceTurns: Int,
+        typedTurns: Int,
+        modeSwitches: Int,
+        memoryClears: Int,
+        threadClears: Int,
+        lastSurfaceRaw: String,
+        lastSourceRaw: String,
+        firstPageWrittenAt: Date? = nil,
+        firstPageWrittenSourceRaw: String = "",
+        firstPageWrittenProjectId: String = "",
+        firstPageWrittenVersionId: String = ""
+    ) {
+        self.updatedAt = updatedAt
+        self.totalTurns = totalTurns
+        self.homeTurns = homeTurns
+        self.studioTurns = studioTurns
+        self.voiceTurns = voiceTurns
+        self.typedTurns = typedTurns
+        self.modeSwitches = modeSwitches
+        self.memoryClears = memoryClears
+        self.threadClears = threadClears
+        self.lastSurfaceRaw = lastSurfaceRaw
+        self.lastSourceRaw = lastSourceRaw
+        self.firstPageWrittenAt = firstPageWrittenAt
+        self.firstPageWrittenSourceRaw = firstPageWrittenSourceRaw
+        self.firstPageWrittenProjectId = firstPageWrittenProjectId
+        self.firstPageWrittenVersionId = firstPageWrittenVersionId
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case updatedAt
+        case totalTurns
+        case homeTurns
+        case studioTurns
+        case voiceTurns
+        case typedTurns
+        case modeSwitches
+        case memoryClears
+        case threadClears
+        case lastSurfaceRaw
+        case lastSourceRaw
+        case firstPageWrittenAt
+        case firstPageWrittenSourceRaw
+        case firstPageWrittenProjectId
+        case firstPageWrittenVersionId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
+        totalTurns = try container.decodeIfPresent(Int.self, forKey: .totalTurns) ?? 0
+        homeTurns = try container.decodeIfPresent(Int.self, forKey: .homeTurns) ?? 0
+        studioTurns = try container.decodeIfPresent(Int.self, forKey: .studioTurns) ?? 0
+        voiceTurns = try container.decodeIfPresent(Int.self, forKey: .voiceTurns) ?? 0
+        typedTurns = try container.decodeIfPresent(Int.self, forKey: .typedTurns) ?? 0
+        modeSwitches = try container.decodeIfPresent(Int.self, forKey: .modeSwitches) ?? 0
+        memoryClears = try container.decodeIfPresent(Int.self, forKey: .memoryClears) ?? 0
+        threadClears = try container.decodeIfPresent(Int.self, forKey: .threadClears) ?? 0
+        lastSurfaceRaw = try container.decodeIfPresent(String.self, forKey: .lastSurfaceRaw) ?? ""
+        lastSourceRaw = try container.decodeIfPresent(String.self, forKey: .lastSourceRaw) ?? ""
+        firstPageWrittenAt = try container.decodeIfPresent(Date.self, forKey: .firstPageWrittenAt)
+        firstPageWrittenSourceRaw = try container.decodeIfPresent(String.self, forKey: .firstPageWrittenSourceRaw) ?? ""
+        firstPageWrittenProjectId = try container.decodeIfPresent(String.self, forKey: .firstPageWrittenProjectId) ?? ""
+        firstPageWrittenVersionId = try container.decodeIfPresent(String.self, forKey: .firstPageWrittenVersionId) ?? ""
+    }
 
     static let empty = ScreenplayCompanionAnalyticsSnapshot(
         updatedAt: .distantPast,
@@ -744,6 +819,14 @@ nonisolated struct ScreenplayCompanionAnalyticsSnapshot: Codable, Equatable, Has
 
     var lastSource: ScreenplayCompanionTurnSource? {
         ScreenplayCompanionTurnSource(rawValue: lastSourceRaw)
+    }
+
+    var firstPageWrittenSource: ScreenplayCompanionTurnSource? {
+        ScreenplayCompanionTurnSource(rawValue: firstPageWrittenSourceRaw)
+    }
+
+    var hasFirstPageWrittenEvent: Bool {
+        firstPageWrittenAt != nil
     }
 }
 
@@ -1441,6 +1524,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var lastCommittedWrite: ScreenplayCommittedWrite? {
         didSet {
             refreshIntelligenceReport()
+            recordFirstPageWrittenIfNeeded(lastCommittedWrite)
         }
     }
     @Published var pendingReplacementTarget: ScreenplayPendingReplacementTarget?
@@ -2331,7 +2415,52 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             memoryClears: companionAnalytics.memoryClears,
             threadClears: companionAnalytics.threadClears,
             lastSurfaceRaw: surface.rawValue,
-            lastSourceRaw: source.rawValue
+            lastSourceRaw: source.rawValue,
+            firstPageWrittenAt: companionAnalytics.firstPageWrittenAt,
+            firstPageWrittenSourceRaw: companionAnalytics.firstPageWrittenSourceRaw,
+            firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
+            firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
+        )
+        schedulePersistBackendCompanionState()
+    }
+
+    private func recordFirstPageWrittenIfNeeded(_ committedWrite: ScreenplayCommittedWrite?) {
+        guard let committedWrite else { return }
+        guard companionAnalytics.firstPageWrittenAt == nil else { return }
+        guard committedWrite.isAuthoritativeWrite else { return }
+        let insertedText = committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard FountainFormatter.isStrongStudioPageWriteCandidate(insertedText, allowActionOnly: true) else { return }
+
+        let promptSourceRaw: String
+        if latestStudioUserPrompt?.target == .page {
+            promptSourceRaw = latestStudioUserPrompt?.source.rawValue ?? ""
+        } else {
+            promptSourceRaw = ""
+        }
+        let normalizedPromptSource = promptSourceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedFallbackSource = companionAnalytics.lastSourceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceRaw = normalizedPromptSource.isEmpty ? normalizedFallbackSource : normalizedPromptSource
+        let projectId = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let versionId = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bindingProjectId = projectBinding.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bindingVersionId = projectBinding.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
+            updatedAt: Date(),
+            totalTurns: companionAnalytics.totalTurns,
+            homeTurns: companionAnalytics.homeTurns,
+            studioTurns: companionAnalytics.studioTurns,
+            voiceTurns: companionAnalytics.voiceTurns,
+            typedTurns: companionAnalytics.typedTurns,
+            modeSwitches: companionAnalytics.modeSwitches,
+            memoryClears: companionAnalytics.memoryClears,
+            threadClears: companionAnalytics.threadClears,
+            lastSurfaceRaw: companionAnalytics.lastSurfaceRaw,
+            lastSourceRaw: companionAnalytics.lastSourceRaw,
+            firstPageWrittenAt: committedWrite.committedAt,
+            firstPageWrittenSourceRaw: sourceRaw,
+            firstPageWrittenProjectId: projectId.isEmpty ? bindingProjectId : projectId,
+            firstPageWrittenVersionId: versionId.isEmpty ? bindingVersionId : versionId
         )
         schedulePersistBackendCompanionState()
     }
@@ -3776,7 +3905,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 memoryClears: companionAnalytics.memoryClears,
                 threadClears: companionAnalytics.threadClears,
                 lastSurfaceRaw: companionAnalytics.lastSurfaceRaw,
-                lastSourceRaw: companionAnalytics.lastSourceRaw
+                lastSourceRaw: companionAnalytics.lastSourceRaw,
+                firstPageWrittenAt: companionAnalytics.firstPageWrittenAt,
+                firstPageWrittenSourceRaw: companionAnalytics.firstPageWrittenSourceRaw,
+                firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
+                firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
             )
         }
         companionMode = mode
@@ -3804,7 +3937,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             memoryClears: companionAnalytics.memoryClears + 1,
             threadClears: companionAnalytics.threadClears,
             lastSurfaceRaw: companionAnalytics.lastSurfaceRaw,
-            lastSourceRaw: companionAnalytics.lastSourceRaw
+            lastSourceRaw: companionAnalytics.lastSourceRaw,
+            firstPageWrittenAt: companionAnalytics.firstPageWrittenAt,
+            firstPageWrittenSourceRaw: companionAnalytics.firstPageWrittenSourceRaw,
+            firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
+            firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
         )
         schedulePersistBackendCompanionState()
     }
@@ -3825,7 +3962,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             memoryClears: companionAnalytics.memoryClears,
             threadClears: companionAnalytics.threadClears + 1,
             lastSurfaceRaw: companionAnalytics.lastSurfaceRaw,
-            lastSourceRaw: companionAnalytics.lastSourceRaw
+            lastSourceRaw: companionAnalytics.lastSourceRaw,
+            firstPageWrittenAt: companionAnalytics.firstPageWrittenAt,
+            firstPageWrittenSourceRaw: companionAnalytics.firstPageWrittenSourceRaw,
+            firstPageWrittenProjectId: companionAnalytics.firstPageWrittenProjectId,
+            firstPageWrittenVersionId: companionAnalytics.firstPageWrittenVersionId
         )
         schedulePersistBackendCompanionState()
     }
