@@ -165,6 +165,67 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
     }
 
+    func testRealtimeSupplierBodyOmitsServerDefaultAndIncludesExplicitProviders() throws {
+        let serverDefault = BackendClient.realtimeClientSecretBody(
+            systemPrompt: "  write in screenplay mode  ",
+            userName: "  June  ",
+            isScreenplayMode: true,
+            voice: "  marin  ",
+            model: "  gpt-realtime-1.5  ",
+            realtimeProvider: ""
+        )
+        XCTAssertNil(serverDefault["realtime_provider"])
+        XCTAssertEqual(serverDefault["system_prompt"] as? String, "write in screenplay mode")
+        XCTAssertEqual(serverDefault["user_name"] as? String, "June")
+        XCTAssertEqual(serverDefault["voice"] as? String, "marin")
+        XCTAssertEqual(serverDefault["model"] as? String, "gpt-realtime-1.5")
+        XCTAssertEqual(serverDefault["is_screenplay_mode"] as? Bool, true)
+
+        let openAI = BackendClient.realtimeClientSecretBody(realtimeProvider: " openai ")
+        let stub = BackendClient.realtimeClientSecretBody(realtimeProvider: " stub ")
+        XCTAssertEqual(openAI["realtime_provider"] as? String, ClementineRealtimeSupplierMode.openAI.providerParameter)
+        XCTAssertEqual(stub["realtime_provider"] as? String, ClementineRealtimeSupplierMode.stub.providerParameter)
+    }
+
+    func testRealtimeSupplierModeNormalizesStorageValues() throws {
+        XCTAssertEqual(ClementineRealtimeSupplierMode.normalized(rawValue: "openai"), .openAI)
+        XCTAssertEqual(ClementineRealtimeSupplierMode.normalized(rawValue: "stub"), .stub)
+        XCTAssertEqual(ClementineRealtimeSupplierMode.normalized(rawValue: "unknown"), .serverDefault)
+        XCTAssertEqual(ClementineRealtimeSupplierMode.serverDefault.providerParameter, "")
+        XCTAssertEqual(ClementineRealtimeSupplierMode.openAI.providerParameter, "openai")
+        XCTAssertEqual(ClementineRealtimeSupplierMode.stub.providerParameter, "stub")
+    }
+
+    func testRealtimeBootstrapPayloadDecodesProvider() throws {
+        let data = Data(#"""
+        {
+          "transport": "webrtc_ephemeral",
+          "realtime_provider": "stub",
+          "assistant_name": "io.them",
+          "model": "stub-realtime-1",
+          "voice": "stub-voice",
+          "session": {
+            "type": "realtime",
+            "model": "stub-realtime-1",
+            "voice": "stub-voice",
+            "instructions": "Stay in screenplay mode.",
+            "output_modalities": ["audio"]
+          },
+          "client_secret": {
+            "value": "stub_secret_abc",
+            "expires_at": 1800000000,
+            "session_expires_at": 1800000000
+          },
+          "issued_at": 1700000000
+        }
+        """#.utf8)
+
+        let payload = try JSONDecoder().decode(BackendRealtimeBootstrapPayload.self, from: data)
+        XCTAssertEqual(payload.realtimeProvider, "stub")
+        XCTAssertEqual(payload.clientSecret.value, "stub_secret_abc")
+        XCTAssertEqual(payload.session.outputModalities, ["audio"])
+    }
+
     func testCraftUnavailableErrorUsesTypedEnvelope() async throws {
         let client = makeClient(recorder: CraftRequestRecorder()) { _ in
             .json(#"{ "error": "craft_runtime_unavailable" }"#, status: 503)
