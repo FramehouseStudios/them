@@ -569,6 +569,7 @@ final class BackendClient {
     private let fallbackURL: URL
     private let urlSession: URLSession
     private let shouldPersistBackendBaseURL: Bool
+    private let shouldAttachUserIDHeader: Bool
     private let devFallbackAppToken: String? = {
 #if DEBUG
         "them-dev"
@@ -647,12 +648,14 @@ final class BackendClient {
             fallback: BackendClient.defaultFallbackBaseURL
         ),
         urlSession: URLSession = .shared,
-        persistBackendBaseURL: Bool = true
+        persistBackendBaseURL: Bool = true,
+        attachUserIDHeader: Bool = true
     ) {
         self.baseURL = baseURL
         self.fallbackURL = fallbackURL
         self.urlSession = urlSession
         self.shouldPersistBackendBaseURL = persistBackendBaseURL
+        self.shouldAttachUserIDHeader = attachUserIDHeader
         persistSharedBackendBaseURL(baseURL)
     }
 
@@ -739,6 +742,22 @@ final class BackendClient {
             pathComponents: ["craft", "analyze"],
             body: request,
             responseType: ScreenplayCraftReport.self
+        )
+    }
+
+    func lintCraftFormat(
+        text: String,
+        frameworkId: String? = nil
+    ) async throws -> ScreenplayFormatLintReport {
+        let request = ScreenplayFormatLintRequest(
+            text: try requiredCraftBodyValue(text, field: "text"),
+            frameworkId: try optionalCraftBodyValue(frameworkId, field: "frameworkId")
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "format", "lint"],
+            body: request,
+            responseType: ScreenplayFormatLintReport.self
         )
     }
 
@@ -2753,9 +2772,11 @@ final class BackendClient {
         if hasJSONBody {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let userID = resolveUserID()
-        if !userID.isEmpty {
-            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
         }
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
