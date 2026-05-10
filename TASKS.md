@@ -32,7 +32,7 @@
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
-| T21  | Add craft-aware prompts and beat classification    | claude | ready-for-claude  |
+| T21  | Add craft-aware prompts and beat classification    | claude | in-progress       |
 | T22  | Persist craft snapshots and turn overrides         | claude | ready-for-claude  |
 | T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
 
@@ -182,10 +182,11 @@
 
 ### T21 — Add craft-aware prompts and beat classification
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T21-craft-prompts-classification`
 - **Pillar:** voice-to-scene + living companion
-- **Status:** ready-for-claude
-- **Done when:** structure-help and page-write prompts receive craft schema context; LLM-assisted scene-to-beat classification uses the shared JSON schema; prompt regression and classification evals are green.
+- **Status:** in-progress
+- **Scope:** craft-aware prompt blocks (`backend/lib/craft_prompts.js`); beat classifier with two implementations — deterministic stub (default; same output as the prior `analyzeScreenplay` body) and LLM-driven (gated on `OPENAI_API_KEY`, falls back to stub when absent); page-write prompts in `handleTalkRequest` receive a craft-context block when a known framework is in scope; classification eval extended to cover both modes (LLM mode skipped without the key).
+- **Done when:** prompt-construction sites for screenplay page-write include a craft-context block; classifier interface is the only path used by `analyzeScreenplay`; deterministic + LLM modes both pass their respective evals; `backend/tests/craft_*` tests stay green; design notes in `docs/T21-craft-prompts-and-classification.md`.
 
 ### T22 — Persist craft snapshots and turn overrides
 - **Owner:** claude
