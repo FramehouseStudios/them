@@ -30,15 +30,11 @@
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
-<<<<<<< HEAD
-| T23  | Add craft completeness RC release gate             | claude | in-progress       |
-=======
-| T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
-| T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | review            |
-| T27  | Add Codex-to-Claude live handoff ledger            | codex  | review            |
->>>>>>> origin/main
-| T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
-| T28  | Surface format lint cards in iOS Studio            | codex  | review            |
+| T23  | Add craft completeness RC release gate             | claude | review            |
+| T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
+| T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
+| T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
+| T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
 
 ---
 
