@@ -30,9 +30,13 @@
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
+<<<<<<< HEAD
+| T23  | Add craft completeness RC release gate             | claude | in-progress       |
+=======
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | review            |
 | T27  | Add Codex-to-Claude live handoff ledger            | codex  | review            |
+>>>>>>> origin/main
 | T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
 | T28  | Surface format lint cards in iOS Studio            | codex  | review            |
 
@@ -172,10 +176,10 @@
 
 ### T23 — Add craft completeness RC release gate
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T23-craft-completeness-gate`
 - **Pillar:** infra (enables all)
-- **Status:** ready-for-claude
-- **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
+- **Status:** in-progress
+- **Done when:** new `scripts/check_craft_completeness.mjs` reads a craft report (file path or `craft_reports` adapter key), exits 0 when `coverage.complete === true` (including overrides), exits 1 with actionable diagnostics otherwise; `scripts/quality_gate.sh` runs it under `RUN_CRAFT_COMPLETENESS_GATE=1`; the release-preflight workflow flips the env var on by default for `rc-*` runs; tests assert pass on `report_complete.json` + `report_with_override.json` and fail on `report_with_drift.json`.
 
 ### T24 — Consolidate iOS ScreenplayPromptBuilder path
 - **Owner:** codex
