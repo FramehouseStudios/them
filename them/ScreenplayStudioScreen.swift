@@ -380,6 +380,14 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isCraftAnalyzing: Bool = false
     @Published var craftErrorText: String = ""
     @Published var craftInfoText: String = ""
+    @Published var formatLintReport: ScreenplayFormatLintReport?
+    @Published var isFormatLinting: Bool = false
+    @Published var formatLintErrorText: String = ""
+    @Published var formatLintSourceText: String = ""
+
+    var formatLintCards: [ScreenplayFormatLintCard] {
+        ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
+    }
 
     @Published var newProjectTitle: String = ""
     @Published var newSceneSlugline: String = ""
@@ -2024,6 +2032,9 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         paginationPages = []
         revisionSummary = nil
         revisionRanges = []
+        formatLintReport = nil
+        formatLintErrorText = ""
+        formatLintSourceText = ""
         conflictState = nil
         if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             clearLocalDraftRecovery(projectId: selectedProjectID)
@@ -2103,6 +2114,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     func refreshDraftInsights() async {
         await recomputePagination(for: fountainDraft)
         await recomputeRevision(for: fountainDraft)
+        await refreshFormatLint(source: "Draft")
     }
 
     func refreshRevisionColor() async {
@@ -2186,6 +2198,38 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft analysis complete."
         } catch {
             craftErrorText = error.localizedDescription
+        }
+    }
+
+    func refreshFormatLint(source: String = "Draft") async {
+        let draft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else {
+            formatLintReport = nil
+            formatLintErrorText = ""
+            formatLintSourceText = ""
+            return
+        }
+        guard !isFormatLinting else { return }
+
+        isFormatLinting = true
+        defer { isFormatLinting = false }
+        formatLintErrorText = ""
+        do {
+            let report = try await craftClient.lintCraftFormat(
+                text: draft,
+                frameworkId: normalizedOrNil(selectedCraftFrameworkID)
+            )
+            guard draft == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            formatLintReport = report
+            formatLintSourceText = source
+        } catch BackendError.http(400, _) {
+            formatLintReport = nil
+            formatLintErrorText = "Draft is empty."
+            formatLintSourceText = source
+        } catch {
+            formatLintReport = nil
+            formatLintErrorText = error.localizedDescription
+            formatLintSourceText = source
         }
     }
 
@@ -2416,6 +2460,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
         await recomputePagination(for: draft)
         await recomputeRevision(for: draft)
+        Task { await self.refreshFormatLint(source: "Draft") }
 
         if isStreamingDraftPreviewActive {
             autosaveStatusText = "Receiving live draft..."
@@ -7890,8 +7935,15 @@ Detail:
             errorText: vm.craftErrorText,
             infoText: vm.craftInfoText,
             fallbackPageCount: vm.craftFallbackPageCount,
+            formatLintCards: vm.formatLintCards,
+            isFormatLinting: vm.isFormatLinting,
+            formatLintErrorText: vm.formatLintErrorText,
+            formatLintSource: vm.formatLintSourceText,
             onRefresh: {
                 Task { await vm.loadCraftReport(force: true) }
+            },
+            onRefreshFormatLint: {
+                Task { await vm.refreshFormatLint(source: "Manual check") }
             },
             onAnalyze: {
                 Task { await vm.analyzeCraftReport() }
@@ -9429,6 +9481,10 @@ private var projectsSidebarContent: some View {
                     draftIntegrityWarningSection
                 }
 
+                if shouldShowDraftFormatLintSection {
+                    draftFormatLintWarningSection
+                }
+
                 draftToolsTabs
 
                 draftToolsContent
@@ -9443,6 +9499,26 @@ private var projectsSidebarContent: some View {
                     )
             }
         }
+    }
+
+    private var shouldShowDraftFormatLintSection: Bool {
+        vm.isFormatLinting
+            || !vm.formatLintCards.isEmpty
+            || !vm.formatLintErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var draftFormatLintWarningSection: some View {
+        ScreenplayFormatLintCardListView(
+            title: "Format warnings",
+            cards: vm.formatLintCards,
+            isLoading: vm.isFormatLinting,
+            errorText: vm.formatLintErrorText,
+            sourceText: vm.formatLintSourceText,
+            maxVisible: 3,
+            onRefresh: {
+                Task { await vm.refreshFormatLint(source: "Document") }
+            }
+        )
     }
 
     private var draftDocumentControlsSection: some View {
@@ -24255,6 +24331,7 @@ Look at the city.
 
     @MainActor
     private func exportCurrentDraft(format: String) async {
+        Task { await vm.refreshFormatLint(source: "Export " + format.uppercased()) }
         do {
             let artifact: BackendScreenplayExportArtifact
             #if os(macOS)
