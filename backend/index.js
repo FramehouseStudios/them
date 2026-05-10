@@ -28706,13 +28706,6 @@ app.patch("/session/evolution", express.json({ limit: "256kb" }), (req, res) => 
 
 app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req, res) => {
   const rid = req.requestId || createRequestId();
-  if (!OPENAI_API_KEY) {
-    return res.status(503).json({
-      stage: "realtime_auth",
-      error: "OpenAI API key is missing for Realtime bootstrap.",
-    });
-  }
-
   const requesterIp = clientIp(req);
   const assistantSelfName = getAssistantSelfNameForIp(requesterIp);
   const requestedPrompt = normalizeSnippet(
@@ -28721,90 +28714,82 @@ app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req
   );
   const requestedVoice = String(req.body?.voice || "").trim().toLowerCase();
   const requestedModel = String(req.body?.model || "").trim();
-  const sessionConfig = buildRealtimeSessionConfig({
+  const rawProvider = String(req.body?.realtime_provider ?? req.body?.provider ?? "").trim().toLowerCase();
+  const requestedProvider = ["", "default", "server_default"].includes(rawProvider) ? "" : rawProvider;
+
+  let supplier = realtimeSupplier;
+  if (!supplier || (requestedProvider && requestedProvider !== String(supplier.kind || "").toLowerCase())) {
+    try {
+      supplier = await createRealtimeSupplier({
+        provider: requestedProvider || process.env.REALTIME_PROVIDER || "openai",
+        apiKey: OPENAI_API_KEY,
+        defaultModel: OPENAI_REALTIME_MODEL,
+        defaultVoice: OPENAI_REALTIME_VOICE,
+        defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+        defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+      });
+    } catch (err) {
+      const status = err?.code === "realtime_supplier_unknown_provider"
+        ? 400
+        : Number(err?.status || 503);
+      return res.status(status).json({
+        stage: "realtime_auth",
+        code: err?.code || "realtime_supplier_unavailable",
+        realtime_provider: requestedProvider || String(supplier?.kind || "unknown"),
+        error: String(err?.message || err || "Realtime supplier unavailable."),
+      });
+    }
+  }
+
+  let minted;
+  try {
+    minted = await supplier.mintClientSecret({
+      instructions: requestedPrompt,
+      voice: requestedVoice || OPENAI_REALTIME_VOICE,
+      model: requestedModel || OPENAI_REALTIME_MODEL,
+      ttlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+    });
+  } catch (err) {
+    return res.status(Number(err?.status || 502)).json({
+      stage: "realtime_auth",
+      code: err?.code || "realtime_supplier_request_failed",
+      realtime_provider: String(supplier?.kind || requestedProvider || "unknown"),
+      error: String(err?.message || err || "Realtime supplier request failed."),
+    });
+  }
+
+  const sessionConfig = minted?.sessionConfig || supplier.buildSessionConfig({
     instructions: requestedPrompt,
     model: requestedModel || OPENAI_REALTIME_MODEL,
     voice: requestedVoice || OPENAI_REALTIME_VOICE,
   });
-
-  let openaiResp;
-  try {
-    openaiResp = await fetchWithTimeout(
-      "https://api.openai.com/v1/realtime/client_secrets",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          expires_after: {
-            anchor: "created_at",
-            seconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
-          },
-          session: sessionConfig,
-        }),
-      },
-      12_000
-    );
-  } catch (err) {
-    const message = isAbortError(err)
-      ? "Realtime client secret request timed out."
-      : String(err?.message || err || "Realtime client secret request failed.");
-    return res.status(isAbortError(err) ? 504 : 502).json({
-      stage: "realtime_auth",
-      error: message,
-    });
-  }
-
-  const raw = await openaiResp.text();
-  if (!openaiResp.ok) {
-    return res.status(openaiResp.status).json({
-      stage: "realtime_auth",
-      error: raw || "OpenAI Realtime client secret request failed.",
-    });
-  }
-
-  let payload = null;
-  try {
-    payload = raw ? JSON.parse(raw) : null;
-  } catch {
-    payload = null;
-  }
-
-  const clientSecretValue = String(
-    payload?.value ||
-    payload?.client_secret?.value ||
-    payload?.clientSecret?.value ||
-    ""
-  ).trim();
-  const expiresAt = Math.max(
-    0,
-    Number(
-      payload?.expires_at ||
-      payload?.client_secret?.expires_at ||
-      payload?.clientSecret?.expiresAt ||
-      0
-    )
-  );
+  const clientSecretValue = String(minted?.value || "").trim();
+  const expiresAt = Math.max(0, Number(minted?.expiresAt || 0));
   if (!clientSecretValue || !expiresAt) {
     return res.status(502).json({
       stage: "realtime_auth",
-      error: raw || "OpenAI Realtime client secret payload was incomplete.",
+      code: "realtime_supplier_response_invalid",
+      realtime_provider: String(supplier?.kind || requestedProvider || "unknown"),
+      error: "Realtime supplier returned an incomplete client secret payload.",
     });
   }
+
+  const sessionVoice = sessionConfig.audio?.output?.voice || requestedVoice || OPENAI_REALTIME_VOICE;
+  const sessionModel = sessionConfig.model || requestedModel || OPENAI_REALTIME_MODEL;
+  console.log(`[${rid}] realtime_client_secret supplier=${supplier.kind} model=${sessionModel} voice=${sessionVoice}`);
 
   res.setHeader("Cache-Control", "no-store");
   return res.status(201).json({
     transport: "webrtc_ephemeral",
     assistant_name: assistantSelfName,
-    model: sessionConfig.model,
-    voice: sessionConfig.audio?.output?.voice || OPENAI_REALTIME_VOICE,
+    realtime_provider: String(supplier.kind || "unknown"),
+    model: sessionModel,
+    voice: sessionVoice,
     session: {
-      type: sessionConfig.type,
-      model: sessionConfig.model,
-      voice: sessionConfig.audio?.output?.voice || OPENAI_REALTIME_VOICE,
-      instructions: sessionConfig.instructions,
+      type: sessionConfig.type || "realtime",
+      model: sessionModel,
+      voice: sessionVoice,
+      instructions: sessionConfig.instructions || requestedPrompt,
       output_modalities: Array.isArray(sessionConfig.output_modalities) ? sessionConfig.output_modalities : ["audio"],
     },
     client_secret: {

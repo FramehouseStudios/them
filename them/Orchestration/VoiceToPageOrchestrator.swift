@@ -157,7 +157,8 @@ final class VoiceToPageOrchestrator: ObservableObject {
         do {
             let bootstrap = try await backend.fetchRealtimeClientSecret(
                 systemPrompt: screenplaySystemPrompt,
-                isScreenplayMode: true
+                isScreenplayMode: true,
+                realtimeProvider: ClementineRealtimeSupplierMode.storedProviderParameter()
             )
 
             let session = WebRTCRealtimeSession()

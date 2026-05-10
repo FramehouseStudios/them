@@ -124,4 +124,101 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(payload.reopenedLineageKeys ?? [], ["lineage:a", "lineage:b"])
         XCTAssertEqual(payload.latestReopenedWriteID, "write:xyz")
     }
+
+    func testRenderedCharacterMentionExtractorFindsDialogueCues() {
+        let screenplay = """
+        INT. MOTEL - NIGHT
+
+        JUNE
+        I found the letter.
+
+        CAL (V.O.)
+        Do not open it.
+
+        CUT TO:
+
+        EXT. ROAD - DAWN
+        """
+
+        let mentions = ScreenplayRenderedCharacterMentionExtractor.extractMentions(from: screenplay)
+
+        XCTAssertEqual(mentions.map(\.characterName), ["JUNE", "CAL"])
+        XCTAssertEqual(mentions.map(\.line), [3, 6])
+        XCTAssertEqual(mentions.first?.tags, ["screenplay_reply", "ios_rendered_page"])
+    }
+
+    func testReplySideMentionFeatureFlagGuardsCommittedWrites() {
+        let write = ScreenplayCommittedWrite(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000029")!,
+            writeID: "write-1",
+            previousDraft: "",
+            committedDraft: "",
+            insertedText: """
+            JUNE
+            Hello.
+            """,
+            replacementApplied: false,
+            replacedWriteID: nil,
+            startLine: 1,
+            endLine: 2,
+            committedAt: Date(timeIntervalSince1970: 29)
+        )
+
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.replySideCharacterMentions(for: write, featureEnabled: false),
+            []
+        )
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.replySideCharacterMentions(for: write, featureEnabled: true).map(\.characterName),
+            ["JUNE"]
+        )
+
+        let placeholder = ScreenplayCommittedWrite(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000030")!,
+            writeID: "stub-1",
+            previousDraft: "",
+            committedDraft: "",
+            insertedText: write.insertedText,
+            replacementApplied: false,
+            replacedWriteID: nil,
+            startLine: 1,
+            endLine: 2,
+            committedAt: Date(timeIntervalSince1970: 30)
+        )
+
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.replySideCharacterMentions(for: placeholder, featureEnabled: true),
+            []
+        )
+    }
+
+    func testCharacterMentionPayloadUsesRecordEndpointContract() throws {
+        let mention = ScreenplayRenderedCharacterMention(
+            characterName: "JUNE",
+            line: 3,
+            tags: ["screenplay_reply"]
+        )
+
+        let payload = BackendMemoryAPI.characterMentionPayload(
+            mention: mention,
+            writeID: "write-1",
+            projectID: "project-1",
+            versionID: "version-1"
+        )
+
+        XCTAssertEqual(payload["character_name"] as? String, "JUNE")
+        XCTAssertEqual(payload["characterName"] as? String, "JUNE")
+        XCTAssertEqual(payload["write_id"] as? String, "write-1")
+        XCTAssertEqual(payload["line"] as? Int, 3)
+        XCTAssertEqual(payload["source"] as? String, "ios_screenplay_render")
+        XCTAssertEqual(payload["tags"] as? [String], ["screenplay_reply"])
+
+        let metadata = try XCTUnwrap(payload["metadata"] as? [String: Any])
+        XCTAssertEqual(metadata["screenplay_write_id"] as? String, "write-1")
+        XCTAssertEqual(metadata["screenplay_project_id"] as? String, "project-1")
+        XCTAssertEqual(metadata["screenplay_version_id"] as? String, "version-1")
+        XCTAssertEqual(metadata["line"] as? Int, 3)
+        XCTAssertEqual(metadata["source"] as? String, "ios_screenplay_render")
+    }
+
 }

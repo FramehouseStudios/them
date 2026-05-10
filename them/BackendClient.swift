@@ -390,6 +390,7 @@ struct BackendRealtimeSessionPayload: Decodable {
 
 struct BackendRealtimeBootstrapPayload: Decodable {
     let transport: String
+    let realtimeProvider: String?
     let assistantName: String?
     let model: String
     let voice: String
@@ -399,6 +400,7 @@ struct BackendRealtimeBootstrapPayload: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case transport
+        case realtimeProvider = "realtime_provider"
         case assistantName = "assistant_name"
         case model
         case voice
@@ -1101,7 +1103,7 @@ final class BackendClient {
         body.appendString("--\(boundary)--\r\n")
         request.httpBody = body
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid speculative prepare response.")
         }
@@ -1127,12 +1129,35 @@ final class BackendClient {
         )
     }
 
+    static func realtimeClientSecretBody(
+        systemPrompt: String? = nil,
+        userName: String? = nil,
+        isScreenplayMode: Bool = false,
+        voice: String? = nil,
+        model: String? = nil,
+        realtimeProvider: String? = nil
+    ) -> [String: Any] {
+        var body: [String: Any] = [
+            "system_prompt": systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "user_name": userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "is_screenplay_mode": isScreenplayMode,
+            "voice": voice?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "model": model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+        ]
+        let provider = realtimeProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !provider.isEmpty {
+            body["realtime_provider"] = provider
+        }
+        return body
+    }
+
     func fetchRealtimeClientSecret(
         systemPrompt: String? = nil,
         userName: String? = nil,
         isScreenplayMode: Bool = false,
         voice: String? = nil,
-        model: String? = nil
+        model: String? = nil,
+        realtimeProvider: String? = nil
     ) async throws -> BackendRealtimeBootstrap {
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveUserID()
@@ -1151,16 +1176,17 @@ final class BackendClient {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
 
-        let body: [String: Any] = [
-            "system_prompt": systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            "user_name": userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            "is_screenplay_mode": isScreenplayMode,
-            "voice": voice?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            "model": model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-        ]
+        let body = Self.realtimeClientSecretBody(
+            systemPrompt: systemPrompt,
+            userName: userName,
+            isScreenplayMode: isScreenplayMode,
+            voice: voice,
+            model: model,
+            realtimeProvider: realtimeProvider
+        )
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid realtime session response.")
         }
@@ -1182,6 +1208,7 @@ final class BackendClient {
 
         return BackendRealtimeBootstrap(
             transport: payload.transport,
+            realtimeProvider: payload.realtimeProvider,
             assistantName: payload.assistantName ?? "CLEMENTINE",
             model: payload.model,
             voice: payload.voice,
@@ -2684,7 +2711,7 @@ final class BackendClient {
         request.httpBody = Data("{}".utf8)
 
         print("POST /session -> url=\(request.url?.absoluteString ?? "-") has_app_token=\(appToken != nil)")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? -1
         let requestID = http?.value(forHTTPHeaderField: "X-Request-Id") ?? "-"
@@ -3202,7 +3229,7 @@ final class BackendClient {
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
             request.setValue("no-cache", forHTTPHeaderField: "Pragma")
 
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await urlSession.data(for: request)
             let http = response as? HTTPURLResponse
             let status = http?.statusCode ?? -1
             guard status == 304 || (200...299).contains(status) else { return false }

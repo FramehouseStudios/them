@@ -26,13 +26,17 @@
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
 | T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | review            |
-| T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
+| T11  | 60-second magic-moment onboarding                  | codex  | review            |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
+| T13-client | Add iOS realtime supplier selection            | codex  | merged            |
+| T29  | Hook iOS reply-side character mentions             | codex  | review            |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
+| T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | merged            |
 | T23  | Add craft completeness RC release gate             | claude | review            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
 | T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
+| T26  | Polish Craft tab framework and drift UX            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
 | T30  | Backend `/memory/record-character-mention` endpoint | claude | in-progress       |
@@ -141,9 +145,9 @@
 
 ### T11 — 60-second magic-moment onboarding
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T11-magic-moment-onboarding`
 - **Pillar:** voice→scene + mobile-first
-- **Status:** blocked-T05/T08
+- **Status:** review
 - **Done when:** cold-start to a properly formatted screenplay page in ≤60 seconds on a real iPhone, validated by the human; `first_page_written` (T05) fires; flow uses centralized prompts (T08).
 
 ### T12 — Adopt perceived-speed primitives system-wide
@@ -162,6 +166,29 @@
 - **Scope (follow-up):** integrate a real second supplier (ElevenLabs Conversational AI / Anthropic Realtime / etc.) once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
 - **Done when (foundation, this PR):** OpenAI logic extracted behind the interface; stub second supplier passes the same contract test; runtime config via `REALTIME_PROVIDER` defaults to `openai`; `POST /realtime/client_secret` returns the supplier's mint result regardless of provider; tests exercise both paths.
 - **Done when (overall T13):** a real second supplier ships behind the same interface and is exercised end-to-end against a live account in CI.
+
+### T13-client — Add iOS realtime supplier selection
+- **Owner:** codex
+- **Branch:** `codex/T13-realtime-supplier-client`
+- **Pillar:** living companion (resilience)
+- **Status:** merged
+- **Done when:** iOS can choose server default, OpenAI, or stub realtime supplier for `/realtime/client_secret`; the selection is visible in Voice settings and sent in the client-secret request; both OpenAI and stub request paths are exercised by tests or smoke coverage.
+
+### T29 — Hook iOS reply-side character mentions
+- **Owner:** codex
+- **Branch:** `codex/T-ios-reply-character-mentions`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** review
+- **Done when:** the iOS screenplay-render path extracts likely rendered character cues from final page text and posts them to `/memory/record-character-mention` behind an opt-in feature flag; missing endpoint or disabled flag is a safe no-op; tests cover extraction, feature flag behavior, and request shape.
+- **Dependency:** Claude/backend still needs to ship `/memory/record-character-mention`; Codex will leave the call site guarded until that endpoint exists.
+
+
+### T25 — Add Story Circle + Hero's Journey craft frameworks
+- **Owner:** codex
+- **Branch:** `codex/T25-additional-craft-frameworks`
+- **Pillar:** voice→scene + living companion
+- **Status:** merged
+- **Done when:** `backend/lib/craft_frameworks.js` exposes Story Circle and Hero's Journey definitions; each has a JSON fixture under `backend/fixtures/craft/`; framework list/lookup endpoints include them; schema and backend tests validate all four frameworks; macOS tests and generic iOS build remain green.
 
 ### T14 — Triage G3 backend feature snapshot
 - **Owner:** codex
@@ -192,6 +219,13 @@
 - **Status:** review
 - **Done when:** a repo-visible Codex-maintained handoff ledger exists, records each completed Codex task/PR with verification and Claude action items, and PR descriptions point Claude to the ledger as the real-time supervisor status source.
 
+### T26 — Polish Craft tab framework and drift UX
+- **Owner:** codex
+- **Branch:** `codex/T26-craft-tab-polish`
+- **Pillar:** voice→scene + living companion
+- **Status:** review
+- **Done when:** the Craft tab has a live-framework switcher, a user-facing override creation flow, and a major-turn timeline that visualizes drift from expected page bands; fixtures support SwiftUI previews; macOS tests and generic iOS build remain green.
+
 ### T-format-linter — Hollywood format linter (rules v1)
 - **Owner:** claude
 - **Branch:** `claude/T-format-linter`
@@ -205,7 +239,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T28-format-lint-ios`
 - **Pillar:** voice-to-scene + living companion
-- **Status:** review
+- **Status:** merged
 - **Done when:** iOS has typed client/models for `POST /craft/format/lint`; Studio import/export/document warnings surface severity, rule id, message, and page/line hints as craft lint cards; formatting suggestions are available without blocking save/export; focused tests cover decoding and warning mapping.
 
 ### T30 — Backend `/memory/record-character-mention` endpoint
