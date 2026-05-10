@@ -28,11 +28,25 @@
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
-| T19  | Add BackendClient craft API methods                | codex  | review            |
-| T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | blocked-T19       |
+| T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | review            |
 | T21  | Add craft-aware prompts and beat classification    | claude | ready-for-claude  |
 | T22  | Persist craft snapshots and turn overrides         | claude | ready-for-claude  |
 | T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
+
+---
+
+## Current next-10 checklist (2026-05-09)
+
+1. Done - Claude finished T18: /craft/* routes, analysis stub, tests, fixtures, and eval scaffold.
+2. Done - Claude pushed and opened the T18 PR against codex/T17-craft-report-models.
+3. Done - Human reviewed/merged the current stack: PR #1, PR #3, PR #4, PR #5, then T18 PR #6.
+4. Done - Codex implemented T19 BackendClient craft frameworks, schemas, reports, analyze, snapshots, and overrides.
+5. Done - Codex added T19 Swift tests for request construction, fixture decoding, and backend-unavailable states.
+6. Done - Codex implemented the T20 Craft tab in the studio right rail, adaptive for macOS and iOS.
+7. Done - Codex rendered major-turn drift as a page timeline.
+8. Done - Codex added framework switching and a beat-sheet table.
+9. Ready for Claude - start T21: feed craft schemas into prompts and add scene-to-beat classification.
+10. Ready for Claude - start the T22/T23 chain: persist craft snapshots and overrides, then add the missing-major-turn RC gate.
 
 ---
 
@@ -136,20 +150,13 @@
 - **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
 - **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
 
-### T19 — Add BackendClient craft API methods
-- **Owner:** codex
-- **Branch:** codex/T19-backend-client-craft-api
-- **Pillar:** voice-to-scene + living companion
-- **Status:** review
-- **Done when:** `BackendClient` can fetch frameworks, schemas, analysis reports, snapshots, and override mutations; Swift tests cover request construction, decoding, and unavailable backend states.
-- **Review note:** Implemented on `codex/T19-backend-client-craft-api` after T18 merged. Verified focused `BackendClientCraftAPITests` on macOS and iOS Simulator after rebasing onto `origin/main`.
-
 ### T20 — Build Craft tab, turn timeline, and beat sheet
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** codex/T20-craft-tab-timeline-beats
 - **Pillar:** mobile-first + voice-to-scene
-- **Status:** blocked-T19
+- **Status:** review
 - **Done when:** the studio right rail has a Craft tab with loading/empty/error states, major-turn drift timeline, framework switcher, and beat-sheet table that works on mobile and desktop targets.
+- **Review note:** Implemented on `codex/T20-craft-tab-timeline-beats` after T19 merged. Verified macOS and iOS Simulator Debug builds after rebasing onto `origin/main`.
 
 ### T21 — Add craft-aware prompts and beat classification
 - **Owner:** claude
@@ -200,6 +207,11 @@
 - **Owner:** claude
 - **Branch:** `claude/T18-craft-schemas-analysis`
 - **Merged:** 2026-05-09 via PR #6.
+
+### T19 — Add BackendClient craft API methods
+- **Owner:** codex
+- **Branch:** `codex/T19-backend-client-craft-api`
+- **Merged:** 2026-05-09 via PR #14.
 
 ---
 
