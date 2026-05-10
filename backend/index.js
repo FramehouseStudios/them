@@ -60,6 +60,7 @@ import {
 import { createPersonaRuntime } from "./lib/persona.js";
 import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
 import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention_route.js";
+import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
@@ -32843,6 +32844,11 @@ mountPromptRoutes(app, {
 // (canonical creative-memory path) so reply-side mentions are
 // distinguishable from user-input mentions via the persisted `source`.
 mountMemoryCharacterMentionRoute(app, { creativeMemoryStore });
+
+// T-trait-library: POST /memory/character-trait records a trait delta
+// (auto-merges with the existing character record); GET
+// /memory/character-traits returns one or all character inventories.
+mountCharacterTraitRoute(app, { creativeMemoryStore });
 
 // T-block-detector: GET /memory/block-signal — reads habits from
 // creativeMemoryStore and runs them through the pure

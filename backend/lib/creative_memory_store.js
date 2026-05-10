@@ -17,6 +17,7 @@
 // (Postgres in production; single-process discipline in JSON mode).
 
 import { createPersistence } from "./persistence_adapter.js";
+import { mergeTraits as mergeCharacterTraits } from "./trait_library.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -119,6 +120,10 @@ function createCreativeMemoryStore({ persistence } = {}) {
   // them only when supplied. Returns a small action receipt so route
   // handlers can build a typed response without a second read; legacy
   // callers can ignore the return value.
+  // T30: optional `source` and `metadata` thread through.
+  // T-trait-library: optional `traits` delta merges into character.traits
+  // (canonical merge via trait_library.mergeTraits). All three fields are
+  // additive — existing callers pass nothing and nothing changes.
   async function recordCharacterMention({
     userId,
     characterName,
@@ -126,6 +131,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     tags = [],
     source = "",
     metadata = null,
+    traits = null,
   }) {
     if (!userId || !characterName || typeof characterName !== "string") {
       return { ok: false, action: "skipped", reason: "missing_userId_or_name" };
@@ -137,6 +143,9 @@ function createCreativeMemoryStore({ persistence } = {}) {
     const cleanSource = typeof source === "string" ? source.trim() : "";
     const cleanMetadata = metadata && typeof metadata === "object" && !Array.isArray(metadata)
       ? metadata
+      : null;
+    const cleanTraits = traits && typeof traits === "object" && !Array.isArray(traits)
+      ? traits
       : null;
     let resolvedAction = "recorded";
     await updateUser(userId, (rec) => {
@@ -158,6 +167,12 @@ function createCreativeMemoryStore({ persistence } = {}) {
             ...cleanMetadata,
           };
         }
+        if (cleanTraits) {
+          characters[existingIdx].traits = mergeCharacterTraits(
+            characters[existingIdx].traits,
+            cleanTraits,
+          );
+        }
       } else {
         const entry = {
           name,
@@ -168,6 +183,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
         };
         if (cleanSource) entry.source = cleanSource;
         if (cleanMetadata) entry.metadata = { ...cleanMetadata };
+        if (cleanTraits) entry.traits = mergeCharacterTraits(null, cleanTraits);
         characters.push(entry);
       }
       characters.sort((a, b) => (b.last_referenced || 0) - (a.last_referenced || 0));
@@ -175,6 +191,21 @@ function createCreativeMemoryStore({ persistence } = {}) {
       return rec;
     });
     return { ok: true, action: resolvedAction, characterName: name, source: cleanSource };
+  }
+
+  // T-trait-library: reader for one or all character trait records.
+  async function getCharacterTraits({ userId, characterName = null } = {}) {
+    if (!userId) return null;
+    const rec = await readUser(userId);
+    if (!rec || !Array.isArray(rec.characters)) return null;
+    if (characterName && typeof characterName === "string") {
+      const name = characterName.trim();
+      if (!name) return null;
+      const found = rec.characters.find((c) => c.name === name);
+      if (!found) return null;
+      return { name: found.name, traits: found.traits || null };
+    }
+    return rec.characters.map((c) => ({ name: c.name, traits: c.traits || null }));
   }
 
   async function recordSceneCompletion({ userId, scenePageCount }) {
@@ -416,6 +447,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     SCHEMA_VERSION,
     DOMAIN,
     getCreativeMemoryForPrompt,
+    getCharacterTraits,
     getHabitsForUser,
     hasMemoryForUser,
     recordCharacterMention,

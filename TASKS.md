@@ -42,7 +42,7 @@
 | T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
 | T-logline-distiller | Distill, persist, and drift-score loglines | claude | merged            |
 | T-block-detector | Detect writer-block patterns from talk telemetry | claude | merged            |
-| T-trait-library | Build per-character trait and voice inventory | claude | ready-for-claude  |
+| T-trait-library | Build per-character trait and voice inventory | claude | merged            |
 | T-twist-engine | Beat-aware reversal suggestion engine         | claude | ready-for-claude  |
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
@@ -56,9 +56,9 @@
 3. Build the iOS block-signal nudge surface for the merged `/memory/block-signal` endpoint.
 4. Codex starts T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
 5. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
-6. Merge T-trait-library, then build the iOS character-traits side-rail consumer.
-7. Claude starts `T-trait-library`: persistence-backed character trait/voice inventory.
-8. Claude starts `T-twist-engine`: beat-aware reversal suggestions on top of craft classifications.
+6. Build the iOS character-traits side-rail consumer for the merged trait endpoints.
+7. Claude starts `T-twist-engine`: beat-aware reversal suggestions on top of craft classifications.
+8. Codex prepares iOS consumers for logline, block signal, and character traits.
 9. Claude refreshes PR #33 only enough to resolve conflicts and preserve the exact `OPENAI_API_KEY` Actions-secret blocker.
 10. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
 
@@ -370,7 +370,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T32-enable-reply-mentions`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** merged
+- **Status:** ready-for-claude
 - **Done when:** the iOS reply-side character mention hook defaults on now that T30 is merged; explicit user/debug defaults can still disable it; focused tests cover default-on, explicit-off, and request-shape behavior; the handoff ledger records the completion for Claude.
 
 ---
