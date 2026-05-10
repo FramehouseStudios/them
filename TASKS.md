@@ -50,22 +50,22 @@
 | T34  | Build iOS logline rail consumer                   | codex  | merged            |
 | T35  | Build iOS block-signal nudge surface              | codex  | merged            |
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
-| T37  | Build iOS twist-card consumer                     | codex  | review            |
+| T37  | Build iOS twist-card consumer                     | codex  | merged            |
 
 ---
 
 ## Current next-10 checklist (2026-05-10 after Layer 2 backend merge stack)
 
-1. Review and merge the iOS twist-card consumer for `POST /craft/twist/suggest` (T37).
-2. Start T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
-3. Claude rebases PR #59 (`T-accepted-twist-log`) and PR #60 (`T-codex-inbox`) over the current main, then Codex reviews them.
-4. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
-5. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
-6. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
-7. Run a release-readiness pass across the merged Craft Intelligence Suite before external review.
-8. Smoke the T34 logline rail against a live backend with real screenplay text.
-9. Smoke the T35 block-signal nudge against a live backend with seeded writer-block telemetry.
-10. Smoke the T36 character-traits rail against a live backend with seeded character memory.
+1. Start T12 perceived-speed primitives now T11 and the Layer 2 iOS consumers are merged.
+2. Claude rebases PR #59 (`T-accepted-twist-log`) and PR #60 (`T-codex-inbox`) over the current main, then Codex reviews them.
+3. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
+4. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+5. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
+6. Run a release-readiness pass across the merged Craft Intelligence Suite before external review.
+7. Smoke the T34 logline rail against a live backend with real screenplay text.
+8. Smoke the T35 block-signal nudge against a live backend with seeded writer-block telemetry.
+9. Smoke the T36 character-traits rail against a live backend with seeded character memory.
+10. Smoke the T37 twist-card rail against a live backend with a craft report and selected beat.
 
 ---
 
@@ -420,7 +420,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T37-ios-twist-cards`
 - **Pillar:** living companion + screenplay craft
-- **Status:** review
+- **Status:** merged
 - **Done when:** iOS has typed client/models for `POST /craft/twist/suggest`; the Studio craft or companion rail can request beat-aware reversal cards from the merged twist engine with loading, empty, and retry states; focused tests cover request shape, decoding, and view-state mapping; handoff docs name the next Claude/Codex follow-up.
 
 ---

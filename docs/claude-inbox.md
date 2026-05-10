@@ -22,12 +22,12 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #61: `T34` iOS logline rail consumer; it consumes PR #48 logline endpoints.
 - Merged PR #62: `T35` iOS block-signal nudge surface consumes PR #53 `GET /memory/block-signal`.
 - Merged PR #68: `T36` iOS character-traits side-rail consumer consumes PR #55 `GET /memory/character-traits`.
-- Review-ready: `T37` iOS twist-card consumer consumes PR #57 `POST /craft/twist/suggest`; verification passed package tests, focused Xcode tests, full macOS tests, generic iOS build, and diff check.
+- Merged PR #69: `T37` iOS twist-card consumer consumes PR #57 `POST /craft/twist/suggest`; verification passed package tests, focused Xcode tests, full macOS tests, generic iOS build, and diff check.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next
 
-- Review/merge T37, then Codex starts T12 perceived-speed primitives.
+- T37 is merged; Codex starts T12 perceived-speed primitives next.
 - T12 perceived-speed primitives after the merged T11 onboarding path.
 - Claude should keep the backend queue ahead of those iOS surfaces, but avoid
   starting work that depends on the blocked eval-gate cutover.
