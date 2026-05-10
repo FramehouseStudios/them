@@ -16699,6 +16699,57 @@ function persistKnowledgeEmbeddingStore() {
   } catch (_err) {
     // Non-fatal: retrieval keeps running with in-memory vectors.
   }
+  // T07d: dual-write to the persistence adapter when configured.
+  // One row per embedding id keeps the table append-friendly for
+  // future incremental updates. Errors are logged and non-blocking.
+  if (sharedPersistence && typeof sharedPersistence.put === "function") {
+    try {
+      const store = loadKnowledgeEmbeddingStore();
+      const vectors = store?.vectors || {};
+      for (const [id, row] of Object.entries(vectors)) {
+        void Promise.resolve(sharedPersistence.put({
+          domain: "knowledge_embeddings",
+          key: id,
+          value: row,
+        })).catch((err) => {
+          console.error(`[knowledge_embeddings] adapter put failed for ${id}:`, err?.message || err);
+        });
+      }
+    } catch (err) {
+      console.error("[knowledge_embeddings] adapter dual-write failed:", err?.message || err);
+    }
+  }
+}
+
+// T07d: load embedding rows from the persistence adapter.
+// Called as a fallback when the legacy JSON cache file is missing or
+// empty. Returns true if any rows were loaded into the in-memory map.
+async function loadKnowledgeEmbeddingStoreFromAdapter() {
+  if (!sharedPersistence || typeof sharedPersistence.list !== "function") return false;
+  let records;
+  try {
+    records = await sharedPersistence.list({ domain: "knowledge_embeddings", limit: 10_000 });
+  } catch (err) {
+    console.error("[knowledge_embeddings] adapter list failed:", err?.message || err);
+    return false;
+  }
+  if (!Array.isArray(records) || records.length === 0) return false;
+  knowledgeEmbeddingStoreLoaded = true;
+  const vectors = {};
+  for (const { key, value } of records) {
+    const vector = sanitizeEmbeddingVector(value?.vector);
+    if (!vector) continue;
+    vectors[key] = {
+      hash: normalizeSnippet(value?.hash, 96),
+      model: normalizeSnippet(value?.model, 96),
+      dimensions: Math.max(0, Number(value?.dimensions || vector.length)),
+      norm: Number(value?.norm || vectorNorm(vector)),
+      updatedAt: Math.max(0, Number(value?.updatedAt || 0)),
+      vector,
+    };
+  }
+  knowledgeEmbeddingStore = { meta: knowledgeEmbeddingStore?.meta || {}, vectors };
+  return true;
 }
 
 function buildKnowledgeCardEmbeddingText(card) {
