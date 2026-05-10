@@ -133,6 +133,149 @@ struct BackendBlockSignalNudgeState: Equatable {
     }
 }
 
+
+struct BackendCharacterSpeechStyle: Codable, Equatable {
+    let pace: String
+    let syntax: String
+
+    enum CodingKeys: String, CodingKey {
+        case pace
+        case syntax
+    }
+
+    init(pace: String = "", syntax: String = "") {
+        self.pace = pace
+        self.syntax = syntax
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pace = (try container.decodeIfPresent(String.self, forKey: .pace)) ?? ""
+        syntax = (try container.decodeIfPresent(String.self, forKey: .syntax)) ?? ""
+    }
+}
+
+struct BackendCharacterTraits: Codable, Equatable {
+    let vocabulary: [String]
+    let keywords: [String]
+    let speechStyle: BackendCharacterSpeechStyle
+    let emotionalDefault: String
+    let goals: [String]
+    let relationships: [String: String]
+
+    enum CodingKeys: String, CodingKey {
+        case vocabulary
+        case keywords
+        case speechStyle = "speech_style"
+        case emotionalDefault = "emotional_default"
+        case goals
+        case relationships
+    }
+
+    init(
+        vocabulary: [String] = [],
+        keywords: [String] = [],
+        speechStyle: BackendCharacterSpeechStyle = BackendCharacterSpeechStyle(),
+        emotionalDefault: String = "",
+        goals: [String] = [],
+        relationships: [String: String] = [:]
+    ) {
+        self.vocabulary = vocabulary
+        self.keywords = keywords
+        self.speechStyle = speechStyle
+        self.emotionalDefault = emotionalDefault
+        self.goals = goals
+        self.relationships = relationships
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        vocabulary = (try container.decodeIfPresent([String].self, forKey: .vocabulary)) ?? []
+        keywords = (try container.decodeIfPresent([String].self, forKey: .keywords)) ?? []
+        speechStyle = (try container.decodeIfPresent(BackendCharacterSpeechStyle.self, forKey: .speechStyle)) ?? BackendCharacterSpeechStyle()
+        emotionalDefault = (try container.decodeIfPresent(String.self, forKey: .emotionalDefault)) ?? ""
+        goals = (try container.decodeIfPresent([String].self, forKey: .goals)) ?? []
+        relationships = (try container.decodeIfPresent([String: String].self, forKey: .relationships)) ?? [:]
+    }
+
+    var hasContent: Bool {
+        !vocabulary.isEmpty ||
+        !keywords.isEmpty ||
+        !speechStyle.pace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !speechStyle.syntax.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !emotionalDefault.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !goals.isEmpty ||
+        !relationships.isEmpty
+    }
+}
+
+struct BackendCharacterTraitRecord: Codable, Equatable {
+    let name: String
+    let traits: BackendCharacterTraits?
+}
+
+struct BackendCharacterTraitsResponse: Codable, Equatable {
+    let schemaVersion: Int
+    let userId: String?
+    let characters: [BackendCharacterTraitRecord]
+    let error: String?
+}
+
+struct BackendCharacterTraitCardState: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let summary: String
+    let chips: [String]
+    let detail: String
+    let hasTraits: Bool
+
+    static func make(response: BackendCharacterTraitsResponse?) -> [BackendCharacterTraitCardState] {
+        guard let response else { return [] }
+        return response.characters.prefix(4).enumerated().map { index, record in
+            let cleanedName = clean(record.name)
+            let traits = record.traits
+            let styleParts = [
+                clean(traits?.speechStyle.pace ?? ""),
+                clean(traits?.speechStyle.syntax ?? "")
+            ].filter { !$0.isEmpty }
+            let emotionalDefault = clean(traits?.emotionalDefault ?? "")
+            let goals = (traits?.goals ?? []).map { clean($0) }.filter { !$0.isEmpty }
+            let vocabulary = (traits?.vocabulary ?? []).map { clean($0) }.filter { !$0.isEmpty }
+            let keywords = (traits?.keywords ?? []).map { clean($0) }.filter { !$0.isEmpty }
+            let relationships = traits?.relationships ?? [:]
+            let summary: String
+            if !emotionalDefault.isEmpty {
+                summary = "Default: \(emotionalDefault)"
+            } else if !styleParts.isEmpty {
+                summary = "Voice: \(styleParts.joined(separator: ", "))"
+            } else if let firstGoal = goals.first {
+                summary = "Wants: \(firstGoal)"
+            } else {
+                summary = "Known character; voice inventory is still learning."
+            }
+            let chipSource = keywords + styleParts + Array(goals.prefix(1))
+            let chips = Array(chipSource.prefix(4))
+            let detailBits = [
+                vocabulary.isEmpty ? nil : "\(vocabulary.count) phrase\(vocabulary.count == 1 ? "" : "s")",
+                goals.isEmpty ? nil : "\(goals.count) goal\(goals.count == 1 ? "" : "s")",
+                relationships.isEmpty ? nil : "\(relationships.count) tie\(relationships.count == 1 ? "" : "s")"
+            ].compactMap { $0 }
+            return BackendCharacterTraitCardState(
+                id: "\(cleanedName.lowercased())-\(index)",
+                name: cleanedName.isEmpty ? "Unknown" : cleanedName,
+                summary: summary,
+                chips: chips,
+                detail: detailBits.isEmpty ? "Waiting for more dialogue evidence" : detailBits.joined(separator: " | "),
+                hasTraits: traits?.hasContent ?? false
+            )
+        }
+    }
+
+    private static func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 private struct BackendTalkTurnMetaPayload: Decodable {
     let turnID: String?
     let sessionID: String?
@@ -934,6 +1077,57 @@ final class BackendClient {
         } catch {
             let raw = String(data: data, encoding: .utf8) ?? ""
             throw BackendError.http(502, raw.isEmpty ? "Invalid block-signal payload." : raw)
+        }
+    }
+
+
+    func fetchMemoryCharacterTraits(characterName: String? = nil) async throws -> BackendCharacterTraitsResponse {
+        persistSharedBackendBaseURL(baseURL)
+        var url = baseURL
+        url.appendPathComponent("memory")
+        url.appendPathComponent("character-traits")
+
+        let normalizedName = characterName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedName.isEmpty {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = [URLQueryItem(name: "characterName", value: normalizedName)]
+            if let componentURL = components?.url {
+                url = componentURL
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid character-traits response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+        do {
+            return try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid character-traits payload." : raw)
         }
     }
 
