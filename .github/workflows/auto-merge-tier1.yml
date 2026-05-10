@@ -1,0 +1,155 @@
+name: auto-merge-tier1
+
+# Auto-merges Tier 1 PRs once they pass the gates required by the
+# Trust Tiers section in AGENTS.md. Tier 1 = agent-owned routine work
+# (new pure-backend module + tests + docs, new canonical endpoint,
+# additive persistence domain, conflict refreshes, status flips,
+# doc-only fixes).
+#
+# A PR is auto-merged when ALL of the following hold:
+#   1. It carries the `tier-1` label.
+#   2. It does NOT carry the `tier-2`, `tier-3`, `needs-human`, or
+#      `do-not-merge` labels.
+#   3. The backend test suite is green on the head SHA.
+#   4. Either:
+#        a. The other agent has approved the PR (formal review approval),
+#        b. OR a comment beginning with "Codex supervisor update: approved"
+#           or "Claude supervisor update: approved" exists,
+#        c. OR the PR has been open for at least 4 hours without any
+#           comment from the other agent containing the word "block",
+#           "block,", or "blocker".
+#
+# Either agent can escalate a PR by replacing the label with `tier-2` /
+# `tier-3` and leaving a comment. Escalation cannot be reversed by an
+# agent — only the human may downgrade.
+#
+# Tier 3 PRs are never auto-merged regardless of other gates.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+  workflow_run:
+    workflows: ["quality-gate"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR context
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_review)
+              echo "pr_number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+              ;;
+            issue_comment)
+              if [[ "${{ github.event.issue.pull_request }}" == "" ]]; then
+                echo "Comment is on an issue, not a PR; skipping."
+                echo "pr_number=" >> "$GITHUB_OUTPUT"
+              else
+                echo "pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+            workflow_run)
+              # Find the PR(s) whose head SHA matches the completed workflow.
+              SHA="${{ github.event.workflow_run.head_sha }}"
+              PR=$(gh pr list --state open --search "$SHA" --json number --jq '.[0].number')
+              echo "pr_number=${PR:-}" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Skip if no PR resolved
+        if: steps.pr.outputs.pr_number == ''
+        run: echo "No PR to evaluate; exiting."
+
+      - name: Check tier + gates and auto-merge if eligible
+        if: steps.pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          info=$(gh pr view "$PR" --json number,headRefOid,mergeable,mergeStateStatus,labels,reviews,comments,createdAt,isDraft,state)
+          state=$(echo "$info" | jq -r '.state')
+          if [[ "$state" != "OPEN" ]]; then
+            echo "PR #$PR is not open (state=$state); skipping."; exit 0
+          fi
+          is_draft=$(echo "$info" | jq -r '.isDraft')
+          if [[ "$is_draft" == "true" ]]; then
+            echo "PR #$PR is draft; skipping."; exit 0
+          fi
+
+          labels=$(echo "$info" | jq -r '.labels[].name' | tr '\n' ' ')
+          if ! echo " $labels " | grep -q " tier-1 "; then
+            echo "PR #$PR is not tier-1; skipping."; exit 0
+          fi
+          for forbidden in tier-2 tier-3 needs-human do-not-merge; do
+            if echo " $labels " | grep -q " $forbidden "; then
+              echo "PR #$PR carries blocking label $forbidden; skipping."; exit 0
+            fi
+          done
+
+          mergeable=$(echo "$info" | jq -r '.mergeable')
+          if [[ "$mergeable" != "MERGEABLE" ]]; then
+            echo "PR #$PR not mergeable (mergeable=$mergeable); skipping."; exit 0
+          fi
+
+          # Check suite status via merge-state.
+          mss=$(echo "$info" | jq -r '.mergeStateStatus')
+          if [[ "$mss" != "CLEAN" && "$mss" != "UNSTABLE" && "$mss" != "HAS_HOOKS" ]]; then
+            echo "PR #$PR mergeStateStatus=$mss is not green-enough; skipping."; exit 0
+          fi
+          if [[ "$mss" == "UNSTABLE" ]]; then
+            # UNSTABLE = required checks passed but a non-required check failed.
+            # Refuse to auto-merge to be conservative; let the human or agent decide.
+            echo "PR #$PR has non-required check failures (UNSTABLE); skipping."; exit 0
+          fi
+
+          # Cross-agent approval check.
+          approved_via_review=$(echo "$info" | jq -r '[.reviews[] | select(.state == "APPROVED")] | length')
+          approved_via_comment=$(echo "$info" \
+            | jq -r '.comments[].body' \
+            | grep -E '^(Codex|Claude) supervisor update: approved' | wc -l | tr -d ' ')
+
+          # Quiet-time check: open ≥4h with no blocking comment from the
+          # other agent (here we count any comment containing the word "block"
+          # — case-insensitive, word-boundary).
+          created_at=$(echo "$info" | jq -r '.createdAt')
+          created_epoch=$(date -u -d "$created_at" +%s 2>/dev/null || gdate -u -d "$created_at" +%s 2>/dev/null || python3 -c "import datetime,sys;print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$created_at")
+          now_epoch=$(date -u +%s)
+          age_hours=$(( (now_epoch - created_epoch) / 3600 ))
+
+          blocking_comment=$(echo "$info" \
+            | jq -r '.comments[].body' \
+            | grep -iE '\bblock(er|ed|ing)?\b' | wc -l | tr -d ' ')
+
+          quiet_path_ok=0
+          if [[ "$age_hours" -ge 4 && "$blocking_comment" -eq 0 ]]; then
+            quiet_path_ok=1
+          fi
+
+          if [[ "$approved_via_review" -eq 0 && "$approved_via_comment" -eq 0 && "$quiet_path_ok" -eq 0 ]]; then
+            echo "PR #$PR not approved (review=0, comment=0) and age=${age_hours}h with $blocking_comment blocking comments; skipping."; exit 0
+          fi
+
+          echo "PR #$PR is tier-1, mergeable, and approved. Merging."
+          gh pr merge "$PR" --squash --auto --delete-branch || gh pr merge "$PR" --squash --delete-branch
