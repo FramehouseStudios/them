@@ -32,10 +32,11 @@
 | T13-client | Add iOS realtime supplier selection            | codex  | merged            |
 | T29  | Hook iOS reply-side character mentions             | codex  | review            |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
-| T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | review            |
+| T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | merged            |
 | T23  | Add craft completeness RC release gate             | claude | review            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
 | T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
+| T26  | Polish Craft tab framework and drift UX            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
 
@@ -185,7 +186,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T25-additional-craft-frameworks`
 - **Pillar:** voice→scene + living companion
-- **Status:** review
+- **Status:** merged
 - **Done when:** `backend/lib/craft_frameworks.js` exposes Story Circle and Hero's Journey definitions; each has a JSON fixture under `backend/fixtures/craft/`; framework list/lookup endpoints include them; schema and backend tests validate all four frameworks; macOS tests and generic iOS build remain green.
 
 ### T14 — Triage G3 backend feature snapshot
@@ -217,6 +218,13 @@
 - **Status:** review
 - **Done when:** a repo-visible Codex-maintained handoff ledger exists, records each completed Codex task/PR with verification and Claude action items, and PR descriptions point Claude to the ledger as the real-time supervisor status source.
 
+### T26 — Polish Craft tab framework and drift UX
+- **Owner:** codex
+- **Branch:** `codex/T26-craft-tab-polish`
+- **Pillar:** voice→scene + living companion
+- **Status:** review
+- **Done when:** the Craft tab has a live-framework switcher, a user-facing override creation flow, and a major-turn timeline that visualizes drift from expected page bands; fixtures support SwiftUI previews; macOS tests and generic iOS build remain green.
+
 ### T-format-linter — Hollywood format linter (rules v1)
 - **Owner:** claude
 - **Branch:** `claude/T-format-linter`
@@ -230,7 +238,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T28-format-lint-ios`
 - **Pillar:** voice-to-scene + living companion
-- **Status:** review
+- **Status:** merged
 - **Done when:** iOS has typed client/models for `POST /craft/format/lint`; Studio import/export/document warnings surface severity, rule id, message, and page/line hints as craft lint cards; formatting suggestions are available without blocking save/export; focused tests cover decoding and warning mapping.
 
 ---

@@ -378,6 +378,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var craftReport: ScreenplayCraftReport?
     @Published var isCraftLoading: Bool = false
     @Published var isCraftAnalyzing: Bool = false
+    @Published var isCraftOverrideSaving: Bool = false
     @Published var craftErrorText: String = ""
     @Published var craftInfoText: String = ""
     @Published var formatLintReport: ScreenplayFormatLintReport?
@@ -2196,6 +2197,20 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             craftReport = report
             selectedCraftFrameworkID = report.framework.id
             craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft analysis complete."
+        } catch {
+            craftErrorText = error.localizedDescription
+        }
+    }
+
+    func createCraftTurnOverride(_ override: ScreenplayCraftTurnOverrideMutation) async {
+        guard !isCraftOverrideSaving else { return }
+
+        isCraftOverrideSaving = true
+        defer { isCraftOverrideSaving = false }
+        craftErrorText = ""
+        do {
+            let stored = try await craftClient.recordCraftTurnOverride(override)
+            craftInfoText = "Override saved for \(stored.turnId). Run Analyze to rebuild craft coverage."
         } catch {
             craftErrorText = error.localizedDescription
         }
@@ -7935,6 +7950,7 @@ Detail:
             errorText: vm.craftErrorText,
             infoText: vm.craftInfoText,
             fallbackPageCount: vm.craftFallbackPageCount,
+            isSavingOverride: vm.isCraftOverrideSaving,
             formatLintCards: vm.formatLintCards,
             isFormatLinting: vm.isFormatLinting,
             formatLintErrorText: vm.formatLintErrorText,
@@ -7947,6 +7963,9 @@ Detail:
             },
             onAnalyze: {
                 Task { await vm.analyzeCraftReport() }
+            },
+            onCreateOverride: { override in
+                Task { await vm.createCraftTurnOverride(override) }
             }
         )
     }
