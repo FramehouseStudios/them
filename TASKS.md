@@ -27,7 +27,7 @@
 | T08-postgres | Move creative memory store to persistence adapter | claude | merged            |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | merged            |
 | T11  | 60-second magic-moment onboarding                  | codex  | merged            |
-| T12  | Adopt perceived-speed primitives system-wide       | codex  | ready             |
+| T12  | Adopt perceived-speed primitives system-wide       | codex  | in-progress       |
 | T13  | Add second realtime supplier behind interface      | claude | merged            |
 | T13-client | Add iOS realtime supplier selection            | codex  | merged            |
 | T29  | Hook iOS reply-side character mentions             | codex  | merged            |
@@ -165,7 +165,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T12-perceived-speed`
 - **Pillar:** mobile-first + voice→scene
-- **Status:** ready
+- **Status:** in-progress
 - **Done when:** skeletons, optimistic writes, and audio-first responses are the default in the studio surface; measured time-to-perceived-response is ≤100 ms for the magic-moment path.
 
 ### T13 — Add second realtime supplier behind existing interface
