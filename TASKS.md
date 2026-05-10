@@ -40,7 +40,7 @@
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
 | T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
-| T-trait-library | Per-character voice/trait inventory          | claude | in-progress       |
+| T-trait-library | Per-character voice/trait inventory          | claude | review            |
 
 ---
 
@@ -255,7 +255,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T-trait-library`
 - **Pillar:** living companion + longitudinal learning (Craft Intelligence Suite, Layer 2)
-- **Status:** in-progress
+- **Status:** review
 - **Scope:** `backend/lib/trait_library.js` extracts per-character traits from dialogue (deterministic stub by default; LLM-friendly seam via the T21 classifier interface for future) and stores them as an additive `traits` object on each `creative_memory.characters[]` record. New endpoint `POST /memory/character-trait` records a trait delta (auto-merges with the existing inventory); `GET /memory/character-traits?characterName=` returns one or all character inventories for the requesting user. Trait shape: `{ vocabulary: string[], keywords: string[], speech_style: { pace, syntax }, emotional_default: string, goals: string[], relationships: { [name]: string } }`. The prompt-assembly path already reads `characters[]` for system-prompt context — when `traits` is present, that block becomes a per-character voice profile without further wiring.
 - **Done when:** `extractTraits({ characterName, lines })` returns deterministic traits for fixed inputs; `mergeTraits(prev, next)` is idempotent and bounded (caps per-field array sizes); endpoint mounts under `/memory/character-trait` and `/memory/character-traits`; ≥10 unit tests + ≥4 endpoint integration tests; full backend test suite stays green; design notes in `docs/T-trait-library.md`.
 
