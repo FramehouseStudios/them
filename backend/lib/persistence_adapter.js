@@ -31,6 +31,8 @@ const KNOWN_DOMAINS = Object.freeze([
   "craft_classifications",
   // T08-postgres: creative-companion memory tier.
   "creative_memory",
+  // T-logline-distiller: per-project logline history (Craft Intelligence Suite, Layer 2).
+  "craft_loglines",
 ]);
 
 function isKnownDomain(domain) {

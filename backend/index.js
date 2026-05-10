@@ -61,6 +61,7 @@ import { createPersonaRuntime } from "./lib/persona.js";
 import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
 import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention_route.js";
 import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
+import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
@@ -82,6 +83,7 @@ import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
 import { mountPromptRoutes } from "./lib/prompt_routes.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
+import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
@@ -32827,6 +32829,9 @@ mountTalkPipelineRoutes(app, {
 // reports and overrides survive process restarts (Postgres-backed when
 // DATABASE_URL is set, JSON-file-backed otherwise).
 configureCraftAnalysis({ persistence: sharedPersistence });
+// T-logline-distiller: routes use the shared adapter + the default
+// classifier (LLM when OPENAI_API_KEY is set; deterministic stub otherwise).
+configureLoglineDistiller({ persistence: sharedPersistence, classifier: defaultLoglineClassifier() });
 mountCraftRoutes(app);
 mountPromptRoutes(app, {
   creativeMemoryStore,
@@ -32844,6 +32849,12 @@ mountMemoryCharacterMentionRoute(app, { creativeMemoryStore });
 // (auto-merges with the existing character record); GET
 // /memory/character-traits returns one or all character inventories.
 mountCharacterTraitRoute(app, { creativeMemoryStore });
+
+// T-block-detector: GET /memory/block-signal — reads habits from
+// creativeMemoryStore and runs them through the pure
+// computeBlockSignal() so iOS can nudge the writer when block patterns
+// emerge.
+mountBlockSignalRoute(app, { creativeMemoryStore });
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
