@@ -13,7 +13,12 @@ struct ScreenplayCraftRailView: View {
     let infoText: String
     let fallbackPageCount: Int
     let isSavingOverride: Bool
+    let formatLintCards: [ScreenplayFormatLintCard]
+    let isFormatLinting: Bool
+    let formatLintErrorText: String
+    let formatLintSource: String
     let onRefresh: () -> Void
+    let onRefreshFormatLint: () -> Void
     let onAnalyze: () -> Void
     let onCreateOverride: (ScreenplayCraftTurnOverrideMutation) -> Void
 
@@ -25,6 +30,15 @@ struct ScreenplayCraftRailView: View {
         VStack(alignment: .leading, spacing: 14) {
             header
             frameworkPicker
+            ScreenplayFormatLintCardListView(
+                title: "Format lint",
+                cards: formatLintCards,
+                isLoading: isFormatLinting,
+                errorText: formatLintErrorText,
+                sourceText: formatLintSource,
+                maxVisible: 4,
+                onRefresh: onRefreshFormatLint
+            )
 
             if isLoading {
                 craftStateCard(
@@ -682,7 +696,12 @@ private struct ScreenplayCraftRailPreviewHost: View {
                 infoText: "",
                 fallbackPageCount: 102,
                 isSavingOverride: false,
+                formatLintCards: [],
+                isFormatLinting: false,
+                formatLintErrorText: "",
+                formatLintSource: "Preview",
                 onRefresh: {},
+                onRefreshFormatLint: {},
                 onAnalyze: {},
                 onCreateOverride: { _ in }
             )
@@ -778,3 +797,223 @@ private enum ScreenplayCraftRailPreviewData {
     ScreenplayCraftRailPreviewHost()
 }
 #endif
+struct ScreenplayFormatLintCard: Identifiable, Hashable {
+    let id: String
+    let rule: String
+    let severity: String
+    let message: String
+    let suggestion: String?
+    let excerpt: String?
+    let line: Int
+    let page: Int?
+    let rangeStart: Int?
+    let rangeEnd: Int?
+
+    var severityLabel: String {
+        severity.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    var ruleLabel: String {
+        rule
+            .split(separator: "_")
+            .map { $0.capitalized }
+            .joined(separator: " ")
+    }
+
+    var anchorText: String {
+        if let page {
+            return "p\(page) / l\(line)"
+        }
+        return "l\(line)"
+    }
+
+    static func cards(from report: ScreenplayFormatLintReport?, linesPerPage: Int) -> [ScreenplayFormatLintCard] {
+        guard let report else { return [] }
+        let safeLinesPerPage = max(linesPerPage, 1)
+        return report.suggestions
+            .map { suggestion in
+                let line = max(suggestion.line, 1)
+                let range = suggestion.range ?? []
+                return ScreenplayFormatLintCard(
+                    id: suggestion.id,
+                    rule: suggestion.rule,
+                    severity: suggestion.severity,
+                    message: suggestion.message,
+                    suggestion: suggestion.suggestion,
+                    excerpt: suggestion.excerpt,
+                    line: line,
+                    page: ((line - 1) / safeLinesPerPage) + 1,
+                    rangeStart: range.indices.contains(0) ? range[0] : nil,
+                    rangeEnd: range.indices.contains(1) ? range[1] : nil
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.line != rhs.line { return lhs.line < rhs.line }
+                let lhsRank = severityRank(lhs.severity)
+                let rhsRank = severityRank(rhs.severity)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return lhs.rule < rhs.rule
+            }
+    }
+
+    private static func severityRank(_ severity: String) -> Int {
+        switch severity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "hard": return 0
+        case "medium": return 1
+        case "soft": return 2
+        default: return 3
+        }
+    }
+}
+
+struct ScreenplayFormatLintCardListView: View {
+    let title: String
+    let cards: [ScreenplayFormatLintCard]
+    let isLoading: Bool
+    let errorText: String
+    let sourceText: String
+    let maxVisible: Int
+    let onRefresh: () -> Void
+
+    private var cleanErrorText: String {
+        errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var cleanSourceText: String {
+        sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 8) {
+                sectionLabel(title)
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Spacer(minLength: 0)
+                Button(action: onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isLoading)
+            }
+
+            if !cleanErrorText.isEmpty {
+                lintStateCard(
+                    icon: "exclamationmark.triangle",
+                    title: "Format lint unavailable",
+                    detail: cleanErrorText,
+                    color: Color.orange.opacity(0.86)
+                )
+            } else if cards.isEmpty {
+                lintStateCard(
+                    icon: "checkmark.seal",
+                    title: isLoading ? "Checking format" : "No format warnings",
+                    detail: cleanSourceText.isEmpty ? "Draft format is clear." : "\(cleanSourceText) format is clear.",
+                    color: Color.green.opacity(0.82)
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(cards.prefix(maxVisible)) { card in
+                        lintCard(card)
+                    }
+                    if cards.count > maxVisible {
+                        Text("+\(cards.count - maxVisible) more")
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.50))
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func lintCard(_ card: ScreenplayFormatLintCard) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(card.severityLabel)
+                    .font(.system(size: 9, weight: .semibold, design: .default))
+                    .foregroundStyle(severityColor(card.severity))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(severityColor(card.severity).opacity(0.12))
+                    .clipShape(Capsule())
+
+                Text(card.ruleLabel)
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.82))
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Text(card.anchorText)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.herText.opacity(0.50))
+            }
+
+            Text(card.message)
+                .font(.system(size: 11, weight: .regular, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.66))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let suggestion = card.suggestion, !suggestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(suggestion)
+                    .font(.system(size: 10, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.54))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let excerpt = card.excerpt, !excerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(excerpt)
+                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                    .foregroundStyle(Color.herText.opacity(0.46))
+                    .lineLimit(2)
+            }
+        }
+        .padding(10)
+        .background(Color.black.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+    }
+
+    private func lintStateCard(icon: String, title: String, detail: String, color: Color) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold, design: .default))
+                .foregroundStyle(color)
+                .frame(width: 24, height: 24)
+                .background(color.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.78))
+                Text(detail)
+                    .font(.system(size: 10, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.54))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.48))
+            .textCase(.uppercase)
+    }
+
+    private func severityColor(_ rawSeverity: String) -> Color {
+        switch rawSeverity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "hard": return Color.red.opacity(0.78)
+        case "medium": return Color.orange.opacity(0.86)
+        case "soft": return Color.herStudioActiveFill.opacity(0.82)
+        default: return Color.herText.opacity(0.58)
+        }
+    }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "story-circle",
+  "title": "Story Circle",
+  "summary": "Dan Harmon's eight-step circular structure for tracking desire, threshold-crossing, adaptation, cost, return, and change.",
+  "version": "1.0",
+  "requiredMajorTurnIds": ["need", "go", "find", "return-changed"],
+  "beats": [
+    { "id": "you",            "label": "You",            "summary": "The protagonist in a zone of comfort. Establishes identity, routine, and the pre-change self.",              "expectedPageRange": { "start": 1,  "end": 10 },  "required": false },
+    { "id": "need",           "label": "Need",           "summary": "The protagonist wants something, lacks something, or feels a pressure that starts the story engine.",          "expectedPageRange": { "start": 8,  "end": 15 },  "required": true,  "majorTurnId": "need" },
+    { "id": "go",             "label": "Go",             "summary": "The protagonist crosses a threshold into an unfamiliar situation and can no longer solve things the old way.", "expectedPageRange": { "start": 20, "end": 30 },  "required": true,  "majorTurnId": "go" },
+    { "id": "search",         "label": "Search",         "summary": "The protagonist adapts, tests tactics, meets resistance, and learns the rules of the new world.",             "expectedPageRange": { "start": 30, "end": 55 },  "required": false },
+    { "id": "find",           "label": "Find",           "summary": "The protagonist gets what they were chasing or sees the real nature of the prize; the story pivots.",         "expectedPageRange": { "start": 52, "end": 58 },  "required": true,  "majorTurnId": "find" },
+    { "id": "take",           "label": "Take",           "summary": "The prize has a cost. The protagonist loses, sacrifices, or discovers that winning changes the terms.",       "expectedPageRange": { "start": 58, "end": 78 },  "required": false },
+    { "id": "return",         "label": "Return",         "summary": "The protagonist turns back toward home or the original problem carrying what they found.",                   "expectedPageRange": { "start": 78, "end": 95 },  "required": false },
+    { "id": "return-changed", "label": "Return Changed", "summary": "The protagonist integrates the lesson in a final test, proving visible change before the story closes.",       "expectedPageRange": { "start": 95, "end": 110 }, "required": true,  "majorTurnId": "return-changed" }
+  ]
+}

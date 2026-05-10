@@ -379,6 +379,8 @@ struct VoiceSettingsScreen: View {
     @AppStorage(ClementineVoiceSettings.voiceSpeedKey) private var speakingPace: Double = 1.0
     @AppStorage("studio_auto_insert") private var autoInsert: Bool = true
     @AppStorage("show_live_script_preview") private var showScriptPreview: Bool = true
+    @AppStorage(ClementineRealtimeSupplierMode.storageKey)
+    private var realtimeSupplierModeRaw: String = ClementineRealtimeSupplierMode.serverDefault.rawValue
 
     @StateObject private var evolution = HerEvolutionStore.shared
     @StateObject private var liveDraftBridge = ScreenplayLiveDraftBridge.shared
@@ -512,6 +514,10 @@ struct VoiceSettingsScreen: View {
                         ) { speakingPace = $0 }
                     }
 
+                    settingsSection("Realtime") {
+                        realtimeSupplierPicker
+                    }
+
                     settingsSection("Studio") {
                         toggleRow(
                             title: "Auto-insert voice turns",
@@ -575,6 +581,34 @@ struct VoiceSettingsScreen: View {
         .onChange(of: autoInsert) { _, newValue in
             liveDraftBridge.autoInsertEnabled = newValue
         }
+    }
+
+    private var realtimeSupplierPicker: some View {
+        let selected = ClementineRealtimeSupplierMode.normalized(rawValue: realtimeSupplierModeRaw)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Realtime supplier")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.88))
+                    Text(selected.subtitle)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.38))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 16)
+            }
+
+            Picker("Realtime supplier", selection: $realtimeSupplierModeRaw) {
+                ForEach(ClementineRealtimeSupplierMode.allCases) { mode in
+                    Text(mode.title).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(Color.white.opacity(0.015))
     }
 
     private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

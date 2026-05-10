@@ -8,6 +8,11 @@ set -euo pipefail
 # - RUN_TALK_RECOVERY_GATE=1 runs the talk recovery contract test.
 # - RUN_ALERT=1 runs ops alert checks.
 # - RUN_LOAD=1 runs the load profile.
+# - RUN_CRAFT_COMPLETENESS_GATE=1 smokes the T23 craft completeness gate
+#   against backend/fixtures/craft/report_complete.json. Verifies the
+#   gate script works; real RC runs should also point CRAFT_GATE_FIXTURE
+#   at a project-specific fixture or pass --project/--version to check
+#   a stored report.
 # Set any of these to 0 to skip that section intentionally.
 # This script is the canonical place to document gate env vars for local runs
 # and any external CI that is not checked into this repository.
@@ -22,6 +27,8 @@ RUN_SPECULATIVE_REUSE_GATE="${RUN_SPECULATIVE_REUSE_GATE:-1}"
 RUN_ALERT="${RUN_ALERT:-1}"
 RUN_LOAD="${RUN_LOAD:-0}"
 RUN_TALK_RECOVERY_GATE="${RUN_TALK_RECOVERY_GATE:-1}"
+RUN_CRAFT_COMPLETENESS_GATE="${RUN_CRAFT_COMPLETENESS_GATE:-1}"
+CRAFT_GATE_FIXTURE="${CRAFT_GATE_FIXTURE:-${BACKEND_DIR}/fixtures/craft/report_complete.json}"
 
 cd "${BACKEND_DIR}"
 
@@ -100,6 +107,13 @@ fi
 if [[ "${RUN_LOAD}" == "1" ]]; then
   echo "[quality-gate] running load profile ..."
   npm run load:profile
+fi
+
+if [[ "${RUN_CRAFT_COMPLETENESS_GATE}" == "1" ]]; then
+  echo "[quality-gate] running craft completeness gate (fixture=${CRAFT_GATE_FIXTURE}) ..."
+  node "${ROOT_DIR}/scripts/check_craft_completeness.mjs" --file "${CRAFT_GATE_FIXTURE}"
+else
+  echo "[quality-gate] skipping craft completeness gate (RUN_CRAFT_COMPLETENESS_GATE=${RUN_CRAFT_COMPLETENESS_GATE})"
 fi
 
 echo "[quality-gate] PASS"

@@ -126,6 +126,106 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(recorder.requests.first?.bodyObject?["action"] as? String, "mark_false_positive")
     }
 
+    func testFormatLintPostsTextAndFramework() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/craft/format/lint")
+            return .json(#"""
+            {
+              "schemaVersion": 1,
+              "ruleSetVersion": "v1",
+              "frameworkId": "save-the-cat",
+              "totalSuggestions": 1,
+              "bySeverity": { "hard": 1 },
+              "suggestions": [
+                {
+                  "rule": "scene_heading_shape",
+                  "severity": "hard",
+                  "line": 1,
+                  "range": [0, 17],
+                  "excerpt": "INT KITCHEN NIGHT",
+                  "message": "Scene heading does not start with a well-formed INT./EXT. prefix.",
+                  "suggestion": "Use INT. <LOCATION> - <TIME>."
+                }
+              ]
+            }
+            """#)
+        }
+        let report = try await client.lintCraftFormat(
+            text: "INT KITCHEN NIGHT\n\nJune waits.",
+            frameworkId: "save-the-cat"
+        )
+        XCTAssertEqual(report.totalSuggestions, 1)
+        XCTAssertEqual(report.suggestions.first?.severity, "hard")
+        XCTAssertEqual(recorder.methodsAndPaths, ["POST /craft/format/lint"])
+        XCTAssertEqual(recorder.allHeaders(named: "X-Craft-Schema-Version"), ["1"])
+        let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
+        XCTAssertEqual(body["text"] as? String, "INT KITCHEN NIGHT\n\nJune waits.")
+        XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+    }
+
+    func testRealtimeSupplierBodyOmitsServerDefaultAndIncludesExplicitProviders() throws {
+        let serverDefault = BackendClient.realtimeClientSecretBody(
+            systemPrompt: "  write in screenplay mode  ",
+            userName: "  June  ",
+            isScreenplayMode: true,
+            voice: "  marin  ",
+            model: "  gpt-realtime-1.5  ",
+            realtimeProvider: ""
+        )
+        XCTAssertNil(serverDefault["realtime_provider"])
+        XCTAssertEqual(serverDefault["system_prompt"] as? String, "write in screenplay mode")
+        XCTAssertEqual(serverDefault["user_name"] as? String, "June")
+        XCTAssertEqual(serverDefault["voice"] as? String, "marin")
+        XCTAssertEqual(serverDefault["model"] as? String, "gpt-realtime-1.5")
+        XCTAssertEqual(serverDefault["is_screenplay_mode"] as? Bool, true)
+
+        let openAI = BackendClient.realtimeClientSecretBody(realtimeProvider: " openai ")
+        let stub = BackendClient.realtimeClientSecretBody(realtimeProvider: " stub ")
+        XCTAssertEqual(openAI["realtime_provider"] as? String, ClementineRealtimeSupplierMode.openAI.providerParameter)
+        XCTAssertEqual(stub["realtime_provider"] as? String, ClementineRealtimeSupplierMode.stub.providerParameter)
+    }
+
+    func testRealtimeSupplierModeNormalizesStorageValues() throws {
+        XCTAssertEqual(ClementineRealtimeSupplierMode.normalized(rawValue: "openai"), .openAI)
+        XCTAssertEqual(ClementineRealtimeSupplierMode.normalized(rawValue: "stub"), .stub)
+        XCTAssertEqual(ClementineRealtimeSupplierMode.normalized(rawValue: "unknown"), .serverDefault)
+        XCTAssertEqual(ClementineRealtimeSupplierMode.serverDefault.providerParameter, "")
+        XCTAssertEqual(ClementineRealtimeSupplierMode.openAI.providerParameter, "openai")
+        XCTAssertEqual(ClementineRealtimeSupplierMode.stub.providerParameter, "stub")
+    }
+
+    func testRealtimeBootstrapPayloadDecodesProvider() throws {
+        let data = Data(#"""
+        {
+          "transport": "webrtc_ephemeral",
+          "realtime_provider": "stub",
+          "assistant_name": "io.them",
+          "model": "stub-realtime-1",
+          "voice": "stub-voice",
+          "session": {
+            "type": "realtime",
+            "model": "stub-realtime-1",
+            "voice": "stub-voice",
+            "instructions": "Stay in screenplay mode.",
+            "output_modalities": ["audio"]
+          },
+          "client_secret": {
+            "value": "stub_secret_abc",
+            "expires_at": 1800000000,
+            "session_expires_at": 1800000000
+          },
+          "issued_at": 1700000000
+        }
+        """#.utf8)
+
+        let payload = try JSONDecoder().decode(BackendRealtimeBootstrapPayload.self, from: data)
+        XCTAssertEqual(payload.realtimeProvider, "stub")
+        XCTAssertEqual(payload.clientSecret.value, "stub_secret_abc")
+        XCTAssertEqual(payload.session.outputModalities, ["audio"])
+    }
+
     func testCraftUnavailableErrorUsesTypedEnvelope() async throws {
         let client = makeClient(recorder: CraftRequestRecorder()) { _ in
             .json(#"{ "error": "craft_runtime_unavailable" }"#, status: 503)
@@ -146,6 +246,7 @@ final class BackendClientCraftAPITests: XCTestCase {
         recorder: CraftRequestRecorder,
         handler: @escaping (URLRequest) throws -> CraftHTTPStub
     ) -> BackendClient {
+        URLProtocol.registerClass(CraftURLProtocolStub.self)
         CraftURLProtocolStub.handler = { request in
             recorder.record(request)
             return try handler(request)
@@ -154,7 +255,7 @@ final class BackendClientCraftAPITests: XCTestCase {
         configuration.protocolClasses = [CraftURLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let baseURL = URL(string: "https://craft.test")!
-        return BackendClient(baseURL: baseURL, fallbackURL: baseURL, urlSession: session, persistBackendBaseURL: false)
+        return BackendClient(baseURL: baseURL, fallbackURL: baseURL, urlSession: session, persistBackendBaseURL: false, attachUserIDHeader: false)
     }
 
     private static let frameworkJSON = #"""
@@ -268,7 +369,7 @@ private final class CraftURLProtocolStub: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) throws -> CraftHTTPStub)?
 
     override class func canInit(with request: URLRequest) -> Bool {
-        true
+        request.url?.host == "craft.test"
     }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest {
