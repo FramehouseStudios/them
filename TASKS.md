@@ -28,7 +28,6 @@
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
-| T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | review            |
 | T21  | Add craft-aware prompts and beat classification    | claude | ready-for-claude  |
 | T22  | Persist craft snapshots and turn overrides         | claude | ready-for-claude  |
 | T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
@@ -150,14 +149,6 @@
 - **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
 - **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
 
-### T20 — Build Craft tab, turn timeline, and beat sheet
-- **Owner:** codex
-- **Branch:** codex/T20-craft-tab-timeline-beats
-- **Pillar:** mobile-first + voice-to-scene
-- **Status:** review
-- **Done when:** the studio right rail has a Craft tab with loading/empty/error states, major-turn drift timeline, framework switcher, and beat-sheet table that works on mobile and desktop targets.
-- **Review note:** Implemented on `codex/T20-craft-tab-timeline-beats` after T19 merged. Verified macOS and iOS Simulator Debug builds after rebasing onto `origin/main`.
-
 ### T21 — Add craft-aware prompts and beat classification
 - **Owner:** claude
 - **Branch:** —
@@ -212,6 +203,11 @@
 - **Owner:** codex
 - **Branch:** `codex/T19-backend-client-craft-api`
 - **Merged:** 2026-05-09 via PR #14.
+
+### T20 — Build Craft tab, turn timeline, and beat sheet
+- **Owner:** codex
+- **Branch:** `codex/T20-craft-tab-timeline-beats`
+- **Merged:** 2026-05-09 via PR #16.
 
 ---
 
