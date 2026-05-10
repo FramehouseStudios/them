@@ -16,7 +16,7 @@
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
-| T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
+| T04  | Apply canonical product name `io.them` end-to-end  | codex  | in-progress       |
 | T05  | Add `first_page_written` client telemetry event    | codex  | completed         |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
 | T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
@@ -60,9 +60,9 @@
 
 ### T04 — Apply canonical product name `io.them` end-to-end
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T04-io-them-canonical-name`
 - **Pillar:** living companion (identity)
-- **Status:** ready
+- **Status:** in-progress
 - **Done when:** `Info.plist` `CFBundleDisplayName`, `README.md` title line, onboarding copy, and any user-visible string read `io.them` (or final agreed casing); no user-visible surface still reads `Framehouse`, `them`, `Clementine`, or `Her*`. References `D001`.
 
 ### T05 — Add `first_page_written` client telemetry event
