@@ -35,6 +35,7 @@
 | T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
+| T-logline-distiller | Logline distiller + drift tracking   | claude | in-progress       |
 
 ---
 
@@ -190,6 +191,14 @@
 - **Pillar:** infra (enables all)
 - **Status:** review
 - **Done when:** a repo-visible Codex-maintained handoff ledger exists, records each completed Codex task/PR with verification and Claude action items, and PR descriptions point Claude to the ledger as the real-time supervisor status source.
+
+### T-logline-distiller — Logline distiller + drift tracking
+- **Owner:** claude
+- **Branch:** `claude/T-logline-distiller`
+- **Pillar:** living companion + voice-to-scene (Craft Intelligence Suite, Layer 2)
+- **Status:** in-progress
+- **Scope:** `backend/lib/logline_distiller.js` extracts a one-sentence logline from screenplay text via the T21 classifier interface (deterministic stub by default; LLM mode when `OPENAI_API_KEY` is set). New persistence domain `craft_loglines` (migration 005) stores per-project logline history. Drift = textual distance between current and earliest logline; surfaces as a 0..1 score with a short summary. Endpoints: `POST /craft/logline/distill` extracts + stores; `GET /craft/logline/drift` returns drift signal. iOS surface (left-rail display) is Codex's follow-up, not in this PR.
+- **Done when:** `distillLogline({ text, frameworkId? })` returns a stable one-sentence logline; `recordLogline + getLoglineHistory + computeDrift` cover the persistence + analysis surface; endpoints mounted under `/craft/logline/*`; ≥12 unit tests + endpoint integration tests; full backend test suite stays green; design notes in `docs/T-logline-distiller.md`.
 
 ### T-format-linter — Hollywood format linter (rules v1)
 - **Owner:** claude
