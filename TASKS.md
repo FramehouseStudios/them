@@ -31,7 +31,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
-| T26  | Polish Craft tab framework and drift UX            | codex  | in-progress       |
+| T26  | Polish Craft tab framework and drift UX            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
 
 ---
@@ -178,7 +178,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T26-craft-tab-polish`
 - **Pillar:** voice→scene + living companion
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** the Craft tab has a live-framework switcher, a user-facing override creation flow, and a major-turn timeline that visualizes drift from expected page bands; fixtures support SwiftUI previews; macOS tests and generic iOS build remain green.
 
 ### T-format-linter — Hollywood format linter (rules v1)
