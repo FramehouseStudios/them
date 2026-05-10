@@ -48,13 +48,13 @@
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
 | T33  | Add Claude command center and prompt printer      | codex  | merged            |
 | T34  | Build iOS logline rail consumer                   | codex  | merged            |
-| T35  | Build iOS block-signal nudge surface              | codex  | in-progress       |
+| T35  | Build iOS block-signal nudge surface              | codex  | review            |
 
 ---
 
 ## Current next-10 checklist (2026-05-10 after Layer 2 backend merge stack)
 
-1. Build the iOS block-signal nudge surface for the merged `/memory/block-signal` endpoint.
+1. Review and merge T35, the iOS block-signal nudge surface for the merged `/memory/block-signal` endpoint.
 2. Build the iOS character-traits side-rail consumer for the merged trait endpoints.
 3. Build the iOS twist-card consumer for `POST /craft/twist/suggest`.
 4. Start T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
@@ -400,7 +400,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T35-block-signal-nudge`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** iOS has typed client/models for `GET /memory/block-signal`; the Studio companion or craft rail renders a non-blocking block-signal nudge gated by backend `level`; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
 
 ---
