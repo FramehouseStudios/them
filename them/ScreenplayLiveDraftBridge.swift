@@ -1620,6 +1620,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     static let replySideCharacterMentionsEnabledKey = "memory.reply_character_mentions_enabled"
 
+    static func replySideCharacterMentionsFeatureEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: Self.replySideCharacterMentionsEnabledKey) != nil else { return true }
+        return defaults.bool(forKey: Self.replySideCharacterMentionsEnabledKey)
+    }
+
     private var lastIngestKey: String = ""
     private var lastRecordedCharacterMentionKey: String = ""
     private var streamingPreviewText: String = ""
@@ -2558,7 +2563,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private func recordReplySideCharacterMentionsIfNeeded(_ committedWrite: ScreenplayCommittedWrite?) {
         let mentions = Self.replySideCharacterMentions(
             for: committedWrite,
-            featureEnabled: UserDefaults.standard.bool(forKey: Self.replySideCharacterMentionsEnabledKey)
+            featureEnabled: Self.replySideCharacterMentionsFeatureEnabled()
         )
         guard let committedWrite, !mentions.isEmpty else { return }
         let writeID = committedWrite.normalizedWriteID
@@ -2581,7 +2586,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                     versionID: versionID
                 )
             } catch {
-                // The endpoint is Claude-owned and may not exist yet; the feature flag keeps this opt-in.
+                // Fire-and-forget memory enrichment must never block the committed page write.
             }
         }
     }

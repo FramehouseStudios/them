@@ -147,6 +147,20 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(mentions.first?.tags, ["screenplay_reply", "ios_rendered_page"])
     }
 
+    func testReplySideMentionFlagDefaultsOnAndAllowsExplicitOptOut() {
+        let suiteName = "io.them.tests.replyMentionFlag.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(ScreenplayLiveDraftBridge.replySideCharacterMentionsFeatureEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: ScreenplayLiveDraftBridge.replySideCharacterMentionsEnabledKey)
+        XCTAssertFalse(ScreenplayLiveDraftBridge.replySideCharacterMentionsFeatureEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: ScreenplayLiveDraftBridge.replySideCharacterMentionsEnabledKey)
+        XCTAssertTrue(ScreenplayLiveDraftBridge.replySideCharacterMentionsFeatureEnabled(defaults: defaults))
+    }
+
     func testReplySideMentionFeatureFlagGuardsCommittedWrites() {
         let write = ScreenplayCommittedWrite(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000029")!,
