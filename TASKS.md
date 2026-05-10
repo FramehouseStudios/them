@@ -32,6 +32,7 @@
 | T13-client | Add iOS realtime supplier selection            | codex  | merged            |
 | T29  | Hook iOS reply-side character mentions             | codex  | review            |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
+| T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | review            |
 | T23  | Add craft completeness RC release gate             | claude | review            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
 | T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
@@ -179,6 +180,13 @@
 - **Done when:** the iOS screenplay-render path extracts likely rendered character cues from final page text and posts them to `/memory/record-character-mention` behind an opt-in feature flag; missing endpoint or disabled flag is a safe no-op; tests cover extraction, feature flag behavior, and request shape.
 - **Dependency:** Claude/backend still needs to ship `/memory/record-character-mention`; Codex will leave the call site guarded until that endpoint exists.
 
+
+### T25 — Add Story Circle + Hero's Journey craft frameworks
+- **Owner:** codex
+- **Branch:** `codex/T25-additional-craft-frameworks`
+- **Pillar:** voice→scene + living companion
+- **Status:** review
+- **Done when:** `backend/lib/craft_frameworks.js` exposes Story Circle and Hero's Journey definitions; each has a JSON fixture under `backend/fixtures/craft/`; framework list/lookup endpoints include them; schema and backend tests validate all four frameworks; macOS tests and generic iOS build remain green.
 
 ### T14 — Triage G3 backend feature snapshot
 - **Owner:** codex

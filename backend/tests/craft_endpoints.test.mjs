@@ -82,9 +82,9 @@ test("GET /craft/frameworks lists known frameworks with schemaVersion", async ()
     assert.equal(status, 200);
     assert.equal(body.schemaVersion, CRAFT_SCHEMA_VERSION);
     assert.ok(Array.isArray(body.frameworks));
-    assert.ok(body.frameworks.length >= 2);
+    assert.ok(body.frameworks.length >= 4);
     const ids = body.frameworks.map((f) => f.id).sort();
-    assert.deepEqual(ids, ["save-the-cat", "three-act"]);
+    assert.deepEqual(ids, ["hero-journey", "save-the-cat", "story-circle", "three-act"]);
     for (const ref of body.frameworks) {
       assert.ok(ref.id);
       assert.ok(ref.title);
@@ -100,6 +100,24 @@ test("GET /craft/frameworks/:id returns full framework matching schema", async (
     assert.ok(v.valid, `framework should validate: ${v.errors.join("; ")}`);
     assert.equal(body.id, "save-the-cat");
     assert.deepEqual(body.requiredMajorTurnIds.sort(), ["all-is-lost", "catalyst", "finale", "midpoint"]);
+  });
+});
+
+test("GET /craft/frameworks/:id returns new framework definitions", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const story = await get(baseURL, "/craft/frameworks/story-circle");
+    assert.equal(story.status, 200);
+    assert.equal(story.body.id, "story-circle");
+    assert.deepEqual(story.body.requiredMajorTurnIds, ["need", "go", "find", "return-changed"]);
+    assert.equal(story.body.beats.length, 8);
+    assert.ok(validateAgainstSchema(story.body, FRAMEWORK_SCHEMA).valid);
+
+    const hero = await get(baseURL, "/craft/frameworks/hero-journey");
+    assert.equal(hero.status, 200);
+    assert.equal(hero.body.id, "hero-journey");
+    assert.deepEqual(hero.body.requiredMajorTurnIds, ["call-to-adventure", "crossing-first-threshold", "ordeal", "resurrection"]);
+    assert.equal(hero.body.beats.length, 12);
+    assert.ok(validateAgainstSchema(hero.body, FRAMEWORK_SCHEMA).valid);
   });
 });
 
