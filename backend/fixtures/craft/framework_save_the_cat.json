@@ -1,0 +1,24 @@
+{
+  "id": "save-the-cat",
+  "title": "Save the Cat!",
+  "summary": "Blake Snyder's 15-beat structure for feature screenplays. Page numbers assume a ~110-page screenplay.",
+  "version": "1.0",
+  "requiredMajorTurnIds": ["catalyst", "midpoint", "all-is-lost", "finale"],
+  "beats": [
+    { "id": "opening-image",      "label": "Opening Image",         "summary": "A snapshot that captures tone, mood, type, and scope of the film, and establishes the protagonist's starting point.", "expectedPageRange": { "start": 1,   "end": 1 },   "required": false },
+    { "id": "theme-stated",       "label": "Theme Stated",          "summary": "Someone (usually not the hero) poses a question or makes a statement that is the theme of the movie.",                "expectedPageRange": { "start": 5,   "end": 5 },   "required": false },
+    { "id": "set-up",             "label": "Set-Up",                "summary": "The protagonist's world before the catalyst. Establishes the status quo and the protagonist's flaws.",                  "expectedPageRange": { "start": 1,   "end": 10 },  "required": false },
+    { "id": "catalyst",           "label": "Catalyst",              "summary": "The inciting incident. Life-changing event that sets the story in motion.",                                              "expectedPageRange": { "start": 12,  "end": 12 },  "required": true,  "majorTurnId": "catalyst" },
+    { "id": "debate",             "label": "Debate",                "summary": "The protagonist debates whether to take action. Doubts, fears, second thoughts.",                                       "expectedPageRange": { "start": 12,  "end": 25 },  "required": false },
+    { "id": "break-into-two",     "label": "Break Into Two",        "summary": "The protagonist makes a decisive choice and crosses into Act Two — the upside-down world.",                              "expectedPageRange": { "start": 25,  "end": 25 },  "required": false },
+    { "id": "b-story",            "label": "B Story",               "summary": "A new character or storyline appears, often a love interest. The B story carries the theme.",                            "expectedPageRange": { "start": 30,  "end": 30 },  "required": false },
+    { "id": "fun-and-games",      "label": "Fun and Games",         "summary": "The promise of the premise. The 'trailer moments' — what the audience came to see.",                                    "expectedPageRange": { "start": 30,  "end": 55 },  "required": false },
+    { "id": "midpoint",           "label": "Midpoint",              "summary": "A false victory or false defeat. The stakes are raised and the protagonist's quest pivots.",                            "expectedPageRange": { "start": 55,  "end": 55 },  "required": true,  "majorTurnId": "midpoint" },
+    { "id": "bad-guys-close-in",  "label": "Bad Guys Close In",     "summary": "External and internal pressure mounts. The protagonist's plan starts to fall apart.",                                   "expectedPageRange": { "start": 55,  "end": 75 },  "required": false },
+    { "id": "all-is-lost",        "label": "All Is Lost",           "summary": "The opposite of the midpoint. The lowest moment. Often a 'whiff of death' — a literal or symbolic loss.",                "expectedPageRange": { "start": 75,  "end": 75 },  "required": true,  "majorTurnId": "all-is-lost" },
+    { "id": "dark-night-of-soul", "label": "Dark Night of the Soul","summary": "The protagonist hits rock bottom and must dig deep to find a new approach.",                                            "expectedPageRange": { "start": 75,  "end": 85 },  "required": false },
+    { "id": "break-into-three",   "label": "Break Into Three",      "summary": "The protagonist finds the answer — usually by synthesizing the A and B stories — and resolves to act.",                "expectedPageRange": { "start": 85,  "end": 85 },  "required": false },
+    { "id": "finale",             "label": "Finale",                "summary": "Act Three. The protagonist executes the new plan, defeats the antagonist, and changes the world.",                       "expectedPageRange": { "start": 85,  "end": 110 }, "required": true,  "majorTurnId": "finale" },
+    { "id": "final-image",        "label": "Final Image",           "summary": "The mirror of the opening image. Shows how much the protagonist (and world) has changed.",                              "expectedPageRange": { "start": 110, "end": 110 }, "required": false }
+  ]
+}
