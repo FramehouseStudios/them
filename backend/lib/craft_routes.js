@@ -108,18 +108,23 @@ function mountCraftRoutes(app) {
     return res.status(200).json(FRAMEWORK_SCHEMA);
   });
 
-  app.get("/craft/reports/:projectId/:versionId?", (req, res) => {
+  app.get("/craft/reports/:projectId/:versionId?", async (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
-    const report = getStoredReport({
-      projectId: req.params.projectId,
-      versionId: req.params.versionId,
-    });
+    let report;
+    try {
+      report = await getStoredReport({
+        projectId: req.params.projectId,
+        versionId: req.params.versionId,
+      });
+    } catch (e) {
+      return sendKnownError(res, "craft_report_not_found", e?.message || "report not found");
+    }
     if (!report) return sendKnownError(res, "craft_report_not_found");
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).json(report);
   });
 
-  app.post("/craft/analyze", (req, res) => {
+  app.post("/craft/analyze", async (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
     const body = req.body || {};
     try {
@@ -129,7 +134,7 @@ function mountCraftRoutes(app) {
         projectId: body.projectId,
         versionId: body.versionId,
       });
-      storeReport(report);
+      await storeReport(report);
       res.setHeader("Cache-Control", "no-store");
       return res.status(200).json(report);
     } catch (e) {
@@ -138,10 +143,10 @@ function mountCraftRoutes(app) {
     }
   });
 
-  app.post("/craft/overrides", (req, res) => {
+  app.post("/craft/overrides", async (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
     try {
-      const stored = recordOverride({
+      const stored = await recordOverride({
         override: req.body || {},
         requestingUserId: requestingUserIdFor(req),
       });
@@ -153,10 +158,10 @@ function mountCraftRoutes(app) {
     }
   });
 
-  app.delete("/craft/overrides/:overrideId", (req, res) => {
+  app.delete("/craft/overrides/:overrideId", async (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
     const id = req.params.overrideId;
-    const existing = getOverride(id);
+    const existing = await getOverride(id);
     if (!existing) return sendKnownError(res, "craft_override_not_found");
     const requesting = requestingUserIdFor(req);
     if (requesting && existing.userId && existing.userId !== requesting) {
@@ -167,7 +172,7 @@ function mountCraftRoutes(app) {
       );
     }
     try {
-      deleteOverride(id);
+      await deleteOverride(id);
     } catch (e) {
       if (e?.code) return sendKnownError(res, e.code, e.message);
       return sendKnownError(res, "craft_override_not_found", e?.message);

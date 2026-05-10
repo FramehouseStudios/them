@@ -1,32 +1,48 @@
-// Craft analysis — MVP deterministic stub.
+// Craft analysis — analyzeScreenplay() + persistent storage for reports
+// and overrides via the T07 persistence adapter.
 //
 // `analyzeScreenplay({ screenplay, frameworkId, projectId, versionId })`
 // produces a ScreenplayCraftReport that satisfies the schema and the
-// Swift Codable contract from T17. The stub does NOT do real beat
-// classification; it produces a synthetic report shaped like a real
-// one so client work (T19, T20) can proceed against actual data.
+// Swift Codable contract from T17. The MVP body is a deterministic
+// stub; T21 replaces it with real LLM-driven beat classification.
 //
-// Real LLM-driven classification is T21. The function signature here
-// is the contract T21 will implement; the stub returns reasonable
-// defaults so endpoints respond with valid data immediately.
+// Storage:
+//   craft_reports     — keyed by `${projectId}:${versionId || ''}`,
+//                        value is the full Report.
+//   craft_overrides   — keyed by override id (UUID; survives restart).
 //
-// In-memory report and override stores live here for MVP. Persistence
-// across process restarts is T22.
+// The persistence handle is injected via configureCraftAnalysis(...).
+// Tests configure with their own (json-temp-rooted) handle so each
+// test gets isolated state. Production wiring at startup uses the
+// shared adapter from createPersistence() in backend/index.js.
+
+import { randomUUID } from "node:crypto";
 
 import {
   getFrameworkById,
   isKnownFrameworkId,
 } from "./craft_frameworks.js";
 import { CRAFT_SCHEMA_VERSION } from "./craft_schemas.js";
+import { createPersistence } from "./persistence_adapter.js";
 
-const reportsByKey = new Map();   // `${projectId}:${versionId || ''}` -> Report
-const overridesById = new Map();  // overrideId -> TurnOverride
-const overridesByReport = new Map(); // reportId -> Set<overrideId>
+const REPORTS_DOMAIN = "craft_reports";
+const OVERRIDES_DOMAIN = "craft_overrides";
 
-let overrideCounter = 0;
-function nextOverrideId() {
-  overrideCounter += 1;
-  return `ov_${Date.now().toString(36)}_${overrideCounter}`;
+let configuredDeps = null;
+
+function configureCraftAnalysis(deps = {}) {
+  configuredDeps = { persistence: deps.persistence || null };
+}
+
+function craftAnalysisDeps() {
+  if (!configuredDeps || !configuredDeps.persistence) {
+    // Fallback for callers that did not configure: instantiate a
+    // default persistence handle. Production should call
+    // configureCraftAnalysis({ persistence: sharedPersistence }) at
+    // startup; tests should always configure explicitly.
+    configuredDeps = { persistence: createPersistence() };
+  }
+  return configuredDeps;
 }
 
 function reportStorageKey({ projectId, versionId }) {
@@ -36,25 +52,26 @@ function reportStorageKey({ projectId, versionId }) {
   return ver ? `${proj}:${ver}` : `${proj}:`;
 }
 
-function getStoredReport({ projectId, versionId }) {
+async function getStoredReport({ projectId, versionId }) {
   const key = reportStorageKey({ projectId, versionId });
   if (!key) return null;
-  return reportsByKey.get(key) || null;
+  const { persistence } = craftAnalysisDeps();
+  return persistence.get({ domain: REPORTS_DOMAIN, key });
 }
 
-function storeReport(report) {
+async function storeReport(report) {
   const key = reportStorageKey({
-    projectId: report.projectId,
-    versionId: report.versionId,
+    projectId: report?.projectId,
+    versionId: report?.versionId,
   });
   if (!key) return;
-  reportsByKey.set(key, report);
+  const { persistence } = craftAnalysisDeps();
+  await persistence.put({ domain: REPORTS_DOMAIN, key, value: report });
 }
 
 // Pure: produce a Report from a framework + minimal screenplay info.
 // `screenplay` is intentionally loose — for MVP, only `pageCount` and
-// `title` are read. Future commits / T21 will replace this with real
-// scene analysis.
+// `title` are read. T21 replaces this with real scene analysis.
 function analyzeScreenplay({
   screenplay = {},
   frameworkId,
@@ -84,9 +101,6 @@ function analyzeScreenplay({
     (b) => b.required && b.majorTurnId,
   );
 
-  // Build major turns: stub marks all required as detected at their
-  // expected page. Real analysis (T21) will compute actualPage from
-  // scene classification.
   const majorTurns = requiredMajorTurns.map((beatDef) => {
     const expectedPage = beatDef.expectedPageRange
       ? Math.round((beatDef.expectedPageRange.start + beatDef.expectedPageRange.end) / 2)
@@ -105,12 +119,10 @@ function analyzeScreenplay({
     if (expectedPage !== null) turn.actualPage = expectedPage;
     if (beatDef.expectedPageRange) turn.actualPageRange = { ...beatDef.expectedPageRange };
     if (expectedPage !== null) turn.driftPages = 0;
-    turn.confidence = 0.5; // stub confidence
+    turn.confidence = 0.5;
     return turn;
   });
 
-  // Build beat sheet: stub produces a beat per framework beat with
-  // status "present" if required, "unclassified" otherwise.
   const beats = framework.beats.map((beatDef) => {
     const beat = {
       id: `b_${beatDef.id}_${reportId}`,
@@ -185,9 +197,13 @@ function analyzeScreenplay({
   return report;
 }
 
-// ---- Override management (in-memory MVP) ----
+// ---- Override management (persistence-backed) ----
 
-function recordOverride({ override, requestingUserId }) {
+function nextOverrideId() {
+  return `ov_${randomUUID()}`;
+}
+
+async function recordOverride({ override, requestingUserId }) {
   if (!override || typeof override !== "object") {
     const err = new Error("override body required");
     err.code = "craft_invalid_screenplay";
@@ -203,8 +219,6 @@ function recordOverride({ override, requestingUserId }) {
     err.code = "craft_invalid_screenplay";
     throw err;
   }
-  // Open-question #3 (proposed): if requestingUserId is provided
-  // (i.e. an authenticated request), the body's userId must match.
   if (requestingUserId && override.userId && override.userId !== requestingUserId) {
     const err = new Error("override.userId must match authenticated user");
     err.code = "craft_override_user_mismatch";
@@ -222,29 +236,32 @@ function recordOverride({ override, requestingUserId }) {
   if (override.userId || requestingUserId) stored.userId = override.userId || requestingUserId;
   stored.createdAt = override.createdAt || new Date().toISOString();
   if (override.expiresAt) stored.expiresAt = override.expiresAt;
-  overridesById.set(id, stored);
+  const { persistence } = craftAnalysisDeps();
+  await persistence.put({ domain: OVERRIDES_DOMAIN, key: id, value: stored });
   return stored;
 }
 
-function deleteOverride(id) {
-  if (!overridesById.has(id)) {
+async function deleteOverride(id) {
+  const { persistence } = craftAnalysisDeps();
+  const existing = await persistence.get({ domain: OVERRIDES_DOMAIN, key: id });
+  if (!existing) {
     const err = new Error(`override not found: ${id}`);
     err.code = "craft_override_not_found";
     throw err;
   }
-  overridesById.delete(id);
+  await persistence.delete({ domain: OVERRIDES_DOMAIN, key: id });
 }
 
-function getOverride(id) {
-  return overridesById.get(id) || null;
+async function getOverride(id) {
+  const { persistence } = craftAnalysisDeps();
+  return persistence.get({ domain: OVERRIDES_DOMAIN, key: id });
 }
 
-// Test seam — let tests reset the in-memory state.
+// Test seam — drops the configured deps so the next call creates a
+// fresh persistence handle. For json-mode tests, set
+// PERSISTENCE_JSON_ROOT to a fresh tmp dir before reset.
 function _resetCraftStores() {
-  reportsByKey.clear();
-  overridesById.clear();
-  overridesByReport.clear();
-  overrideCounter = 0;
+  configuredDeps = null;
 }
 
 export {
@@ -254,5 +271,8 @@ export {
   recordOverride,
   deleteOverride,
   getOverride,
+  configureCraftAnalysis,
   _resetCraftStores,
+  REPORTS_DOMAIN,
+  OVERRIDES_DOMAIN,
 };

@@ -32,7 +32,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T21  | Add craft-aware prompts and beat classification    | claude | ready-for-claude  |
-| T22  | Persist craft snapshots and turn overrides         | claude | ready-for-claude  |
+| T22  | Persist craft snapshots and turn overrides         | claude | in-progress       |
 | T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
 
 ---
@@ -181,10 +181,10 @@
 
 ### T22 — Persist craft snapshots and turn overrides
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T22-craft-snapshots-persistence`
 - **Pillar:** longitudinal learning + living companion
-- **Status:** ready-for-claude
-- **Done when:** craft snapshots persist per screenplay version; user overrides for false-positive major-turn detections round-trip through storage; backend tests prove overrides affect later analysis responses.
+- **Status:** in-progress
+- **Done when:** craft snapshots persist per screenplay version through the T07 persistence adapter (`craft_reports` domain); overrides round-trip through storage (`craft_overrides` domain); UUID-based override IDs survive process restarts; backend tests prove overrides affect later analysis responses by clearing the in-memory cache between write and read; the in-memory `Map`-backed MVP in `craft_analysis.js` is replaced.
 
 ### T23 — Add craft completeness RC release gate
 - **Owner:** claude
