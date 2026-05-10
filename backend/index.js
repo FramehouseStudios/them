@@ -58,6 +58,7 @@ import {
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
+import { createPersistence } from "./lib/persistence_adapter.js";
 import {
   configureScreenplayStore,
   ensureScreenplayOutline,
@@ -65,6 +66,7 @@ import {
   getOrCreateScreenplayOwnerRecord,
   getScreenplayProjectRecord,
   loadScreenplayStore,
+  loadScreenplayStoreFromAdapter,
   markScreenplayOwnerDirty,
   recalculateScreenplayProject,
   screenplayStoreByOwner,
@@ -2832,6 +2834,11 @@ configureMemoryStore({
   trimToMax,
   writeJsonFileAtomic,
 });
+// T07b: shared persistence adapter (Postgres if DATABASE_URL is set, JSON-file
+// fallback otherwise). Stores opt-in by passing it via configureXxxStore deps.
+const sharedPersistence = createPersistence();
+console.log(`[persistence] kind=${sharedPersistence.kind}`);
+
 configureScreenplayStore({
   SCREENPLAY_STORE_PATH,
   buildDraftExcerpt,
@@ -2843,6 +2850,7 @@ configureScreenplayStore({
   normalizeStoredScreenplayOwner,
   resolveScreenplayOwnerKey,
   writeJsonFileAtomic,
+  persistence: sharedPersistence,
 });
 configureOutboxStore({
   CALENDAR_COMPOSE_TARGET,
@@ -2884,7 +2892,13 @@ const userAuth = createUserAuthSubsystem({
 app.use(userAuth.attachUserAuth);
 app.use(userAuth.protectUserRoutes);
 loadUserMemoryStore(userMemoryByIp, userMemoryByClientToken);
-loadScreenplayStore(screenplayStoreByOwner);
+// T07b: prefer adapter when it has data; fall back to the legacy JSON file.
+// During the migration window, both paths coexist. Once Postgres is canonical
+// and stable, the JSON load can be retired in a follow-up PR.
+const loadedFromAdapter = await loadScreenplayStoreFromAdapter(screenplayStoreByOwner);
+if (!loadedFromAdapter) {
+  loadScreenplayStore(screenplayStoreByOwner);
+}
 console.log(
   `[user_memory] loaded records=${userMemoryByIp.size} token_aliases=${userMemoryByClientToken.size}`
 );

@@ -36,23 +36,68 @@ function loadScreenplayStore(target = screenplayStoreByOwner) {
 }
 
 function saveScreenplayStore(now = Date.now()) {
+  const deps = screenplayStoreDeps();
   const {
     SCREENPLAY_STORE_PATH,
     normalizeStoredScreenplayCompanionState,
     writeJsonFileAtomic,
-  } = screenplayStoreDeps();
+    persistence,
+  } = deps;
+  const owners = [...screenplayStoreByOwner.values()].map((owner) => ({
+    ownerKey: owner.ownerKey,
+    activeProjectId: owner.activeProjectId,
+    updatedAt: Math.max(0, Number(owner.updatedAt || now)),
+    companionState: normalizeStoredScreenplayCompanionState(owner.companionState),
+    projects: Array.isArray(owner.projects) ? owner.projects : [],
+  }));
   const payload = {
     version: 1,
     updatedAt: now,
-    owners: [...screenplayStoreByOwner.values()].map((owner) => ({
-      ownerKey: owner.ownerKey,
-      activeProjectId: owner.activeProjectId,
-      updatedAt: Math.max(0, Number(owner.updatedAt || now)),
-      companionState: normalizeStoredScreenplayCompanionState(owner.companionState),
-      projects: Array.isArray(owner.projects) ? owner.projects : [],
-    })),
+    owners,
   };
+  // Existing JSON file path remains canonical until T07 migration completes.
+  // Adapter writes run in parallel (dual-write) so Postgres state stays
+  // consistent with the file. Adapter errors are logged but do not block
+  // the in-memory save; the JSON file remains source-of-truth on disk.
   writeJsonFileAtomic(SCREENPLAY_STORE_PATH, payload, "screenplay_store");
+  if (persistence && typeof persistence.put === "function") {
+    // Fire-and-forget per-owner upserts. saveScreenplayStore stays sync to
+    // preserve every existing call site; adapter errors log to console.
+    for (const owner of owners) {
+      void Promise.resolve(persistence.put({
+        domain: "screenplay",
+        key: owner.ownerKey,
+        value: owner,
+      })).catch((err) => {
+        console.error(`[screenplay_store] adapter put failed for ${owner.ownerKey}:`, err?.message || err);
+      });
+    }
+  }
+}
+
+// T07b: load owners from the persistence adapter (when configured).
+// Async; callers must await. If no records exist in the adapter, the
+// in-memory map is left untouched so the existing JSON-file load can
+// be the fallback.
+async function loadScreenplayStoreFromAdapter(target = screenplayStoreByOwner) {
+  const deps = screenplayStoreDeps();
+  const { persistence, normalizeStoredScreenplayOwner } = deps;
+  if (!persistence || typeof persistence.list !== "function") return false;
+  let records;
+  try {
+    records = await persistence.list({ domain: "screenplay", limit: 10_000 });
+  } catch (err) {
+    console.error("[screenplay_store] adapter list failed:", err?.message || err);
+    return false;
+  }
+  if (!Array.isArray(records) || records.length === 0) return false;
+  target.clear();
+  for (const { value } of records) {
+    const owner = normalizeStoredScreenplayOwner(value);
+    if (!owner) continue;
+    target.set(owner.ownerKey, owner);
+  }
+  return true;
 }
 
 function getOrCreateScreenplayOwnerRecord(req, { create = true } = {}) {
@@ -160,5 +205,6 @@ export {
   markScreenplayOwnerDirty,
   recalculateScreenplayProject,
   saveScreenplayStore,
+  loadScreenplayStoreFromAdapter,
   screenplayStoreByOwner,
 };
