@@ -391,6 +391,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isCraftLoglineLoading: Bool = false
     @Published var craftLoglineErrorText: String = ""
     @Published var craftLoglineInfoText: String = ""
+    @Published var blockSignal: BackendBlockSignalResponse?
+    @Published var isBlockSignalLoading: Bool = false
+    @Published var blockSignalErrorText: String = ""
+    @Published var blockSignalInfoText: String = ""
 
     var formatLintCards: [ScreenplayFormatLintCard] {
         ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
@@ -2324,6 +2328,21 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    func refreshBlockSignal(source: String = "io.them") async {
+        guard !isBlockSignalLoading else { return }
+        isBlockSignalLoading = true
+        defer { isBlockSignalLoading = false }
+        do {
+            let response = try await craftClient.fetchMemoryBlockSignal()
+            blockSignal = response
+            blockSignalErrorText = ""
+            blockSignalInfoText = source
+        } catch {
+            blockSignalErrorText = error.localizedDescription
+            blockSignalInfoText = source
+        }
+    }
+
     private var activeCraftVersionID: String? {
         if let direct = normalizedOrNil(latestVersionID) {
             return direct
@@ -4010,6 +4029,9 @@ Replace is best when this file should become the script you edit. Append is safe
                 if newValue == .them {
                     isDirectionOneMemoryExpanded = true
                 }
+                if newValue == .them {
+                    Task { await vm.refreshBlockSignal(source: "io.them rail") }
+                }
                 if newValue == .saved {
                     isDirectionOneSavedExpanded = true
                 }
@@ -4189,6 +4211,9 @@ Replace is best when this file should become the script you edit. Append is safe
                 bootstrapNavigatorIfNeeded()
                 await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
                 restoreInspectorWorkspaceState()
+                if directionOneRightPanelTab == .them {
+                    await vm.refreshBlockSignal(source: "Studio open")
+                }
             }
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
                 Task {
@@ -8146,6 +8171,7 @@ Detail:
 private var directionOneThemPanel: some View {
     let analytics = liveDraftBridge.companionAnalytics
     let signalState = liveDraftBridge.companionSignalState
+    let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
 
     return VStack(alignment: .leading, spacing: 16) {
         VStack(alignment: .leading, spacing: 6) {
@@ -8198,6 +8224,37 @@ private var directionOneThemPanel: some View {
             }
         }
 
+        if vm.isBlockSignalLoading {
+            intelligenceCollectionCard(title: "Momentum", icon: "hourglass") {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Checking writing momentum without interrupting the page.")
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } else if !vm.blockSignalErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            intelligenceCollectionCard(title: "Momentum", icon: "exclamationmark.triangle") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(vm.blockSignalErrorText)
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        Task { await vm.refreshBlockSignal(source: "Manual check") }
+                    } label: {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        } else if blockSignalNudge.shouldRender {
+            directionOneBlockSignalNudgeCard(blockSignalNudge)
+        }
+
         directionOneThemCollaboratorSection
 
         intelligenceCollectionCard(title: "Surface mix", icon: "waveform.path.ecg") {
@@ -8224,6 +8281,64 @@ private var directionOneThemPanel: some View {
             .stroke(Color.herShellStroke.opacity(0.40), lineWidth: 1)
     )
 }
+
+    private func directionOneBlockSignalNudgeCard(_ state: BackendBlockSignalNudgeState) -> some View {
+        intelligenceCollectionCard(title: state.title, icon: state.level == .high ? "sparkles.rectangle.stack" : "sparkle.magnifyingglass") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text(state.scoreLabel)
+                        .font(.system(size: 18, weight: .semibold, design: .serif))
+                        .foregroundStyle(blockSignalTint(state.level))
+                    if !state.topSignalLabel.isEmpty {
+                        Text(state.topSignalLabel)
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.62))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.white.opacity(0.16))
+                            .clipShape(Capsule())
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { await vm.refreshBlockSignal(source: "Manual check") }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Refresh momentum signal")
+                }
+
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.herShellStroke.opacity(0.20))
+                        Capsule()
+                            .fill(blockSignalTint(state.level).opacity(0.58))
+                            .frame(width: max(8, geometry.size.width * state.progress))
+                    }
+                }
+                .frame(height: 5)
+
+                Text(state.summary)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(state.detailLabel)
+                    .font(.system(size: 10, weight: .medium, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.48))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func blockSignalTint(_ level: BackendBlockSignalLevel) -> Color {
+        switch level {
+        case .high: return Color.red.opacity(0.74)
+        case .medium: return Color.orange.opacity(0.76)
+        case .low, .unknown: return Color.green.opacity(0.66)
+        }
+    }
     private var directionOneSavedPanel: some View {
         let hasDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)

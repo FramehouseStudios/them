@@ -244,6 +244,45 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
     }
 
+    func testBlockSignalEndpointBuildsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/memory/block-signal"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "score": 0.625,
+                  "level": "high",
+                  "signals": [
+                    { "key": "scene_completion_gap", "value": 1.0, "weight": 0.4 },
+                    { "key": "attempt_completion_dropoff", "value": 1.0, "weight": 0.3 }
+                  ],
+                  "summary": "It's been a while since you finished a scene. Try a low-stakes warm-up.",
+                  "habitsObserved": {
+                    "last_scene_attempt_at": 1714752000000,
+                    "last_scene_completion_at": null,
+                    "last_talk_turn_at": 1714838400000,
+                    "scenes_attempted": 8,
+                    "scenes_completed": 1,
+                    "recent_short_turns": 5
+                  }
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let signal = try await client.fetchMemoryBlockSignal()
+
+        XCTAssertEqual(signal.level, .high)
+        XCTAssertEqual(signal.score, 0.625)
+        XCTAssertEqual(signal.signals.first?.key, "scene_completion_gap")
+        XCTAssertEqual(signal.habitsObserved.scenesAttempted, 8)
+        XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/block-signal"])
+    }
+
     func testRealtimeSupplierBodyOmitsServerDefaultAndIncludesExplicitProviders() throws {
         let serverDefault = BackendClient.realtimeClientSecretBody(
             systemPrompt: "  write in screenplay mode  ",

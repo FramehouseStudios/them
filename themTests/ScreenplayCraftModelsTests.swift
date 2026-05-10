@@ -230,6 +230,60 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertTrue(state.hasCurrentLogline)
     }
 
+    func testBlockSignalResponseDecodesBackendEnvelope() throws {
+        let signal = try JSONDecoder().decode(BackendBlockSignalResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "score": 0.625,
+          "level": "high",
+          "signals": [
+            { "key": "scene_completion_gap", "value": 1.0, "weight": 0.4 }
+          ],
+          "summary": "It's been a while since you finished a scene. Try a low-stakes warm-up.",
+          "habitsObserved": {
+            "last_scene_attempt_at": 1714752000000,
+            "last_scene_completion_at": null,
+            "last_talk_turn_at": 1714838400000,
+            "scenes_attempted": 8,
+            "scenes_completed": 1,
+            "recent_short_turns": 5
+          }
+        }
+        """#.utf8))
+
+        XCTAssertEqual(signal.schemaVersion, 1)
+        XCTAssertEqual(signal.level, .high)
+        XCTAssertEqual(signal.signals.first?.weight, 0.4)
+        XCTAssertEqual(signal.habitsObserved.lastSceneCompletionAtMs, nil)
+        XCTAssertEqual(signal.habitsObserved.recentShortTurns, 5)
+    }
+
+    func testBlockSignalNudgeStateMapsAndClampsSignal() throws {
+        let state = BackendBlockSignalNudgeState.make(signal: BackendBlockSignalResponse(
+            schemaVersion: 1,
+            score: 1.4,
+            level: .high,
+            signals: [BackendBlockSignalComponent(key: "attempt_completion_dropoff", value: 1, weight: 0.3)],
+            summary: "  Recent scenes are stalling before the finish.  ",
+            habitsObserved: BackendBlockSignalHabitsObserved(
+                lastSceneAttemptAtMs: 1714752000000,
+                lastSceneCompletionAtMs: nil,
+                lastTalkTurnAtMs: 1714838400000,
+                scenesAttempted: 8,
+                scenesCompleted: 1,
+                recentShortTurns: 5
+            ),
+            error: nil
+        ))
+
+        XCTAssertTrue(state.shouldRender)
+        XCTAssertEqual(state.title, "Momentum needs care")
+        XCTAssertEqual(state.summary, "Recent scenes are stalling before the finish.")
+        XCTAssertEqual(state.scoreLabel, "100%")
+        XCTAssertEqual(state.topSignalLabel, "Started vs. finished")
+        XCTAssertEqual(state.progress, 1)
+    }
+
     private func decodeReportFixture() throws -> ScreenplayCraftReport {
         let data = Data(#"""
         {

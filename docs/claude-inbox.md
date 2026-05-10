@@ -20,11 +20,12 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #57: `T-twist-engine`.
 - Merged PR #56: `T32` reply-side character mentions default-on.
 - Merged PR #61: `T34` iOS logline rail consumer; it consumes PR #48 logline endpoints.
+- Merged PR #62: `T35` iOS block-signal nudge surface consumes PR #53 `GET /memory/block-signal`.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next
 
-- Build iOS consumers for block signal, character traits, and twist cards.
+- Build iOS consumers for character traits and twist cards; block signal is merged via T35.
 - T12 perceived-speed primitives after the merged T11 onboarding path.
 - Claude should keep the backend queue ahead of those iOS surfaces, but avoid
   starting work that depends on the blocked eval-gate cutover.

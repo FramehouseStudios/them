@@ -31,6 +31,108 @@ struct BackendTurnCommitSignal {
     let memoryUpdatedAt: TimeInterval
 }
 
+enum BackendBlockSignalLevel: String, Codable, Equatable {
+    case low
+    case medium
+    case high
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = BackendBlockSignalLevel(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) ?? .unknown
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+struct BackendBlockSignalComponent: Codable, Equatable {
+    let key: String
+    let value: Double
+    let weight: Double
+}
+
+struct BackendBlockSignalHabitsObserved: Codable, Equatable {
+    let lastSceneAttemptAtMs: Double?
+    let lastSceneCompletionAtMs: Double?
+    let lastTalkTurnAtMs: Double?
+    let scenesAttempted: Int
+    let scenesCompleted: Int
+    let recentShortTurns: Int
+
+    enum CodingKeys: String, CodingKey {
+        case lastSceneAttemptAtMs = "last_scene_attempt_at"
+        case lastSceneCompletionAtMs = "last_scene_completion_at"
+        case lastTalkTurnAtMs = "last_talk_turn_at"
+        case scenesAttempted = "scenes_attempted"
+        case scenesCompleted = "scenes_completed"
+        case recentShortTurns = "recent_short_turns"
+    }
+}
+
+struct BackendBlockSignalResponse: Codable, Equatable {
+    let schemaVersion: Int
+    let score: Double
+    let level: BackendBlockSignalLevel
+    let signals: [BackendBlockSignalComponent]
+    let summary: String
+    let habitsObserved: BackendBlockSignalHabitsObserved
+    let error: String?
+}
+
+struct BackendBlockSignalNudgeState: Equatable {
+    let shouldRender: Bool
+    let title: String
+    let summary: String
+    let scoreLabel: String
+    let detailLabel: String
+    let topSignalLabel: String
+    let progress: Double
+    let level: BackendBlockSignalLevel
+
+    static func make(signal: BackendBlockSignalResponse?) -> BackendBlockSignalNudgeState {
+        guard let signal else {
+            return BackendBlockSignalNudgeState(
+                shouldRender: false,
+                title: "Momentum",
+                summary: "",
+                scoreLabel: "0%",
+                detailLabel: "No signal yet",
+                topSignalLabel: "",
+                progress: 0,
+                level: .low
+            )
+        }
+        let score = min(max(signal.score, 0), 1)
+        let percent = Int((score * 100).rounded())
+        let summary = signal.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let topSignal = signal.signals.first?.key ?? ""
+        let shouldRender = signal.level == .medium || signal.level == .high
+        return BackendBlockSignalNudgeState(
+            shouldRender: shouldRender,
+            title: signal.level == .high ? "Momentum needs care" : "Momentum check",
+            summary: summary.isEmpty ? "Try one small page move to keep the draft warm." : summary,
+            scoreLabel: "\(percent)%",
+            detailLabel: "\(signal.habitsObserved.scenesCompleted)/\(signal.habitsObserved.scenesAttempted) scenes finished - \(signal.habitsObserved.recentShortTurns) short turns",
+            topSignalLabel: Self.label(for: topSignal),
+            progress: score,
+            level: signal.level
+        )
+    }
+
+    private static func label(for key: String) -> String {
+        switch key {
+        case "scene_completion_gap": return "Scene gap"
+        case "attempt_completion_dropoff": return "Started vs. finished"
+        case "short_turn_ratio": return "Short prompts"
+        case "talk_turn_gap": return "Time away"
+        default: return "Momentum"
+        }
+    }
+}
+
 private struct BackendTalkTurnMetaPayload: Decodable {
     let turnID: String?
     let sessionID: String?
@@ -792,6 +894,47 @@ final class BackendClient {
             queryItems: [URLQueryItem(name: "projectId", value: try requiredCraftBodyValue(projectId, field: "projectId"))],
             responseType: ScreenplayCraftLoglineHistoryResponse.self
         )
+    }
+
+    func fetchMemoryBlockSignal() async throws -> BackendBlockSignalResponse {
+        persistSharedBackendBaseURL(baseURL)
+        var url = baseURL
+        url.appendPathComponent("memory")
+        url.appendPathComponent("block-signal")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid block-signal response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+        do {
+            return try JSONDecoder().decode(BackendBlockSignalResponse.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid block-signal payload." : raw)
+        }
     }
 
     func lintCraftFormat(

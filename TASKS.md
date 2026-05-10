@@ -48,21 +48,22 @@
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
 | T33  | Add Claude command center and prompt printer      | codex  | merged            |
 | T34  | Build iOS logline rail consumer                   | codex  | merged            |
+| T35  | Build iOS block-signal nudge surface              | codex  | merged            |
 
 ---
 
 ## Current next-10 checklist (2026-05-10 after Layer 2 backend merge stack)
 
-1. Build the iOS block-signal nudge surface for the merged `/memory/block-signal` endpoint.
-2. Build the iOS character-traits side-rail consumer for the merged trait endpoints.
-3. Build the iOS twist-card consumer for `POST /craft/twist/suggest`.
-4. Start T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
-5. Claude proposes `T-accepted-twist-log` so saved reversal cards can influence future prompt context.
-6. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
-7. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
-8. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
-9. Run a release-readiness pass across the merged Craft Intelligence Suite before external review.
-10. Smoke the T34 logline rail against a live backend with real screenplay text.
+1. Build the iOS character-traits side-rail consumer for the merged trait endpoints.
+2. Build the iOS twist-card consumer for `POST /craft/twist/suggest`.
+3. Start T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
+4. Claude rebases PR #59 (`T-accepted-twist-log`) and PR #60 (`T-codex-inbox`) over the current main, then Codex reviews them.
+5. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
+6. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+7. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
+8. Run a release-readiness pass across the merged Craft Intelligence Suite before external review.
+9. Smoke the T34 logline rail against a live backend with real screenplay text.
+10. Smoke the T35 block-signal nudge against a live backend with seeded writer-block telemetry.
 
 ---
 
@@ -392,6 +393,15 @@
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** iOS has typed client/models for `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; the Studio rail surfaces current logline, drift, and recent history without blocking writing; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+
+---
+
+### T35 — Build iOS block-signal nudge surface
+- **Owner:** codex
+- **Branch:** `codex/T35-block-signal-nudge`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** merged
+- **Done when:** iOS has typed client/models for `GET /memory/block-signal`; the Studio companion or craft rail renders a non-blocking block-signal nudge gated by backend `level`; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
 
 ---
 
