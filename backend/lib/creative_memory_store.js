@@ -112,34 +112,69 @@ function createCreativeMemoryStore({ persistence } = {}) {
 
   // ---------- write triggers ----------
 
-  async function recordCharacterMention({ userId, characterName, voice = "", tags = [] }) {
-    if (!userId || !characterName || typeof characterName !== "string") return;
+  // T30: optional `source` and `metadata` thread through so callers can
+  // distinguish reply-side rendered mentions (e.g. `ios_screenplay_render`)
+  // from user-input mentions. Schema stays backward-compatible: existing
+  // callers pass nothing for these fields and the character record adds
+  // them only when supplied. Returns a small action receipt so route
+  // handlers can build a typed response without a second read; legacy
+  // callers can ignore the return value.
+  async function recordCharacterMention({
+    userId,
+    characterName,
+    voice = "",
+    tags = [],
+    source = "",
+    metadata = null,
+  }) {
+    if (!userId || !characterName || typeof characterName !== "string") {
+      return { ok: false, action: "skipped", reason: "missing_userId_or_name" };
+    }
     const name = characterName.trim();
-    if (!name) return;
+    if (!name) {
+      return { ok: false, action: "skipped", reason: "empty_name" };
+    }
+    const cleanSource = typeof source === "string" ? source.trim() : "";
+    const cleanMetadata = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? metadata
+      : null;
+    let resolvedAction = "recorded";
     await updateUser(userId, (rec) => {
       const characters = Array.isArray(rec.characters) ? rec.characters : [];
       const existingIdx = characters.findIndex((c) => c.name === name);
       const now = nowMs();
       if (existingIdx >= 0) {
+        resolvedAction = "updated";
         characters[existingIdx].last_referenced = now;
         if (voice) characters[existingIdx].voice = voice;
         if (Array.isArray(tags) && tags.length) {
           const set = new Set([...(characters[existingIdx].tags || []), ...tags]);
           characters[existingIdx].tags = [...set];
         }
+        if (cleanSource) characters[existingIdx].source = cleanSource;
+        if (cleanMetadata) {
+          characters[existingIdx].metadata = {
+            ...(characters[existingIdx].metadata || {}),
+            ...cleanMetadata,
+          };
+        }
       } else {
-        characters.push({
+        const entry = {
           name,
           voice: voice || "",
           first_seen: now,
           last_referenced: now,
           tags: Array.isArray(tags) ? [...new Set(tags)] : [],
-        });
+        };
+        if (cleanSource) entry.source = cleanSource;
+        if (cleanMetadata) entry.metadata = { ...cleanMetadata };
+        characters.push(entry);
       }
       characters.sort((a, b) => (b.last_referenced || 0) - (a.last_referenced || 0));
       rec.characters = characters.slice(0, CHARACTERS_MAX);
       return rec;
     });
+    return { ok: true, action: resolvedAction, characterName: name, source: cleanSource };
   }
 
   async function recordSceneCompletion({ userId, scenePageCount }) {

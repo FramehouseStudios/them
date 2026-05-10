@@ -26,16 +26,21 @@
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
 | T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | review            |
-| T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
+| T11  | 60-second magic-moment onboarding                  | codex  | review            |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
-| T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
+| T13-client | Add iOS realtime supplier selection            | codex  | merged            |
+| T29  | Hook iOS reply-side character mentions             | codex  | review            |
+| T14  | Triage G3 backend feature snapshot                 | codex  | review            |
+| T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | merged            |
 | T23  | Add craft completeness RC release gate             | claude | review            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
 | T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
+| T26  | Polish Craft tab framework and drift UX            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
 | T-logline-distiller | Logline distiller + drift tracking   | claude | review            |
+| T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
 
 ---
 
@@ -120,9 +125,9 @@
 
 ### T08w-triggers — Fire creative-memory write triggers from `/talk`
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `codex/T14-g3-snapshot-triage`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready-for-claude
+- **Status:** review-for-claude
 - **Done when:** character mentions, scene completions, and tone signals detected in `/talk` exchanges trigger the corresponding `recordXxx` calls on `creativeMemoryStore`; `run_creative_memory_eval.mjs` covers at least one trigger-fired case.
 
 ### T08-postgres — Move creative memory store to persistence adapter
@@ -141,9 +146,9 @@
 
 ### T11 — 60-second magic-moment onboarding
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T11-magic-moment-onboarding`
 - **Pillar:** voice→scene + mobile-first
-- **Status:** blocked-T05/T08
+- **Status:** review
 - **Done when:** cold-start to a properly formatted screenplay page in ≤60 seconds on a real iPhone, validated by the human; `first_page_written` (T05) fires; flow uses centralized prompts (T08).
 
 ### T12 — Adopt perceived-speed primitives system-wide
@@ -163,11 +168,34 @@
 - **Done when (foundation, this PR):** OpenAI logic extracted behind the interface; stub second supplier passes the same contract test; runtime config via `REALTIME_PROVIDER` defaults to `openai`; `POST /realtime/client_secret` returns the supplier's mint result regardless of provider; tests exercise both paths.
 - **Done when (overall T13):** a real second supplier ships behind the same interface and is exercised end-to-end against a live account in CI.
 
+### T13-client — Add iOS realtime supplier selection
+- **Owner:** codex
+- **Branch:** `codex/T13-realtime-supplier-client`
+- **Pillar:** living companion (resilience)
+- **Status:** merged
+- **Done when:** iOS can choose server default, OpenAI, or stub realtime supplier for `/realtime/client_secret`; the selection is visible in Voice settings and sent in the client-secret request; both OpenAI and stub request paths are exercised by tests or smoke coverage.
+
+### T29 — Hook iOS reply-side character mentions
+- **Owner:** codex
+- **Branch:** `codex/T-ios-reply-character-mentions`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** review
+- **Done when:** the iOS screenplay-render path extracts likely rendered character cues from final page text and posts them to `/memory/record-character-mention` behind an opt-in feature flag; missing endpoint or disabled flag is a safe no-op; tests cover extraction, feature flag behavior, and request shape.
+- **Dependency:** Claude/backend still needs to ship `/memory/record-character-mention`; Codex will leave the call site guarded until that endpoint exists.
+
+
+### T25 — Add Story Circle + Hero's Journey craft frameworks
+- **Owner:** codex
+- **Branch:** `codex/T25-additional-craft-frameworks`
+- **Pillar:** voice→scene + living companion
+- **Status:** merged
+- **Done when:** `backend/lib/craft_frameworks.js` exposes Story Circle and Hero's Journey definitions; each has a JSON fixture under `backend/fixtures/craft/`; framework list/lookup endpoints include them; schema and backend tests validate all four frameworks; macOS tests and generic iOS build remain green.
+
 ### T14 — Triage G3 backend feature snapshot
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T14-g3-snapshot-triage`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready
+- **Status:** review
 - **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
 - **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
 
@@ -200,6 +228,13 @@
 - **Scope:** `backend/lib/logline_distiller.js` extracts a one-sentence logline from screenplay text via the T21 classifier interface (deterministic stub by default; LLM mode when `OPENAI_API_KEY` is set). New persistence domain `craft_loglines` (migration 005) stores per-project logline history. Drift = textual distance between current and earliest logline; surfaces as a 0..1 score with a short summary. Endpoints: `POST /craft/logline/distill` extracts + stores; `GET /craft/logline/drift` returns drift signal. iOS surface (left-rail display) is Codex's follow-up, not in this PR.
 - **Done when:** `distillLogline({ text, frameworkId? })` returns a stable one-sentence logline; `recordLogline + getLoglineHistory + computeDrift` cover the persistence + analysis surface; endpoints mounted under `/craft/logline/*`; ≥12 unit tests + endpoint integration tests; full backend test suite stays green; design notes in `docs/T-logline-distiller.md`.
 
+### T26 — Polish Craft tab framework and drift UX
+- **Owner:** codex
+- **Branch:** `codex/T26-craft-tab-polish`
+- **Pillar:** voice→scene + living companion
+- **Status:** review
+- **Done when:** the Craft tab has a live-framework switcher, a user-facing override creation flow, and a major-turn timeline that visualizes drift from expected page bands; fixtures support SwiftUI previews; macOS tests and generic iOS build remain green.
+
 ### T-format-linter — Hollywood format linter (rules v1)
 - **Owner:** claude
 - **Branch:** `claude/T-format-linter`
@@ -213,8 +248,16 @@
 - **Owner:** codex
 - **Branch:** `codex/T28-format-lint-ios`
 - **Pillar:** voice-to-scene + living companion
-- **Status:** review
+- **Status:** merged
 - **Done when:** iOS has typed client/models for `POST /craft/format/lint`; Studio import/export/document warnings surface severity, rule id, message, and page/line hints as craft lint cards; formatting suggestions are available without blocking save/export; focused tests cover decoding and warning mapping.
+
+### T30 — Backend `/memory/record-character-mention` endpoint
+- **Owner:** claude
+- **Branch:** `claude/T30-record-character-mention-endpoint`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** in-progress
+- **Scope:** unblocks Codex PR #50 (T29). Adds `POST /memory/record-character-mention` that persists rendered screenplay character cues through `creativeMemoryStore.recordCharacterMention(...)` — the canonical creative-memory path, not ad hoc JSON. Accepts both `character_name` (snake_case) and `characterName` (camelCase). Threads `source`, `tags`, `write_id`, `line`, and `metadata.{screenplay_write_id, screenplay_project_id, screenplay_version_id}` onto the character record so reply-side mentions are distinguishable from user-input mentions. Missing optional metadata never fails the request. Returns the typed receipt iOS expects: `{ ok, action, characterName, source }`.
+- **Done when:** the endpoint is mounted in `backend/index.js`, persists through `creativeMemoryStore`, validates/sanitizes name and source, accepts snake_case+camelCase, returns the typed receipt; ≥5 endpoint integration tests cover (1) snake_case payload, (2) camelCase payload, (3) metadata + write_id + line preservation, (4) invalid/empty character_name rejection, (5) idempotent-ish repeated mentions; the full backend suite stays green. Codex can enable `memory.reply_character_mentions_enabled` once this merges.
 
 ---
 
