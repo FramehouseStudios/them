@@ -66,6 +66,76 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertTrue(framework.beats.first?.required == true)
     }
 
+    func testFormatLintReportDecodesBackendEnvelope() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "ruleSetVersion": "v1",
+          "frameworkId": "save-the-cat",
+          "totalSuggestions": 1,
+          "bySeverity": { "hard": 1, "medium": 0, "soft": 0 },
+          "suggestions": [
+            {
+              "rule": "scene_heading_shape",
+              "severity": "hard",
+              "line": 56,
+              "range": [0, 17],
+              "excerpt": "INT KITCHEN NIGHT",
+              "message": "Scene heading does not start with a well-formed INT./EXT. prefix.",
+              "suggestion": "Use INT. <LOCATION> - <TIME>."
+            }
+          ]
+        }
+        """#.utf8)
+
+        let report = try JSONDecoder().decode(ScreenplayFormatLintReport.self, from: data)
+
+        XCTAssertEqual(report.schemaVersion, 1)
+        XCTAssertEqual(report.ruleSetVersion, "v1")
+        XCTAssertEqual(report.frameworkId, "save-the-cat")
+        XCTAssertEqual(report.bySeverity["hard"], 1)
+        XCTAssertEqual(report.suggestions.first?.rule, "scene_heading_shape")
+        XCTAssertEqual(report.suggestions.first?.range, [0, 17])
+    }
+
+    func testFormatLintCardsMapLineToPageAndSeverityOrder() throws {
+        let report = ScreenplayFormatLintReport(
+            schemaVersion: 1,
+            ruleSetVersion: "v1",
+            frameworkId: nil,
+            totalSuggestions: 2,
+            bySeverity: ["hard": 1, "soft": 1],
+            suggestions: [
+                ScreenplayFormatLintSuggestion(
+                    rule: "action_adverb_density",
+                    severity: "soft",
+                    line: 56,
+                    range: [50, 62],
+                    excerpt: "She quickly, loudly runs.",
+                    message: "Action line has dense adverbs.",
+                    suggestion: "Cut the adverbs."
+                ),
+                ScreenplayFormatLintSuggestion(
+                    rule: "character_cue_caps",
+                    severity: "hard",
+                    line: 56,
+                    range: [70, 74],
+                    excerpt: "June",
+                    message: "Character cue should be uppercase.",
+                    suggestion: "Use JUNE."
+                )
+            ]
+        )
+
+        let cards = ScreenplayFormatLintCard.cards(from: report, linesPerPage: 55)
+
+        XCTAssertEqual(cards.map(\.rule), ["character_cue_caps", "action_adverb_density"])
+        XCTAssertEqual(cards.first?.page, 2)
+        XCTAssertEqual(cards.first?.anchorText, "p2 / l56")
+        XCTAssertEqual(cards.first?.severityLabel, "HARD")
+        XCTAssertEqual(cards.first?.ruleLabel, "Character Cue Caps")
+    }
+
     private func decodeReportFixture() throws -> ScreenplayCraftReport {
         let data = Data(#"""
         {

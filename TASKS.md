@@ -19,19 +19,26 @@
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | review            |
 | T05  | Add `first_page_written` client telemetry event    | codex  | completed         |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
-| T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
+| T07a | Wire `outbox_store` to persistence adapter          | claude | in-progress       |
 | T07-eval-gate | Verify eval gate against Postgres          | claude | ready-for-claude  |
 | T07-cutover | Drop dual-write JSON paths after Postgres soak | claude | blocked-T07-eval |
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
 | T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
-| T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
+| T10  | Codify single design system (color/typo/spacing)   | codex  | review            |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
+<<<<<<< HEAD
 | T23  | Add craft completeness RC release gate             | claude | in-progress       |
+=======
+| T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
+| T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | review            |
+| T27  | Add Codex-to-Claude live handoff ledger            | codex  | review            |
+>>>>>>> origin/main
 | T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
+| T28  | Surface format lint cards in iOS Studio            | codex  | review            |
 
 ---
 
@@ -85,10 +92,11 @@
 
 ### T07a — Wire `outbox_store` to persistence adapter
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T07a-outbox-snapshots`
 - **Pillar:** longitudinal learning + infra (enables all)
-- **Status:** ready-for-claude
-- **Done when:** outbox queue durability runs through the persistence adapter when `DATABASE_URL` is set, with `scaleBackplane` retained for cross-process state; the non-mechanical architecture is documented before implementation.
+- **Status:** in-progress
+- **Architectural call:** the outbox is a queue with worker semantics, not domain KV data. `scaleBackplane` is its canonical operational layer (in-memory + Redis stream + Postgres `outbox` table when `SCALE_POSTGRES_URL` is set). The T07 persistence adapter is for KV-style domain data (memory, screenplay, embeddings, craft, creative_memory). Forcing the queue onto the adapter would erase scaleBackplane's queue semantics. **Decision proposed in `docs/T07a-outbox-architecture.md`:** the queue stays on `scaleBackplane`; T07a contributes diagnostic/recovery-grade *snapshots* of outbox state into the adapter under the `outbox` domain, so backend operators have a Postgres-visible record of outbox health without changing the queue path.
+- **Done when:** `OutboxSnapshotter` writes periodic JSON snapshots into the persistence adapter; backend wires the snapshotter at startup; tests assert snapshot shape + that the snapshotter does not interfere with scaleBackplane; `docs/T07a-outbox-architecture.md` documents the architecture and proposes the formal decision (D-something, human authors).
 
 ### T07-eval-gate — Verify eval gate against Postgres
 - **Owner:** claude
@@ -129,9 +137,9 @@
 
 ### T10 — Codify single design system (color, typography, spacing)
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T10-design-system`
 - **Pillar:** mobile-first
-- **Status:** ready
+- **Status:** review
 - **Done when:** one color file, one typography file, one spacing scale; legacy `HerColors`, `FountainTypography`, and `*Chrome*` styling consolidated or deprecated; lint or build rule fails any new file that bypasses them.
 
 ### T11 — 60-second magic-moment onboarding
@@ -173,6 +181,20 @@
 - **Status:** in-progress
 - **Done when:** new `scripts/check_craft_completeness.mjs` reads a craft report (file path or `craft_reports` adapter key), exits 0 when `coverage.complete === true` (including overrides), exits 1 with actionable diagnostics otherwise; `scripts/quality_gate.sh` runs it under `RUN_CRAFT_COMPLETENESS_GATE=1`; the release-preflight workflow flips the env var on by default for `rc-*` runs; tests assert pass on `report_complete.json` + `report_with_override.json` and fail on `report_with_drift.json`.
 
+### T24 — Consolidate iOS ScreenplayPromptBuilder path
+- **Owner:** codex
+- **Branch:** `codex/T24-prompt-builder-consolidation`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** review
+- **Done when:** every model-bound prompt request from iOS is produced through one Swift `ScreenplayPromptBuilder` entry point; legacy prompt-construction sites are replaced; the builder routes screenplay requests through the backend endpoint that runs canonical `buildModelPrompt(...)`; tests cover the single-path contract.
+
+### T27 — Add Codex-to-Claude live handoff ledger
+- **Owner:** codex
+- **Branch:** `codex/T27-claude-live-handoff`
+- **Pillar:** infra (enables all)
+- **Status:** review
+- **Done when:** a repo-visible Codex-maintained handoff ledger exists, records each completed Codex task/PR with verification and Claude action items, and PR descriptions point Claude to the ledger as the real-time supervisor status source.
+
 ### T-format-linter — Hollywood format linter (rules v1)
 - **Owner:** claude
 - **Branch:** `claude/T-format-linter`
@@ -180,6 +202,14 @@
 - **Status:** in-progress
 - **Scope:** purely rule-based (no LLM). Rules v1 covers scene-heading shape, character-cue caps + own-line, parenthetical density, action-line voice flags, page-economy heuristic. Each violation is a structured suggestion with severity (`hard` | `medium` | `soft`), not a rejection. Endpoint `POST /craft/format/lint` accepts a screenplay text payload + framework hint and returns suggestions. No iOS work in this PR; Codex's `T-format-iOS` row consumes the endpoint when it's ready.
 - **Done when:** `backend/lib/format_linter.js` exposes `lintScreenplay({ text, frameworkId? })` returning structured suggestions; route mounts under `/craft/format/lint`; ≥15 unit tests cover each rule (positive + negative cases); fixture-driven tests against the existing `report_complete.json` source screenplay shape; full backend test suite stays green; design notes in `docs/T-format-linter.md`.
+
+
+### T28 - Surface format lint cards in iOS Studio
+- **Owner:** codex
+- **Branch:** `codex/T28-format-lint-ios`
+- **Pillar:** voice-to-scene + living companion
+- **Status:** review
+- **Done when:** iOS has typed client/models for `POST /craft/format/lint`; Studio import/export/document warnings surface severity, rule id, message, and page/line hints as craft lint cards; formatting suggestions are available without blocking save/export; focused tests cover decoding and warning mapping.
 
 ---
 

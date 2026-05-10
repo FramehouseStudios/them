@@ -59,9 +59,10 @@ import {
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
 import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
-import { buildModelPrompt } from "./lib/prompt_assembly.js";
+import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
+import { createOutboxSnapshotter } from "./lib/outbox_snapshotter.js";
 import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
 import {
   configureScreenplayStore,
@@ -77,8 +78,9 @@ import {
 } from "./lib/screenplay_store.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
+import { mountPromptRoutes } from "./lib/prompt_routes.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
-import { buildCraftContextBlock } from "./lib/craft_prompts.js";
+import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
   loadUserStore,
@@ -2838,6 +2840,7 @@ const creativeMemoryStore = createCreativeMemoryStore({ persistence: sharedPersi
 // per-project framework selection lives in T22's stored reports +
 // Codex-side BackendClient (T19).
 function appendCraftContextToSystem(systemPrompt, { req } = {}) {
+  if (String(systemPrompt || "").includes(CRAFT_BLOCK_OPEN)) return systemPrompt;
   const requested = String(req?.body?.craft_framework_id || "").trim();
   const frameworkId = requested || "save-the-cat";
   const block = buildCraftContextBlock({ framework: frameworkId });
@@ -2845,8 +2848,38 @@ function appendCraftContextToSystem(systemPrompt, { req } = {}) {
   return `${systemPrompt}\n\n${block}`;
 }
 
-async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
+// T08w-triggers: fire creative-memory write triggers from a /talk turn.
+// Best-effort, fire-and-forget — never blocks the response. Uses
+// transcript candidates from req.body to detect character mentions and
+// capture lexical phrases. Reply-side detection is a follow-up that
+// requires capturing the final assembled reply; user-side signals here
+// are reliable and the highest-leverage starting point.
+function recordCreativeMemoryTriggersForRequest(req) {
   const userId = req?.user?.id || null;
+  if (!userId) return Promise.resolve({ skipped: true, reason: "no userId" });
+  const transcriptCandidates = [
+    req?.body?.client_transcript,
+    req?.body?.clientTranscript,
+    req?.body?.transcript,
+    req?.body?.debug_transcript,
+    req?.body?.debugTranscript,
+  ];
+  const transcript = transcriptCandidates
+    .map((t) => (typeof t === "string" ? t : ""))
+    .find((t) => t.trim().length > 0) || "";
+  if (!transcript) return Promise.resolve({ skipped: true, reason: "no transcript" });
+  const startedAt = Number(req?.body?.session_started_at) || Number(req?.body?.sessionStartedAt) || null;
+  return creativeMemoryStore.recordTriggersFromTalkTurn({
+    userId,
+    transcript,
+    reply: "",
+    sessionStartedAt: Number.isFinite(startedAt) ? startedAt : null,
+  });
+}
+
+async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
+  if (String(systemPrompt || "").includes(MEMORY_BLOCK_OPEN)) return systemPrompt;
+  const userId = req?.authUser?.id || req?.user?.id || req?.userId || req?.get?.("X-User-Id") || null;
   if (!userId) return systemPrompt;
   const memory = await creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
   if (!memory) return systemPrompt;
@@ -2917,6 +2950,23 @@ configureScreenplayStore({
   writeJsonFileAtomic,
   persistence: sharedPersistence,
 });
+// T07a: outbox snapshotter — periodic best-effort snapshots of outbox
+// state into the persistence adapter for diagnostics + recovery
+// visibility. Does NOT replace scaleBackplane. See
+// docs/T07a-outbox-architecture.md for the architectural decision.
+const outboxSnapshotter = createOutboxSnapshotter({
+  scaleBackplane,
+  persistence: sharedPersistence,
+  intervalMs: parsePositiveInt(process.env.OUTBOX_SNAPSHOT_INTERVAL_MS, 60_000),
+  keepLast: parsePositiveInt(process.env.OUTBOX_SNAPSHOT_KEEP_LAST, 10),
+  logger: console,
+});
+if (process.env.OUTBOX_SNAPSHOT_ENABLED == null
+  ? true
+  : parseBool(process.env.OUTBOX_SNAPSHOT_ENABLED)) {
+  outboxSnapshotter.start();
+}
+
 configureOutboxStore({
   CALENDAR_COMPOSE_TARGET,
   OUTBOX_ENABLED,
@@ -29201,6 +29251,12 @@ async function handleTalkRequest(req, res) {
   const rid = req.requestId || reqId;
   const ts = new Date().toISOString();
   const ip = clientIp(req);
+  // T08w-triggers: fire-and-forget creative-memory writes based on the
+  // request transcript. Never blocks the response. Errors are logged
+  // and swallowed — memory writes must not affect the /talk contract.
+  void recordCreativeMemoryTriggersForRequest(req).catch((err) => {
+    console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
+  });
   const talkStreamMode = parseTalkStreamMode(req);
   const streamAudioRequested = TALK_STREAM_AUDIO_ENABLED && talkStreamMode === "audio";
   const interactiveVoiceProfile = {
@@ -32785,6 +32841,10 @@ mountTalkPipelineRoutes(app, {
 // DATABASE_URL is set, JSON-file-backed otherwise).
 configureCraftAnalysis({ persistence: sharedPersistence });
 mountCraftRoutes(app);
+mountPromptRoutes(app, {
+  creativeMemoryStore,
+  buildCraftContextBlock,
+});
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
@@ -32823,6 +32883,7 @@ app.all("/screenplay/projects/:projectId/beats", methodNotAllowed("POST"));
 app.all("/screenplay/projects/:projectId/collaborators", methodNotAllowed("GET, POST"));
 app.all("/screenplay/projects/:projectId/comments", methodNotAllowed("GET, POST"));
 app.all("/screenplay/projects/:projectId/version", methodNotAllowed("POST"));
+app.all("/screenplay/prompt/build", methodNotAllowed("POST"));
 app.all("/screenplay/paginate", methodNotAllowed("POST"));
 app.all("/screenplay/revision-colors", methodNotAllowed("POST"));
 app.all("/screenplay/export", methodNotAllowed("POST"));
