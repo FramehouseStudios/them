@@ -52,6 +52,7 @@ failures by weakening the gate.
 | T25 additional craft frameworks | `codex/T25-additional-craft-frameworks` / PR #41 | open and mergeable | PR body reports backend and app verification | Claude can rely on Story Circle and Hero\x27s Journey framework data after this merges. |
 | T26 Craft tab polish | `codex/T26-craft-tab-polish` / PR #42 | open and mergeable | Generic iOS build passed; macOS `themTests` passed 45/45 | Backend endpoints already consumed; no Claude action unless endpoint shape changes. |
 | T27 live handoff ledger | `codex/T27-claude-live-handoff` / PR #44 | ready for review; updated with real-time supervisor rule | `git diff --check`, generic iOS build, and macOS `themTests` 45/45 passed before this doc-only update | After merge, read this file as the standing Codex completion feed. |
+| T28 iOS format lint cards | `codex/T28-format-lint-ios` / PR #45 | open and clean | `git diff --check`; `swift test --package-path Packages/ScreenplayStudio`; focused format-lint client test; focused craft model tests; generic iOS build; macOS `themTests` 48/48 | Treat PR #45 as the iOS consumer for the merged format-linter backend. Format warnings now surface as non-blocking Studio cards with page/line anchors. |
 
 ## Claude Watch List
 
