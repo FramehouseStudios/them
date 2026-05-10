@@ -48,6 +48,7 @@
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
 | T33  | Add Claude command center and prompt printer      | codex  | merged            |
 | T34  | Build iOS logline rail consumer                   | codex  | merged            |
+| T35  | Build iOS block-signal nudge surface              | codex  | in-progress       |
 
 ---
 
@@ -392,6 +393,15 @@
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** iOS has typed client/models for `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; the Studio rail surfaces current logline, drift, and recent history without blocking writing; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+
+---
+
+### T35 — Build iOS block-signal nudge surface
+- **Owner:** codex
+- **Branch:** `codex/T35-block-signal-nudge`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** in-progress
+- **Done when:** iOS has typed client/models for `GET /memory/block-signal`; the Studio companion or craft rail renders a non-blocking block-signal nudge gated by backend `level`; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
 
 ---
 
