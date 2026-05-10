@@ -46,6 +46,7 @@
 | T-twist-engine | Beat-aware reversal suggestion engine         | claude | merged            |
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
+| T33  | Add Claude command center and prompt printer      | codex  | merged            |
 
 ---
 
@@ -56,11 +57,11 @@
 3. Build the iOS character-traits side-rail consumer for the merged trait endpoints.
 4. Build the iOS twist-card consumer for `POST /craft/twist/suggest`.
 5. Start T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
-6. Add a repo-native Claude inbox/command-center so the human no longer has to copy/paste full checklists.
+6. Claude proposes `T-accepted-twist-log` so saved reversal cards can influence future prompt context.
 7. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
-8. Claude refreshes PR #33 only enough to resolve conflicts and preserve the exact `OPENAI_API_KEY` Actions-secret blocker.
+8. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
 9. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
-10. Add an accepted-twist persistence follow-up so saved reversal cards can influence future prompt context.
+10. Run a release-readiness pass across the merged Craft Intelligence Suite before external review.
 
 ---
 
@@ -372,6 +373,15 @@
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** the iOS reply-side character mention hook defaults on now that T30 is merged; explicit user/debug defaults can still disable it; focused tests cover default-on, explicit-off, and request-shape behavior; the handoff ledger records the completion for Claude.
+
+---
+
+### T33 — Add Claude command center and prompt printer
+- **Owner:** codex
+- **Branch:** `codex/T33-claude-command-center`
+- **Pillar:** infra (enables all)
+- **Status:** merged
+- **Done when:** a short repo-visible Claude inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send Claude; `docs/codex-claude-live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
 
 ---
 
