@@ -24,7 +24,7 @@ The purpose of this protocol is to protect the product's central magic: a mobile
 
 - **Codex** — `them/`, `*.xcodeproj`, `*.xcworkspace`, product/integration glue, trivial backend tweaks.
 - **Claude** — `backend/`, `scripts/`, `tools/`, `docs/`, `themTests/` (when backend-touching), `.github/workflows/` (when assigned).
-- **Human only** — `Info-*.plist`, `*.entitlements`, `PrivacyInfo.xcprivacy`, App Store metadata, acceptance of `DECISIONS.md` entries, `Archive/`, `Library/`, `Projects/`.
+- **Human only** — `Info-*.plist`, `*.entitlements`, `PrivacyInfo.xcprivacy`, App Store metadata, acceptance of `DECISIONS.md` entries, `archive/`, `Library/`, `Projects/`.
 
 ### Branches
 
