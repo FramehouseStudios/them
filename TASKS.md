@@ -20,7 +20,7 @@
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
 | T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | in-progress       |
-| T06-iOS | Update iOS quality gate doc for CI enforcement  | codex  | in-progress       |
+| T06-iOS | Update iOS quality gate doc for CI enforcement  | codex  | review            |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
 | T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
 | T07-eval-gate | Verify eval gate against Postgres          | claude | ready-for-claude  |
@@ -42,7 +42,7 @@
 
 ## Current next-10 checklist (2026-05-09 post-drain)
 
-1. Codex finishes T06-iOS: align `them/QUALITY_GATE.md` with CI enforcement docs.
+1. Done - Codex aligned `them/QUALITY_GATE.md` with CI enforcement docs.
 2. Claude starts T07a: wire outbox durability through the persistence adapter.
 3. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
 4. Claude starts T08w-triggers: write creative-memory signals from `/talk` post-processing.
@@ -97,8 +97,9 @@
 - **Owner:** codex
 - **Branch:** `codex/T06-ios-quality-gate-doc`
 - **Pillar:** infra (enables all)
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** `them/QUALITY_GATE.md` links `docs/quality-gate-enforcement.md` and names the `Verify Quality Gate Was Enforced` step so the app-side release notes match CI enforcement.
+- **Review note:** Implemented on `codex/T06-ios-quality-gate-doc`; documentation-only change verified with markdown/link greps.
 
 ### T07 — Promote backend persistence to Postgres canonical
 - **Owner:** claude

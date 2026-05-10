@@ -13,6 +13,7 @@ Last updated: 2026-03-27
 - Release automation and checked-in CI should prefer `RUN_QUALITY_GATE=1` when invoking `/Users/halfmutantfilms/Desktop/io.them/them/scripts/appstore_preflight.sh` so a release candidate does not skip backend gates by accident.
 - Checked-in release automation template: `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml`
 - Release trigger policy: `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml` stays manually callable and reusable, and now also runs on push tags matching `rc-*`. Use a protected `rc-*` tag pattern for release candidates.
+- CI enforcement details live in [docs/quality-gate-enforcement.md](../docs/quality-gate-enforcement.md). The release workflow includes a `Verify Quality Gate Was Enforced` step after preflight; it fails if `RUN_QUALITY_GATE` is not `1` or `/tmp/them-quality-gate-backend.log` is missing or empty.
 - When you want a single command that includes backend quality checks first, use:
 
 ```bash
