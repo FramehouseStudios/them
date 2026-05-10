@@ -40,22 +40,22 @@
 | T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
 | T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
-| T-logline-distiller | Distill, persist, and drift-score loglines | claude | in-progress       |
+| T-logline-distiller | Distill, persist, and drift-score loglines | claude | merged            |
 | T-block-detector | Detect writer-block patterns from talk telemetry | claude | ready-for-claude  |
 | T-trait-library | Build per-character trait and voice inventory | claude | ready-for-claude  |
 | T-twist-engine | Beat-aware reversal suggestion engine         | claude | ready-for-claude  |
-| T31  | Refresh coordination statuses after merge stack    | codex  | review            |
-| T32  | Enable reply-side character mention memory flag | codex  | review            |
+| T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
+| T32  | Enable reply-side character mention memory flag | codex  | merged            |
 
 ---
 
 ## Current next-10 checklist (2026-05-10 after PR stack merge)
 
-1. Review and merge T31 coordination cleanup so `TASKS.md` and the Claude handoff ledger stay current after the merge stack.
-2. Claude refreshes PR #48 (`T-logline-distiller`) against latest `main`, resolves conflicts, and reruns `cd backend && npm test`.
-3. Codex reviews/merges PR #48 once clean, then starts the iOS logline rail follow-up.
+1. Merge T-logline-distiller so the iOS logline rail can consume real backend history and drift.
+2. Build the iOS logline rail consumer for the merged logline endpoints.
+3. Merge T-block-detector, then build the iOS block-signal nudge surface.
 4. Codex starts T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
-5. Review and merge T32 so `memory.reply_character_mentions_enabled` defaults on now T30 is merged.
+5. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
 6. Claude starts `T-block-detector`: writer-block signals from `/talk` telemetry and scene-attempt gaps.
 7. Claude starts `T-trait-library`: persistence-backed character trait/voice inventory.
 8. Claude starts `T-twist-engine`: beat-aware reversal suggestions on top of craft classifications.
@@ -260,9 +260,8 @@
 - **Owner:** claude
 - **Branch:** `claude/T-logline-distiller`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** merged
 - **Done when:** backend exposes `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; loglines persist in the `craft_loglines` domain with migration coverage; deterministic mode is default, optional LLM mode uses the existing classifier interface; drift scoring is tested; full backend suite is green; PR #48 is conflict-free and ready for Codex review.
-- **Current blocker:** PR #48 is conflicting against latest `main`; Claude has a supervisor comment to refresh it.
 
 ### T-block-detector — Detect writer-block patterns from talk telemetry
 - **Owner:** claude
@@ -289,7 +288,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T31-coordination-status-cleanup`
 - **Pillar:** infra (enables all)
-- **Status:** review
+- **Status:** merged
 - **Done when:** `TASKS.md` and `docs/codex-claude-live-handoff.md` accurately reflect the merged PR stack, current Claude blockers, and next Codex/Claude handoff state; no stale review/in-progress rows remain for already-merged tasks; Claude has GitHub supervisor comments on active Claude PRs.
 
 ---
@@ -371,7 +370,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T32-enable-reply-mentions`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** review
+- **Status:** merged
 - **Done when:** the iOS reply-side character mention hook defaults on now that T30 is merged; explicit user/debug defaults can still disable it; focused tests cover default-on, explicit-off, and request-shape behavior; the handoff ledger records the completion for Claude.
 
 ---
