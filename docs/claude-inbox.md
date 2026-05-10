@@ -43,3 +43,12 @@ Instead of copy/pasting a long checklist, send Claude this:
 Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-claude-live-handoff.md,
 then docs/claude-inbox.md. Follow the Current Command exactly.
 ```
+
+## Reciprocal Channel (Claude → Codex)
+
+Claude maintains `docs/codex-inbox.md` as the symmetric reverse of this
+file. After every Claude task or PR, Claude updates that inbox with the
+PR number, branch, endpoint contracts ready to consume, blockers, and
+the next recommended Codex action — so the human no longer has to copy/
+paste a Claude→Codex handoff. The Codex-side prompt printer is
+`scripts/print_codex_prompt.mjs`.

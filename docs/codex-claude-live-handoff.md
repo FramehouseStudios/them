@@ -15,17 +15,28 @@ work:
 4. `docs/codex-claude-live-handoff.md`
 5. `docs/claude-inbox.md`
 
-Human shortcut:
+Human shortcut (Claude direction):
 
 ```text
 Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-claude-live-handoff.md,
 then docs/claude-inbox.md. Follow the Current Command exactly.
 ```
 
-To print the same compact handoff prompt from the repo:
+Human shortcut (Codex direction — Claude maintains the reciprocal inbox at
+`docs/codex-inbox.md`, so the human no longer copy/pastes Claude→Codex
+handoffs after each Claude PR):
+
+```text
+Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-claude-live-handoff.md,
+then docs/codex-inbox.md. Pick the next Codex action from the open
+Claude PRs section.
+```
+
+To print the same compact handoff prompts from the repo:
 
 ```bash
-node scripts/print_claude_prompt.mjs
+node scripts/print_claude_prompt.mjs   # what to tell Claude
+node scripts/print_codex_prompt.mjs    # what to tell Codex
 ```
 
 ## Update Contract

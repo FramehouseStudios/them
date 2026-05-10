@@ -47,7 +47,7 @@
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
 | T33  | Add Claude command center and prompt printer      | codex  | merged            |
-| T-codex-inbox | Add Codex inbox + prompt printer (Claude→Codex)    | claude | in-progress     |
+| T-codex-inbox | Add Codex inbox + prompt printer (Claude→Codex)    | claude | review          |
 | T34  | Build iOS logline rail consumer                   | codex  | merged            |
 | T35  | Build iOS block-signal nudge surface              | codex  | merged            |
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
@@ -393,7 +393,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T-codex-inbox`
 - **Pillar:** infra (enables all)
-- **Status:** in-progress
+- **Status:** review
 - **Scope:** symmetric reverse of T33. Adds `docs/codex-inbox.md` (Claude-maintained — current open Claude PRs awaiting Codex action, endpoint contracts ready to consume, blockers, decisions Claude needs from Codex) and `scripts/print_codex_prompt.mjs` (mirrors `print_claude_prompt.mjs` for the Codex direction). Updates `docs/codex-claude-live-handoff.md` so Codex standard read includes the inbox, and `docs/claude-inbox.md` so the human sees both ends of the contract. Removes the need to copy/paste a Claude→Codex handoff after each Claude PR.
 - **Done when:** `docs/codex-inbox.md` exists with current open Claude PRs, endpoint contracts, blockers, and decisions Claude needs from Codex; `scripts/print_codex_prompt.mjs` extracts the same sections and renders a compact prompt; `docs/codex-claude-live-handoff.md` Fast Path lists the new inbox; `docs/claude-inbox.md` notes that Claude maintains the reciprocal channel.
 
