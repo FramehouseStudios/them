@@ -20,8 +20,14 @@
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
 | T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | in-progress       |
+| T06-iOS | Update iOS quality gate doc for CI enforcement  | codex  | review            |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
+| T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
+| T07-eval-gate | Verify eval gate against Postgres          | claude | ready-for-claude  |
+| T07-cutover | Drop dual-write JSON paths after Postgres soak | claude | blocked-T07-eval |
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
+| T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
+| T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
 | T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | blocked-T02       |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T09       |
@@ -34,18 +40,18 @@
 
 ---
 
-## Current next-10 checklist (2026-05-09)
+## Current next-10 checklist (2026-05-09 post-drain)
 
-1. Done - Claude finished T18: /craft/* routes, analysis stub, tests, fixtures, and eval scaffold.
-2. Done - Claude pushed and opened the T18 PR against codex/T17-craft-report-models.
-3. Done - Human reviewed/merged the current stack: PR #1, PR #3, PR #4, PR #5, then T18 PR #6.
-4. Done - Codex implemented T19 BackendClient craft frameworks, schemas, reports, analyze, snapshots, and overrides.
-5. Done - Codex added T19 Swift tests for request construction, fixture decoding, and backend-unavailable states.
-6. Done - Codex implemented the T20 Craft tab in the studio right rail, adaptive for macOS and iOS.
-7. Done - Codex rendered major-turn drift as a page timeline.
-8. Done - Codex added framework switching and a beat-sheet table.
-9. Ready for Claude - start T21: feed craft schemas into prompts and add scene-to-beat classification.
-10. Ready for Claude - start the T22/T23 chain: persist craft snapshots and overrides, then add the missing-major-turn RC gate.
+1. Done - Codex aligned `them/QUALITY_GATE.md` with CI enforcement docs.
+2. Claude starts T07a: wire outbox durability through the persistence adapter.
+3. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
+4. Claude starts T08w-triggers: write creative-memory signals from `/talk` post-processing.
+5. Claude starts T08-postgres: move `creative_memory_store` onto the persistence adapter.
+6. Claude starts T21: feed craft schemas into prompts and add scene-to-beat classification.
+7. Claude starts T22: persist craft snapshots and turn overrides.
+8. Claude starts T23 after T22: enforce missing-major-turn RC gate.
+9. Codex starts T02: resolve `archive/` vs `Archive/` to unblock T09.
+10. Codex starts T10: consolidate the app design system once T02 is clear.
 
 ---
 
@@ -87,6 +93,14 @@
 - **Done when:** `.github/workflows/release-preflight.yml` runs the gate by default (already true via `env:`) AND fails fast if the gate is silently skipped; `docs/quality-gate-enforcement.md` documents the policy and verification procedure; `QUALITY_GATE.md` (iOS-app copy at `them/QUALITY_GATE.md`) updated to reference the new enforcement step — flagged as **Codex follow-up** because `them/**` is denied to Claude by `.claude/settings.json`.
 - **Scope split:** Claude lands the workflow verification step + repo-root doc. Codex updates `them/QUALITY_GATE.md` in a follow-up row when convenient.
 
+### T06-iOS — Update iOS quality gate doc for CI enforcement
+- **Owner:** codex
+- **Branch:** `codex/T06-ios-quality-gate-doc`
+- **Pillar:** infra (enables all)
+- **Status:** review
+- **Done when:** `them/QUALITY_GATE.md` links `docs/quality-gate-enforcement.md` and names the `Verify Quality Gate Was Enforced` step so the app-side release notes match CI enforcement.
+- **Review note:** Implemented on `codex/T06-ios-quality-gate-doc`; documentation-only change verified with markdown/link greps.
+
 ### T07 — Promote backend persistence to Postgres canonical
 - **Owner:** claude
 - **Branch:** `claude/T07-postgres-canonical`
@@ -97,6 +111,27 @@
 - **Done when (this PR):** adapter contract tests green; both backends pass the same contract; `scripts/migrate_stores_to_postgres.mjs` and `scripts/dump_stores_to_json.mjs` round-trip a sample dataset; outbox_store reads/writes via the adapter when `DATABASE_URL` is set, falls back to JSON when unset; `docs/T07-persistence-canonical.md` documents the architecture and the migration runbook.
 - **Done when (overall T07):** all four `*_store.json` paths at backend root deprecated; backend reads/writes only via the adapter (Postgres in CI/prod, JSON in local dev as the explicit fallback); `npm run eval:gate` green with `DATABASE_URL` set.
 
+### T07a — Wire `outbox_store` to persistence adapter
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** longitudinal learning + infra (enables all)
+- **Status:** ready-for-claude
+- **Done when:** outbox queue durability runs through the persistence adapter when `DATABASE_URL` is set, with `scaleBackplane` retained for cross-process state; the non-mechanical architecture is documented before implementation.
+
+### T07-eval-gate — Verify eval gate against Postgres
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** longitudinal learning + infra (enables all)
+- **Status:** ready-for-claude
+- **Done when:** CI runs the full `npm run eval:gate` path against a live Postgres instance and passes; the result is recorded in `docs/T07-persistence-canonical.md`.
+
+### T07-cutover — Drop dual-write JSON paths after Postgres soak
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** longitudinal learning + infra (enables all)
+- **Status:** blocked-T07-eval
+- **Done when:** with `DATABASE_URL` set in CI for more than seven days and no adapter errors logged, legacy `*_store.json` write paths in screenplay, memory, and embeddings are removed; loads become adapter-only.
+
 ### T08 — Centralize prompt assembly + first memory tier (backend)
 - **Owner:** claude
 - **Branch:** `claude/backend-T08-memory-tier`
@@ -105,6 +140,20 @@
 - **Scope (narrowed):** backend memory tier + backend-side prompt assembly. The original done-when referenced `ScreenplayPromptBuilder` (iOS) which is out of Claude's scope and not yet on `main`. iOS prompt-path consolidation is a sibling Codex follow-up — Codex to add a row when the dirty iOS state lands.
 - **Done when (backend portion):** A creative-companion memory record (style, characters, tone, habits) persists per user; a single `buildModelPrompt(...)` is the only path used by `handleTalkRequest`; every model-bound prompt carries the memory context when present and degrades cleanly when absent; new eval `run_creative_memory_eval.mjs` covers both states and is wired into `eval:gate`; design and final state documented in `docs/T08-prompt-centralization-and-memory-tier.md`.
 - **Design doc:** [docs/T08-prompt-centralization-and-memory-tier.md](docs/T08-prompt-centralization-and-memory-tier.md)
+
+### T08w-triggers — Fire creative-memory write triggers from `/talk`
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** living companion + longitudinal learning
+- **Status:** ready-for-claude
+- **Done when:** character mentions, scene completions, and tone signals detected in `/talk` exchanges trigger the corresponding `recordXxx` calls on `creativeMemoryStore`; `run_creative_memory_eval.mjs` covers at least one trigger-fired case.
+
+### T08-postgres — Move creative memory store to persistence adapter
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** living companion + longitudinal learning
+- **Status:** ready-for-claude
+- **Done when:** `creative_memory_store.js` uses `createPersistence(...)` for the chosen memory domain, its public API stays unchanged, and the eval suite stays green.
 
 ### T09 — Modularize `DraftStudio` and `ScreenplayStudio` into SwiftPM packages
 - **Owner:** codex
