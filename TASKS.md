@@ -17,7 +17,7 @@
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
 | T02  | Resolve `archive/` vs `Archive/` case collision    | codex  | ready             |
-| T03  | Strip `test.mp3` / `test.wav` from app target      | codex  | ready             |
+| T03  | Strip `test.mp3` / `test.wav` from app target      | codex  | review            |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
 | T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | in-progress       |
@@ -28,6 +28,9 @@
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T09       |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
+| T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
+| T15  | Fix iOS simulator test host configuration          | codex  | ready             |
+| T16  | Exclude local tooling artifacts from app bundle    | codex  | ready             |
 
 ---
 
@@ -51,7 +54,7 @@
 - **Owner:** codex
 - **Branch:** —
 - **Pillar:** infra (App Review hygiene)
-- **Status:** ready
+- **Status:** review
 - **Done when:** files removed from the app target and from the repo; app builds and signs without them; `appstore_preflight.sh` passes.
 
 ### T04 — Apply canonical product name `io.them` end-to-end
@@ -129,6 +132,28 @@
 - **Pillar:** living companion (resilience)
 - **Status:** ready-for-claude
 - **Done when:** a second supplier ships behind the existing `Realtime` interface; the supplier choice is configurable at runtime; smoke test exercises both paths.
+
+### T14 — Triage G3 backend feature snapshot
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** living companion + longitudinal learning
+- **Status:** ready
+- **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
+- **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
+
+### T15 — Fix iOS simulator test host configuration
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** infra (enables all)
+- **Status:** ready
+- **Done when:** `themTests` runs successfully on an iOS Simulator destination via `xcodebuild`; the macOS test path still passes; the verified test commands are documented in `them/QUALITY_GATE.md` or the release runbook.
+
+### T16 — Exclude local tooling artifacts from app bundle
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** infra (App Review hygiene)
+- **Status:** ready
+- **Done when:** local tooling and scratch paths such as `.codex_tmp/`, `.claude/`, `tmp/`, and non-app docs are excluded from app resources; iOS and macOS builds stay green; a bundle audit finds no local-only artifacts.
 
 ---
 
