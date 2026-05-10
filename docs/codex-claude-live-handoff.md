@@ -56,17 +56,18 @@ failures by weakening the gate.
 | T26 Craft tab polish | `codex/T26-craft-tab-polish` / PR #42 | merged on `main` | backend craft/schema tests 36/36; focused iOS craft tests 13/13 after simulator retry | Backend endpoints already consumed; preserve shape for framework, report, override, and format-lint endpoints. |
 | T27 live handoff ledger | `codex/T27-claude-live-handoff` / PR #44 | merged on `main` | PR #44 merged | Read this file before resuming backend work; Codex updates it for completed/materially advanced tasks. |
 | T28 iOS format lint cards | `codex/T28-format-lint-ios` / PR #45 | merged on `main` | Swift package and app tests were green in PR verification | Format warnings surface as non-blocking Studio cards with page/line anchors. |
-| T29 iOS reply-side character mentions | `codex/T-ios-reply-character-mentions` / PR #50 | merged on `main` | Swift parse; focused `StudioThreadViewStateSupportTests` 7/7; full iOS `themTests` 53/53 before merge | T30 is merged, so Codex can enable `memory.reply_character_mentions_enabled` in a follow-up. |
+| T29 iOS reply-side character mentions | `codex/T-ios-reply-character-mentions` / PR #50 | merged on `main` | Swift parse; focused `StudioThreadViewStateSupportTests` 7/7; full iOS `themTests` 53/53 before merge | T32 enables the flag by default; keep the T30 receipt contract stable. |
 | T30 `/memory/record-character-mention` endpoint | `claude/T30-record-character-mention-endpoint` / PR #51 | merged on `main` | backend `npm test` passed 195 pass / 1 skipped after Codex merge pass | No further Claude action; endpoint unblocks iOS flag enablement. |
 | T31 coordination status cleanup | `codex/T31-coordination-status-cleanup` | review | Markdown checks pass; PR ready. | Claude has been notified on PR #48 and PR #33. |
+| T32 reply-side mention flag enablement | `codex/T32-enable-reply-mentions` | review | Focused `StudioThreadViewStateSupportTests` passed 8/8 with `CODE_SIGNING_ALLOWED=NO`. | T30 endpoint is live; no further Claude action. |
 
 ## Claude Watch List
 
 | Claude PR | Current Codex note |
 | --- | --- |
-| PR #48, T-logline-distiller | Open and currently CONFLICTING against latest `main`. Codex left a supervisor update requesting Claude refresh `claude/T-logline-distiller`, resolve conflicts, rerun `cd backend && npm test`, and push it back to review-ready. This is the highest-priority Claude all-day task because it unlocks the iOS logline rail. |
-| PR #33, T07 eval gate | Open and currently CONFLICTING. Still intentionally blocked until the repository Actions secret `OPENAI_API_KEY` is replaced with the literal OpenAI key value. Claude should resolve conflicts/document the blocker only; do not weaken eval gates. |
-| T-block-detector | Ready for Claude once PR #48 is refreshed or blocked: add a TASKS claim, backend-only branch, tests, and docs for writer-block signals from `/talk` telemetry and scene-attempt gaps. |
+| PR #48, T-logline-distiller | Open, mergeable, and locally verified by Codex. GitHub would not allow Codex to approve because Claude and Codex share the same GitHub account. Needs human/other-account merge; unlocks the iOS logline rail. |
+| PR #33, T07 eval gate | Open and mergeable, but the check is red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is not the literal `sk-*` key value. Do not weaken eval gates. |
+| T-block-detector | Claude started `claude/T-block-detector` with a clean TASKS claim commit; no PR yet. Continue backend-only implementation and open PR when tests/docs are ready. |
 | T-trait-library | Ready for Claude after block detector: persistence-backed per-character trait/voice inventory for prompt assembly and future iOS surfaces. |
 | T-twist-engine | Ready for Claude after trait library: beat-aware reversal suggestions using craft classifications/framework data. |
 
@@ -75,8 +76,9 @@ failures by weakening the gate.
 | Claude PR | Status |
 | --- | --- |
 | T30, `/memory/record-character-mention` endpoint / PR #51 | Merged on `main` as PR #51. Codex merge pass verified `node --check backend/index.js`, `node --check backend/lib/memory_character_mention_route.js`, targeted memory tests 20/20, and full backend `npm test` 195 pass / 1 skipped. Endpoint persists rendered screenplay character cues through `creativeMemoryStore.recordCharacterMention(...)` and matches the iOS receipt contract. |
-| T-logline-distiller / PR #48 | Open and conflicting. Claude should refresh with latest `main`, preserve the three logline endpoints and `craft_loglines` persistence domain, rerun backend tests, and report back when review-ready. |
-| T07 eval gate / PR #33 | Open and conflicting. The remaining functional blocker is still human-owned: malformed GitHub Actions `OPENAI_API_KEY` secret. Claude should not weaken the gate. |
+| T32, reply-side mention flag default-on | Ready for review on `codex/T32-enable-reply-mentions`. The iOS hook now defaults on when `memory.reply_character_mentions_enabled` is unset, while explicit `false` remains an opt-out. Focused macOS `StudioThreadViewStateSupportTests` passed 8/8 with signing disabled. |
+| T-logline-distiller / PR #48 | Open, mergeable, and Codex-verified. Checks run: syntax, focused logline/craft/persistence tests 67/67, full backend `npm test` 221 pass / 1 skipped. Needs human/other-account merge because GitHub blocks same-account approval. |
+| T07 eval gate / PR #33 | Open and mergeable. Current failed job confirms the same human-owned secret blocker: `OPENAI_API_KEY` must be the literal OpenAI key value. Claude should not weaken the gate. |
 
 ## Recurring Codex Rule
 
