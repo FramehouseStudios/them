@@ -16845,14 +16845,15 @@ Current draft version:
     }
 #endif
 
+    // Deprecated compatibility shim. New page chrome constants live in IOThemSpacing.ScreenplayPageChrome.
     private enum ScreenplayPageChrome {
-        static let cornerRadius: CGFloat = 14
-        static let headerContentMinHeight: CGFloat = 36
-        static let headerTopPadding: CGFloat = 18
-        static let headerBottomPadding: CGFloat = 14
-        static let headerHeight: CGFloat = headerContentMinHeight + headerTopPadding + headerBottomPadding
-        static let contentTopPadding: CGFloat = 18
-        static let contentBottomPadding: CGFloat = 34
+        static let cornerRadius = IOThemSpacing.ScreenplayPageChrome.cornerRadius
+        static let headerContentMinHeight = IOThemSpacing.ScreenplayPageChrome.headerContentMinHeight
+        static let headerTopPadding = IOThemSpacing.ScreenplayPageChrome.headerTopPadding
+        static let headerBottomPadding = IOThemSpacing.ScreenplayPageChrome.headerBottomPadding
+        static let headerHeight = IOThemSpacing.ScreenplayPageChrome.headerHeight
+        static let contentTopPadding = IOThemSpacing.ScreenplayPageChrome.contentTopPadding
+        static let contentBottomPadding = IOThemSpacing.ScreenplayPageChrome.contentBottomPadding
     }
 
     private enum ScreenplayPageMetaTone {

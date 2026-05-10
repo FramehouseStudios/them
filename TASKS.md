@@ -25,7 +25,7 @@
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
 | T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
-| T10  | Codify single design system (color/typo/spacing)   | codex  | in-progress       |
+| T10  | Codify single design system (color/typo/spacing)   | codex  | review            |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
@@ -130,7 +130,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T10-design-system`
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** one color file, one typography file, one spacing scale; legacy `HerColors`, `FountainTypography`, and `*Chrome*` styling consolidated or deprecated; lint or build rule fails any new file that bypasses them.
 
 ### T11 — 60-second magic-moment onboarding
