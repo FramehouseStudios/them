@@ -16,7 +16,7 @@
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
-| T02  | Resolve `archive/` vs `Archive/` case collision    | codex  | ready             |
+| T02  | Resolve `archive/` vs `Archive/` case collision    | codex  | in-progress       |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
@@ -64,9 +64,9 @@
 
 ### T02 — Resolve `archive/` vs `Archive/` case collision
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T02-archive-case-collision`
 - **Pillar:** infra (enables all)
-- **Status:** ready
+- **Status:** in-progress
 - **Done when:** only one casing exists in the repo; contents are migrated; commit explicitly states the casing chosen and why; entry recorded in `DECISIONS.md`.
 
 ### T04 — Apply canonical product name `io.them` end-to-end
