@@ -16,8 +16,8 @@
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
-| T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
-| T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
+| T04  | Apply canonical product name `io.them` end-to-end  | codex  | review            |
+| T05  | Add `first_page_written` client telemetry event    | codex  | completed         |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
 | T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
 | T07-eval-gate | Verify eval gate against Postgres          | claude | ready-for-claude  |
@@ -28,23 +28,24 @@
 | T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
-| T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
+| T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
+| T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
 
 ---
 
-## Current next-10 checklist (2026-05-09 post-drain)
+## Current next-10 checklist (2026-05-09 post-T05)
 
-1. Claude starts T07a: wire outbox durability through the persistence adapter.
-2. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
-3. Claude starts T08w-triggers: write creative-memory signals from `/talk` post-processing.
+1. Codex/Claude review and merge PR #26: T08w creative-memory write triggers from `/talk`.
+2. Claude starts T07a: wire outbox durability through the persistence adapter.
+3. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
 4. Claude starts T08-postgres: move `creative_memory_store` onto the persistence adapter.
 5. Claude starts T23: enforce the missing-major-turn RC gate.
-6. Codex starts T05: add `first_page_written` telemetry.
-7. Codex starts T04: apply canonical `io.them` naming end-to-end.
-8. Codex starts T10: codify the shared design system.
-9. Codex starts T11 after T05 and T08 land: 60-second magic-moment onboarding.
+6. Codex starts T04: apply canonical `io.them` naming end-to-end.
+7. Codex starts T10: codify the shared design system.
+8. Codex starts T14: triage the G3 backend feature snapshot into mergeable work.
+9. Codex starts T11 after T08 lands: 60-second magic-moment onboarding using the completed T05 telemetry.
 10. Codex starts T12 after T11: perceived-speed primitives for the magic-moment path.
 
 ---
@@ -60,16 +61,16 @@
 
 ### T04 — Apply canonical product name `io.them` end-to-end
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T04-io-them-canonical-name`
 - **Pillar:** living companion (identity)
-- **Status:** ready
+- **Status:** review
 - **Done when:** `Info.plist` `CFBundleDisplayName`, `README.md` title line, onboarding copy, and any user-visible string read `io.them` (or final agreed casing); no user-visible surface still reads `Framehouse`, `them`, `Clementine`, or `Her*`. References `D001`.
 
 ### T05 — Add `first_page_written` client telemetry event
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T05-first-page-telemetry`
 - **Pillar:** voice→scene (measurement)
-- **Status:** ready
+- **Status:** completed
 - **Done when:** event fires once per user the first time they ship a screenplay-formatted page; visible in the analytics destination; documented in `docs/`.
 
 ### T07 — Promote backend persistence to Postgres canonical
@@ -149,10 +150,13 @@
 
 ### T13 — Add second realtime supplier behind existing interface
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T13-realtime-supplier-interface`
 - **Pillar:** living companion (resilience)
-- **Status:** ready-for-claude
-- **Done when:** a second supplier ships behind the existing `Realtime` interface; the supplier choice is configurable at runtime; smoke test exercises both paths.
+- **Status:** in-progress
+- **Scope (this PR — foundation):** extract a `RealtimeSupplier` interface; wrap the existing OpenAI client-secret minting path as `OpenAIRealtimeSupplier`; ship a `StubRealtimeSupplier` that satisfies the interface deterministically (placeholder for a future real second supplier); factory selects via `REALTIME_PROVIDER` env var; `POST /realtime/client_secret` routes through the supplier interface; smoke tests assert both suppliers satisfy the interface contract.
+- **Scope (follow-up):** integrate a real second supplier (ElevenLabs Conversational AI / Anthropic Realtime / etc.) once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
+- **Done when (foundation, this PR):** OpenAI logic extracted behind the interface; stub second supplier passes the same contract test; runtime config via `REALTIME_PROVIDER` defaults to `openai`; `POST /realtime/client_secret` returns the supplier's mint result regardless of provider; tests exercise both paths.
+- **Done when (overall T13):** a real second supplier ships behind the same interface and is exercised end-to-end against a live account in CI.
 
 ### T14 — Triage G3 backend feature snapshot
 - **Owner:** codex
@@ -168,6 +172,14 @@
 - **Pillar:** infra (enables all)
 - **Status:** ready-for-claude
 - **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
+
+### T-format-linter — Hollywood format linter (rules v1)
+- **Owner:** claude
+- **Branch:** `claude/T-format-linter`
+- **Pillar:** voice-to-scene + living companion (industry-rule layer of the Craft Intelligence Suite)
+- **Status:** in-progress
+- **Scope:** purely rule-based (no LLM). Rules v1 covers scene-heading shape, character-cue caps + own-line, parenthetical density, action-line voice flags, page-economy heuristic. Each violation is a structured suggestion with severity (`hard` | `medium` | `soft`), not a rejection. Endpoint `POST /craft/format/lint` accepts a screenplay text payload + framework hint and returns suggestions. No iOS work in this PR; Codex's `T-format-iOS` row consumes the endpoint when it's ready.
+- **Done when:** `backend/lib/format_linter.js` exposes `lintScreenplay({ text, frameworkId? })` returning structured suggestions; route mounts under `/craft/format/lint`; ≥15 unit tests cover each rule (positive + negative cases); fixture-driven tests against the existing `report_complete.json` source screenplay shape; full backend test suite stays green; design notes in `docs/T-format-linter.md`.
 
 ---
 

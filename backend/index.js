@@ -62,6 +62,7 @@ import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
 import { buildModelPrompt } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
+import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
 import {
   configureScreenplayStore,
   ensureScreenplayOutline,
@@ -2796,6 +2797,31 @@ await scaleBackplane.init();
 // fallback otherwise). Stores opt-in by passing it via configureXxxStore deps.
 // Declared early so configureMemoryStore (the first store init) can consume it.
 const sharedPersistence = createPersistence();
+
+// T13: realtime supplier (OpenAI by default; configurable via
+// REALTIME_PROVIDER env). Falls back to the OpenAI supplier even on
+// supplier load errors so the endpoint always has SOMETHING to call.
+let realtimeSupplier = null;
+try {
+  realtimeSupplier = await createRealtimeSupplier({
+    apiKey: OPENAI_API_KEY,
+    defaultModel: OPENAI_REALTIME_MODEL,
+    defaultVoice: OPENAI_REALTIME_VOICE,
+    defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+    defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  });
+  console.log(`[realtime_supplier] kind=${realtimeSupplier.kind}`);
+} catch (e) {
+  console.error(`[realtime_supplier] failed to construct (${e?.code || "unknown"}); using OpenAI default. err=${e?.message || e}`);
+  const mod = await import("./lib/realtime_supplier_openai.js");
+  realtimeSupplier = mod.createOpenAIRealtimeSupplier({
+    apiKey: OPENAI_API_KEY,
+    defaultModel: OPENAI_REALTIME_MODEL,
+    defaultVoice: OPENAI_REALTIME_VOICE,
+    defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+    defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  });
+}
 console.log(`[persistence] kind=${sharedPersistence.kind}`);
 
 // T08 + T08-postgres: creative memory tier — per-user style/characters/
@@ -7836,6 +7862,10 @@ function createEmptyScreenplayCompanionAnalytics() {
     threadClears: 0,
     lastSurfaceRaw: "",
     lastSourceRaw: "",
+    firstPageWrittenAt: 0,
+    firstPageWrittenSourceRaw: "",
+    firstPageWrittenProjectId: "",
+    firstPageWrittenVersionId: "",
   };
 }
 
@@ -8001,6 +8031,19 @@ function normalizeStoredScreenplayCompanionAnalytics(entry) {
     threadClears: Math.max(0, Number(entry.threadClears ?? entry.thread_clears ?? 0)),
     lastSurfaceRaw: normalizeSnippet(entry.lastSurfaceRaw ?? entry.last_surface_raw, 32),
     lastSourceRaw: normalizeSnippet(entry.lastSourceRaw ?? entry.last_source_raw, 32),
+    firstPageWrittenAt: normalizeScreenplayCompanionTimestamp(entry.firstPageWrittenAt ?? entry.first_page_written_at),
+    firstPageWrittenSourceRaw: normalizeSnippet(
+      entry.firstPageWrittenSourceRaw ?? entry.first_page_written_source_raw,
+      32
+    ),
+    firstPageWrittenProjectId: normalizeSnippet(
+      entry.firstPageWrittenProjectId ?? entry.firstPageWrittenProjectID ?? entry.first_page_written_project_id,
+      96
+    ),
+    firstPageWrittenVersionId: normalizeSnippet(
+      entry.firstPageWrittenVersionId ?? entry.firstPageWrittenVersionID ?? entry.first_page_written_version_id,
+      96
+    ),
   };
 }
 
@@ -8104,6 +8147,12 @@ function toScreenplayCompanionStatePayload(state) {
       thread_clears: safeState.analytics.threadClears,
       last_surface_raw: safeState.analytics.lastSurfaceRaw,
       last_source_raw: safeState.analytics.lastSourceRaw,
+      first_page_written_at: safeState.analytics.firstPageWrittenAt > 0
+        ? new Date(safeState.analytics.firstPageWrittenAt).toISOString()
+        : null,
+      first_page_written_source_raw: safeState.analytics.firstPageWrittenSourceRaw,
+      first_page_written_project_id: safeState.analytics.firstPageWrittenProjectId,
+      first_page_written_version_id: safeState.analytics.firstPageWrittenVersionId,
     },
     signals: {
       intent: {
@@ -26412,12 +26461,20 @@ app.get("/screenplay/companion/state", (req, res) => {
 app.post("/screenplay/companion/state", express.json({ limit: "256kb" }), (req, res) => {
   const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
   const now = Date.now();
-  owner.companionState = normalizeStoredScreenplayCompanionState({
+  const existingCompanionState = normalizeStoredScreenplayCompanionState(owner.companionState);
+  const nextCompanionState = normalizeStoredScreenplayCompanionState({
     mode_raw: req.body?.mode_raw,
     recent_turns: req.body?.recent_turns,
     analytics: req.body?.analytics,
     signals: req.body?.signals,
   });
+  if (!nextCompanionState.analytics.firstPageWrittenAt && existingCompanionState.analytics.firstPageWrittenAt > 0) {
+    nextCompanionState.analytics.firstPageWrittenAt = existingCompanionState.analytics.firstPageWrittenAt;
+    nextCompanionState.analytics.firstPageWrittenSourceRaw = existingCompanionState.analytics.firstPageWrittenSourceRaw;
+    nextCompanionState.analytics.firstPageWrittenProjectId = existingCompanionState.analytics.firstPageWrittenProjectId;
+    nextCompanionState.analytics.firstPageWrittenVersionId = existingCompanionState.analytics.firstPageWrittenVersionId;
+  }
+  owner.companionState = nextCompanionState;
   if (!owner.companionState.analytics.updatedAt || owner.companionState.analytics.updatedAt <= 0) {
     owner.companionState.analytics.updatedAt = now;
   }
