@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 @testable import them
 
 @MainActor
@@ -168,5 +169,78 @@ final class ScreenplayPromptModeTests: XCTestCase {
             speechAgeSeconds: 2.0,
             hasStrongPartial: true
         )
+    }
+}
+
+final class ScreenplayCompanionAnalyticsSnapshotTests: XCTestCase {
+    func testLegacyAnalyticsDecodeDefaultsFirstPageTelemetryFields() throws {
+        let data = Data(#"""
+        {
+          "updated_at": "2026-05-09T19:30:00Z",
+          "total_turns": 4,
+          "home_turns": 1,
+          "studio_turns": 3,
+          "voice_turns": 2,
+          "typed_turns": 2,
+          "mode_switches": 1,
+          "memory_clears": 0,
+          "thread_clears": 0,
+          "last_surface_raw": "studio",
+          "last_source_raw": "voice"
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+
+        let analytics = try decoder.decode(ScreenplayCompanionAnalyticsSnapshot.self, from: data)
+
+        XCTAssertEqual(analytics.totalTurns, 4)
+        XCTAssertEqual(analytics.lastSurface, .studio)
+        XCTAssertEqual(analytics.lastSource, .voice)
+        XCTAssertNil(analytics.firstPageWrittenAt)
+        XCTAssertFalse(analytics.hasFirstPageWrittenEvent)
+        XCTAssertEqual(analytics.firstPageWrittenSourceRaw, "")
+    }
+
+    func testFirstPageWrittenTelemetryRoundTripsSnakeCase() throws {
+        let firstPageWrittenAt = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-05-09T19:45:00Z"))
+        let analytics = ScreenplayCompanionAnalyticsSnapshot(
+            updatedAt: firstPageWrittenAt,
+            totalTurns: 1,
+            homeTurns: 0,
+            studioTurns: 1,
+            voiceTurns: 1,
+            typedTurns: 0,
+            modeSwitches: 0,
+            memoryClears: 0,
+            threadClears: 0,
+            lastSurfaceRaw: "studio",
+            lastSourceRaw: "voice",
+            firstPageWrittenAt: firstPageWrittenAt,
+            firstPageWrittenSourceRaw: "voice",
+            firstPageWrittenProjectId: "project-17",
+            firstPageWrittenVersionId: "version-3"
+        )
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+
+        let encoded = try encoder.encode(analytics)
+        let encodedString = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+        XCTAssertTrue(encodedString.contains("first_page_written_at"))
+        XCTAssertTrue(encodedString.contains("first_page_written_project_id"))
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ScreenplayCompanionAnalyticsSnapshot.self, from: encoded)
+
+        XCTAssertEqual(decoded.firstPageWrittenAt, firstPageWrittenAt)
+        XCTAssertEqual(decoded.firstPageWrittenSource, .voice)
+        XCTAssertEqual(decoded.firstPageWrittenProjectId, "project-17")
+        XCTAssertEqual(decoded.firstPageWrittenVersionId, "version-3")
+        XCTAssertTrue(decoded.hasFirstPageWrittenEvent)
     }
 }

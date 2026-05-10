@@ -17,7 +17,7 @@
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
-| T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
+| T05  | Add `first_page_written` client telemetry event    | codex  | review            |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
 | T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
 | T07-eval-gate | Verify eval gate against Postgres          | claude | ready-for-claude  |
@@ -67,9 +67,9 @@
 
 ### T05 — Add `first_page_written` client telemetry event
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T05-first-page-telemetry`
 - **Pillar:** voice→scene (measurement)
-- **Status:** ready
+- **Status:** review
 - **Done when:** event fires once per user the first time they ship a screenplay-formatted page; visible in the analytics destination; documented in `docs/`.
 
 ### T07 — Promote backend persistence to Postgres canonical
