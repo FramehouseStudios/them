@@ -1,6 +1,35 @@
 import SwiftUI
 import ScreenplayStudio
 
+
+struct ScreenplayCraftTwistCardState: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let hook: String
+    let severity: String
+    let rationale: String
+    let severityLabel: String
+
+    static func cards(from response: ScreenplayCraftTwistSuggestResponse?) -> [ScreenplayCraftTwistCardState] {
+        guard let response else { return [] }
+        return response.twists.map { twist in
+            let cleanSeverity = twist.severity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return ScreenplayCraftTwistCardState(
+                id: twist.id,
+                label: clean(twist.label),
+                hook: clean(twist.hook),
+                severity: cleanSeverity.isEmpty ? "low" : cleanSeverity,
+                rationale: clean(twist.rationale),
+                severityLabel: cleanSeverity.isEmpty ? "Low" : cleanSeverity.capitalized
+            )
+        }
+    }
+
+    private static func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 struct ScreenplayCraftLoglineRailState: Equatable {
     let currentLogline: String
     let sourceLabel: String

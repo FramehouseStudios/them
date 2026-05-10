@@ -284,6 +284,50 @@ final class BackendClientCraftAPITests: XCTestCase {
     }
 
 
+
+    func testTwistSuggestPostsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/craft/twist/suggest"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "frameworkId": "save-the-cat",
+                  "currentBeatId": "midpoint",
+                  "source": "stub",
+                  "twists": [
+                    {
+                      "id": "stc-midpoint-1",
+                      "label": "False Victory",
+                      "hook": "The win is real, but the cost was paid by the wrong person.",
+                      "severity": "high",
+                      "rationale": "Converts triumph into a trap."
+                    }
+                  ]
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let response = try await client.suggestCraftTwists(
+            frameworkId: "save-the-cat",
+            currentBeatId: "midpoint",
+            sceneSummary: "A false victory lands badly.",
+            count: 2
+        )
+
+        XCTAssertEqual(response.twists.first?.id, "stc-midpoint-1")
+        XCTAssertEqual(recorder.methodsAndPaths, ["POST /craft/twist/suggest"])
+        let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
+        XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+        XCTAssertEqual(body["currentBeatId"] as? String, "midpoint")
+        XCTAssertEqual(body["sceneSummary"] as? String, "A false victory lands badly.")
+        XCTAssertEqual(body["count"] as? Int, 2)
+    }
+
     func testCharacterTraitsEndpointBuildsExpectedRequest() async throws {
         let recorder = CraftRequestRecorder()
         let client = makeClient(recorder: recorder) { request in

@@ -266,6 +266,59 @@ public nonisolated struct ScreenplayCraftLoglineEntry: Codable, Hashable, Identi
     }
 }
 
+
+public nonisolated struct ScreenplayCraftTwistSuggestRequest: Codable, Hashable {
+    public let frameworkId: String
+    public let currentBeatId: String
+    public let sceneSummary: String?
+    public let count: Int?
+
+    public init(frameworkId: String, currentBeatId: String, sceneSummary: String?, count: Int?) {
+        self.frameworkId = frameworkId
+        self.currentBeatId = currentBeatId
+        self.sceneSummary = sceneSummary
+        self.count = count
+    }
+}
+
+public nonisolated struct ScreenplayCraftTwistSuggestResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let frameworkId: String
+    public let currentBeatId: String
+    public let source: String
+    public let twists: [ScreenplayCraftTwistSuggestion]
+
+    public init(
+        schemaVersion: Int,
+        frameworkId: String,
+        currentBeatId: String,
+        source: String,
+        twists: [ScreenplayCraftTwistSuggestion]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.frameworkId = frameworkId
+        self.currentBeatId = currentBeatId
+        self.source = source
+        self.twists = twists
+    }
+}
+
+public nonisolated struct ScreenplayCraftTwistSuggestion: Codable, Hashable, Identifiable {
+    public let id: String
+    public let label: String
+    public let hook: String
+    public let severity: String
+    public let rationale: String
+
+    public init(id: String, label: String, hook: String, severity: String, rationale: String) {
+        self.id = id
+        self.label = label
+        self.hook = hook
+        self.severity = severity
+        self.rationale = rationale
+    }
+}
+
 public nonisolated struct ScreenplayFormatLintRequest: Codable, Hashable {
     public let text: String
     public let frameworkId: String?
