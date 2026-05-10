@@ -29,10 +29,25 @@
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T19  | Add BackendClient craft API methods                | codex  | review            |
-| T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | in-progress       |
+| T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | review            |
 | T21  | Add craft-aware prompts and beat classification    | claude | ready-for-claude  |
 | T22  | Persist craft snapshots and turn overrides         | claude | ready-for-claude  |
 | T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
+
+---
+
+## Current next-10 checklist (2026-05-09)
+
+1. Claude finishes T18: commit /craft/* routes, analysis stub, tests, fixtures, and eval scaffold.
+2. Claude pushes and opens the T18 PR against codex/T17-craft-report-models.
+3. Human reviews/merges the current stack in order: PR #1, PR #3, PR #4, PR #5, then T18.
+4. Done - Codex implemented T19 BackendClient craft frameworks, schemas, reports, analyze, snapshots, and overrides.
+5. Done - Codex added T19 Swift tests for request construction, fixture decoding, and backend-unavailable states.
+6. Done - Codex implemented the T20 Craft tab in the studio right rail, adaptive for macOS and iOS.
+7. Done - Codex rendered major-turn drift as a page timeline.
+8. Done - Codex added framework switching and a beat-sheet table.
+9. Claude starts T21: feed craft schemas into prompts and add scene-to-beat classification.
+10. Claude starts T22/T23 chain: persist craft snapshots and overrides, then add the missing-major-turn RC gate.
 
 ---
 
@@ -148,8 +163,9 @@
 - **Owner:** codex
 - **Branch:** codex/T20-craft-tab-timeline-beats
 - **Pillar:** mobile-first + voice-to-scene
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** the studio right rail has a Craft tab with loading/empty/error states, major-turn drift timeline, framework switcher, and beat-sheet table that works on mobile and desktop targets.
+- **Review note:** Implemented on `codex/T20-craft-tab-timeline-beats`; verified with macOS and iOS simulator builds. Rebase/check against final T18/T19 backend contract before merge.
 
 ### T21 — Add craft-aware prompts and beat classification
 - **Owner:** claude

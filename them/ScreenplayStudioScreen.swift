@@ -372,6 +372,14 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var selectedProject: BackendScreenplayProjectSummary?
     @Published var outline: BackendScreenplayOutline = .empty
 
+    @Published var craftFrameworks: [ScreenplayCraftFrameworkReference] = []
+    @Published var selectedCraftFrameworkID: String = ""
+    @Published var craftReport: ScreenplayCraftReport?
+    @Published var isCraftLoading: Bool = false
+    @Published var isCraftAnalyzing: Bool = false
+    @Published var craftErrorText: String = ""
+    @Published var craftInfoText: String = ""
+
     @Published var newProjectTitle: String = ""
     @Published var newSceneSlugline: String = ""
     @Published var newSceneTitle: String = ""
@@ -434,6 +442,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     private var loadedDraftProjectID: String = ""
     private var lastManualDraftEditAt: Date = .distantPast
     private let localDraftRecoveryStoreKey = "screenplay.studio.localDraftRecovery.v1"
+    private let craftClient = BackendClient()
 
     init() {
         draftDebounceCancellable = $fountainDraft
@@ -490,6 +499,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     func selectProject(_ projectID: String) async {
         selectedProjectID = projectID
+        resetCraftReportForProjectChange()
         await loadSelectedProjectOutline()
     }
 
@@ -2098,6 +2108,144 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         await recomputeRevision(for: fountainDraft)
     }
 
+    func resetCraftReportForProjectChange(clearFrameworks: Bool = false) {
+        craftReport = nil
+        craftErrorText = ""
+        craftInfoText = ""
+        if clearFrameworks {
+            craftFrameworks = []
+            selectedCraftFrameworkID = ""
+        }
+    }
+
+    func noteCraftFrameworkSelectionChanged() {
+        let cleanSelected = selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let report = craftReport, !cleanSelected.isEmpty, report.framework.id != cleanSelected else { return }
+        craftReport = nil
+        craftInfoText = "Analyze with the selected framework to update the beat sheet."
+    }
+
+    func loadCraftReport(force: Bool = false) async {
+        guard !isCraftLoading else { return }
+        guard let project = selectedProject else {
+            craftReport = nil
+            craftErrorText = ""
+            craftInfoText = "Select a screenplay project to see craft analysis."
+            return
+        }
+        if !force, craftReport?.projectId == project.id {
+            return
+        }
+
+        isCraftLoading = true
+        defer { isCraftLoading = false }
+        craftErrorText = ""
+        do {
+            try await ensureCraftFrameworksLoaded()
+            let report = try await craftClient.fetchCraftReport(
+                projectId: project.id,
+                versionId: activeCraftVersionID
+            )
+            craftReport = report
+            if selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                selectedCraftFrameworkID = report.framework.id
+            }
+            craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft report loaded."
+        } catch BackendError.http(let status, _) where status == 404 {
+            craftReport = nil
+            craftInfoText = "No craft report exists for this screenplay version yet."
+        } catch {
+            craftReport = nil
+            craftErrorText = error.localizedDescription
+        }
+    }
+
+    func analyzeCraftReport() async {
+        guard !isCraftAnalyzing else { return }
+        guard let project = selectedProject else {
+            craftReport = nil
+            craftErrorText = ""
+            craftInfoText = "Select a screenplay project before running craft analysis."
+            return
+        }
+
+        isCraftAnalyzing = true
+        defer { isCraftAnalyzing = false }
+        craftErrorText = ""
+        do {
+            try await ensureCraftFrameworksLoaded()
+            let report = try await craftClient.analyzeCraft(
+                projectId: project.id,
+                versionId: activeCraftVersionID,
+                frameworkId: normalizedOrNil(selectedCraftFrameworkID),
+                screenplay: craftAnalysisScreenplay(for: project)
+            )
+            craftReport = report
+            selectedCraftFrameworkID = report.framework.id
+            craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft analysis complete."
+        } catch {
+            craftErrorText = error.localizedDescription
+        }
+    }
+
+    private var activeCraftVersionID: String? {
+        if let direct = normalizedOrNil(latestVersionID) {
+            return direct
+        }
+        if let active = normalizedOrNil(selectedProject?.activeVersionId ?? "") {
+            return active
+        }
+        return normalizedOrNil(selectedProject?.lastVersionId ?? "")
+    }
+
+    private func ensureCraftFrameworksLoaded() async throws {
+        if craftFrameworks.isEmpty {
+            let response = try await craftClient.fetchCraftFrameworks()
+            craftFrameworks = response.frameworks
+        }
+        let cleanSelected = selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanSelected.isEmpty || !craftFrameworks.contains(where: { $0.id == cleanSelected }) {
+            selectedCraftFrameworkID = craftFrameworks.first?.id ?? ""
+        }
+    }
+
+    private func craftAnalysisScreenplay(for project: BackendScreenplayProjectSummary) -> ScreenplayCraftAnalysisScreenplay {
+        let orderedScenes = outline.scenes.sorted { lhs, rhs in
+            let lhsOrder = lhs.order ?? Int.max
+            let rhsOrder = rhs.order ?? Int.max
+            if lhsOrder == rhsOrder { return lhs.title < rhs.title }
+            return lhsOrder < rhsOrder
+        }
+        let scenes = orderedScenes.map { scene in
+            let text = [scene.slugline, scene.title, scene.objective, scene.summary]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            return ScreenplayCraftAnalysisScene(
+                id: scene.id,
+                title: scene.title,
+                pageStart: nil,
+                pageEnd: nil,
+                text: text.isEmpty ? nil : text
+            )
+        }
+        return ScreenplayCraftAnalysisScreenplay(
+            title: project.title,
+            pageCount: craftFallbackPageCount,
+            text: normalizedOrNil(fountainDraft),
+            scenes: scenes
+        )
+    }
+
+    var craftFallbackPageCount: Int {
+        let wordCount = fountainDraft
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .count
+        let wordEstimate = max(1, Int((Double(wordCount) / 180.0).rounded()))
+        return max(max(1, paginationPages.count), wordEstimate)
+    }
+
     func exportArtifact(format: String) async throws -> BackendScreenplayExportArtifact {
         guard let project = selectedProject else {
             throw BackendMemoryAPIError.server(status: 400, message: "Select a project first.")
@@ -2117,6 +2265,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         guard !id.isEmpty else {
             selectedProject = nil
             outline = .empty
+            resetCraftReportForProjectChange()
             applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
             collaborators = []
             approvedEmails = []
@@ -3006,6 +3155,7 @@ struct ScreenplayStudioScreen: View {
     private enum DirectionOneRightPanelTab: String, CaseIterable, Identifiable {
         case draft
         case beats
+        case craft
         case outline
         case them
         case saved
@@ -3025,6 +3175,7 @@ struct ScreenplayStudioScreen: View {
             switch self {
             case .draft: return "Draft"
             case .beats: return "Beats"
+            case .craft: return "Craft"
             case .outline: return "Outline"
             case .them: return "them"
             case .saved: return "Saved"
@@ -3035,6 +3186,7 @@ struct ScreenplayStudioScreen: View {
             switch self {
             case .draft: return "doc.text"
             case .beats: return "flag"
+            case .craft: return "chart.line.uptrend.xyaxis"
             case .outline: return "list.bullet.rectangle.portrait"
             case .them: return "sparkles"
             case .saved: return "checkmark.circle"
@@ -3058,7 +3210,7 @@ struct ScreenplayStudioScreen: View {
                 self = .beats
             case .outline:
                 self = .outline
-            case .them, .saved:
+            case .craft, .them, .saved:
                 return nil
             }
         }
@@ -3665,6 +3817,10 @@ Replace is best when this file should become the script you edit. Append is safe
                 )
                 vm.studioWriteAnchors = currentStudioWriteAnchorPayload(from: studioAskNoteHistory)
                 vm.screenplayBindings = currentScreenplayBindingPayload()
+                if directionOneRightPanelTab == .craft {
+                    vm.resetCraftReportForProjectChange()
+                    Task { await vm.loadCraftReport(force: true) }
+                }
                 publishDebugStudioDiffState()
             }
             .onChange(of: vm.isManualDraftEditing) { _, _ in
@@ -3719,11 +3875,18 @@ Replace is best when this file should become the script you edit. Append is safe
                 if newValue == .saved {
                     isDirectionOneSavedExpanded = true
                 }
+                if newValue == .craft {
+                    Task { await vm.loadCraftReport() }
+                }
                 persistInspectorWorkspaceState()
                 publishDebugStudioDiffState()
             }
             .onChange(of: selectedInspectorSection) { _, _ in
                 persistInspectorWorkspaceState()
+            }
+            .onChange(of: vm.selectedCraftFrameworkID) { _, _ in
+                guard directionOneRightPanelTab == .craft else { return }
+                vm.noteCraftFrameworkSelectionChanged()
             }
             .onChange(of: selectedBeatInspectorID) { _, _ in
                 persistInspectorWorkspaceState()
@@ -7636,6 +7799,8 @@ Detail:
             return 560
         case .beats:
             return 700
+        case .craft:
+            return 760
         case .outline:
             return 660
         case .them:
@@ -7695,6 +7860,8 @@ Detail:
             draftToolsCard
         case .beats:
             directionOneBeatsPanel
+        case .craft:
+            directionOneCraftPanel
         case .outline:
             directionOneOutlinePanel
         case .them:
@@ -7708,6 +7875,27 @@ Detail:
         sectionCard(title: "Beats") {
             beatsInspectorContent
         }
+    }
+
+    private var directionOneCraftPanel: some View {
+        ScreenplayCraftRailView(
+            projectTitle: vm.selectedProject?.title ?? "",
+            versionId: vm.latestVersionID,
+            selectedFrameworkID: $vm.selectedCraftFrameworkID,
+            frameworks: vm.craftFrameworks,
+            report: vm.craftReport,
+            isLoading: vm.isCraftLoading,
+            isAnalyzing: vm.isCraftAnalyzing,
+            errorText: vm.craftErrorText,
+            infoText: vm.craftInfoText,
+            fallbackPageCount: vm.craftFallbackPageCount,
+            onRefresh: {
+                Task { await vm.loadCraftReport(force: true) }
+            },
+            onAnalyze: {
+                Task { await vm.analyzeCraftReport() }
+            }
+        )
     }
 
     private var directionOneOutlinePanel: some View {
