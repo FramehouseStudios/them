@@ -283,6 +283,46 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/block-signal"])
     }
 
+
+    func testCharacterTraitsEndpointBuildsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/memory/character-traits"):
+                XCTAssertEqual(request.url?.query, "characterName=JUNE")
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "userId": "usr_test",
+                  "characters": [
+                    {
+                      "name": "JUNE",
+                      "traits": {
+                        "vocabulary": ["quiet room"],
+                        "keywords": ["guarded", "wry"],
+                        "speech_style": { "pace": "terse", "syntax": "fragmented" },
+                        "emotional_default": "guarded",
+                        "goals": ["Protect Leo"],
+                        "relationships": { "LEO": "estranged brother" }
+                      }
+                    }
+                  ]
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let response = try await client.fetchMemoryCharacterTraits(characterName: " JUNE ")
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.characters.first?.name, "JUNE")
+        XCTAssertEqual(response.characters.first?.traits?.speechStyle.pace, "terse")
+        XCTAssertEqual(response.characters.first?.traits?.relationships["LEO"], "estranged brother")
+        XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/character-traits"])
+    }
+
     func testRealtimeSupplierBodyOmitsServerDefaultAndIncludesExplicitProviders() throws {
         let serverDefault = BackendClient.realtimeClientSecretBody(
             systemPrompt: "  write in screenplay mode  ",

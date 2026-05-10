@@ -395,6 +395,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isBlockSignalLoading: Bool = false
     @Published var blockSignalErrorText: String = ""
     @Published var blockSignalInfoText: String = ""
+    @Published var characterTraits: BackendCharacterTraitsResponse?
+    @Published var isCharacterTraitsLoading: Bool = false
+    @Published var characterTraitsErrorText: String = ""
+    @Published var characterTraitsInfoText: String = ""
 
     var formatLintCards: [ScreenplayFormatLintCard] {
         ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
@@ -2343,6 +2347,21 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    func refreshCharacterTraits(source: String = "io.them") async {
+        guard !isCharacterTraitsLoading else { return }
+        isCharacterTraitsLoading = true
+        defer { isCharacterTraitsLoading = false }
+        do {
+            let response = try await craftClient.fetchMemoryCharacterTraits()
+            characterTraits = response
+            characterTraitsErrorText = ""
+            characterTraitsInfoText = source
+        } catch {
+            characterTraitsErrorText = error.localizedDescription
+            characterTraitsInfoText = source
+        }
+    }
+
     private var activeCraftVersionID: String? {
         if let direct = normalizedOrNil(latestVersionID) {
             return direct
@@ -4030,7 +4049,10 @@ Replace is best when this file should become the script you edit. Append is safe
                     isDirectionOneMemoryExpanded = true
                 }
                 if newValue == .them {
-                    Task { await vm.refreshBlockSignal(source: "io.them rail") }
+                    Task {
+                        await vm.refreshBlockSignal(source: "io.them rail")
+                        await vm.refreshCharacterTraits(source: "io.them rail")
+                    }
                 }
                 if newValue == .saved {
                     isDirectionOneSavedExpanded = true
@@ -4213,6 +4235,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 restoreInspectorWorkspaceState()
                 if directionOneRightPanelTab == .them {
                     await vm.refreshBlockSignal(source: "Studio open")
+                    await vm.refreshCharacterTraits(source: "Studio open")
                 }
             }
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
@@ -8172,6 +8195,7 @@ private var directionOneThemPanel: some View {
     let analytics = liveDraftBridge.companionAnalytics
     let signalState = liveDraftBridge.companionSignalState
     let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
+    let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits)
 
     return VStack(alignment: .leading, spacing: 16) {
         VStack(alignment: .leading, spacing: 6) {
@@ -8253,6 +8277,12 @@ private var directionOneThemPanel: some View {
             }
         } else if blockSignalNudge.shouldRender {
             directionOneBlockSignalNudgeCard(blockSignalNudge)
+        }
+
+        if vm.isCharacterTraitsLoading ||
+            !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            vm.characterTraits != nil {
+            directionOneCharacterTraitsCard(characterTraitCards)
         }
 
         directionOneThemCollaboratorSection
@@ -8337,6 +8367,95 @@ private var directionOneThemPanel: some View {
         case .high: return Color.red.opacity(0.74)
         case .medium: return Color.orange.opacity(0.76)
         case .low, .unknown: return Color.green.opacity(0.66)
+        }
+    }
+
+    private func directionOneCharacterTraitsCard(_ cards: [BackendCharacterTraitCardState]) -> some View {
+        intelligenceCollectionCard(title: "Character Memory", icon: "person.2") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("Voice inventory")
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.78))
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { await vm.refreshCharacterTraits(source: "Manual check") }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Refresh character memory")
+                }
+
+                if vm.isCharacterTraitsLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Reading the character voice library.")
+                            .font(.system(size: 12, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.70))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else if !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(vm.characterTraitsErrorText)
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if cards.isEmpty {
+                    Text("No character traits saved yet. Dialogue and rendered character cues will teach io.them who belongs in the draft.")
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(cards) { card in
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack(spacing: 8) {
+                                Text(card.name)
+                                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                                    .foregroundStyle(Color.herText.opacity(0.88))
+                                if card.hasTraits {
+                                    Text("learned")
+                                        .font(.system(size: 9, weight: .semibold, design: .default))
+                                        .foregroundStyle(Color.herText.opacity(0.54))
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(Color.white.opacity(0.14))
+                                        .clipShape(Capsule())
+                                }
+                                Spacer(minLength: 0)
+                            }
+
+                            Text(card.summary)
+                                .font(.system(size: 12, weight: .medium, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.72))
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            if !card.chips.isEmpty {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    ForEach(card.chips, id: \.self) { chip in
+                                        Text(chip)
+                                            .font(.system(size: 10, weight: .semibold, design: .default))
+                                            .foregroundStyle(Color.herText.opacity(0.62))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color.herStudioActiveFill.opacity(0.14))
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                            }
+
+                            Text(card.detail)
+                                .font(.system(size: 10, weight: .medium, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.46))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(10)
+                        .background(Color.white.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+            }
         }
     }
     private var directionOneSavedPanel: some View {

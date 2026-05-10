@@ -284,6 +284,68 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(state.progress, 1)
     }
 
+
+    func testCharacterTraitsResponseDecodesBackendEnvelope() throws {
+        let response = try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "userId": "usr_test",
+          "characters": [
+            {
+              "name": "JUNE",
+              "traits": {
+                "vocabulary": ["quiet room"],
+                "keywords": ["guarded", "wry"],
+                "speech_style": { "pace": "terse", "syntax": "fragmented" },
+                "emotional_default": "guarded",
+                "goals": ["Protect Leo"],
+                "relationships": { "LEO": "estranged brother" }
+              }
+            },
+            { "name": "LEO", "traits": null }
+          ]
+        }
+        """#.utf8))
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.characters.count, 2)
+        XCTAssertEqual(response.characters.first?.traits?.keywords, ["guarded", "wry"])
+        XCTAssertEqual(response.characters.first?.traits?.speechStyle.syntax, "fragmented")
+        XCTAssertEqual(response.characters.last?.traits, nil)
+    }
+
+    func testCharacterTraitCardStateMapsVoiceInventory() throws {
+        let response = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            characters: [
+                BackendCharacterTraitRecord(
+                    name: " JUNE ",
+                    traits: BackendCharacterTraits(
+                        vocabulary: ["quiet room", "tell me again"],
+                        keywords: ["guarded", "wry"],
+                        speechStyle: BackendCharacterSpeechStyle(pace: "terse", syntax: "fragmented"),
+                        emotionalDefault: "guarded",
+                        goals: ["Protect Leo"],
+                        relationships: ["LEO": "estranged brother"]
+                    )
+                ),
+                BackendCharacterTraitRecord(name: "LEO", traits: nil)
+            ],
+            error: nil
+        )
+
+        let cards = BackendCharacterTraitCardState.make(response: response)
+
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertEqual(cards.first?.name, "JUNE")
+        XCTAssertEqual(cards.first?.summary, "Default: guarded")
+        XCTAssertEqual(cards.first?.chips, ["guarded", "wry", "terse", "fragmented"])
+        XCTAssertEqual(cards.first?.detail, "2 phrases | 1 goal | 1 tie")
+        XCTAssertTrue(cards.first?.hasTraits == true)
+        XCTAssertEqual(cards.last?.summary, "Known character; voice inventory is still learning.")
+    }
+
     private func decodeReportFixture() throws -> ScreenplayCraftReport {
         let data = Data(#"""
         {
