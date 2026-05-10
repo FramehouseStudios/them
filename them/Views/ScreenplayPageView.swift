@@ -92,7 +92,7 @@ struct ScreenplayPageView: View {
             ProgressView()
                 .scaleEffect(0.6)
                 .tint(IOThemColors.Screenplay.cursor)
-            Text("Clementine is writing...")
+            Text("io.them is writing...")
                 .font(IOThemTypography.UI.monoLabel)
                 .foregroundColor(IOThemColors.Screenplay.text.opacity(0.4))
         }
@@ -105,7 +105,7 @@ struct ScreenplayPageView: View {
             Text("Start talking.")
                 .font(IOThemTypography.UI.monoPrompt)
                 .foregroundColor(IOThemColors.Screenplay.text.opacity(0.3))
-            Text("Clementine is listening.")
+            Text("io.them is listening.")
                 .font(IOThemTypography.UI.monoCaptionLight)
                 .foregroundColor(IOThemColors.Screenplay.text.opacity(0.2))
         }

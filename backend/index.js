@@ -62,6 +62,7 @@ import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
 import { buildModelPrompt } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
+import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
 import {
   configureScreenplayStore,
   ensureScreenplayOutline,
@@ -2796,12 +2797,37 @@ await scaleBackplane.init();
 // fallback otherwise). Stores opt-in by passing it via configureXxxStore deps.
 // Declared early so configureMemoryStore (the first store init) can consume it.
 const sharedPersistence = createPersistence();
+
+// T13: realtime supplier (OpenAI by default; configurable via
+// REALTIME_PROVIDER env). Falls back to the OpenAI supplier even on
+// supplier load errors so the endpoint always has SOMETHING to call.
+let realtimeSupplier = null;
+try {
+  realtimeSupplier = await createRealtimeSupplier({
+    apiKey: OPENAI_API_KEY,
+    defaultModel: OPENAI_REALTIME_MODEL,
+    defaultVoice: OPENAI_REALTIME_VOICE,
+    defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+    defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  });
+  console.log(`[realtime_supplier] kind=${realtimeSupplier.kind}`);
+} catch (e) {
+  console.error(`[realtime_supplier] failed to construct (${e?.code || "unknown"}); using OpenAI default. err=${e?.message || e}`);
+  const mod = await import("./lib/realtime_supplier_openai.js");
+  realtimeSupplier = mod.createOpenAIRealtimeSupplier({
+    apiKey: OPENAI_API_KEY,
+    defaultModel: OPENAI_REALTIME_MODEL,
+    defaultVoice: OPENAI_REALTIME_VOICE,
+    defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+    defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  });
+}
 console.log(`[persistence] kind=${sharedPersistence.kind}`);
 
-// T08: creative memory tier - per-user style/characters/tone/habits.
-// File-backed MVP; T08-postgres follow-up swaps for the T07 adapter
-// without changing the public API. Read by handleTalkRequest below.
-const creativeMemoryStore = createCreativeMemoryStore();
+// T08 + T08-postgres: creative memory tier — per-user style/characters/
+// tone/habits. Persistence-adapter-backed (Postgres when DATABASE_URL
+// is set, JSON-file otherwise via the shared adapter from T07).
+const creativeMemoryStore = createCreativeMemoryStore({ persistence: sharedPersistence });
 
 // T08: wraps a final system prompt with the user's creative-companion
 // memory if any is present. No-op for cold users - the memory block is
@@ -2819,10 +2845,10 @@ function appendCraftContextToSystem(systemPrompt, { req } = {}) {
   return `${systemPrompt}\n\n${block}`;
 }
 
-function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
+async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
   const userId = req?.user?.id || null;
   if (!userId) return systemPrompt;
-  const memory = creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
+  const memory = await creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
   if (!memory) return systemPrompt;
   return buildModelPrompt({ persona: systemPrompt, creativeMemory: memory });
 }
@@ -30869,7 +30895,7 @@ async function handleTalkRequest(req, res) {
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
     const systemBaseRaw = normalizeSystemPrompt(withOutputContract(presetBoundSystem));
     // T08: augment with per-user creative memory when present (no-op for cold users).
-    const systemBaseWithMemory = wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
+    const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
     // T21: when this is a screenplay page-write turn, append a compact
     // craft-context block describing the active framework (and, when
     // available, the user's coverage state). Cheap and additive: the

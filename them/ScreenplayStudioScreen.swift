@@ -1333,7 +1333,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
         let parsed = Self.parseDevelopmentOutline(prompt: prompt, reply: reply)
         guard !parsed.actTitles.isEmpty || !parsed.beats.isEmpty else {
-            errorText = "Ask Clementine for a beat sheet or outline, then try Apply to Outline again."
+            errorText = "Ask io.them for a beat sheet or outline, then try Apply to Outline again."
             return false
         }
 
@@ -3178,7 +3178,7 @@ struct ScreenplayStudioScreen: View {
             case .beats: return "Beats"
             case .craft: return "Craft"
             case .outline: return "Outline"
-            case .them: return "them"
+            case .them: return "io.them"
             case .saved: return "Saved"
             }
         }
@@ -5096,7 +5096,7 @@ Replace is best when this file should become the script you edit. Append is safe
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("them")
+                    Text("io.them")
                         .font(.system(size: 28, weight: .semibold, design: .serif))
                         .foregroundStyle(directionOneChromeText)
                     Text("Creative Partner")
@@ -5248,7 +5248,7 @@ Replace is best when this file should become the script you edit. Append is safe
 
         return directionOneAssistantDisclosureSection(
             title: "Signals & Context",
-            subtitle: "What Clementine is tracking across the screenplay right now.",
+            subtitle: "What io.them is tracking across the screenplay right now.",
             systemImage: "scope",
             isExpanded: $isDirectionOneSignalsExpanded
         ) {
@@ -5314,7 +5314,7 @@ Replace is best when this file should become the script you edit. Append is safe
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Ask Clementine")
+                    Text("Ask io.them")
                         .font(.system(size: 12, weight: .semibold, design: .default))
                         .foregroundStyle(directionOneChromeText.opacity(0.90))
                     Text(studioPromptHelperText)
@@ -5434,11 +5434,11 @@ Replace is best when this file should become the script you edit. Append is safe
         case .reviewPendingAction:
             return "A proposed page change is waiting for confirmation."
         case .reviewSignals:
-            return "Clementine has screenplay signals worth resolving before the next pass."
+            return "io.them has screenplay signals worth resolving before the next pass."
         case .reopenThread:
-            return "Open the thread and give Clementine the next move."
+            return "Open the thread and give io.them the next move."
         case .advanceDraft:
-            return "Use Clementine for one precise move that pushes the current scene forward."
+            return "Use io.them for one precise move that pushes the current scene forward."
         }
     }
 
@@ -5832,7 +5832,7 @@ Replace is best when this file should become the script you edit. Append is safe
     private var directionOneCompactComposerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("Ask Clementine")
+                Text("Ask io.them")
                     .font(.system(size: 11, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.74))
                 Spacer(minLength: 0)
@@ -7991,10 +7991,10 @@ private var directionOneThemPanel: some View {
 
     return VStack(alignment: .leading, spacing: 16) {
         VStack(alignment: .leading, spacing: 6) {
-            Text("them")
+            Text("io.them")
                 .font(.system(size: 30, weight: .semibold, design: .serif))
                 .foregroundStyle(Color.herText.opacity(0.92))
-            Text("Keep Clementine's instincts, memory, and craft signals together.")
+            Text("Keep io.them's instincts, memory, and craft signals together.")
                 .font(.system(size: 15, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.82))
             Text("The rail should feel like one creative partner. Companion context, live asks, and screenplay intelligence now move through the same calmer surface.")
@@ -8457,7 +8457,7 @@ private var directionOneThemPanel: some View {
                     Text("Screenplay Studio")
                         .font(.system(size: 30, weight: .semibold, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.95))
-                    Text("Write on the page or think beside it with Clementine.")
+                    Text("Write on the page or think beside it with io.them.")
                         .font(.system(size: 14, weight: .regular, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.72))
                 }
@@ -9166,7 +9166,7 @@ private var projectsSidebarContent: some View {
                 .font(.system(size: 28, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.95))
 
-            Text("Clementine writes the screenplay here as you talk. Create a project when you want versions, comments, autosave, and export.")
+            Text("io.them writes the screenplay here as you talk. Create a project when you want versions, comments, autosave, and export.")
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.78))
 
@@ -9996,7 +9996,7 @@ private var projectsSidebarContent: some View {
         case .idle:
             return ""
         case .loading:
-            return "Waiting for Clementine's authoritative page response."
+            return "Waiting for io.them's authoritative page response."
         case .buffering:
             if state.hasAuthoritativeText {
                 return "Authoritative screenplay text is ready. Playback will start the page write."
@@ -12881,7 +12881,7 @@ private var projectsSidebarContent: some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Clementine")
+                        Text("io.them")
                             .font(.system(size: 17, weight: .semibold, design: .default))
                             .foregroundStyle(Color.herText.opacity(0.92))
                         Text(studioCollaboratorSubtitle)
@@ -12911,7 +12911,7 @@ private var projectsSidebarContent: some View {
     }
 
     private var studioPromptComposerCard: some View {
-        sectionCard(title: "Tell Clementine") {
+        sectionCard(title: "Tell io.them") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -13891,7 +13891,7 @@ private var projectsSidebarContent: some View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Clementine Voice Pin")
+                Text("io.them Voice Pin")
                     .font(.system(size: 11, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.90))
                 Text(talkStatusText)
@@ -13939,7 +13939,7 @@ private var projectsSidebarContent: some View {
 
             Spacer(minLength: 0)
 
-            Button("Tell Clementine") {
+            Button("Tell io.them") {
                 studioPromptFocused = true
             }
             .buttonStyle(.borderless)
@@ -14350,18 +14350,18 @@ private var projectsSidebarContent: some View {
         let normalized = phase.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch normalized {
         case "scene_draft":
-            return "Scene draft mode. Clementine is writing approved beats straight onto the page."
+            return "Scene draft mode. io.them is writing approved beats straight onto the page."
         case "outline":
-            return "Outline mode. Clementine is shaping structure before the next page move."
+            return "Outline mode. io.them is shaping structure before the next page move."
         case "beat_sheet":
-            return "Beat sheet mode. Clementine is converting intent into playable page material."
+            return "Beat sheet mode. io.them is converting intent into playable page material."
         case "revision":
-            return "Revision mode. Clementine is tightening lines and replacing page blocks in place."
+            return "Revision mode. io.them is tightening lines and replacing page blocks in place."
         case "":
-            return "Page mode. Clementine is keeping the freshest writing visible here."
+            return "Page mode. io.them is keeping the freshest writing visible here."
         default:
             let label = normalized.replacingOccurrences(of: "_", with: " ").capitalized
-            return "\(label). Clementine is keeping the freshest page output visible here."
+            return "\(label). io.them is keeping the freshest page output visible here."
         }
     }
 
@@ -14518,7 +14518,7 @@ private var projectsSidebarContent: some View {
 
                         if !exchange.noteTitle.isEmpty || !exchange.noteBody.isEmpty {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(exchange.noteTitle.isEmpty ? "Clementine" : exchange.noteTitle)
+                                Text(exchange.noteTitle.isEmpty ? "io.them" : exchange.noteTitle)
                                     .font(.system(size: 11, weight: .semibold, design: .default))
                                     .foregroundStyle(Color.herText.opacity(0.72))
                                 if !exchange.noteBody.isEmpty {
@@ -15248,7 +15248,7 @@ Current draft version:
             displayText: "Restore original page write",
             source: .typed,
             routingMode: .page,
-            successMessage: "Asked Clementine to restore the original page write.",
+            successMessage: "Asked io.them to restore the original page write.",
             clearSeedOnSuccess: false,
             sendingSuggestionID: nil
         )
@@ -15281,7 +15281,7 @@ Current draft version:
             displayText: "Rewrite from diff",
             source: .typed,
             routingMode: .page,
-            successMessage: "Asked Clementine to rewrite the section from the diff.",
+            successMessage: "Asked io.them to rewrite the section from the diff.",
             clearSeedOnSuccess: false,
             sendingSuggestionID: nil
         )
@@ -15872,7 +15872,7 @@ Current draft version:
 
             if !exchange.noteTitle.isEmpty || !exchange.noteBody.isEmpty {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(exchange.noteTitle.isEmpty ? "Clementine" : exchange.noteTitle)
+                    Text(exchange.noteTitle.isEmpty ? "io.them" : exchange.noteTitle)
                         .font(.system(size: 12, weight: .semibold, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.72))
                     if !exchange.noteBody.isEmpty {
@@ -15901,7 +15901,7 @@ Current draft version:
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.herText.opacity(0.72))
 
-                    Text("Adds Clementine's development beats to Outline/Beats.")
+                    Text("Adds io.them's development beats to Outline/Beats.")
                         .font(.system(size: 10, weight: .regular, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.50))
 
@@ -16142,7 +16142,7 @@ Current draft version:
             }
 
             if items.isEmpty {
-                Text("No scene headings yet. Add the first slugline and Clementine will draft from there.")
+                Text("No scene headings yet. Add the first slugline and io.them will draft from there.")
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.64))
             } else {
@@ -16368,7 +16368,7 @@ Current draft version:
         case .rewrite:
             return "Describe the rewrite you want on the page"
         case .voicePin:
-            return "Pin a note for Clementine to hold"
+            return "Pin a note for io.them to hold"
         }
     }
 
@@ -17028,7 +17028,7 @@ Current draft version:
                             ProgressView()
                                 .controlSize(.small)
                                 .tint(Color.green.opacity(0.82))
-                            Text("Clementine is drafting…")
+                            Text("io.them is drafting…")
                                 .font(.system(size: 10, weight: .semibold, design: .default))
                                 .foregroundStyle(Color.green.opacity(0.88))
                         }
@@ -17933,7 +17933,7 @@ Return revised screenplay lines only.
             displayText: preset.displayPrompt,
             source: .typed,
             routingMode: .page,
-            successMessage: "Asked Clementine to make the last write \(preset.title).",
+            successMessage: "Asked io.them to make the last write \(preset.title).",
             clearSeedOnSuccess: false,
             sendingSuggestionID: nil
         )
@@ -18572,7 +18572,7 @@ Return revised screenplay lines only.
         }
         let source = StudioPromptSource(rawValue: (thread.screenplayPromptSource ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) ?? .voice
         let noteTitle = (thread.screenplayNoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (target == .page ? "Wrote to page" : "Clementine")
+            ? (target == .page ? "Wrote to page" : "io.them")
             : (thread.screenplayNoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let noteBody = noteBodyForExchange(
             (thread.screenplayNoteBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -18799,8 +18799,8 @@ Return revised screenplay lines only.
         highlightedStudioExchangeID = exchange.id
         studioThreadListFocused = true
         vm.infoText = exchange.target == .page
-            ? "Loaded this page write back into Clementine."
-            : "Loaded this Voice Pin ask back into Clementine."
+            ? "Loaded this page write back into io.them."
+            : "Loaded this Voice Pin ask back into io.them."
     }
 
     private func pinStudioAskNoteExchange(_ exchange: StudioAskNoteExchange) {
@@ -19617,7 +19617,7 @@ Return revised screenplay lines only.
             prompt: prompt,
             target: .voicePin,
             source: .typed,
-            noteTitle: "Clementine",
+            noteTitle: "io.them",
             noteBody: "Here are three options.",
             developmentText: "Here are three options.",
             writeID: nil,
@@ -20618,7 +20618,7 @@ Return revised screenplay lines only.
             isDirectionOneComposerExpanded = true
             studioPromptFocused = true
             studioThreadListFocused = false
-            vm.infoText = "Focused Clementine's prompt."
+            vm.infoText = "Focused io.them's prompt."
         }
     }
 
@@ -20709,7 +20709,7 @@ Return revised screenplay lines only.
             displayText: text,
             source: .typed,
             routingMode: studioPromptRoutingMode,
-            successMessage: "Suggestion sent to Clementine.",
+            successMessage: "Suggestion sent to io.them.",
             clearSeedOnSuccess: false,
             sendingSuggestionID: suggestion.id
         )
@@ -20727,7 +20727,7 @@ Return revised screenplay lines only.
             displayText: text,
             source: .typed,
             routingMode: studioPromptRoutingMode,
-            successMessage: "Prompt sent to Clementine.",
+            successMessage: "Prompt sent to io.them.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil
         )
@@ -20757,7 +20757,7 @@ Return revised screenplay lines only.
             displayText: text,
             source: .typed,
             routingMode: studioPromptRoutingMode,
-            successMessage: "Prompt sent to Clementine.",
+            successMessage: "Prompt sent to io.them.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil,
             debugSubmitToken: preparedTokenForSubmit,
@@ -22049,7 +22049,7 @@ Look at the city.
             prompt: "Can you coach me through the next beat?",
             target: .voicePin,
             source: .voice,
-            noteTitle: "Clementine",
+            noteTitle: "io.them",
             noteBody: "Try grounding Lucy in what she refuses to say out loud.",
             developmentText: "Try grounding Lucy in what she refuses to say out loud.",
             writeID: nil,
@@ -22826,7 +22826,7 @@ Look at the city.
             displayText: text,
             source: .typed,
             routingMode: routingMode,
-            successMessage: "Prompt sent to Clementine.",
+            successMessage: "Prompt sent to io.them.",
             clearSeedOnSuccess: true,
             sendingSuggestionID: nil,
             requestIDOverride: requestID,
