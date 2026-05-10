@@ -17,6 +17,7 @@
 // (Postgres in production; single-process discipline in JSON mode).
 
 import { createPersistence } from "./persistence_adapter.js";
+import { mergeTraits as mergeCharacterTraits } from "./trait_library.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -119,6 +120,10 @@ function createCreativeMemoryStore({ persistence } = {}) {
   // them only when supplied. Returns a small action receipt so route
   // handlers can build a typed response without a second read; legacy
   // callers can ignore the return value.
+  // T30: optional `source` and `metadata` thread through.
+  // T-trait-library: optional `traits` delta merges into character.traits
+  // (canonical merge via trait_library.mergeTraits). All three fields are
+  // additive — existing callers pass nothing and nothing changes.
   async function recordCharacterMention({
     userId,
     characterName,
@@ -126,6 +131,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     tags = [],
     source = "",
     metadata = null,
+    traits = null,
   }) {
     if (!userId || !characterName || typeof characterName !== "string") {
       return { ok: false, action: "skipped", reason: "missing_userId_or_name" };
@@ -137,6 +143,9 @@ function createCreativeMemoryStore({ persistence } = {}) {
     const cleanSource = typeof source === "string" ? source.trim() : "";
     const cleanMetadata = metadata && typeof metadata === "object" && !Array.isArray(metadata)
       ? metadata
+      : null;
+    const cleanTraits = traits && typeof traits === "object" && !Array.isArray(traits)
+      ? traits
       : null;
     let resolvedAction = "recorded";
     await updateUser(userId, (rec) => {
@@ -158,6 +167,12 @@ function createCreativeMemoryStore({ persistence } = {}) {
             ...cleanMetadata,
           };
         }
+        if (cleanTraits) {
+          characters[existingIdx].traits = mergeCharacterTraits(
+            characters[existingIdx].traits,
+            cleanTraits,
+          );
+        }
       } else {
         const entry = {
           name,
@@ -168,6 +183,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
         };
         if (cleanSource) entry.source = cleanSource;
         if (cleanMetadata) entry.metadata = { ...cleanMetadata };
+        if (cleanTraits) entry.traits = mergeCharacterTraits(null, cleanTraits);
         characters.push(entry);
       }
       characters.sort((a, b) => (b.last_referenced || 0) - (a.last_referenced || 0));
@@ -175,6 +191,21 @@ function createCreativeMemoryStore({ persistence } = {}) {
       return rec;
     });
     return { ok: true, action: resolvedAction, characterName: name, source: cleanSource };
+  }
+
+  // T-trait-library: reader for one or all character trait records.
+  async function getCharacterTraits({ userId, characterName = null } = {}) {
+    if (!userId) return null;
+    const rec = await readUser(userId);
+    if (!rec || !Array.isArray(rec.characters)) return null;
+    if (characterName && typeof characterName === "string") {
+      const name = characterName.trim();
+      if (!name) return null;
+      const found = rec.characters.find((c) => c.name === name);
+      if (!found) return null;
+      return { name: found.name, traits: found.traits || null };
+    }
+    return rec.characters.map((c) => ({ name: c.name, traits: c.traits || null }));
   }
 
   async function recordSceneCompletion({ userId, scenePageCount }) {
@@ -196,6 +227,12 @@ function createCreativeMemoryStore({ persistence } = {}) {
       rec.habits.page_completion_rate = Math.round(
         (rec.habits._scenes_completed / Math.max(1, attempted)) * 100,
       ) / 100;
+      // T-block-detector: completing a scene clears the recent-short-turn
+      // streak (the writer is no longer stuck) and stamps the activity
+      // timestamps the block_detector reads.
+      rec.habits.last_scene_completion_at = nowMs();
+      rec.habits.last_scene_attempt_at = rec.habits.last_scene_completion_at;
+      rec.habits.recent_short_turns = 0;
       return rec;
     });
   }
@@ -210,6 +247,37 @@ function createCreativeMemoryStore({ persistence } = {}) {
       rec.habits.page_completion_rate = Math.round(
         (completed / Math.max(1, rec.habits._scenes_attempted)) * 100,
       ) / 100;
+      // T-block-detector: stamp the attempt time so block_detector can
+      // measure dry spells. Completion stamps both fields; attempt-only
+      // stamps just `last_scene_attempt_at`.
+      rec.habits.last_scene_attempt_at = nowMs();
+      return rec;
+    });
+  }
+
+  // T-block-detector: record a /talk turn's contribution to the block
+  // signal. Updates `last_talk_turn_at` and maintains a small rolling
+  // counter `recent_short_turns` (transcripts under SHORT_TURN_LEN_CHARS).
+  // Capped at SHORT_TURN_WINDOW so the counter doesn't grow unbounded.
+  // Long turns decay the counter toward zero so the user's recovery is
+  // observable in the next signal computation.
+  async function recordTalkTurnForBlockSignal({ userId, transcript = "", nowAtMs = nowMs() } = {}) {
+    if (!userId) return;
+    const len = typeof transcript === "string" ? transcript.trim().length : 0;
+    const SHORT_TURN_LEN_CHARS = 40;
+    const SHORT_TURN_WINDOW = 8;
+    const isShort = len > 0 && len < SHORT_TURN_LEN_CHARS;
+    const isLong = len >= SHORT_TURN_LEN_CHARS;
+    await updateUser(userId, (rec) => {
+      rec.habits = rec.habits || {};
+      rec.habits.last_talk_turn_at = Number(nowAtMs) || nowMs();
+      const prev = Number(rec.habits.recent_short_turns) || 0;
+      if (isShort) {
+        rec.habits.recent_short_turns = Math.min(prev + 1, SHORT_TURN_WINDOW);
+      } else if (isLong) {
+        // Long turn → fade the short-turn signal one step toward zero.
+        rec.habits.recent_short_turns = Math.max(prev - 1, 0);
+      }
       return rec;
     });
   }
@@ -357,13 +425,30 @@ function createCreativeMemoryStore({ persistence } = {}) {
       } catch (_e) { /* */ }
     }
 
+    // T-block-detector: stamp last_talk_turn_at and maintain the short-
+    // turn counter. Single write; never blocks the response.
+    try {
+      await recordTalkTurnForBlockSignal({ userId, transcript });
+      summary.blockSignalUpdated = true;
+    } catch (_e) { /* */ }
+
     return summary;
+  }
+
+  // T-block-detector: expose the raw habits object so the route layer
+  // can compute a block signal without re-reading the full record.
+  async function getHabitsForUser(userId) {
+    const rec = await readUser(userId);
+    if (!rec || !rec.habits || typeof rec.habits !== "object") return null;
+    return clone(rec.habits);
   }
 
   return {
     SCHEMA_VERSION,
     DOMAIN,
     getCreativeMemoryForPrompt,
+    getCharacterTraits,
+    getHabitsForUser,
     hasMemoryForUser,
     recordCharacterMention,
     recordSceneCompletion,
@@ -371,6 +456,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     recordToneSignal,
     recordSessionEnd,
     recordLexicalFingerprint,
+    recordTalkTurnForBlockSignal,
     recordTriggersFromTalkTurn,
     _clearAll,
   };
