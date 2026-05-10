@@ -40,7 +40,7 @@
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
 | T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
-| T-twist-engine | Beat-aware reversal suggestions                | claude | in-progress       |
+| T-twist-engine | Beat-aware reversal suggestions                | claude | review            |
 
 ---
 
@@ -255,7 +255,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T-twist-engine`
 - **Pillar:** voice→scene + living companion (Craft Intelligence Suite, Layer 2)
-- **Status:** in-progress
+- **Status:** review
 - **Scope:** `backend/lib/twist_engine.js` produces structured reversal suggestions for a given framework beat. Deterministic stub by default: canonical twist patterns mapped to the major-turn beats of each framework (Save the Cat, Story Circle, Hero's Journey, Three-Act). LLM mode via the T21 classifier interface when an `OPENAI_API_KEY`-backed classifier is configured. Pure analysis — no new persistence domain. Endpoint `POST /craft/twist/suggest` accepts `{ frameworkId, currentBeatId, sceneSummary?, count? }` and returns `{ schemaVersion, twists: [{ id, label, hook, severity, rationale }] }`. iOS Studio can consume the endpoint to surface reversal cards on the beat timeline.
 - **Done when:** `suggestTwists({ frameworkId, currentBeatId, sceneSummary?, classifier? })` returns deterministic twists for each major-turn beat of each canonical framework; ≥12 unit tests + ≥4 endpoint integration tests; full backend test suite stays green; design notes in `docs/T-twist-engine.md`.
 
