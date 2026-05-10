@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 export function runCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -37,17 +38,41 @@ export async function waitForCondition(predicate, description, timeoutMs = 20000
 }
 
 function defaultDebugDomains() {
+  const explicit = String(process.env.THEM_DEBUG_DEFAULTS_DOMAIN || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (explicit.length) {
+    return Array.from(new Set(explicit));
+  }
+  // Use the app's logical defaults domain as the deterministic source of truth.
+  return ["io.them.them"];
+}
+
+function defaultDebugPlistTargets(domains = []) {
   const home = String(process.env.HOME || "").trim();
-  return Array.from(
-    new Set(
-      [
-        String(process.env.THEM_DEBUG_DEFAULTS_DOMAIN || "").trim(),
-        home ? `${home}/Library/Containers/io.them.them/Data/Library/Preferences/io.them.them` : "",
-        home ? `${home}/Library/Preferences/io.them.them` : "",
-        "io.them.them",
-      ].filter(Boolean)
-    )
-  );
+  if (!home) return [];
+  const targets = [];
+  for (const domain of domains) {
+    const cleanDomain = String(domain || "").trim();
+    if (!cleanDomain) continue;
+    const filename = cleanDomain.endsWith(".plist") ? cleanDomain : `${cleanDomain}.plist`;
+    const plistPaths = [
+      `${home}/Library/Containers/${cleanDomain}/Data/Library/Preferences/${filename}`,
+      `${home}/Library/Preferences/${filename}`,
+    ];
+    for (const plistPath of plistPaths) {
+      const defaultsTarget = plistPath.endsWith(".plist")
+        ? plistPath.slice(0, -".plist".length)
+        : plistPath;
+      targets.push({
+        domain: cleanDomain,
+        plistPath,
+        defaultsTarget,
+      });
+    }
+  }
+  return targets;
 }
 
 export function createStudioDebugDefaultsTransport({
@@ -56,40 +81,89 @@ export function createStudioDebugDefaultsTransport({
   domains = [],
 } = {}) {
   const debugDomains = Array.from(new Set([...domains.filter(Boolean), ...defaultDebugDomains()]));
+  const debugPlistTargets = defaultDebugPlistTargets(debugDomains);
+  const writeDomains = debugDomains;
 
-  function readString(key) {
+  function readDomainResults(key) {
+    const results = [];
+    for (const target of debugPlistTargets) {
+      const result = runOptional("defaults", ["read", target.defaultsTarget, key]);
+      if (result.status !== 0) continue;
+      results.push({
+        domain: target.domain,
+        value: result.stdout.trim(),
+      });
+    }
     for (const domain of debugDomains) {
       const result = runOptional("defaults", ["read", domain, key]);
-      if (result.status === 0) return result.stdout.trim();
+      if (result.status !== 0) continue;
+      results.push({
+        domain,
+        value: result.stdout.trim(),
+      });
     }
-    return "";
+    return results;
+  }
+
+  function readString(key) {
+    const results = readDomainResults(key);
+    if (results.length === 0) return "";
+    const preferred = [...results].reverse().find((entry) => entry.value.length > 0);
+    return (preferred || results[results.length - 1]).value;
   }
 
   function readInt(key) {
-    const value = Number(readString(key));
-    return Number.isFinite(value) ? value : 0;
+    const results = readDomainResults(key);
+    let best = Number.NEGATIVE_INFINITY;
+    let found = false;
+    for (const entry of results) {
+      const value = Number(entry.value);
+      if (!Number.isFinite(value)) continue;
+      if (!found || value > best) {
+        best = value;
+        found = true;
+      }
+    }
+    return found ? best : 0;
   }
 
   function readBool(key, fallback = false) {
-    const raw = String(readString(key)).trim().toLowerCase();
+    const results = readDomainResults(key);
+    const raw = String((results.length ? results[results.length - 1].value : "")).trim().toLowerCase();
     if (!raw) return fallback;
     return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
   }
 
   function readJSON(key, fallback = null) {
-    const raw = readString(key);
-    if (!raw) return fallback;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return fallback;
+    const results = readDomainResults(key);
+    for (const entry of [...results].reverse()) {
+      if (!entry.value) continue;
+      try {
+        return JSON.parse(entry.value);
+      } catch {
+        continue;
+      }
     }
+    return fallback;
   }
 
   function writeKey(key, args) {
     let wrote = false;
     let lastError = "";
-    for (const domain of debugDomains) {
+    for (const target of debugPlistTargets) {
+      try {
+        mkdirSync(target.plistPath.slice(0, target.plistPath.lastIndexOf("/")), { recursive: true });
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+      const result = runOptional("defaults", ["write", target.defaultsTarget, key, ...args]);
+      if (result.status === 0) {
+        wrote = true;
+      } else {
+        lastError = result.stderr || result.stdout || lastError;
+      }
+    }
+    for (const domain of writeDomains) {
       const result = runOptional("defaults", ["write", domain, key, ...args]);
       if (result.status === 0) {
         wrote = true;
@@ -120,6 +194,8 @@ export function createStudioDebugDefaultsTransport({
 
   return {
     domains: debugDomains,
+    plistTargets: debugPlistTargets.map((target) => target.plistPath),
+    writeDomains,
     readString,
     readInt,
     readBool,
@@ -149,6 +225,47 @@ export function createStudioEvalDebugContext({
     readDebugDiffState: (fallback = null) => defaults.readJSON("studio_debug_diff_state_json", fallback),
     nextToken: (...keys) => defaults.nextToken(...keys),
   };
+}
+
+export const STUDIO_DEBUG_LOAD_PROJECT_REQUEST_PATH = String(
+  process.env.THEM_STUDIO_DEBUG_LOAD_PROJECT_REQUEST_PATH || "/tmp/them_studio_debug_load_project_request.json"
+).trim() || "/tmp/them_studio_debug_load_project_request.json";
+
+export const STUDIO_DEBUG_PROJECT_LOAD_TRACE_KEY = "studio_debug_project_load_trace_json";
+export const STUDIO_DEBUG_DIFF_STATE_KEY = "studio_debug_diff_state_json";
+
+export function writeStudioDebugLoadProjectRequest({
+  token,
+  projectId,
+  versionId = "",
+  requestPath = STUDIO_DEBUG_LOAD_PROJECT_REQUEST_PATH,
+} = {}) {
+  const cleanProjectId = String(projectId || "").trim();
+  if (!cleanProjectId) {
+    throw new Error("writeStudioDebugLoadProjectRequest requires projectId");
+  }
+  const cleanToken = Number(token);
+  if (!Number.isInteger(cleanToken) || cleanToken <= 0) {
+    throw new Error("writeStudioDebugLoadProjectRequest requires a positive token");
+  }
+  writeFileSync(requestPath, JSON.stringify({
+    token: cleanToken,
+    projectID: cleanProjectId,
+    versionID: String(versionId || "").trim(),
+  }), "utf8");
+  return requestPath;
+}
+
+export function readStudioDebugProjectLoadTrace({
+  debugDefaults,
+  token = 0,
+  traceKey = STUDIO_DEBUG_PROJECT_LOAD_TRACE_KEY,
+} = {}) {
+  if (!debugDefaults) return [];
+  const trace = debugDefaults.readJSON(traceKey, []);
+  if (!Array.isArray(trace)) return [];
+  if (!Number.isInteger(token) || token <= 0) return trace;
+  return trace.filter((entry) => Number(entry?.token || 0) === token);
 }
 
 export function parseBoolFlag(raw) {
@@ -294,12 +411,13 @@ export async function ensureStudioVisibleWithOpenHandshake({
     await sleepMs(900);
   }
 
+  debugDefaults.writeString(STUDIO_DEBUG_DIFF_STATE_KEY, "");
   debugDefaults.writeInt(openTokenKey, 0);
   debugDefaults.writeInt(openAckTokenKey, 0);
   activateApp(appPath);
   await waitForCondition(
-    () => Boolean(appHasWindow()) || readDebugDiffState() != null,
-    "visible THEM window or diff state before Studio open",
+    () => Boolean(appHasWindow()),
+    "visible THEM window before Studio open",
     startupTimeoutMs,
     300
   );
@@ -311,16 +429,16 @@ export async function ensureStudioVisibleWithOpenHandshake({
     debugDefaults.writeInt(openTokenKey, token);
     try {
       await waitForCondition(
-        () => debugDefaults.readInt(openAckTokenKey) === token || readDebugDiffState() != null,
-        `Studio open ack or diff state ${token}`,
+        () => debugDefaults.readInt(openAckTokenKey) === token,
+        `Studio open ack ${token}`,
         ackTimeoutMs,
         150
       );
       await sleepMs(settleMs);
       activateApp(appPath);
       await waitForCondition(
-        () => Boolean(appHasWindow()) || readDebugDiffState() != null,
-        "visible THEM window or diff state after open",
+        () => Boolean(appHasWindow()) && readDebugDiffState() != null,
+        "visible THEM window and Studio diff state after open",
         startupTimeoutMs,
         250
       );
@@ -336,11 +454,16 @@ export async function ensureStudioVisibleWithOpenHandshake({
     }
   }
 
-  if (Boolean(appHasWindow()) || readDebugDiffState() != null) {
+  const hasDiffState = readDebugDiffState() != null;
+  const hasWindow = Boolean(appHasWindow());
+  if (hasDiffState) {
     return {
       token: 0,
-      appSession,
-      degradedOpenHandshake: true,
+      degraded: true,
+      appSession: {
+        ...appSession,
+        helperStatus: appSession.helperStatus === "ok" ? "degraded_open_ack" : appSession.helperStatus,
+      },
     };
   }
 
@@ -348,6 +471,94 @@ export async function ensureStudioVisibleWithOpenHandshake({
   throw new Error(
     `${message}\nApp session telemetry: ${JSON.stringify(appSession, null, 2)}`
   );
+}
+
+export async function ensureStudioProjectLoadedWithDebugHook({
+  debugDefaults,
+  projectId,
+  versionId = "",
+  readDebugDiffState = () => null,
+  loadProjectTokenKey = "studio_debug_load_project_token",
+  loadProjectProjectIDKey = "studio_debug_load_project_id",
+  loadProjectVersionIDKey = "studio_debug_load_project_version_id",
+  loadProjectAckTokenKey = "studio_debug_load_project_ack_token",
+  requestPath = STUDIO_DEBUG_LOAD_PROJECT_REQUEST_PATH,
+  timeoutMs = 30000,
+  intervalMs = 150,
+} = {}) {
+  if (!debugDefaults) {
+    throw new Error("ensureStudioProjectLoadedWithDebugHook requires debugDefaults");
+  }
+  const cleanProjectId = String(projectId || "").trim();
+  if (!cleanProjectId) {
+    throw new Error("ensureStudioProjectLoadedWithDebugHook requires projectId");
+  }
+  const cleanVersionId = String(versionId || "").trim();
+  const token = debugDefaults.nextToken(loadProjectTokenKey, loadProjectAckTokenKey);
+  debugDefaults.writeString(STUDIO_DEBUG_PROJECT_LOAD_TRACE_KEY, "[]");
+  debugDefaults.writeInt(loadProjectAckTokenKey, 0);
+  writeStudioDebugLoadProjectRequest({
+    token,
+    projectId: cleanProjectId,
+    versionId: cleanVersionId,
+    requestPath,
+  });
+
+  const isReadyState = (diffState) => {
+    const selectedProjectID = String(diffState?.selectedProjectID || "").trim();
+    const latestVersionID = String(diffState?.latestVersionID || "").trim();
+    const loadedDraftProjectID = String(diffState?.loadedDraftProjectID || "").trim();
+    const projectMatched = selectedProjectID === cleanProjectId;
+    const versionMatched = !cleanVersionId || latestVersionID === cleanVersionId;
+    const explicitReady = Boolean(diffState?.loadProjectReady);
+    const inferredReady = Boolean(diffState?.studioSurfaceActive)
+      && Boolean(diffState?.selectedProjectPresent)
+      && loadedDraftProjectID === cleanProjectId
+      && diffState?.editorFocusPending === false
+      && projectMatched
+      && versionMatched;
+    return {
+      projectMatched,
+      versionMatched,
+      ready: explicitReady || inferredReady,
+    };
+  };
+
+  try {
+    await waitForCondition(() => {
+      const diffState = readDebugDiffState(cleanProjectId);
+      const ackMatched = debugDefaults.readInt(loadProjectAckTokenKey) === token;
+      const readiness = isReadyState(diffState);
+      return ackMatched && readiness.projectMatched && readiness.versionMatched && readiness.ready;
+    }, `Studio project load for ${cleanProjectId}`, timeoutMs, intervalMs);
+  } catch (error) {
+    const finalState = readDebugDiffState(cleanProjectId);
+    const breadcrumbs = readStudioDebugProjectLoadTrace({
+      debugDefaults,
+      token,
+    });
+    const summary = {
+      token,
+      requestedProjectId: cleanProjectId,
+      requestedVersionId: cleanVersionId,
+      ackToken: debugDefaults.readInt(loadProjectAckTokenKey),
+      finalState,
+      breadcrumbs,
+    };
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\n`
+      + `Project-load diagnostics: ${JSON.stringify(summary, null, 2)}`
+    );
+  }
+
+  return {
+    token,
+    state: readDebugDiffState(cleanProjectId),
+    breadcrumbs: readStudioDebugProjectLoadTrace({
+      debugDefaults,
+      token,
+    }),
+  };
 }
 
 export function assertInteractionLifecycle({

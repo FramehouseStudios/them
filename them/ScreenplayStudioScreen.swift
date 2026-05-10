@@ -10,7 +10,7 @@ import AppKit
 import UIKit
 #endif
 
-#if DEBUG
+#if DEBUG || os(macOS)
 private struct StudioDebugVoiceRenderStatusSnapshot: Decodable {
     let renderRequestID: String?
     let renderServerFirstDeltaMs: Int?
@@ -134,7 +134,7 @@ private struct BeatQuickLinkTarget: Identifiable, Equatable {
     let actID: String
 }
 
-#if DEBUG
+#if DEBUG || os(macOS)
 private enum StudioDebugInspectorInteractionAction: String {
     case makeBeatFromSelection = "make_beat_from_selection"
     case makeBeatFromCurrentScene = "make_beat_from_current_scene"
@@ -170,6 +170,129 @@ private enum StudioDebugShortcutAction: String {
     case optionCommandB = "option_command_b"
     case optionCommandU = "option_command_u"
 }
+
+#if os(macOS)
+private let studioDebugMirroredPreferencesDomain = "io.them.them" as CFString
+
+private func studioDebugMirroredDomains() -> [String] {
+    var domains: [String] = []
+    if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !bundleID.isEmpty {
+        domains.append(bundleID)
+    }
+    let fallbackDomain = String(studioDebugMirroredPreferencesDomain)
+    if !domains.contains(fallbackDomain) {
+        domains.append(fallbackDomain)
+    }
+    return domains
+}
+
+private func studioDebugMirroredPlistURLs(for domain: String) -> [URL] {
+    let libraryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
+    let filename = domain.hasSuffix(".plist") ? domain : "\(domain).plist"
+    return [
+        libraryURL
+            .appendingPathComponent("Containers")
+            .appendingPathComponent(domain)
+            .appendingPathComponent("Data/Library/Preferences")
+            .appendingPathComponent(filename),
+        libraryURL
+            .appendingPathComponent("Preferences")
+            .appendingPathComponent(filename),
+    ]
+}
+
+private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, domain: String) {
+    for url in studioDebugMirroredPlistURLs(for: domain) {
+        let directoryURL = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let dictionary = (NSMutableDictionary(contentsOf: url) ?? NSMutableDictionary())
+        dictionary[key] = value
+        dictionary.write(to: url, atomically: true)
+    }
+}
+
+private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+    UserDefaults.standard.set(value, forKey: key)
+    for domain in studioDebugMirroredDomains() {
+        UserDefaults(suiteName: domain)?.set(value, forKey: key)
+        UserDefaults(suiteName: domain)?.synchronize()
+        let domainRef = domain as CFString
+        CFPreferencesSetAppValue(key as CFString, NSNumber(value: value), domainRef)
+        CFPreferencesAppSynchronize(domainRef)
+        mirrorStudioDebugPreferenceValue(NSNumber(value: value), forKey: key, domain: domain)
+    }
+    UserDefaults.standard.synchronize()
+}
+
+private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey key: String) {
+    UserDefaults.standard.set(value, forKey: key)
+    for domain in studioDebugMirroredDomains() {
+        UserDefaults(suiteName: domain)?.set(value, forKey: key)
+        UserDefaults(suiteName: domain)?.synchronize()
+        let domainRef = domain as CFString
+        CFPreferencesSetAppValue(key as CFString, value as CFString, domainRef)
+        CFPreferencesAppSynchronize(domainRef)
+        mirrorStudioDebugPreferenceValue(value as NSString, forKey: key, domain: domain)
+    }
+    UserDefaults.standard.synchronize()
+}
+
+private func studioDebugMirroredPreferenceValues(forKey key: String) -> [Any] {
+    var values: [Any] = []
+    var seenFingerprints: Set<String> = []
+
+    func append(_ value: Any?) {
+        guard let value else { return }
+        let fingerprint = "\(type(of: value))::\(String(describing: value))"
+        guard seenFingerprints.insert(fingerprint).inserted else { return }
+        values.append(value)
+    }
+
+    for domain in studioDebugMirroredDomains() {
+        for url in studioDebugMirroredPlistURLs(for: domain) {
+            if let dictionary = NSDictionary(contentsOf: url) {
+                append(dictionary[key])
+            }
+        }
+        if let suite = UserDefaults(suiteName: domain) {
+            suite.synchronize()
+            append(suite.object(forKey: key))
+        }
+        let domainRef = domain as CFString
+        CFPreferencesAppSynchronize(domainRef)
+        append(CFPreferencesCopyAppValue(key as CFString, domainRef))
+    }
+    UserDefaults.standard.synchronize()
+    append(UserDefaults.standard.object(forKey: key))
+    return values
+}
+
+private func readMirroredStudioDebugPreferenceInt(_ key: String, fallback: Int = 0) -> Int {
+    for value in studioDebugMirroredPreferenceValues(forKey: key) {
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        if let string = value as? String,
+           let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return parsed
+        }
+    }
+    return fallback
+}
+
+private func readMirroredStudioDebugPreferenceString(_ key: String, fallback: String = "") -> String {
+    for value in studioDebugMirroredPreferenceValues(forKey: key) {
+        if let string = value as? String {
+            return string
+        }
+        if let number = value as? NSNumber {
+            return number.stringValue
+        }
+    }
+    return fallback
+}
+#endif
 #endif
 
 private struct StudioMoveCommandModifier: ViewModifier {
@@ -359,6 +482,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     func refreshLiveDraftBridgeContext() {
         syncLiveDraftBridgeProjectContext()
+    }
+
+    var debugLoadedDraftProjectID: String {
+        loadedDraftProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func selectProject(_ projectID: String) async {
@@ -2158,6 +2285,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID,
             dirty: hasUnsavedDraftChanges
         )
+        if selectedProject == nil {
+            autosaveStatusText = hasUnsavedDraftChanges ? "Create project to save" : "Live draft"
+            return
+        }
         guard autosaveEnabled else {
             autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Saved"
             return
@@ -2876,19 +3007,26 @@ struct ScreenplayStudioScreen: View {
         case draft
         case beats
         case outline
-        case intelligence
-        case companion
+        case them
         case saved
 
         var id: String { rawValue }
+
+        static func resolved(from raw: String) -> Self? {
+            switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "intelligence", "companion", "them":
+                return .them
+            default:
+                return Self(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+            }
+        }
 
         var title: String {
             switch self {
             case .draft: return "Draft"
             case .beats: return "Beats"
             case .outline: return "Outline"
-            case .intelligence: return "Intel"
-            case .companion: return "Companion"
+            case .them: return "them"
             case .saved: return "Saved"
             }
         }
@@ -2898,11 +3036,73 @@ struct ScreenplayStudioScreen: View {
             case .draft: return "doc.text"
             case .beats: return "flag"
             case .outline: return "list.bullet.rectangle.portrait"
-            case .intelligence: return "sparkles"
-            case .companion: return "bubble.left.and.bubble.right"
+            case .them: return "sparkles"
             case .saved: return "checkmark.circle"
             }
         }
+    }
+
+
+    private enum DirectionOneWorkspaceMode: String, CaseIterable, Identifiable {
+        case draft
+        case beats
+        case outline
+
+        var id: String { rawValue }
+
+        init?(tab: DirectionOneRightPanelTab) {
+            switch tab {
+            case .draft:
+                self = .draft
+            case .beats:
+                self = .beats
+            case .outline:
+                self = .outline
+            case .them, .saved:
+                return nil
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .draft:
+                return "Draft"
+            case .beats:
+                return "Beats"
+            case .outline:
+                return "Outline"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .draft:
+                return "Page"
+            case .beats:
+                return "Story beats"
+            case .outline:
+                return "Structure"
+            }
+        }
+
+        var tab: DirectionOneRightPanelTab {
+            switch self {
+            case .draft:
+                return .draft
+            case .beats:
+                return .beats
+            case .outline:
+                return .outline
+            }
+        }
+    }
+
+    private enum DirectionOneAssistantGuidanceKind {
+        case anchorProject
+        case reviewPendingAction
+        case reviewSignals
+        case reopenThread
+        case advanceDraft
     }
 
     private struct StudioFileEntry: Identifiable, Hashable {
@@ -2941,9 +3141,14 @@ struct ScreenplayStudioScreen: View {
     @State private var navigatorDropIsTargeted: Bool = false
     @State private var directionOneLeftRailTab: DirectionOneLeftRailTab?
     @State private var isDirectionOneSidebarVisible = true
-    @State private var directionOneRightPanelTab: DirectionOneRightPanelTab = .beats
+    @State private var directionOneWorkspaceMode: DirectionOneWorkspaceMode = .draft
+    @State private var directionOneRightPanelTab: DirectionOneRightPanelTab = .them
     @State private var isDirectionOneRightRailExpanded = true
     @State private var isDirectionOneComposerExpanded = false
+    @State private var isDirectionOneStoryToolsExpanded = true
+    @State private var isDirectionOneMemoryExpanded = true
+    @State private var isDirectionOneSignalsExpanded = false
+    @State private var isDirectionOneSavedExpanded = false
     @State private var showingDirectionOneSettings = false
     @State private var lastVoiceFeedback: String = ""
     @State private var voiceFeedbackOpacity: Double = 0
@@ -3033,7 +3238,7 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio.inspector.workspace.v1") private var studioInspectorWorkspaceStorage = ""
     @AppStorage("studio.inspector.beat.provenance.v1") private var studioInspectorBeatProvenanceStorage = ""
     @AppStorage("studio.inspector.beat.provenance.history.v1") private var studioInspectorBeatProvenanceHistoryStorage = ""
-#if DEBUG
+#if DEBUG || os(macOS)
     @AppStorage("studio_debug_voice_turn_result_json") private var studioDebugVoiceTurnResultJSON = ""
     @AppStorage("studio_debug_prepare_token") private var studioDebugPrepareToken: Int = 0
     @AppStorage("studio_debug_prepare_text") private var studioDebugPrepareText = ""
@@ -3066,6 +3271,11 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio_debug_keyboard_submit_ack_text") private var studioDebugKeyboardSubmitAckText = ""
     @AppStorage("studio_debug_keyboard_submit_ack_routing") private var studioDebugKeyboardSubmitAckRoutingRaw = PromptRoutingMode.automatic.rawValue
     @AppStorage("studio_debug_keyboard_submit_ack_replacement_mode") private var studioDebugKeyboardSubmitAckReplacementMode = "none"
+    @AppStorage("studio_debug_load_project_token") private var studioDebugLoadProjectToken: Int = 0
+    @AppStorage("studio_debug_load_project_id") private var studioDebugLoadProjectID = ""
+    @AppStorage("studio_debug_load_project_version_id") private var studioDebugLoadProjectVersionID = ""
+    @AppStorage("studio_debug_load_project_ack_token") private var studioDebugLoadProjectAckToken: Int = 0
+    @AppStorage("studio_debug_project_load_trace_json") private var studioDebugProjectLoadTraceJSON = "[]"
     @AppStorage("studio_debug_focus_page_token") private var studioDebugFocusPageToken: Int = 0
     @AppStorage("studio_debug_focus_page_ack_token") private var studioDebugFocusPageAckToken: Int = 0
     @AppStorage("studio_debug_manual_edit_token") private var studioDebugManualEditToken: Int = 0
@@ -3106,6 +3316,9 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio_debug_command_bar_ack_token") private var studioDebugCommandBarAckToken: Int = 0
     @AppStorage("studio_debug_seed_route_metadata_token") private var studioDebugSeedRouteMetadataToken: Int = 0
     @AppStorage("studio_debug_seed_route_metadata_ack_token") private var studioDebugSeedRouteMetadataAckToken: Int = 0
+    @AppStorage("studio_debug_companion_mode_token") private var studioDebugCompanionModeToken: Int = 0
+    @AppStorage("studio_debug_companion_mode_value") private var studioDebugCompanionModeRaw = StudioCompanionMode.coach.rawValue
+    @AppStorage("studio_debug_companion_mode_ack_token") private var studioDebugCompanionModeAckToken: Int = 0
     @AppStorage("studio_debug_intelligence_queue_token") private var studioDebugIntelligenceQueueToken: Int = 0
     @AppStorage("studio_debug_intelligence_queue_action") private var studioDebugIntelligenceQueueActionRaw = ""
     @AppStorage("studio_debug_intelligence_queue_item_id") private var studioDebugIntelligenceQueueItemID = ""
@@ -3154,9 +3367,11 @@ struct ScreenplayStudioScreen: View {
     @FocusState private var sceneInspectorTitleFocused: Bool
     @FocusState private var studioThreadListFocused: Bool
     @FocusState private var studioInspectorFocused: Bool
-#if DEBUG
+#if DEBUG || os(macOS)
     @State private var lastAppliedStudioDebugAcknowledgeToken: Int = 0
     @State private var lastAppliedStudioDebugSubmitToken: Int = 0
+    @State private var lastAppliedStudioDebugLoadProjectToken: Int = 0
+    @State private var lastAppliedBridgeDebugProjectLoadToken: Int = 0
     @State private var lastAppliedStudioDebugFocusPageToken: Int = 0
     @State private var lastAppliedStudioDebugManualEditToken: Int = 0
     @State private var lastAppliedStudioDebugAutosaveToggleToken: Int = 0
@@ -3170,11 +3385,23 @@ struct ScreenplayStudioScreen: View {
     @State private var lastAppliedStudioDebugRightPanelTabToken: Int = 0
     @State private var lastAppliedStudioDebugCommandBarToken: Int = 0
     @State private var lastAppliedStudioDebugSeedRouteMetadataToken: Int = 0
+    @State private var lastAppliedStudioDebugCompanionModeToken: Int = 0
     @State private var lastAppliedStudioDebugIntelligenceQueueToken: Int = 0
     @State private var lastAppliedStudioDebugPageWriteToastToken: Int = 0
     @State private var lastAppliedStudioDebugPageWriteToastInteractionToken: Int = 0
     @State private var lastAppliedStudioDebugShortcutToken: Int = 0
     @State private var lastAppliedStudioDebugInspectorInteractionToken: Int = 0
+    @State private var trackedStudioDebugProjectLoadToken: Int = 0
+    @State private var trackedStudioDebugProjectLoadRequestedProjectID = ""
+    @State private var trackedStudioDebugProjectLoadRequestedVersionID = ""
+    @State private var trackedStudioDebugProjectLoadStage = ""
+    @State private var trackedStudioDebugProjectLoadReady = false
+    @State private var trackedStudioDebugProjectLoadError = ""
+    @State private var studioDebugProjectLoadInFlight = false
+    #if os(macOS)
+    @State private var studioDebugPreparePollTask: Task<Void, Never>?
+    @State private var studioCommandReturnKeyMonitor: Any?
+    #endif
 #endif
 
     var body: some View {
@@ -3272,7 +3499,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 guard newValue != nil else { return }
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
                     isDirectionOneRightRailExpanded = true
-                    directionOneRightPanelTab = .intelligence
+                    directionOneRightPanelTab = .them
                 }
             }
     }
@@ -3287,6 +3514,9 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onChange(of: studioDebugSubmitToken) { _, _ in
                 applyDebugSubmittedStudioPromptIfNeeded()
+            }
+            .onChange(of: studioDebugLoadProjectToken) { _, _ in
+                applyDebugLoadProjectIfNeeded()
             }
             .onChange(of: studioDebugFocusPageToken) { _, _ in
                 applyDebugFocusPageIfNeeded()
@@ -3328,6 +3558,12 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: studioDebugCommandBarToken) { _, _ in
                 applyDebugCommandBarIfNeeded()
             }
+            .onChange(of: studioDebugSeedRouteMetadataToken) { _, _ in
+                applyDebugRouteMetadataSeedIfNeeded()
+            }
+            .onChange(of: studioDebugCompanionModeToken) { _, _ in
+                applyDebugCompanionModeIfNeeded()
+            }
             .onChange(of: studioDebugIntelligenceQueueToken) { _, _ in
                 applyDebugIntelligenceQueueIfNeeded()
             }
@@ -3356,9 +3592,17 @@ Replace is best when this file should become the script you edit. Append is safe
                 liveDraftBridge.clearAnchoredTextRect()
                 isSceneQuickInsertVisible = false
                 clearWriteCommitUI()
+                #if os(macOS)
+                stopStudioDebugPreparePolling()
+                removeStudioCommandReturnKeyMonitor()
+                #endif
             }
             .task {
                 studioDebugSessionID = UUID().uuidString
+                #if os(macOS)
+                startStudioDebugPreparePollingIfNeeded()
+                installStudioCommandReturnKeyMonitorIfNeeded()
+                #endif
                 restoreFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
                 let restoredAcknowledgements = restoredAcknowledgedStudioDiffRecords(for: activeStudioAskNoteHistoryKey)
                 acknowledgedDiffFingerprints = restoredAcknowledgements
@@ -3368,12 +3612,13 @@ Replace is best when this file should become the script you edit. Append is safe
                     !restoredAcknowledgements.isEmpty
                     || !acknowledgedDiffWriteIDs.isEmpty
                     || !reopenedDiffExchangeKeys.isEmpty
-#if DEBUG
+#if DEBUG || os(macOS)
                 if !didRunStudioThreadViewStateRegressionSmoke {
                     runStudioThreadViewStateDecodeMergeRegressionSmoke()
                     didRunStudioThreadViewStateRegressionSmoke = true
                 }
 #endif
+                applyDebugLoadProjectIfNeeded()
                 applyDebugPreparedStudioPromptIfNeeded()
                 applyDebugSubmittedStudioPromptIfNeeded()
                 applyDebugAcknowledgedDiffIfNeeded()
@@ -3463,7 +3708,17 @@ Replace is best when this file should become the script you edit. Append is safe
                 persistInspectorWorkspaceState()
                 publishDebugStudioDiffState()
             }
-            .onChange(of: directionOneRightPanelTab) { _, _ in
+            .onChange(of: directionOneRightPanelTab) { _, newValue in
+                if let mode = DirectionOneWorkspaceMode(tab: newValue) {
+                    directionOneWorkspaceMode = mode
+                    isDirectionOneStoryToolsExpanded = true
+                }
+                if newValue == .them {
+                    isDirectionOneMemoryExpanded = true
+                }
+                if newValue == .saved {
+                    isDirectionOneSavedExpanded = true
+                }
                 persistInspectorWorkspaceState()
                 publishDebugStudioDiffState()
             }
@@ -3627,6 +3882,7 @@ Replace is best when this file should become the script you edit. Append is safe
             .task {
                 await vm.load()
                 await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
+                await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 vm.replaceDraftFromVoiceBridgeIfNeeded(liveDraftBridge.draftText)
                 bootstrapNavigatorIfNeeded()
                 await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
@@ -3635,6 +3891,16 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
                 Task {
                     await selectPreferredProjectIfNeeded(newValue)
+                }
+            }
+            .onChange(of: liveDraftBridge.debugProjectLoadToken) { _, _ in
+                Task {
+                    await applyBridgeDebugProjectLoadIfNeeded()
+                }
+            }
+            .onChange(of: liveDraftBridge.debugRequestedProjectID) { _, _ in
+                Task {
+                    await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 }
             }
             .onChange(of: liveDraftBridge.draftText) { _, newValue in
@@ -3682,7 +3948,13 @@ Replace is best when this file should become the script you edit. Append is safe
                 appendPendingVoicePinExchangeIfNeeded(pin)
             }
             .onChange(of: liveDraftBridge.lastCommittedWrite) { _, committedWrite in
-                guard committedWrite != nil else { return }
+                guard let committedWrite else { return }
+                let currentDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                let previousDraft = committedWrite.previousDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                let committedDraft = committedWrite.committedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                if currentDraft == previousDraft, currentDraft != committedDraft {
+                    vm.fountainDraft = committedWrite.committedDraft
+                }
                 if suppressLastCommittedWriteAutoReveal {
                     suppressLastCommittedWriteAutoReveal = false
                     publishDebugStudioDiffState()
@@ -4573,13 +4845,9 @@ Replace is best when this file should become the script you edit. Append is safe
     private var directionOneSidebarColumn: some View {
         VStack(spacing: 0) {
             sidebarModeTabs
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 12)
                 .padding(.top, 14)
-                .padding(.bottom, 12)
-
-            Rectangle()
-                .fill(directionOneChromeStroke.opacity(0.22))
-                .frame(height: 1)
+                .padding(.bottom, 10)
 
             Group {
                 switch selectedSidebarSection {
@@ -4590,10 +4858,10 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 10)
             .padding(.vertical, 12)
         }
-        .frame(width: 280)
+        .frame(width: 208)
         .background(directionOneColumnSurface)
         .overlay(alignment: .trailing) {
             Rectangle()
@@ -4606,18 +4874,16 @@ Replace is best when this file should become the script you edit. Append is safe
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
-                    directionOneCollaboratorInspectorCard
+                    directionOneRightPanelTabs
                     if let preview = liveDraftBridge.pendingStudioActionPreview {
                         pendingStudioActionPreviewCard(preview)
                     }
-                    directionOneRightPanelTabs
                     directionOneRightPanelContent
-                    leadReferenceDisclosure
                     if !vm.infoText.isEmpty || !vm.errorText.isEmpty {
                         studioRailStatusStrip
                     }
                 }
-                .padding(14)
+                .padding(12)
             }
             .onChange(of: beatDropTargetID) { _, _ in
                 syncInspectorDropTargetScroll(proxy: proxy)
@@ -4651,7 +4917,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 inspectorAutoScrollTask = nil
             }
         }
-        .frame(width: 320)
+        .frame(width: 248)
         .background(directionOneColumnSurface)
         .overlay(alignment: .leading) {
             Rectangle()
@@ -4660,38 +4926,646 @@ Replace is best when this file should become the script you edit. Append is safe
         }
     }
 
-    private var directionOneCollaboratorInspectorCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Collaborator")
-                        .font(.system(size: 13, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.90))
-                    Text("Voice Pin and page requests live together here.")
-                        .font(.system(size: 11, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.48))
+    private var directionOneAssistantIdentityCard: some View {
+        let report = liveDraftBridge.intelligenceReport
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("them")
+                        .font(.system(size: 28, weight: .semibold, design: .serif))
+                        .foregroundStyle(directionOneChromeText)
+                    Text("Creative Partner")
+                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .tracking(0.9)
+                        .foregroundStyle(directionOneChromeTertiaryText)
+                        .textCase(.uppercase)
+                    Text("Mode, memory, and page guidance now move through one composed companion surface.")
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundStyle(directionOneChromeSecondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 0)
-                studioTargetBadge(currentStudioPromptTarget, prefix: nil, compact: true)
+
+                Spacer(minLength: 12)
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    directionOneAssistantPill("Mode", value: liveDraftBridge.companionMode.shortTitle, tint: directionOneChromeText.opacity(0.88))
+                    directionOneAssistantPill("Status", value: directionOneAssistantCurrentStatusTitle, tint: directionOneAssistantCurrentStatusTint)
+                }
             }
 
-            directionOneCompactVoicePinSection
+            HStack(spacing: 8) {
+                directionOneCompactMetricPill("Pins", value: "\(voicePinTurns.count)")
+                directionOneCompactMetricPill(
+                    "Signals",
+                    value: "\(report.continuityIssues.count + report.sceneGoalDrift.count + report.duplicateBeatIssues.count)"
+                )
+                directionOneCompactMetricPill("Turns", value: "\(liveDraftBridge.companionRecentTurns.count)")
+            }
 
-            Rectangle()
-                .fill(Color.herShellStroke.opacity(0.16))
-                .frame(height: 1)
-
-            directionOneCompactComposerSection
+            HStack(spacing: 8) {
+                directionOneAssistantPill("Memory", value: liveDraftBridge.latestMemoryDomain.title, tint: studioRouteTint.opacity(0.82))
+                directionOneAssistantPill("Output", value: latestRoutedStudioTarget == .page ? "Page" : "Pin", tint: directionOneChromeText.opacity(0.78))
+                directionOneAssistantPill("Pace", value: studioSpeakingPaceLabel, tint: directionOneChromeText.opacity(0.78))
+            }
         }
-        .padding(14)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color.herShellPanelSoft.opacity(0.96))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.herShellStroke.opacity(0.46), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.40), lineWidth: 1)
         )
+        .shadow(color: Color.herPaperShadow.opacity(0.18), radius: 16, y: 8)
+    }
+
+    private var directionOneAssistantNextStepCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Best next move")
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .tracking(0.9)
+                .foregroundStyle(directionOneChromeTertiaryText)
+                .textCase(.uppercase)
+
+            Text(directionOneAssistantGuidanceTitle)
+                .font(.system(size: 16, weight: .semibold, design: .default))
+                .foregroundStyle(directionOneChromeText)
+
+            Text(directionOneAssistantGuidanceDetail)
+                .font(.system(size: 12, weight: .regular, design: .default))
+                .foregroundStyle(directionOneChromeSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button(directionOneAssistantGuidancePrimaryTitle) {
+                    performDirectionOneAssistantPrimaryAction()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                if let secondaryTitle = directionOneAssistantGuidanceSecondaryTitle {
+                    Button(secondaryTitle) {
+                        performDirectionOneAssistantSecondaryAction()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.herShellPanel.opacity(0.94))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.34), lineWidth: 1)
+        )
+    }
+
+    private var directionOneAssistantStoryToolsGroup: some View {
+        directionOneAssistantDisclosureSection(
+            title: "Story Tools",
+            subtitle: "\(directionOneWorkspaceMode.title) is active in the workspace.",
+            systemImage: directionOneWorkspaceMode == .draft ? "doc.text" : (directionOneWorkspaceMode == .beats ? "flag" : "list.bullet.rectangle.portrait"),
+            isExpanded: $isDirectionOneStoryToolsExpanded
+        ) {
+            directionOneAssistantCurrentWorkspaceContent
+        }
+    }
+
+    private var directionOneAssistantMemoryGroup: some View {
+        directionOneAssistantDisclosureSection(
+            title: "Memory & Pins",
+            subtitle: "Thread history, voice notes, and companion mode stay together.",
+            systemImage: "waveform.and.mic",
+            isExpanded: $isDirectionOneMemoryExpanded
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                companionModePickerCard
+                directionOneCompactVoicePinSection
+
+                if companionVoicePinEntries.isEmpty {
+                    directionOneCompactEmptyThreadSummary
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Recent thread")
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .tracking(0.7)
+                            .foregroundStyle(directionOneChromeTertiaryText)
+                            .textCase(.uppercase)
+
+                        ForEach(Array(companionVoicePinEntries.prefix(4))) { exchange in
+                            companionThreadInspectorCard(exchange)
+                        }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Button("Clear Thread") {
+                        clearCompanionThreadHistory()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Clear Memory") {
+                        liveDraftBridge.clearCompanionMemory()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private var directionOneAssistantSignalsGroup: some View {
+        let report = liveDraftBridge.intelligenceReport
+
+        return directionOneAssistantDisclosureSection(
+            title: "Signals & Context",
+            subtitle: "What Clementine is tracking across the screenplay right now.",
+            systemImage: "scope",
+            isExpanded: $isDirectionOneSignalsExpanded
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    directionOneMiniStat("Continuity", value: "\(report.continuityIssues.count)")
+                    directionOneMiniStat("Drift", value: "\(report.sceneGoalDrift.count)")
+                    directionOneMiniStat("Duplicates", value: "\(report.duplicateBeatIssues.count)")
+                }
+
+                if !report.changeSummary.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Recent movement")
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .tracking(0.7)
+                            .foregroundStyle(directionOneChromeTertiaryText)
+                            .textCase(.uppercase)
+
+                        ForEach(Array(report.changeSummary.prefix(3)), id: \.self) { line in
+                            Text(line)
+                                .font(.system(size: 12, weight: .regular, design: .default))
+                                .foregroundStyle(directionOneChromeSecondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
+                intelligenceFixQueueCard
+
+                HStack(spacing: 8) {
+                    directionOneAssistantPill("Intent", value: studioPromptIntent.title, tint: directionOneChromeText.opacity(0.82))
+                    directionOneAssistantPill("Route", value: studioPromptRoutingMode.title, tint: directionOneChromeText.opacity(0.76))
+                    directionOneAssistantPill("Focus", value: directionOneWorkspaceMode.subtitle, tint: directionOneChromeText.opacity(0.76))
+                }
+            }
+        }
+    }
+
+    private var directionOneAssistantSavedGroup: some View {
+        directionOneAssistantDisclosureSection(
+            title: "Output & Saved",
+            subtitle: "Versions, recovery, and export stay within reach.",
+            systemImage: "square.and.arrow.up",
+            isExpanded: $isDirectionOneSavedExpanded
+        ) {
+            directionOneSavedPanel
+        }
+    }
+
+    @ViewBuilder
+    private var directionOneAssistantCurrentWorkspaceContent: some View {
+        switch directionOneWorkspaceMode {
+        case .draft:
+            draftToolsCard
+        case .beats:
+            directionOneBeatsPanel
+        case .outline:
+            directionOneOutlinePanel
+        }
+    }
+
+    private var directionOneAssistantCommandDock: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Ask Clementine")
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .foregroundStyle(directionOneChromeText.opacity(0.90))
+                    Text(studioPromptHelperText)
+                        .font(.system(size: 11, weight: .regular, design: .default))
+                        .foregroundStyle(directionOneChromeSecondaryText)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 10)
+
+                Button(isDirectionOneComposerExpanded ? "Hide options" : "Intent & Output") {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        isDirectionOneComposerExpanded.toggle()
+                    }
+                    if isDirectionOneComposerExpanded {
+                        studioPromptFocused = true
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .foregroundStyle(directionOneChromeSecondaryText)
+            }
+
+            if isDirectionOneComposerExpanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Intent")
+                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .tracking(0.7)
+                        .foregroundStyle(directionOneChromeTertiaryText)
+                        .textCase(.uppercase)
+                    studioPromptIntentControl
+                    Text("Destination")
+                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .tracking(0.7)
+                        .foregroundStyle(directionOneChromeTertiaryText)
+                        .textCase(.uppercase)
+                    promptRoutingControl
+                }
+            }
+
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField(studioPromptPlaceholder, text: $studioPromptSeed, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .focused($studioPromptFocused)
+                    .lineLimit(1...4)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.herPaper.opacity(studioPromptFocused ? 0.98 : 0.94))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(
+                                studioPromptFocused
+                                    ? directionOneChromeSelectionStroke.opacity(0.92)
+                                    : directionOneChromeStroke.opacity(0.18),
+                                lineWidth: 1
+                            )
+                    )
+                    .accessibilityIdentifier("studio.prompt.field")
+
+                Button(isSubmittingStudioPrompt || isSubmittingPrompt ? "Sending…" : "Send") {
+                    submitStudioPromptSeed()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(
+                    isSubmittingStudioPrompt ||
+                    isSubmittingPrompt ||
+                    studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
+                .accessibilityIdentifier("studio.prompt.send")
+            }
+
+            HStack(spacing: 8) {
+                directionOneAssistantPill("Intent", value: studioPromptIntent.title, tint: directionOneChromeText.opacity(0.82))
+                directionOneAssistantPill("Output", value: studioPromptRoutingMode.title, tint: directionOneChromeText.opacity(0.76))
+                if typedReplyAudioEnabled {
+                    directionOneAssistantPill("Replies", value: "Voice", tint: directionOneChromeText.opacity(0.74))
+                }
+                Spacer(minLength: 0)
+                Toggle("Speak Replies", isOn: $typedReplyAudioEnabled)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(directionOneChromeSecondaryText)
+            }
+        }
+        .padding(16)
+        .background(
+            Rectangle()
+                .fill(directionOneChromeTopBar.opacity(0.94))
+        )
+    }
+
+    private var directionOneAssistantGuidanceKind: DirectionOneAssistantGuidanceKind {
+        if vm.selectedProject == nil {
+            return .anchorProject
+        }
+        if liveDraftBridge.pendingStudioActionPreview != nil {
+            return .reviewPendingAction
+        }
+        if !availableIntelligenceFixQueueItems.isEmpty {
+            return .reviewSignals
+        }
+        if companionVoicePinEntries.isEmpty && voicePinTurns.isEmpty {
+            return .reopenThread
+        }
+        return .advanceDraft
+    }
+
+    private var directionOneAssistantGuidanceTitle: String {
+        switch directionOneAssistantGuidanceKind {
+        case .anchorProject:
+            return "Anchor this draft to a project before the story branches further."
+        case .reviewPendingAction:
+            return "A proposed page change is waiting for confirmation."
+        case .reviewSignals:
+            return "Clementine has screenplay signals worth resolving before the next pass."
+        case .reopenThread:
+            return "Open the thread and give Clementine the next move."
+        case .advanceDraft:
+            return "Use Clementine for one precise move that pushes the current scene forward."
+        }
+    }
+
+    private var directionOneAssistantGuidanceDetail: String {
+        switch directionOneAssistantGuidanceKind {
+        case .anchorProject:
+            return "Creating a project keeps versions, outline structure, memory, and exports attached to the screenplay instead of leaving this as a floating live draft."
+        case .reviewPendingAction:
+            return "Review the transaction while the page context is still fresh. Confirm it if the change is right, or cancel it before it muddies the next instruction."
+        case .reviewSignals:
+            return "The assistant is already tracking continuity, drift, or duplicate beats. Preview the queued fixes now so the next draft pass starts from a cleaner structure."
+        case .reopenThread:
+            return "There is room to establish the companion lane. Open the command bar or talk live so the next note lands with intent, memory, and routing already set."
+        case .advanceDraft:
+            return "Keep the guidance specific: ask for the next beat, a scene rewrite, or one structural move. The page should stay the hero and the assistant should stay crisp."
+        }
+    }
+
+    private var directionOneAssistantGuidancePrimaryTitle: String {
+        switch directionOneAssistantGuidanceKind {
+        case .anchorProject:
+            return "Open Projects"
+        case .reviewPendingAction:
+            return "Review change"
+        case .reviewSignals:
+            return "Preview fixes"
+        case .reopenThread:
+            return "Open command bar"
+        case .advanceDraft:
+            return "Write on page"
+        }
+    }
+
+    private var directionOneAssistantGuidanceSecondaryTitle: String? {
+        switch directionOneAssistantGuidanceKind {
+        case .anchorProject:
+            return vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : "Keep drafting"
+        case .reviewPendingAction:
+            return "Focus page"
+        case .reviewSignals:
+            return "Story tools"
+        case .reopenThread, .advanceDraft:
+            return canTalk ? "Talk" : "Focus page"
+        }
+    }
+
+    private func performDirectionOneAssistantPrimaryAction() {
+        switch directionOneAssistantGuidanceKind {
+        case .anchorProject:
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                isDirectionOneSidebarVisible = true
+                selectedSidebarSection = .projects
+            }
+        case .reviewPendingAction:
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                isDirectionOneRightRailExpanded = true
+                isDirectionOneSignalsExpanded = true
+            }
+        case .reviewSignals:
+            _ = previewAllSuggestedIntelligenceFixes()
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                isDirectionOneRightRailExpanded = true
+                isDirectionOneSignalsExpanded = true
+            }
+        case .reopenThread:
+            openStudioCommandBar(routingMode: .voicePin, intent: .advice)
+        case .advanceDraft:
+            openStudioCommandBar(routingMode: .page, intent: .rewrite)
+        }
+    }
+
+    private func performDirectionOneAssistantSecondaryAction() {
+        switch directionOneAssistantGuidanceKind {
+        case .anchorProject:
+            openStudioCommandBar(routingMode: .page, intent: .rewrite)
+        case .reviewPendingAction:
+            liveDraftBridge.requestEditorFocus()
+        case .reviewSignals:
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                isDirectionOneStoryToolsExpanded = true
+            }
+        case .reopenThread, .advanceDraft:
+            if talkIsActive {
+                onStopTalk()
+            } else if canTalk {
+                onArmTalk()
+            } else {
+                liveDraftBridge.requestEditorFocus()
+            }
+        }
+    }
+
+    private var directionOneAssistantCurrentStatusTitle: String {
+        if talkIsActive {
+            return "Listening"
+        }
+        if liveDraftBridge.isStreamingDraftPreviewActive {
+            return "Drafting"
+        }
+        if vm.hasUnsavedDraftChanges {
+            return "Unsaved"
+        }
+        return "Synced"
+    }
+
+    private var directionOneAssistantCurrentStatusTint: Color {
+        if talkIsActive {
+            return Color.red.opacity(0.82)
+        }
+        if liveDraftBridge.isStreamingDraftPreviewActive {
+            return Color.green.opacity(0.82)
+        }
+        if vm.hasUnsavedDraftChanges {
+            return Color.orange.opacity(0.86)
+        }
+        return Color.green.opacity(0.78)
+    }
+
+    private func directionOneAssistantPill(_ label: String, value: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .foregroundStyle(directionOneChromeTertiaryText)
+            Text(value)
+                .font(.system(size: 10, weight: .medium, design: .default))
+                .foregroundStyle(tint)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color.herShellPanelSoft.opacity(0.90))
+        .overlay(
+            Capsule()
+                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
+        )
+        .clipShape(Capsule())
+    }
+
+    private func directionOneAssistantDisclosureSection<Content: View>(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        DisclosureGroup(isExpanded: isExpanded) {
+            VStack(alignment: .leading, spacing: 14) {
+                content()
+            }
+            .padding(.top, 12)
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(directionOneChromeText.opacity(0.82))
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.herShellPanel.opacity(0.84))
+                    )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .foregroundStyle(directionOneChromeText.opacity(0.90))
+                    Text(subtitle)
+                        .font(.system(size: 11, weight: .regular, design: .default))
+                        .foregroundStyle(directionOneChromeSecondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.herShellPanelSoft.opacity(0.92))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.22), lineWidth: 1)
+        )
+    }
+
+    private var directionOneThemCollaboratorSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Creative partner")
+                            .font(.system(size: 14, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.90))
+                        Text("Mode, Voice Pin, and page requests move through one calmer lane.")
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.50))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        HStack(spacing: 8) {
+                            studioCompanionMetaPill("Mode", value: liveDraftBridge.companionMode.shortTitle)
+                            studioTargetBadge(currentStudioPromptTarget, prefix: nil, compact: true)
+                            studioPromptWorkflowBadge
+                        }
+
+                        HStack(spacing: 6) {
+                            directionOneCompactMetricPill("Turns", value: "\(liveDraftBridge.companionRecentTurns.count)")
+                            directionOneCompactMetricPill("Pins", value: "\(voicePinTurns.count)")
+                            directionOneCompactMetricPill("Fixes", value: "\(queuedIntelligenceFixes.count)")
+                        }
+                    }
+                }
+
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("Companion mode")
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.62))
+                    Spacer(minLength: 0)
+                    studioRouteMetaStrip(
+                        memory: currentStudioPromptTarget == .page ? .project : .companion,
+                        output: currentStudioPromptTarget,
+                        mode: nil
+                    )
+                }
+            }
+
+            companionModePickerCard
+
+            Text(liveDraftBridge.companionMode.summary)
+                .font(.system(size: 12, weight: .regular, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
+
+            directionOneThemSectionDivider
+            directionOneCompactVoicePinSection
+            directionOneThemSectionDivider
+            directionOneCompactComposerSection
+            directionOneThemSectionDivider
+
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Context")
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.62))
+                    Text("Thread memory, routing, and screenplay fixes stay attached to this same partner surface.")
+                        .font(.system(size: 11, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.50))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    Button("Clear Thread") {
+                        clearCompanionThreadHistory()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Clear Memory") {
+                        liveDraftBridge.clearCompanionMemory()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .controlSize(.small)
+                .foregroundStyle(Color.herText.opacity(0.82))
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var directionOneThemSectionDivider: some View {
+        Rectangle()
+            .fill(Color.herShellStroke.opacity(0.16))
+            .frame(height: 1)
+    }
+
+    private func directionOneCompactMetricPill(_ label: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(value)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.herText.opacity(0.76))
+            Text(label)
+                .font(.system(size: 10, weight: .medium, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.48))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.white.opacity(0.30))
+        .overlay(
+            Capsule()
+                .stroke(Color.herShellStroke.opacity(0.14), lineWidth: 1)
+        )
+        .clipShape(Capsule())
     }
 
     private var directionOneComposerClusterIsActive: Bool {
@@ -4701,10 +5575,9 @@ Replace is best when this file should become the script you edit. Append is safe
     private var directionOneCompactVoicePinSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("VOICE PIN")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .tracking(0.8)
-                    .foregroundStyle(Color.herText.opacity(0.44))
+                Text("Voice Pin")
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.74))
                 Spacer(minLength: 0)
                 if !voicePinTurns.isEmpty {
                     Text("\(voicePinTurns.count)")
@@ -4795,12 +5668,10 @@ Replace is best when this file should become the script you edit. Append is safe
     private var directionOneCompactComposerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("TELL CLEMENTINE")
-                    .font(.system(size: 10, weight: .semibold, design: .default))
-                    .tracking(0.8)
-                    .foregroundStyle(Color.herText.opacity(0.44))
+                Text("Ask Clementine")
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.74))
                 Spacer(minLength: 0)
-                studioPromptWorkflowBadge
                 Button(isDirectionOneComposerExpanded ? "Hide" : "⌘K") {
                     if isDirectionOneComposerExpanded {
                         collapseStudioCommandBar()
@@ -4925,12 +5796,10 @@ Replace is best when this file should become the script you edit. Append is safe
         }
     }
 
-    private var directionOneColumnSurface: some View {
-        Rectangle()
-            .fill(.ultraThinMaterial)
-            .overlay(directionOneChromePanel.opacity(0.88))
-    }
-
+private var directionOneColumnSurface: some View {
+    Rectangle()
+        .fill(directionOneChromePanelSoft.opacity(0.98))
+}
     private var isDirectionOneRailOverlayPresented: Bool {
         showingDirectionOneSettings || showingScreenplayShortcuts || isFocusedPageDiffOverlayPresented
     }
@@ -4944,281 +5813,305 @@ Replace is best when this file should become the script you edit. Append is safe
         }
     }
 
-    private var directionOneHeader: some View {
-        HStack(spacing: 12) {
-            directionOneHeaderLeftToggle
-            directionOneHeaderProjectBlock
+private var directionOneHeader: some View {
+    HStack(spacing: 12) {
+        directionOneHeaderLeftToggle
+        directionOneHeaderProjectBlock
 
-            Spacer(minLength: 0)
+        Spacer(minLength: 0)
 
-            directionOneHeaderDraftShortcuts
-            directionOneHeaderDraftButton
-            directionOneTalkButton
-            directionOneHeaderRightToggle
-            directionOneHeaderSettingsButton
-            directionOneHeaderDoneButton
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .background(directionOneChromeTopBar)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(directionOneChromeStroke.opacity(0.55))
-                .frame(height: 1)
-        }
+        directionOneHeaderDraftShortcuts
+        directionOneHeaderDraftButton
+        directionOneTalkButton
+        directionOneHeaderRightToggle
+        directionOneHeaderSettingsButton
+        directionOneHeaderDoneButton
     }
-
-    private var directionOneHeaderLeftToggle: some View {
-        Button {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                isDirectionOneSidebarVisible.toggle()
-            }
-        } label: {
-            Image(systemName: "sidebar.left")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(directionOneChromeText.opacity(0.90))
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isDirectionOneSidebarVisible ? directionOneChromeSelectionFill : directionOneChromePanelSoft)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(isDirectionOneSidebarVisible ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
+    .padding(.horizontal, 14)
+    .padding(.vertical, 9)
+    .background(directionOneChromeTopBar)
+    .overlay(alignment: .bottom) {
+        Rectangle()
+            .fill(directionOneChromeStroke.opacity(0.55))
+            .frame(height: 1)
     }
+}
 
-    private var directionOneHeaderProjectBlock: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(directionOneProjectTitle)
-                .font(.system(size: 14, weight: .semibold, design: .default))
-                .foregroundStyle(directionOneChromeText.opacity(0.96))
-                .lineLimit(1)
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(vm.hasUnsavedDraftChanges ? Color.orange.opacity(0.88) : Color.green.opacity(0.72))
-                    .frame(width: 5, height: 5)
-                Text(vm.isSaving ? "Saving…" : (vm.hasUnsavedDraftChanges ? "Unsaved" : "Saved"))
-                    .font(.system(size: 10, weight: .regular, design: .default))
-                    .foregroundStyle(directionOneChromeSecondaryText)
-                if vm.isLoading {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(directionOneChromeSecondaryText)
-                }
-            }
-        }
-    }
-
-    private var directionOneHeaderDraftShortcuts: some View {
-        HStack(spacing: 3) {
-            ForEach(DirectionOneDraftShortcut.allCases) { shortcut in
-                directionOneDraftShortcutDot(shortcut)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if let hoveredDirectionOneDraftShortcut {
-                Text(hoveredDirectionOneDraftShortcut.hoverLabel)
-                    .font(.system(size: 10, weight: .medium, design: .default))
-                    .foregroundStyle(Color.white.opacity(0.86))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.16), lineWidth: 0.7)
-                    )
-                    .shadow(color: Color.black.opacity(0.14), radius: 8, y: 4)
-                    .offset(y: 20)
-                    .allowsHitTesting(false)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-        }
-        .animation(.easeInOut(duration: 0.16), value: hoveredDirectionOneDraftShortcut)
-    }
-
-    private func directionOneDraftShortcutDot(_ shortcut: DirectionOneDraftShortcut) -> some View {
-        let isActive = isDirectionOneDraftShortcutActive(shortcut)
-        let dotSize: CGFloat = isActive ? 8.5 : 7.5
-        let fillOpacity: Double = isActive ? 0.82 : 0.20
-        let ringOpacity: Double = isActive ? 0.34 : 0.08
-        return Button {
-            openDirectionOneDraftShortcut(shortcut)
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(Color.white.opacity(isActive ? 0.14 : 0.05))
-                    .frame(width: 13.5, height: 13.5)
-
-                Circle()
-                    .fill(shortcut.color.opacity(fillOpacity))
-                    .frame(width: dotSize, height: dotSize)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white.opacity(ringOpacity), lineWidth: isActive ? 0.9 : 0.65)
-                    )
-            }
-            .frame(width: 14, height: 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.14), value: isActive)
-        .onHover { hovering in
-            hoveredDirectionOneDraftShortcut = hovering
-                ? shortcut
-                : (hoveredDirectionOneDraftShortcut == shortcut ? nil : hoveredDirectionOneDraftShortcut)
-        }
-        .accessibilityLabel(shortcut.label)
-        .help(shortcut.hoverLabel)
-    }
-
-    private var directionOneHeaderDraftButton: some View {
-        Button {
-            toggleDraftInspector()
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 11, weight: .regular))
-                Text("Draft")
-                    .font(.system(size: 11, weight: .medium, design: .default))
-            }
-            .foregroundStyle(draftInspectorIsPresented ? directionOneChromeText.opacity(0.94) : directionOneChromeSecondaryText)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+private var directionOneHeaderLeftToggle: some View {
+    Button {
+        toggleDirectionOneSidebarVisibility()
+    } label: {
+        Image(systemName: "sidebar.left")
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(directionOneChromeText.opacity(0.90))
+            .frame(width: 28, height: 28)
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(draftInspectorIsPresented ? directionOneChromeSelectionFill : directionOneChromePanelSoft)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isDirectionOneSidebarVisible ? directionOneChromeSelectionFill : directionOneChromePanelSoft)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(draftInspectorIsPresented ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isDirectionOneSidebarVisible ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
             )
-        }
-        .buttonStyle(.plain)
     }
+    .buttonStyle(.plain)
+}
 
-    private var directionOneHeaderRightToggle: some View {
-        Button {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                isDirectionOneRightRailExpanded.toggle()
-            }
-        } label: {
-            Image(systemName: "sidebar.right")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(directionOneChromeText.opacity(0.90))
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isDirectionOneRightRailExpanded ? directionOneChromeSelectionFill : directionOneChromePanelSoft)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(isDirectionOneRightRailExpanded ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var directionOneHeaderSettingsButton: some View {
-        Button {
-            showingDirectionOneSettings.toggle()
-        } label: {
-            Image(systemName: "gearshape")
-                .font(.system(size: 13, weight: .regular))
+private var directionOneHeaderProjectBlock: some View {
+    VStack(alignment: .leading, spacing: 2) {
+        Text(directionOneProjectTitle)
+            .font(.system(size: 14, weight: .semibold, design: .default))
+            .foregroundStyle(directionOneChromeText.opacity(0.96))
+            .lineLimit(1)
+        HStack(spacing: 5) {
+            Circle()
+                .fill(vm.hasUnsavedDraftChanges ? Color.orange.opacity(0.88) : Color.green.opacity(0.72))
+                .frame(width: 5, height: 5)
+            Text(vm.isSaving ? "Saving…" : (vm.hasUnsavedDraftChanges ? "Unsaved" : "Saved"))
+                .font(.system(size: 10, weight: .regular, design: .default))
                 .foregroundStyle(directionOneChromeSecondaryText)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(directionOneChromePanelSoft)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $showingDirectionOneSettings, arrowEdge: .top) {
-            directionOneSettingsPopover
+            if vm.isLoading {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(directionOneChromeSecondaryText)
+            }
         }
     }
+}
 
-    private var directionOneHeaderDoneButton: some View {
-        Button("Done") {
-            onDone()
+private var directionOneHeaderDraftShortcuts: some View {
+    HStack(spacing: 3) {
+        ForEach(DirectionOneDraftShortcut.allCases) { shortcut in
+            directionOneDraftShortcutDot(shortcut)
         }
-        .font(.system(size: 12, weight: .medium, design: .default))
-        .foregroundStyle(directionOneChromeText.opacity(0.92))
-        .padding(.horizontal, 12)
+    }
+    .overlay(alignment: .bottom) {
+        if let hoveredDirectionOneDraftShortcut {
+            Text(hoveredDirectionOneDraftShortcut.hoverLabel)
+                .font(.system(size: 10, weight: .medium, design: .default))
+                .foregroundStyle(Color.white.opacity(0.86))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.white.opacity(0.16), lineWidth: 0.7)
+                )
+                .shadow(color: Color.black.opacity(0.14), radius: 8, y: 4)
+                .offset(y: 20)
+                .allowsHitTesting(false)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        }
+    }
+    .animation(.easeInOut(duration: 0.16), value: hoveredDirectionOneDraftShortcut)
+}
+
+private func directionOneDraftShortcutDot(_ shortcut: DirectionOneDraftShortcut) -> some View {
+    let isActive = isDirectionOneDraftShortcutActive(shortcut)
+    let dotSize: CGFloat = isActive ? 8.5 : 7.5
+    let fillOpacity: Double = isActive ? 0.82 : 0.20
+    let ringOpacity: Double = isActive ? 0.34 : 0.08
+    return Button {
+        openDirectionOneDraftShortcut(shortcut)
+    } label: {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(isActive ? 0.14 : 0.05))
+                .frame(width: 13.5, height: 13.5)
+
+            Circle()
+                .fill(shortcut.color.opacity(fillOpacity))
+                .frame(width: dotSize, height: dotSize)
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(ringOpacity), lineWidth: isActive ? 0.9 : 0.65)
+                )
+        }
+        .frame(width: 14, height: 14)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .animation(.easeInOut(duration: 0.14), value: isActive)
+    .onHover { hovering in
+        hoveredDirectionOneDraftShortcut = hovering
+            ? shortcut
+            : (hoveredDirectionOneDraftShortcut == shortcut ? nil : hoveredDirectionOneDraftShortcut)
+    }
+    .accessibilityLabel(shortcut.label)
+    .help(shortcut.hoverLabel)
+}
+
+private var directionOneHeaderDraftButton: some View {
+    Button {
+        toggleDraftInspector()
+    } label: {
+        HStack(spacing: 5) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 11, weight: .regular))
+            Text("Draft")
+                .font(.system(size: 11, weight: .medium, design: .default))
+        }
+        .foregroundStyle(draftInspectorIsPresented ? directionOneChromeText.opacity(0.94) : directionOneChromeSecondaryText)
+        .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(directionOneChromePanelSoft)
+                .fill(draftInspectorIsPresented ? directionOneChromeSelectionFill : directionOneChromePanelSoft)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
+                .stroke(draftInspectorIsPresented ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
         )
-        .buttonStyle(.plain)
     }
+    .buttonStyle(.plain)
+}
 
-    private var directionOneScriptEditor: some View {
-        ZStack(alignment: .bottom) {
-            GeometryReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        if vm.isLoading {
-                            ProgressView("Loading screenplay projects…")
-                                .controlSize(.large)
-                                .frame(width: proxy.size.width, height: max(proxy.size.height * 0.6, 360))
-                        } else if vm.selectedProject == nil &&
-                                    vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            directionOneEmptyState(size: proxy.size)
-                        } else {
-                            directionOnePageEditor(proxy.size)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
+private var directionOneHeaderRightToggle: some View {
+    Button {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            isDirectionOneRightRailExpanded.toggle()
+        }
+    } label: {
+        Image(systemName: "sidebar.right")
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(directionOneChromeText.opacity(0.90))
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isDirectionOneRightRailExpanded ? directionOneChromeSelectionFill : directionOneChromePanelSoft)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isDirectionOneRightRailExpanded ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
+            )
+    }
+    .buttonStyle(.plain)
+}
+
+private var directionOneHeaderSettingsButton: some View {
+    Button {
+        showingDirectionOneSettings.toggle()
+    } label: {
+        Image(systemName: "gearshape")
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(directionOneChromeSecondaryText)
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(directionOneChromePanelSoft)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
+            )
+    }
+    .buttonStyle(.plain)
+    .popover(isPresented: $showingDirectionOneSettings, arrowEdge: .top) {
+        directionOneSettingsPopover
+    }
+}
+
+private var directionOneHeaderDoneButton: some View {
+    Button("Done") {
+        onDone()
+    }
+    .font(.system(size: 12, weight: .semibold, design: .default))
+    .foregroundStyle(directionOneChromeText.opacity(0.92))
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .background(
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(directionOneChromePanelSoft)
+    )
+    .overlay(
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
+    )
+    .buttonStyle(.plain)
+}
+
+private var directionOneTalkButton: some View {
+    Button {
+        if talkIsActive {
+            onStopTalk()
+        } else if canTalk {
+            onArmTalk()
+        }
+    } label: {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(talkIsActive ? Color.white.opacity(0.92) : (canTalk ? Color.white.opacity(0.92) : Color.herStudioActiveFill.opacity(0.30)))
+                .frame(width: 8, height: 8)
+            Text(talkIsActive ? "Stop" : "Talk")
+                .font(.system(size: 11, weight: .semibold, design: .default))
+        }
+        .foregroundStyle(
+            talkIsActive
+                ? Color.red.opacity(0.86)
+                : (canTalk ? Color.white : Color.herText.opacity(0.42))
+        )
+        .padding(.horizontal, 11)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(
+                    talkIsActive
+                        ? Color.red.opacity(0.10)
+                        : (canTalk ? Color.accentColor.opacity(0.92) : directionOneChromePanelSoft)
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(
+                    talkIsActive
+                        ? Color.red.opacity(0.22)
+                        : (canTalk ? Color.accentColor.opacity(0.94) : directionOneChromeStroke.opacity(0.55)),
+                    lineWidth: 1
+                )
+        )
+    }
+    .buttonStyle(.plain)
+    .disabled(!canTalk && !talkIsActive)
+}
+private var directionOneScriptEditor: some View {
+    GeometryReader { proxy in
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
+                if vm.isLoading {
+                    ProgressView("Loading screenplay projects…")
+                        .controlSize(.large)
+                        .frame(width: proxy.size.width, height: max(proxy.size.height * 0.6, 360))
+                } else {
+                    directionOnePageEditor(proxy.size)
                 }
-                .background(Color.white.opacity(0.05))
             }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 28)
+            .padding(.top, 34)
+            .padding(.bottom, 28)
         }
-        .onChange(of: liveDraftBridge.pendingEditorFocus?.id) { _, newValue in
-            guard newValue != nil else { return }
-            triggerDirectionOnePageFocusTransition()
-        }
+        .background(Color.clear)
     }
-
-    private func directionOneEmptyState(size: CGSize) -> some View {
-        VStack(spacing: 14) {
-            Image(systemName: "film")
-                .font(.system(size: 28, weight: .ultraLight))
-                .foregroundStyle(Color.herText.opacity(0.18))
-            Text("Open a project or create one")
-                .font(.system(size: 15, weight: .light, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.24))
-            Text("Then press Talk and describe the next scene.")
-                .font(.system(size: 12, weight: .light, design: .default))
-                .foregroundStyle(Color.herText.opacity(0.18))
-                .multilineTextAlignment(.center)
-        }
-        .frame(width: size.width, height: max(size.height * 0.58, 380))
+    .padding(.horizontal, 16)
+    .padding(.vertical, 10)
+    .onChange(of: liveDraftBridge.pendingEditorFocus?.id) { _, newValue in
+        guard newValue != nil else { return }
+        triggerDirectionOnePageFocusTransition()
     }
-
+}
     private func directionOnePageEditor(_ size: CGSize) -> some View {
-        let horizontalBreathingRoom = min(max(size.width * 0.10, 58), 110)
-        let verticalBreathingRoom = min(max(size.height * 0.12, 84), 116)
-        let pageWidth = min(780, max(size.width - (horizontalBreathingRoom * 2), 540))
-        let pageMinHeight = max(size.height - (verticalBreathingRoom * 2), 640)
-        let pageMaxHeight = max(size.height - 32, 900)
+        let verticalBreathingRoom = min(max(size.height * 0.07, 52), 86)
+        let pageWidth = min(560, max(size.width * 0.56, 500))
+        let pageMinHeight = max(size.height - (verticalBreathingRoom * 1.5), 660)
+        let pageMaxHeight = max(size.height - 34, 940)
 
-        return VStack(spacing: 10) {
+        return VStack(spacing: 14) {
             if !screenplayIntegrityIssues.isEmpty {
                 pageIntegrityBanner
                     .frame(width: pageWidth)
                     .frame(maxWidth: .infinity)
             }
+
 
             screenplayPageSurface(
                 minHeight: pageMinHeight,
@@ -5254,8 +6147,8 @@ Replace is best when this file should become the script you edit. Append is safe
             .overlay(alignment: .bottomTrailing) {
                 if isLastCommittedWriteActionVisible {
                     lastCommittedWriteInlineActions
-                        .padding(.trailing, max((size.width - pageWidth) * 0.5 + 22, 22))
-                        .padding(.bottom, verticalBreathingRoom + 14)
+                        .padding(.trailing, max((size.width - pageWidth) * 0.5 + 26, 26))
+                        .padding(.bottom, verticalBreathingRoom + 18)
                 }
             }
             .onDrop(of: [UTType.fileURL], isTargeted: $draftDropIsTargeted) { providers in
@@ -6326,7 +7219,7 @@ Detail:
 \(issue.detail)
 """
         studioPromptFocused = true
-        directionOneRightPanelTab = .intelligence
+        directionOneRightPanelTab = .them
         vm.infoText = "Loaded a continuity rewrite brief into the composer."
         return true
     }
@@ -6335,7 +7228,7 @@ Detail:
     private func previewAllSuggestedIntelligenceFixes() -> Int {
         let available = availableIntelligenceFixQueueItems
         queuedIntelligenceFixes = available
-        directionOneRightPanelTab = .intelligence
+        directionOneRightPanelTab = .them
         if available.isEmpty {
             vm.infoText = "No suggested fixes are ready right now."
         } else {
@@ -6491,7 +7384,7 @@ Detail:
             studioPromptRoutingMode = PromptRoutingMode(rawValue: snapshot.studioPromptRoutingModeRaw) ?? .automatic
             selectedInspectorSection = InspectorSection(rawValue: snapshot.selectedInspectorSectionRaw) ?? .scenes
             highlightedSceneInspectorKey = snapshot.highlightedSceneInspectorKey
-            directionOneRightPanelTab = .intelligence
+            directionOneRightPanelTab = .them
             vm.refreshLiveDraftBridgeContext()
             lastAppliedIntelligenceFixBatch = nil
             vm.infoText = snapshot.appliedFixIDs.count == 1
@@ -6745,17 +7638,15 @@ Detail:
             return 700
         case .outline:
             return 660
-        case .intelligence:
-            return 760
-        case .companion:
-            return 720
+        case .them:
+            return 1120
         case .saved:
             return 560
         }
     }
 
     private var directionOneRightPanelTabs: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
         return LazyVGrid(columns: columns, spacing: 8) {
             ForEach(DirectionOneRightPanelTab.allCases) { tab in
                 let isActive = directionOneRightPanelTab == tab
@@ -6766,16 +7657,16 @@ Detail:
                 } label: {
                     VStack(spacing: 6) {
                         Image(systemName: tab.iconName)
-                            .font(.system(size: 13, weight: isActive ? .semibold : .medium, design: .default))
+                            .font(.system(size: 12, weight: isActive ? .semibold : .medium, design: .default))
 
                         Text(tab.title)
-                            .font(.system(size: 11, weight: isActive ? .semibold : .medium, design: .default))
+                            .font(.system(size: 10.5, weight: isActive ? .semibold : .medium, design: .default))
                             .lineLimit(1)
                             .minimumScaleFactor(0.82)
                             .multilineTextAlignment(.center)
                     }
                     .foregroundStyle(isActive ? directionOneChromeText.opacity(0.96) : directionOneChromeSecondaryText)
-                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .frame(maxWidth: .infinity, minHeight: 48)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(isActive ? Color.white.opacity(0.96) : directionOneChromePanel)
@@ -6788,7 +7679,7 @@ Detail:
                 .buttonStyle(.plain)
             }
         }
-        .padding(8)
+        .padding(6)
         .background(directionOneChromePanelSoft)
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -6806,10 +7697,8 @@ Detail:
             directionOneBeatsPanel
         case .outline:
             directionOneOutlinePanel
-        case .intelligence:
-            directionOneIntelligencePanel
-        case .companion:
-            directionOneCompanionPanel
+        case .them:
+            directionOneThemPanel
         case .saved:
             directionOneSavedPanel
         }
@@ -6907,164 +7796,87 @@ Detail:
         }
     }
 
-    private var directionOneIntelligencePanel: some View {
-        sectionCard(title: "Screenplay Intelligence") {
-            let report = liveDraftBridge.intelligenceReport
-            VStack(alignment: .leading, spacing: 18) {
-                inspectorPanelLead(
-                    title: "Spot the weak seams early.",
-                    detail: "Intel should help you make decisions, not just report problems. Keep the most actionable story signals front and center."
-                )
+private var directionOneThemPanel: some View {
+    let analytics = liveDraftBridge.companionAnalytics
+    let signalState = liveDraftBridge.companionSignalState
 
-                HStack(spacing: 10) {
-                    directionOneMiniStat("Continuity", value: "\(report.continuityIssues.count)")
-                    directionOneMiniStat("Drift", value: "\(report.sceneGoalDrift.count)")
-                    directionOneMiniStat("Duplicates", value: "\(report.duplicateBeatIssues.count)")
-                }
+    return VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("them")
+                .font(.system(size: 30, weight: .semibold, design: .serif))
+                .foregroundStyle(Color.herText.opacity(0.92))
+            Text("Keep Clementine's instincts, memory, and craft signals together.")
+                .font(.system(size: 15, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.82))
+            Text("The rail should feel like one creative partner. Companion context, live asks, and screenplay intelligence now move through the same calmer surface.")
+                .font(.system(size: 12, weight: .regular, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.60))
+                .fixedSize(horizontal: false, vertical: true)
+        }
 
-                intelligenceFixQueueCard
-
-                intelligenceIssueBlock(
-                    title: "What Changed",
-                    emptyText: "No recent structural changes yet.",
-                    lines: report.changeSummary
-                )
-
-                intelligenceIssueBlock(
-                    title: "Continuity Checks",
-                    emptyText: "No continuity risks detected right now.",
-                    issues: report.continuityIssues
-                )
-
-                intelligenceIssueBlock(
-                    title: "Scene Goal Drift",
-                    emptyText: "Draft scenes still line up with their bound scene objectives.",
-                    drift: report.sceneGoalDrift
-                )
-
-                intelligenceIssueBlock(
-                    title: "Duplicate Beats",
-                    emptyText: "No duplicate beat labels detected.",
-                    issues: report.duplicateBeatIssues
-                )
-
-                intelligenceCollectionCard(title: "Character Line Tracking", icon: "person.3") {
-                    if report.characterSummaries.isEmpty {
-                        Text("No dialogue cues tracked yet.")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.58))
-                    } else {
-                        ForEach(report.characterSummaries.prefix(8)) { summary in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Text(summary.character)
-                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(Color.herText.opacity(0.82))
-                                Spacer(minLength: 12)
-                                Text("\(summary.dialogueLineCount) lines · \(summary.sceneCount) scenes")
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(Color.herText.opacity(0.48))
-                            }
+        if signalState.hasContent {
+            intelligenceCollectionCard(title: "Live Intent", icon: "dot.radiowaves.left.and.right") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text(signalState.presence.title.isEmpty ? "Creative Presence" : signalState.presence.title)
+                            .font(.system(size: 13, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.88))
+                        Spacer(minLength: 0)
+                        if !signalState.intent.label.isEmpty {
+                            Text(signalState.intent.label)
+                                .font(.system(size: 11, weight: .semibold, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.72))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.14))
+                                .clipShape(Capsule())
                         }
                     }
-                }
 
-                intelligenceCollectionCard(title: "Act Balance", icon: "square.split.2x1") {
-                    if report.actBalance.isEmpty {
-                        Text("Act balance will populate once scenes bind to the outline.")
+                    if !signalState.presence.detail.isEmpty {
+                        Text(signalState.presence.detail)
                             .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.58))
-                    } else {
-                        ForEach(report.actBalance) { act in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Text(act.actTitle)
-                                    .font(.system(size: 12, weight: .semibold, design: .default))
-                                    .foregroundStyle(Color.herText.opacity(0.82))
-                                Spacer(minLength: 12)
-                                Text("\(act.sceneCount)s / \(act.beatCount)b / \(act.dialogueLineCount)d")
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(Color.herText.opacity(0.48))
-                            }
-                        }
+                            .foregroundStyle(Color.herText.opacity(0.72))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if let proactive = signalState.proactiveSuggestion,
+                       !proactive.prompt.isEmpty {
+                        Text(proactive.prompt)
+                            .font(.system(size: 12, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.82))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
         }
-    }
 
-    private var directionOneCompanionPanel: some View {
-        sectionCard(title: "Companion") {
-            VStack(alignment: .leading, spacing: 18) {
-                inspectorPanelLead(
-                    title: "Keep the companion lane warm and separate.",
-                    detail: "This rail should feel like a focused conversation surface, not another page-writing panel. Mode, memory, and the recent thread all belong together."
-                )
+        directionOneThemCollaboratorSection
 
-                VStack(alignment: .leading, spacing: 12) {
-                    inspectorSubsectionLabel("Mode")
-                    companionModePickerCard
-                    Text(liveDraftBridge.companionMode.summary)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundStyle(Color.herText.opacity(0.62))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                HStack(spacing: 10) {
-                    directionOneMiniStat("Turns", value: "\(liveDraftBridge.companionRecentTurns.count)")
-                    directionOneMiniStat("Voice Pin", value: "\(companionVoicePinEntries.count)")
-                    directionOneMiniStat("Mode", value: liveDraftBridge.companionMode.title)
-                }
-
-                intelligenceCollectionCard(title: "Surface mix", icon: "chart.bar") {
-                    HStack(spacing: 10) {
-                        directionOneMiniStat("Home", value: "\(liveDraftBridge.companionAnalytics.homeTurns)")
-                        directionOneMiniStat("Studio", value: "\(liveDraftBridge.companionAnalytics.studioTurns)")
-                        directionOneMiniStat("Voice", value: "\(liveDraftBridge.companionAnalytics.voiceTurns)")
-                        directionOneMiniStat("Typed", value: "\(liveDraftBridge.companionAnalytics.typedTurns)")
-                    }
-
-                    if let lastSurface = liveDraftBridge.companionAnalytics.lastSurface,
-                       let lastSource = liveDraftBridge.companionAnalytics.lastSource {
-                        Text("Last companion interaction: \(lastSurface.title) via \(lastSource.rawValue).")
-                            .font(.system(size: 11, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.52))
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    inspectorSubsectionLabel("Memory controls")
-                    HStack(spacing: 10) {
-                        Button("Clear Companion Memory") {
-                            liveDraftBridge.clearCompanionMemory()
-                        }
-                        .buttonStyle(.bordered)
-
-                        Button("Clear Companion Thread") {
-                            clearCompanionThreadHistory()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .foregroundStyle(Color.herText.opacity(0.84))
-                }
-
-                inspectorSubsectionLabel("Recent thread")
-
-                if companionVoicePinEntries.isEmpty {
-                    inspectorMessageCard(
-                        icon: "bubble.left.and.bubble.right",
-                        title: "No companion-side thread yet",
-                        detail: "Talk to Clementine in coach, co-writer, or comfort mode and the recent companion thread will stay visible here."
-                    )
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(companionVoicePinEntries.prefix(6)) { exchange in
-                            companionThreadInspectorCard(exchange)
-                        }
-                    }
-                }
+        intelligenceCollectionCard(title: "Surface mix", icon: "waveform.path.ecg") {
+            HStack(spacing: 8) {
+                directionOneMiniStat("Home", value: "\(analytics.homeTurns)")
+                directionOneMiniStat("Studio", value: "\(analytics.studioTurns)")
+                directionOneMiniStat("Voice", value: "\(analytics.voiceTurns)")
+                directionOneMiniStat("Typed", value: "\(analytics.typedTurns)")
             }
+
+            Text("Companion turns stay attached to the same creative lane, whether they start on the page, in voice, or in the command bar.")
+                .font(.system(size: 11, weight: .regular, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.54))
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
-
+    .padding(18)
+    .background(
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(Color.herShellPanelSoft.opacity(0.96))
+    )
+    .overlay(
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .stroke(Color.herShellStroke.opacity(0.40), lineWidth: 1)
+    )
+}
     private var directionOneSavedPanel: some View {
         let hasDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7226,39 +8038,6 @@ Detail:
         }
     }
 
-    private var directionOneTalkButton: some View {
-        Button {
-            if talkIsActive {
-                onStopTalk()
-            } else if canTalk {
-                onArmTalk()
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(talkIsActive ? Color.red.opacity(0.82) : Color.herStudioActiveFill.opacity(canTalk ? 0.92 : 0.30))
-                    .frame(width: 8, height: 8)
-                Text(talkIsActive ? "Stop" : "Talk")
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-            }
-            .foregroundStyle(Color.herText.opacity(canTalk || talkIsActive ? 0.90 : 0.42))
-            .padding(.horizontal, 11)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(talkIsActive ? Color.red.opacity(0.10) : (canTalk ? directionOneChromeSelectionFill : directionOneChromePanelSoft))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(
-                        talkIsActive ? Color.red.opacity(0.22) : (canTalk ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55)),
-                        lineWidth: 1
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(!canTalk && !talkIsActive)
-    }
 
     private func triggerDirectionOnePageFocusTransition() {
         directionOnePageFocusTransitionTask?.cancel()
@@ -7474,6 +8253,14 @@ Detail:
         Color.accentColor.opacity(0.24)
     }
 
+    private var directionOneWritingStageFill: Color {
+        Color.herShellPanel.opacity(0.42)
+    }
+
+    private var directionOneWritingStageStroke: Color {
+        Color.herShellStroke.opacity(0.18)
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
@@ -7592,117 +8379,298 @@ Detail:
             .font(.system(size: 10, weight: .semibold, design: .default))
             .tracking(0.7)
             .foregroundStyle(directionOneChromeTertiaryText)
-            .padding(.top, 12)
     }
 
-    private var sidebarModeTabs: some View {
-        Picker("Sidebar", selection: $selectedSidebarSection) {
-            ForEach(SidebarSection.allCases) { section in
-                Text(section.title).tag(section)
-            }
+private var sidebarModeTabs: some View {
+    HStack(spacing: 10) {
+        ForEach(SidebarSection.allCases) { section in
+            sidebarModeButton(section)
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
     }
+}
 
-    private func sidebarModeButton(_ section: SidebarSection) -> some View {
-        let isActive = selectedSidebarSection == section
-        return Button {
-            selectedSidebarSection = section
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: section.iconName)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                Text(section.title)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-            }
-            .foregroundStyle(isActive ? directionOneChromeText.opacity(0.94) : directionOneChromeSecondaryText)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+private func sidebarModeButton(_ section: SidebarSection) -> some View {
+    let isActive = selectedSidebarSection == section
+    return Button {
+        selectedSidebarSection = section
+    } label: {
+        Text(section.title)
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(isActive ? Color.white : directionOneChromeSecondaryText)
+            .padding(.horizontal, isActive ? 10 : 0)
+            .padding(.vertical, isActive ? 6 : 0)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isActive ? Color.white.opacity(0.92) : directionOneChromePanelSoft)
+                Capsule()
+                    .fill(isActive ? Color.accentColor.opacity(0.96) : Color.clear)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(
-                        isActive ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.48),
-                        lineWidth: 1
-                    )
-            )
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(section.title)
+    .accessibilityAddTraits(isActive ? .isSelected : [])
+}
+    private var directionOneSortedProjects: [BackendScreenplayProjectSummary] {
+        vm.projects.sorted { lhs, rhs in
+            let lhsStamp = directionOneProjectRecency(lhs)
+            let rhsStamp = directionOneProjectRecency(rhs)
+            if lhsStamp == rhsStamp {
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+            return lhsStamp > rhsStamp
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(section.title)
-        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
-    private var projectsSidebarContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sidebarSectionLabel("Projects")
+    private var directionOnePinnedProjects: [BackendScreenplayProjectSummary] {
+        directionOneSortedProjects.filter { $0.id == vm.selectedProjectID }
+    }
 
-            HStack(spacing: 8) {
-                TextField("New project title", text: $vm.newProjectTitle)
-                    .textFieldStyle(.roundedBorder)
-                Button("Create") {
+    private var directionOneRecentProjects: [BackendScreenplayProjectSummary] {
+        Array(directionOneSortedProjects.filter { $0.id != vm.selectedProjectID }.prefix(3))
+    }
+
+    private var directionOneDraftShelfProjects: [BackendScreenplayProjectSummary] {
+        let excluded = Set(directionOnePinnedProjects.map(\.id) + directionOneRecentProjects.map(\.id))
+        return directionOneSortedProjects
+            .filter { !excluded.contains($0.id) }
+            .sorted { lhs, rhs in
+                let lhsDraft = (lhs.versionCount ?? 0) == 0
+                let rhsDraft = (rhs.versionCount ?? 0) == 0
+                if lhsDraft != rhsDraft {
+                    return lhsDraft && !rhsDraft
+                }
+                return directionOneProjectRecency(lhs) > directionOneProjectRecency(rhs)
+            }
+    }
+
+    private func directionOneProjectRecency(_ project: BackendScreenplayProjectSummary) -> TimeInterval {
+        project.updatedAt ?? project.lastVersionAt ?? project.createdAt ?? 0
+    }
+
+    private func directionOneProjectTimestampText(_ project: BackendScreenplayProjectSummary) -> String {
+        guard let date = dateFromTimestamp(directionOneProjectRecency(project)) else {
+            return "No recent activity"
+        }
+        return relativeTimestamp(date)
+    }
+
+    private var directionOneSidebarWorkspaceCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Workspace")
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .tracking(0.9)
+                .foregroundStyle(directionOneChromeTertiaryText)
+                .textCase(.uppercase)
+            Text("Keep projects, drafts, and files in one calmer rail.")
+                .font(.system(size: 14, weight: .semibold, design: .default))
+                .foregroundStyle(directionOneChromeText.opacity(0.92))
+            Text(directionOneSortedProjects.isEmpty ? "No screenplay projects yet." : "\(directionOneSortedProjects.count) projects ready for writing, saving, and export.")
+                .font(.system(size: 12, weight: .regular, design: .default))
+                .foregroundStyle(directionOneChromeSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.herShellPanelSoft.opacity(0.92))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
+        )
+    }
+
+    private var directionOneNewProjectComposer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 8) {
+                Text("New project")
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(directionOneChromeText.opacity(0.88))
+                Spacer(minLength: 0)
+                directionOneAssistantPill("Phase", value: "Scene draft", tint: directionOneChromeText.opacity(0.72))
+            }
+
+            TextField("Start with a title for the script world you are building", text: $vm.newProjectTitle)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.herPaper.opacity(0.96))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
+                )
+
+            HStack(alignment: .center, spacing: 10) {
+                Text("Create the project now, then let versions, outline, and memory attach themselves to the same script home.")
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(directionOneChromeSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 10)
+                Button(vm.isSaving ? "Creating…" : "Create") {
                     Task { await vm.createProject() }
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(vm.newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isSaving)
             }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.herShellPanelSoft.opacity(0.96))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
+        )
+    }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(vm.projects, id: \.id) { project in
-                        Button {
-                            Task { await vm.selectProject(project.id) }
-                        } label: {
-                            HStack(alignment: .center, spacing: 10) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(project.title)
-                                        .font(.system(size: 13, weight: vm.selectedProjectID == project.id ? .semibold : .medium, design: .default))
-                                        .foregroundStyle(directionOneChromeText.opacity(vm.selectedProjectID == project.id ? 0.96 : 0.88))
-                                        .lineLimit(2)
-                                    Text("Scenes \(project.sceneCount ?? 0) • Beats \(project.beatCount ?? 0)")
-                                        .font(.system(size: 11, weight: .regular, design: .default))
-                                        .foregroundStyle(directionOneChromeSecondaryText.opacity(vm.selectedProjectID == project.id ? 0.92 : 0.82))
-                                }
-                                Spacer(minLength: 8)
-                                if vm.selectedProjectID == project.id {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(Color.accentColor.opacity(0.90))
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(vm.selectedProjectID == project.id ? directionOneChromeSelectionFill : Color.clear)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .overlay(alignment: .bottom) {
-                            if project.id != vm.projects.last?.id {
-                                Rectangle()
-                                    .fill(directionOneChromeStroke.opacity(0.16))
-                                    .frame(height: 1)
-                                    .padding(.leading, 8)
-                            }
-                        }
-                    }
-                    if vm.projects.isEmpty && !vm.isLoading {
-                        Text("No screenplay projects yet.")
-                            .font(.system(size: 12, weight: .regular, design: .default))
-                            .foregroundStyle(directionOneChromeSecondaryText)
-                            .padding(.top, 10)
+    private func directionOneProjectSection(
+        title: String,
+        projects: [BackendScreenplayProjectSummary],
+        emptyText: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sidebarSectionLabel(title)
+            if projects.isEmpty {
+                Text(emptyText)
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(directionOneChromeSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(projects, id: \.id) { project in
+                        directionOneProjectRow(project)
                     }
                 }
-                .padding(.vertical, 4)
             }
         }
     }
 
+    private func directionOneProjectRow(_ project: BackendScreenplayProjectSummary) -> some View {
+        let isActive = vm.selectedProjectID == project.id
+        let sceneCount = project.sceneCount ?? 0
+        let beatCount = project.beatCount ?? 0
+        let phase = (project.lastPhase ?? "scene_draft").replacingOccurrences(of: "_", with: " ").capitalized
+        let excerpt = project.latestExcerpt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return Button {
+            Task { await vm.selectProject(project.id) }
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(project.title)
+                            .font(.system(size: 13, weight: isActive ? .semibold : .medium, design: .default))
+                            .foregroundStyle(directionOneChromeText.opacity(isActive ? 0.96 : 0.88))
+                            .lineLimit(2)
+                        Text("\(sceneCount) scenes · \(beatCount) beats")
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(directionOneChromeSecondaryText.opacity(isActive ? 0.92 : 0.82))
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        directionOneAssistantPill("Phase", value: phase, tint: directionOneChromeText.opacity(0.72))
+                        Text(directionOneProjectTimestampText(project))
+                            .font(.system(size: 10, weight: .medium, design: .default))
+                            .foregroundStyle(directionOneChromeTertiaryText)
+                    }
+                }
+
+                if !excerpt.isEmpty {
+                    Text(excerpt)
+                        .font(.system(size: 11, weight: .regular, design: .default))
+                        .foregroundStyle(directionOneChromeSecondaryText)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isActive ? directionOneChromeSelectionFill.opacity(1.05) : Color.herShellPanelSoft.opacity(0.82))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isActive ? directionOneChromeSelectionStroke : Color.herShellStroke.opacity(0.18), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+private var projectsSidebarContent: some View {
+    VStack(alignment: .leading, spacing: 12) {
+        sidebarSectionLabel("Projects")
+            .padding(.top, 2)
+
+        HStack(spacing: 8) {
+            TextField("New project title", text: $vm.newProjectTitle)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, weight: .medium, design: .default))
+                .foregroundStyle(Color.white.opacity(0.94))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.black.opacity(0.86))
+                )
+            Button("Create") {
+                Task { await vm.createProject() }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(vm.newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isSaving)
+        }
+
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(directionOneSortedProjects, id: \.id) { project in
+                    Button {
+                        Task { await vm.selectProject(project.id) }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(project.title)
+                                .font(.system(size: 13, weight: vm.selectedProjectID == project.id ? .semibold : .medium, design: .default))
+                                .foregroundStyle(directionOneChromeText.opacity(vm.selectedProjectID == project.id ? 0.96 : 0.88))
+                                .lineLimit(2)
+                            Text("Scenes \(project.sceneCount ?? 0) • Beats \(project.beatCount ?? 0)")
+                                .font(.system(size: 11, weight: .regular, design: .default))
+                                .foregroundStyle(directionOneChromeSecondaryText.opacity(vm.selectedProjectID == project.id ? 0.92 : 0.82))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(vm.selectedProjectID == project.id ? directionOneChromeSelectionFill.opacity(0.82) : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if directionOneSortedProjects.isEmpty && !vm.isLoading {
+                    Text("No screenplay projects yet.")
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundStyle(directionOneChromeSecondaryText)
+                        .padding(.top, 8)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+
+        Spacer(minLength: 0)
+
+        if !vm.errorText.isEmpty {
+            Text(vm.errorText)
+                .font(.system(size: 10, weight: .regular, design: .default))
+                .foregroundStyle(Color.red.opacity(0.74))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
     private var filesSidebarContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -7937,6 +8905,8 @@ Detail:
                                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
 
+                            syncedVoiceTurnStatusBanner
+
                             if !screenplayIntegrityIssues.isEmpty {
                                 pageIntegrityBanner
                             }
@@ -8025,6 +8995,8 @@ Detail:
                             .background(Color.yellow.opacity(0.16))
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
+
+                    syncedVoiceTurnStatusBanner
 
                     hollywoodFormatGuideStrip
                     draftSceneNavigatorStrip
@@ -8687,6 +9659,12 @@ Detail:
                         prominence: .muted
                     )
                 }
+                if let syncedVoiceChipTitle = syncedVoiceTurnChipTitle {
+                    draftStatusChip(
+                        syncedVoiceChipTitle,
+                        prominence: syncedVoiceTurnChipProminence
+                    )
+                }
                 if includeSyncState {
                     draftStatusChip(
                         vm.hasUnsavedDraftChanges ? "Unsaved" : "Synced",
@@ -8714,6 +9692,7 @@ Detail:
         case accent
         case success
         case warning
+        case danger
         case muted
     }
 
@@ -8736,6 +9715,10 @@ Detail:
             fill = Color.orange.opacity(0.16)
             stroke = Color.orange.opacity(0.34)
             text = Color.orange.opacity(0.90)
+        case .danger:
+            fill = Color.red.opacity(0.14)
+            stroke = Color.red.opacity(0.32)
+            text = Color.red.opacity(0.88)
         case .muted:
             fill = Color.herShellPanelSoft.opacity(0.94)
             stroke = Color.herShellStroke.opacity(0.22)
@@ -8756,6 +9739,209 @@ Detail:
                 Capsule()
                     .stroke(stroke, lineWidth: 1)
             )
+    }
+
+    private var syncedVoiceTurnChipTitle: String? {
+        let state = liveDraftBridge.syncedVoiceTurnState
+        switch state.phase {
+        case .idle:
+            return nil
+        case .loading:
+            return "Voice loading"
+        case .buffering:
+            return "Voice buffering"
+        case .playback:
+            return "Voice playback"
+        case .syncedInsertion:
+            return state.hasPlaybackDrift ? "Voice resyncing" : "Voice syncing"
+        case .completed:
+            return state.fallbackCommitted ? "Voice recovered" : "Voice complete"
+        case .interrupted:
+            return "Voice interrupted"
+        case .failed:
+            return "Voice failed"
+        }
+    }
+
+    private var syncedVoiceTurnChipProminence: DraftStatusChipProminence {
+        let state = liveDraftBridge.syncedVoiceTurnState
+        switch state.phase {
+        case .completed:
+            return state.fallbackCommitted ? .warning : .success
+        case .interrupted:
+            return .warning
+        case .failed:
+            return .danger
+        case .loading, .buffering, .playback, .syncedInsertion:
+            return state.hasPlaybackDrift ? .warning : .accent
+        case .idle:
+            return .muted
+        }
+    }
+
+    private var syncedVoiceTurnStatusTitle: String {
+        let state = liveDraftBridge.syncedVoiceTurnState
+        switch state.phase {
+        case .idle:
+            return ""
+        case .loading:
+            return "Preparing synced page write"
+        case .buffering:
+            return "Buffering authoritative page text"
+        case .playback:
+            return "Playback has started"
+        case .syncedInsertion:
+            return state.hasPlaybackDrift ? "Recovering sync drift" : "Writing in sync with speech"
+        case .completed:
+            return state.fallbackCommitted ? "Synced page write recovered" : "Synced page write finished"
+        case .interrupted:
+            return "Synced page write interrupted"
+        case .failed:
+            return "Synced page write failed"
+        }
+    }
+
+    private var syncedVoiceTurnStatusDetail: String {
+        let state = liveDraftBridge.syncedVoiceTurnState
+        switch state.phase {
+        case .idle:
+            return ""
+        case .loading:
+            return "Waiting for Clementine's authoritative page response."
+        case .buffering:
+            if state.hasAuthoritativeText {
+                return "Authoritative screenplay text is ready. Playback will start the page write."
+            }
+            if !state.previewText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "Preview text is staged while the final screenplay payload arrives."
+            }
+            return "Collecting the response before the page write begins."
+        case .playback:
+            return "Audio is already speaking. The page write will lock to playback timing."
+        case .syncedInsertion:
+            if state.cueCount > 0 {
+                let appliedCueCount = min(state.appliedCueCount, state.cueCount)
+                if state.hasPlaybackDrift {
+                    return "Applied \(appliedCueCount) of \(state.cueCount) timed cues. Drift is \(state.playbackDriftMs)ms while sync catches up."
+                }
+                return "Applied \(appliedCueCount) of \(state.cueCount) timed cues as the line is spoken."
+            }
+            if state.hasPlaybackDrift {
+                return "Playback drift reached \(state.playbackDriftMs)ms while the final screenplay text stays aligned."
+            }
+            return "Applying the final screenplay text in lockstep with speech."
+        case .completed:
+            if state.fallbackCommitted {
+                return syncedVoiceFallbackDetail(for: state)
+            }
+            let timingSource = state.timingSource.trimmingCharacters(in: .whitespacesAndNewlines)
+            return timingSource.isEmpty
+                ? "The authoritative screenplay text finished writing to the page."
+                : "The page write completed using \(timingSource.replacingOccurrences(of: "_", with: " ")) timing."
+        case .interrupted:
+            switch state.interruptionReason {
+            case .manualTyping:
+                return "Manual typing took over the draft before the synced write completed."
+            case .bargeIn:
+                return "A new voice turn interrupted the current synced page write."
+            case .cancel:
+                return "The synced page write was cancelled before completion."
+            case .other, .none:
+                return "The synced page write stopped before it could finish."
+            }
+        case .failed:
+            let reason = (state.failureReason ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return reason.isEmpty ? "The final screenplay payload could not be synchronized." : reason
+        }
+    }
+
+    private func syncedVoiceFallbackDetail(
+        for state: ScreenplaySyncedVoiceTurnState
+    ) -> String {
+        let appliedCueCount = min(state.appliedCueCount, state.cueCount)
+        let cueProgressSuffix: String = {
+            guard state.cueCount > 0 else { return "" }
+            return " after \(appliedCueCount) of \(state.cueCount) cues"
+        }()
+        switch state.fallbackReason.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "playback_desynced":
+            return "Playback drift exceeded the sync window\(cueProgressSuffix), so the authoritative screenplay text finished immediately."
+        case "playback_timeout":
+            return "Playback stopped advancing\(cueProgressSuffix), so the authoritative screenplay text finished immediately."
+        case "preplayback_fallback":
+            return "Timed insertion never began, so the authoritative screenplay text was committed immediately."
+        default:
+            return "The authoritative screenplay text was committed immediately to keep the page consistent with playback."
+        }
+    }
+
+    private func syncedVoiceTurnBannerStyle(
+        for prominence: DraftStatusChipProminence
+    ) -> (fill: Color, stroke: Color, title: Color, detail: Color) {
+        switch prominence {
+        case .accent:
+            return (
+                fill: Color.herStudioActiveFill.opacity(0.88),
+                stroke: Color.herStudioActiveStroke.opacity(0.85),
+                title: Color.herText.opacity(0.94),
+                detail: Color.herText.opacity(0.74)
+            )
+        case .success:
+            return (
+                fill: Color.green.opacity(0.12),
+                stroke: Color.green.opacity(0.28),
+                title: Color.green.opacity(0.88),
+                detail: Color.herText.opacity(0.72)
+            )
+        case .warning:
+            return (
+                fill: Color.orange.opacity(0.12),
+                stroke: Color.orange.opacity(0.28),
+                title: Color.orange.opacity(0.92),
+                detail: Color.herText.opacity(0.72)
+            )
+        case .danger:
+            return (
+                fill: Color.red.opacity(0.12),
+                stroke: Color.red.opacity(0.26),
+                title: Color.red.opacity(0.90),
+                detail: Color.herText.opacity(0.72)
+            )
+        case .muted:
+            return (
+                fill: Color.herShellPanelSoft.opacity(0.9),
+                stroke: Color.herShellStroke.opacity(0.22),
+                title: Color.herText.opacity(0.88),
+                detail: Color.herText.opacity(0.72)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var syncedVoiceTurnStatusBanner: some View {
+        let state = liveDraftBridge.syncedVoiceTurnState
+        if state.phase != .idle && (state.phase != .completed || state.fallbackCommitted) {
+            let style = syncedVoiceTurnBannerStyle(for: syncedVoiceTurnChipProminence)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(syncedVoiceTurnStatusTitle)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(style.title)
+                Text(syncedVoiceTurnStatusDetail)
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundStyle(style.detail)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(style.fill)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(style.stroke, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
     }
 
     private var projectInspectorCard: some View {
@@ -10023,37 +11209,21 @@ Detail:
     }
 
     private var companionModePickerCard: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
-        return LazyVGrid(columns: columns, spacing: 8) {
+        Picker(
+            "Companion Mode",
+            selection: Binding(
+                get: { liveDraftBridge.companionMode },
+                set: { liveDraftBridge.setCompanionMode($0) }
+            )
+        ) {
             ForEach(StudioCompanionMode.allCases) { mode in
-                let isActive = liveDraftBridge.companionMode == mode
-                Button {
-                    liveDraftBridge.setCompanionMode(mode)
-                } label: {
-                    VStack(spacing: 6) {
-                        Text(mode.title)
-                            .font(.system(size: 12, weight: isActive ? .semibold : .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(isActive ? 0.90 : 0.62))
-                        Text(mode.summary)
-                            .font(.system(size: 10, weight: .regular, design: .default))
-                            .foregroundStyle(Color.herText.opacity(isActive ? 0.58 : 0.42))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 72)
-                    .padding(.horizontal, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(isActive ? Color.white.opacity(0.94) : Color.white.opacity(0.42))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(isActive ? directionOneChromeSelectionStroke.opacity(0.70) : Color.herShellStroke.opacity(0.20), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
+                Text(mode.title)
+                    .tag(mode)
             }
         }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .accessibilityIdentifier("studio.them.modePicker")
     }
 
     private func companionThreadInspectorCard(_ exchange: StudioAskNoteExchange) -> some View {
@@ -10064,6 +11234,49 @@ Detail:
                 .lineLimit(4)
             studioRouteMetaStrip(for: exchange)
         }
+    }
+
+    private var directionOneCompactEmptyThreadSummary: some View {
+        HStack(alignment: .center, spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Color.herStudioActiveFill.opacity(0.08))
+                    .frame(width: 26, height: 26)
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.herStudioActiveFill.opacity(0.58))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No recent companion thread yet")
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.74))
+                Text("Coach, co-writer, and comfort turns will stack here once you start talking.")
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.48))
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 12)
+
+            Text("0 turns")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.herText.opacity(0.42))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.30))
+                .clipShape(Capsule())
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.26))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.14), lineWidth: 1)
+        )
     }
 
     private var sortedOutlineActs: [BackendScreenplayAct] {
@@ -12186,6 +13399,17 @@ Detail:
         let projectKey: String
         let selectedProjectID: String
         let latestVersionID: String
+        let studioSurfaceActive: Bool
+        let selectedProjectPresent: Bool
+        let loadedDraftProjectID: String
+        let loadProjectToken: Int
+        let loadProjectAckToken: Int
+        let loadProjectRequestedProjectID: String
+        let loadProjectRequestedVersionID: String
+        let loadProjectStage: String
+        let loadProjectReady: Bool
+        let loadProjectError: String
+        let editorFocusPending: Bool
         let preparedPromptToken: Int
         let preparedPromptText: String
         let preparedPromptRouting: String
@@ -12285,6 +13509,10 @@ Detail:
         let voicePinTurnCount: Int
         let voicePinEmpty: Bool
         let collaboratorInspectorCompact: Bool
+        let themCompanionMode: String
+        let themUnifiedSurface: Bool
+        let themModeControlStyle: String
+        let themRecentThreadInlineSummaryVisible: Bool
         let intelligenceQueueCount: Int
         let intelligenceQueueSafeCount: Int
         let intelligenceQueueTitles: [String]
@@ -12313,6 +13541,21 @@ Detail:
         let highlightedSceneInspectorKey: String
         let selectionStartLine: Int
         let selectionEndLine: Int
+    }
+
+    private struct StudioDebugProjectLoadBreadcrumb: Codable, Equatable {
+        let token: Int
+        let event: String
+        let detail: String
+        let requestedProjectID: String
+        let requestedVersionID: String
+        let selectedProjectID: String
+        let latestVersionID: String
+        let loadedDraftProjectID: String
+        let isLoading: Bool
+        let hasSelectedProject: Bool
+        let editorFocusPending: Bool
+        let timestampISO8601: String
     }
 
     private struct StudioDebugSubmitResultPayload: Codable, Equatable {
@@ -13557,7 +14800,9 @@ Detail:
     }
 
     private func syncPreferredFocusedRevisedDiffIfNeeded() {
-        if isPageCommitNoticeVisible || isLastCommittedWriteActionVisible {
+        let latestPageExchange = studioAskNoteHistory.first(where: { $0.target == .page })
+        let latestPageReplacementApplied = latestPageExchange?.replacementApplied == true
+        if (isPageCommitNoticeVisible || isLastCommittedWriteActionVisible) && !latestPageReplacementApplied {
             return
         }
         let currentFocusedRevisedExchange = focusedPageDiffExchange.flatMap { exchange in
@@ -13567,8 +14812,7 @@ Detail:
             return
         }
         let shouldUpdateFocus: Bool
-        if let latestPageExchange = studioAskNoteHistory.first(where: { $0.target == .page }),
-           latestPageExchange.replacementApplied == true {
+        if let latestPageExchange, latestPageExchange.replacementApplied == true {
             let focusedLineage = currentFocusedRevisedExchange.map { studioExchangeLineageKey($0) } ?? ""
             let preferredLineage = studioExchangeLineageKey(preferred)
             shouldUpdateFocus = focusedPageDiffExchangeID == nil
@@ -15304,7 +16548,7 @@ Current draft version:
         )
     }
 
-#if DEBUG
+#if DEBUG || os(macOS)
     private var studioDebugVoiceRenderSnapshot: StudioDebugVoiceRenderStatusSnapshot? {
         let raw = studioDebugVoiceTurnResultJSON.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, let data = raw.data(using: .utf8) else { return nil }
@@ -15412,6 +16656,36 @@ Current draft version:
     }
 #endif
 
+    private enum ScreenplayPageChrome {
+        static let cornerRadius: CGFloat = 14
+        static let headerContentMinHeight: CGFloat = 36
+        static let headerTopPadding: CGFloat = 18
+        static let headerBottomPadding: CGFloat = 14
+        static let headerHeight: CGFloat = headerContentMinHeight + headerTopPadding + headerBottomPadding
+        static let contentTopPadding: CGFloat = 18
+        static let contentBottomPadding: CGFloat = 34
+    }
+
+    private enum ScreenplayPageMetaTone {
+        case muted
+        case accent
+        case warning
+        case success
+
+        var color: Color {
+            switch self {
+            case .muted:
+                return Color.herText.opacity(0.68)
+            case .accent:
+                return Color.accentColor.opacity(0.82)
+            case .warning:
+                return Color.orange.opacity(0.86)
+            case .success:
+                return Color.green.opacity(0.78)
+            }
+        }
+    }
+
     private func screenplayPageSurface<Content: View>(
         minHeight: CGFloat,
         maxHeight: CGFloat,
@@ -15420,42 +16694,65 @@ Current draft version:
         isCommitNoticeVisible: Bool,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        return VStack(spacing: 14) {
+        let showEmptyPlaceholder = screenplayPageShouldShowEmptyPlaceholder
+
+        return VStack(spacing: 16) {
             screenplayCurrentElementLabel
 
             ZStack(alignment: .top) {
-                content()
-                    .frame(minHeight: minHeight, maxHeight: maxHeight)
-                    .padding(.top, 44)
-                    .padding(.horizontal, ScreenplayStackMetrics.pageSurfaceHorizontalPadding)
-                    .padding(.bottom, 34)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        triggerDirectionOnePageFocusTransition()
-                        liveDraftBridge.requestEditorFocus()
-                    }
-                    .background(
-                        screenplayPageBackground(
-                            isDropTargeted: isDropTargeted,
-                            isDraftingPreviewActive: isDraftingPreviewActive,
-                            isCommitNoticeVisible: isCommitNoticeVisible
-                        )
+                VStack(spacing: 0) {
+                    screenplayPageHeaderStrip(
+                        showEditingHint: showEmptyPlaceholder,
+                        isDraftingPreviewActive: isDraftingPreviewActive,
+                        isCommitNoticeVisible: isCommitNoticeVisible
                     )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(
-                                Color.accentColor.opacity(isDirectionOnePageFocusTransitionVisible ? 0.18 : 0),
-                                lineWidth: 1.25
-                            )
-                            .padding(1)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: ScreenplayPageChrome.headerContentMinHeight,
+                        alignment: .topLeading
+                    )
+                    .padding(.horizontal, 22)
+                    .padding(.top, ScreenplayPageChrome.headerTopPadding)
+                    .padding(.bottom, ScreenplayPageChrome.headerBottomPadding)
+
+                    content()
+                        .frame(minHeight: minHeight, maxHeight: maxHeight)
+                        .padding(.top, ScreenplayPageChrome.contentTopPadding)
+                        .padding(.horizontal, ScreenplayStackMetrics.pageSurfaceHorizontalPadding)
+                        .padding(.bottom, ScreenplayPageChrome.contentBottomPadding)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            triggerDirectionOnePageFocusTransition()
+                            liveDraftBridge.requestEditorFocus()
+                        }
+                }
+                .background(
+                    screenplayPageBackground(
+                        isDropTargeted: isDropTargeted,
+                        isDraftingPreviewActive: isDraftingPreviewActive,
+                        isCommitNoticeVisible: isCommitNoticeVisible
+                    )
+                )
+                .overlay(alignment: .topLeading) {
+                    if showEmptyPlaceholder {
+                        screenplayPageEmptyPlaceholderOverlay
                     }
-                    .scaleEffect(isDirectionOnePageFocusTransitionVisible ? 1.002 : 1.0)
-                    .shadow(color: Color.herPaperShadow.opacity(0.24), radius: 12, y: 8)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous)
+                        .stroke(
+                            Color.accentColor.opacity(isDirectionOnePageFocusTransitionVisible ? 0.20 : 0),
+                            lineWidth: 1.5
+                        )
+                        .padding(1)
+                }
+                .scaleEffect(isDirectionOnePageFocusTransitionVisible ? 1.003 : 1.0)
+                .shadow(color: Color.herPaperShadow.opacity(0.26), radius: 28, y: 18)
 
                 screenplayElementModeBar
                     .offset(y: -16)
 
-#if DEBUG
+#if DEBUG || os(macOS)
                 studioDebugPageSurfaceChips
                     .padding(.top, 10)
                     .padding(.trailing, 14)
@@ -15488,86 +16785,346 @@ Current draft version:
         isDraftingPreviewActive: Bool,
         isCommitNoticeVisible: Bool
     ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("DRAFT PAGE")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .tracking(0.8)
-                    .foregroundStyle(Color.herText.opacity(0.40))
-                Text(
-                    vm.isManualDraftEditing
-                    ? "Direct editing in Courier 12. Action stays left. Character names stay centered. Tab cycles screenplay elements."
-                    : "Click anywhere to edit. Action stays left. Character names stay centered. Tab cycles screenplay elements."
-                )
-                    .font(.system(size: 11, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(showEditingHint || vm.isManualDraftEditing ? 0.68 : 0.36))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-
-            if vm.isManualDraftEditing || vm.hasUnsavedDraftChanges {
-                screenplayPageStatusChip(
-                    title: "Edited locally",
-                    systemImage: "square.and.pencil",
-                    tint: Color.orange.opacity(0.88),
-                    fill: Color.orange.opacity(0.08),
-                    stroke: Color.orange.opacity(0.18)
-                )
-            }
-
-            if vm.hasUnsavedDraftChanges, vm.selectedProject != nil {
-                screenplayPageActionChipButton(
-                    title: vm.isSaving ? "Saving…" : "Save now",
-                    systemImage: vm.isSaving ? "arrow.clockwise" : "square.and.arrow.down",
-                    tint: vm.isSaving ? Color.orange.opacity(0.86) : Color.blue.opacity(0.84),
-                    fill: vm.isSaving ? Color.orange.opacity(0.08) : Color.blue.opacity(0.08),
-                    stroke: vm.isSaving ? Color.orange.opacity(0.18) : Color.blue.opacity(0.18),
-                    isDisabled: vm.isSaving
-                ) {
-                    triggerStudioManualSave()
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("DRAFT PAGE")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .tracking(0.8)
+                        .foregroundStyle(Color.herText.opacity(0.40))
+                    Text(screenplayPageDraftTitle)
+                        .font(.system(size: 15, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.88))
+                        .lineLimit(1)
                 }
-            }
+                Spacer(minLength: 0)
 
-            if !isDraftingPreviewActive,
-               !isCommitNoticeVisible,
-               !isFocusedPageDiffOverlayPresented,
-               let exchange = reviewablePageDiffExchange {
-                screenplayPageDiffReviewChip(for: exchange)
-            }
+                HStack(spacing: 8) {
+                    if vm.selectedProject == nil {
+                        screenplayPageActionChipButton(
+                            title: "Create Project",
+                            systemImage: "square.stack.badge.plus",
+                            tint: Color.accentColor.opacity(0.84),
+                            fill: Color.accentColor.opacity(0.08),
+                            stroke: Color.accentColor.opacity(0.18)
+                        ) {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                                isDirectionOneSidebarVisible = true
+                                selectedSidebarSection = .projects
+                            }
+                        }
+                    } else if vm.hasUnsavedDraftChanges {
+                        screenplayPageActionChipButton(
+                            title: vm.isSaving ? "Saving…" : "Save now",
+                            systemImage: vm.isSaving ? "arrow.clockwise" : "square.and.arrow.down",
+                            tint: vm.isSaving ? Color.orange.opacity(0.86) : Color.blue.opacity(0.84),
+                            fill: vm.isSaving ? Color.orange.opacity(0.08) : Color.blue.opacity(0.08),
+                            stroke: vm.isSaving ? Color.orange.opacity(0.18) : Color.blue.opacity(0.18),
+                            isDisabled: vm.isSaving
+                        ) {
+                            triggerStudioManualSave()
+                        }
+                    }
 
-            if isDraftingPreviewActive {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(Color.green.opacity(0.82))
-                    Text("Clementine is drafting…")
-                        .font(.system(size: 10, weight: .semibold, design: .default))
-                        .foregroundStyle(Color.green.opacity(0.88))
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(Color.green.opacity(0.10))
-                .overlay(
-                    Capsule()
-                        .stroke(Color.green.opacity(0.22), lineWidth: 1)
-                )
-                .clipShape(Capsule())
-            } else if isCommitNoticeVisible {
-                screenplayPageStatusChip(
-                    title: "Written to page",
-                    systemImage: "checkmark.circle.fill",
-                    tint: Color.green.opacity(0.86),
-                    fill: Color.green.opacity(0.08),
-                    stroke: Color.green.opacity(0.18)
-                )
-            }
+                    if !isDraftingPreviewActive,
+                       !isCommitNoticeVisible,
+                       !isFocusedPageDiffOverlayPresented,
+                       let exchange = reviewablePageDiffExchange {
+                        screenplayPageDiffReviewChip(for: exchange)
+                    }
 
-#if DEBUG
-            if studioDebugVoiceRenderSnapshot != nil {
-                studioDebugRenderChip
-            }
+                    if isDraftingPreviewActive {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(Color.green.opacity(0.82))
+                            Text("Clementine is drafting…")
+                                .font(.system(size: 10, weight: .semibold, design: .default))
+                                .foregroundStyle(Color.green.opacity(0.88))
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color.green.opacity(0.10))
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.green.opacity(0.22), lineWidth: 1)
+                        )
+                        .clipShape(Capsule())
+                    } else if isCommitNoticeVisible {
+                        screenplayPageStatusChip(
+                            title: "Written to page",
+                            systemImage: "checkmark.circle.fill",
+                            tint: Color.green.opacity(0.86),
+                            fill: Color.green.opacity(0.08),
+                            stroke: Color.green.opacity(0.18)
+                        )
+                    }
+
+#if DEBUG || os(macOS)
+                    if studioDebugVoiceRenderSnapshot != nil {
+                        studioDebugRenderChip
+                    }
 #endif
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    screenplayPageMetadataItem(
+                        "Last saved",
+                        value: screenplayPageSavedMetadataText,
+                        tone: screenplayPageSavedMetadataTone
+                    )
+                    screenplayPageMetadataDivider
+                    screenplayPageMetadataItem(
+                        "Pages",
+                        value: screenplayPagePageCountText,
+                        tone: .muted
+                    )
+                    screenplayPageMetadataDivider
+                    screenplayPageMetadataItem(
+                        "Revision",
+                        value: screenplayPageRevisionStateText,
+                        tone: screenplayPageRevisionTone
+                    )
+                    if showEditingHint {
+                        screenplayPageMetadataDivider
+                        Text("Start with a scene heading, or click to place the first line.")
+                            .font(.system(size: 10.5, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.48))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.vertical, 1)
+            }
         }
+    }
+
+    private var screenplayPageDraftTitle: String {
+        let selectedTitle = vm.selectedProject?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !selectedTitle.isEmpty {
+            return selectedTitle
+        }
+        let draftTitle = vm.newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !draftTitle.isEmpty {
+            return draftTitle
+        }
+        return screenplayPageShouldShowEmptyPlaceholder ? "Untitled Draft" : "Live Draft"
+    }
+
+    private var screenplayPageShouldShowEmptyPlaceholder: Bool {
+        vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var screenplayPageSavedMetadataText: String {
+        let hasDraft = !screenplayPageShouldShowEmptyPlaceholder
+        if vm.isSaving {
+            return "Saving…"
+        }
+        if vm.selectedProject == nil {
+            return hasDraft ? "Live only" : "Not saved"
+        }
+        if vm.hasUnsavedDraftChanges {
+            return "Unsaved"
+        }
+        if let savedDate = screenplayPageSavedDate {
+            return relativeTimestamp(savedDate)
+        }
+        if !vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Saved"
+        }
+        return "Not saved"
+    }
+
+    private var screenplayPageSavedMetadataTone: ScreenplayPageMetaTone {
+        if vm.isSaving {
+            return .accent
+        }
+        if vm.selectedProject != nil && vm.hasUnsavedDraftChanges {
+            return .warning
+        }
+        if screenplayPageSavedDate != nil || !vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .success
+        }
+        return .muted
+    }
+
+    private var screenplayPageSavedDate: Date? {
+        guard let project = vm.selectedProject else { return nil }
+        return dateFromTimestamp(project.lastVersionAt ?? project.updatedAt ?? project.createdAt)
+    }
+
+    private var screenplayPagePageCountText: String {
+        if !vm.paginationPages.isEmpty {
+            return "\(vm.paginationPages.count)"
+        }
+        guard !screenplayPageShouldShowEmptyPlaceholder else {
+            return "0"
+        }
+        let normalized = vm.fountainDraft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lineCount = max(1, normalized.components(separatedBy: "\n").count)
+        let estimated = Int(ceil(Double(lineCount) / Double(max(vm.linesPerPage, 1))))
+        return "\(max(1, estimated))"
+    }
+
+    private var screenplayPageRevisionStateText: String {
+        let changeCount = screenplayPageChangeCount
+        if changeCount > 0 {
+            return "\(changeCount) change\(changeCount == 1 ? "" : "s")"
+        }
+        let hasBaseline = !vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasBaseline {
+            return "Clean"
+        }
+        return "No baseline"
+    }
+
+    private var screenplayPageRevisionTone: ScreenplayPageMetaTone {
+        if screenplayPageChangeCount > 0 {
+            return .warning
+        }
+        if !vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .success
+        }
+        return .muted
+    }
+
+    private var screenplayPageChangeCount: Int {
+        guard let summary = vm.revisionSummary else { return 0 }
+        return summary.revised + summary.added + summary.moved + summary.removed
+    }
+
+    private func screenplayPageMetadataItem(
+        _ title: String,
+        value: String,
+        tone: ScreenplayPageMetaTone
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+                .tracking(0.7)
+                .foregroundStyle(Color.herText.opacity(0.40))
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(tone.color)
+                .lineLimit(1)
+        }
+    }
+
+    private var screenplayPageMetadataDivider: some View {
+        Rectangle()
+            .fill(Color.herPaperLine.opacity(0.34))
+            .frame(width: 1, height: 20)
+            .padding(.top, 7)
+    }
+
+    private var screenplayPageEmptyPlaceholderOverlay: some View {
+        GeometryReader { proxy in
+            let metricsContainerWidth = max(
+                proxy.size.width - (ScreenplayStackMetrics.pageSurfaceHorizontalPadding * 2),
+                420
+            )
+            let metrics = ScreenplayStackMetrics.editor(containerWidth: metricsContainerWidth)
+            let editableWidth = max(
+                proxy.size.width - ((ScreenplayStackMetrics.pageSurfaceHorizontalPadding + ScreenplayStackMetrics.editorTextInsetHorizontal) * 2),
+                220
+            )
+            let dialogueWidth = max(editableWidth - metrics.dialogueLeading - metrics.dialogueTrailing, 120)
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Rectangle()
+                        .fill(Color.accentColor.opacity(0.44))
+                        .frame(width: 2, height: 18)
+                    Text(
+                        vm.selectedProject == nil
+                        ? "Start typing, then anchor the draft once it has a title."
+                        : "Start with a scene heading or the first visual beat."
+                    )
+                        .font(.custom("Courier", size: 12))
+                        .foregroundStyle(Color.black.opacity(0.24))
+                        .lineLimit(2)
+                }
+                .padding(.bottom, 22)
+
+                Text("INT. LOCATION - DAY")
+                    .font(.custom("Courier", size: 12))
+                    .foregroundStyle(Color.black.opacity(0.15))
+                    .padding(.bottom, metrics.sceneHeadingSpacingAfter + 8)
+
+                screenplayPlaceholderActionLine(width: max(84, editableWidth * 0.72))
+                screenplayPlaceholderActionLine(width: max(110, editableWidth * 0.90))
+                screenplayPlaceholderActionLine(width: max(72, editableWidth * 0.58))
+                    .padding(.bottom, metrics.actionCueSpacingAfter + 16)
+
+                Text("CHARACTER")
+                    .font(.custom("Courier", size: 12))
+                    .foregroundStyle(Color.black.opacity(0.12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, metrics.characterLeading)
+                    .padding(.trailing, metrics.characterTrailing)
+                    .multilineTextAlignment(.center)
+                    .padding(.bottom, 7)
+
+                screenplayPlaceholderIndentedLine(
+                    width: max(92, dialogueWidth * 0.82),
+                    leading: metrics.dialogueLeading,
+                    trailing: metrics.dialogueTrailing
+                )
+                .padding(.bottom, 6)
+
+                screenplayPlaceholderIndentedLine(
+                    width: max(78, dialogueWidth * 0.66),
+                    leading: metrics.dialogueLeading,
+                    trailing: metrics.dialogueTrailing
+                )
+
+                Spacer(minLength: 0)
+            }
+            .padding(
+                .top,
+                ScreenplayPageChrome.headerHeight
+                + ScreenplayPageChrome.contentTopPadding
+                + ScreenplayStackMetrics.editorTextInsetVertical
+            )
+            .padding(
+                .leading,
+                ScreenplayStackMetrics.pageSurfaceHorizontalPadding
+                + ScreenplayStackMetrics.editorTextInsetHorizontal
+            )
+            .padding(
+                .trailing,
+                ScreenplayStackMetrics.pageSurfaceHorizontalPadding
+                + ScreenplayStackMetrics.editorTextInsetHorizontal
+            )
+            .padding(.bottom, ScreenplayPageChrome.contentBottomPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .allowsHitTesting(false)
+        }
+    }
+
+    private func screenplayPlaceholderActionLine(width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(Color.black.opacity(0.08))
+            .frame(width: width, height: 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 9)
+    }
+
+    private func screenplayPlaceholderIndentedLine(
+        width: CGFloat,
+        leading: CGFloat,
+        trailing: CGFloat
+    ) -> some View {
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(Color.black.opacity(0.08))
+            .frame(width: width, height: 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, leading)
+            .padding(.trailing, trailing)
     }
 
     private var screenplayElementModeBar: some View {
@@ -15743,30 +17300,48 @@ Current draft version:
     ) -> some View {
         GeometryReader { proxy in
             let guidePositions = ScreenplayStackMetrics.paperGuidePositions(in: proxy.size.width)
+            let headerBottom = ScreenplayPageChrome.headerHeight
+            let guideTop = headerBottom + 18
             let leftMarkerInset = max(guidePositions.left - 20, 12)
             let markerColor = isDraftingPreviewActive
                 ? Color.green.opacity(0.66)
                 : Color.accentColor.opacity(0.54)
 
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous)
                     .fill(Color.herPaper)
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.36),
+                        Color.herPaper.opacity(0.92),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: headerBottom + 24)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .clipShape(RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous))
+
+                RoundedRectangle(cornerRadius: ScreenplayPageChrome.cornerRadius, style: .continuous)
                     .stroke(
                         isDropTargeted ? Color.herStudioActiveStroke : Color.black.opacity(0.08),
                         lineWidth: isDropTargeted ? 1.5 : 0.8
                     )
 
                 Path { path in
-                    path.move(to: CGPoint(x: guidePositions.left, y: 18))
+                    path.move(to: CGPoint(x: 18, y: headerBottom))
+                    path.addLine(to: CGPoint(x: proxy.size.width - 18, y: headerBottom))
+                }
+                .stroke(Color.herPaperLine.opacity(0.34), lineWidth: 0.8)
+
+                Path { path in
+                    path.move(to: CGPoint(x: guidePositions.left, y: guideTop))
                     path.addLine(to: CGPoint(x: guidePositions.left, y: proxy.size.height - 18))
-                    path.move(to: CGPoint(x: guidePositions.right, y: 18))
+                    path.move(to: CGPoint(x: guidePositions.right, y: guideTop))
                     path.addLine(to: CGPoint(x: guidePositions.right, y: proxy.size.height - 18))
                 }
-                .stroke(
-                    Color.herPaperLine.opacity(0.36),
-                    style: StrokeStyle(lineWidth: 1, dash: [3, 6])
-                )
+                .stroke(Color.herPaperLine.opacity(0.22), lineWidth: 0.75)
 
                 if isDraftingPreviewActive || isCommitNoticeVisible {
                     VStack {
@@ -15774,7 +17349,7 @@ Current draft version:
                             .fill(markerColor)
                             .frame(width: 3, height: isDraftingPreviewActive ? 84 : 52)
                             .shadow(color: markerColor.opacity(0.10), radius: 3, y: 0)
-                            .padding(.top, 52)
+                            .padding(.top, guideTop + 16)
                         Spacer(minLength: 0)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -16627,7 +18202,7 @@ Return revised screenplay lines only.
             return
         }
         isRestoringInspectorWorkspaceState = true
-        directionOneRightPanelTab = DirectionOneRightPanelTab(rawValue: state.rightPanelTabRaw) ?? directionOneRightPanelTab
+        directionOneRightPanelTab = DirectionOneRightPanelTab.resolved(from: state.rightPanelTabRaw) ?? directionOneRightPanelTab
         selectedInspectorSection = InspectorSection(rawValue: state.selectedInspectorSectionRaw) ?? selectedInspectorSection
         selectedBeatInspectorID = state.selectedBeatID
         restoreBeatOrderIfNeeded(from: state.beatOrderIDs)
@@ -16820,7 +18395,7 @@ Return revised screenplay lines only.
             id: UUID(),
             backendThreadID: thread.id,
             backendTurn: thread.turn > 0 ? thread.turn : nil,
-            requestID: nil,
+            requestID: normalizedStudioRequestID(thread.requestId),
             prompt: prompt,
             target: target,
             source: source,
@@ -16918,17 +18493,19 @@ Return revised screenplay lines only.
         } else if target == .page, let committedWrite = liveDraftBridge.lastCommittedWrite {
             noteTitle = "Wrote to page"
             noteBody = noteBodyForExchange(committedWrite.insertedText)
-            resolvedWriteID = committedWrite.writeID
-            resolvedReplacedWriteID = committedWrite.replacedWriteID
-            resolvedInsertedText = committedWrite.insertedText
-            replacementApplied = committedWrite.replacementApplied
-            revisedBlockText = committedWrite.replacementApplied ? committedWrite.insertedText : nil
-            resolvedAnchorLine = anchorLine ?? committedWrite.startLine
-            resolvedAnchorEndLine = anchorEndLine ?? committedWrite.endLine
-            resolvedAnchorSceneLabel = anchorSceneLabel ?? sceneLabelForLine(committedWrite.startLine)
-            resolvedSluglineAnchorLine = sluglineLineReference(for: committedWrite)
             resolvedAnchorExcerpt = noteBodyForAnchor(committedWrite.insertedText)
             resolvedAnchorMetadataExcerpt = resolvedAnchorExcerpt
+            if committedWrite.isAuthoritativeWrite {
+                resolvedWriteID = committedWrite.writeID
+                resolvedReplacedWriteID = committedWrite.replacedWriteID
+                resolvedInsertedText = committedWrite.insertedText
+                replacementApplied = committedWrite.replacementApplied
+                revisedBlockText = committedWrite.replacementApplied ? committedWrite.insertedText : nil
+                resolvedAnchorLine = anchorLine ?? committedWrite.startLine
+                resolvedAnchorEndLine = anchorEndLine ?? committedWrite.endLine
+                resolvedAnchorSceneLabel = anchorSceneLabel ?? sceneLabelForLine(committedWrite.startLine)
+                resolvedSluglineAnchorLine = sluglineLineReference(for: committedWrite)
+            }
         } else {
             noteTitle = pin.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let bodySource = [
@@ -17565,7 +19142,7 @@ Return revised screenplay lines only.
             focusedPageDiffExchangeID = nil
             reopenedDiffExchangeKeys = []
             isRestoringReopenedDiffState = false
-#if DEBUG
+#if DEBUG || os(macOS)
             restoredStudioDebugStateSourceRaw = StudioThreadViewStateSource.none.rawValue
             restoredStudioDebugFocusedDiffSourceRaw = StudioThreadViewStateSource.none.rawValue
             restoredStudioDebugReopenedSourceRaw = StudioThreadViewStateSource.none.rawValue
@@ -17598,7 +19175,7 @@ Return revised screenplay lines only.
         focusedPageDiffExchangeID = studioAskNoteHistory.first(where: {
             studioExchangePersistentActionKey($0) == focusedPageDiffPersistentKey
         })?.id
-#if DEBUG
+#if DEBUG || os(macOS)
         restoredStudioDebugStateSourceRaw = restoreResult.source.rawValue
         restoredStudioDebugFocusedDiffSourceRaw = restoreResult.focusedDiffSource.rawValue
         restoredStudioDebugReopenedSourceRaw = restoreResult.reopenedSource.rawValue
@@ -17698,7 +19275,31 @@ Return revised screenplay lines only.
             .lowercased()
     }
 
-#if DEBUG
+    private func isPlaceholderStudioWriteID(_ value: String?) -> Bool {
+        normalizedWriteID(value).hasPrefix("stub-")
+    }
+
+    private func mergedStudioWriteID(preferred: String?, fallback: String?) -> String? {
+        let preferredWriteID = normalizedWriteID(preferred)
+        let fallbackWriteID = normalizedWriteID(fallback)
+        let preferredAuthoritative = !preferredWriteID.isEmpty && !isPlaceholderStudioWriteID(preferredWriteID)
+        let fallbackAuthoritative = !fallbackWriteID.isEmpty && !isPlaceholderStudioWriteID(fallbackWriteID)
+        if preferredAuthoritative {
+            return preferred
+        }
+        if fallbackAuthoritative {
+            return fallback
+        }
+        if !preferredWriteID.isEmpty {
+            return preferred
+        }
+        if !fallbackWriteID.isEmpty {
+            return fallback
+        }
+        return nil
+    }
+
+#if DEBUG || os(macOS)
     private func publishStudioDebugSubmitResultPayload(
         token: Int,
         status: String,
@@ -17730,16 +19331,20 @@ Return revised screenplay lines only.
         if let data = try? JSONEncoder().encode(payload),
            let encoded = String(data: data, encoding: .utf8) {
             studioDebugSubmitResultJSON = encoded
+            mirrorStudioDebugString(encoded, forKey: "studio_debug_submit_result_json")
         } else {
             studioDebugSubmitResultJSON = ""
+            mirrorStudioDebugString("", forKey: "studio_debug_submit_result_json")
         }
-        studioDebugSubmitResultToken = token
-        studioDebugSubmitResultStatus = status
-        studioDebugSubmitResultError = error.trimmingCharacters(in: .whitespacesAndNewlines)
+        setStudioDebugSubmitResult(
+            token: token,
+            status: status,
+            error: error.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
     }
 #endif
 
-    #if DEBUG
+    #if DEBUG || os(macOS)
     private func studioRegressionTurnEvent(
         turnID: String,
         requestID: String?,
@@ -18285,13 +19890,13 @@ Return revised screenplay lines only.
     }
 
     private func studioThreadDedupKey(_ exchange: StudioAskNoteExchange) -> String {
-        let writeID = normalizedWriteID(exchange.writeID)
-        if !writeID.isEmpty {
-            return "write:\(writeID)"
-        }
         let requestID = normalizedStudioRequestID(exchange.requestID)
         if !requestID.isEmpty {
             return "request:\(requestID)"
+        }
+        let writeID = normalizedWriteID(exchange.writeID)
+        if !writeID.isEmpty {
+            return "write:\(writeID)"
         }
         let backendID = normalizedBackendThreadID(exchange.backendThreadID)
         if !backendID.isEmpty {
@@ -18329,7 +19934,7 @@ Return revised screenplay lines only.
             developmentText: normalizedAnchorExcerpt(preferred.developmentText).isEmpty
                 ? fallback.developmentText
                 : preferred.developmentText,
-            writeID: normalizedWriteID(preferred.writeID).isEmpty ? fallback.writeID : preferred.writeID,
+            writeID: mergedStudioWriteID(preferred: preferred.writeID, fallback: fallback.writeID),
             replacedWriteID: normalizedWriteID(preferred.replacedWriteID).isEmpty ? fallback.replacedWriteID : preferred.replacedWriteID,
             anchorLine: preferred.anchorLine ?? fallback.anchorLine,
             anchorEndLine: preferred.anchorEndLine ?? fallback.anchorEndLine,
@@ -18703,7 +20308,7 @@ Return revised screenplay lines only.
     }
 
     private var voicePinSuggestions: [VoicePinSuggestion] {
-        [
+        var suggestions = [
             VoicePinSuggestion(category: "Story", text: "Ask: where do the stakes still feel soft?"),
             VoicePinSuggestion(category: "Story", text: "Ask: give me three stronger turns for this sequence"),
             VoicePinSuggestion(category: "Scene", text: "Ask: what's weak in this scene?"),
@@ -18713,6 +20318,19 @@ Return revised screenplay lines only.
             VoicePinSuggestion(category: "Task", text: "Say: make a task to fix act two"),
             VoicePinSuggestion(category: "Task", text: "Ask: what still needs solving before draft review"),
         ]
+
+        if let proactive = liveDraftBridge.companionSignalState.proactiveSuggestion,
+           proactive.hasSignal {
+            let dynamic = VoicePinSuggestion(
+                category: proactive.category,
+                text: proactive.prompt
+            )
+            if !suggestions.contains(where: { $0.id == dynamic.id }) {
+                suggestions.insert(dynamic, at: 0)
+            }
+        }
+
+        return suggestions
     }
 
     @ViewBuilder
@@ -18927,17 +20545,21 @@ Return revised screenplay lines only.
 
     private func submitStudioPromptSeedFromKeyboardShortcut() {
         let text = studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines)
-        #if DEBUG
+        #if DEBUG || os(macOS)
         let debugReplacementMode = resolvedStudioDebugReplacementModeForSubmission(nil)
+        var preparedTokenForSubmit: Int? = nil
         if let preparedToken = matchingPreparedStudioDebugSubmitToken(
             text: text,
             routingMode: studioPromptRoutingMode,
             replacementMode: debugReplacementMode
         ) {
-            studioDebugKeyboardSubmitAckToken = preparedToken
-            studioDebugKeyboardSubmitAckText = text
-            studioDebugKeyboardSubmitAckRoutingRaw = studioPromptRoutingMode.rawValue
-            studioDebugKeyboardSubmitAckReplacementMode = debugReplacementMode
+            preparedTokenForSubmit = preparedToken
+            setStudioDebugKeyboardSubmitAck(
+                token: preparedToken,
+                text: text,
+                routing: studioPromptRoutingMode.rawValue,
+                replacementMode: debugReplacementMode
+            )
         }
         #endif
         submitStudioPromptText(
@@ -18947,9 +20569,120 @@ Return revised screenplay lines only.
             routingMode: studioPromptRoutingMode,
             successMessage: "Prompt sent to Clementine.",
             clearSeedOnSuccess: true,
-            sendingSuggestionID: nil
+            sendingSuggestionID: nil,
+            debugSubmitToken: preparedTokenForSubmit,
+            debugSubmitReplacementMode: debugReplacementMode
         )
     }
+
+    #if os(macOS)
+    private func installStudioCommandReturnKeyMonitorIfNeeded() {
+        guard studioCommandReturnKeyMonitor == nil else { return }
+        studioCommandReturnKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard modifiers.contains(.command),
+                  !modifiers.contains(.option),
+                  !modifiers.contains(.control),
+                  !modifiers.contains(.shift) else {
+                return event
+            }
+            guard event.keyCode == 36 else { return event }
+            let prompt = studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines)
+            let composerReady = studioPromptFocused || directionOneRightPanelTab == .them
+            guard composerReady,
+                  !prompt.isEmpty,
+                  !isSubmittingStudioPrompt,
+                  !isSubmittingPrompt else {
+                return event
+            }
+            submitStudioPromptSeedFromKeyboardShortcut()
+            return nil
+        }
+    }
+
+    private func removeStudioCommandReturnKeyMonitor() {
+        guard let studioCommandReturnKeyMonitor else { return }
+        NSEvent.removeMonitor(studioCommandReturnKeyMonitor)
+        self.studioCommandReturnKeyMonitor = nil
+    }
+
+    @discardableResult
+    private func synchronizeMirroredStudioDebugPrepareState() -> Bool {
+        var didChange = false
+
+        let prepareToken = readMirroredStudioDebugPreferenceInt("studio_debug_prepare_token")
+        let prepareText = readMirroredStudioDebugPreferenceString("studio_debug_prepare_text")
+        let prepareRouting = readMirroredStudioDebugPreferenceString(
+            "studio_debug_prepare_routing",
+            fallback: PromptRoutingMode.automatic.rawValue
+        )
+        let prepareReplacementMode = readMirroredStudioDebugPreferenceString(
+            "studio_debug_prepare_replacement_mode",
+            fallback: "none"
+        )
+        let prepareAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_prepare_ack_token")
+        let prepareAckText = readMirroredStudioDebugPreferenceString("studio_debug_prepare_ack_text")
+        let prepareAckRouting = readMirroredStudioDebugPreferenceString(
+            "studio_debug_prepare_ack_routing",
+            fallback: PromptRoutingMode.automatic.rawValue
+        )
+        let prepareAckReplacementMode = readMirroredStudioDebugPreferenceString(
+            "studio_debug_prepare_ack_replacement_mode",
+            fallback: "none"
+        )
+
+        if prepareToken != studioDebugPrepareToken {
+            studioDebugPrepareToken = prepareToken
+            didChange = true
+        }
+        if prepareText != studioDebugPrepareText {
+            studioDebugPrepareText = prepareText
+            didChange = true
+        }
+        if prepareRouting != studioDebugPrepareRoutingRaw {
+            studioDebugPrepareRoutingRaw = prepareRouting
+            didChange = true
+        }
+        if prepareReplacementMode != studioDebugPrepareReplacementMode {
+            studioDebugPrepareReplacementMode = prepareReplacementMode
+            didChange = true
+        }
+        if prepareAckToken != studioDebugPrepareAckToken {
+            studioDebugPrepareAckToken = prepareAckToken
+            didChange = true
+        }
+        if prepareAckText != studioDebugPrepareAckText {
+            studioDebugPrepareAckText = prepareAckText
+            didChange = true
+        }
+        if prepareAckRouting != studioDebugPrepareAckRoutingRaw {
+            studioDebugPrepareAckRoutingRaw = prepareAckRouting
+            didChange = true
+        }
+        if prepareAckReplacementMode != studioDebugPrepareAckReplacementMode {
+            studioDebugPrepareAckReplacementMode = prepareAckReplacementMode
+            didChange = true
+        }
+
+        return didChange
+    }
+
+    private func startStudioDebugPreparePollingIfNeeded() {
+        guard studioDebugPreparePollTask == nil else { return }
+        studioDebugPreparePollTask = Task { @MainActor in
+            while !Task.isCancelled {
+                _ = synchronizeMirroredStudioDebugPrepareState()
+                applyDebugPreparedStudioPromptIfNeeded()
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+    }
+
+    private func stopStudioDebugPreparePolling() {
+        studioDebugPreparePollTask?.cancel()
+        studioDebugPreparePollTask = nil
+    }
+    #endif
 
     private func resolvedStudioDebugReplacementModeForSubmission(_ explicitMode: String?) -> String {
         let normalizedExplicit = explicitMode?
@@ -18968,7 +20701,7 @@ Return revised screenplay lines only.
         routingMode: PromptRoutingMode,
         replacementMode: String
     ) -> Int? {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         let preparedToken = studioDebugPrepareAckToken
         guard preparedToken > 0 else { return nil }
         let preparedText = studioDebugPrepareAckText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -19021,34 +20754,35 @@ Return revised screenplay lines only.
             routingMode: routingMode,
             replacementMode: debugReplacementMode
         )
-#if DEBUG
+#if DEBUG || os(macOS)
         if let effectiveDebugSubmitToken {
-            studioDebugSubmitAckToken = effectiveDebugSubmitToken
-            studioDebugSubmitAckText = text
-            studioDebugSubmitAckRoutingRaw = routingMode.rawValue
-            studioDebugSubmitAckReplacementMode = debugReplacementMode
-            studioDebugSubmitAckRequestID = requestID
-            studioDebugSubmitResultToken = 0
-            studioDebugSubmitResultStatus = ""
-            studioDebugSubmitResultError = ""
-            studioDebugSubmitResultJSON = ""
+            setStudioDebugSubmitAck(
+                token: effectiveDebugSubmitToken,
+                text: text,
+                routing: routingMode.rawValue,
+                replacementMode: debugReplacementMode,
+                requestID: requestID
+            )
+            resetStudioDebugSubmitResult()
         }
 #endif
         publishDebugStudioDiffState()
         Task {
             let error = await onSubmitPrompt(text, routingMode, requestID)
             await MainActor.run {
-#if DEBUG
+#if DEBUG || os(macOS)
                 if let effectiveDebugSubmitToken {
-                    studioDebugSubmitResultToken = effectiveDebugSubmitToken
-                    studioDebugSubmitResultStatus = (error?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? "error" : "ok"
-                    studioDebugSubmitResultError = error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    setStudioDebugSubmitResult(
+                        token: effectiveDebugSubmitToken,
+                        status: (error?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? "error" : "ok",
+                        error: error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    )
                 }
 #endif
                 isSubmittingStudioPrompt = false
                 self.sendingVoicePinSuggestionID = nil
                 if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-#if DEBUG
+#if DEBUG || os(macOS)
                     if let effectiveDebugSubmitToken {
                         publishStudioDebugSubmitResultPayload(
                             token: effectiveDebugSubmitToken,
@@ -19079,7 +20813,7 @@ Return revised screenplay lines only.
                     source: source,
                     requestID: requestID
                 )
-#if DEBUG
+#if DEBUG || os(macOS)
                 if let effectiveDebugSubmitToken {
                     let matchingExchange = studioAskNoteHistory.first(where: {
                         normalizedStudioRequestID($0.requestID) == normalizedStudioRequestID(requestID)
@@ -19159,7 +20893,7 @@ Return revised screenplay lines only.
     }
 
     private func applyDebugPreparedStudioPromptIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugPrepareToken > 0 else { return }
         guard studioDebugPrepareToken != studioDebugPrepareAckToken else { return }
         let text = studioDebugPrepareText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -19190,16 +20924,18 @@ Return revised screenplay lines only.
         }
         guard replacementPrepared else { return }
         studioPromptFocused = true
-        studioDebugPrepareAckToken = studioDebugPrepareToken
-        studioDebugPrepareAckText = text
-        studioDebugPrepareAckRoutingRaw = studioPromptRoutingMode.rawValue
-        studioDebugPrepareAckReplacementMode = replacementMode.isEmpty ? "none" : replacementMode
+        setStudioDebugPrepareAck(
+            token: studioDebugPrepareToken,
+            text: text,
+            routing: studioPromptRoutingMode.rawValue,
+            replacementMode: replacementMode.isEmpty ? "none" : replacementMode
+        )
         publishDebugStudioDiffState()
         #endif
     }
 
     private func applyDebugAcknowledgedDiffIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugAcknowledgeDiffToken > 0 else { return }
         guard studioDebugAcknowledgeDiffToken != studioDebugAcknowledgeDiffAckToken else { return }
         guard studioDebugAcknowledgeDiffToken != lastAppliedStudioDebugAcknowledgeToken else { return }
@@ -19220,8 +20956,477 @@ Return revised screenplay lines only.
         #endif
     }
 
+    private func currentStudioDebugProjectLoadBreadcrumbs() -> [StudioDebugProjectLoadBreadcrumb] {
+        #if DEBUG || os(macOS)
+        guard let data = studioDebugProjectLoadTraceJSON.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([StudioDebugProjectLoadBreadcrumb].self, from: data) else {
+            return []
+        }
+        return decoded
+        #else
+        return []
+        #endif
+    }
+
+    private func persistStudioDebugProjectLoadBreadcrumbs(_ breadcrumbs: [StudioDebugProjectLoadBreadcrumb]) {
+        #if DEBUG || os(macOS)
+        guard let data = try? JSONEncoder().encode(breadcrumbs),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        studioDebugProjectLoadTraceJSON = encoded
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceString(encoded, forKey: "studio_debug_project_load_trace_json")
+        #endif
+        #endif
+    }
+
+    private func mirrorStudioDebugInt(_ value: Int, forKey key: String) {
+        #if DEBUG || os(macOS)
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(value, forKey: key)
+        #endif
+        #endif
+    }
+
+    private func mirrorStudioDebugString(_ value: String, forKey key: String) {
+        #if DEBUG || os(macOS)
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceString(value, forKey: key)
+        #endif
+        #endif
+    }
+
+    private func setStudioDebugLoadProjectAckToken(_ token: Int) {
+        #if DEBUG || os(macOS)
+        studioDebugLoadProjectAckToken = token
+        mirrorStudioDebugInt(token, forKey: "studio_debug_load_project_ack_token")
+        #endif
+    }
+
+    private func setStudioDebugPrepareAck(
+        token: Int,
+        text: String,
+        routing: String,
+        replacementMode: String
+    ) {
+        #if DEBUG || os(macOS)
+        studioDebugPrepareAckToken = token
+        studioDebugPrepareAckText = text
+        studioDebugPrepareAckRoutingRaw = routing
+        studioDebugPrepareAckReplacementMode = replacementMode
+        mirrorStudioDebugInt(token, forKey: "studio_debug_prepare_ack_token")
+        mirrorStudioDebugString(text, forKey: "studio_debug_prepare_ack_text")
+        mirrorStudioDebugString(routing, forKey: "studio_debug_prepare_ack_routing")
+        mirrorStudioDebugString(replacementMode, forKey: "studio_debug_prepare_ack_replacement_mode")
+        #endif
+    }
+
+    private func setStudioDebugKeyboardSubmitAck(
+        token: Int,
+        text: String,
+        routing: String,
+        replacementMode: String
+    ) {
+        #if DEBUG || os(macOS)
+        studioDebugKeyboardSubmitAckToken = token
+        studioDebugKeyboardSubmitAckText = text
+        studioDebugKeyboardSubmitAckRoutingRaw = routing
+        studioDebugKeyboardSubmitAckReplacementMode = replacementMode
+        mirrorStudioDebugInt(token, forKey: "studio_debug_keyboard_submit_ack_token")
+        mirrorStudioDebugString(text, forKey: "studio_debug_keyboard_submit_ack_text")
+        mirrorStudioDebugString(routing, forKey: "studio_debug_keyboard_submit_ack_routing")
+        mirrorStudioDebugString(replacementMode, forKey: "studio_debug_keyboard_submit_ack_replacement_mode")
+        #endif
+    }
+
+    private func setStudioDebugSubmitAck(
+        token: Int,
+        text: String,
+        routing: String,
+        replacementMode: String,
+        requestID: String
+    ) {
+        #if DEBUG || os(macOS)
+        studioDebugSubmitAckToken = token
+        studioDebugSubmitAckText = text
+        studioDebugSubmitAckRoutingRaw = routing
+        studioDebugSubmitAckReplacementMode = replacementMode
+        studioDebugSubmitAckRequestID = requestID
+        mirrorStudioDebugInt(token, forKey: "studio_debug_submit_ack_token")
+        mirrorStudioDebugString(text, forKey: "studio_debug_submit_ack_text")
+        mirrorStudioDebugString(routing, forKey: "studio_debug_submit_ack_routing")
+        mirrorStudioDebugString(replacementMode, forKey: "studio_debug_submit_ack_replacement_mode")
+        mirrorStudioDebugString(requestID, forKey: "studio_debug_submit_ack_request_id")
+        #endif
+    }
+
+    private func setStudioDebugSubmitResult(
+        token: Int,
+        status: String,
+        error: String,
+        payloadJSON: String? = nil
+    ) {
+        #if DEBUG || os(macOS)
+        studioDebugSubmitResultToken = token
+        studioDebugSubmitResultStatus = status
+        studioDebugSubmitResultError = error
+        if let payloadJSON {
+            studioDebugSubmitResultJSON = payloadJSON
+            mirrorStudioDebugString(payloadJSON, forKey: "studio_debug_submit_result_json")
+        }
+        mirrorStudioDebugInt(token, forKey: "studio_debug_submit_result_token")
+        mirrorStudioDebugString(status, forKey: "studio_debug_submit_result_status")
+        mirrorStudioDebugString(error, forKey: "studio_debug_submit_result_error")
+        #endif
+    }
+
+    private func resetStudioDebugSubmitResult() {
+        #if DEBUG || os(macOS)
+        studioDebugSubmitResultToken = 0
+        studioDebugSubmitResultStatus = ""
+        studioDebugSubmitResultError = ""
+        studioDebugSubmitResultJSON = ""
+        mirrorStudioDebugInt(0, forKey: "studio_debug_submit_result_token")
+        mirrorStudioDebugString("", forKey: "studio_debug_submit_result_status")
+        mirrorStudioDebugString("", forKey: "studio_debug_submit_result_error")
+        mirrorStudioDebugString("", forKey: "studio_debug_submit_result_json")
+        #endif
+    }
+
+    private func updateTrackedStudioDebugProjectLoadState(
+        token: Int,
+        requestedProjectID: String,
+        requestedVersionID: String,
+        stage: String,
+        ready: Bool,
+        error: String = ""
+    ) {
+        #if DEBUG || os(macOS)
+        trackedStudioDebugProjectLoadToken = token
+        trackedStudioDebugProjectLoadRequestedProjectID = requestedProjectID
+        trackedStudioDebugProjectLoadRequestedVersionID = requestedVersionID
+        trackedStudioDebugProjectLoadStage = stage
+        trackedStudioDebugProjectLoadReady = ready
+        trackedStudioDebugProjectLoadError = error
+        #endif
+    }
+
+    private func appendStudioDebugProjectLoadBreadcrumb(
+        token: Int,
+        event: String,
+        detail: String,
+        requestedProjectID: String,
+        requestedVersionID: String
+    ) {
+        #if DEBUG || os(macOS)
+        let breadcrumb = StudioDebugProjectLoadBreadcrumb(
+            token: token,
+            event: event,
+            detail: detail,
+            requestedProjectID: requestedProjectID,
+            requestedVersionID: requestedVersionID,
+            selectedProjectID: vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines),
+            latestVersionID: vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            loadedDraftProjectID: vm.debugLoadedDraftProjectID,
+            isLoading: vm.isLoading,
+            hasSelectedProject: vm.selectedProject != nil,
+            editorFocusPending: liveDraftBridge.pendingEditorFocus != nil,
+            timestampISO8601: ISO8601DateFormatter().string(from: Date())
+        )
+        var breadcrumbs = currentStudioDebugProjectLoadBreadcrumbs()
+        breadcrumbs.append(breadcrumb)
+        if breadcrumbs.count > 64 {
+            breadcrumbs.removeFirst(breadcrumbs.count - 64)
+        }
+        persistStudioDebugProjectLoadBreadcrumbs(breadcrumbs)
+        #endif
+    }
+
+    private func isStudioDebugProjectLoadReady(
+        projectID: String,
+        versionID: String,
+        requireEditorFocusConsumption: Bool = true
+    ) -> Bool {
+        #if DEBUG || os(macOS)
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return false }
+        let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedProjectLoaded = (vm.selectedProject?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !vm.isLoading else { return false }
+        guard selectedProjectID == cleanProjectID else { return false }
+        guard selectedProjectLoaded == cleanProjectID else { return false }
+        guard vm.debugLoadedDraftProjectID == cleanProjectID else { return false }
+        guard cleanVersionID.isEmpty || latestVersionID == cleanVersionID else { return false }
+        if requireEditorFocusConsumption && liveDraftBridge.pendingEditorFocus != nil {
+            return false
+        }
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    @MainActor
+    private func waitForStudioDebugProjectLoadReady(
+        projectID: String,
+        versionID: String,
+        timeoutSeconds: TimeInterval = 12
+    ) async -> Bool {
+        #if DEBUG || os(macOS)
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if isStudioDebugProjectLoadReady(
+                projectID: projectID,
+                versionID: versionID
+            ) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return isStudioDebugProjectLoadReady(
+            projectID: projectID,
+            versionID: versionID
+        )
+        #else
+        return false
+        #endif
+    }
+
+    @MainActor
+    private func performStudioDebugProjectLoad(
+        token: Int,
+        requestedProjectID: String,
+        requestedVersionID: String,
+        source: String
+    ) async {
+        #if DEBUG || os(macOS)
+        let cleanProjectID = requestedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanVersionID = requestedVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanProjectID.isEmpty else {
+            updateTrackedStudioDebugProjectLoadState(
+                token: token,
+                requestedProjectID: "",
+                requestedVersionID: cleanVersionID,
+                stage: "empty_request",
+                ready: false,
+                error: "Missing requested project ID."
+            )
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "empty_request",
+                detail: "Ignored debug project load request without a project ID.",
+                requestedProjectID: "",
+                requestedVersionID: cleanVersionID
+            )
+            setStudioDebugLoadProjectAckToken(token)
+            publishDebugStudioDiffState()
+            return
+        }
+
+        if studioDebugProjectLoadInFlight && trackedStudioDebugProjectLoadToken == token {
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "load_reused",
+                detail: "Skipped duplicate debug project load because the same token is already in flight.",
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+            publishDebugStudioDiffState()
+            return
+        }
+
+        studioDebugProjectLoadInFlight = true
+        defer {
+            studioDebugProjectLoadInFlight = false
+            publishDebugStudioDiffState()
+        }
+
+        updateTrackedStudioDebugProjectLoadState(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            stage: "studio_screen_active",
+            ready: false
+        )
+        appendStudioDebugProjectLoadBreadcrumb(
+            token: token,
+            event: "studio_screen_active",
+            detail: "Studio screen observed the pending debug project-load request.",
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID
+        )
+        publishDebugStudioDiffState()
+
+        liveDraftBridge.preferredProjectID = cleanProjectID
+        liveDraftBridge.debugRequestedProjectID = cleanProjectID
+        liveDraftBridge.preferredVersionID = cleanVersionID
+        liveDraftBridge.debugRequestedVersionID = cleanVersionID
+
+        updateTrackedStudioDebugProjectLoadState(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            stage: "selection_started",
+            ready: false
+        )
+        appendStudioDebugProjectLoadBreadcrumb(
+            token: token,
+            event: "selection_started",
+            detail: "Started selecting the requested Studio project via the explicit debug path (\(source)).",
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID
+        )
+        publishDebugStudioDiffState()
+
+        await vm.selectProject(cleanProjectID)
+
+        let resolvedProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedDetail = cleanVersionID.isEmpty
+            ? "Project selection resolved to \(resolvedProjectID.isEmpty ? "none" : resolvedProjectID)."
+            : "Project selection resolved to \(resolvedProjectID.isEmpty ? "none" : resolvedProjectID) with version \(resolvedVersionID.isEmpty ? "none" : resolvedVersionID)."
+        updateTrackedStudioDebugProjectLoadState(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            stage: "project_resolved",
+            ready: false
+        )
+        appendStudioDebugProjectLoadBreadcrumb(
+            token: token,
+            event: "project_resolved",
+            detail: resolvedDetail,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID
+        )
+
+        liveDraftBridge.requestEditorFocus()
+        updateTrackedStudioDebugProjectLoadState(
+            token: token,
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID,
+            stage: "editor_focus_requested",
+            ready: false
+        )
+        appendStudioDebugProjectLoadBreadcrumb(
+            token: token,
+            event: "editor_focus_requested",
+            detail: "Requested screenplay editor focus and will wait for the editor to consume that request before acknowledging load.",
+            requestedProjectID: cleanProjectID,
+            requestedVersionID: cleanVersionID
+        )
+        publishDebugStudioDiffState()
+
+        let ready = await waitForStudioDebugProjectLoadReady(
+            projectID: cleanProjectID,
+            versionID: cleanVersionID
+        )
+        if ready {
+            updateTrackedStudioDebugProjectLoadState(
+                token: token,
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID,
+                stage: "editor_ready",
+                ready: true
+            )
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "editor_ready",
+                detail: "Requested Studio project is loaded, active, and the screenplay editor consumed the focus request.",
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+            setStudioDebugLoadProjectAckToken(token)
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "acknowledged",
+                detail: "Published deterministic project-load acknowledgment after the editor-ready checkpoint passed.",
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+        } else {
+            let timeoutDetail = "Timed out waiting for project \(cleanProjectID) to become active and for the screenplay editor focus handshake to complete."
+            updateTrackedStudioDebugProjectLoadState(
+                token: token,
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID,
+                stage: "timeout",
+                ready: false,
+                error: timeoutDetail
+            )
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "timeout",
+                detail: timeoutDetail,
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+        }
+        #endif
+    }
+
+    private func applyDebugLoadProjectIfNeeded() {
+        #if DEBUG || os(macOS)
+        guard studioDebugLoadProjectToken > 0 else { return }
+        guard studioDebugLoadProjectToken != studioDebugLoadProjectAckToken else { return }
+        guard studioDebugLoadProjectToken != lastAppliedStudioDebugLoadProjectToken else { return }
+        lastAppliedStudioDebugLoadProjectToken = studioDebugLoadProjectToken
+        let requestedProjectID = studioDebugLoadProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedVersionID = studioDebugLoadProjectVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requestedProjectID.isEmpty else {
+            setStudioDebugLoadProjectAckToken(studioDebugLoadProjectToken)
+            publishDebugStudioDiffState()
+            return
+        }
+        Task { @MainActor in
+            await performStudioDebugProjectLoad(
+                token: studioDebugLoadProjectToken,
+                requestedProjectID: requestedProjectID,
+                requestedVersionID: requestedVersionID,
+                source: "app_storage"
+            )
+        }
+        #endif
+    }
+
+    @MainActor
+    private func applyBridgeDebugProjectLoadIfNeeded(force: Bool = false) async {
+        #if DEBUG || os(macOS)
+        let token = liveDraftBridge.debugProjectLoadToken
+        let requestedProjectID = liveDraftBridge.debugRequestedProjectID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedVersionID = liveDraftBridge.debugRequestedVersionID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requestedProjectID.isEmpty else { return }
+        if token > 0 {
+            guard force || token != lastAppliedBridgeDebugProjectLoadToken else { return }
+            lastAppliedBridgeDebugProjectLoadToken = token
+        } else if !force || vm.selectedProjectID == requestedProjectID {
+            return
+        }
+        if token > 0 {
+            await performStudioDebugProjectLoad(
+                token: token,
+                requestedProjectID: requestedProjectID,
+                requestedVersionID: requestedVersionID,
+                source: force ? "bridge_force" : "bridge"
+            )
+            return
+        }
+        liveDraftBridge.preferredProjectID = requestedProjectID
+        liveDraftBridge.preferredVersionID = requestedVersionID
+        await vm.selectProject(requestedProjectID)
+        if !requestedVersionID.isEmpty {
+            liveDraftBridge.preferredVersionID = requestedVersionID
+        }
+        publishDebugStudioDiffState()
+        #endif
+    }
+
     private func applyDebugFocusPageIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugFocusPageToken > 0 else { return }
         guard studioDebugFocusPageToken != studioDebugFocusPageAckToken else { return }
         guard studioDebugFocusPageToken != lastAppliedStudioDebugFocusPageToken else { return }
@@ -19233,7 +21438,7 @@ Return revised screenplay lines only.
     }
 
     private func applyDebugManualDraftEditIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugManualEditToken > 0 else { return }
         guard studioDebugManualEditToken != studioDebugManualEditAckToken else { return }
         guard studioDebugManualEditToken != lastAppliedStudioDebugManualEditToken else { return }
@@ -19254,7 +21459,7 @@ Return revised screenplay lines only.
     }
 
     private func applyDebugAutosaveToggleIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugAutosaveToggleToken > 0 else { return }
         guard studioDebugAutosaveToggleToken != studioDebugAutosaveToggleAckToken else { return }
         guard studioDebugAutosaveToggleToken != lastAppliedStudioDebugAutosaveToggleToken else { return }
@@ -19266,7 +21471,7 @@ Return revised screenplay lines only.
     }
 
     private func applyDebugForceHydrateIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugForceHydrateToken > 0 else { return }
         guard studioDebugForceHydrateToken != studioDebugForceHydrateAckToken else { return }
         guard studioDebugForceHydrateToken != lastAppliedStudioDebugForceHydrateToken else { return }
@@ -19280,7 +21485,7 @@ Return revised screenplay lines only.
     }
 
     private func applyDebugManualSaveIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugSaveToken > 0 else { return }
         guard studioDebugSaveToken != studioDebugSaveAckToken else { return }
         guard studioDebugSaveToken != lastAppliedStudioDebugSaveToken else { return }
@@ -19294,7 +21499,7 @@ Return revised screenplay lines only.
     }
 
     private func applyDebugStructuralSeedIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugSeedStructuralToken > 0 else { return }
         guard studioDebugSeedStructuralToken != studioDebugSeedStructuralAckToken else { return }
         guard studioDebugSeedStructuralToken != lastAppliedStudioDebugSeedStructuralToken else { return }
@@ -19500,7 +21705,7 @@ Look at the city.
     }
 
     private func applyDebugDraftInspectorIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugDraftInspectorToken > 0 else { return }
         guard studioDebugDraftInspectorToken != studioDebugDraftInspectorAckToken else { return }
         guard studioDebugDraftInspectorToken != lastAppliedStudioDebugDraftInspectorToken else { return }
@@ -19523,7 +21728,7 @@ Look at the city.
     }
 
     private func applyDebugShellVisibilityIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugShellVisibilityToken > 0 else { return }
         guard studioDebugShellVisibilityToken != studioDebugShellVisibilityAckToken else { return }
         guard studioDebugShellVisibilityToken != lastAppliedStudioDebugShellVisibilityToken else { return }
@@ -19558,7 +21763,7 @@ Look at the city.
             }
 
             if inspectorDirective == "show" {
-                directionOneRightPanelTab = .companion
+                directionOneRightPanelTab = .them
             }
 
             studioDebugShellVisibilityAckToken = studioDebugShellVisibilityToken
@@ -19568,22 +21773,21 @@ Look at the city.
     }
 
     private func applyDebugRightPanelTabIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugRightPanelTabToken > 0 else { return }
         guard studioDebugRightPanelTabToken != studioDebugRightPanelTabAckToken else { return }
         guard studioDebugRightPanelTabToken != lastAppliedStudioDebugRightPanelTabToken else { return }
         lastAppliedStudioDebugRightPanelTabToken = studioDebugRightPanelTabToken
 
-        let requestedTab = DirectionOneRightPanelTab(
-            rawValue: studioDebugRightPanelTabRaw
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-        ) ?? .beats
+        let requestedTabRaw = studioDebugRightPanelTabRaw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let requestedTab = DirectionOneRightPanelTab.resolved(from: requestedTabRaw) ?? .beats
 
         Task { @MainActor in
             isDirectionOneRightRailExpanded = true
             directionOneRightPanelTab = requestedTab
-            if requestedTab == .intelligence {
+            if requestedTabRaw == "intelligence" {
                 previewAllSuggestedIntelligenceFixes()
             }
             studioDebugRightPanelTabAckToken = studioDebugRightPanelTabToken
@@ -19593,7 +21797,7 @@ Look at the city.
     }
 
     private func applyDebugCommandBarIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugCommandBarToken > 0 else { return }
         guard studioDebugCommandBarToken != studioDebugCommandBarAckToken else { return }
         guard studioDebugCommandBarToken != lastAppliedStudioDebugCommandBarToken else { return }
@@ -19608,7 +21812,7 @@ Look at the city.
     }
 
     private func applyDebugRouteMetadataSeedIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugSeedRouteMetadataToken > 0 else { return }
         guard studioDebugSeedRouteMetadataToken != studioDebugSeedRouteMetadataAckToken else { return }
         guard studioDebugSeedRouteMetadataToken != lastAppliedStudioDebugSeedRouteMetadataToken else { return }
@@ -19679,7 +21883,7 @@ Look at the city.
         highlightedStudioExchangeID = companionEntry.id
         showFullVoicePinThread = true
         expandedVoicePinTurnID = companionEntry.id
-        directionOneRightPanelTab = .companion
+        directionOneRightPanelTab = .them
         isDirectionOneRightRailExpanded = true
         liveDraftBridge.latestMemoryDomain = .companion
         liveDraftBridge.latestStudioRouteTarget = .voicePin
@@ -19719,7 +21923,7 @@ Look at the city.
     }
 
     private func applyDebugSelectedLinesIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugSelectLinesToken > 0 else { return }
         guard studioDebugSelectLinesToken != studioDebugSelectLinesAckToken else { return }
         guard studioDebugSelectLinesToken != lastAppliedStudioDebugSelectLinesToken else { return }
@@ -19745,7 +21949,7 @@ Look at the city.
     }
 
     private func applyDebugLocalStudioCommandIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugLocalCommandToken > 0 else { return }
         guard studioDebugLocalCommandToken != studioDebugLocalCommandAckToken else { return }
         guard studioDebugLocalCommandToken != lastAppliedStudioDebugLocalCommandToken else { return }
@@ -19844,8 +22048,31 @@ Look at the city.
         #endif
     }
 
+    private func applyDebugCompanionModeIfNeeded() {
+        #if DEBUG || os(macOS)
+        guard studioDebugCompanionModeToken > 0 else { return }
+        guard studioDebugCompanionModeToken != studioDebugCompanionModeAckToken else { return }
+        guard studioDebugCompanionModeToken != lastAppliedStudioDebugCompanionModeToken else { return }
+        lastAppliedStudioDebugCompanionModeToken = studioDebugCompanionModeToken
+
+        let requestedMode = StudioCompanionMode(
+            rawValue: studioDebugCompanionModeRaw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        ) ?? .coach
+
+        Task { @MainActor in
+            isDirectionOneRightRailExpanded = true
+            directionOneRightPanelTab = .them
+            liveDraftBridge.setCompanionMode(requestedMode)
+            studioDebugCompanionModeAckToken = studioDebugCompanionModeToken
+            publishDebugStudioDiffState()
+        }
+        #endif
+    }
+
     private func applyDebugIntelligenceQueueIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugIntelligenceQueueToken > 0 else { return }
         guard studioDebugIntelligenceQueueToken != studioDebugIntelligenceQueueAckToken else { return }
         guard studioDebugIntelligenceQueueToken != lastAppliedStudioDebugIntelligenceQueueToken else { return }
@@ -19860,7 +22087,7 @@ Look at the city.
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         Task { @MainActor in
-            directionOneRightPanelTab = .intelligence
+            directionOneRightPanelTab = .them
             isDirectionOneRightRailExpanded = true
 
             var status = "handled"
@@ -19930,7 +22157,7 @@ Look at the city.
     }
 
     private func applyDebugPageWriteToastIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugPageWriteToastToken > 0 else { return }
         guard studioDebugPageWriteToastToken != studioDebugPageWriteToastAckToken else { return }
         guard studioDebugPageWriteToastToken != lastAppliedStudioDebugPageWriteToastToken else { return }
@@ -20020,7 +22247,7 @@ Look at the city.
     }
 
     private func applyDebugPageWriteToastInteractionIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugPageWriteToastInteractionToken > 0 else { return }
         guard studioDebugPageWriteToastInteractionToken != studioDebugPageWriteToastInteractionAckToken else { return }
         guard studioDebugPageWriteToastInteractionToken != lastAppliedStudioDebugPageWriteToastInteractionToken else { return }
@@ -20100,7 +22327,7 @@ Look at the city.
     }
 
     private func applyDebugShortcutIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugShortcutToken > 0 else { return }
         guard studioDebugShortcutToken != studioDebugShortcutAckToken else { return }
         guard studioDebugShortcutToken != lastAppliedStudioDebugShortcutToken else { return }
@@ -20175,7 +22402,7 @@ Look at the city.
     }
 
     private func applyDebugInspectorInteractionIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugInspectorInteractionToken > 0 else { return }
         guard studioDebugInspectorInteractionToken != studioDebugInspectorInteractionAckToken else { return }
         guard studioDebugInspectorInteractionToken != lastAppliedStudioDebugInspectorInteractionToken else { return }
@@ -20381,7 +22608,7 @@ Look at the city.
     }
 
     private func applyDebugSubmittedStudioPromptIfNeeded() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         guard studioDebugSubmitToken > 0 else { return }
         guard studioDebugSubmitToken != studioDebugSubmitAckToken else { return }
         guard studioDebugSubmitToken != lastAppliedStudioDebugSubmitToken else { return }
@@ -20420,7 +22647,7 @@ Look at the city.
     }
 
     private func publishDebugStudioDiffState() {
-        #if DEBUG
+        #if DEBUG || os(macOS)
         let pendingReplacement = liveDraftBridge.pendingReplacementTarget
         let submittedReplacement = liveDraftBridge.submittedReplacementTarget
         let currentDraft = vm.fountainDraft
@@ -20470,6 +22697,17 @@ Look at the city.
             projectKey: activeStudioAskNoteHistoryKey,
             selectedProjectID: vm.selectedProjectID,
             latestVersionID: vm.latestVersionID,
+            studioSurfaceActive: true,
+            selectedProjectPresent: vm.selectedProject != nil,
+            loadedDraftProjectID: vm.debugLoadedDraftProjectID,
+            loadProjectToken: trackedStudioDebugProjectLoadToken,
+            loadProjectAckToken: studioDebugLoadProjectAckToken,
+            loadProjectRequestedProjectID: trackedStudioDebugProjectLoadRequestedProjectID,
+            loadProjectRequestedVersionID: trackedStudioDebugProjectLoadRequestedVersionID,
+            loadProjectStage: trackedStudioDebugProjectLoadStage,
+            loadProjectReady: trackedStudioDebugProjectLoadReady,
+            loadProjectError: trackedStudioDebugProjectLoadError,
+            editorFocusPending: liveDraftBridge.pendingEditorFocus != nil,
             preparedPromptToken: studioDebugPrepareAckToken,
             preparedPromptText: studioDebugPrepareAckText,
             preparedPromptRouting: studioDebugPrepareAckRoutingRaw,
@@ -20572,6 +22810,10 @@ Look at the city.
             voicePinTurnCount: voicePinTurns.count,
             voicePinEmpty: voicePinTurns.isEmpty,
             collaboratorInspectorCompact: true,
+            themCompanionMode: liveDraftBridge.companionMode.rawValue,
+            themUnifiedSurface: true,
+            themModeControlStyle: "segmented",
+            themRecentThreadInlineSummaryVisible: companionVoicePinEntries.isEmpty,
             intelligenceQueueCount: queuedIntelligenceFixes.count,
             intelligenceQueueSafeCount: queuedIntelligenceFixes.filter(\.isSafe).count,
             intelligenceQueueTitles: queuedIntelligenceFixes.map(\.title),
@@ -20605,6 +22847,9 @@ Look at the city.
         guard let data = try? encoder.encode(state),
               let encoded = String(data: data, encoding: .utf8) else { return }
         studioDebugDiffStateJSON = encoded
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceString(encoded, forKey: "studio_debug_diff_state_json")
+        #endif
         #endif
     }
 
@@ -22165,13 +24410,14 @@ Look at the city.
         }
         .padding(18)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color.herShellPanelSoft)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(Color.herShellStroke.opacity(0.68), lineWidth: 1)
         )
+        .shadow(color: Color.herPaperShadow.opacity(0.10), radius: 12, y: 6)
     }
 
     @MainActor

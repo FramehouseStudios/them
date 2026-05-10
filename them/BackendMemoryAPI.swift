@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 nonisolated extension Notification.Name {
     static let themTurnCommitted = Notification.Name("io.them.them.turnCommitted")
@@ -103,6 +104,7 @@ nonisolated struct BackendHistoryThread: Decodable, Hashable, Identifiable {
     let user: String
     let assistant: String
     let updatedAt: TimeInterval
+    let requestId: String?
     let screenplayProjectId: String?
     let screenplayTarget: String?
     let screenplayPromptSource: String?
@@ -446,12 +448,17 @@ nonisolated struct BackendRealtimeTurnCommitResponse: Decodable {
 
 nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     let screenplayProjectId: String
+    let screenplayDocumentRevisionId: String
     let screenplayTarget: String
     let screenplayPromptSource: String
     let screenplayWriteId: String
     let screenplayAnchorLine: Int?
     let screenplayAnchorEndLine: Int?
     let screenplayAnchorSceneLabel: String
+    let screenplayAnchorDraftSceneId: String
+    let screenplayAnchorOutlineSceneId: String
+    let screenplayAnchorOutlineBeatIds: [String]
+    let screenplayAnchorScriptNodeId: String
     let screenplayNoteTitle: String
     let screenplayNoteBody: String
     let screenplayInsertedText: String
@@ -462,12 +469,17 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
 
     var isMeaningful: Bool {
         !screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayDocumentRevisionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayWriteId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         screenplayAnchorLine != nil ||
         screenplayAnchorEndLine != nil ||
         !screenplayAnchorSceneLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayAnchorDraftSceneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayAnchorOutlineSceneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayAnchorOutlineBeatIds.isEmpty ||
+        !screenplayAnchorScriptNodeId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayNoteTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayNoteBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayInsertedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -499,6 +511,7 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
 
 nonisolated struct BackendSessionResponse: Decodable {
     let userId: String?
+    let authenticated: Bool?
     let clientToken: String
     let sessionId: String?
     let expiresIn: Int
@@ -518,6 +531,138 @@ nonisolated struct BackendSessionResponse: Decodable {
     let backendBuild: String?
     let backendBootId: String?
     let evolutionSync: BackendEvolutionSyncSnapshot?
+}
+
+nonisolated struct BackendAuthUser: Codable, Hashable {
+    let userId: String
+    let email: String
+    let authProvider: String?
+    let emailVerified: Bool
+    let emailVerifiedAt: TimeInterval?
+    let createdAt: TimeInterval?
+    let updatedAt: TimeInterval?
+}
+
+nonisolated struct BackendAuthEmailDelivery: Decodable, Hashable {
+    let status: String?
+    let action: String?
+    let transport: String?
+    let composeUrl: String?
+    let error: String?
+}
+
+nonisolated struct BackendAuthEnvelope: Decodable {
+    let ok: Bool
+    let user: BackendAuthUser?
+    let token: String?
+    let accessToken: String?
+    let accessExpiresIn: Int?
+    let refreshToken: String?
+    let refreshExpiresIn: Int?
+    let refreshTokenTransport: String?
+    let refreshCookieSet: Bool?
+    let currentSessionId: String?
+    let currentFamilyId: String?
+    let tokenType: String?
+    let expiresIn: Int?
+    let pendingEmailVerification: Bool?
+    let verificationRequired: Bool?
+    let passwordResetRequested: Bool?
+    let passwordReset: Bool?
+    let emailVerificationRequested: Bool?
+    let emailVerified: Bool?
+    let alreadyVerified: Bool?
+    let loggedOut: Bool?
+    let revokedAccessToken: Bool?
+    let revokedRefreshToken: Bool?
+    let refreshCookieCleared: Bool?
+    let emailDelivery: BackendAuthEmailDelivery?
+    let debugPasswordResetToken: String?
+    let debugEmailVerificationToken: String?
+}
+
+nonisolated struct BackendAuthManagedSession: Decodable, Hashable, Identifiable {
+    let sessionId: String
+    let familyId: String?
+    let userId: String?
+    let email: String?
+    let createdAt: TimeInterval?
+    let updatedAt: TimeInterval?
+    let expiresAt: TimeInterval?
+    let revokedAt: TimeInterval?
+    let replacedBySessionId: String?
+    let device: BackendAuthSessionDevice?
+    let state: String
+
+    var id: String { sessionId }
+    var isActive: Bool { state == "active" }
+}
+
+nonisolated struct BackendAuthSessionDevice: Decodable, Hashable {
+    let label: String?
+    let clientName: String?
+    let clientPlatform: String?
+    let clientVersion: String?
+    let clientBuild: String?
+    let userAgent: String?
+    let authTransport: String?
+    let lastSeenAt: TimeInterval?
+}
+
+nonisolated struct BackendAuthSessionsResponse: Decodable {
+    let ok: Bool
+    let sessions: [BackendAuthManagedSession]
+}
+
+nonisolated struct BackendAuthSessionRevokeResponse: Decodable {
+    let ok: Bool
+    let revoked: Bool?
+    let session: BackendAuthManagedSession?
+    let familyId: String?
+    let userId: String?
+
+}
+
+nonisolated struct BackendAuthSessionState: Equatable {
+    let user: BackendAuthUser?
+    let accessTokenPresent: Bool
+    let refreshTokenPresent: Bool
+    let accessExpiresAt: TimeInterval
+    let refreshExpiresAt: TimeInterval
+    let currentSessionId: String
+    let currentFamilyId: String
+    let tokenType: String
+    let pendingEmailVerification: Bool
+    let verificationRequired: Bool
+
+    var isAuthenticated: Bool {
+        user != nil && accessTokenPresent
+    }
+
+    var email: String {
+        user?.email ?? ""
+    }
+
+    var emailVerified: Bool {
+        user?.emailVerified ?? false
+    }
+
+    var accessExpired: Bool {
+        accessExpiresAt > 0 && accessExpiresAt <= Date().timeIntervalSince1970
+    }
+
+    static let signedOut = BackendAuthSessionState(
+        user: nil,
+        accessTokenPresent: false,
+        refreshTokenPresent: false,
+        accessExpiresAt: 0,
+        refreshExpiresAt: 0,
+        currentSessionId: "",
+        currentFamilyId: "",
+        tokenType: "Bearer",
+        pendingEmailVerification: false,
+        verificationRequired: false
+    )
 }
 
 nonisolated struct BackendEvolutionSyncSnapshot: Decodable {
@@ -745,6 +890,7 @@ nonisolated struct BackendScreenplayCompanionStateResponse: Decodable {
     let modeRaw: String
     let recentTurns: [ScreenplayConversationTurn]
     let analytics: ScreenplayCompanionAnalyticsSnapshot
+    let signals: CreativeCompanionSignalState
 
     private enum CodingKeys: String, CodingKey {
         case stage
@@ -763,6 +909,7 @@ nonisolated struct BackendScreenplayCompanionStateResponse: Decodable {
         case modeRaw
         case recentTurns
         case analytics
+        case signals
     }
 
     init(from decoder: Decoder) throws {
@@ -783,6 +930,7 @@ nonisolated struct BackendScreenplayCompanionStateResponse: Decodable {
         modeRaw = try container.decodeIfPresent(String.self, forKey: .modeRaw) ?? StudioCompanionMode.coach.rawValue
         recentTurns = try container.decodeIfPresent([ScreenplayConversationTurn].self, forKey: .recentTurns) ?? []
         analytics = try container.decodeIfPresent(ScreenplayCompanionAnalyticsSnapshot.self, forKey: .analytics) ?? .empty
+        signals = try container.decodeIfPresent(CreativeCompanionSignalState.self, forKey: .signals) ?? .empty
     }
 }
 
@@ -1152,6 +1300,614 @@ nonisolated enum BackendMemoryAPIError: LocalizedError {
     }
 }
 
+nonisolated enum BackendAuthClient {
+    private enum DefaultsKey {
+        static let baseURL = "backend_base_url"
+        static let appToken = "app_token"
+        static let userId = "user_id"
+        static let authUserEmail = "auth_user_email"
+        static let authUserVerified = "auth_user_verified"
+        static let authUserPayload = "auth_user_payload"
+        static let authAccessExpiresAt = "auth_access_expires_at"
+        static let authRefreshExpiresAt = "auth_refresh_expires_at"
+        static let authPendingEmailVerification = "auth_pending_email_verification"
+        static let authVerificationRequired = "auth_verification_required"
+        static let authCurrentSessionId = "auth_current_session_id"
+        static let authCurrentFamilyId = "auth_current_family_id"
+        static let authSignedIn = "auth_signed_in"
+    }
+
+    private static let personaFlowKey = "clementine"
+    private static let keychainService = "io.them.client"
+    private static let authAccessTokenAccount = "auth_access_token"
+    private static let authRefreshTokenAccount = "auth_refresh_token"
+    private static let devFallbackAppToken: String? = {
+#if DEBUG
+        "them-dev"
+#else
+        nil
+#endif
+    }()
+
+    static func currentAuthSessionState() -> BackendAuthSessionState {
+        let accessTokenValue = accessToken() ?? ""
+        let refreshTokenValue = refreshToken() ?? ""
+        let accessExpiresAt = UserDefaults.standard.double(forKey: DefaultsKey.authAccessExpiresAt)
+        let refreshExpiresAt = UserDefaults.standard.double(forKey: DefaultsKey.authRefreshExpiresAt)
+        let currentSessionId = UserDefaults.standard.string(forKey: DefaultsKey.authCurrentSessionId) ?? ""
+        let currentFamilyId = UserDefaults.standard.string(forKey: DefaultsKey.authCurrentFamilyId) ?? ""
+        let pendingEmailVerification = UserDefaults.standard.bool(forKey: DefaultsKey.authPendingEmailVerification)
+        let verificationRequired = UserDefaults.standard.bool(forKey: DefaultsKey.authVerificationRequired)
+        return BackendAuthSessionState(
+            user: storedAuthUser(),
+            accessTokenPresent: !accessTokenValue.isEmpty,
+            refreshTokenPresent: !refreshTokenValue.isEmpty,
+            accessExpiresAt: accessExpiresAt,
+            refreshExpiresAt: refreshExpiresAt,
+            currentSessionId: currentSessionId,
+            currentFamilyId: currentFamilyId,
+            tokenType: "Bearer",
+            pendingEmailVerification: pendingEmailVerification,
+            verificationRequired: verificationRequired
+        )
+    }
+
+    static func signUp(email: String, password: String) async throws -> BackendAuthSessionState {
+        var request = try makeAuthWriteRequest(path: "/auth/signup")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
+            "password": password,
+        ], options: [])
+        let payload = try await run(request, as: BackendAuthEnvelope.self)
+        persistAuthEnvelope(payload)
+        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: false)
+        return currentAuthSessionState()
+    }
+
+    static func login(email: String, password: String) async throws -> BackendAuthSessionState {
+        var request = try makeAuthWriteRequest(path: "/auth/login")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
+            "password": password,
+        ], options: [])
+        let payload = try await run(request, as: BackendAuthEnvelope.self)
+        persistAuthEnvelope(payload)
+        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: false)
+        return currentAuthSessionState()
+    }
+
+    static func signInWithApple(
+        identityToken: String,
+        authorizationCode: String? = nil,
+        userIdentifier: String,
+        email: String? = nil,
+        givenName: String? = nil,
+        familyName: String? = nil
+    ) async throws -> BackendAuthSessionState {
+        var request = try makeAuthWriteRequest(path: "/auth/apple")
+        var body: [String: Any] = [
+            "identity_token": identityToken.trimmingCharacters(in: .whitespacesAndNewlines),
+            "user_id": userIdentifier.trimmingCharacters(in: .whitespacesAndNewlines),
+        ]
+        let normalizedAuthorizationCode = (authorizationCode ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedAuthorizationCode.isEmpty {
+            body["authorization_code"] = normalizedAuthorizationCode
+        }
+        let normalizedEmail = (email ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedEmail.isEmpty {
+            body["email"] = normalizedEmail
+        }
+        let normalizedGivenName = (givenName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedGivenName.isEmpty {
+            body["given_name"] = normalizedGivenName
+        }
+        let normalizedFamilyName = (familyName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedFamilyName.isEmpty {
+            body["family_name"] = normalizedFamilyName
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let payload = try await run(request, as: BackendAuthEnvelope.self)
+        persistAuthEnvelope(payload)
+        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: false)
+        return currentAuthSessionState()
+    }
+
+    static func refreshAuthSession(force: Bool = false) async throws -> BackendAuthSessionState {
+        if !force {
+            let current = currentAuthSessionState()
+            if current.isAuthenticated, !current.accessExpired {
+                return current
+            }
+        }
+        let refreshTokenValue = refreshToken() ?? ""
+        guard !refreshTokenValue.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 401, message: "refresh_token_required")
+        }
+        var request = try makeAuthWriteRequest(path: "/auth/refresh")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "refresh_token": refreshTokenValue,
+        ], options: [])
+        let payload = try await run(request, as: BackendAuthEnvelope.self)
+        persistAuthEnvelope(payload)
+        return currentAuthSessionState()
+    }
+
+    static func logout() async throws {
+        let accessTokenValue = accessToken() ?? ""
+        let refreshTokenValue = refreshToken() ?? ""
+        var pendingError: Error?
+        if !accessTokenValue.isEmpty || !refreshTokenValue.isEmpty {
+            do {
+                var request = try makeAuthWriteRequest(path: "/auth/logout")
+                request.httpBody = try JSONSerialization.data(withJSONObject: [
+                    "refresh_token": refreshTokenValue,
+                ], options: [])
+                _ = try await run(request, as: BackendAuthEnvelope.self)
+            } catch {
+                pendingError = error
+            }
+        }
+        clearAuthSession()
+        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: true)
+        if let pendingError {
+            throw pendingError
+        }
+    }
+
+    static func requestPasswordReset(email: String) async throws -> BackendAuthEnvelope {
+        var request = try makeAuthWriteRequest(path: "/auth/request_password_reset")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
+        ], options: [])
+        return try await run(request, as: BackendAuthEnvelope.self)
+    }
+
+    static func resetPassword(token: String, newPassword: String) async throws -> BackendAuthSessionState {
+        var request = try makeAuthWriteRequest(path: "/auth/reset_password")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "token": token.trimmingCharacters(in: .whitespacesAndNewlines),
+            "new_password": newPassword,
+        ], options: [])
+        let payload = try await run(request, as: BackendAuthEnvelope.self)
+        if payload.passwordReset == true {
+            clearAuthSession()
+            await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: true)
+        }
+        return currentAuthSessionState()
+    }
+
+    static func requestEmailVerification(email: String? = nil) async throws -> BackendAuthEnvelope {
+        var request = try makeAuthWriteRequest(path: "/auth/request_email_verification")
+        var body: [String: Any] = [:]
+        let normalizedEmail = (email ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedEmail.isEmpty {
+            body["email"] = normalizedEmail
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let payload = try await run(request, as: BackendAuthEnvelope.self)
+        let currentSessionId = (payload.currentSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentSessionId.isEmpty {
+            UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+        }
+        let currentFamilyId = (payload.currentFamilyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentFamilyId.isEmpty {
+            UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+        }
+        if let user = payload.user {
+            persistAuthUser(user)
+        }
+        return payload
+    }
+
+    static func verifyEmail(token: String) async throws -> BackendAuthSessionState {
+        var request = try makeAuthWriteRequest(path: "/auth/verify_email")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "token": token.trimmingCharacters(in: .whitespacesAndNewlines),
+        ], options: [])
+        let payload = try await run(request, as: BackendAuthEnvelope.self)
+        let currentSessionId = (payload.currentSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentSessionId.isEmpty {
+            UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+        }
+        let currentFamilyId = (payload.currentFamilyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentFamilyId.isEmpty {
+            UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+        }
+        if let user = payload.user {
+            persistAuthUser(user)
+        } else if var currentUser = storedAuthUser() {
+            currentUser = BackendAuthUser(
+                userId: currentUser.userId,
+                email: currentUser.email,
+                authProvider: currentUser.authProvider,
+                emailVerified: true,
+                emailVerifiedAt: Date().timeIntervalSince1970,
+                createdAt: currentUser.createdAt,
+                updatedAt: Date().timeIntervalSince1970
+            )
+            persistAuthUser(currentUser)
+        }
+        UserDefaults.standard.set(false, forKey: DefaultsKey.authPendingEmailVerification)
+        UserDefaults.standard.set(false, forKey: DefaultsKey.authVerificationRequired)
+        return currentAuthSessionState()
+    }
+
+    private static func makeAuthWriteRequest(path: String) throws -> URLRequest {
+        guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+        components.path = path
+        guard let url = components.url else {
+            throw BackendMemoryAPIError.invalidBaseURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        applyStandardHeaders(
+            to: &request,
+            includeContentType: true,
+            includeUserIdentity: false,
+            includeClientToken: false
+        )
+        return request
+    }
+
+    private static func applyStandardHeaders(
+        to request: inout URLRequest,
+        includeContentType: Bool = false,
+        includeUserIdentity: Bool = true,
+        includeClientToken: Bool = true,
+        includeAuthToken: Bool = true
+    ) {
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if includeContentType {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        if let token = appToken(), !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+        if includeUserIdentity {
+            let userId = (UserDefaults.standard.string(forKey: DefaultsKey.userId) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !userId.isEmpty {
+                request.setValue(userId, forHTTPHeaderField: "X-User-Id")
+            }
+        }
+        if includeClientToken {
+            let clientToken = preferenceString(forKey: "client_token")
+            if !clientToken.isEmpty {
+                request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+            }
+        }
+        if includeAuthToken, let token = accessToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.setValue("them", forHTTPHeaderField: "X-Them-Client-Name")
+        #if os(macOS)
+        request.setValue("macOS", forHTTPHeaderField: "X-Them-Client-Platform")
+        #elseif os(iOS)
+        request.setValue("iOS", forHTTPHeaderField: "X-Them-Client-Platform")
+        #else
+        request.setValue("Apple", forHTTPHeaderField: "X-Them-Client-Platform")
+        #endif
+        let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !version.isEmpty {
+            request.setValue(version, forHTTPHeaderField: "X-Them-Client-Version")
+        }
+        let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !build.isEmpty {
+            request.setValue(build, forHTTPHeaderField: "X-Them-Client-Build")
+        }
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+    }
+
+    private static func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: decodeErrorMessage(from: data))
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private static func storedAuthUser() -> BackendAuthUser? {
+        guard let data = UserDefaults.standard.data(forKey: DefaultsKey.authUserPayload) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(BackendAuthUser.self, from: data)
+    }
+
+    private static func persistAuthEnvelope(_ payload: BackendAuthEnvelope) {
+        let normalizedAccessToken = (payload.accessToken ?? payload.token ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedAccessToken.isEmpty {
+            writeKeychainString(normalizedAccessToken, account: authAccessTokenAccount)
+            let ttl = max(60, payload.accessExpiresIn ?? payload.expiresIn ?? 0)
+            UserDefaults.standard.set(Date().timeIntervalSince1970 + Double(ttl), forKey: DefaultsKey.authAccessExpiresAt)
+        }
+
+        let normalizedRefreshToken = (payload.refreshToken ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedRefreshToken.isEmpty {
+            writeKeychainString(normalizedRefreshToken, account: authRefreshTokenAccount)
+            let ttl = max(60, payload.refreshExpiresIn ?? 0)
+            if ttl > 0 {
+                UserDefaults.standard.set(Date().timeIntervalSince1970 + Double(ttl), forKey: DefaultsKey.authRefreshExpiresAt)
+            }
+        }
+
+        let currentSessionId = (payload.currentSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentSessionId.isEmpty {
+            UserDefaults.standard.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+        }
+        let currentFamilyId = (payload.currentFamilyId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentFamilyId.isEmpty {
+            UserDefaults.standard.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+        }
+        if let user = payload.user {
+            persistAuthUser(user)
+        }
+        if payload.emailVerified == true, var currentUser = storedAuthUser() {
+            currentUser = BackendAuthUser(
+                userId: currentUser.userId,
+                email: currentUser.email,
+                authProvider: currentUser.authProvider,
+                emailVerified: true,
+                emailVerifiedAt: Date().timeIntervalSince1970,
+                createdAt: currentUser.createdAt,
+                updatedAt: Date().timeIntervalSince1970
+            )
+            persistAuthUser(currentUser)
+        }
+        UserDefaults.standard.set(payload.pendingEmailVerification ?? false, forKey: DefaultsKey.authPendingEmailVerification)
+        UserDefaults.standard.set(payload.verificationRequired ?? false, forKey: DefaultsKey.authVerificationRequired)
+        let signedIn = (accessToken() != nil) && (storedAuthUser() != nil)
+        UserDefaults.standard.set(signedIn, forKey: DefaultsKey.authSignedIn)
+    }
+
+    private static func persistAuthUser(_ user: BackendAuthUser) {
+        if let data = try? JSONEncoder().encode(user) {
+            UserDefaults.standard.set(data, forKey: DefaultsKey.authUserPayload)
+        }
+        UserDefaults.standard.set(user.email, forKey: DefaultsKey.authUserEmail)
+        UserDefaults.standard.set(user.emailVerified, forKey: DefaultsKey.authUserVerified)
+        UserDefaults.standard.set(user.userId, forKey: DefaultsKey.userId)
+        if user.emailVerified {
+            UserDefaults.standard.set(false, forKey: DefaultsKey.authPendingEmailVerification)
+            UserDefaults.standard.set(false, forKey: DefaultsKey.authVerificationRequired)
+        }
+    }
+
+    private static func clearAuthSession() {
+        deleteKeychainString(account: authAccessTokenAccount)
+        deleteKeychainString(account: authRefreshTokenAccount)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authUserPayload)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authUserEmail)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authUserVerified)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authAccessExpiresAt)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authRefreshExpiresAt)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authPendingEmailVerification)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authVerificationRequired)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authSignedIn)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentSessionId)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentFamilyId)
+        UserDefaults.standard.removeObject(forKey: "client_token")
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.userId)
+    }
+
+    fileprivate static func accessToken() -> String? {
+        let token = readKeychainString(account: authAccessTokenAccount) ?? ""
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func refreshToken() -> String? {
+        let token = readKeychainString(account: authRefreshTokenAccount) ?? ""
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func writeKeychainString(_ value: String, account: String) {
+        guard let data = value.data(using: .utf8) else { return }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+        var item = query
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        SecItemAdd(item as CFDictionary, nil)
+    }
+
+    private static func readKeychainString(account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func deleteKeychainString(account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private static func preferenceDomains() -> [String] {
+        var domains: [String] = []
+        if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleID.isEmpty {
+            domains.append(bundleID)
+        }
+        #if os(macOS)
+        let fallbackDomain = "io.them.them"
+        if !domains.contains(fallbackDomain) {
+            domains.append(fallbackDomain)
+        }
+        #endif
+        return domains
+    }
+
+    private static func preferencePlistURLs(for domain: String) -> [URL] {
+        #if os(macOS)
+        let libraryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
+        let filename = domain.hasSuffix(".plist") ? domain : "\(domain).plist"
+        return [
+            libraryURL
+                .appendingPathComponent("Containers")
+                .appendingPathComponent(domain)
+                .appendingPathComponent("Data/Library/Preferences")
+                .appendingPathComponent(filename),
+            libraryURL
+                .appendingPathComponent("Preferences")
+                .appendingPathComponent(filename),
+        ]
+        #else
+        return []
+        #endif
+    }
+
+    private static func preferenceValues(forKey key: String) -> [Any] {
+        var values: [Any] = []
+        var seenFingerprints: Set<String> = []
+
+        func append(_ value: Any?) {
+            guard let value else { return }
+            let fingerprint = "\(type(of: value))::\(String(describing: value))"
+            guard seenFingerprints.insert(fingerprint).inserted else { return }
+            values.append(value)
+        }
+
+        UserDefaults.standard.synchronize()
+        append(UserDefaults.standard.object(forKey: key))
+        for domain in preferenceDomains() {
+            if let suite = UserDefaults(suiteName: domain) {
+                suite.synchronize()
+                append(suite.object(forKey: key))
+            }
+            #if os(macOS)
+            let domainRef = domain as CFString
+            CFPreferencesAppSynchronize(domainRef)
+            append(CFPreferencesCopyAppValue(key as CFString, domainRef))
+            for url in preferencePlistURLs(for: domain) {
+                if let dictionary = NSDictionary(contentsOf: url) {
+                    append(dictionary[key])
+                }
+            }
+            #endif
+        }
+        return values
+    }
+
+    fileprivate static func preferenceString(forKey key: String, fallback: String = "") -> String {
+        for value in preferenceValues(forKey: key) {
+            if let string = value as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            } else if let number = value as? NSNumber {
+                return number.stringValue
+            }
+        }
+        return fallback
+    }
+
+    private static func baseURL() -> URL {
+        let fromDefaults = preferenceString(forKey: DefaultsKey.baseURL)
+        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults) {
+            return canonicalizeLoopbackURL(url)
+        }
+        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
+           isUsableConfigValue(fromInfo),
+           let url = URL(string: fromInfo) {
+            return canonicalizeLoopbackURL(url)
+        }
+        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_URL") as? String,
+           isUsableConfigValue(fromInfo),
+           let url = URL(string: fromInfo) {
+            return canonicalizeLoopbackURL(url)
+        }
+        #if DEBUG
+        return URL(string: "http://127.0.0.1:3000")!
+        #else
+        return URL(string: "https://api.them.io")!
+        #endif
+    }
+
+    private static func canonicalizeLoopbackURL(_ url: URL) -> URL {
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return url
+        }
+        guard host == "localhost" || host == "::1" || host == "[::1]" else {
+            return url
+        }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.host = "127.0.0.1"
+        return components.url ?? url
+    }
+
+    private static func appToken() -> String? {
+        let fromDefaults = preferenceString(forKey: DefaultsKey.appToken)
+        if isUsableConfigValue(fromDefaults) {
+            return fromDefaults
+        }
+        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String,
+           isUsableConfigValue(fromInfo) {
+            return fromInfo
+        }
+        let envValue = ProcessInfo.processInfo.environment["APP_TOKEN"] ?? ""
+        if isUsableConfigValue(envValue) {
+            return envValue
+        }
+        return devFallbackAppToken
+    }
+
+    private static func isUsableConfigValue(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        if value.hasPrefix("$("), value.hasSuffix(")") { return false }
+        return true
+    }
+
+    private static func decodeErrorMessage(from data: Data) -> String {
+        struct ErrorPayload: Decodable {
+            let error: String?
+            let stage: String?
+        }
+        if let payload = try? JSONDecoder().decode(ErrorPayload.self, from: data),
+           let error = payload.error,
+           !error.isEmpty {
+            if let stage = payload.stage, !stage.isEmpty {
+                return "\(stage): \(error)"
+            }
+            return error
+        }
+        return String(data: data, encoding: .utf8) ?? "Request failed."
+    }
+}
+
 actor BackendMemoryAPI {
     static let shared = BackendMemoryAPI()
     private let personaFlowKey = "clementine"
@@ -1185,6 +1941,30 @@ actor BackendMemoryAPI {
         static let userId = "user_id"
         static let assistantName = "assistant_self_name"
         static let userName = "user_primary_name"
+    }
+
+    private var clientNameHeaderValue: String {
+        "them"
+    }
+
+    private var clientPlatformHeaderValue: String {
+        #if os(macOS)
+        return "macOS"
+        #elseif os(iOS)
+        return "iOS"
+        #else
+        return "Apple"
+        #endif
+    }
+
+    private var clientVersionHeaderValue: String {
+        let raw = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var clientBuildHeaderValue: String {
+        let raw = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private struct HistoryCacheEntry {
@@ -1256,6 +2036,72 @@ actor BackendMemoryAPI {
 
     func currentSyncState() -> BackendSyncState {
         syncState
+    }
+
+    func invalidateResolvedSession(clearSharedUserID: Bool = false) {
+        invalidateReadCaches(clearSyncState: true)
+        lastForcedSessionRefreshAt = nil
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.clientToken)
+        if clearSharedUserID {
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.userId)
+        }
+    }
+
+    func authObservabilityEnabled() -> Bool {
+        BackendAuthClient.currentAuthSessionState().isAuthenticated
+    }
+
+    func fetchAuthSessions(
+        limit: Int = 24,
+        includeRevoked: Bool = false,
+        email: String? = nil
+    ) async throws -> [BackendAuthManagedSession] {
+        guard authObservabilityEnabled() else {
+            throw BackendMemoryAPIError.server(status: 401, message: "user_auth_required")
+        }
+        var queryItems = [
+            URLQueryItem(name: "limit", value: String(max(1, limit))),
+            URLQueryItem(name: "include_revoked", value: includeRevoked ? "1" : "0"),
+        ]
+        let normalizedEmail = (email ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedEmail.isEmpty {
+            queryItems.append(URLQueryItem(name: "email", value: normalizedEmail))
+        }
+        let request = try makeRequest(path: "/auth/sessions", extraQueryItems: queryItems)
+        let response = try await run(request, as: BackendAuthSessionsResponse.self)
+        return response.sessions.sorted { ($0.updatedAt ?? 0) > ($1.updatedAt ?? 0) }
+    }
+
+    @discardableResult
+    func revokeAuthSession(sessionId: String) async throws -> BackendAuthManagedSession? {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "session_id_required")
+        }
+        guard authObservabilityEnabled() else {
+            throw BackendMemoryAPIError.server(status: 401, message: "user_auth_required")
+        }
+        var request = try makeWriteRequest(path: "/auth/sessions/revoke")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["session_id": normalizedSessionId], options: [])
+        let response = try await run(request, as: BackendAuthSessionRevokeResponse.self)
+        return response.session
+    }
+
+    func revokeOtherAuthSessions(currentSessionId: String) async throws -> [BackendAuthManagedSession] {
+        let normalizedCurrentSessionId = currentSessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = BackendAuthClient.currentAuthSessionState()
+        let sessions = try await fetchAuthSessions(
+            limit: 64,
+            includeRevoked: false,
+            email: current.email.isEmpty ? nil : current.email
+        )
+        var revoked: [BackendAuthManagedSession] = []
+        for session in sessions where session.isActive && session.sessionId != normalizedCurrentSessionId {
+            if let item = try await revokeAuthSession(sessionId: session.sessionId) {
+                revoked.append(item)
+            }
+        }
+        return revoked
     }
 
     func bootstrapSession(force: Bool = false) async throws -> BackendSessionResponse {
@@ -2318,7 +3164,8 @@ actor BackendMemoryAPI {
     func updateScreenplayCompanionState(
         mode: StudioCompanionMode,
         recentTurns: [ScreenplayConversationTurn],
-        analytics: ScreenplayCompanionAnalyticsSnapshot
+        analytics: ScreenplayCompanionAnalyticsSnapshot,
+        signals: CreativeCompanionSignalState
     ) async throws -> BackendReadResult<BackendScreenplayCompanionStateResponse> {
         _ = try? await bootstrapSession(force: false)
         var request = try makeWriteRequest(path: "/screenplay/companion/state")
@@ -2336,6 +3183,11 @@ actor BackendMemoryAPI {
             with: encoder.encode(analytics)
         ) {
             payload["analytics"] = analyticsPayload
+        }
+        if let signalsPayload = try? JSONSerialization.jsonObject(
+            with: encoder.encode(signals)
+        ) {
+            payload["signals"] = signalsPayload
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
         let (data, response) = try await session.data(for: request)
@@ -2718,12 +3570,17 @@ actor BackendMemoryAPI {
             "turn_id": normalizedTurnId,
             "studio": [
                 "screenplay_project_id": studioMetadata.screenplayProjectId,
+                "screenplay_document_revision_id": studioMetadata.screenplayDocumentRevisionId,
                 "screenplay_target": studioMetadata.screenplayTarget,
                 "screenplay_prompt_source": studioMetadata.screenplayPromptSource,
                 "screenplay_write_id": studioMetadata.screenplayWriteId,
                 "screenplay_anchor_line": studioMetadata.screenplayAnchorLine as Any,
                 "screenplay_anchor_end_line": studioMetadata.screenplayAnchorEndLine as Any,
                 "screenplay_anchor_scene_label": studioMetadata.screenplayAnchorSceneLabel,
+                "screenplay_anchor_draft_scene_id": studioMetadata.screenplayAnchorDraftSceneId,
+                "screenplay_anchor_outline_scene_id": studioMetadata.screenplayAnchorOutlineSceneId,
+                "screenplay_anchor_outline_beat_ids": studioMetadata.screenplayAnchorOutlineBeatIds,
+                "screenplay_anchor_script_node_id": studioMetadata.screenplayAnchorScriptNodeId,
                 "screenplay_note_title": studioMetadata.screenplayNoteTitle,
                 "screenplay_note_body": studioMetadata.screenplayNoteBody,
                 "screenplay_inserted_text": studioMetadata.screenplayInsertedText,
@@ -3119,17 +3976,7 @@ actor BackendMemoryAPI {
         request.httpMethod = "GET"
         request.timeoutInterval = 12
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = appToken(), !token.isEmpty {
-            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
-        }
-        if let userId = userID(), !userId.isEmpty {
-            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
-        }
-        if let clientToken = clientToken(), !clientToken.isEmpty {
-            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
-        }
-        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        applyStandardHeaders(to: &request)
         return request
     }
 
@@ -3146,17 +3993,7 @@ actor BackendMemoryAPI {
         request.httpMethod = "GET"
         request.timeoutInterval = 12
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = appToken(), !token.isEmpty {
-            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
-        }
-        if let userId = userID(), !userId.isEmpty {
-            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
-        }
-        if let clientToken = clientToken(), !clientToken.isEmpty {
-            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
-        }
-        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        applyStandardHeaders(to: &request)
         return request
     }
 
@@ -3179,17 +4016,7 @@ actor BackendMemoryAPI {
         request.httpMethod = "GET"
         request.timeoutInterval = 12
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = appToken(), !token.isEmpty {
-            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
-        }
-        if let userId = userID(), !userId.isEmpty {
-            request.setValue(userId, forHTTPHeaderField: "X-User-Id")
-        }
-        if let clientToken = clientToken(), !clientToken.isEmpty {
-            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
-        }
-        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        applyStandardHeaders(to: &request)
         return request
     }
 
@@ -3206,19 +4033,42 @@ actor BackendMemoryAPI {
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        applyStandardHeaders(to: &request, includeContentType: true)
+        return request
+    }
+
+    private func applyStandardHeaders(
+        to request: inout URLRequest,
+        includeContentType: Bool = false,
+        includeUserIdentity: Bool = true,
+        includeClientToken: Bool = true,
+        includeAuthToken: Bool = true
+    ) {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if includeContentType {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         if let token = appToken(), !token.isEmpty {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        if let userId = userID(), !userId.isEmpty {
+        if includeUserIdentity, let userId = userID(), !userId.isEmpty {
             request.setValue(userId, forHTTPHeaderField: "X-User-Id")
         }
-        if let clientToken = clientToken(), !clientToken.isEmpty {
+        if includeClientToken, let clientToken = clientToken(), !clientToken.isEmpty {
             request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
         }
+        if includeAuthToken, let token = BackendAuthClient.accessToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.setValue(clientNameHeaderValue, forHTTPHeaderField: "X-Them-Client-Name")
+        request.setValue(clientPlatformHeaderValue, forHTTPHeaderField: "X-Them-Client-Platform")
+        if !clientVersionHeaderValue.isEmpty {
+            request.setValue(clientVersionHeaderValue, forHTTPHeaderField: "X-Them-Client-Version")
+        }
+        if !clientBuildHeaderValue.isEmpty {
+            request.setValue(clientBuildHeaderValue, forHTTPHeaderField: "X-Them-Client-Build")
+        }
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
-        return request
     }
 
     private func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
@@ -3802,9 +4652,8 @@ actor BackendMemoryAPI {
     }
 
     private func baseURL() -> URL {
-        if let fromDefaults = UserDefaults.standard.string(forKey: DefaultsKey.baseURL),
-           isUsableConfigValue(fromDefaults),
-           let url = URL(string: fromDefaults) {
+        let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
+        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults) {
             return canonicalizeLoopbackURL(url)
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
@@ -3839,8 +4688,8 @@ actor BackendMemoryAPI {
     }
 
     private func appToken() -> String? {
-        if let fromDefaults = UserDefaults.standard.string(forKey: DefaultsKey.appToken),
-           isUsableConfigValue(fromDefaults) {
+        let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.appToken)
+        if isUsableConfigValue(fromDefaults) {
             return fromDefaults
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String,

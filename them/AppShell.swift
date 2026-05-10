@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AuthenticationServices
 #if os(iOS)
 import UIKit
 #endif
@@ -269,7 +270,9 @@ struct AppShell: View {
         case .voice:
             VoiceSettingsPlaceholderScreen()
         case .profile:
-            ProfilePlaceholderScreen()
+            ProfileAccountScreen(onSessionChanged: {
+                Task { await backendBridge.refresh(force: true) }
+            })
         case .none:
             ConversationScreen(
                 connectionLine: backendBridge.lastError.isEmpty
@@ -745,12 +748,893 @@ struct VoiceSettingsScreen: View {
     }
 }
 
-struct ProfilePlaceholderScreen: View {
+private enum ProfileAuthMode: String, CaseIterable, Identifiable {
+    case signIn = "Sign In"
+    case signUp = "Create Account"
+
+    var id: String { rawValue }
+
+    var actionTitle: String {
+        switch self {
+        case .signIn: return "Sign In"
+        case .signUp: return "Create Account"
+        }
+    }
+}
+
+struct ProfileAccountScreen: View {
+    let onSessionChanged: () -> Void
+
+    @AppStorage("auth_signed_in") private var authSignedIn: Bool = false
+    @AppStorage("auth_user_email") private var authUserEmail: String = ""
+    @AppStorage("auth_user_verified") private var authUserVerified: Bool = false
+
+    @State private var authMode: ProfileAuthMode = .signIn
+    @State private var sessionState: BackendAuthSessionState = BackendAuthClient.currentAuthSessionState()
+    @State private var email: String = ""
+    @State private var password: String = ""
+    @State private var confirmPassword: String = ""
+    @State private var resetEmail: String = ""
+    @State private var resetToken: String = ""
+    @State private var newPassword: String = ""
+    @State private var verifyToken: String = ""
+    @State private var debugPasswordResetToken: String = ""
+    @State private var debugEmailVerificationToken: String = ""
+    @State private var statusMessage: String = ""
+    @State private var errorMessage: String = ""
+    @State private var isWorking = false
+    @State private var isLoadingSessions = false
+    @State private var isAppleSigningIn = false
+    @State private var managedSessions: [BackendAuthManagedSession] = []
+
     var body: some View {
-        placeholderScreen(
-            title: "Profile",
-            subtitle: "Minimal. Human."
+        ZStack {
+            LinearGradient(
+                colors: [
+                    themHex(0x08090C),
+                    themHex(0x11131A),
+                    themHex(0x17151A),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            RadialGradient(
+                colors: [
+                    Color(red: 0.98, green: 0.72, blue: 0.65).opacity(0.18),
+                    Color.clear,
+                ],
+                center: .topTrailing,
+                startRadius: 10,
+                endRadius: 420
+            )
+            .ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(sessionState.isAuthenticated ? "Account" : "Profile")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Text(
+                            sessionState.isAuthenticated
+                                ? (sessionState.emailVerified ? "You’re signed in and the live backend is running on your account." : "You’re signed in. Verify your email to finish account setup.")
+                                : "Email auth is live in this app now. Sign in, create an account, or finish a reset here."
+                        )
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.62))
+
+                        if !statusMessage.isEmpty {
+                            feedbackPill(text: statusMessage, tint: Color.green.opacity(0.20))
+                        }
+                        if !errorMessage.isEmpty {
+                            feedbackPill(text: errorMessage, tint: Color.red.opacity(0.18))
+                        }
+                    }
+                    .padding(.horizontal, 48)
+                    .padding(.top, 32)
+
+                    accountCard(
+                        title: "Status",
+                        subtitle: sessionState.isAuthenticated ? "Live auth session details pulled from the promoted backend client." : "The app is currently using anonymous local state."
+                    ) {
+                        HStack(spacing: 10) {
+                            statusChip(sessionState.isAuthenticated ? "Signed In" : "Signed Out")
+                            statusChip(sessionState.emailVerified ? "Verified" : (sessionState.pendingEmailVerification ? "Verify Email" : "Unverified"))
+                            if let authProviderStatusLabel {
+                                statusChip(authProviderStatusLabel)
+                            }
+                            if sessionState.refreshTokenPresent {
+                                statusChip("Refresh Ready")
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            metricRow(label: "Email", value: sessionState.email.isEmpty ? "Not signed in" : sessionState.email)
+                            metricRow(label: "User", value: currentUserID)
+                            metricRow(label: "Session", value: sessionState.currentSessionId.isEmpty ? "Not established yet" : sessionState.currentSessionId)
+                            metricRow(label: "Family", value: sessionState.currentFamilyId.isEmpty ? "Not available" : sessionState.currentFamilyId)
+                        }
+                    }
+
+                    if sessionState.isAuthenticated {
+                        accountCard(
+                            title: "Account Actions",
+                            subtitle: "Refresh tokens, resend verification, and sign out cleanly."
+                        ) {
+                            HStack(spacing: 12) {
+                                primaryActionButton(title: isWorking ? "Working…" : "Refresh Session", disabled: isWorking) {
+                                    Task { await refreshSession() }
+                                }
+                                secondaryActionButton(title: isWorking ? "Working…" : "Sign Out", disabled: isWorking) {
+                                    Task { await signOut() }
+                                }
+                            }
+
+                            if !sessionState.emailVerified {
+                                Divider().overlay(Color.white.opacity(0.10))
+                                    .padding(.vertical, 2)
+
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Email Verification")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.90))
+                                    Text("Request a verification link. In local debug mode, the token appears below so you can finish the flow inside the app.")
+                                        .font(.system(size: 12, weight: .regular))
+                                        .foregroundStyle(.white.opacity(0.54))
+
+                                    HStack(spacing: 12) {
+                                        secondaryActionButton(title: isWorking ? "Working…" : "Send Verification", disabled: isWorking) {
+                                            Task { await requestVerification() }
+                                        }
+                                        if managedSessions.count > 1 {
+                                            secondaryActionButton(title: isWorking ? "Working…" : "Sign Out Other Sessions", disabled: isWorking) {
+                                                Task { await revokeOtherSessions() }
+                                            }
+                                        }
+                                    }
+
+                                    if !debugEmailVerificationToken.isEmpty {
+                                        tokenBlock(title: "Debug verification token", token: debugEmailVerificationToken)
+                                    }
+
+                                    accountField(title: "Verification token", prompt: "Paste emailed or debug token", text: $verifyToken)
+
+                                    primaryActionButton(title: isWorking ? "Working…" : "Verify Email", disabled: isWorking) {
+                                        Task { await verifyEmail() }
+                                    }
+                                }
+                            } else if managedSessions.count > 1 {
+                                Divider().overlay(Color.white.opacity(0.10))
+                                    .padding(.vertical, 2)
+
+                                secondaryActionButton(title: isWorking ? "Working…" : "Sign Out Other Sessions", disabled: isWorking) {
+                                    Task { await revokeOtherSessions() }
+                                }
+                            }
+                        }
+                    } else {
+                        accountCard(
+                            title: authMode == .signIn ? "Sign In" : "Create Account",
+                            subtitle: "Use email auth or continue with Apple directly from the live app shell."
+                        ) {
+                            Picker("Auth Mode", selection: $authMode) {
+                                ForEach(ProfileAuthMode.allCases) { mode in
+                                    Text(mode.rawValue).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            accountField(title: "Email", prompt: "you@example.com", text: $email)
+                            accountField(title: "Password", prompt: "Enter password", text: $password, secure: true)
+
+                            if authMode == .signUp {
+                                accountField(title: "Confirm Password", prompt: "Repeat password", text: $confirmPassword, secure: true)
+                            }
+
+                            primaryActionButton(title: isWorking ? "Working…" : authMode.actionTitle, disabled: authInteractionDisabled) {
+                                Task {
+                                    if authMode == .signIn {
+                                        await signIn()
+                                    } else {
+                                        await signUp()
+                                    }
+                                }
+                            }
+
+                            Divider().overlay(Color.white.opacity(0.10))
+                                .padding(.vertical, 2)
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Sign in with Apple")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.90))
+                                Text("Uses the same live backend session flow and creates the account automatically on first sign in if needed.")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundStyle(.white.opacity(0.54))
+
+                                SignInWithAppleButton(.signIn, onRequest: configureAppleIDRequest, onCompletion: handleAppleAuthorizationResult)
+                                    .signInWithAppleButtonStyle(.white)
+                                    .frame(maxWidth: 360)
+                                    .frame(height: 46)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .disabled(authInteractionDisabled)
+
+                                if isAppleSigningIn {
+                                    HStack(spacing: 10) {
+                                        ProgressView()
+                                            .controlSize(.regular)
+                                            .tint(.white)
+                                        Text("Waiting for Apple authorization…")
+                                            .font(.system(size: 12, weight: .regular))
+                                            .foregroundStyle(.white.opacity(0.58))
+                                    }
+                                }
+
+                                Text("If Apple does not provide an email on first sign in, create the account with email once and then try Apple again.")
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundStyle(.white.opacity(0.42))
+                            }
+                        }
+                    }
+
+                    accountCard(
+                        title: "Password Reset",
+                        subtitle: "Request a reset email and finish the token flow here. In local debug mode, the reset token appears inline."
+                    ) {
+                        accountField(title: "Reset Email", prompt: "you@example.com", text: $resetEmail)
+
+                        secondaryActionButton(title: isWorking ? "Working…" : "Request Reset", disabled: isWorking) {
+                            Task { await requestPasswordReset() }
+                        }
+
+                        if !debugPasswordResetToken.isEmpty {
+                            tokenBlock(title: "Debug reset token", token: debugPasswordResetToken)
+                        }
+
+                        accountField(title: "Reset Token", prompt: "Paste emailed or debug token", text: $resetToken)
+                        accountField(title: "New Password", prompt: "Choose a new password", text: $newPassword, secure: true)
+
+                        primaryActionButton(title: isWorking ? "Working…" : "Update Password", disabled: isWorking) {
+                            Task { await resetPassword() }
+                        }
+                    }
+
+                    if sessionState.isAuthenticated {
+                        accountCard(
+                            title: "Current Sessions",
+                            subtitle: "These are the active backend auth sessions for your account."
+                        ) {
+                            HStack(spacing: 12) {
+                                secondaryActionButton(title: isLoadingSessions ? "Loading…" : "Refresh Sessions", disabled: isLoadingSessions || isWorking) {
+                                    Task { await reloadManagedSessions() }
+                                }
+                            }
+
+                            if isLoadingSessions {
+                                ProgressView()
+                                    .controlSize(.large)
+                                    .tint(.white)
+                            } else if managedSessions.isEmpty {
+                                Text("Only this device is signed in right now.")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundStyle(.white.opacity(0.56))
+                            } else {
+                                VStack(spacing: 10) {
+                                    ForEach(managedSessions.prefix(6)) { session in
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                                Text(sessionTitle(session))
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .foregroundStyle(.white.opacity(0.92))
+                                                Spacer(minLength: 12)
+                                                statusChip(session.state.capitalized)
+                                                if session.sessionId == sessionState.currentSessionId {
+                                                    statusChip("Current")
+                                                }
+                                            }
+                                            Text(sessionDetailLine(session))
+                                                .font(.system(size: 12, weight: .regular))
+                                                .foregroundStyle(.white.opacity(0.54))
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(14)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                .fill(Color.white.opacity(session.sessionId == sessionState.currentSessionId ? 0.12 : 0.07))
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.bottom, 40)
+            }
+        }
+        .task {
+            await reloadScreen(forceRefresh: false, reloadSessions: true)
+        }
+        .onChange(of: authSignedIn) { _, _ in
+            syncFromStorage()
+        }
+        .onChange(of: authUserEmail) { _, _ in
+            syncFromStorage()
+        }
+        .onChange(of: authUserVerified) { _, _ in
+            syncFromStorage()
+        }
+    }
+
+    private var currentUserID: String {
+        let value = sessionState.user?.userId.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? "Anonymous" : value
+    }
+
+    private var authProviderStatusLabel: String? {
+        let provider = (sessionState.user?.authProvider ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !provider.isEmpty else { return nil }
+        return provider == "apple" ? "Apple Linked" : nil
+    }
+
+    private var authInteractionDisabled: Bool {
+        isWorking || isAppleSigningIn
+    }
+
+    private func clearFeedback() {
+        statusMessage = ""
+        errorMessage = ""
+    }
+
+    private func syncFromStorage() {
+        let current = BackendAuthClient.currentAuthSessionState()
+        sessionState = current
+        if email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            email = current.email.isEmpty ? authUserEmail : current.email
+        }
+        if resetEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            resetEmail = current.email.isEmpty ? authUserEmail : current.email
+        }
+    }
+
+    private func reloadScreen(forceRefresh: Bool, reloadSessions: Bool) async {
+        let current = BackendAuthClient.currentAuthSessionState()
+        if current.refreshTokenPresent && (forceRefresh || current.accessExpired || (!current.isAuthenticated && authSignedIn)) {
+            do {
+                sessionState = try await BackendAuthClient.refreshAuthSession(force: forceRefresh)
+            } catch {
+                sessionState = BackendAuthClient.currentAuthSessionState()
+            }
+        } else {
+            sessionState = current
+        }
+
+        if email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            email = sessionState.email.isEmpty ? authUserEmail : sessionState.email
+        }
+        if resetEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            resetEmail = sessionState.email.isEmpty ? authUserEmail : sessionState.email
+        }
+
+        if reloadSessions {
+            await reloadManagedSessions()
+        }
+    }
+
+    private func reloadManagedSessions() async {
+        guard sessionState.isAuthenticated else {
+            managedSessions = []
+            return
+        }
+        isLoadingSessions = true
+        defer { isLoadingSessions = false }
+        do {
+            managedSessions = try await BackendMemoryAPI.shared.fetchAuthSessions(limit: 24, includeRevoked: false)
+        } catch {
+            managedSessions = []
+            if errorMessage.isEmpty {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func configureAppleIDRequest(_ request: ASAuthorizationAppleIDRequest) {
+        clearFeedback()
+        isAppleSigningIn = true
+        request.requestedScopes = [.fullName, .email]
+    }
+
+    private func handleAppleAuthorizationResult(_ result: Result<ASAuthorization, Error>) {
+        Task {
+            await completeAppleAuthorization(result)
+        }
+    }
+
+    private func completeAppleAuthorization(_ result: Result<ASAuthorization, Error>) async {
+        switch result {
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                isAppleSigningIn = false
+                errorMessage = "Apple sign in returned an unexpected credential."
+                return
+            }
+            guard let identityTokenData = credential.identityToken,
+                  let identityToken = String(data: identityTokenData, encoding: .utf8),
+                  !identityToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                isAppleSigningIn = false
+                errorMessage = "Apple sign in did not provide a usable identity token."
+                return
+            }
+
+            clearFeedback()
+            isWorking = true
+            defer {
+                isWorking = false
+                isAppleSigningIn = false
+            }
+
+            do {
+                sessionState = try await BackendAuthClient.signInWithApple(
+                    identityToken: identityToken,
+                    authorizationCode: decodedAppleAuthorizationCode(credential.authorizationCode),
+                    userIdentifier: credential.user,
+                    email: normalizedCredentialString(credential.email),
+                    givenName: normalizedCredentialString(credential.fullName?.givenName),
+                    familyName: normalizedCredentialString(credential.fullName?.familyName)
+                )
+                password = ""
+                confirmPassword = ""
+                debugEmailVerificationToken = ""
+                debugPasswordResetToken = ""
+                statusMessage = sessionState.email.isEmpty ? "Signed in with Apple." : "Signed in with Apple as \(sessionState.email)."
+                onSessionChanged()
+                await reloadScreen(forceRefresh: false, reloadSessions: true)
+            } catch {
+                errorMessage = appleSignInErrorMessage(from: error)
+            }
+        case .failure(let error):
+            isAppleSigningIn = false
+            if let authError = error as? ASAuthorizationError, authError.code == .canceled {
+                clearFeedback()
+                statusMessage = "Apple sign in canceled."
+                return
+            }
+            errorMessage = appleSignInErrorMessage(from: error)
+        }
+    }
+
+    private func normalizedCredentialString(_ value: String?) -> String? {
+        let normalized = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func decodedAppleAuthorizationCode(_ data: Data?) -> String? {
+        guard let data, !data.isEmpty else { return nil }
+        if let utf8 = String(data: data, encoding: .utf8) {
+            let normalized = utf8.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                return normalized
+            }
+        }
+        let base64 = data.base64EncodedString().trimmingCharacters(in: .whitespacesAndNewlines)
+        return base64.isEmpty ? nil : base64
+    }
+
+    private func appleSignInErrorMessage(from error: Error) -> String {
+        if let authError = error as? ASAuthorizationError {
+            switch authError.code {
+            case .failed, .notInteractive:
+                return "Apple sign in failed. Please try again."
+            case .invalidResponse:
+                return "Apple sign in returned an invalid response."
+            case .notHandled:
+                return "Apple sign in could not be completed."
+            case .canceled:
+                return "Apple sign in canceled."
+            default:
+                let fallback = authError.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                return fallback.isEmpty ? "Apple sign in could not be completed." : fallback
+            }
+        }
+
+        let message = error.localizedDescription
+        if message.contains("apple_sign_in_not_configured") || message.contains("user_auth_not_configured") {
+            return "Apple sign in is not configured on this backend yet."
+        }
+        if message.contains("invalid_apple_identity_token") {
+            return "Apple sign in returned an invalid identity token. Please try again."
+        }
+        if message.contains("email_required") {
+            return "Apple did not provide an email for this sign in. Try Apple again with email sharing enabled, or create the account with email first and then use Apple sign in."
+        }
+        if message.contains("email_taken") {
+            return "This Apple identity conflicts with an email that is already attached to another account."
+        }
+        return message
+    }
+
+    private func signIn() async {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedEmail.isEmpty, !password.isEmpty else {
+            errorMessage = "Email and password are required."
+            return
+        }
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            sessionState = try await BackendAuthClient.login(email: normalizedEmail, password: password)
+            password = ""
+            confirmPassword = ""
+            debugEmailVerificationToken = ""
+            debugPasswordResetToken = ""
+            statusMessage = "Signed in to the live backend."
+            onSessionChanged()
+            await reloadScreen(forceRefresh: false, reloadSessions: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func signUp() async {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedEmail.isEmpty, !password.isEmpty else {
+            errorMessage = "Email and password are required."
+            return
+        }
+        guard password == confirmPassword else {
+            errorMessage = "Passwords do not match."
+            return
+        }
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            sessionState = try await BackendAuthClient.signUp(email: normalizedEmail, password: password)
+            password = ""
+            confirmPassword = ""
+            statusMessage = sessionState.emailVerified
+                ? "Account created and signed in."
+                : "Account created. Check verification status below to finish setup."
+            onSessionChanged()
+            await reloadScreen(forceRefresh: false, reloadSessions: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshSession() async {
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            sessionState = try await BackendAuthClient.refreshAuthSession(force: true)
+            statusMessage = "Session refreshed."
+            onSessionChanged()
+            await reloadScreen(forceRefresh: false, reloadSessions: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func signOut() async {
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            try await BackendAuthClient.logout()
+            sessionState = .signedOut
+            managedSessions = []
+            password = ""
+            confirmPassword = ""
+            verifyToken = ""
+            resetToken = ""
+            debugEmailVerificationToken = ""
+            debugPasswordResetToken = ""
+            statusMessage = "Signed out."
+            onSessionChanged()
+            await reloadScreen(forceRefresh: false, reloadSessions: false)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func requestVerification() async {
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let payload = try await BackendAuthClient.requestEmailVerification()
+            debugEmailVerificationToken = payload.debugEmailVerificationToken ?? ""
+            if verifyToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                verifyToken = debugEmailVerificationToken
+            }
+            statusMessage = deliveryMessage(payload, fallback: "Verification request accepted")
+            await reloadScreen(forceRefresh: false, reloadSessions: false)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func verifyEmail() async {
+        let normalizedToken = verifyToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedToken.isEmpty else {
+            errorMessage = "A verification token is required."
+            return
+        }
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            sessionState = try await BackendAuthClient.verifyEmail(token: normalizedToken)
+            verifyToken = ""
+            debugEmailVerificationToken = ""
+            statusMessage = "Email verified."
+            onSessionChanged()
+            await reloadScreen(forceRefresh: false, reloadSessions: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func requestPasswordReset() async {
+        let normalizedEmail = resetEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedEmail.isEmpty else {
+            errorMessage = "An email is required to request a reset."
+            return
+        }
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let payload = try await BackendAuthClient.requestPasswordReset(email: normalizedEmail)
+            debugPasswordResetToken = payload.debugPasswordResetToken ?? ""
+            if resetToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                resetToken = debugPasswordResetToken
+            }
+            statusMessage = deliveryMessage(payload, fallback: "Password reset request accepted")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func resetPassword() async {
+        let normalizedToken = resetToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedToken.isEmpty else {
+            errorMessage = "A reset token is required."
+            return
+        }
+        guard !newPassword.isEmpty else {
+            errorMessage = "Enter a new password to finish the reset."
+            return
+        }
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            sessionState = try await BackendAuthClient.resetPassword(token: normalizedToken, newPassword: newPassword)
+            authMode = .signIn
+            password = ""
+            confirmPassword = ""
+            newPassword = ""
+            resetToken = ""
+            debugPasswordResetToken = ""
+            statusMessage = "Password updated. Sign in with the new password when you’re ready."
+            onSessionChanged()
+            await reloadScreen(forceRefresh: false, reloadSessions: false)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func revokeOtherSessions() async {
+        guard !sessionState.currentSessionId.isEmpty else {
+            errorMessage = "The current session is not available yet."
+            return
+        }
+        clearFeedback()
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            _ = try await BackendMemoryAPI.shared.revokeOtherAuthSessions(currentSessionId: sessionState.currentSessionId)
+            statusMessage = "Other active sessions were revoked."
+            await reloadManagedSessions()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deliveryMessage(_ payload: BackendAuthEnvelope, fallback: String) -> String {
+        let transport = (payload.emailDelivery?.transport ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if transport == "inline_debug" {
+            return "\(fallback). Debug token is available below."
+        }
+        if transport.isEmpty || transport == "none" {
+            return fallback + "."
+        }
+        return "\(fallback). Delivery: \(transport)."
+    }
+
+    private func sessionTitle(_ session: BackendAuthManagedSession) -> String {
+        let label = (session.device?.label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !label.isEmpty { return label }
+        let name = (session.device?.clientName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let platform = (session.device?.clientPlatform ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty && !platform.isEmpty {
+            return "\(name) on \(platform)"
+        }
+        if !platform.isEmpty { return platform }
+        return "Session"
+    }
+
+    private func sessionDetailLine(_ session: BackendAuthManagedSession) -> String {
+        var parts: [String] = []
+        if let updatedAt = session.updatedAt, updatedAt > 0 {
+            parts.append("Seen \(Date(timeIntervalSince1970: updatedAt).formatted(date: .abbreviated, time: .shortened))")
+        }
+        if let version = session.device?.clientVersion, !version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("v\(version)")
+        }
+        if let transport = session.device?.authTransport, !transport.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("via \(transport)")
+        }
+        if parts.isEmpty {
+            return session.sessionId
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func accountCard<Content: View>(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.94))
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.54))
+            }
+            content()
+        }
+        .padding(22)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white.opacity(0.07))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.11), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.18), radius: 24, x: 0, y: 14)
+        .padding(.horizontal, 48)
+    }
+
+    @ViewBuilder
+    private func feedbackPill(text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.white.opacity(0.90))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(tint)
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            )
+    }
+
+    @ViewBuilder
+    private func statusChip(_ label: String) -> some View {
+        Text(label)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.84))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.09))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            )
+    }
+
+    @ViewBuilder
+    private func metricRow(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.42))
+            Text(value)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.white.opacity(0.86))
+                .textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder
+    private func accountField(title: String, prompt: String, text: Binding<String>, secure: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.62))
+            Group {
+                if secure {
+                    SecureField(prompt, text: text)
+                } else {
+                    TextField(prompt, text: text)
+                }
+            }
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(.white.opacity(0.90))
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.07))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func tokenBlock(title: String, token: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.62))
+            Text(token)
+                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.88))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white.opacity(0.07))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                )
+        }
+    }
+
+    @ViewBuilder
+    private func primaryActionButton(title: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.borderedProminent)
+            .tint(Color.white.opacity(0.20))
+            .foregroundStyle(.white.opacity(disabled ? 0.48 : 0.92))
+            .disabled(disabled)
+    }
+
+    @ViewBuilder
+    private func secondaryActionButton(title: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.bordered)
+            .tint(Color.white.opacity(0.22))
+            .foregroundStyle(.white.opacity(disabled ? 0.48 : 0.84))
+            .disabled(disabled)
     }
 }
 

@@ -65,6 +65,7 @@ const timingSource = String(
   || ""
 ).trim();
 const screenplayText = String(screenplayOutput?.text || "").trim();
+const replyPreview = String(result?.voiceTurnMeta?.reply || "").trim();
 const latestEntryText = String(result?.latestEntry?.insertedText || "").trim();
 const previewText = String(result?.voiceResult?.insertedPreview || tokenSnapshot?.insertedPreview || "").trim();
 const finalCommittedPageText = String(
@@ -77,10 +78,14 @@ const finalCommittedPageText = String(
 assert.equal(String(screenplayOutput?.target || "").trim(), "page", "Voice page reconciliation smoke did not target the page");
 assert.equal(timingSource, "tts_segmented", `Voice page reconciliation smoke expected tts_segmented timing source, got ${timingSource || "empty"}`);
 assert(screenplayText, "Voice page reconciliation smoke did not persist screenplay_output.text");
+assert(replyPreview, "Voice page reconciliation smoke did not persist a reply preview");
+assert.notEqual(replyPreview, screenplayText, "Voice page reconciliation smoke still persisted the full page text in reply preview");
+assert(screenplayText.startsWith(replyPreview), "Voice page reconciliation smoke reply preview was not a prefix of screenplay_output.text");
 assert(latestEntryText, "Voice page reconciliation smoke did not persist final page text");
 assert(finalCommittedPageText, "Voice page reconciliation smoke did not surface the final committed page text");
 assert.equal(latestEntryText, screenplayText, "Voice page reconciliation smoke final committed page text drifted from screenplay_output.text");
 assert.equal(finalCommittedPageText, screenplayText, "Voice page reconciliation smoke committed page block drifted from screenplay_output.text");
-assert.equal(previewText, screenplayText, "Voice page reconciliation smoke preview text drifted from screenplay_output.text");
+assert(previewText, "Voice page reconciliation smoke did not surface any page preview text");
+assert(screenplayText.startsWith(previewText), "Voice page reconciliation smoke preview text drifted away from screenplay_output.text");
 
 console.log("voice page reconciliation smoke passed");

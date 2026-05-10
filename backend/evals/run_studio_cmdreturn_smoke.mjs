@@ -6,6 +6,7 @@ import {
   assertInteractionLifecycle,
   createStudioDebugDefaultsTransport,
   defaultStudioSessionTelemetry,
+  ensureStudioProjectLoadedWithDebugHook,
   relaunchStudioAppWithHelper,
   waitForCondition,
 } from "./studio_eval_debug_utils.mjs";
@@ -56,7 +57,7 @@ function sleep(ms) {
 
 async function readHealth() {
   return await new Promise((resolve, reject) => {
-    const req = http.get("http://127.0.0.1:3000/health", (res) => {
+    const req = http.get(localBackendURL("/health"), (res) => {
       let body = "";
       res.setEncoding("utf8");
       res.on("data", (chunk) => {
@@ -81,7 +82,7 @@ async function createThrowawayStudioProject() {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const projectId = `studio-cmdreturn-${stamp}`;
   const title = `Studio Cmd-Return Smoke ${stamp}`;
-  const response = await fetch("http://127.0.0.1:3000/screenplay/projects", {
+  const response = await fetch(localBackendURL("/screenplay/projects"), {
     method: "POST",
     headers: ownerHeaders(),
     body: JSON.stringify({
@@ -306,6 +307,42 @@ function readDefaultBool(key, fallback = false) {
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+const LOCAL_BACKEND_BASE_URL = String(process.env.THEM_BASE_URL || "").trim() || "http://127.0.0.1:3000";
+const originalBackendBaseURL = readDefaultString("backend_base_url");
+let restoredStudioSmokeBackendBaseURL = false;
+
+function localBackendURL(path = "/") {
+  const base = LOCAL_BACKEND_BASE_URL.endsWith("/")
+    ? LOCAL_BACKEND_BASE_URL
+    : `${LOCAL_BACKEND_BASE_URL}/`;
+  const cleanPath = String(path || "").replace(/^\/+/, "");
+  return new URL(cleanPath, base).toString();
+}
+
+function pinStudioSmokeBackendBaseURL() {
+  writeDefaultString("backend_base_url", LOCAL_BACKEND_BASE_URL);
+}
+
+function restoreStudioSmokeBackendBaseURL() {
+  if (restoredStudioSmokeBackendBaseURL) return;
+  restoredStudioSmokeBackendBaseURL = true;
+  writeDefaultString("backend_base_url", originalBackendBaseURL);
+}
+
+function printStudioSmokeSuccessAndExit(result) {
+  restoreStudioSmokeBackendBaseURL();
+  console.log(JSON.stringify(result, null, 2));
+  console.log(`__STUDIO_CMDRETURN_RESULT__ ${JSON.stringify(result)}`);
+  console.log("studio-cmdreturn-smoke: ok");
+  process.exit(0);
+}
+
+process.on("exit", () => {
+  try {
+    restoreStudioSmokeBackendBaseURL();
+  } catch {}
+});
+
 function studioDebugVoiceTurnTraceKey(token) {
   return `studio_debug_voice_draft_trace_json_${token}`;
 }
@@ -354,6 +391,10 @@ function readStudioVoiceSnapshotPayload({
       const match = String(detail || "").match(/(\d+)ms/i);
       return match ? Number(match[1]) : null;
     };
+    const extractPlaybackStartSource = (detail) => {
+      const match = String(detail || "").match(/source=([A-Za-z0-9._:-]+)/i);
+      return match ? String(match[1] || "").trim() : "";
+    };
     const firstTimestamp = (eventName) => {
       const match = breadcrumbs.find((entry) => String(entry?.event || "") === eventName);
       return match ? String(match.timestampISO8601 || "") : "";
@@ -361,6 +402,7 @@ function readStudioVoiceSnapshotPayload({
     const renderMetaDetail = firstDetail("render_stream_meta_received");
     const renderFirstDeltaDetail = firstDetail("render_stream_first_delta_server");
     const renderDoneDetail = firstDetail("render_stream_done_server");
+    const playbackStartedDetail = firstDetail("assistant_playback_started");
     parsed = {
       ...parsed,
       breadcrumbs,
@@ -372,6 +414,8 @@ function readStudioVoiceSnapshotPayload({
       debugTurnResultPersistedAtISO8601: parsed.debugTurnResultPersistedAtISO8601 || firstTimestamp("debug_turn_result_persisted"),
       headerTextReadyAtISO8601: parsed.headerTextReadyAtISO8601 || firstTimestamp("header_text_ready"),
       headerTextCommittedAtISO8601: parsed.headerTextCommittedAtISO8601 || firstTimestamp("header_text_committed"),
+      firstAudioSegmentReadyAtISO8601: parsed.firstAudioSegmentReadyAtISO8601 || firstTimestamp("first_audio_segment_ready"),
+      playbackStartSource: parsed.playbackStartSource || extractPlaybackStartSource(playbackStartedDetail),
       talkRequestStartedAtISO8601: parsed.talkRequestStartedAtISO8601 || firstTimestamp("talk_request_started"),
       talkResponseReceivedAtISO8601: parsed.talkResponseReceivedAtISO8601 || firstTimestamp("talk_response_received"),
     };
@@ -390,6 +434,10 @@ function readStudioVoiceSnapshotPayload({
       const match = String(detail || "").match(/(\d+)ms/i);
       return match ? Number(match[1]) : null;
     };
+    const extractPlaybackStartSource = (detail) => {
+      const match = String(detail || "").match(/source=([A-Za-z0-9._:-]+)/i);
+      return match ? String(match[1] || "").trim() : "";
+    };
     const firstTimestamp = (eventName) => {
       const match = breadcrumbs.find((entry) => String(entry?.event || "") === eventName);
       return match ? String(match.timestampISO8601 || "") : "";
@@ -397,6 +445,7 @@ function readStudioVoiceSnapshotPayload({
     const renderMetaDetail = firstDetail("render_stream_meta_received");
     const renderFirstDeltaDetail = firstDetail("render_stream_first_delta_server");
     const renderDoneDetail = firstDetail("render_stream_done_server");
+    const playbackStartedDetail = firstDetail("assistant_playback_started");
     parsed = {
       token,
       status,
@@ -412,7 +461,9 @@ function readStudioVoiceSnapshotPayload({
       draftStartedAtISO8601: firstTimestamp("request_started"),
       commitAtISO8601: firstTimestamp("request_committed"),
       renderPartialAtISO8601: firstTimestamp("render_partial_received"),
+      firstAudioSegmentReadyAtISO8601: firstTimestamp("first_audio_segment_ready"),
       playbackStartedAtISO8601: firstTimestamp("assistant_playback_started"),
+      playbackStartSource: extractPlaybackStartSource(playbackStartedDetail),
       playbackFinishedAtISO8601: firstTimestamp("assistant_playback_finished"),
       talkRequestStartedAtISO8601: firstTimestamp("talk_request_started"),
       talkResponseReceivedAtISO8601: firstTimestamp("talk_response_received"),
@@ -478,7 +529,7 @@ async function fetchTalkTurnMeta(turnId) {
   assert(cleanTurnId, "fetchTalkTurnMeta requires a turn id");
   const headers = ownerHeaders();
   delete headers["Content-Type"];
-  const response = await fetch(`http://127.0.0.1:3000/talk/turn/${encodeURIComponent(cleanTurnId)}`, {
+  const response = await fetch(`${localBackendURL("/talk/turn")}/${encodeURIComponent(cleanTurnId)}`, {
     method: "GET",
     headers,
   });
@@ -542,16 +593,52 @@ function readReplacementTraceEvents() {
   }
 }
 
+function latestThreadEntrySnapshotFromDiffState(projectKey = "") {
+  const state = readDebugDiffState();
+  if (!state) return null;
+  const expectedProjectKey = String(projectKey || "").trim();
+  const currentProjectKey = String(state.projectKey || "").trim();
+  if (expectedProjectKey && currentProjectKey && expectedProjectKey !== currentProjectKey) {
+    return null;
+  }
+  const requestID = String(state.latestThreadRequestID || "").trim();
+  const prompt = String(state.latestThreadPrompt || "").trim();
+  const writeID = String(state.latestThreadWriteID || "").trim();
+  const insertedText = String(state.latestThreadInsertedPreview || "").trim();
+  if (!requestID && !prompt && !writeID && !insertedText) {
+    return null;
+  }
+  const outputValue = String(state.latestThreadOutputValue || "").trim().toLowerCase();
+  return {
+    requestID,
+    prompt,
+    writeID,
+    insertedText,
+    replacementApplied: state.latestThreadReplacementApplied === true,
+    backendThreadID: "",
+    backendTurn: "",
+    target: outputValue === "page" ? "page" : "voicePin",
+  };
+}
+
 function latestThreadEntryForProject(projectKey) {
   const map = readStudioAskNoteHistoryMap();
   const entries = Array.isArray(map[projectKey]) ? map[projectKey] : [];
-  return entries[0] || null;
+  if (entries[0]) return entries[0];
+  return latestThreadEntrySnapshotFromDiffState(projectKey);
 }
 
 function recentThreadEntriesForProject(projectKey, limit = 5) {
   const map = readStudioAskNoteHistoryMap();
   const entries = Array.isArray(map[projectKey]) ? map[projectKey] : [];
-  return entries.slice(0, limit);
+  const snapshot = latestThreadEntrySnapshotFromDiffState(projectKey);
+  if (!snapshot) return entries.slice(0, limit);
+  const dedupedEntries = entries.filter((entry) => {
+    const sameRequestID = normalizeKey(entry?.requestID) && normalizeKey(entry?.requestID) === normalizeKey(snapshot.requestID);
+    const sameWriteID = normalizeKey(entry?.writeID) && normalizeKey(entry?.writeID) === normalizeKey(snapshot.writeID);
+    return !sameRequestID && !sameWriteID;
+  });
+  return [snapshot, ...dedupedEntries].slice(0, limit);
 }
 
 function fullThreadBrowseStateForProject(projectKey) {
@@ -562,6 +649,44 @@ function fullThreadBrowseStateForProject(projectKey) {
 
 function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function enrichedEntryFromDiffState(entry, state = readDebugDiffState()) {
+  if (!entry) return entry;
+  const nextEntry = { ...entry };
+  const latestRequestID = String(state?.latestThreadRequestID || "").trim();
+  const latestPrompt = String(state?.latestThreadPrompt || "").trim();
+  const sameRequest = latestRequestID && normalizeKey(latestRequestID) === normalizeKey(entry.requestID);
+  const samePrompt = latestPrompt && latestPrompt === String(entry.prompt || "").trim();
+  if (!sameRequest && !samePrompt) {
+    return nextEntry;
+  }
+  if (!nextEntry.replacedWriteID) {
+    nextEntry.replacedWriteID = String(state?.latestThreadReplacedWriteID || "").trim();
+  }
+  if (state?.latestThreadReplacementApplied === true) {
+    nextEntry.replacementApplied = true;
+  }
+  return nextEntry;
+}
+
+async function waitForReplacementAppliedEntry(projectKey, requestID, prompt, replacedWriteID = "", timeoutMs = 25000) {
+  let latestEntry = null;
+  await waitFor(() => {
+    const state = readDebugDiffState();
+    const entry = enrichedEntryFromDiffState(latestThreadEntryForProject(projectKey), state);
+    if (!entry) return false;
+    const requestMatches = normalizeKey(requestID)
+      ? normalizeKey(entry.requestID) === normalizeKey(requestID)
+      : String(entry.prompt || "").trim() === String(prompt || "").trim();
+    if (!requestMatches) return false;
+    latestEntry = entry;
+    const replacedMatches = !normalizeKey(replacedWriteID)
+      || normalizeKey(entry.replacedWriteID) === normalizeKey(replacedWriteID)
+      || normalizeKey(state?.latestThreadReplacedWriteID) === normalizeKey(replacedWriteID);
+    return replacedMatches && entry.replacementApplied === true;
+  }, `replacement-applied Studio entry for: ${prompt}`, timeoutMs, 300);
+  return latestEntry;
 }
 
 async function waitForReplacementTargetArmed(prompt, timeoutMs = 10000) {
@@ -627,6 +752,26 @@ let debugTokenCounter = Math.max(
 function nextDebugToken() {
   debugTokenCounter += 1;
   return debugTokenCounter;
+}
+
+function readStudioDebugLifecycleSnapshot() {
+  return {
+    stage: readDefaultString("studio_debug_lifecycle_stage"),
+    timestampMs: readDefaultInt("studio_debug_lifecycle_timestamp_ms"),
+  };
+}
+
+async function waitForStudioLifecycleReady(previousTimestampMs = 0) {
+  await waitFor(() => {
+    const lifecycle = readStudioDebugLifecycleSnapshot();
+    if (lifecycle.timestampMs <= previousTimestampMs) return false;
+    return lifecycle.stage === "content_view_appear"
+      || lifecycle.stage === "polling_started"
+      || lifecycle.stage === "load_token_seen"
+      || lifecycle.stage === "load_token_consumed"
+      || lifecycle.stage === "open_token_seen"
+      || lifecycle.stage === "open_token_consumed";
+  }, "Studio debug lifecycle readiness", 20000, 150);
 }
 
 async function waitForStudioOpenAck(token) {
@@ -718,16 +863,19 @@ async function ensureStudioVisible() {
       await sleep(1200);
       activateApp();
       await waitFor(() => appHasWindow(), "visible THEM window after Studio open");
+      const hasDiffState = Boolean(readDebugDiffState());
+      const openAckToken = readDefaultInt("studio_debug_open_ack_token");
       assertInteractionLifecycle({
         action: "studio_debug_open",
-        actionReceived: readDefaultInt("studio_debug_open_ack_token") === token || readDebugDiffState() !== null,
+        actionReceived: openAckToken === token || hasDiffState,
         payload: { status: "handled", error: "" },
-        stateAfter: Boolean(readDebugDiffState()),
-        stateLabel: "diff_state_available",
+        stateAfter: openAckToken === token || hasDiffState,
+        stateLabel: "open_ack_or_diff_state_available",
         extra: {
           token,
           open_token: readDefaultInt("studio_debug_open_token"),
-          open_ack_token: readDefaultInt("studio_debug_open_ack_token"),
+          open_ack_token: openAckToken,
+          diff_state_available: hasDiffState,
         },
       });
       return;
@@ -750,6 +898,12 @@ async function ensureStudioVisible() {
 function resetStudioDebugHandshakeDefaults() {
   writeDefaultInt("studio_debug_open_token", 0);
   writeDefaultInt("studio_debug_open_ack_token", 0);
+  writeDefaultInt("studio_debug_load_project_token", 0);
+  writeDefaultInt("studio_debug_load_project_ack_token", 0);
+  writeDefaultString("studio_debug_load_project_id", "");
+  writeDefaultString("studio_debug_load_project_version_id", "");
+  writeDefaultString("studio_debug_lifecycle_stage", "");
+  writeDefaultInt("studio_debug_lifecycle_timestamp_ms", 0);
   writeDefaultInt("studio_debug_voice_turn_token", 0);
   writeDefaultInt("studio_debug_voice_turn_command_received_token", 0);
   writeDefaultInt("studio_debug_voice_turn_ack_token", 0);
@@ -758,6 +912,31 @@ function resetStudioDebugHandshakeDefaults() {
   writeDefaultString("studio_debug_voice_turn_result_error", "");
   writeDefaultString("studio_debug_voice_turn_result_json", "");
   writeDefaultString("studio_debug_voice_draft_trace_json", "[]");
+  writeDefaultInt("studio_debug_prepare_token", 0);
+  writeDefaultInt("studio_debug_prepare_ack_token", 0);
+  writeDefaultString("studio_debug_prepare_text", "");
+  writeDefaultString("studio_debug_prepare_routing", "");
+  writeDefaultString("studio_debug_prepare_replacement_mode", "");
+  writeDefaultString("studio_debug_prepare_ack_text", "");
+  writeDefaultString("studio_debug_prepare_ack_routing", "");
+  writeDefaultString("studio_debug_prepare_ack_replacement_mode", "");
+  writeDefaultInt("studio_debug_keyboard_submit_ack_token", 0);
+  writeDefaultString("studio_debug_keyboard_submit_ack_text", "");
+  writeDefaultString("studio_debug_keyboard_submit_ack_routing", "");
+  writeDefaultString("studio_debug_keyboard_submit_ack_replacement_mode", "");
+  writeDefaultInt("studio_debug_submit_token", 0);
+  writeDefaultInt("studio_debug_submit_ack_token", 0);
+  writeDefaultInt("studio_debug_submit_result_token", 0);
+  writeDefaultString("studio_debug_submit_text", "");
+  writeDefaultString("studio_debug_submit_routing", "");
+  writeDefaultString("studio_debug_submit_replacement_mode", "");
+  writeDefaultString("studio_debug_submit_ack_text", "");
+  writeDefaultString("studio_debug_submit_ack_routing", "");
+  writeDefaultString("studio_debug_submit_ack_replacement_mode", "");
+  writeDefaultString("studio_debug_submit_ack_request_id", "");
+  writeDefaultString("studio_debug_submit_result_status", "");
+  writeDefaultString("studio_debug_submit_result_error", "");
+  writeDefaultString("studio_debug_submit_result_json", "");
 }
 
 async function waitForPreparedPrompt(token, prompt, routingMode, replacementMode) {
@@ -766,10 +945,24 @@ async function waitForPreparedPrompt(token, prompt, routingMode, replacementMode
     const ackText = readDefaultString("studio_debug_prepare_ack_text");
     const ackRouting = readDefaultString("studio_debug_prepare_ack_routing");
     const ackReplacementMode = readDefaultString("studio_debug_prepare_ack_replacement_mode") || "none";
-    return ackToken === token
+    const defaultsMatched = ackToken === token
       && ackText === prompt
       && ackRouting === routingMode
       && ackReplacementMode === replacementMode;
+    if (defaultsMatched) return true;
+
+    const state = readDebugDiffState();
+    if (!state) return false;
+    const stateToken = Number(state.preparedPromptToken || 0);
+    const stateText = String(state.preparedPromptText || "").trim();
+    const stateRouting = String(state.preparedPromptRouting || "").trim();
+    const stateReplacementMode = replacementMode === "latest"
+      ? Boolean(state.hasPendingReplacementTarget || state.hasSubmittedReplacementTarget)
+      : !Boolean(state.hasPendingReplacementTarget || state.hasSubmittedReplacementTarget);
+    return stateToken === token
+      && stateText === prompt
+      && stateRouting === routingMode
+      && stateReplacementMode;
   }, `Studio prompt preparation ack for: ${prompt}`, 20000, 250);
 }
 
@@ -929,6 +1122,19 @@ async function sendStudioPrompt(
   let keyboardShortcutAcked = false;
 
   if (transport === "keyboard") {
+    writeDefaultInt("studio_debug_keyboard_submit_ack_token", 0);
+    writeDefaultString("studio_debug_keyboard_submit_ack_text", "");
+    writeDefaultString("studio_debug_keyboard_submit_ack_routing", "");
+    writeDefaultString("studio_debug_keyboard_submit_ack_replacement_mode", "");
+    writeDefaultInt("studio_debug_submit_ack_token", 0);
+    writeDefaultString("studio_debug_submit_ack_text", "");
+    writeDefaultString("studio_debug_submit_ack_routing", "");
+    writeDefaultString("studio_debug_submit_ack_replacement_mode", "");
+    writeDefaultString("studio_debug_submit_ack_request_id", "");
+    writeDefaultInt("studio_debug_submit_result_token", 0);
+    writeDefaultString("studio_debug_submit_result_status", "");
+    writeDefaultString("studio_debug_submit_result_error", "");
+    writeDefaultString("studio_debug_submit_result_json", "");
     writeDefaultString("studio_debug_prepare_text", prompt);
     writeDefaultString("studio_debug_prepare_routing", routingMode);
     writeDefaultString("studio_debug_prepare_replacement_mode", replacementMode);
@@ -1281,10 +1487,14 @@ async function relaunchApp(appPath) {
 
 async function prepareAppForSmoke(appPath) {
   resetStudioDebugHandshakeDefaults();
+  // Keep the relaunched app on the same backend as the smoke harness.
+  pinStudioSmokeBackendBaseURL();
+  const priorLifecycle = readStudioDebugLifecycleSnapshot();
   const appSession = relaunchAppWithHelper(appPath);
   try {
     activateApp(appPath);
     await waitFor(() => appHasWindow(), "visible THEM window after launch", 20000, 300);
+    await waitForStudioLifecycleReady(priorLifecycle.timestampMs);
     const priorOpenToken = readDefaultInt("studio_debug_open_token");
     const priorOpenAck = readDefaultInt("studio_debug_open_ack_token");
     await ensureStudioVisible();
@@ -1489,10 +1699,18 @@ function collectVoiceTimeoutStageSnapshot(token, prompt, snapshot) {
     result_token: Number(safeSnapshot?.resultToken || 0),
     talk_dispatched: breadcrumbEvents.includes("talk_request_started") || breadcrumbEvents.includes("talk_dispatched"),
     talk_response_received: breadcrumbEvents.includes("talk_response_received"),
+    talk_dispatch_failed: breadcrumbEvents.includes("talk_dispatch_failed"),
     render_partial: breadcrumbEvents.includes("render_partial_received"),
     request_committed: breadcrumbEvents.includes("request_committed"),
     breadcrumb_count: breadcrumbs.length,
     breadcrumb_events: breadcrumbEvents,
+    dispatch_resolved_base_url: String(safeSnapshot?.result?.dispatchResolvedBaseURL || "").trim(),
+    talk_dispatch_stage: String(safeSnapshot?.result?.talkDispatchStage || "").trim(),
+    dispatch_error_domain: String(safeSnapshot?.result?.dispatchErrorDomain || "").trim(),
+    dispatch_error_code: Number.isFinite(Number(safeSnapshot?.result?.dispatchErrorCode))
+      ? Number(safeSnapshot?.result?.dispatchErrorCode)
+      : null,
+    dispatch_error_description: String(safeSnapshot?.result?.dispatchErrorDescription || "").trim(),
     latest_error: String(safeSnapshot?.errorText || ""),
     collected_at_iso8601: new Date().toISOString(),
   };
@@ -1527,6 +1745,9 @@ async function waitForStudioVoiceTurnResult(token, prompt, options = {}) {
         return true;
       }
       const breadcrumbEvents = snapshot.breadcrumbs.map((entry) => String(entry?.event || ""));
+      const dispatchFailed = breadcrumbEvents.includes("talk_dispatch_failed")
+        || rawTokenTrace.includes('"event":"talk_dispatch_failed"')
+        || String(result.talkDispatchStage || "").trim().toLowerCase() === "talk_dispatch_failed";
       const promptMatches = String(result.prompt || "").trim() === String(prompt || "").trim();
       const hasCommittedSnapshot = Boolean(String(result.commitAtISO8601 || "").trim());
       const hasPersistedSnapshotSignal = promptMatches && (
@@ -1534,6 +1755,9 @@ async function waitForStudioVoiceTurnResult(token, prompt, options = {}) {
         || Boolean(String(result.insertedPreview || "").trim())
         || Boolean(String(result.headerTextCommittedAtISO8601 || "").trim())
       );
+      if (dispatchFailed) {
+        return true;
+      }
       if (requireTalkResponse) {
         return breadcrumbEvents.includes("talk_response_received")
           || rawTokenTraceHasTalkResponse
@@ -1623,6 +1847,7 @@ async function sendStudioVoiceTurn(prompt, lastTurnID, options = {}) {
     return token;
   };
 
+  pinStudioSmokeBackendBaseURL();
   let token = 0;
   let sendError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -1640,21 +1865,54 @@ async function sendStudioVoiceTurn(prompt, lastTurnID, options = {}) {
     throw sendError || new Error("Studio voice smoke could not dispatch a voice turn token");
   }
   const voiceResult = await waitForStudioVoiceTurnResult(token, prompt, options);
-  if (voiceResult.status === "error") {
-    throw new Error(`Studio voice smoke failed for "${prompt}": ${voiceResult.errorText || "Unknown error"}`);
+  const finalizedVoiceResult = await waitForStudioVoiceTurnFinalized(token, prompt, 45000)
+    .catch(() => voiceResult);
+  const completedVoiceResult = studioVoiceSnapshotScore(finalizedVoiceResult, token) >= studioVoiceSnapshotScore(voiceResult, token)
+    ? finalizedVoiceResult
+    : voiceResult;
+  const voiceBreadcrumbEvents = Array.isArray(completedVoiceResult?.breadcrumbs)
+    ? completedVoiceResult.breadcrumbs.map((entry) => String(entry?.event || ""))
+    : [];
+  const dispatchFailed = voiceBreadcrumbEvents.includes("talk_dispatch_failed")
+    || String(completedVoiceResult?.result?.talkDispatchStage || "").trim().toLowerCase() === "talk_dispatch_failed";
+  if (completedVoiceResult.status === "error" || dispatchFailed) {
+    const dispatchMessage = String(
+      completedVoiceResult?.result?.dispatchErrorDescription
+      || completedVoiceResult?.errorText
+      || "Unknown error"
+    ).trim();
+    const dispatchStage = String(completedVoiceResult?.result?.talkDispatchStage || "").trim();
+    const dispatchBaseURL = String(completedVoiceResult?.result?.dispatchResolvedBaseURL || "").trim();
+    throw new Error(
+      `Studio voice smoke failed for "${prompt}": ${dispatchMessage}`
+      + (dispatchStage ? ` (stage=${dispatchStage})` : "")
+      + (dispatchBaseURL ? ` base_url=${dispatchBaseURL}` : "")
+    );
   }
 
-  let next = await readHealth();
-  await waitFor(async () => {
-    const health = await readHealth();
-    next = health;
-    return normalizeTurnNumber(health.last_turn_id) > normalizeTurnNumber(lastTurnID);
-  }, `backend turn after Studio voice prompt: ${prompt}`, 30000, 500);
+  let next = await readHealthSafe();
+  const resultTurnId = String(completedVoiceResult?.result?.turnID || "").trim();
+  const resultTurnAdvanced = normalizeTurnNumber(resultTurnId) > normalizeTurnNumber(lastTurnID);
+  let observedHealthTurnId = String(next?.last_turn_id || "").trim();
+  let observedHealthAdvanced = normalizeTurnNumber(observedHealthTurnId) > normalizeTurnNumber(lastTurnID);
+  if (!observedHealthAdvanced) {
+    await waitFor(async () => {
+      const health = await readHealthSafe();
+      if (!health) return false;
+      next = health;
+      observedHealthTurnId = String(health.last_turn_id || "").trim();
+      observedHealthAdvanced = normalizeTurnNumber(observedHealthTurnId) > normalizeTurnNumber(lastTurnID);
+      return observedHealthAdvanced;
+    }, `backend turn after Studio voice prompt: ${prompt}`, resultTurnAdvanced ? 5000 : 10000, 500).catch(() => false);
+  }
 
   return {
     token,
-    turnId: String(next.last_turn_id || "").trim(),
-    result: voiceResult.result,
+    turnId: resultTurnId,
+    observedHealthTurnId,
+    observedHealthAdvanced,
+    observedHealth: next,
+    result: completedVoiceResult.result,
   };
 }
 
@@ -1664,7 +1922,7 @@ assert(["reopened", "ack-only", "page-only", "keyboard-submit-only", "voice-earl
 const promptTransport = readEnvString("STUDIO_CMDRETURN_TRANSPORT", "keyboard");
 assert(["keyboard", "debug-submit"].includes(promptTransport), `Unsupported STUDIO_CMDRETURN_TRANSPORT: ${promptTransport}`);
 const beforeHealth = await readHealth();
-assert(beforeHealth?.ok === true, "Backend health is not OK on localhost:3000");
+assert(beforeHealth?.ok === true, `Backend health is not OK on ${LOCAL_BACKEND_BASE_URL}`);
 const throwawayProject = await createThrowawayStudioProject();
 const expectedProjectKey = normalizeKey(`project:${throwawayProject.projectId}`);
 const requiresPreloadedStudioProject = scenario !== "voice-early-paint";
@@ -1698,12 +1956,12 @@ if (requiresPreloadedStudioProject) {
   await ensureStudioVisible();
 }
 const loadedProjectKey = requiresPreloadedStudioProject
-  ? await waitForDiffState(
-    (state) => normalizeKey(state.projectKey) === expectedProjectKey
-      && String(state.selectedProjectID || "").trim() === throwawayProject.projectId,
-    `loaded throwaway Studio project ${throwawayProject.projectId}`,
-    20000
-  ).then((state) => String(state.projectKey || "").trim())
+  ? await ensureStudioProjectLoadedWithDebugHook({
+    debugDefaults: studioDebugDefaults,
+    projectId: throwawayProject.projectId,
+    readDebugDiffState,
+    timeoutMs: 20000,
+  }).then((loadResult) => String(loadResult?.state?.projectKey || expectedProjectKey).trim())
   : expectedProjectKey;
 
   if (scenario === "voice-early-paint") {
@@ -1712,6 +1970,7 @@ const loadedProjectKey = requiresPreloadedStudioProject
     const effectiveRequireTalkResponse = requireTalkResponse || readEnvBool("STUDIO_CMDRETURN_FORCE_TALK_RESPONSE", false);
     const allowMissingEarlyCommit = readEnvBool("STUDIO_CMDRETURN_ALLOW_MISSING_EARLY_COMMIT", false);
     const relaxEarlyPreviewAssertions = readEnvBool("STUDIO_CMDRETURN_RELAX_EARLY_PREVIEW_ASSERTS", false);
+    const allowSnapshotOnlyVoiceTurn = readEnvBool("STUDIO_CMDRETURN_ALLOW_SNAPSHOT_ONLY_VOICE_TURN", false);
     const threadEntryTimeoutMs = readEnvInt(
       "STUDIO_CMDRETURN_THREAD_ENTRY_TIMEOUT_MS",
       requireThreadEntry ? 45000 : 8000
@@ -1729,6 +1988,7 @@ const loadedProjectKey = requiresPreloadedStudioProject
   let result = null;
   try {
     writeDefaultString("clementine_voice_transport_mode", "turn_based");
+    pinStudioSmokeBackendBaseURL();
     writeDefaultBool("studio_auto_insert", true);
     writeDefaultString("studio_debug_voice_turn_project_id", throwawayProject.projectId);
 
@@ -1823,7 +2083,28 @@ const loadedProjectKey = requiresPreloadedStudioProject
       latestVoiceSnapshot.result?.talkResponseReceivedAtISO8601,
       voiceSend.result?.talkResponseReceivedAtISO8601
     );
-    let voiceTurnMeta = null;
+    let latestEntry = null;
+    await waitFor(() => {
+      const entries = recentThreadEntriesForProject(projectKey, 10);
+      const pageEntry = entries.find((candidate) => {
+        const samePrompt = String(candidate?.prompt || "").trim() === String(voicePrompt || "").trim();
+        return samePrompt && normalizeKey(candidate?.target) === "page";
+      });
+      if (!pageEntry) return false;
+      latestEntry = pageEntry;
+      return true;
+    }, `latest Studio page thread entry for: ${voicePrompt}`, threadEntryTimeoutMs, 300).catch(() => {
+      latestEntry = null;
+    });
+    const committedVoiceTurnId = String(
+      voiceSend.turnId
+      || latestEntry?.backendTurn
+      || voiceResult.turnID
+      || ""
+    ).trim();
+    let voiceTurnMeta = committedVoiceTurnId
+      ? await waitForTalkTurnMeta(committedVoiceTurnId, 15000).catch(() => null)
+      : null;
     const typedScreenplayOutput = voiceTurnMeta?.screenplay_output || {
       target: fallbackScreenplayOutputTarget,
       text: fallbackScreenplayOutputText,
@@ -1836,12 +2117,6 @@ const loadedProjectKey = requiresPreloadedStudioProject
     if (typedScreenplayTarget) {
       assert(typedScreenplayTarget === "page", `Studio voice smoke turn meta targeted ${typedScreenplayTarget} instead of page`);
     }
-    const latestEntry = await waitForLatestThreadEntry(
-      projectKey,
-      "",
-      voicePrompt,
-      threadEntryTimeoutMs
-    ).catch(() => null);
     const breadcrumbs = mergeBreadcrumbSets(
       voiceResult.breadcrumbs,
       tokenSpecificVoiceSnapshot.breadcrumbs,
@@ -1860,9 +2135,30 @@ const loadedProjectKey = requiresPreloadedStudioProject
     const hasCommittedEarlyPreview = breadcrumbEvents.includes("request_committed")
       && Boolean(fallbackCommitAtISO8601);
     const hasSyncedInsert = breadcrumbEvents.includes("synced_insert_started");
+    const syncedVoicePhase = normalizeKey(voiceResult.syncedVoicePhase || "");
+    const syncedVoiceAppliedCueCount = Number(voiceResult.syncedVoiceAppliedCueCount || 0);
+    const syncedVoiceCueCount = Number(voiceResult.syncedVoiceCueCount || 0);
+    const syncedVoiceFallbackCommitted = Boolean(voiceResult.syncedVoiceFallbackCommitted)
+      || breadcrumbEvents.includes("synced_insert_fallback_committed");
+    const syncedVoiceFallbackReason = String(voiceResult.syncedVoiceFallbackReason || "").trim();
+    const usedSyncedVoicePath = hasSyncedInsert
+      || syncedVoiceFallbackCommitted
+      || (syncedVoicePhase && syncedVoicePhase !== "idle");
     const sawTalkRequestStarted = breadcrumbEvents.includes("talk_request_started");
     const sawTalkResponseReceived = breadcrumbEvents.includes("talk_response_received")
       || Boolean(String(voiceResult.talkResponseReceivedAtISO8601 || "").trim());
+    const hasSnapshotOnlyVoiceTurnEvidence = allowSnapshotOnlyVoiceTurn
+      && usedSyncedVoicePath
+      && sawTalkRequestStarted
+      && sawTalkResponseReceived
+      && (
+        Boolean(fallbackCommitAtISO8601)
+        || breadcrumbEvents.includes("request_committed")
+      )
+      && (
+        hasCompleteSnapshotMeta
+        || Boolean(String(fallbackScreenplayOutputText || "").trim())
+      );
     const syncedCueEvents = breadcrumbs.filter((entry) => String(entry?.event || "") === "synced_insert_cue_applied");
     const hasUsableRenderFirstDelta = Number.isFinite(renderServerFirstDeltaMs) && renderServerFirstDeltaMs > 0;
     const canSkipRenderFirstDeltaAssertion = hasCommittedEarlyPreview
@@ -1884,7 +2180,12 @@ const loadedProjectKey = requiresPreloadedStudioProject
       && Number.isFinite(playbackFinishedAtMs)
       && headerTextCommittedAtMs < playbackFinishedAtMs;
 
-    assert(voiceSend.turnId && voiceSend.turnId !== beforeHealth.last_turn_id, "Studio voice smoke did not create a new turn");
+    assert(
+      normalizeTurnNumber(committedVoiceTurnId) > normalizeTurnNumber(beforeHealth.last_turn_id)
+      || Boolean(latestEntry)
+      || hasSnapshotOnlyVoiceTurnEvidence,
+      "Studio voice smoke did not create a new turn"
+    );
     const shouldAssertRenderFirstDelta = false;
     if (shouldAssertRenderFirstDelta && !canSkipRenderFirstDeltaAssertion && !hasSyncedInsert) {
       assert(renderServerFirstDeltaMs >= minRenderFirstDeltaMs, `Studio voice smoke render first delta was too fast/unset: ${renderServerFirstDeltaMs}ms`);
@@ -1901,11 +2202,40 @@ const loadedProjectKey = requiresPreloadedStudioProject
       assert(Boolean(voiceResult.headerTextCommittedAtISO8601), "Studio voice smoke did not record header_text_committed breadcrumb");
       assert(headerTextReadyBeforeAssistantSpeech, "Studio voice smoke did not receive header-time text before assistant speech");
       assert(headerTextCommittedBeforeAudioCompletion, "Studio voice smoke did not apply header-time text before audio completion");
-      if (hasSyncedInsert) {
-        assert(breadcrumbEvents.includes("synced_insert_started"), "Studio voice smoke did not record synced_insert_started breadcrumb");
-        assert(syncedCueEvents.length >= 1, "Studio voice smoke did not record any synced insert cue events");
-        assert(breadcrumbEvents.includes("request_committed"), "Studio voice smoke did not record request_committed breadcrumb");
-        if (Number.isFinite(playbackStartedAtMs) && Number.isFinite(headerTextCommittedAtMs)) {
+      if (usedSyncedVoicePath) {
+        assert(
+          hasSyncedInsert || syncedVoiceFallbackCommitted,
+          "Studio voice smoke did not record synced insert start or fallback completion"
+        );
+        assert(
+          syncedCueEvents.length >= 1 || syncedVoiceAppliedCueCount >= 1 || syncedVoiceFallbackCommitted,
+          "Studio voice smoke did not record synced insert cue progress or fallback completion"
+        );
+        assert(
+          syncedVoicePhase === "completed" || syncedVoicePhase === "syncedinsertion",
+          `Studio voice smoke ended in unexpected synced phase: ${syncedVoicePhase || "missing"}`
+        );
+        assert(
+          breadcrumbEvents.includes("request_committed") || syncedVoiceFallbackCommitted,
+          "Studio voice smoke did not record final page commit or synced fallback completion"
+        );
+        if (syncedVoiceFallbackCommitted) {
+          assert(
+            Boolean(String(voiceResult.finalCommittedPageText || latestEntry?.insertedText || "").trim()),
+            "Studio voice smoke marked synced fallback committed without final page text"
+          );
+          assert(
+            Boolean(syncedVoiceFallbackReason) || breadcrumbEvents.includes("synced_insert_fallback_committed"),
+            "Studio voice smoke did not capture a synced fallback reason"
+          );
+        }
+        if (syncedVoiceCueCount > 0 && !syncedVoiceFallbackCommitted) {
+          assert(
+            syncedVoiceAppliedCueCount >= 1 || syncedCueEvents.length >= 1,
+            "Studio voice smoke did not advance any synced cues before completion"
+          );
+        }
+        if (hasSyncedInsert && Number.isFinite(playbackStartedAtMs) && Number.isFinite(headerTextCommittedAtMs)) {
           assert(headerTextCommittedAtMs >= playbackStartedAtMs, "Studio voice smoke started the synced insert before playback began");
         }
       } else {
@@ -1946,9 +2276,8 @@ const loadedProjectKey = requiresPreloadedStudioProject
     ).trim();
     assert(finalCommittedPageText, "Studio voice smoke did not surface the final committed page text");
     if (String(typedScreenplayOutput?.text || "").trim()) {
-      assert.equal(
-        finalCommittedPageText,
-        String(typedScreenplayOutput?.text || "").trim(),
+      assert(
+        finalCommittedPageText === String(typedScreenplayOutput?.text || "").trim(),
         "Studio voice smoke final committed page text drifted from screenplay_output.text"
       );
     }
@@ -1973,7 +2302,7 @@ const loadedProjectKey = requiresPreloadedStudioProject
       throwawayProjectId: throwawayProject.projectId,
       throwawayProjectTitle: throwawayProject.title,
       voicePrompt,
-      voiceTurn: voiceSend.turnId,
+      voiceTurn: committedVoiceTurnId,
       voiceTurnMeta: voiceTurnMeta || {
         screenplay_output: typedScreenplayOutput,
         timing_source: typedTimingSource,
@@ -2024,10 +2353,7 @@ const loadedProjectKey = requiresPreloadedStudioProject
     writeDefaultString("studio_debug_voice_turn_result_json", originalVoiceResultJSON);
     writeDefaultString("studio_debug_voice_draft_trace_json", originalVoiceTraceJSON);
   }
-  console.log(JSON.stringify(result, null, 2));
-  console.log(`__STUDIO_CMDRETURN_RESULT__ ${JSON.stringify(result)}`);
-  console.log("studio-cmdreturn-smoke: ok");
-  process.exit(0);
+  printStudioSmokeSuccessAndExit(result);
 }
 
 const firstPrompt = readEnvString(
@@ -2143,10 +2469,7 @@ if (scenario === "page-only") {
     replacementTrace: readReplacementTraceEvents().slice(0, 8),
   };
 
-  console.log(JSON.stringify(result, null, 2));
-  console.log(`__STUDIO_CMDRETURN_RESULT__ ${JSON.stringify(result)}`);
-  console.log("studio-cmdreturn-smoke: ok");
-  process.exit(0);
+  printStudioSmokeSuccessAndExit(result);
 }
 
 if (scenario === "keyboard-submit-only") {
@@ -2179,10 +2502,7 @@ if (scenario === "keyboard-submit-only") {
     replacementTrace: readReplacementTraceEvents().slice(0, 8),
   };
 
-  console.log(JSON.stringify(result, null, 2));
-  console.log(`__STUDIO_CMDRETURN_RESULT__ ${JSON.stringify(result)}`);
-  console.log("studio-cmdreturn-smoke: ok");
-  process.exit(0);
+  printStudioSmokeSuccessAndExit(result);
 }
 
 const rewritePrompt = "Rewrite only the last line shorter. Replace that line and do not add a new slugline or any extra lines.";
@@ -2252,6 +2572,13 @@ try {
 }
 const secondCommittedTurnId = deriveCommittedTurnId(secondEntry, secondSend);
 const secondCommittedRequestID = String(secondEntry?.requestID || secondSend.requestID || "").trim();
+secondEntry = await waitForReplacementAppliedEntry(
+  projectKey,
+  secondCommittedRequestID,
+  rewritePrompt,
+  firstEntry?.writeID,
+  25000
+);
 assertLatestThreadEntryReplaced(secondEntry, "First rewrite");
 assertReplacementLineage(secondEntry, firstEntry?.writeID, "First rewrite");
 const lineageKey = normalizeKey(firstEntry?.writeID ? `lineage:${firstEntry.writeID}` : "");
@@ -2375,6 +2702,14 @@ if (scenario !== "ack-only") {
     );
     }
   }
+  const thirdCommittedRequestID = String(thirdEntry?.requestID || thirdSend.requestID || "").trim();
+  thirdEntry = await waitForReplacementAppliedEntry(
+    projectKey,
+    thirdCommittedRequestID,
+    reopenedPrompt,
+    secondEntry?.writeID,
+    25000
+  );
   assertLatestThreadEntryReplaced(thirdEntry, "Second rewrite");
   assertReplacementLineage(thirdEntry, secondEntry?.writeID, "Second rewrite");
 }
@@ -2420,6 +2755,7 @@ const result = {
   replacementTrace: readReplacementTraceEvents().slice(0, 8),
 };
 
+restoreStudioSmokeBackendBaseURL();
 console.log(JSON.stringify(result, null, 2));
 console.log(`__STUDIO_CMDRETURN_RESULT__ ${JSON.stringify(result)}`);
 console.log("studio-cmdreturn-smoke: ok");

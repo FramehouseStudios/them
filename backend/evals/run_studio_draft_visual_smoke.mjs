@@ -1,8 +1,14 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { createStudioEvalDebugContext, ensureStudioVisibleWithOpenHandshake } from "./studio_eval_debug_utils.mjs";
+import {
+  assertInteractionLifecycle,
+  createStudioEvalDebugContext,
+  ensureStudioVisibleWithOpenHandshake,
+  runCommand,
+  runOptionalCommand,
+  sleepMs,
+  waitForCondition,
+} from "./studio_eval_debug_utils.mjs";
 
-const BACKEND_DIR = "/Users/halfmutantfilms/Desktop/io.them/them/backend";
 const SCREENSHOT_PATH = "/tmp/them-smoke/them-draft-visual.png";
 const PROJECT_ID = "debug-structural";
 
@@ -13,30 +19,22 @@ function assert(condition, message) {
 }
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    encoding: "utf8",
-    ...options,
-  });
-  if (result.status !== 0) {
-    throw new Error((result.stderr || result.stdout || `${command} failed`).trim());
-  }
-  return (result.stdout || "").trim();
+  return runCommand(command, args, options);
 }
 
 function runOptional(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    encoding: "utf8",
-    ...options,
-  });
-  return {
-    status: result.status ?? 1,
-    stdout: (result.stdout || "").trim(),
-    stderr: (result.stderr || "").trim(),
-  };
+  return runOptionalCommand(command, args, options);
 }
 
 const debugContext = createStudioEvalDebugContext({ run, runOptional });
 const debugDefaults = debugContext.defaults;
+const {
+  readDefaultInt,
+  writeDefaultInt,
+  writeDefaultString,
+  readJsonDefault,
+  nextToken,
+} = debugContext;
 
 function osascript(lines) {
   const args = [];
@@ -46,36 +44,13 @@ function osascript(lines) {
   return run("osascript", args);
 }
 
-function readDefaultString(key) {
-  const result = runOptional("defaults", ["read", "io.them.them", key]);
-  return result.status === 0 ? result.stdout.trim() : "";
-}
-
-function readDefaultInt(key) {
-  const value = Number(readDefaultString(key));
-  return Number.isFinite(value) ? value : 0;
-}
-
-function writeDefaultInt(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-int", String(value)]);
-}
-
-function writeDefaultString(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-string", String(value)]);
-}
-
 function readDebugDiffState() {
-  const raw = readDefaultString("studio_debug_diff_state_json");
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  return readJsonDefault("studio_debug_diff_state_json", null);
 }
 
 function normalizeText(value) {
   return String(value || "")
+    .replace(/\\[nrt]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -84,22 +59,37 @@ function activateApp() {
   osascript(['tell application "them" to activate']);
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function findDebugAppPath() {
+  const direct = String(process.env.THEM_APP_PATH || "").trim();
+  if (direct && existsSync(direct)) return direct;
+  const discovered = run("/bin/zsh", [
+    "-lc",
+    "find ~/Library/Developer/Xcode/DerivedData -path '*Build/Products/Debug/them.app/Contents/MacOS/them' -exec stat -f '%m %N' {} \\; | sort -nr | head -n 1 | cut -d' ' -f2- | sed 's#/Contents/MacOS/them$##'",
+  ]);
+  assert(discovered, "Could not locate Debug them.app");
+  assert(existsSync(discovered), `Debug app path does not exist: ${discovered}`);
+  return discovered;
 }
 
-async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 250) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) return;
-    await sleep(intervalMs);
-  }
-  throw new Error(`Timed out waiting for ${description}`);
+function appHasWindow() {
+  const output = osascript([
+    "try",
+    'tell application "System Events"',
+    'tell process "them"',
+    'if visible is true then return "1"',
+    "return count of windows",
+    "end tell",
+    "end tell",
+    "on error",
+    'return "0"',
+    "end try",
+  ]);
+  return Number(output) > 0;
 }
 
 async function waitForDiffState(predicate, description, timeoutMs = 20000) {
   let latestState = null;
-  await waitFor(() => {
+  await waitForCondition(() => {
     const state = readDebugDiffState();
     if (!state) return false;
     latestState = state;
@@ -108,13 +98,9 @@ async function waitForDiffState(predicate, description, timeoutMs = 20000) {
   return latestState;
 }
 
-function nextToken(...keys) {
-  return debugContext.nextToken(...keys);
-}
-
 async function ensureStudioVisible() {
   const appPath = findDebugAppPath();
-  await ensureStudioVisibleWithOpenHandshake({
+  return ensureStudioVisibleWithOpenHandshake({
     appPath,
     debugDefaults,
     runOptional,
@@ -127,12 +113,24 @@ async function ensureStudioVisible() {
 async function seedStructuralDraft() {
   const token = nextToken("studio_debug_seed_structural_token", "studio_debug_seed_structural_ack_token");
   writeDefaultInt("studio_debug_seed_structural_token", token);
-  await waitFor(
+  await waitForCondition(
     () => readDefaultInt("studio_debug_seed_structural_ack_token") === token,
     `structural seed ack ${token}`,
     15000,
     150
   );
+  const state = readDebugDiffState() || {};
+  return assertInteractionLifecycle({
+    action: "studio_debug_seed_structural",
+    actionReceived: readDefaultInt("studio_debug_seed_structural_ack_token") === token,
+    payload: { status: "handled", error: "" },
+    stateAfter: String(state.selectedProjectID || "").trim() === PROJECT_ID,
+    stateLabel: "structural_seed_selected",
+    extra: {
+      token,
+      selectedProjectID: String(state.selectedProjectID || "").trim(),
+    },
+  });
 }
 
 async function appendIntegrityProse() {
@@ -145,24 +143,61 @@ async function appendIntegrityProse() {
   const token = nextToken("studio_debug_manual_edit_token", "studio_debug_manual_edit_ack_token");
   writeDefaultString("studio_debug_manual_edit_text", proseBlock);
   writeDefaultInt("studio_debug_manual_edit_token", token);
-  await waitFor(
+  await waitForCondition(
     () => readDefaultInt("studio_debug_manual_edit_ack_token") === token,
     `manual draft edit ack ${token}`,
     15000,
     150
   );
+  const state = await waitForDiffState(
+    (candidate) => Number(candidate.draftIntegrityIssueCount || 0) >= 1,
+    "draft integrity issue after manual prose append",
+    15000
+  );
+  return assertInteractionLifecycle({
+    action: "studio_debug_manual_edit_integrity_prose",
+    actionReceived: readDefaultInt("studio_debug_manual_edit_ack_token") === token,
+    payload: { status: "handled", error: "" },
+    stateAfter: Number(state.draftIntegrityIssueCount || 0) >= 1,
+    stateLabel: "draft_integrity_issue_present",
+    extra: {
+      token,
+      draftIntegrityIssueCount: Number(state.draftIntegrityIssueCount || 0),
+    },
+  });
 }
 
 async function openDraftInspector(section = "pages") {
   const token = nextToken("studio_debug_draft_inspector_token", "studio_debug_draft_inspector_ack_token");
   writeDefaultString("studio_debug_draft_inspector_section", section);
   writeDefaultInt("studio_debug_draft_inspector_token", token);
-  await waitFor(
+  await waitForCondition(
     () => readDefaultInt("studio_debug_draft_inspector_ack_token") === token,
     `draft inspector ack ${token}`,
     20000,
     150
   );
+  const state = await waitForDiffState(
+    (candidate) =>
+      candidate.draftInspectorPresented === true
+      && String(candidate.draftInspectorSection || "").trim().toLowerCase() === String(section).trim().toLowerCase(),
+    `draft inspector ${section} visible`,
+    20000
+  );
+  return {
+    state,
+    lifecycle: assertInteractionLifecycle({
+      action: "studio_debug_draft_inspector",
+      actionReceived: readDefaultInt("studio_debug_draft_inspector_ack_token") === token,
+      payload: { status: "handled", error: "" },
+      stateAfter: state.draftInspectorPresented === true,
+      stateLabel: "draft_inspector_presented",
+      extra: {
+        token,
+        section: String(state.draftInspectorSection || ""),
+      },
+    }),
+  };
 }
 
 function readFrontWindowInfo() {
@@ -318,10 +353,10 @@ print(String(data: data, encoding: .utf8) ?? "{}")
   return JSON.parse(raw);
 }
 
-await ensureStudioVisible();
-await seedStructuralDraft();
-await appendIntegrityProse();
-await openDraftInspector("pages");
+const openResult = await ensureStudioVisible();
+const seedLifecycle = await seedStructuralDraft();
+const appendLifecycle = await appendIntegrityProse();
+const inspectorOpen = await openDraftInspector("pages");
 
 const state = await waitForDiffState(
   (candidate) => String(candidate.selectedProjectID || "").trim() === PROJECT_ID
@@ -335,7 +370,7 @@ const state = await waitForDiffState(
 );
 
 activateApp();
-await sleep(900);
+await sleepMs(900);
 const windowInfo = readFrontWindowInfo();
 captureScreenshot(SCREENSHOT_PATH, windowInfo);
 const visualStats = analyzeDraftInspectorVisualState(SCREENSHOT_PATH);
@@ -353,8 +388,37 @@ assert(
   `Studio draft visual smoke crop did not contain enough inspector dark-surface pixels: darkRatio=${visualStats.darkRatio}`
 );
 
+const openLifecycle = assertInteractionLifecycle({
+  action: "studio_open_for_draft_visual",
+  actionReceived: Boolean(openResult?.degraded) || Number(openResult?.token || 0) > 0,
+  payload: { status: "handled", error: "" },
+  stateAfter: String(state.selectedProjectID || "").trim() === PROJECT_ID,
+  stateLabel: "draft_visual_project_selected",
+  extra: {
+    token: Number(openResult?.token || 0),
+    degraded: openResult?.degraded === true,
+    helperStatus: String(openResult?.appSession?.helperStatus || ""),
+  },
+});
+
+const stateLifecycle = assertInteractionLifecycle({
+  action: "studio_draft_visual_verify",
+  actionReceived: true,
+  payload: { status: "handled", error: "" },
+  stateAfter: state.draftInspectorPresented === true
+    && String(state.draftInspectorSection || "").trim().toLowerCase() === "pages"
+    && Number(state.draftPaginationPageCount || 0) >= 2
+    && Number(state.draftIntegrityIssueCount || 0) >= 1,
+  stateLabel: "draft_inspector_pages_ready",
+  extra: {
+    pageCount: Number(state.draftPaginationPageCount || 0),
+    integrityIssueCount: Number(state.draftIntegrityIssueCount || 0),
+  },
+});
+
 const result = {
   ok: true,
+  appSession: openResult?.appSession || {},
   screenshotPath: SCREENSHOT_PATH,
   selectedProjectID: state.selectedProjectID || "",
   draftInspectorPresented: state.draftInspectorPresented === true,
@@ -364,6 +428,13 @@ const result = {
   draftIntegrityPrimaryPreview: String(state.draftIntegrityPrimaryPreview || "").slice(0, 160),
   visualStats,
   windowBounds: windowInfo,
+  lifecycle: {
+    open: openLifecycle,
+    structuralSeed: seedLifecycle,
+    appendIntegrityProse: appendLifecycle,
+    openDraftInspector: inspectorOpen.lifecycle,
+    state: stateLifecycle,
+  },
 };
 
 console.log(JSON.stringify(result, null, 2));

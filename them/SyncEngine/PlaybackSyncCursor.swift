@@ -116,3 +116,93 @@ private final class DisplayLinkTarget: NSObject {
     @objc func step() { callback() }
 }
 #endif
+
+@MainActor
+struct SegmentedPlaybackObservation: Equatable {
+    let currentTime: TimeInterval
+    let estimatedTime: TimeInterval
+    let driftMs: Int
+    let hasActiveSegment: Bool
+}
+
+@MainActor
+final class SegmentedPlaybackClock {
+    private var completedDuration: TimeInterval = 0
+    private var activeSegmentDuration: TimeInterval = 0
+    private var activeSegmentStartedAt: Date?
+    private var activeSegmentTimeProvider: (@MainActor @Sendable () -> TimeInterval?)?
+    private var lastObservedActiveSegmentTime: TimeInterval = 0
+    private var hasStartedPlayback = false
+
+    var currentTime: TimeInterval? {
+        currentObservation?.currentTime
+    }
+
+    var currentObservation: SegmentedPlaybackObservation? {
+        guard hasStartedPlayback else { return nil }
+        let observation = resolvedActiveSegmentObservation()
+        let currentTime = completedDuration + observation.currentTime
+        let estimatedTime = completedDuration + observation.estimatedTime
+        return SegmentedPlaybackObservation(
+            currentTime: currentTime,
+            estimatedTime: estimatedTime,
+            driftMs: max(Int(((estimatedTime - currentTime) * 1_000.0).rounded()), 0),
+            hasActiveSegment: observation.hasActiveSegment
+        )
+    }
+
+    func reset() {
+        completedDuration = 0
+        activeSegmentDuration = 0
+        activeSegmentStartedAt = nil
+        activeSegmentTimeProvider = nil
+        lastObservedActiveSegmentTime = 0
+        hasStartedPlayback = false
+    }
+
+    func beginSegment(
+        expectedDuration: TimeInterval,
+        timeProvider: @escaping @MainActor @Sendable () -> TimeInterval?
+    ) {
+        if activeSegmentStartedAt != nil || activeSegmentTimeProvider != nil {
+            completeCurrentSegment()
+        }
+        hasStartedPlayback = true
+        activeSegmentDuration = max(expectedDuration, 0)
+        activeSegmentStartedAt = Date()
+        activeSegmentTimeProvider = timeProvider
+        lastObservedActiveSegmentTime = 0
+    }
+
+    func completeCurrentSegment() {
+        guard hasStartedPlayback else { return }
+        let observation = resolvedActiveSegmentObservation()
+        completedDuration += max(observation.currentTime, observation.estimatedTime)
+        activeSegmentDuration = 0
+        activeSegmentStartedAt = nil
+        activeSegmentTimeProvider = nil
+        lastObservedActiveSegmentTime = 0
+    }
+
+    private func resolvedActiveSegmentObservation() -> (
+        currentTime: TimeInterval,
+        estimatedTime: TimeInterval,
+        hasActiveSegment: Bool
+    ) {
+        let hasActiveSegment = activeSegmentStartedAt != nil || activeSegmentTimeProvider != nil
+        if let providerTime = activeSegmentTimeProvider?() {
+            lastObservedActiveSegmentTime = max(lastObservedActiveSegmentTime, max(providerTime, 0))
+        }
+        let providerTime = max(lastObservedActiveSegmentTime, 0)
+        let elapsedTime = max(activeSegmentStartedAt.map { Date().timeIntervalSince($0) } ?? 0, 0)
+        let observedTime = max(providerTime, elapsedTime)
+        if activeSegmentDuration > 0 {
+            return (
+                min(providerTime, activeSegmentDuration),
+                min(observedTime, activeSegmentDuration),
+                hasActiveSegment
+            )
+        }
+        return (providerTime, observedTime, hasActiveSegment)
+    }
+}
