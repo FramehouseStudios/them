@@ -45,34 +45,38 @@ failures by weakening the gate.
 
 | Item | Branch / PR | Status | Verification | Claude action |
 | --- | --- | --- | --- | --- |
-| T04 canonical io.them name | `codex/T04-io-them-canonical-name` / PR #38 | merged on `main`; `TASKS.md` still needs ledger cleanup from a follow-up | PR #38 merged; no new action in this ledger PR | Treat `io.them` as the canonical user-visible name per D001. |
-| T10 design system | `codex/T10-design-system` / PR #37 | merged on `main` | PR #37 merged after conflict pass; iOS build and `themTests` were green in the PR | Build on `IOThemColors`, `IOThemTypography`, and `IOThemSpacing` for app-side UI. |
-| T11 magic-moment onboarding | `codex/T11-magic-moment-onboarding` / PR #47 | merged on `main` | `git diff --check`; iOS simulator build passed; iOS simulator `themTests` passed 50/50; generic macOS build blocked by local signing entitlements | T12 may start after latest `main` is pulled; real iPhone <=60s human validation remains the product acceptance check. |
-| T13-client realtime supplier selection | `codex/T13-realtime-supplier-client` / PR #49 | merged on `main` | `git diff --check`; `node --check backend/index.js`; `node --test backend/tests/realtime_supplier.test.mjs` 16/16; backend `npm test` 179 passed / 1 skipped before merge; focused iOS realtime client tests 8/8 after merge conflict resolution | Realtime route now uses `RealtimeSupplier`; Claude can build future supplier work against the merged route/client contract. |
-| T14 G3 snapshot triage | `codex/T14-g3-snapshot-triage` / PR #43 | open and mergeable | Generic iOS build passed; macOS `themTests` passed 45/45 | Use `docs/T14-g3-snapshot-triage.md`; do not mine `codex-save-primary-folder-20260420` directly. |
-| T24 iOS prompt builder consolidation | `codex/T24-prompt-builder-consolidation` / PR #40 | merged on `main` | PR #40 merged after conflict pass; backend `npm test`, iOS build, and `themTests` were green in the PR | T11 consumes the single iOS prompt path. |
-| T25 additional craft frameworks | `codex/T25-additional-craft-frameworks` / PR #41 | open and mergeable | PR body reports backend and app verification | Claude can rely on Story Circle and Hero's Journey framework data after this merges. |
-| T26 Craft tab polish | `codex/T26-craft-tab-polish` / PR #42 | open and mergeable | Generic iOS build passed; macOS `themTests` passed 45/45 | Backend endpoints already consumed; no Claude action unless endpoint shape changes. |
-| T27 live handoff ledger | `codex/T27-claude-live-handoff` / PR #44 | merged on `main` | PR #44 merged; ledger is now the standing Codex completion feed | Read this file before resuming backend work; Codex updates it for completed/materially advanced tasks. |
-| T28 iOS format lint cards | `codex/T28-format-lint-ios` / PR #45 | merged on `main` | PR #45 merged after conflict pass; Swift package and app tests were green in the PR | Format warnings now surface as non-blocking Studio cards with page/line anchors. |
-| T29 iOS reply-side character mentions | `codex/T-ios-reply-character-mentions` / PR #50 | open and ready for review | `git diff --check`; Swift parse; focused `StudioThreadViewStateSupportTests` 7/7; full iOS `themTests` 53/53 before main merge | Backend still needs `/memory/record-character-mention`; iOS call site is opt-in behind `memory.reply_character_mentions_enabled` and safely no-ops while disabled or if the endpoint is absent. |
-
+| T04 canonical io.them name | `codex/T04-io-them-canonical-name` / PR #38 | merged on `main` | PR #38 merged | Treat `io.them` as canonical user-visible name per D001. |
+| T10 design system | `codex/T10-design-system` / PR #37 | merged on `main` | PR #37 merged; prior iOS build and tests green | Use `IOThemColors`, `IOThemTypography`, and `IOThemSpacing` for app-facing UI assumptions. |
+| T11 magic-moment onboarding | `codex/T11-magic-moment-onboarding` / PR #47 | merged on `main` | iOS simulator build passed; iOS simulator `themTests` passed 50/50 before merge | T12 is unblocked; real iPhone <=60s human validation remains product acceptance. |
+| T12 perceived-speed primitives | `codex/T12-perceived-speed` | ready for Codex | Not started in this cleanup PR | No Claude action. |
+| T13-client realtime supplier selection | `codex/T13-realtime-supplier-client` / PR #49 | merged on `main` | realtime supplier backend tests 16/16; focused iOS client tests 8/8 | Future supplier work should preserve the merged request/response contract. |
+| T14 G3 snapshot triage | `codex/T14-g3-snapshot-triage` / PR #43 | merged on `main` | Generic iOS build passed before merge | Use `docs/T14-g3-snapshot-triage.md`; do not mine `codex-save-primary-folder-20260420` directly. |
+| T24 iOS prompt builder consolidation | `codex/T24-prompt-builder-consolidation` / PR #40 | merged on `main` | backend `npm test`, iOS build, and `themTests` were green in PR verification | Backend prompt changes should keep `/screenplay/prompt/build` compatible. |
+| T25 additional craft frameworks | `codex/T25-additional-craft-frameworks` / PR #41 | merged on `main` | backend craft tests 41/41; backend `npm test` 183 pass / 1 skipped; iOS craft tests 5/5 before merge | Story Circle and Hero's Journey framework data are available on `main`. |
+| T26 Craft tab polish | `codex/T26-craft-tab-polish` / PR #42 | merged on `main` | backend craft/schema tests 36/36; focused iOS craft tests 13/13 after simulator retry | Backend endpoints already consumed; preserve shape for framework, report, override, and format-lint endpoints. |
+| T27 live handoff ledger | `codex/T27-claude-live-handoff` / PR #44 | merged on `main` | PR #44 merged | Read this file before resuming backend work; Codex updates it for completed/materially advanced tasks. |
+| T28 iOS format lint cards | `codex/T28-format-lint-ios` / PR #45 | merged on `main` | Swift package and app tests were green in PR verification | Format warnings surface as non-blocking Studio cards with page/line anchors. |
+| T29 iOS reply-side character mentions | `codex/T-ios-reply-character-mentions` / PR #50 | merged on `main` | Swift parse; focused `StudioThreadViewStateSupportTests` 7/7; full iOS `themTests` 53/53 before merge | T30 is merged, so Codex can enable `memory.reply_character_mentions_enabled` in a follow-up. |
+| T30 `/memory/record-character-mention` endpoint | `claude/T30-record-character-mention-endpoint` / PR #51 | merged on `main` | backend `npm test` passed 195 pass / 1 skipped after Codex merge pass | No further Claude action; endpoint unblocks iOS flag enablement. |
+| T31 coordination status cleanup | `codex/T31-coordination-status-cleanup` | review | Markdown checks pass; PR ready. | Claude has been notified on PR #48 and PR #33. |
 
 ## Claude Watch List
 
 | Claude PR | Current Codex note |
 | --- | --- |
-| PR #26, T08w triggers | Clean after Codex conflict-resolution pass. Backend `npm test` passed 164 pass / 1 skipped. Codex left a supervisor update comment. |
-| PR #31, T23 craft completeness gate | Clean after Codex conflict-resolution pass. `node --check scripts/check_craft_completeness.mjs` and backend `npm test` passed 161 pass / 1 skipped. Codex left a supervisor update comment. |
-| PR #32, T07a outbox snapshots | Clean after Codex conflict-resolution pass. `node --check backend/index.js`, `node --check backend/lib/outbox_snapshotter.js`, and backend `npm test` passed 163 pass / 1 skipped. Codex left a supervisor update comment. |
-| PR #33, T07 eval gate | Code conflicts resolved, but the check is intentionally unstable until the repository Actions secret `OPENAI_API_KEY` is replaced with the literal OpenAI key value. Commit `d36c05b` adds fast-fail diagnosis for malformed secrets. Codex left supervisor update comments with the exact blocker. |
-| PR #36, T13 realtime supplier interface | Merged, but Codex found `POST /realtime/client_secret` still using the old direct OpenAI call on `main`; T13-client patches the endpoint to mint through `RealtimeSupplier` and return `realtime_provider`. Codex will leave a supervisor update comment on PR #36. |
+| PR #48, T-logline-distiller | Open and currently CONFLICTING against latest `main`. Codex left a supervisor update requesting Claude refresh `claude/T-logline-distiller`, resolve conflicts, rerun `cd backend && npm test`, and push it back to review-ready. This is the highest-priority Claude all-day task because it unlocks the iOS logline rail. |
+| PR #33, T07 eval gate | Open and currently CONFLICTING. Still intentionally blocked until the repository Actions secret `OPENAI_API_KEY` is replaced with the literal OpenAI key value. Claude should resolve conflicts/document the blocker only; do not weaken eval gates. |
+| T-block-detector | Ready for Claude once PR #48 is refreshed or blocked: add a TASKS claim, backend-only branch, tests, and docs for writer-block signals from `/talk` telemetry and scene-attempt gaps. |
+| T-trait-library | Ready for Claude after block detector: persistence-backed per-character trait/voice inventory for prompt assembly and future iOS surfaces. |
+| T-twist-engine | Ready for Claude after trait library: beat-aware reversal suggestions using craft classifications/framework data. |
 
 ## Claude Supervisor Updates
 
 | Claude PR | Status |
 | --- | --- |
-| T30, `/memory/record-character-mention` endpoint | Shipped on `claude/T30-record-character-mention-endpoint`. Backend `npm test` passed 191 pass / 1 skipped (12 new T30 tests). Endpoint persists rendered screenplay character cues through the canonical `creativeMemoryStore.recordCharacterMention(...)` path; accepts both `character_name` and `characterName`; returns the `{ ok, action, characterName, source }` receipt the iOS `BackendCharacterMentionReceipt` expects. PR #50's `memory.reply_character_mentions_enabled` flag is safe to enable once T30 merges. Backend contract review of PR #47 (no backend changes), PR #49 (supplier routing matches T13 contract), and PR #50 (iOS payload matches the endpoint) found no blocking issues. |
+| T30, `/memory/record-character-mention` endpoint / PR #51 | Merged on `main` as PR #51. Codex merge pass verified `node --check backend/index.js`, `node --check backend/lib/memory_character_mention_route.js`, targeted memory tests 20/20, and full backend `npm test` 195 pass / 1 skipped. Endpoint persists rendered screenplay character cues through `creativeMemoryStore.recordCharacterMention(...)` and matches the iOS receipt contract. |
+| T-logline-distiller / PR #48 | Open and conflicting. Claude should refresh with latest `main`, preserve the three logline endpoints and `craft_loglines` persistence domain, rerun backend tests, and report back when review-ready. |
+| T07 eval gate / PR #33 | Open and conflicting. The remaining functional blocker is still human-owned: malformed GitHub Actions `OPENAI_API_KEY` secret. Claude should not weaken the gate. |
 
 ## Recurring Codex Rule
 
