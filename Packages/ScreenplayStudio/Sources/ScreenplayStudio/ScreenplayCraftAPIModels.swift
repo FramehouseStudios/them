@@ -170,3 +170,76 @@ public nonisolated struct ScreenplayCraftTurnOverrideMutation: Codable, Hashable
 public nonisolated struct ScreenplayCraftDeleteOverrideResponse: Codable, Hashable {
     public let ok: Bool
 }
+
+public nonisolated struct ScreenplayFormatLintRequest: Codable, Hashable {
+    public let text: String
+    public let frameworkId: String?
+
+    public init(text: String, frameworkId: String?) {
+        self.text = text
+        self.frameworkId = frameworkId
+    }
+}
+
+public nonisolated struct ScreenplayFormatLintReport: Codable, Hashable {
+    public let schemaVersion: Int
+    public let ruleSetVersion: String
+    public let frameworkId: String?
+    public let totalSuggestions: Int
+    public let bySeverity: [String: Int]
+    public let suggestions: [ScreenplayFormatLintSuggestion]
+
+    public init(
+        schemaVersion: Int,
+        ruleSetVersion: String,
+        frameworkId: String?,
+        totalSuggestions: Int,
+        bySeverity: [String: Int],
+        suggestions: [ScreenplayFormatLintSuggestion]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.ruleSetVersion = ruleSetVersion
+        self.frameworkId = frameworkId
+        self.totalSuggestions = totalSuggestions
+        self.bySeverity = bySeverity
+        self.suggestions = suggestions
+    }
+}
+
+public nonisolated struct ScreenplayFormatLintSuggestion: Codable, Hashable, Identifiable {
+    public let rule: String
+    public let severity: String
+    public let line: Int
+    public let range: [Int]?
+    public let excerpt: String?
+    public let message: String
+    public let suggestion: String?
+
+    public init(
+        rule: String,
+        severity: String,
+        line: Int,
+        range: [Int]?,
+        excerpt: String?,
+        message: String,
+        suggestion: String?
+    ) {
+        self.rule = rule
+        self.severity = severity
+        self.line = line
+        self.range = range
+        self.excerpt = excerpt
+        self.message = message
+        self.suggestion = suggestion
+    }
+
+    public var id: String {
+        [
+            rule,
+            severity,
+            String(line),
+            range?.map(String.init).joined(separator: "-") ?? "range",
+            message
+        ].joined(separator: ":")
+    }
+}

@@ -571,6 +571,10 @@ struct RootExperienceView: View {
     @State private var recentTurnWindow: [(user: String, assistant: String)] = []
     @State private var recentTurnWindowHistoryUpdatedAt: TimeInterval = 0
     @State private var onboardingName = ""
+    @State private var onboardingSceneSeed = ""
+    @State private var isMagicMomentSubmitting = false
+    @State private var magicMomentOnboardingError = ""
+    @AppStorage("t11.magic_moment_last_duration_ms") private var magicMomentLastDurationMs: Double = 0
     @State private var showingMemories = false
     @State private var showingConversationHistory = false
     @State private var showingNotes = false
@@ -585,6 +589,7 @@ struct RootExperienceView: View {
     @State private var inFlightTalkTask: Task<Void, Never>?
     @State private var didBumpSessionThisLaunch = false
     @FocusState private var onboardingNameFocused: Bool
+    @FocusState private var onboardingSceneFocused: Bool
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -596,6 +601,7 @@ struct RootExperienceView: View {
     @StateObject private var screenplayDraftBridge = ScreenplayLiveDraftBridge.shared
 
     @State private var backend = BackendClient()
+    private let screenplayPromptBuilder = ScreenplayPromptBuilder()
     @StateObject private var orbAudio = OrbAudioDriver()
     @StateObject private var speculativeTalk = SpeculativeTalkEngine()
     @State private var promptSpeaker = PersonalityPromptSpeaker()
@@ -654,6 +660,8 @@ struct RootExperienceView: View {
     @AppStorage("clementine_visual_context_enabled") private var visualContextEnabled: Bool = false
     @AppStorage("clementine_voice_transport_mode")
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
+    @AppStorage(ClementineRealtimeSupplierMode.storageKey)
+    private var realtimeSupplierModeRaw: String = ClementineRealtimeSupplierMode.serverDefault.rawValue
 #if DEBUG || os(macOS)
     @AppStorage("studio_debug_submit_transport_mode") private var studioDebugSubmitTransportMode: String = "live"
     @AppStorage("studio_debug_open_token") private var studioDebugOpenToken: Int = 0
@@ -713,6 +721,10 @@ struct RootExperienceView: View {
 
     private var voiceTransportMode: ClementineVoiceTransportMode {
         ClementineVoiceTransportMode(rawValue: voiceTransportModeRaw) ?? .turnBased
+    }
+
+    private var realtimeSupplierMode: ClementineRealtimeSupplierMode {
+        ClementineRealtimeSupplierMode.normalized(rawValue: realtimeSupplierModeRaw)
     }
 
     private var isStudioSurfaceActive: Bool {
@@ -937,6 +949,9 @@ struct RootExperienceView: View {
                 }
                 .onChange(of: voiceTransportModeRaw) { _, newValue in
                     handleVoiceTransportModeChange(newValue)
+                }
+                .onChange(of: realtimeSupplierModeRaw) { _, newValue in
+                    handleRealtimeSupplierModeChange(newValue)
                 }
         )
     }
@@ -1925,10 +1940,11 @@ struct RootExperienceView: View {
                 isScreenplayMode: speculativePreparedPrompt.useScreenplayMode,
                 shouldWriteToPage: speculativePreparedPrompt.shouldWriteToPage
             ) { _, _, _ in
-                return await systemPromptWithVisualContext(
+                return await buildCanonicalModelPrompt(
                     speculativePreparedPrompt.baseSystemPrompt,
                     userMessage: speculativePreparedPrompt.directorText,
-                    isScreenplayMode: speculativePreparedPrompt.useScreenplayMode
+                    isScreenplayMode: speculativePreparedPrompt.useScreenplayMode,
+                    shouldWriteToPage: speculativePreparedPrompt.shouldWriteToPage
                 )
             }
             speculativeTalk.consider(
@@ -2119,6 +2135,17 @@ struct RootExperienceView: View {
             realtimeVoice.clear()
             realtimeTransport.disconnect()
             realtimeBridgeRequest = nil
+        }
+    }
+
+    private func handleRealtimeSupplierModeChange(_ newValue: String) {
+        _ = ClementineRealtimeSupplierMode.normalized(rawValue: newValue)
+        realtimeVoice.clear()
+        realtimeTransport.disconnect()
+        realtimeBridgeRequest = nil
+        guard voiceTransportMode == .realtimePreview else { return }
+        Task { @MainActor in
+            await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
         }
     }
 
@@ -2913,33 +2940,94 @@ struct RootExperienceView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
-                Text("What should I call you?")
-                    .font(.system(size: 30, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(0.94))
-                    .multilineTextAlignment(.center)
+                VStack(spacing: 6) {
+                    Text("Start your first page")
+                        .font(.system(size: 30, weight: .semibold, design: .default))
+                        .foregroundColor(.herText.opacity(0.94))
+                        .multilineTextAlignment(.center)
 
-                TextField("Your name", text: $onboardingName)
-                    .font(.system(size: 17, weight: .regular, design: .default))
-                    .textFieldStyle(.roundedBorder)
-                    .focused($onboardingNameFocused)
-                    .onSubmit { completeOnboarding() }
-
-                Button("Done") {
-                    completeOnboarding()
+                    Text("Tell io.them who you are and the scene you want to hear first.")
+                        .font(.system(size: 13, weight: .regular, design: .default))
+                        .foregroundColor(.herText.opacity(0.72))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 17, weight: .regular, design: .default))
-                .foregroundColor(.herText.opacity(canSubmitOnboarding ? 0.94 : 0.45))
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color.white.opacity(canSubmitOnboarding ? 0.24 : 0.12))
-                )
-                .disabled(!canSubmitOnboarding)
+
+                VStack(spacing: 10) {
+                    TextField("Your name", text: $onboardingName)
+                        .font(.system(size: 17, weight: .regular, design: .default))
+                        .textFieldStyle(.roundedBorder)
+                        .focused($onboardingNameFocused)
+                        .submitLabel(.next)
+                        .onSubmit {
+                            if canSubmitOnboarding {
+                                onboardingSceneFocused = true
+                            }
+                        }
+
+                    TextField("A detective finds a letter under a motel door...", text: $onboardingSceneSeed, axis: .vertical)
+                        .font(.system(size: 16, weight: .regular, design: .default))
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(3...5)
+                        .focused($onboardingSceneFocused)
+                        .submitLabel(.go)
+                        .onSubmit {
+                            startMagicMomentOnboarding()
+                        }
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        startMagicMomentVoiceOnboarding()
+                    } label: {
+                        Text("Voice to Scene")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 15, weight: .semibold, design: .default))
+                    .foregroundColor(.herText.opacity(canStartMagicMoment ? 0.90 : 0.45))
+                    .padding(.vertical, 11)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(canStartMagicMoment ? 0.16 : 0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    )
+                    .disabled(!canStartMagicMoment)
+
+                    Button {
+                        startMagicMomentOnboarding()
+                    } label: {
+                        Text(isMagicMomentSubmitting ? "Writing..." : "Start Page")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 15, weight: .semibold, design: .default))
+                    .foregroundColor(.herText.opacity(canStartMagicMoment ? 0.94 : 0.45))
+                    .padding(.vertical, 11)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(canStartMagicMoment ? 0.26 : 0.12))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                    )
+                    .disabled(!canStartMagicMoment)
+                }
+
+                if !magicMomentOnboardingError.isEmpty {
+                    Text(magicMomentOnboardingError)
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundColor(.red.opacity(0.86))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                }
             }
             .padding(24)
-            .frame(maxWidth: 420)
+            .frame(maxWidth: 430)
             .background(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(Color.white.opacity(0.18))
@@ -2954,6 +3042,73 @@ struct RootExperienceView: View {
 
     private var canSubmitOnboarding: Bool {
         !onboardingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var canStartMagicMoment: Bool {
+        canSubmitOnboarding && !isMagicMomentSubmitting
+    }
+
+    @MainActor
+    private func startMagicMomentOnboarding() {
+        guard !isMagicMomentSubmitting else { return }
+        guard completeOnboarding(askForPersonality: false) else { return }
+
+        let cleanName = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sceneSeed = normalizedMagicMomentSceneSeed()
+        let prompt = magicMomentFirstPagePrompt(name: cleanName, sceneSeed: sceneSeed)
+        let requestID = "magic-moment-\(UUID().uuidString.lowercased())"
+        let startedAt = Date()
+
+        isMagicMomentSubmitting = true
+        magicMomentOnboardingError = ""
+        openStudio()
+        screenplayDraftBridge.autoInsertStatusText = "io.them is writing the first page..."
+
+        Task { @MainActor in
+            await Task.yield()
+            let error = await submitStudioPrompt(prompt, routingMode: .page, requestID: requestID)
+            magicMomentLastDurationMs = Date().timeIntervalSince(startedAt) * 1_000
+            isMagicMomentSubmitting = false
+
+            if let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
+                magicMomentOnboardingError = error
+                lastIssueSummary = error
+                screenplayDraftBridge.autoInsertStatusText = error
+                return
+            }
+
+            onboardingSceneSeed = ""
+            magicMomentOnboardingError = ""
+        }
+    }
+
+    @MainActor
+    private func startMagicMomentVoiceOnboarding() {
+        guard !isMagicMomentSubmitting else { return }
+        guard completeOnboarding(askForPersonality: false) else { return }
+        magicMomentOnboardingError = ""
+        openStudio()
+        startConversationLoopIfNeeded()
+    }
+
+    private func normalizedMagicMomentSceneSeed() -> String {
+        let clean = onboardingSceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !clean.isEmpty { return clean }
+        return "someone walks into a room carrying a secret they cannot say out loud yet"
+    }
+
+    private func magicMomentFirstPagePrompt(name: String, sceneSeed: String) -> String {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSeed = sceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = cleanName.isEmpty ? "the writer" : cleanName
+        let impulse = cleanSeed.isEmpty ? normalizedMagicMomentSceneSeed() : cleanSeed
+        return """
+        Write the first page of a screenplay scene for \(displayName).
+
+        Scene impulse: \(impulse)
+
+        Write only the page content in clean Fountain/Hollywood screenplay format: one slugline, visual action, character cues, and dialogue. Keep it to roughly one page. Do not explain the formatting.
+        """
     }
 
     private func openStudio() {
@@ -3095,34 +3250,6 @@ struct RootExperienceView: View {
         let routedTurns = screenplayDraftBridge.recentTurnPairs(for: memoryDomain)
         guard !routedTurns.isEmpty else { return recentTurnWindow }
         return routedTurns
-    }
-
-    private func appendingStudioMemoryDomainInstruction(
-        to systemPrompt: String,
-        memoryDomain: StudioMemoryDomain,
-        shouldWriteToPage: Bool
-    ) -> String {
-        let companionInstruction = screenplayDraftBridge.companionMode.promptInstruction
-        let instruction: String
-        switch memoryDomain {
-        case .project:
-            instruction = shouldWriteToPage
-                ? "MEMORY ROUTE: Treat this as project memory. Prioritize screenplay continuity, story facts, and draft state over companion chat."
-                : "MEMORY ROUTE: Treat this as project memory. Respond as a focused screenwriting collaborator, not as a romantic or dependency-seeking companion."
-        case .companion:
-            instruction = "MEMORY ROUTE: Treat this as companion memory. Stay relational and supportive. Do not change the screenplay page unless the user explicitly asks. If you suggest screenplay language, frame it as optional support and do not describe yourself in page mode or tool-state language.\n\(companionInstruction)"
-        case .mixed:
-            instruction = "MEMORY ROUTE: This is mixed. Acknowledge the user's emotional state briefly, then return to the screenplay problem with concrete craft help. If you draft lines, present them as a grounded suggestion rather than generic page-mode status copy.\n\(companionInstruction)"
-        }
-        return systemPrompt + "\n\n" + instruction
-    }
-
-    private func appendingCreativeIntentInstruction(
-        to systemPrompt: String,
-        signalState: CreativeCompanionSignalState
-    ) -> String {
-        guard signalState.hasContent else { return systemPrompt }
-        return systemPrompt + "\n\n" + signalState.promptGuidance()
     }
 
 #if DEBUG || os(macOS)
@@ -3558,25 +3685,6 @@ You're carrying both the scene problem and the pressure around it. For the midpo
         return Date().timeIntervalSince(lastHandledLocalStudioCommandAt) < 8
     }
 
-    private func appendingSpeakingPaceInstruction(to systemPrompt: String) -> String {
-        let clampedPace = min(max(clementineSpeakingPace, 0.7), 1.5)
-        guard abs(clampedPace - 1.0) > 0.001 else { return systemPrompt }
-
-        let instruction: String
-        switch clampedPace {
-        case ..<0.95:
-            instruction = "SPEAKING PACE: Slower. Speak more slowly and deliberately than usual, with a little more space between thoughts."
-        case ..<1.15:
-            instruction = "SPEAKING PACE: Natural. Keep a natural conversational pace, clear and unforced."
-        case ..<1.32:
-            instruction = "SPEAKING PACE: Brisk. Keep the pace a bit quicker than natural, efficient but still clear."
-        default:
-            instruction = "SPEAKING PACE: Fast. Speak quickly and efficiently, keep momentum high, and avoid lingering."
-        }
-
-        return systemPrompt + "\n\n" + instruction
-    }
-
     @MainActor
     private func currentPartialHintForTalk() -> String {
         let live = livePartialTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3639,7 +3747,7 @@ You're carrying both the scene problem and the pressure around it. For the midpo
         let confirmedStudioStoryContext = useScreenplayModeForTurn
             ? confirmedStudioPageWriteContext(for: directorText)
             : nil
-        let rawBaseSystemPrompt = appendingSpeakingPaceInstruction(to: HerVoiceSpec.makeSystemPrompt(.init(
+        let promptContext = HerVoiceSpec.Context(
             stage: director.stage,
             depthScore: director.depth,
             romanceTension: director.romance,
@@ -3681,7 +3789,7 @@ You're carrying both the scene problem and the pressure around it. For the midpo
             voicedRatio: voice.lastFinalTurnHints.voicedRatio,
             speechAgeSeconds: voice.lastFinalTurnHints.speechAgeSeconds,
             hasStrongPartial: voice.lastFinalTurnHints.hasStrongPartial
-        )))
+        )
         let companionSignals = CreativeCompanionSignalEngine.build(
             context: director,
             memoryDomain: memoryDomain,
@@ -3693,14 +3801,13 @@ You're carrying both the scene problem and the pressure around it. For the midpo
             recentTurns: recentTurns,
             sourceText: directorText
         )
-        let memoryRoutedSystemPrompt = appendingStudioMemoryDomainInstruction(
-            to: rawBaseSystemPrompt,
+        let baseSystemPrompt = ScreenplayPromptBuilder.makeLocalPersonaPrompt(
+            context: promptContext,
+            speakingPace: clementineSpeakingPace,
             memoryDomain: memoryDomain,
-            shouldWriteToPage: shouldWriteToPage
-        )
-        let baseSystemPrompt = appendingCreativeIntentInstruction(
-            to: memoryRoutedSystemPrompt,
-            signalState: companionSignals
+            shouldWriteToPage: shouldWriteToPage,
+            companionInstruction: screenplayDraftBridge.companionMode.promptInstruction,
+            companionSignals: companionSignals
         )
 
         return PreparedTurnPrompt(
@@ -4647,13 +4754,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
-    private func completeOnboarding() {
+    @discardableResult
+    private func completeOnboarding(askForPersonality: Bool = true) -> Bool {
         let clean = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
+        guard !clean.isEmpty else { return false }
         evolution.setPreferredName(clean)
         onboardingName = clean
         onboardingNameFocused = false
-        verballyAskForPersonalityIfNeeded()
+        onboardingSceneFocused = false
+        if askForPersonality {
+            verballyAskForPersonalityIfNeeded()
+        }
+        return true
     }
 
     @MainActor
@@ -5214,12 +5326,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isScreenplayMode: preparedPrompt.useScreenplayMode,
             shouldWriteToPage: preparedPrompt.shouldWriteToPage
         ) {
-            systemPrompt = preparedPrompt.baseSystemPrompt
-        } else {
-            systemPrompt = await systemPromptWithVisualContext(
+            systemPrompt = await buildCanonicalModelPrompt(
                 preparedPrompt.baseSystemPrompt,
                 userMessage: preparedPrompt.directorText,
-                isScreenplayMode: preparedPrompt.useScreenplayMode
+                isScreenplayMode: preparedPrompt.useScreenplayMode,
+                shouldWriteToPage: preparedPrompt.shouldWriteToPage,
+                includeVisualContext: false
+            )
+        } else {
+            systemPrompt = await buildCanonicalModelPrompt(
+                preparedPrompt.baseSystemPrompt,
+                userMessage: preparedPrompt.directorText,
+                isScreenplayMode: preparedPrompt.useScreenplayMode,
+                shouldWriteToPage: preparedPrompt.shouldWriteToPage
             )
         }
         let initialStudioMetadata = initialStudioTalkMetadata(from: preparedPrompt)
@@ -6142,7 +6261,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if !shouldWriteToPage {
             screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
         }
-        let rawBaseSystemPrompt = appendingSpeakingPaceInstruction(to: HerVoiceSpec.makeSystemPrompt(.init(
+        let promptContext = HerVoiceSpec.Context(
             stage: director.stage,
             depthScore: director.depth,
             romanceTension: director.romance,
@@ -6184,7 +6303,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             voicedRatio: 1.0,
             speechAgeSeconds: 2.0,
             hasStrongPartial: true
-        )))
+        )
         let companionSignals = CreativeCompanionSignalEngine.build(
             context: director,
             memoryDomain: memoryDomain,
@@ -6197,19 +6316,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             sourceText: directorText
         )
         screenplayDraftBridge.applyCompanionSignalState(companionSignals, persist: false)
-        let memoryRoutedSystemPrompt = appendingStudioMemoryDomainInstruction(
-            to: rawBaseSystemPrompt,
+        let baseSystemPrompt = ScreenplayPromptBuilder.makeLocalPersonaPrompt(
+            context: promptContext,
+            speakingPace: clementineSpeakingPace,
             memoryDomain: memoryDomain,
-            shouldWriteToPage: shouldWriteToPage
+            shouldWriteToPage: shouldWriteToPage,
+            companionInstruction: screenplayDraftBridge.companionMode.promptInstruction,
+            companionSignals: companionSignals
         )
-        let baseSystemPrompt = appendingCreativeIntentInstruction(
-            to: memoryRoutedSystemPrompt,
-            signalState: companionSignals
-        )
-        let systemPrompt = await systemPromptWithVisualContext(
+        let systemPrompt = await buildCanonicalModelPrompt(
             baseSystemPrompt,
             userMessage: cleanPrompt,
-            isScreenplayMode: true
+            isScreenplayMode: true,
+            shouldWriteToPage: shouldWriteToPage
         )
 
 #if DEBUG || os(macOS)
@@ -7798,6 +7917,45 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func buildCanonicalModelPrompt(
+        _ basePrompt: String,
+        userMessage: String,
+        isScreenplayMode: Bool,
+        shouldWriteToPage: Bool,
+        includeVisualContext: Bool = true
+    ) async -> String {
+        let projectId = screenplayDraftBridge.preferredProjectID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayProjectID : screenplayDraftBridge.preferredProjectID
+        let versionId = screenplayDraftBridge.preferredVersionID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayVersionID : screenplayDraftBridge.preferredVersionID
+        let result = await screenplayPromptBuilder.buildModelPrompt(
+            backend: backend,
+            request: ScreenplayPromptBuilder.Request(
+                persona: basePrompt,
+                // The live turn text still rides the /talk request; this endpoint assembles prompt scaffolding.
+                userInput: "",
+                projectId: projectId,
+                versionId: versionId,
+                scene: "",
+                isScreenplayMode: isScreenplayMode,
+                shouldWriteToPage: shouldWriteToPage,
+                craftFrameworkId: ""
+            )
+        )
+        let canonicalPrompt = result.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? basePrompt
+            : result.prompt
+        guard includeVisualContext else { return canonicalPrompt }
+        return await systemPromptWithVisualContext(
+            canonicalPrompt,
+            userMessage: userMessage,
+            isScreenplayMode: isScreenplayMode
+        )
+    }
+
+    @MainActor
     private func loadVisualContextIfNeeded(
         userMessage: String,
         isScreenplayMode: Bool
@@ -7887,7 +8045,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             backend: backend,
             systemPrompt: systemPrompt,
             userName: evolution.preferredName,
-            isScreenplayMode: isScreenplayMode
+            isScreenplayMode: isScreenplayMode,
+            supplierMode: realtimeSupplierMode
         )
     }
 
@@ -7910,12 +8069,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isScreenplayMode: prepared.useScreenplayMode,
             shouldWriteToPage: prepared.shouldWriteToPage
         ) {
-            return prepared.baseSystemPrompt
+            return await buildCanonicalModelPrompt(
+                prepared.baseSystemPrompt,
+                userMessage: prepared.directorText,
+                isScreenplayMode: prepared.useScreenplayMode,
+                shouldWriteToPage: prepared.shouldWriteToPage,
+                includeVisualContext: false
+            )
         }
-        return await systemPromptWithVisualContext(
+        return await buildCanonicalModelPrompt(
             prepared.baseSystemPrompt,
             userMessage: prepared.directorText,
-            isScreenplayMode: prepared.useScreenplayMode
+            isScreenplayMode: prepared.useScreenplayMode,
+            shouldWriteToPage: prepared.shouldWriteToPage
         )
     }
 
