@@ -57,6 +57,8 @@ import {
   runOutboxWorkerTick,
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
+import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
+import { buildModelPrompt } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import {
   configureScreenplayStore,
@@ -2784,6 +2786,23 @@ const scaleBackplane = await createScaleBackplane({
   logger: console,
 });
 await scaleBackplane.init();
+
+// T08: creative memory tier — per-user style/characters/tone/habits.
+// File-backed MVP; T08-postgres follow-up swaps for the T07 adapter
+// without changing the public API. Read by handleTalkRequest below.
+const creativeMemoryStore = createCreativeMemoryStore();
+
+// T08: wraps a final system prompt with the user's creative-companion
+// memory if any is present. No-op for cold users — the memory block is
+// omitted rather than serialized as null/empty (see prompt_assembly.js).
+function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
+  const userId = req?.user?.id || null;
+  if (!userId) return systemPrompt;
+  const memory = creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
+  if (!memory) return systemPrompt;
+  return buildModelPrompt({ persona: systemPrompt, creativeMemory: memory });
+}
+
 configureMemoryStore({
   DEFAULT_ASSISTANT_SELF_NAME,
   SESSION_THREAD_SCHEMA_VERSION,
@@ -30728,7 +30747,9 @@ async function handleTalkRequest(req, res) {
       ACTIVE_PRESET_GUIDANCE ||
       CLEMENTINE_PROFILE.prompts.presetGuidance;
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
-    const systemBase = normalizeSystemPrompt(withOutputContract(presetBoundSystem));
+    const systemBaseRaw = normalizeSystemPrompt(withOutputContract(presetBoundSystem));
+    // T08: augment with per-user creative memory when present (no-op for cold users).
+    const systemBase = wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
     const assistantSelfNameAddendum = `
 ASSISTANT SELF-NAME:
 - Your current self-name is "${assistantSelfName}".
