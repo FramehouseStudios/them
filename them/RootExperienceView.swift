@@ -660,6 +660,8 @@ struct RootExperienceView: View {
     @AppStorage("clementine_visual_context_enabled") private var visualContextEnabled: Bool = false
     @AppStorage("clementine_voice_transport_mode")
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
+    @AppStorage(ClementineRealtimeSupplierMode.storageKey)
+    private var realtimeSupplierModeRaw: String = ClementineRealtimeSupplierMode.serverDefault.rawValue
 #if DEBUG || os(macOS)
     @AppStorage("studio_debug_submit_transport_mode") private var studioDebugSubmitTransportMode: String = "live"
     @AppStorage("studio_debug_open_token") private var studioDebugOpenToken: Int = 0
@@ -719,6 +721,10 @@ struct RootExperienceView: View {
 
     private var voiceTransportMode: ClementineVoiceTransportMode {
         ClementineVoiceTransportMode(rawValue: voiceTransportModeRaw) ?? .turnBased
+    }
+
+    private var realtimeSupplierMode: ClementineRealtimeSupplierMode {
+        ClementineRealtimeSupplierMode.normalized(rawValue: realtimeSupplierModeRaw)
     }
 
     private var isStudioSurfaceActive: Bool {
@@ -943,6 +949,9 @@ struct RootExperienceView: View {
                 }
                 .onChange(of: voiceTransportModeRaw) { _, newValue in
                     handleVoiceTransportModeChange(newValue)
+                }
+                .onChange(of: realtimeSupplierModeRaw) { _, newValue in
+                    handleRealtimeSupplierModeChange(newValue)
                 }
         )
     }
@@ -2126,6 +2135,17 @@ struct RootExperienceView: View {
             realtimeVoice.clear()
             realtimeTransport.disconnect()
             realtimeBridgeRequest = nil
+        }
+    }
+
+    private func handleRealtimeSupplierModeChange(_ newValue: String) {
+        _ = ClementineRealtimeSupplierMode.normalized(rawValue: newValue)
+        realtimeVoice.clear()
+        realtimeTransport.disconnect()
+        realtimeBridgeRequest = nil
+        guard voiceTransportMode == .realtimePreview else { return }
+        Task { @MainActor in
+            await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
         }
     }
 
@@ -8025,7 +8045,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             backend: backend,
             systemPrompt: systemPrompt,
             userName: evolution.preferredName,
-            isScreenplayMode: isScreenplayMode
+            isScreenplayMode: isScreenplayMode,
+            supplierMode: realtimeSupplierMode
         )
     }
 

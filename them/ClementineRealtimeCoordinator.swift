@@ -27,6 +27,58 @@ enum ClementineVoiceTransportMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum ClementineRealtimeSupplierMode: String, CaseIterable, Identifiable {
+    case serverDefault = "server_default"
+    case openAI = "openai"
+    case stub = "stub"
+
+    static let storageKey = "clementine_realtime_supplier_mode"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .serverDefault:
+            return "Server Default"
+        case .openAI:
+            return "OpenAI"
+        case .stub:
+            return "Stub"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .serverDefault:
+            return "Use the backend configured realtime supplier."
+        case .openAI:
+            return "Force OpenAI Realtime for the next live voice session."
+        case .stub:
+            return "Use the deterministic stub path for smoke tests and demos."
+        }
+    }
+
+    var providerParameter: String {
+        switch self {
+        case .serverDefault:
+            return ""
+        case .openAI:
+            return "openai"
+        case .stub:
+            return "stub"
+        }
+    }
+
+    static func normalized(rawValue: String) -> ClementineRealtimeSupplierMode {
+        ClementineRealtimeSupplierMode(rawValue: rawValue) ?? .serverDefault
+    }
+
+    static func storedProviderParameter(defaults: UserDefaults = .standard) -> String {
+        let rawValue = defaults.string(forKey: storageKey) ?? serverDefault.rawValue
+        return normalized(rawValue: rawValue).providerParameter
+    }
+}
+
 struct BackendRealtimeClientSecret: Decodable, Equatable {
     let value: String
     let expiresAt: TimeInterval
@@ -57,6 +109,7 @@ struct BackendRealtimeSessionDescriptor: Decodable, Equatable {
 
 struct BackendRealtimeBootstrap: Decodable, Equatable {
     let transport: String
+    let realtimeProvider: String?
     let assistantName: String
     let model: String
     let voice: String
@@ -66,6 +119,7 @@ struct BackendRealtimeBootstrap: Decodable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case transport
+        case realtimeProvider = "realtime_provider"
         case assistantName = "assistant_name"
         case model
         case voice
@@ -104,8 +158,10 @@ final class ClementineRealtimeCoordinator: ObservableObject {
         case .preparing:
             return "Preparing Realtime session…"
         case let .ready(bootstrap):
+            let provider = bootstrap.realtimeProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let voice = bootstrap.voice.trimmingCharacters(in: .whitespacesAndNewlines)
-            return voice.isEmpty ? "Realtime session ready" : "Realtime session ready · \(voice)"
+            let details = [provider, voice].filter { !$0.isEmpty }
+            return details.isEmpty ? "Realtime session ready" : "Realtime session ready · \(details.joined(separator: " · "))"
         case let .failed(message):
             return message.isEmpty ? "Realtime session unavailable" : "Realtime unavailable · \(message)"
         }
@@ -141,12 +197,14 @@ final class ClementineRealtimeCoordinator: ObservableObject {
         backend: BackendClient,
         systemPrompt: String?,
         userName: String?,
-        isScreenplayMode: Bool
+        isScreenplayMode: Bool,
+        supplierMode: ClementineRealtimeSupplierMode = .serverDefault
     ) async {
         let signature = bootstrapSignature(
             systemPrompt: systemPrompt,
             userName: userName,
-            isScreenplayMode: isScreenplayMode
+            isScreenplayMode: isScreenplayMode,
+            supplierMode: supplierMode
         )
 
         if let cachedBootstrap,
@@ -161,7 +219,8 @@ final class ClementineRealtimeCoordinator: ObservableObject {
             let bootstrap = try await backend.fetchRealtimeClientSecret(
                 systemPrompt: systemPrompt,
                 userName: userName,
-                isScreenplayMode: isScreenplayMode
+                isScreenplayMode: isScreenplayMode,
+                realtimeProvider: supplierMode.providerParameter
             )
             cachedBootstrap = bootstrap
             cachedBootstrapSignature = signature
@@ -174,10 +233,11 @@ final class ClementineRealtimeCoordinator: ObservableObject {
     private func bootstrapSignature(
         systemPrompt: String?,
         userName: String?,
-        isScreenplayMode: Bool
+        isScreenplayMode: Bool,
+        supplierMode: ClementineRealtimeSupplierMode
     ) -> String {
         let cleanPrompt = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cleanUser = userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return "\(isScreenplayMode)|\(cleanUser)|\(cleanPrompt)"
+        return "\(isScreenplayMode)|\(supplierMode.rawValue)|\(cleanUser)|\(cleanPrompt)"
     }
 }
