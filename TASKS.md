@@ -39,7 +39,8 @@
 | T26  | Polish Craft tab framework and drift UX            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
-| T30  | Backend `/memory/record-character-mention` endpoint | claude | in-progress       |
+| T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
+| T-twist-engine | Beat-aware reversal suggestions                | claude | in-progress       |
 
 ---
 
@@ -246,9 +247,17 @@
 - **Owner:** claude
 - **Branch:** `claude/T30-record-character-mention-endpoint`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** merged
 - **Scope:** unblocks Codex PR #50 (T29). Adds `POST /memory/record-character-mention` that persists rendered screenplay character cues through `creativeMemoryStore.recordCharacterMention(...)` — the canonical creative-memory path, not ad hoc JSON. Accepts both `character_name` (snake_case) and `characterName` (camelCase). Threads `source`, `tags`, `write_id`, `line`, and `metadata.{screenplay_write_id, screenplay_project_id, screenplay_version_id}` onto the character record so reply-side mentions are distinguishable from user-input mentions. Missing optional metadata never fails the request. Returns the typed receipt iOS expects: `{ ok, action, characterName, source }`.
 - **Done when:** the endpoint is mounted in `backend/index.js`, persists through `creativeMemoryStore`, validates/sanitizes name and source, accepts snake_case+camelCase, returns the typed receipt; ≥5 endpoint integration tests cover (1) snake_case payload, (2) camelCase payload, (3) metadata + write_id + line preservation, (4) invalid/empty character_name rejection, (5) idempotent-ish repeated mentions; the full backend suite stays green. Codex can enable `memory.reply_character_mentions_enabled` once this merges.
+
+### T-twist-engine — Beat-aware reversal suggestions
+- **Owner:** claude
+- **Branch:** `claude/T-twist-engine`
+- **Pillar:** voice→scene + living companion (Craft Intelligence Suite, Layer 2)
+- **Status:** in-progress
+- **Scope:** `backend/lib/twist_engine.js` produces structured reversal suggestions for a given framework beat. Deterministic stub by default: canonical twist patterns mapped to the major-turn beats of each framework (Save the Cat, Story Circle, Hero's Journey, Three-Act). LLM mode via the T21 classifier interface when an `OPENAI_API_KEY`-backed classifier is configured. Pure analysis — no new persistence domain. Endpoint `POST /craft/twist/suggest` accepts `{ frameworkId, currentBeatId, sceneSummary?, count? }` and returns `{ schemaVersion, twists: [{ id, label, hook, severity, rationale }] }`. iOS Studio can consume the endpoint to surface reversal cards on the beat timeline.
+- **Done when:** `suggestTwists({ frameworkId, currentBeatId, sceneSummary?, classifier? })` returns deterministic twists for each major-turn beat of each canonical framework; ≥12 unit tests + ≥4 endpoint integration tests; full backend test suite stays green; design notes in `docs/T-twist-engine.md`.
 
 ---
 
