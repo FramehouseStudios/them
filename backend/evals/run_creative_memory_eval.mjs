@@ -23,10 +23,11 @@ import {
   buildModelPrompt,
   MEMORY_BLOCK_OPEN,
 } from "../lib/prompt_assembly.js";
+import { createJsonPersistence } from "../lib/persistence_json.js";
 
-function tempStorePath() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-eval-creative-memory-"));
-  return path.join(dir, "store.json");
+function freshPersistence() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-eval-creative-memory-"));
+  return createJsonPersistence({ jsonRoot: root });
 }
 
 let allOK = true;
@@ -40,8 +41,8 @@ function check(label, cond, detail = "") {
 }
 
 async function caseColdUser() {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
-  const memory = store.getCreativeMemoryForPrompt({ userId: "cold-user" });
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const memory = await store.getCreativeMemoryForPrompt({ userId: "cold-user" });
   check("memory-absent: getCreativeMemoryForPrompt returns null", memory === null,
     `got: ${JSON.stringify(memory)}`);
   const prompt = buildModelPrompt({
@@ -61,7 +62,7 @@ async function caseColdUser() {
 }
 
 async function caseSeededUser() {
-  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({
     userId: "seeded-user",
     characterName: "June",
@@ -72,7 +73,7 @@ async function caseSeededUser() {
     userId: "seeded-user",
     signal: { emotional_default: "wry", humor_register: "absurd" },
   });
-  const memory = store.getCreativeMemoryForPrompt({ userId: "seeded-user" });
+  const memory = await store.getCreativeMemoryForPrompt({ userId: "seeded-user" });
   check("memory-present: getCreativeMemoryForPrompt returns a record", memory !== null);
   check("memory-present: characters has June", Array.isArray(memory?.characters) && memory.characters[0]?.name === "June");
   check("memory-present: tone.emotional_default = wry", memory?.tone?.emotional_default === "wry");

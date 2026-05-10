@@ -2824,10 +2824,10 @@ try {
 }
 console.log(`[persistence] kind=${sharedPersistence.kind}`);
 
-// T08: creative memory tier - per-user style/characters/tone/habits.
-// File-backed MVP; T08-postgres follow-up swaps for the T07 adapter
-// without changing the public API. Read by handleTalkRequest below.
-const creativeMemoryStore = createCreativeMemoryStore();
+// T08 + T08-postgres: creative memory tier — per-user style/characters/
+// tone/habits. Persistence-adapter-backed (Postgres when DATABASE_URL
+// is set, JSON-file otherwise via the shared adapter from T07).
+const creativeMemoryStore = createCreativeMemoryStore({ persistence: sharedPersistence });
 
 // T08: wraps a final system prompt with the user's creative-companion
 // memory if any is present. No-op for cold users - the memory block is
@@ -2845,10 +2845,10 @@ function appendCraftContextToSystem(systemPrompt, { req } = {}) {
   return `${systemPrompt}\n\n${block}`;
 }
 
-function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
+async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
   const userId = req?.user?.id || null;
   if (!userId) return systemPrompt;
-  const memory = creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
+  const memory = await creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
   if (!memory) return systemPrompt;
   return buildModelPrompt({ persona: systemPrompt, creativeMemory: memory });
 }
@@ -30895,7 +30895,7 @@ async function handleTalkRequest(req, res) {
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
     const systemBaseRaw = normalizeSystemPrompt(withOutputContract(presetBoundSystem));
     // T08: augment with per-user creative memory when present (no-op for cold users).
-    const systemBaseWithMemory = wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
+    const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
     // T21: when this is a screenplay page-write turn, append a compact
     // craft-context block describing the active framework (and, when
     // available, the user's coverage state). Cheap and additive: the
