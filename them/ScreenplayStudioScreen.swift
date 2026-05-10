@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 import Combine
 import PDFKit
 import UniformTypeIdentifiers

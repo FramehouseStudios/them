@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 
 struct ScreenplayCraftRailView: View {
     let projectTitle: String

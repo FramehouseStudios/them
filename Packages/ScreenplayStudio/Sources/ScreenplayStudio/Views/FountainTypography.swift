@@ -1,23 +1,23 @@
 import SwiftUI
 
-enum FountainTypography {
+public enum FountainTypography {
     // Standard screenplay: Courier 12pt, but we use system monospaced for availability
-    static let baseFontSize: CGFloat = 14
-    static let pageBackgroundColor = Color.black
-    static let paperColor = Color(white: 0.06)
-    static let textColor = Color(white: 0.92)
-    static let hiddenColor = Color.clear
-    static let cursorColor = Color(red: 1, green: 0.6, blue: 0.2) // warm amber
+    public static let baseFontSize: CGFloat = 14
+    public static let pageBackgroundColor = Color.black
+    public static let paperColor = Color(white: 0.06)
+    public static let textColor = Color(white: 0.92)
+    public static let hiddenColor = Color.clear
+    public static let cursorColor = Color(red: 1, green: 0.6, blue: 0.2) // warm amber
 
     // Screenplay element indentation (proportional to standard 8.5x11 margins)
-    static let sceneHeadingIndent: CGFloat = 0
-    static let actionIndent: CGFloat = 0
-    static let characterIndent: CGFloat = 120
-    static let dialogueIndent: CGFloat = 72
-    static let parentheticalIndent: CGFloat = 90
-    static let transitionIndent: CGFloat = 0 // right-aligned handled separately
+    public static let sceneHeadingIndent: CGFloat = 0
+    public static let actionIndent: CGFloat = 0
+    public static let characterIndent: CGFloat = 120
+    public static let dialogueIndent: CGFloat = 72
+    public static let parentheticalIndent: CGFloat = 90
+    public static let transitionIndent: CGFloat = 0 // right-aligned handled separately
 
-    static func font(for kind: FountainElement.Kind, size: CGFloat = baseFontSize) -> Font {
+    public static func font(for kind: FountainElement.Kind, size: CGFloat = baseFontSize) -> Font {
         switch kind {
         case .sceneHeading:
             return .system(size: size, weight: .bold, design: .monospaced)
@@ -30,7 +30,7 @@ enum FountainTypography {
         }
     }
 
-    static func indent(for kind: FountainElement.Kind) -> CGFloat {
+    public static func indent(for kind: FountainElement.Kind) -> CGFloat {
         switch kind {
         case .sceneHeading: return sceneHeadingIndent
         case .action: return actionIndent
@@ -42,21 +42,21 @@ enum FountainTypography {
         }
     }
 
-    static func alignment(for kind: FountainElement.Kind) -> TextAlignment {
+    public static func alignment(for kind: FountainElement.Kind) -> TextAlignment {
         switch kind {
         case .transition: return .trailing
         default: return .leading
         }
     }
 
-    static func horizontalAlignment(for kind: FountainElement.Kind) -> HorizontalAlignment {
+    public static func horizontalAlignment(for kind: FountainElement.Kind) -> HorizontalAlignment {
         switch kind {
         case .transition: return .trailing
         default: return .leading
         }
     }
 
-    static func topSpacing(for kind: FountainElement.Kind, afterKind: FountainElement.Kind?) -> CGFloat {
+    public static func topSpacing(for kind: FountainElement.Kind, afterKind: FountainElement.Kind?) -> CGFloat {
         switch kind {
         case .sceneHeading: return afterKind == nil ? 0 : 20
         case .action:
@@ -71,7 +71,7 @@ enum FountainTypography {
     }
 
     /// Classifies a rendered Fountain line into its element kind.
-    static func classifyLine(_ line: String) -> FountainElement.Kind {
+    public static func classifyLine(_ line: String) -> FountainElement.Kind {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return .blank }
 

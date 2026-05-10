@@ -1,11 +1,17 @@
 import SwiftUI
 
-struct FountainRevealView: View {
-    let formattedText: String
-    let revealedWordCount: Int
-    let isStreaming: Bool
+public struct FountainRevealView: View {
+    public let formattedText: String
+    public let revealedWordCount: Int
+    public let isStreaming: Bool
 
-    var body: some View {
+    public init(formattedText: String, revealedWordCount: Int, isStreaming: Bool) {
+        self.formattedText = formattedText
+        self.revealedWordCount = revealedWordCount
+        self.isStreaming = isStreaming
+    }
+
+    public var body: some View {
         let lines = parsedLines
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
