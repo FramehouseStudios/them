@@ -31,7 +31,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T13-client | Add iOS realtime supplier selection            | codex  | merged            |
 | T29  | Hook iOS reply-side character mentions             | codex  | review            |
-| T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
+| T14  | Triage G3 backend feature snapshot                 | codex  | review            |
 | T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | merged            |
 | T23  | Add craft completeness RC release gate             | claude | review            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
@@ -124,9 +124,9 @@
 
 ### T08w-triggers — Fire creative-memory write triggers from `/talk`
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `codex/T14-g3-snapshot-triage`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready-for-claude
+- **Status:** review-for-claude
 - **Done when:** character mentions, scene completions, and tone signals detected in `/talk` exchanges trigger the corresponding `recordXxx` calls on `creativeMemoryStore`; `run_creative_memory_eval.mjs` covers at least one trigger-fired case.
 
 ### T08-postgres — Move creative memory store to persistence adapter
@@ -192,9 +192,9 @@
 
 ### T14 — Triage G3 backend feature snapshot
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T14-g3-snapshot-triage`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready
+- **Status:** review
 - **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
 - **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
 
