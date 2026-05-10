@@ -34,17 +34,17 @@
 
 ---
 
-## Current next-10 checklist (2026-05-09 post-drain)
+## Current next-10 checklist (2026-05-09 post-T05)
 
-1. Claude starts T07a: wire outbox durability through the persistence adapter.
-2. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
-3. Claude starts T08w-triggers: write creative-memory signals from `/talk` post-processing.
+1. Codex/Claude review and merge PR #26: T08w creative-memory write triggers from `/talk`.
+2. Claude starts T07a: wire outbox durability through the persistence adapter.
+3. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
 4. Claude starts T08-postgres: move `creative_memory_store` onto the persistence adapter.
 5. Claude starts T23: enforce the missing-major-turn RC gate.
-6. Codex starts T05: add `first_page_written` telemetry.
-7. Codex starts T04: apply canonical `io.them` naming end-to-end.
-8. Codex starts T10: codify the shared design system.
-9. Codex starts T11 after T05 and T08 land: 60-second magic-moment onboarding.
+6. Codex starts T04: apply canonical `io.them` naming end-to-end.
+7. Codex starts T10: codify the shared design system.
+8. Codex starts T14: triage the G3 backend feature snapshot into mergeable work.
+9. Codex starts T11 after T08 lands: 60-second magic-moment onboarding using the completed T05 telemetry.
 10. Codex starts T12 after T11: perceived-speed primitives for the magic-moment path.
 
 ---
