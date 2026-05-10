@@ -29,6 +29,7 @@
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
+| T29  | Hook iOS reply-side character mentions             | codex  | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | review            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
@@ -161,6 +162,14 @@
 - **Scope (follow-up):** integrate a real second supplier (ElevenLabs Conversational AI / Anthropic Realtime / etc.) once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
 - **Done when (foundation, this PR):** OpenAI logic extracted behind the interface; stub second supplier passes the same contract test; runtime config via `REALTIME_PROVIDER` defaults to `openai`; `POST /realtime/client_secret` returns the supplier's mint result regardless of provider; tests exercise both paths.
 - **Done when (overall T13):** a real second supplier ships behind the same interface and is exercised end-to-end against a live account in CI.
+
+### T29 — Hook iOS reply-side character mentions
+- **Owner:** codex
+- **Branch:** `codex/T-ios-reply-character-mentions`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** in-progress
+- **Done when:** the iOS screenplay-render path extracts likely rendered character cues from final page text and posts them to `/memory/record-character-mention` behind an opt-in feature flag; missing endpoint or disabled flag is a safe no-op; tests cover extraction, feature flag behavior, and request shape.
+- **Dependency:** Claude/backend still needs to ship `/memory/record-character-mention`; Codex will leave the call site guarded until that endpoint exists.
 
 ### T14 — Triage G3 backend feature snapshot
 - **Owner:** codex
