@@ -50,12 +50,13 @@
 | T34  | Build iOS logline rail consumer                   | codex  | merged            |
 | T35  | Build iOS block-signal nudge surface              | codex  | merged            |
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
+| T37  | Build iOS twist-card consumer                     | codex  | in-progress       |
 
 ---
 
 ## Current next-10 checklist (2026-05-10 after Layer 2 backend merge stack)
 
-1. Build the iOS twist-card consumer for `POST /craft/twist/suggest`.
+1. Build the iOS twist-card consumer for `POST /craft/twist/suggest` (T37 in progress).
 2. Start T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
 3. Claude rebases PR #59 (`T-accepted-twist-log`) and PR #60 (`T-codex-inbox`) over the current main, then Codex reviews them.
 4. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
@@ -412,6 +413,15 @@
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** iOS has typed client/models for `GET /memory/character-traits`; the Studio side rail surfaces character voice/trait cards with loading, empty, and retry states; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+
+---
+
+### T37 — Build iOS twist-card consumer
+- **Owner:** codex
+- **Branch:** `codex/T37-ios-twist-cards`
+- **Pillar:** living companion + screenplay craft
+- **Status:** in-progress
+- **Done when:** iOS has typed client/models for `POST /craft/twist/suggest`; the Studio craft or companion rail can request beat-aware reversal cards from the merged twist engine with loading, empty, and retry states; focused tests cover request shape, decoding, and view-state mapping; handoff docs name the next Claude/Codex follow-up.
 
 ---
 
