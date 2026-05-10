@@ -135,7 +135,7 @@ struct DataControlsScreen: View {
                 Text("On backend (server)")
                     .font(.system(size: 14, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.86))
-                Text("Conversation history, memory summaries, and names or details you ask Clementine to remember so continuity works across sessions.")
+                Text("Conversation history, memory summaries, and names or details you ask io.them to remember so continuity works across sessions.")
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.78))
             }
@@ -259,7 +259,7 @@ struct DataControlsScreen: View {
                     Text("Use Active Window")
                         .font(.system(size: 15, weight: .semibold, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.90))
-                    Text("Lets Clementine look at the frontmost window before a turn so she can respond to what is on screen, not just what was said. This may add a little latency.")
+                    Text("Lets io.them look at the frontmost window before a turn so she can respond to what is on screen, not just what was said. This may add a little latency.")
                         .font(.system(size: 13, weight: .regular, design: .default))
                         .foregroundStyle(Color.herText.opacity(0.76))
                 }
@@ -275,7 +275,7 @@ struct DataControlsScreen: View {
                 Button("Request Screen Access") {
                     let granted = ClementineVisualContextCapture.requestScreenAccess()
                     statusMessage = granted
-                        ? "Screen access granted. Clementine can use active-window context now."
+                        ? "Screen access granted. io.them can use active-window context now."
                         : "Screen access is still required for visual context."
                 }
                 .buttonStyle(.bordered)

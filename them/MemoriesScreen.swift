@@ -463,7 +463,7 @@ final class MemoriesViewModel: ObservableObject {
     }
 }
 
-// MARK: - Theme (aligned to existing THEM look)
+// MARK: - Theme (aligned to existing io.them look)
 
 enum MemoriesTheme {
     static let textPrimary = Color.herText.opacity(0.95)

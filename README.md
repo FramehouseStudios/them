@@ -1,4 +1,6 @@
-Desktop `io.them/them` workspace layout
+# io.them
+
+Canonical io.them workspace layout
 
 - Active macOS app source: `them/`
 - Active Xcode project: `them.xcodeproj`

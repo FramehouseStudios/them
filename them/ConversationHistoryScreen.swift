@@ -289,7 +289,7 @@ final class ConversationHistoryViewModel: ObservableObject {
     }
 }
 
-// MARK: - Theme (aligned to existing THEM visual language)
+// MARK: - Theme (aligned to existing io.them visual language)
 
 enum ConversationHistoryTheme {
     static let textPrimary = Color.herText.opacity(0.95)

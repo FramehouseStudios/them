@@ -185,7 +185,7 @@ struct AppShell: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
-                    Text("THEM.IO")
+                    Text("io.them")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.primary.opacity(0.82))
                     Text(backendBridge.identityLine)
@@ -242,7 +242,7 @@ struct AppShell: View {
                 .tag(section as AppSection?)
         }
         .listStyle(.sidebar)
-        .navigationTitle("THEM.IO")
+        .navigationTitle("io.them")
         .frame(minWidth: 220)
     }
 
@@ -339,7 +339,7 @@ struct ConversationScreen: View {
                         driver.setMicSensitivity(CGFloat(newValue))
                     }
 
-                Text("Hold to speak to THEM")
+                Text("Hold to speak to io.them")
                     .font(.system(size: 15, weight: .regular))
                     .foregroundStyle(.white.opacity(0.62))
 
@@ -426,7 +426,7 @@ struct VoiceSettingsScreen: View {
                                 Text("Voice & Studio")
                                     .font(.system(size: 28, weight: .semibold))
                                     .foregroundStyle(.white)
-                                Text("How Clementine listens, responds, and tracks your arc together.")
+                                Text("How io.them listens, responds, and tracks your arc together.")
                                     .font(.system(size: 13, weight: .regular))
                                     .foregroundStyle(.white.opacity(0.48))
                             }
@@ -504,7 +504,7 @@ struct VoiceSettingsScreen: View {
                     settingsSection("Playback") {
                         settingRow(
                             title: "Speaking pace",
-                            subtitle: "Guides Clementine's delivery on the next response. Slower adds more space; faster keeps the cadence tighter.",
+                            subtitle: "Guides io.them's delivery on the next response. Slower adds more space; faster keeps the cadence tighter.",
                             value: speakingPace,
                             range: 0.7...1.5,
                             step: 0.05,
@@ -520,7 +520,7 @@ struct VoiceSettingsScreen: View {
                         )
                         toggleRow(
                             title: "Show live script preview",
-                            subtitle: "Display the home-surface live preview when Clementine is actively writing into Studio.",
+                            subtitle: "Display the home-surface live preview when io.them is actively writing into Studio.",
                             isOn: $showScriptPreview
                         )
                     }
@@ -546,7 +546,7 @@ struct VoiceSettingsScreen: View {
                                     .foregroundStyle(.white.opacity(0.45))
                                 Text(
                                     evolution.isScreenwriter
-                                        ? "Clementine knows you're a screenwriter"
+                                        ? "io.them knows you're a screenwriter"
                                         : "Screenwriter identity not established yet"
                                 )
                                 .font(.system(size: 11, weight: .regular))

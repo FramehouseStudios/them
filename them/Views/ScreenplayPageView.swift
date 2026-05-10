@@ -92,7 +92,7 @@ struct ScreenplayPageView: View {
             ProgressView()
                 .scaleEffect(0.6)
                 .tint(FountainTypography.cursorColor)
-            Text("Clementine is writing...")
+            Text("io.them is writing...")
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundColor(Color(white: 0.4))
         }
@@ -105,7 +105,7 @@ struct ScreenplayPageView: View {
             Text("Start talking.")
                 .font(.system(size: 16, weight: .light, design: .monospaced))
                 .foregroundColor(Color(white: 0.3))
-            Text("Clementine is listening.")
+            Text("io.them is listening.")
                 .font(.system(size: 12, weight: .light, design: .monospaced))
                 .foregroundColor(Color(white: 0.2))
         }
