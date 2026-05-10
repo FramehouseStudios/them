@@ -2579,7 +2579,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             mode: .streamPreview,
             replacementTarget: currentInsertionReplacementTarget()
         )
-        autoInsertStatusText = "Clementine is writing..."
+        autoInsertStatusText = "io.them is writing..."
     }
 
     func commitStreamingVoiceTurn(
@@ -2665,7 +2665,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
         let lines = trimmed.components(separatedBy: "\n")
         let totalChars = max(1, trimmed.count)
-        autoInsertStatusText = "Clementine is writing..."
+        autoInsertStatusText = "io.them is writing..."
 
         streamTask = Task { @MainActor in
             var streamedText = ""
@@ -2735,7 +2735,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             interruptionReason: nil,
             failureReason: nil
         )
-        autoInsertStatusText = "Clementine is preparing the page..."
+        autoInsertStatusText = "io.them is preparing the page..."
     }
 
     func resetSyncedVoiceTurnTracking() {
@@ -2771,7 +2771,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !cleanText.isEmpty else { return }
         stagedSyncedVoiceTurnPreviewText = cleanText
         if autoInsertStatusText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            autoInsertStatusText = "Clementine is preparing the page..."
+            autoInsertStatusText = "io.them is preparing the page..."
         }
         refreshSyncedVoiceTurnState()
     }
@@ -3019,7 +3019,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             1,
             plan.replacementTarget?.startLine ?? currentSyncedVoiceAnchorLineHint()
         )
-        autoInsertStatusText = "Clementine is writing..."
+        autoInsertStatusText = "io.them is writing..."
         streamingProgress = 0
         stagedSyncedVoiceTurnRequestID = resolvedRequestID
         stagedSyncedVoiceTurnAuthoritativeText = trimmed
@@ -3193,7 +3193,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         } else if !rollbackDraft, hadQueuedSyncedInsert {
             pendingInsertion = nil
         }
-        if autoInsertStatusText == "Clementine is writing..." {
+        if autoInsertStatusText == "io.them is writing..." {
             autoInsertStatusText = ""
         }
         return wasStreaming || cancelledSynced
