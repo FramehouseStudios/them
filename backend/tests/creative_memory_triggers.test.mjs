@@ -1,0 +1,141 @@
+// T08w-triggers: tests for recordTriggersFromTalkTurn.
+
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { test } from "node:test";
+
+import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
+
+function tempStorePath() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-triggers-"));
+  return path.join(dir, "creative_memory_store.json");
+}
+
+test("recordTriggersFromTalkTurn skips with no userId", async () => {
+  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const r = await store.recordTriggersFromTalkTurn({ userId: null, transcript: "hello" });
+  assert.equal(r.skipped, true);
+});
+
+test("recordTriggersFromTalkTurn extracts character cue lines from screenplay-formatted reply", async () => {
+  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const reply = `INT. KITCHEN - NIGHT
+
+JUNE
+Where were you?
+
+BOB
+Out.
+
+MRS. AARONS
+You should both be ashamed.
+`;
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-1",
+    transcript: "",
+    reply,
+  });
+  assert.ok(summary.characterMentions >= 3, `got ${summary.characterMentions}`);
+  const memory = store.getCreativeMemoryForPrompt({ userId: "u-trig-1" });
+  const names = memory.characters.map((c) => c.name).sort();
+  assert.ok(names.includes("JUNE"));
+  assert.ok(names.includes("BOB"));
+  assert.ok(names.includes("MRS. AARONS"));
+});
+
+test("recordTriggersFromTalkTurn skips scene-heading words like INT EXT FADE", async () => {
+  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const reply = `INT
+something
+EXT
+something else
+FADE
+out
+JUNE
+real character`;
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-2",
+    transcript: "",
+    reply,
+  });
+  const memory = store.getCreativeMemoryForPrompt({ userId: "u-trig-2" });
+  const names = (memory?.characters || []).map((c) => c.name);
+  assert.ok(names.includes("JUNE"));
+  assert.equal(names.includes("INT"), false);
+  assert.equal(names.includes("EXT"), false);
+  assert.equal(names.includes("FADE"), false);
+});
+
+test("recordTriggersFromTalkTurn dedupes character mentions within one turn", async () => {
+  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const reply = `JUNE
+hi
+JUNE
+again
+JUNE
+once more`;
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-3",
+    transcript: "",
+    reply,
+  });
+  assert.equal(summary.characterMentions, 1);
+});
+
+test("recordTriggersFromTalkTurn captures lexical phrases from user transcript", async () => {
+  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-4",
+    transcript: "She stares out the window. He waits in the doorway. Nothing moves yet.",
+    reply: "",
+  });
+  const memory = store.getCreativeMemoryForPrompt({ userId: "u-trig-4" });
+  assert.ok(memory.style?.lexicalFingerprint?.length >= 1);
+});
+
+test("recordTriggersFromTalkTurn caps at 8 character mentions per turn", async () => {
+  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const lines = [];
+  for (let i = 1; i <= 12; i += 1) lines.push(`CHAR${i}\nspeaks line ${i}`);
+  const reply = lines.join("\n");
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-5",
+    transcript: "",
+    reply,
+  });
+  assert.equal(summary.characterMentions, 8);
+});
+
+test("recordTriggersFromTalkTurn records session pattern when sessionStartedAt is set", async () => {
+  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  const morning = new Date();
+  morning.setHours(8, 0, 0, 0);
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-6",
+    transcript: "She walks the dog at sunrise.",
+    reply: "",
+    sessionStartedAt: morning.getTime(),
+    sessionDurationMs: 300_000,
+  });
+  const memory = store.getCreativeMemoryForPrompt({ userId: "u-trig-6" });
+  assert.equal(memory?.habits?.session_pattern, "morning");
+});
+
+test("recordTriggersFromTalkTurn never throws on garbage input", async () => {
+  const store = createCreativeMemoryStore({ filePath: tempStorePath() });
+  // Should silently no-op, not throw.
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-7",
+    transcript: null,
+    reply: undefined,
+  });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-8",
+    transcript: 12345,
+    reply: { not: "a string" },
+  });
+  // No exception means pass.
+  assert.ok(true);
+});

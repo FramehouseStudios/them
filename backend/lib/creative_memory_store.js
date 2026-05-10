@@ -280,6 +280,85 @@ function createCreativeMemoryStore({ filePath = DEFAULT_FILE } = {}) {
     writeAll({});
   }
 
+  // T08w-triggers: extract signals from a /talk turn and fire the
+  // appropriate write triggers. Pure-ish: deterministic given inputs;
+  // only side effect is the writes through the existing trigger
+  // functions above. Safe to call when userId is null (becomes a no-op).
+  async function recordTriggersFromTalkTurn({
+    userId,
+    transcript = "",
+    reply = "",
+    sessionStartedAt = null,
+    sessionDurationMs = null,
+  } = {}) {
+    if (!userId) return { skipped: true, reason: "no userId" };
+    const summary = {
+      characterMentions: 0,
+      lexicalPhrases: 0,
+      sessionRecorded: false,
+    };
+
+    const combined = `${String(transcript || "")}\n${String(reply || "")}`;
+
+    // Character mentions: screenplay character cue lines are CAPITALIZED
+    // names on their own line, optionally followed by a parenthetical.
+    // Allow letters, digits ("GUARD 2"), spaces, periods, apostrophes,
+    // and hyphens. Bounded — we cap at 8 unique names per turn.
+    // Use [ \t]* (horizontal whitespace) rather than \s* — \s would
+    // greedily consume trailing newlines and skip the next cue line.
+    const cueRegex = /(?:^|\n)[ \t]*([A-Z][A-Z0-9 .'-]{1,34}[A-Z0-9])(?:[ \t]*\([^)]+\))?[ \t]*\n/g;
+    const seen = new Set();
+    let match;
+    let limit = 8;
+    while (limit > 0 && (match = cueRegex.exec(combined)) !== null) {
+      const raw = String(match[1] || "").trim();
+      if (!raw || raw.length < 2) continue;
+      // Skip screenplay scene headings (INT./EXT. + LOCATION) and common
+      // transition words. Prefix match catches "INT. KITCHEN - NIGHT".
+      if (/^(INT\.|EXT\.|INT\/EXT|INT|EXT|FADE|CUT TO|CUT|END|TITLE|MONTAGE|FLASHBACK|SUPER|SMASH CUT|MATCH CUT|DISSOLVE)/.test(raw)) continue;
+      // Skip lines that look like scene actions (multiple spaces after a hyphen).
+      if (raw.includes(" - ") && raw.split(" ").length > 4) continue;
+      const key = raw.toUpperCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      try {
+        await recordCharacterMention({ userId, characterName: raw });
+        summary.characterMentions += 1;
+      } catch (_e) { /* never block the response on memory writes */ }
+      limit -= 1;
+    }
+
+    // Lexical fingerprint: capture short evocative phrases from the
+    // user's transcript (4-10 words, ending at sentence boundary).
+    // Bounded — top 4 sentences from this turn.
+    if (transcript && typeof transcript === "string") {
+      const sentences = transcript
+        .split(/[.!?]\s+/)
+        .map((s) => s.trim())
+        .filter((s) => {
+          const wc = s.split(/\s+/).filter(Boolean).length;
+          return wc >= 4 && wc <= 12;
+        })
+        .slice(0, 4);
+      if (sentences.length) {
+        try {
+          await recordLexicalFingerprint({ userId, phrases: sentences });
+          summary.lexicalPhrases = sentences.length;
+        } catch (_e) { /* */ }
+      }
+    }
+
+    // Session pattern: derive from the session start time when supplied.
+    if (Number.isFinite(sessionStartedAt)) {
+      try {
+        await recordSessionEnd({ userId, sessionStartedAt, sessionDurationMs });
+        summary.sessionRecorded = true;
+      } catch (_e) { /* */ }
+    }
+
+    return summary;
+  }
+
   return {
     SCHEMA_VERSION,
     getCreativeMemoryForPrompt,
@@ -290,6 +369,7 @@ function createCreativeMemoryStore({ filePath = DEFAULT_FILE } = {}) {
     recordToneSignal,
     recordSessionEnd,
     recordLexicalFingerprint,
+    recordTriggersFromTalkTurn,
     _readAll: readAll,
     _clearAll: clearAll,
   };

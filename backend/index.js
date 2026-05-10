@@ -2819,6 +2819,35 @@ function appendCraftContextToSystem(systemPrompt, { req } = {}) {
   return `${systemPrompt}\n\n${block}`;
 }
 
+// T08w-triggers: fire creative-memory write triggers from a /talk turn.
+// Best-effort, fire-and-forget — never blocks the response. Uses
+// transcript candidates from req.body to detect character mentions and
+// capture lexical phrases. Reply-side detection is a follow-up that
+// requires capturing the final assembled reply; user-side signals here
+// are reliable and the highest-leverage starting point.
+function recordCreativeMemoryTriggersForRequest(req) {
+  const userId = req?.user?.id || null;
+  if (!userId) return Promise.resolve({ skipped: true, reason: "no userId" });
+  const transcriptCandidates = [
+    req?.body?.client_transcript,
+    req?.body?.clientTranscript,
+    req?.body?.transcript,
+    req?.body?.debug_transcript,
+    req?.body?.debugTranscript,
+  ];
+  const transcript = transcriptCandidates
+    .map((t) => (typeof t === "string" ? t : ""))
+    .find((t) => t.trim().length > 0) || "";
+  if (!transcript) return Promise.resolve({ skipped: true, reason: "no transcript" });
+  const startedAt = Number(req?.body?.session_started_at) || Number(req?.body?.sessionStartedAt) || null;
+  return creativeMemoryStore.recordTriggersFromTalkTurn({
+    userId,
+    transcript,
+    reply: "",
+    sessionStartedAt: Number.isFinite(startedAt) ? startedAt : null,
+  });
+}
+
 function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
   const userId = req?.user?.id || null;
   if (!userId) return systemPrompt;
@@ -29144,6 +29173,12 @@ async function handleTalkRequest(req, res) {
   const rid = req.requestId || reqId;
   const ts = new Date().toISOString();
   const ip = clientIp(req);
+  // T08w-triggers: fire-and-forget creative-memory writes based on the
+  // request transcript. Never blocks the response. Errors are logged
+  // and swallowed — memory writes must not affect the /talk contract.
+  void recordCreativeMemoryTriggersForRequest(req).catch((err) => {
+    console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
+  });
   const talkStreamMode = parseTalkStreamMode(req);
   const streamAudioRequested = TALK_STREAM_AUDIO_ENABLED && talkStreamMode === "audio";
   const interactiveVoiceProfile = {
