@@ -31,6 +31,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
+| T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | review            |
 | T27  | Add Codex-to-Claude live handoff ledger            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
 
@@ -174,6 +175,13 @@
 - **Status:** ready-for-claude
 - **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
 
+### T24 — Consolidate iOS ScreenplayPromptBuilder path
+- **Owner:** codex
+- **Branch:** `codex/T24-prompt-builder-consolidation`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** review
+- **Done when:** every model-bound prompt request from iOS is produced through one Swift `ScreenplayPromptBuilder` entry point; legacy prompt-construction sites are replaced; the builder routes screenplay requests through the backend endpoint that runs canonical `buildModelPrompt(...)`; tests cover the single-path contract.
+
 ### T27 — Add Codex-to-Claude live handoff ledger
 - **Owner:** codex
 - **Branch:** `codex/T27-claude-live-handoff`
@@ -188,6 +196,7 @@
 - **Status:** in-progress
 - **Scope:** purely rule-based (no LLM). Rules v1 covers scene-heading shape, character-cue caps + own-line, parenthetical density, action-line voice flags, page-economy heuristic. Each violation is a structured suggestion with severity (`hard` | `medium` | `soft`), not a rejection. Endpoint `POST /craft/format/lint` accepts a screenplay text payload + framework hint and returns suggestions. No iOS work in this PR; Codex's `T-format-iOS` row consumes the endpoint when it's ready.
 - **Done when:** `backend/lib/format_linter.js` exposes `lintScreenplay({ text, frameworkId? })` returning structured suggestions; route mounts under `/craft/format/lint`; ≥15 unit tests cover each rule (positive + negative cases); fixture-driven tests against the existing `report_complete.json` source screenplay shape; full backend test suite stays green; design notes in `docs/T-format-linter.md`.
+
 
 ---
 

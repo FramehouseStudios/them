@@ -1,0 +1,192 @@
+import Foundation
+
+struct BackendScreenplayPromptSessionContext: Codable, Equatable {
+    var projectId: String
+    var versionId: String
+    var scene: String
+
+    enum CodingKeys: String, CodingKey {
+        case projectId = "project_id"
+        case versionId = "version_id"
+        case scene
+    }
+}
+
+struct BackendScreenplayPromptBuildRequest: Codable, Equatable {
+    var persona: String
+    var userInput: String
+    var sessionContext: BackendScreenplayPromptSessionContext?
+    var includeCraftContext: Bool
+    var craftFrameworkId: String
+
+    enum CodingKeys: String, CodingKey {
+        case persona
+        case userInput = "user_input"
+        case sessionContext = "session_context"
+        case includeCraftContext = "include_craft_context"
+        case craftFrameworkId = "craft_framework_id"
+    }
+}
+
+struct BackendScreenplayPromptBuildResponse: Codable, Equatable {
+    var ok: Bool
+    var action: String
+    var schemaVersion: Int
+    var source: String
+    var prompt: String
+    var memoryApplied: Bool
+    var sessionContextApplied: Bool
+    var craftContextApplied: Bool
+    var craftFrameworkId: String
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case action
+        case schemaVersion = "schema_version"
+        case source
+        case prompt
+        case memoryApplied = "memory_applied"
+        case sessionContextApplied = "session_context_applied"
+        case craftContextApplied = "craft_context_applied"
+        case craftFrameworkId = "craft_framework_id"
+    }
+}
+
+protocol ScreenplayPromptBackendBuilding {
+    func buildScreenplayModelPrompt(
+        _ request: BackendScreenplayPromptBuildRequest
+    ) async throws -> BackendScreenplayPromptBuildResponse
+}
+
+struct ScreenplayPromptBuilder {
+    struct Request: Equatable {
+        var persona: String
+        var userInput: String = ""
+        var projectId: String = ""
+        var versionId: String = ""
+        var scene: String = ""
+        var isScreenplayMode: Bool = false
+        var shouldWriteToPage: Bool = false
+        var craftFrameworkId: String = ""
+    }
+
+    struct Result: Equatable {
+        var prompt: String
+        var usedBackendAssembly: Bool
+        var fallbackReason: String
+    }
+
+    static func makeLocalPersonaPrompt(
+        context: HerVoiceSpec.Context,
+        speakingPace: Double,
+        memoryDomain: StudioMemoryDomain,
+        shouldWriteToPage: Bool,
+        companionInstruction: String,
+        companionSignals: CreativeCompanionSignalState
+    ) -> String {
+        let base = applySpeakingPace(
+            to: HerVoiceSpec.makeSystemPrompt(context),
+            speakingPace: speakingPace
+        )
+        let routed = appendStudioMemoryDomainInstruction(
+            to: base,
+            memoryDomain: memoryDomain,
+            shouldWriteToPage: shouldWriteToPage,
+            companionInstruction: companionInstruction
+        )
+        return appendCreativeIntentInstruction(
+            to: routed,
+            signalState: companionSignals
+        )
+    }
+
+    func buildModelPrompt(
+        backend: ScreenplayPromptBackendBuilding,
+        request: Request
+    ) async -> Result {
+        let persona = request.persona.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !persona.isEmpty else {
+            return Result(prompt: "", usedBackendAssembly: false, fallbackReason: "empty_persona")
+        }
+
+        do {
+            let response = try await backend.buildScreenplayModelPrompt(
+                BackendScreenplayPromptBuildRequest(
+                    persona: persona,
+                    userInput: request.userInput.trimmingCharacters(in: .whitespacesAndNewlines),
+                    sessionContext: sessionContext(from: request),
+                    includeCraftContext: request.isScreenplayMode && request.shouldWriteToPage,
+                    craftFrameworkId: request.craftFrameworkId.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            )
+            let prompt = response.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !prompt.isEmpty {
+                return Result(prompt: prompt, usedBackendAssembly: true, fallbackReason: "")
+            }
+            return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: "empty_backend_prompt")
+        } catch {
+            return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: error.localizedDescription)
+        }
+    }
+
+    private func sessionContext(from request: Request) -> BackendScreenplayPromptSessionContext? {
+        let projectId = request.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let versionId = request.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scene = request.scene.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !projectId.isEmpty || !versionId.isEmpty || !scene.isEmpty else { return nil }
+        return BackendScreenplayPromptSessionContext(
+            projectId: projectId,
+            versionId: versionId,
+            scene: scene
+        )
+    }
+
+    private static func applySpeakingPace(to systemPrompt: String, speakingPace: Double) -> String {
+        let clampedPace = min(max(speakingPace, 0.7), 1.5)
+        guard abs(clampedPace - 1.0) > 0.001 else { return systemPrompt }
+
+        let instruction: String
+        switch clampedPace {
+        case ..<0.95:
+            instruction = "SPEAKING PACE: Slower. Speak more slowly and deliberately than usual, with a little more space between thoughts."
+        case ..<1.15:
+            instruction = "SPEAKING PACE: Natural. Keep a natural conversational pace, clear and unforced."
+        case ..<1.32:
+            instruction = "SPEAKING PACE: Brisk. Keep the pace a bit quicker than natural, efficient but still clear."
+        default:
+            instruction = "SPEAKING PACE: Fast. Speak quickly and efficiently, keep momentum high, and avoid lingering."
+        }
+
+        return systemPrompt + "\n\n" + instruction
+    }
+
+    private static func appendStudioMemoryDomainInstruction(
+        to systemPrompt: String,
+        memoryDomain: StudioMemoryDomain,
+        shouldWriteToPage: Bool,
+        companionInstruction: String
+    ) -> String {
+        let instruction: String
+        switch memoryDomain {
+        case .project:
+            instruction = shouldWriteToPage
+                ? "MEMORY ROUTE: Treat this as project memory. Prioritize screenplay continuity, story facts, and draft state over companion chat."
+                : "MEMORY ROUTE: Treat this as project memory. Respond as a focused screenwriting collaborator, not as a romantic or dependency-seeking companion."
+        case .companion:
+            instruction = "MEMORY ROUTE: Treat this as companion memory. Stay relational and supportive. Do not change the screenplay page unless the user explicitly asks. If you suggest screenplay language, frame it as optional support and do not describe yourself in page mode or tool-state language.\n\(companionInstruction)"
+        case .mixed:
+            instruction = "MEMORY ROUTE: This is mixed. Acknowledge the user's emotional state briefly, then return to the screenplay problem with concrete craft help. If you draft lines, present them as a grounded suggestion rather than generic page-mode status copy.\n\(companionInstruction)"
+        }
+        return systemPrompt + "\n\n" + instruction
+    }
+
+    private static func appendCreativeIntentInstruction(
+        to systemPrompt: String,
+        signalState: CreativeCompanionSignalState
+    ) -> String {
+        guard signalState.hasContent else { return systemPrompt }
+        return systemPrompt + "\n\n" + signalState.promptGuidance()
+    }
+}
+
+extension BackendClient: ScreenplayPromptBackendBuilding {}
