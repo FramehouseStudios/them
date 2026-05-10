@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "description": "Deterministic regression drafts for act/midpoint/all-is-lost/climax detection.",
+  "fixtures": [
+    {
+      "id": "clean_three_act_feature_110",
+      "title": "Clean Turn Feature",
+      "frameworkId": "three-act",
+      "pageCount": 110,
+      "expectedMajorTurns": [
+        {
+          "turnId": "inciting-incident",
+          "actualPage": 12
+        },
+        {
+          "turnId": "midpoint-twist",
+          "actualPage": 55
+        },
+        {
+          "turnId": "climax",
+          "actualPage": 100
+        }
+      ],
+      "draft": "[[PAGE 12]]\n\nINCITING INCIDENT: The letter arrives and forces Mara out of hiding.\n\n[[PAGE 55]]\n\nMIDPOINT TWIST: The caller is her brother, not the killer.\n\n[[PAGE 100]]\n\nCLIMAX: Mara chooses to broadcast the confession live."
+    },
+    {
+      "id": "late_midpoint_110",
+      "title": "Late Midpoint Feature",
+      "frameworkId": "save-the-cat",
+      "pageCount": 110,
+      "expectedMajorTurns": [
+        {
+          "turnId": "catalyst",
+          "actualPage": 12
+        },
+        {
+          "turnId": "midpoint",
+          "actualPage": 71
+        },
+        {
+          "turnId": "all-is-lost",
+          "actualPage": 82
+        },
+        {
+          "turnId": "finale",
+          "actualPage": 101
+        }
+      ],
+      "draft": "[[PAGE 12]]\n\nCATALYST: The safehouse burns.\n\n[[PAGE 71]]\n\nMIDPOINT: The evidence proves she has been protecting the wrong witness.\n\n[[PAGE 82]]\n\nALL IS LOST: The witness dies and the tape is gone.\n\n[[PAGE 101]]\n\nFINALE: She walks into the hearing with the backup recording."
+    }
+  ]
+}

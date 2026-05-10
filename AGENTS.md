@@ -20,6 +20,11 @@ The purpose of this protocol is to protect the product's central magic: a mobile
 
 ## Operational details
 
+### Main project
+
+The canonical Xcode project for Codex and Claude coordination is **`them_MAIN.xcodeproj`**. The old project bundles remain provenance only; do not make new work depend on them unless the human explicitly asks for another consolidation pass.
+
+
 ### Scope by path
 
 - **Codex** — `them/`, `*.xcodeproj`, `*.xcworkspace`, product/integration glue, trivial backend tweaks.

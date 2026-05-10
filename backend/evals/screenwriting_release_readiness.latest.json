@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-05-10T05:33:55.083Z",
+  "releaseGate": "screenwriting_corpus_embedding_cache",
+  "ready": true,
+  "corpus": {
+    "id": "canonical_screenwriting_craft",
+    "cardCount": 240,
+    "countRange": "200-400",
+    "countOk": true,
+    "coverageOk": true,
+    "provenanceOk": true,
+    "provenanceCount": 240,
+    "areaCounts": {
+      "dialogue_economy": 15,
+      "parentheticals": 15,
+      "sluglines": 15,
+      "action_lines": 15,
+      "exposition": 15,
+      "subtext": 15,
+      "irony": 15,
+      "planting_payoff": 15,
+      "want_need": 15,
+      "character_flaw": 15,
+      "genre_conventions": 15,
+      "formatting_fdx": 15,
+      "formatting_fountain": 15,
+      "act_structure": 15,
+      "beat_frameworks": 15,
+      "rewrite_diagnostics": 15
+    },
+    "genreCounts": {
+      "noir": 41,
+      "rom_com": 28,
+      "thriller": 40,
+      "horror": 40,
+      "prestige_tv_pilot": 28,
+      "half_hour_comedy": 40,
+      "drama": 240,
+      "sci_fi": 28,
+      "action": 40,
+      "mystery": 40,
+      "comedy": 28,
+      "romance": 40
+    }
+  },
+  "embeddings": {
+    "model": "text-embedding-3-small",
+    "dimensions": 512,
+    "fresh": true,
+    "cacheFile": "/Users/halfmutantfilms/Desktop/io.them/backend/knowledge_embeddings_cache.json",
+    "cacheMeta": {
+      "model": "text-embedding-3-small",
+      "dimensions": 512,
+      "provider": "openai",
+      "corpus": "canonical_screenwriting_craft",
+      "cardCount": 240,
+      "updatedAt": 1778391228865
+    },
+    "missingCount": 0,
+    "staleCount": 0,
+    "wrongModelCount": 0,
+    "badDimensionCount": 0,
+    "zeroNormCount": 0,
+    "missingSample": [],
+    "staleSample": []
+  }
+}

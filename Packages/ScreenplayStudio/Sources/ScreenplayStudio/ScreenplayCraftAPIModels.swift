@@ -106,17 +106,26 @@ public nonisolated struct ScreenplayCraftAnalysisScreenplay: Codable, Hashable {
     public let pageCount: Int?
     public let text: String?
     public let scenes: [ScreenplayCraftAnalysisScene]
+    public let genre: String?
+    public let craftArea: String?
+    public let format: String?
 
     public init(
         title: String?,
         pageCount: Int?,
         text: String?,
-        scenes: [ScreenplayCraftAnalysisScene]
+        scenes: [ScreenplayCraftAnalysisScene],
+        genre: String? = nil,
+        craftArea: String? = nil,
+        format: String? = nil
     ) {
         self.title = title
         self.pageCount = pageCount
         self.text = text
         self.scenes = scenes
+        self.genre = genre
+        self.craftArea = craftArea
+        self.format = format
     }
 }
 

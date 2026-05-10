@@ -183,6 +183,70 @@ const FRAMEWORK_REFERENCE_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+const CRAFT_CITATION_SCHEMA = Object.freeze({
+  type: "object",
+  required: ["id", "cardId", "title", "source", "principle"],
+  properties: {
+    id:        { type: "string", minLength: 1 },
+    cardId:    { type: "string", minLength: 1 },
+    title:     { type: "string", minLength: 1 },
+    source:    { type: "string", minLength: 1 },
+    principle: { type: "string", minLength: 1 },
+  },
+  additionalProperties: false,
+});
+
+const CRAFT_NOTE_SCHEMA = Object.freeze({
+  type: "object",
+  required: ["id", "page", "lineStart", "lineEnd", "craftArea", "title", "body", "severity"],
+  properties: {
+    id:        { type: "string", minLength: 1 },
+    page:      { type: "integer", minimum: 1 },
+    lineStart: { type: "integer", minimum: 1 },
+    lineEnd:   { type: "integer", minimum: 1 },
+    craftArea: { type: "string", minLength: 1 },
+    title:     { type: "string", minLength: 1 },
+    body:      { type: "string", minLength: 1 },
+    severity:  { type: "string", minLength: 1 },
+    cardId:    { type: "string" },
+    citation:  { type: "string" },
+  },
+  additionalProperties: false,
+});
+
+const FORMATTING_WARNING_SCHEMA = Object.freeze({
+  type: "object",
+  required: ["id", "page", "lineStart", "lineEnd", "severity", "craftArea", "title", "body"],
+  properties: {
+    id:        { type: "string", minLength: 1 },
+    page:      { type: "integer", minimum: 1 },
+    lineStart: { type: "integer", minimum: 1 },
+    lineEnd:   { type: "integer", minimum: 1 },
+    severity:  { type: "string", minLength: 1 },
+    craftArea: { type: "string", minLength: 1 },
+    title:     { type: "string", minLength: 1 },
+    body:      { type: "string", minLength: 1 },
+    cardId:    { type: "string" },
+    citation:  { type: "string" },
+  },
+  additionalProperties: false,
+});
+
+const GENRE_DOCTOR_PASS_SCHEMA = Object.freeze({
+  type: "object",
+  required: ["id", "genre", "title", "body", "craftArea", "cardIds", "citations"],
+  properties: {
+    id:        { type: "string", minLength: 1 },
+    genre:     { type: "string", minLength: 1 },
+    title:     { type: "string", minLength: 1 },
+    body:      { type: "string", minLength: 1 },
+    craftArea: { type: "string", minLength: 1 },
+    cardIds:   { type: "array", items: { type: "string" } },
+    citations: { type: "array", items: CRAFT_CITATION_SCHEMA },
+  },
+  additionalProperties: false,
+});
+
 const SNAPSHOT_REFERENCE_SCHEMA = Object.freeze({
   type: "object",
   required: ["id", "projectId", "versionId", "reportId", "frameworkId"],
@@ -245,6 +309,10 @@ const REPORT_SCHEMA = Object.freeze({
     drift:            DRIFT_REPORT_SCHEMA,
     overrides:        { type: "array", items: TURN_OVERRIDE_SCHEMA },
     snapshot:         SNAPSHOT_REFERENCE_SCHEMA,
+    craftNotes:       { type: "array", items: CRAFT_NOTE_SCHEMA },
+    formattingWarnings: { type: "array", items: FORMATTING_WARNING_SCHEMA },
+    genreDoctorPasses:  { type: "array", items: GENRE_DOCTOR_PASS_SCHEMA },
+    citationSources:    { type: "array", items: CRAFT_CITATION_SCHEMA },
   },
   additionalProperties: false,
 });
@@ -349,6 +417,10 @@ export {
   COVERAGE_SCHEMA,
   FRAMEWORK_REFERENCE_SCHEMA,
   SNAPSHOT_REFERENCE_SCHEMA,
+  CRAFT_CITATION_SCHEMA,
+  CRAFT_NOTE_SCHEMA,
+  FORMATTING_WARNING_SCHEMA,
+  GENRE_DOCTOR_PASS_SCHEMA,
   FRAMEWORK_SCHEMA,
   REPORT_SCHEMA,
   ERROR_ENVELOPE_SCHEMA,

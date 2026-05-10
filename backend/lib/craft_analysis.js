@@ -24,6 +24,13 @@ import {
 } from "./craft_frameworks.js";
 import { CRAFT_SCHEMA_VERSION } from "./craft_schemas.js";
 import { createPersistence } from "./persistence_adapter.js";
+import {
+  buildCraftCardCitations,
+  buildFormattingLintWarnings,
+  buildGenreDoctorPasses,
+  buildScreenwritingCraftNoteAnchors,
+  filterScreenwritingCards,
+} from "./screenwriting_knowledge.js";
 
 const REPORTS_DOMAIN = "craft_reports";
 const OVERRIDES_DOMAIN = "craft_overrides";
@@ -69,9 +76,58 @@ async function storeReport(report) {
   await persistence.put({ domain: REPORTS_DOMAIN, key, value: report });
 }
 
-// Pure: produce a Report from a framework + minimal screenplay info.
-// `screenplay` is intentionally loose — for MVP, only `pageCount` and
-// `title` are read. T21 replaces this with real scene analysis.
+function screenplayDraftText(screenplay = {}) {
+  return String(screenplay.text || screenplay.draft || screenplay.fountain || "");
+}
+
+const TURN_KEYWORDS = Object.freeze({
+  "catalyst": ["catalyst", "inciting incident", "inciting", "disruption"],
+  "inciting-incident": ["inciting incident", "inciting", "call to adventure", "disruption"],
+  "midpoint": ["midpoint", "false victory", "false defeat", "reversal"],
+  "midpoint-twist": ["midpoint", "midpoint twist", "reversal", "false victory", "false defeat"],
+  "all-is-lost": ["all is lost", "lowest moment", "low point", "death and rebirth", "collapse"],
+  "finale": ["finale", "climax", "final confrontation", "showdown"],
+  "climax": ["climax", "finale", "final confrontation", "showdown", "resurrection"],
+});
+
+function pageMarkerBefore(lines, index, fallbackPage) {
+  for (let i = index; i >= 0; i -= 1) {
+    const line = String(lines[i] || "");
+    const m = line.match(/\[\[\s*PAGE\s+(\d{1,3})\s*\]\]|\b(?:PAGE|P)\s*(\d{1,3})\b/i);
+    if (m) {
+      const page = Number(m[1] || m[2] || 0);
+      if (Number.isInteger(page) && page > 0) return page;
+    }
+  }
+  return fallbackPage;
+}
+
+function detectTurnEvidence({ turnId, label, draftText, pageCount }) {
+  const text = String(draftText || "");
+  if (!text.trim()) return null;
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const keywords = TURN_KEYWORDS[turnId] || TURN_KEYWORDS[String(label || "").toLowerCase()] || [String(label || turnId || "").toLowerCase()];
+  for (let i = 0; i < lines.length; i += 1) {
+    const haystack = String(lines[i] || "").toLowerCase();
+    if (!keywords.some((kw) => kw && haystack.includes(kw))) continue;
+    const fallbackPage = Math.max(1, Math.min(pageCount, Math.ceil((i + 1) / 55)));
+    const page = Math.max(1, Math.min(pageCount, pageMarkerBefore(lines, i, fallbackPage)));
+    return {
+      page,
+      line: i + 1,
+      excerpt: String(lines[i] || "").trim().slice(0, 220) || String(label || "turn") + " marker",
+    };
+  }
+  return null;
+}
+
+function statusFromDrift(drift) {
+  if (!Number.isFinite(drift)) return "present";
+  if (Math.abs(drift) <= 3) return "on-target";
+  return drift > 0 ? "late" : "early";
+}
+
+// Pure: produce a Report from a framework + screenplay info.
 function analyzeScreenplay({
   screenplay = {},
   frameworkId,
@@ -96,6 +152,7 @@ function analyzeScreenplay({
     : 110;
   const generated = generatedAt || new Date().toISOString();
   const reportId = `report_${projectId}_${versionId || "v"}_${Date.now().toString(36)}`;
+  const draftText = screenplayDraftText(screenplay);
 
   const requiredMajorTurns = framework.beats.filter(
     (b) => b.required && b.majorTurnId,
@@ -116,10 +173,28 @@ function analyzeScreenplay({
     };
     if (expectedPage !== null) turn.expectedPage = expectedPage;
     if (beatDef.expectedPageRange) turn.expectedPageRange = { ...beatDef.expectedPageRange };
-    if (expectedPage !== null) turn.actualPage = expectedPage;
-    if (beatDef.expectedPageRange) turn.actualPageRange = { ...beatDef.expectedPageRange };
-    if (expectedPage !== null) turn.driftPages = 0;
-    turn.confidence = 0.5;
+    const evidence = detectTurnEvidence({
+      turnId: beatDef.majorTurnId,
+      label: beatDef.label,
+      draftText,
+      pageCount,
+    });
+    const actualPage = evidence?.page || expectedPage;
+    if (actualPage !== null) turn.actualPage = actualPage;
+    if (actualPage !== null) turn.actualPageRange = { start: actualPage, end: actualPage };
+    if (expectedPage !== null && actualPage !== null) turn.driftPages = actualPage - expectedPage;
+    turn.status = statusFromDrift(turn.driftPages);
+    turn.confidence = evidence ? 0.68 : 0.5;
+    if (evidence) {
+      turn.evidence = [{
+        id: `ev_${beatDef.majorTurnId}_${reportId}`,
+        page: evidence.page,
+        lineStart: evidence.line,
+        lineEnd: evidence.line,
+        excerpt: evidence.excerpt,
+        confidence: 0.68,
+      }];
+    }
     return turn;
   });
 
@@ -135,7 +210,10 @@ function analyzeScreenplay({
     if (beatDef.summary) beat.summary = beatDef.summary;
     if (beatDef.expectedPageRange) {
       beat.expectedPageRange = { ...beatDef.expectedPageRange };
-      beat.actualPageRange = { ...beatDef.expectedPageRange };
+      const turn = beatDef.majorTurnId
+        ? majorTurns.find((mt) => mt.turnId === beatDef.majorTurnId)
+        : null;
+      beat.actualPageRange = turn?.actualPageRange ? { ...turn.actualPageRange } : { ...beatDef.expectedPageRange };
     }
     if (beatDef.majorTurnId) beat.majorTurnId = beatDef.majorTurnId;
     return beat;
@@ -148,9 +226,12 @@ function analyzeScreenplay({
     beats,
   };
 
+  const driftingTurns = majorTurns.filter((mt) => Number.isFinite(mt.driftPages) && Math.abs(mt.driftPages) > 3);
   const drift = {
-    status: "on-target",
-    summary: "Stub analysis: all required major turns assumed at expected pages.",
+    status: driftingTurns.length ? "drifting" : "on-target",
+    summary: driftingTurns.length
+      ? driftingTurns.map((mt) => `${mt.label} lands on page ${mt.actualPage}, ${Math.abs(mt.driftPages)} page(s) ${mt.driftPages > 0 ? "late" : "early"}.`).join(" ")
+      : "Required major turns are within the expected page windows.",
     timeline: majorTurns.map((mt) => ({
       id: `td_${mt.turnId}_${reportId}`,
       turnId: mt.turnId,
@@ -158,7 +239,7 @@ function analyzeScreenplay({
       expectedPage: mt.expectedPage,
       actualPage: mt.actualPage,
       driftPages: mt.driftPages,
-      status: "on-target",
+      status: statusFromDrift(mt.driftPages),
     })),
   };
 
@@ -191,8 +272,34 @@ function analyzeScreenplay({
   if (versionId) report.versionId = versionId;
   if (screenplay.title) report.screenplayTitle = screenplay.title;
   if (generated) report.generatedAt = generated;
-  report.generatedBy = "craft-analysis-stub@1.0";
-  report.summary = "Stub analysis report. Real classification arrives in T21.";
+  report.generatedBy = "craft-analysis-rule-runtime@1.1";
+  report.summary = drift.summary;
+  const craftCards = filterScreenwritingCards({
+    craftArea: screenplay.craftArea || screenplay.area || "",
+    genre: screenplay.genre || "",
+    q: draftText || screenplay.title || framework.title,
+    limit: 10,
+  }).cards;
+  report.citationSources = buildCraftCardCitations(craftCards, 6);
+  report.craftNotes = buildScreenwritingCraftNoteAnchors({
+    draft: draftText,
+    cards: craftCards,
+    craftArea: screenplay.craftArea || "",
+    genre: screenplay.genre || "",
+    maxNotes: 8,
+  });
+  report.formattingWarnings = buildFormattingLintWarnings({
+    draft: draftText,
+    format: screenplay.format || "fountain",
+    cards: craftCards,
+    maxWarnings: 8,
+  });
+  report.genreDoctorPasses = buildGenreDoctorPasses({
+    genre: screenplay.genre || "drama",
+    draft: draftText,
+    cards: craftCards,
+    maxPasses: 3,
+  });
 
   return report;
 }

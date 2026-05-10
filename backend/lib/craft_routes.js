@@ -1,6 +1,7 @@
-// Craft routes — mounts /craft/* endpoints onto an Express app.
-// All handlers return typed envelopes and the schema-versioned shapes
-// documented in docs/T18-craft-schemas-and-analysis.md.
+// Craft routes - mounts /craft/* endpoints onto an Express app.
+
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   listFrameworkReferences,
@@ -20,6 +21,19 @@ import {
   deleteOverride,
   getOverride,
 } from "./craft_analysis.js";
+import {
+  buildCraftCardCitations,
+  buildFormattingLintWarnings,
+  buildGenreDoctorPasses,
+  buildReleaseReadinessArtifact,
+  buildScreenwritingCraftNoteAnchors,
+  filterScreenwritingCards,
+} from "./screenwriting_knowledge.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DEFAULT_CARDS_FILE = path.resolve(__dirname, "..", "knowledge_cards.json");
+const DEFAULT_CACHE_FILE = path.resolve(__dirname, "..", "knowledge_embeddings_cache.json");
 
 function errorEnvelope(error, message) {
   const out = { error };
@@ -58,7 +72,7 @@ function readClientSchemaVersionHeader(req) {
 
 function checkClientSchemaVersion(req, res) {
   const v = readClientSchemaVersionHeader(req);
-  if (v === null) return true; // header not provided; accept
+  if (v === null) return true;
   if (Number.isNaN(v) || v > CRAFT_SCHEMA_VERSION) {
     sendKnownError(
       res,
@@ -71,11 +85,11 @@ function checkClientSchemaVersion(req, res) {
 }
 
 function requestingUserIdFor(req) {
-  // The existing auth middleware sets req.user.id when an authenticated
-  // user resolves. Read defensively — public/unauthenticated requests
-  // are allowed for read endpoints; mutations enforce userId match
-  // when a user is present.
   return req?.user?.id || null;
+}
+
+function draftFromBody(body) {
+  return String(body?.draft ?? body?.text ?? body?.screenplay?.text ?? "");
 }
 
 function mountCraftRoutes(app) {
@@ -91,9 +105,7 @@ function mountCraftRoutes(app) {
   app.get("/craft/frameworks/:frameworkId", (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
     const framework = getFrameworkById(req.params.frameworkId);
-    if (!framework) {
-      return sendKnownError(res, "craft_framework_not_found");
-    }
+    if (!framework) return sendKnownError(res, "craft_framework_not_found");
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).json(serializeFramework(framework));
   });
@@ -106,6 +118,72 @@ function mountCraftRoutes(app) {
   app.get("/craft/schemas/framework", (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).json(FRAMEWORK_SCHEMA);
+  });
+
+  app.get("/craft/knowledge/cards", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const result = filterScreenwritingCards({
+      cardsFile: DEFAULT_CARDS_FILE,
+      craftArea: req.query?.craftArea || req.query?.area || "",
+      genre: req.query?.genre || "",
+      q: req.query?.q || "",
+      limit: req.query?.limit || 12,
+    });
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json({
+      schemaVersion: CRAFT_SCHEMA_VERSION,
+      ...result,
+      citations: buildCraftCardCitations(result.cards, 6),
+    });
+  });
+
+  app.get("/craft/knowledge/readiness", (_req, res) => {
+    const artifact = buildReleaseReadinessArtifact({
+      cardsFile: DEFAULT_CARDS_FILE,
+      cacheFile: DEFAULT_CACHE_FILE,
+    });
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(artifact.ready ? 200 : 409).json({
+      schemaVersion: CRAFT_SCHEMA_VERSION,
+      ...artifact,
+    });
+  });
+
+  app.post("/craft/notes/page-anchors", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const notes = buildScreenwritingCraftNoteAnchors({
+      draft: draftFromBody(body),
+      craftArea: body.craftArea || body.area || "",
+      genre: body.genre || "",
+      maxNotes: body.maxNotes || 8,
+    });
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json({ schemaVersion: CRAFT_SCHEMA_VERSION, notes });
+  });
+
+  app.post("/craft/lint/formatting", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const warnings = buildFormattingLintWarnings({
+      draft: draftFromBody(body),
+      format: body.format || "fountain",
+      maxWarnings: body.maxWarnings || 10,
+    });
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json({ schemaVersion: CRAFT_SCHEMA_VERSION, warnings });
+  });
+
+  app.post("/craft/doctor/genre", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const passes = buildGenreDoctorPasses({
+      genre: body.genre || "",
+      draft: draftFromBody(body),
+      maxPasses: body.maxPasses || 3,
+    });
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json({ schemaVersion: CRAFT_SCHEMA_VERSION, passes });
   });
 
   app.get("/craft/reports/:projectId/:versionId?", async (req, res) => {

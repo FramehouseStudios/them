@@ -84,7 +84,7 @@ test("GET /craft/frameworks lists known frameworks with schemaVersion", async ()
     assert.ok(Array.isArray(body.frameworks));
     assert.ok(body.frameworks.length >= 2);
     const ids = body.frameworks.map((f) => f.id).sort();
-    assert.deepEqual(ids, ["save-the-cat", "three-act"]);
+    assert.deepEqual(ids, ["hero-journey", "save-the-cat", "sequence-method", "story-circle", "three-act"]);
     for (const ref of body.frameworks) {
       assert.ok(ref.id);
       assert.ok(ref.title);
@@ -179,6 +179,28 @@ test("DELETE /craft/overrides/:id removes an override", async () => {
     const second = await del(baseURL, `/craft/overrides/${id}`);
     assert.equal(second.status, 404);
     assert.equal(second.body.error, "craft_override_not_found");
+  });
+});
+
+test("GET /craft/knowledge/cards supports craft filters and citations", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await get(baseURL, "/craft/knowledge/cards?craftArea=dialogue&genre=noir&limit=3");
+    assert.equal(status, 200);
+    assert.equal(body.schemaVersion, CRAFT_SCHEMA_VERSION);
+    assert.ok(body.cards.length > 0);
+    assert.ok(body.cards.every((card) => card.craftArea === "dialogue_economy"));
+    assert.ok(body.citations.length > 0);
+  });
+});
+
+test("POST /craft/lint/formatting returns page-anchored warning cards", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/craft/lint/formatting", {
+      draft: "int warehouse night\n\nMARA\nWe run.",
+      format: "fountain",
+    });
+    assert.equal(status, 200);
+    assert.ok(body.warnings.some((warning) => warning.craftArea === "formatting_fountain"));
   });
 });
 

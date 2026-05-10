@@ -6,6 +6,7 @@ set -euo pipefail
 # - RUN_SPECULATIVE_REUSE_GATE=1 runs the backend speculative /talk reuse smoke.
 # - RUN_SMOKE=1 runs the broader smoke.sh app/backend checks.
 # - RUN_TALK_RECOVERY_GATE=1 runs the talk recovery contract test.
+# - RUN_KNOWLEDGE_EMBEDDING_GATE=1 requires the screenwriting corpus vector cache to be fresh.
 # - RUN_ALERT=1 runs ops alert checks.
 # - RUN_LOAD=1 runs the load profile.
 # Set any of these to 0 to skip that section intentionally.
@@ -22,6 +23,7 @@ RUN_SPECULATIVE_REUSE_GATE="${RUN_SPECULATIVE_REUSE_GATE:-1}"
 RUN_ALERT="${RUN_ALERT:-1}"
 RUN_LOAD="${RUN_LOAD:-0}"
 RUN_TALK_RECOVERY_GATE="${RUN_TALK_RECOVERY_GATE:-1}"
+RUN_KNOWLEDGE_EMBEDDING_GATE="${RUN_KNOWLEDGE_EMBEDDING_GATE:-1}"
 
 cd "${BACKEND_DIR}"
 
@@ -48,6 +50,13 @@ if [[ "${RUN_SERVER:-0}" == "1" ]]; then
   fi
   SERVER_PID="$!"
   sleep 2
+fi
+
+if [[ "${RUN_KNOWLEDGE_EMBEDDING_GATE}" == "1" ]]; then
+  echo "[quality-gate] checking screenwriting corpus embedding cache ..."
+  KNOWLEDGE_REQUIRE_SCREENWRITING_EMBED_CACHE=1 npm run test:knowledge-screenwriting
+else
+  echo "[quality-gate] skipping screenwriting embedding cache gate (RUN_KNOWLEDGE_EMBEDDING_GATE=${RUN_KNOWLEDGE_EMBEDDING_GATE})"
 fi
 
 if [[ "${RUN_EVAL}" == "1" ]]; then

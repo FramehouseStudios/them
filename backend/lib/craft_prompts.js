@@ -1,19 +1,12 @@
-// Craft-aware prompt blocks (T21).
-//
-// Two functions:
-//   - buildCraftContextBlock({ framework, report? }) returns a compact
-//     model-friendly summary of the active craft framework and (when
-//     present) the user's current beat-coverage state. Designed to be
-//     concatenated into a system prompt by handleTalkRequest when a
-//     screenplay page-write turn is detected.
-//   - buildClassificationPromptBlock({ framework, scene }) returns the
-//     instruction body the LLM beat classifier sends to the model.
-//     Pure; deterministic; testable independent of any model call.
-//
-// Both functions are zero-dependency on Express / network. They take
-// already-loaded data and return strings.
+// Craft-aware prompt blocks (T21+).
 
 import { getFrameworkById } from "./craft_frameworks.js";
+import {
+  buildCraftCardCitationBlock,
+  filterScreenwritingCards,
+  normalizeCraftArea,
+  normalizeGenre,
+} from "./screenwriting_knowledge.js";
 
 const CRAFT_BLOCK_OPEN = "<craft>";
 const CRAFT_BLOCK_CLOSE = "</craft>";
@@ -29,6 +22,12 @@ function compactPageRange(range) {
   return "";
 }
 
+function resolveFramework(framework) {
+  if (typeof framework === "string") return getFrameworkById(framework);
+  if (framework && typeof framework === "object") return framework;
+  return null;
+}
+
 function summarizeFramework(framework) {
   if (!framework) return "";
   const lines = [];
@@ -37,7 +36,6 @@ function summarizeFramework(framework) {
   if (Array.isArray(framework.requiredMajorTurnIds) && framework.requiredMajorTurnIds.length) {
     lines.push(`  required-major-turns: ${framework.requiredMajorTurnIds.join(", ")}`);
   }
-  // Only include the required + first-N optional beats to keep prompts compact.
   const beats = Array.isArray(framework.beats) ? framework.beats : [];
   const required = beats.filter((b) => b.required);
   const optional = beats.filter((b) => !b.required).slice(0, 4);
@@ -72,8 +70,6 @@ function summarizeReportCoverage(report) {
   );
   const drift = report.drift;
   if (drift && drift.status) lines.push(`drift: ${drift.status}`);
-  // Surface up to 3 missing-or-late major turns so the model knows what
-  // structural beats remain.
   if (Array.isArray(report.majorTurns)) {
     const missing = report.majorTurns
       .filter((t) => t && (t.status === "missing" || t.status === "late" || (t.required && !t.detected)))
@@ -89,35 +85,76 @@ function summarizeReportCoverage(report) {
   return lines.join("\n");
 }
 
-// Public: assemble a compact craft-context block for a system prompt.
-// `framework` may be a framework id (string) or an already-loaded object;
-// `report` is optional. Returns the empty string when neither has any
-// usable data.
-function buildCraftContextBlock({ framework, report } = {}) {
-  let resolved = null;
-  if (typeof framework === "string") {
-    resolved = getFrameworkById(framework);
-  } else if (framework && typeof framework === "object") {
-    resolved = framework;
-  }
+function resolveCraftCards({ knowledgeCards, craftArea, genre, draft } = {}) {
+  if (Array.isArray(knowledgeCards) && knowledgeCards.length) return knowledgeCards;
+  if (!craftArea && !genre && !draft) return [];
+  return filterScreenwritingCards({
+    craftArea,
+    genre,
+    q: draft ? String(draft).slice(0, 900) : "",
+    limit: 6,
+  }).cards;
+}
+
+function buildCraftContextBlock({
+  framework,
+  report,
+  craftArea = "",
+  genre = "",
+  knowledgeCards = null,
+} = {}) {
+  const resolved = resolveFramework(framework);
   const fwPart = summarizeFramework(resolved);
   const cvPart = summarizeReportCoverage(report);
-  if (!fwPart && !cvPart) return "";
-  const inner = [fwPart, cvPart].filter(Boolean).join("\n");
+  const cardPart = buildCraftCardCitationBlock(
+    resolveCraftCards({ knowledgeCards, craftArea, genre }),
+    5,
+  );
+  if (!fwPart && !cvPart && !cardPart) return "";
+  const metaLines = [];
+  const area = normalizeCraftArea(craftArea);
+  const normalizedGenre = normalizeGenre(genre);
+  if (area) metaLines.push(`craft-area-filter: ${area}`);
+  if (normalizedGenre) metaLines.push(`genre-filter: ${normalizedGenre}`);
+  if (cardPart) {
+    metaLines.push("craft-card-citations:");
+    metaLines.push(cardPart);
+    metaLines.push("citation-rule: when using a craft card, name the principle/source briefly instead of presenting it as unsupported opinion.");
+  }
+  const inner = [fwPart, cvPart, metaLines.join("\n")].filter(Boolean).join("\n");
   return `${CRAFT_BLOCK_OPEN}\n${inner}\n${CRAFT_BLOCK_CLOSE}`;
 }
 
-// Public: build the classifier's prompt block for a single scene.
-// The classifier model is asked to emit a JSON object matching a small
-// projection of the Beat shape — the LLM impl re-validates this
-// against craft_schemas before returning.
-function buildClassificationPromptBlock({ framework, scene } = {}) {
-  let resolved = null;
-  if (typeof framework === "string") {
-    resolved = getFrameworkById(framework);
-  } else if (framework && typeof framework === "object") {
-    resolved = framework;
+function buildDraftAnalysisPromptBlock({
+  framework,
+  genre = "",
+  craftArea = "",
+  draft = "",
+  knowledgeCards = null,
+} = {}) {
+  const resolved = resolveFramework(framework);
+  if (!resolved) return "";
+  const cards = resolveCraftCards({ knowledgeCards, craftArea, genre, draft });
+  const citationBlock = buildCraftCardCitationBlock(cards, 6);
+  const lines = [
+    `Analyze the current draft using the selected framework: ${resolved.title} (${resolved.id}).`,
+    "Use that framework as the structural scoring spine; do not silently switch to another beat-sheet model.",
+    `Required major turns: ${(resolved.requiredMajorTurnIds || []).join(", ") || "none"}.`,
+  ];
+  const normalizedGenre = normalizeGenre(genre);
+  const area = normalizeCraftArea(craftArea);
+  if (normalizedGenre) lines.push(`Genre doctor pass: ${normalizedGenre}.`);
+  if (area) lines.push(`Craft-area focus: ${area}.`);
+  if (citationBlock) {
+    lines.push("Available craft citations:");
+    lines.push(citationBlock);
   }
+  lines.push("Return page-anchored notes when possible, including page/line evidence and any drift from expected major-turn pages.");
+  return `${CRAFT_BLOCK_OPEN}\n${lines.join("\n")}\n${CRAFT_BLOCK_CLOSE}`;
+}
+
+function buildClassificationPromptBlock({ framework, scene } = {}) {
+  const resolved = resolveFramework(framework);
   if (!resolved) return "";
   const beatList = (resolved.beats || [])
     .filter((b) => b && b.id && b.label)
@@ -134,13 +171,14 @@ function buildClassificationPromptBlock({ framework, scene } = {}) {
     sceneText,
     "---",
     "Respond as JSON: { \"beatId\": <one of the ids above>, \"confidence\": <0..1>, \"rationale\": <one short sentence> }.",
-    "If no beat fits, respond { \"beatId\": null, \"confidence\": 0, \"rationale\": \"…\" }.",
+    "If no beat fits, respond { \"beatId\": null, \"confidence\": 0, \"rationale\": \"...\" }.",
   ];
   return `${CLASSIFY_BLOCK_OPEN}\n${lines.join("\n")}\n${CLASSIFY_BLOCK_CLOSE}`;
 }
 
 export {
   buildCraftContextBlock,
+  buildDraftAnalysisPromptBlock,
   buildClassificationPromptBlock,
   CRAFT_BLOCK_OPEN,
   CRAFT_BLOCK_CLOSE,

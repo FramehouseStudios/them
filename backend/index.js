@@ -16351,6 +16351,7 @@ const KNOWLEDGE_STOPWORDS = new Set([
 
 const KNOWLEDGE_TOPIC_KEYWORDS = Object.freeze({
   movies: ["movie", "movies", "film", "cinema", "director", "screenplay", "editing", "scene"],
+  screenwriting: ["screenwriting", "screenplay", "script", "slugline", "fountain", "fdx", "beat sheet", "midpoint", "climax", "dialogue", "subtext"],
   art_history: ["art", "artist", "painting", "museum", "renaissance", "baroque", "modernism", "sculpture"],
   philosophy: ["philosophy", "ethics", "existential", "stoic", "meaning", "truth", "consciousness", "virtue"],
   learning: ["learn", "learning", "study", "practice", "memory", "habit", "skill", "improve", "growth"],
@@ -16424,6 +16425,7 @@ function normalizeKnowledgeTopic(topic) {
   if (!raw) return "general";
   if (raw === "art" || raw === "arthistory" || raw === "art_hist") return "art_history";
   if (raw === "film" || raw === "films" || raw === "cinema") return "movies";
+  if (raw === "screenwriting" || raw === "screenplay" || raw === "screenplay_craft" || raw === "scriptwriting") return "screenwriting";
   if (raw === "compatability" || raw === "relationship_fit") return "compatibility";
   if (raw === "friends" || raw === "friend") return "friendship";
   if (raw === "human" || raw === "connection") return "human_connection";
@@ -16448,12 +16450,51 @@ function normalizeKnowledgeTags(raw, maxItems = 12) {
   return out;
 }
 
+function normalizeKnowledgeProvenance(raw, maxItems = 4) {
+  const source = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  const out = [];
+  for (const item of source) {
+    if (typeof item === "string") {
+      const sourceText = normalizeSnippet(item, 140);
+      if (sourceText) out.push({ source: sourceText, principle: sourceText });
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const sourceText = normalizeSnippet(item.source || item.name || item.work, 140);
+    const principle = normalizeSnippet(item.principle || item.note || item.claim || item.title, 220);
+    const locator = normalizeSnippet(item.locator || item.section || item.area, 120);
+    if (!sourceText && !principle) continue;
+    const normalized = {
+      source: sourceText || "knowledge corpus",
+      principle: principle || sourceText,
+    };
+    if (locator) normalized.locator = locator;
+    out.push(normalized);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function formatKnowledgeProvenance(raw) {
+  return normalizeKnowledgeProvenance(raw)
+    .map((item) => {
+      const label = [item.source, item.locator].filter(Boolean).join(" / ");
+      return item.principle ? `${label}: ${item.principle}` : label;
+    })
+    .filter(Boolean)
+    .join("; ");
+}
+
 function buildKnowledgeSearchText(card) {
   return [
     card.topic,
+    card.craftArea,
+    card.genre,
     card.title,
     card.body,
+    formatKnowledgeProvenance(card.provenance),
     ...(Array.isArray(card.tags) ? card.tags : []),
+    ...(Array.isArray(card.genres) ? card.genres : []),
   ]
     .join(" ")
     .toLowerCase();
@@ -16468,6 +16509,13 @@ function normalizeKnowledgeCard(card, idx = 0) {
   const tags = normalizeKnowledgeTags(card.tags);
   const source = normalizeSnippet(card.source, 32).toLowerCase() || "knowledge";
   const level = normalizeSnippet(card.level, 24).toLowerCase() || "foundation";
+  const craftArea = normalizeSnippet(card.craftArea || card.craft_area || card.area, 64)
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const genres = normalizeKnowledgeTags(card.genres || card.genre, 8)
+    .map((genre) => genre.replace(/[^a-z0-9_ -]+/g, "").replace(/\s+/g, "_"));
+  const provenance = normalizeKnowledgeProvenance(card.provenance);
   const normalized = {
     id: normalizeSnippet(card.id, 64) || `k_${idx + 1}`,
     topic: topic || "general",
@@ -16477,6 +16525,9 @@ function normalizeKnowledgeCard(card, idx = 0) {
     level,
     source,
   };
+  if (craftArea) normalized.craftArea = craftArea;
+  if (genres.length) normalized.genres = genres;
+  if (provenance.length) normalized.provenance = provenance;
   normalized.searchText = buildKnowledgeSearchText(normalized);
   return normalized;
 }
@@ -16821,8 +16872,12 @@ async function loadKnowledgeEmbeddingStoreFromAdapter() {
 function buildKnowledgeCardEmbeddingText(card) {
   return [
     `[topic] ${card.topic}`,
+    `[craft_area] ${card.craftArea || "none"}`,
+    `[genre] ${(Array.isArray(card.genres) ? card.genres.join(", ") : "") || "none"}`,
     `[title] ${card.title}`,
     `[tags] ${(Array.isArray(card.tags) ? card.tags.join(", ") : "") || "none"}`,
+    `[source] ${card.source || "knowledge"}`,
+    `[provenance] ${formatKnowledgeProvenance(card.provenance) || "none"}`,
     `[body] ${card.body}`,
   ].join("\n");
 }
@@ -17045,7 +17100,10 @@ function buildKnowledgeContextLines(cards, maxChars = KNOWLEDGE_RAG_CONTEXT_MAX_
   const lines = [];
   let total = 0;
   for (const card of cards) {
-    const line = `${lines.length + 1}. [${card.topic}] ${card.title}: ${normalizeSnippet(card.body, KNOWLEDGE_RAG_CARD_BODY_MAX_CHARS)}${card.source === "memory" ? " (user context)" : ""}`;
+    const sourceText = card.source === "memory"
+      ? " (user context)"
+      : (formatKnowledgeProvenance(card.provenance) ? ` Source: ${formatKnowledgeProvenance(card.provenance)}.` : "");
+    const line = `${lines.length + 1}. [${card.topic}${card.craftArea ? `/${card.craftArea}` : ""}] ${card.title}: ${normalizeSnippet(card.body, KNOWLEDGE_RAG_CARD_BODY_MAX_CHARS)}${sourceText}`;
     if (!line.trim()) continue;
     if (total > 0 && (total + line.length + 1) > maxChars) break;
     lines.push(line);
@@ -17220,6 +17278,9 @@ async function retrieveKnowledgeCards(query, {
     tags: row.tags,
     level: row.level,
     source: row.source,
+    craftArea: row.craftArea,
+    genres: row.genres,
+    provenance: row.provenance,
     score: Number(row.score.toFixed(4)),
     lexicalScore: Number(row.lexicalScore.toFixed(4)),
     semanticScore: row.semanticScore == null ? null : Number(row.semanticScore.toFixed(4)),
@@ -17298,6 +17359,7 @@ KNOWLEDGE MODE:
 - do not drift into unrelated recommendations.
 - separate concern: factual layer first, emotional companion tone second.
 - if cards include source=memory, use as personalization context only (never as external fact citation).
+- citation_rule -> when retrieved_context includes a Source clause, cite that craft/factual principle briefly in prose instead of presenting it as unsupported opinion.
 - retrieved_context:
 ${contextLines.join("\n")}
 `.trim(),
@@ -23253,8 +23315,9 @@ function ensureKnowledgeStructure(text, { transcript = "" } = {}) {
   const usableChunks = sentenceChunks(cleanedSource)
     .map((chunk) => stripKnowledgeHeadingPrefix(chunk))
     .filter((chunk) => countWords(chunk) >= 4);
+  const forceCanonicalKnowledge = domain === "philosophy" || domain === "learning" || domain === "empathy";
 
-  if (!looksLikeMetaScaffold && usableChunks.length) {
+  if (!forceCanonicalKnowledge && !looksLikeMetaScaffold && usableChunks.length) {
     let out = usableChunks.slice(0, 3).join("\n\n");
     out = enforceQuestionRange(out, 0);
     out = enforceExclamationRange(out, 0);
@@ -23267,7 +23330,8 @@ function ensureKnowledgeStructure(text, { transcript = "" } = {}) {
   const fallbackDeeper = trimSentenceToWordCap(stripKnowledgeHeadingPrefix(fallback.deeper), 22);
   const fallbackExample = trimSentenceToWordCap(stripKnowledgeHeadingPrefix(fallback.example), 18);
 
-  let out = [fallbackBaseline, fallbackDeeper, fallbackExample]
+  const anchorLine = buildKnowledgeAnchorLine(transcript);
+  let out = [anchorLine, fallbackBaseline, fallbackDeeper, fallbackExample]
     .filter(Boolean)
     .map((line) => enforceCompleteThought(line))
     .join("\n\n");
@@ -23433,21 +23497,27 @@ function ensurePlayfulBanterStructure(text, { transcript = "" } = {}) {
   const anchor = buildPlayfulBanterAnchor(transcript);
   const t = String(transcript || "").toLowerCase();
   let opener = "Heh. That is very human.";
-  let tease = `You are making ${anchor} do a lot of emotional labor.`;
+  let tease = "You are making " + anchor + " do a lot of emotional labor.";
+  let bridge = "Still, " + anchor + " is information, not a courtroom verdict.";
+  let question = "What part are you actually worried changed?";
 
   if (textContainsAny(t, ["roast me gently", "roast me"])) {
-    opener = "Heh. Rereading one text five times before sending is not proofreading.";
+    opener = "Heh. Sending a risky text and then mentally auditing every comma is not strategy.";
     tease = "It is emotional tax law for punctuation.";
+    bridge = "Tiny roast aside, the overthinking spiral is trying to turn one message into a full trial.";
+    question = "What part are you most afraid that risky text changed?";
   } else if (textContainsAny(t, ["risky text", "texted", "overthinking"])) {
     opener = "Heh. That is a very human spiral.";
     tease = "One risky text and suddenly your brain opens seventeen tabs.";
+    bridge = "The text matters, but the overthinking is probably louder than the evidence.";
+    question = "What part are you afraid the text changed?";
   }
 
-  let out = [opener, tease].join("\n\n");
-  out = enforceQuestionRange(out, 0);
+  let out = [opener, tease, bridge, question].join("\n\n");
+  out = enforceQuestionRange(out, 1);
   out = enforceExclamationRange(out, 0);
   out = enforceCompleteThought(out);
-  return normalizeWhitespace(clampToLineCount(out, 2, 4));
+  return normalizeWhitespace(clampToLineCount(out, 3, 4));
 }
 
 function buildHighDistressAnchorLine(transcript = "") {
@@ -31308,7 +31378,7 @@ GUIDANCE:
 - master_dials_baseline -> romantic_depth_base=${CLEMENTINE_ROMANTIC_DEPTH_BASELINE.toFixed(2)} chaos_factor_base=${CLEMENTINE_CHAOS_FACTOR_BASELINE.toFixed(2)}
 - master_dials_routing -> stability=>chaos_up_slightly vulnerability=>chaos_down+devotion_up flirting=>intensity_up nostalgia=>longing_up
 - human_learning_focus -> intensify curiosity about what being human feels like for this user (emotion, body sensation, meaning, relationship stakes), without sounding clinical.
-- knowledge_scope -> keep broad, accurate knowledge of movies/cinema, art history, foundational philosophy, learning science, compatibility, friendship, betrayal dynamics, empathy, and human connection.
+- knowledge_scope -> keep broad, accurate knowledge of movies/cinema, screenwriting craft, art history, foundational philosophy, learning science, compatibility, friendship, betrayal dynamics, empathy, and human connection.
 - knowledge_style -> for knowledge questions: enforce baseline -> deeper layer -> concrete example (3-part structure) before optional continuation.
 - knowledge_accuracy_guard -> use concrete names/dates when relevant; if uncertain, say so briefly and do not invent facts.
 - follow_through -> after curiosity, give one clear, doable next move when useful.

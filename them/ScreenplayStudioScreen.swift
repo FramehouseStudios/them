@@ -2234,7 +2234,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             title: project.title,
             pageCount: craftFallbackPageCount,
             text: normalizedOrNil(fountainDraft),
-            scenes: scenes
+            scenes: scenes,
+            genre: nil,
+            craftArea: nil,
+            format: "fountain"
         )
     }
 
@@ -2952,6 +2955,7 @@ struct ScreenplayStudioScreen: View {
     }
 
     private enum DraftToolsSection: String, CaseIterable, Identifiable {
+        case document
         case pages
         case revisions
         case snapshots
@@ -2960,6 +2964,7 @@ struct ScreenplayStudioScreen: View {
 
         var title: String {
             switch self {
+            case .document: return "Document"
             case .pages: return "Pages"
             case .revisions: return "Revisions"
             case .snapshots: return "Snapshots"
@@ -2968,6 +2973,7 @@ struct ScreenplayStudioScreen: View {
 
         var iconName: String {
             switch self {
+            case .document: return "doc.text"
             case .pages: return "doc.plaintext"
             case .revisions: return "highlighter"
             case .snapshots: return "clock.arrow.circlepath"
@@ -3158,6 +3164,7 @@ struct ScreenplayStudioScreen: View {
         case beats
         case craft
         case outline
+        case scenes
         case them
         case saved
 
@@ -3178,6 +3185,7 @@ struct ScreenplayStudioScreen: View {
             case .beats: return "Beats"
             case .craft: return "Craft"
             case .outline: return "Outline"
+            case .scenes: return "Scenes"
             case .them: return "them"
             case .saved: return "Saved"
             }
@@ -3189,10 +3197,52 @@ struct ScreenplayStudioScreen: View {
             case .beats: return "flag"
             case .craft: return "chart.line.uptrend.xyaxis"
             case .outline: return "list.bullet.rectangle.portrait"
+            case .scenes: return "film.stack"
             case .them: return "sparkles"
             case .saved: return "checkmark.circle"
             }
         }
+    }
+
+
+    private enum DirectionOneStudioNavigationItem: String, CaseIterable, Identifiable {
+        case document
+        case pages
+        case revisions
+        case snapshots
+        case scenes
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .document: return "Document"
+            case .pages: return "Pages"
+            case .revisions: return "Revisions"
+            case .snapshots: return "Snapshots"
+            case .scenes: return "Scenes"
+            }
+        }
+
+        var iconName: String {
+            switch self {
+            case .document: return "doc.text"
+            case .pages: return "doc.plaintext"
+            case .revisions: return "highlighter"
+            case .snapshots: return "clock.arrow.circlepath"
+            case .scenes: return "film.stack"
+            }
+        }
+    }
+
+    private struct DirectionOneTornOffPaperSnapshot: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let versionLabel: String
+        let pageLabel: String
+        let excerpt: String
+        let draftText: String
+        let createdAt: Date
     }
 
 
@@ -3211,7 +3261,7 @@ struct ScreenplayStudioScreen: View {
                 self = .beats
             case .outline:
                 self = .outline
-            case .craft, .them, .saved:
+            case .craft, .scenes, .them, .saved:
                 return nil
             }
         }
@@ -3306,6 +3356,8 @@ struct ScreenplayStudioScreen: View {
     @State private var lastVoiceFeedback: String = ""
     @State private var voiceFeedbackOpacity: Double = 0
     @State private var isDirectionOnePageFocusTransitionVisible = false
+    @State private var isScriptPaperTornOff = false
+    @State private var isScriptPaperOverlayVisible = false
     @State private var directionOnePageFocusTransitionTask: Task<Void, Never>?
     @State private var draftDropIsTargeted: Bool = false
     @State private var studioPromptSeed: String = ""
@@ -3339,7 +3391,9 @@ struct ScreenplayStudioScreen: View {
     @State private var shouldRestoreInspectorWorkspaceOnNextOutlineChange = false
     @State private var selectedSidebarSection: SidebarSection = .projects
     @State private var selectedInspectorSection: InspectorSection = .comments
-    @State private var selectedDraftToolsSection: DraftToolsSection = .pages
+    @State private var selectedDraftToolsSection: DraftToolsSection = .document
+    @State private var selectedStudioNavigationItem: DirectionOneStudioNavigationItem = .document
+    @State private var tornOffPaperSnapshots: [DirectionOneTornOffPaperSnapshot] = []
     @State private var queuedIntelligenceFixes: [IntelligenceFixQueueItem] = []
     @State private var lastAppliedIntelligenceFixBatch: IntelligenceFixBatchSnapshot?
     @State private var isPageCommitNoticeVisible = false
@@ -3456,7 +3510,7 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio_debug_seed_structural_token") private var studioDebugSeedStructuralToken: Int = 0
     @AppStorage("studio_debug_seed_structural_ack_token") private var studioDebugSeedStructuralAckToken: Int = 0
     @AppStorage("studio_debug_draft_inspector_token") private var studioDebugDraftInspectorToken: Int = 0
-    @AppStorage("studio_debug_draft_inspector_section") private var studioDebugDraftInspectorSectionRaw = DraftToolsSection.pages.rawValue
+    @AppStorage("studio_debug_draft_inspector_section") private var studioDebugDraftInspectorSectionRaw = DraftToolsSection.document.rawValue
     @AppStorage("studio_debug_draft_inspector_ack_token") private var studioDebugDraftInspectorAckToken: Int = 0
     @AppStorage("studio_debug_shell_visibility_token") private var studioDebugShellVisibilityToken: Int = 0
     @AppStorage("studio_debug_shell_visibility_sidebar") private var studioDebugShellVisibilitySidebarRaw = "keep"
@@ -4976,12 +5030,37 @@ Replace is best when this file should become the script you edit. Append is safe
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
+                directionOneStudioWindowBar
                 directionOneHeader
+                directionOneStudioNavigationStrip
                 directionOneBodyColumns
                 if directionOneTransientStatusIsVisible {
                     directionOneTransientStatusBar
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
+            }
+            .frame(maxWidth: 1680, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(directionOneChromePanel.opacity(0.86))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(0.50), lineWidth: 1)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(directionOneChromeStroke.opacity(0.28), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: Color.herPaperShadow.opacity(0.16), radius: 28, y: 16)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+
+            if isScriptPaperOverlayVisible {
+                directionOneTornOffPaperOverlay
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    .zIndex(20)
             }
         }
     }
@@ -5038,7 +5117,11 @@ Replace is best when this file should become the script you edit. Append is safe
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
+                    directionOneStoryRailsHeader
                     directionOneRightPanelTabs
+                    if directionOneRightPanelTab != .saved {
+                        directionOneSavedHistoryPreview
+                    }
                     if let preview = liveDraftBridge.pendingStudioActionPreview {
                         pendingStudioActionPreviewCard(preview)
                     }
@@ -5988,8 +6071,6 @@ private var directionOneHeader: some View {
         directionOneHeaderDraftButton
         directionOneTalkButton
         directionOneHeaderRightToggle
-        directionOneHeaderSettingsButton
-        directionOneHeaderDoneButton
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 9)
@@ -5998,6 +6079,317 @@ private var directionOneHeader: some View {
         Rectangle()
             .fill(directionOneChromeStroke.opacity(0.55))
             .frame(height: 1)
+    }
+}
+
+private var directionOneStudioWindowBar: some View {
+    HStack(spacing: 12) {
+        directionOneTrafficLights
+
+        Text("screenplay studio · scene draft")
+            .font(.system(size: 12, weight: .semibold, design: .default))
+            .foregroundStyle(directionOneChromeText.opacity(0.58))
+            .lineLimit(1)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.34))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(directionOneChromeStroke.opacity(0.18), lineWidth: 1)
+            )
+
+        Spacer(minLength: 0)
+
+        HStack(spacing: 8) {
+            directionOneToolbarIconButton(systemName: "moon", label: "Focus") {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                    isDirectionOneSidebarVisible = false
+                    isDirectionOneRightRailExpanded = false
+                }
+            }
+            directionOneToolbarIconButton(systemName: "face.smiling", label: "Assistant") {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    isDirectionOneRightRailExpanded = true
+                    directionOneRightPanelTab = .them
+                }
+            }
+            directionOneToolbarIconButton(systemName: "rectangle", label: "Page") {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    isDirectionOneRightRailExpanded = true
+                    directionOneRightPanelTab = .draft
+                    selectedDraftToolsSection = .pages
+                }
+            }
+            directionOneRevisionColorMenu
+            directionOneTopUtilityCluster
+            directionOneToolbarIconButton(systemName: "photo", label: "Import") {
+                importDraftPDF()
+            }
+            directionOneToolbarIconButton(systemName: "camera", label: "Snapshot") {
+                Task { await vm.createRevisionSnapshot() }
+            }
+            directionOneToolbarIconButton(systemName: "folder", label: "Projects") {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                    isDirectionOneSidebarVisible = true
+                    selectedSidebarSection = .projects
+                }
+            }
+            directionOneToolbarIconButton(systemName: "doc.text", label: "Saved") {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    isDirectionOneRightRailExpanded = true
+                    directionOneRightPanelTab = .saved
+                }
+            }
+        }
+
+        directionOneHeaderSettingsButton
+        directionOneHeaderDoneButton
+    }
+    .padding(.horizontal, 18)
+    .padding(.vertical, 11)
+    .background(directionOneChromeTopBar.opacity(0.92))
+    .overlay(alignment: .bottom) {
+        Rectangle()
+            .fill(directionOneChromeStroke.opacity(0.30))
+            .frame(height: 1)
+    }
+}
+
+private var directionOneTrafficLights: some View {
+    HStack(spacing: 7) {
+        Circle().fill(Color.red.opacity(0.78)).frame(width: 10, height: 10)
+        Circle().fill(Color.yellow.opacity(0.78)).frame(width: 10, height: 10)
+        Circle().fill(Color.green.opacity(0.78)).frame(width: 10, height: 10)
+    }
+    .padding(.leading, 2)
+}
+
+private func directionOneToolbarIconButton(
+    systemName: String,
+    label: String,
+    action: @escaping () -> Void
+) -> some View {
+    Button(action: action) {
+        Image(systemName: systemName)
+            .font(.system(size: 13, weight: .medium, design: .default))
+            .foregroundStyle(directionOneChromeSecondaryText)
+            .frame(width: 30, height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.white.opacity(0.26))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(directionOneChromeStroke.opacity(0.24), lineWidth: 1)
+            )
+    }
+    .buttonStyle(.plain)
+    .help(label)
+    .accessibilityLabel(label)
+}
+
+private var directionOneRevisionColorMenu: some View {
+    Menu {
+        Button("Blue") { vm.revisionColor = "blue" }
+        Button("Pink") { vm.revisionColor = "pink" }
+        Button("Yellow") { vm.revisionColor = "yellow" }
+        Button("Green") { vm.revisionColor = "green" }
+    } label: {
+        Text(vm.revisionColor.capitalized.isEmpty ? "Blue" : vm.revisionColor.capitalized)
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(directionOneChromeText.opacity(0.72))
+            .frame(height: 30)
+            .padding(.horizontal, 12)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.28))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(directionOneChromeStroke.opacity(0.24), lineWidth: 1)
+            )
+    }
+    .help("Revision color")
+}
+
+
+private var directionOneTopUtilityCluster: some View {
+    ViewThatFits(in: .horizontal) {
+        HStack(spacing: 6) {
+            directionOneToolbarIconButton(systemName: "pencil", label: "Write") {
+                liveDraftBridge.activeScreenplayElement = .action
+            }
+            directionOneToolbarIconButton(systemName: "arrow.triangle.2.circlepath", label: "Rewrite") {
+                vm.normalizeDraftToHollywoodFormat()
+                openDirectionOneStudioNavigation(.revisions)
+            }
+            directionOneToolbarIconButton(systemName: "arrow.right.to.line", label: "Continue") {
+                liveDraftBridge.insertLatestAtCursor()
+            }
+            directionOneToolbarIconButton(systemName: "stethoscope", label: "Doctor") {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    isDirectionOneRightRailExpanded = true
+                    directionOneRightPanelTab = .craft
+                }
+                Task { await vm.analyzeCraftReport() }
+            }
+            directionOneToolbarIconButton(systemName: "list.bullet.rectangle", label: "Structure") {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    isDirectionOneRightRailExpanded = true
+                    directionOneRightPanelTab = .beats
+                }
+            }
+            directionOneToolbarIconButton(
+                systemName: isScriptPaperTornOff ? "rectangle.on.rectangle" : "doc.on.doc",
+                label: isScriptPaperTornOff ? "Reopen Paper" : "Tear Off Paper"
+            ) {
+                if isScriptPaperTornOff {
+                    reopenScriptPaper()
+                } else {
+                    tearOffScriptPaper()
+                }
+            }
+        }
+
+        Menu {
+            Button("Write") { liveDraftBridge.activeScreenplayElement = .action }
+            Button("Rewrite") {
+                vm.normalizeDraftToHollywoodFormat()
+                openDirectionOneStudioNavigation(.revisions)
+            }
+            Button("Continue") { liveDraftBridge.insertLatestAtCursor() }
+            Button("Doctor") {
+                directionOneRightPanelTab = .craft
+                isDirectionOneRightRailExpanded = true
+                Task { await vm.analyzeCraftReport() }
+            }
+            Button("Structure") {
+                directionOneRightPanelTab = .beats
+                isDirectionOneRightRailExpanded = true
+            }
+            Button(isScriptPaperTornOff ? "Reopen Paper" : "Tear Off Paper") {
+                if isScriptPaperTornOff {
+                    reopenScriptPaper()
+                } else {
+                    tearOffScriptPaper()
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 14, weight: .semibold, design: .default))
+                .foregroundStyle(directionOneChromeSecondaryText)
+                .frame(width: 30, height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.white.opacity(0.26))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(directionOneChromeStroke.opacity(0.24), lineWidth: 1)
+                )
+        }
+        .help("Studio tools")
+    }
+}
+
+private var directionOneStudioNavigationStrip: some View {
+    HStack(spacing: 12) {
+        Text("Studio Navigation")
+            .font(.system(size: 10, weight: .bold, design: .default))
+            .foregroundStyle(directionOneChromeTertiaryText)
+            .textCase(.uppercase)
+            .tracking(0.8)
+
+        HStack(spacing: 8) {
+            ForEach(DirectionOneStudioNavigationItem.allCases) { item in
+                directionOneStudioNavigationButton(item)
+            }
+        }
+
+        Spacer(minLength: 8)
+
+        if isScriptPaperTornOff {
+            draftStatusChip(isScriptPaperOverlayVisible ? "Paper open" : "Paper parked", prominence: .muted)
+        } else {
+            draftStatusChip("Pinned", prominence: .muted)
+        }
+    }
+    .padding(.horizontal, 18)
+    .padding(.vertical, 10)
+    .background(directionOneChromeTopBar.opacity(0.78))
+    .overlay(alignment: .bottom) {
+        Rectangle()
+            .fill(directionOneChromeStroke.opacity(0.24))
+            .frame(height: 1)
+    }
+}
+
+private func directionOneStudioNavigationButton(_ item: DirectionOneStudioNavigationItem) -> some View {
+    let isActive = activeDirectionOneStudioNavigationItem == item
+    return Button {
+        openDirectionOneStudioNavigation(item)
+    } label: {
+        Label(item.title, systemImage: item.iconName)
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(isActive ? directionOneChromeText.opacity(0.90) : directionOneChromeSecondaryText)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(isActive ? Color.white.opacity(0.48) : Color.white.opacity(0.18))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(isActive ? Color.pink.opacity(0.30) : directionOneChromeStroke.opacity(0.16), lineWidth: 1)
+            )
+    }
+    .buttonStyle(.plain)
+    .help(item.title)
+}
+
+private var activeDirectionOneStudioNavigationItem: DirectionOneStudioNavigationItem {
+    guard isDirectionOneRightRailExpanded else { return selectedStudioNavigationItem }
+    switch directionOneRightPanelTab {
+    case .draft:
+        switch selectedDraftToolsSection {
+        case .document: return .document
+        case .pages: return .pages
+        case .revisions: return .revisions
+        case .snapshots: return .snapshots
+        }
+    case .scenes:
+        return .scenes
+    default:
+        return selectedStudioNavigationItem
+    }
+}
+
+private func openDirectionOneStudioNavigation(_ item: DirectionOneStudioNavigationItem) {
+    selectedStudioNavigationItem = item
+    withAnimation(.easeInOut(duration: 0.16)) {
+        isDirectionOneRightRailExpanded = true
+        switch item {
+        case .document:
+            directionOneRightPanelTab = .draft
+            selectedDraftToolsSection = .document
+        case .pages:
+            directionOneRightPanelTab = .draft
+            selectedDraftToolsSection = .pages
+        case .revisions:
+            directionOneRightPanelTab = .draft
+            selectedDraftToolsSection = .revisions
+        case .snapshots:
+            directionOneRightPanelTab = .draft
+            selectedDraftToolsSection = .snapshots
+        case .scenes:
+            directionOneRightPanelTab = .scenes
+            selectedInspectorSection = .scenes
+        }
     }
 }
 
@@ -6263,6 +6655,207 @@ private var directionOneScriptEditor: some View {
         triggerDirectionOnePageFocusTransition()
     }
 }
+    private func directionOneWritingFormatShelf(pageWidth: CGFloat) -> some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Writing Format")
+                    .font(.system(size: 10, weight: .semibold, design: .default))
+                    .foregroundStyle(directionOneChromeTertiaryText)
+                    .textCase(.uppercase)
+                    .tracking(0.7)
+                Text("Locked to Write")
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .foregroundStyle(directionOneChromeText.opacity(0.78))
+            }
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 8) {
+                directionOneShelfCommand(systemName: "pencil", title: "Write") {
+                    liveDraftBridge.activeScreenplayElement = .action
+                }
+                directionOneShelfCommand(systemName: "arrow.triangle.2.circlepath", title: "Rewrite") {
+                    vm.normalizeDraftToHollywoodFormat()
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        isDirectionOneRightRailExpanded = true
+                        directionOneRightPanelTab = .draft
+                        selectedDraftToolsSection = .revisions
+                    }
+                }
+                directionOneShelfCommand(systemName: "arrow.right.to.line", title: "Continue") {
+                    liveDraftBridge.insertLatestAtCursor()
+                }
+                directionOneShelfCommand(systemName: "stethoscope", title: "Doctor") {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        isDirectionOneRightRailExpanded = true
+                        directionOneRightPanelTab = .craft
+                    }
+                    Task { await vm.analyzeCraftReport() }
+                }
+                directionOneShelfCommand(systemName: "text.bubble", title: "Polish") {
+                    vm.normalizeDraftToHollywoodFormat()
+                }
+                directionOneShelfCommand(systemName: "list.bullet.rectangle", title: "Structure") {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        isDirectionOneRightRailExpanded = true
+                        directionOneRightPanelTab = .beats
+                    }
+                }
+            }
+            .padding(10)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(0.28), lineWidth: 1)
+            )
+            .shadow(color: Color.herPaperShadow.opacity(0.12), radius: 16, y: 8)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(width: min(pageWidth + 300, 980))
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(directionOneChromeText.opacity(0.36))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private func directionOneDocumentControlsShelf(pageWidth: CGFloat) -> some View {
+        let shelfWidth = min(pageWidth + 300, 980)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            directionOneDocumentControlsShelfHeader
+            directionOneDocumentControlsShelfActions
+        }
+        .padding(18)
+        .frame(width: shelfWidth)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(directionOneChromeText.opacity(0.30))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private var directionOneDocumentControlsShelfHeader: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Document Controls")
+                    .font(.system(size: 10, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.pink.opacity(0.48))
+                    .textCase(.uppercase)
+                    .tracking(0.7)
+                Text("Keep save state, autosave, and export close at hand without stealing focus from the page.")
+                    .font(.system(size: 12, weight: .medium, design: .default))
+                    .foregroundStyle(directionOneChromeText.opacity(0.64))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            directionOneDocumentControlsStatusChips
+        }
+    }
+
+    private var directionOneDocumentControlsStatusChips: some View {
+        HStack(spacing: 8) {
+            draftStatusChip("Pinned", prominence: .muted)
+            draftStatusChip(
+                vm.hasUnsavedDraftChanges ? "Unsaved" : "Synced",
+                prominence: vm.hasUnsavedDraftChanges ? .warning : .success
+            )
+            draftStatusChip(
+                vm.autosaveStatusText.isEmpty ? "Draft empty" : vm.autosaveStatusText,
+                prominence: .muted
+            )
+        }
+    }
+
+    private var directionOneDocumentControlsShelfActions: some View {
+        HStack(spacing: 12) {
+            directionOneSaveDraftShelfButton
+            directionOneExportShelfMenu
+            directionOneAutosaveShelfToggle
+        }
+    }
+
+    private var directionOneSaveDraftShelfButton: some View {
+        Button {
+            triggerStudioManualSave(revealSavedTab: false)
+        } label: {
+            Label(vm.isSaving ? "Saving" : "Save Draft", systemImage: vm.isSaving ? "arrow.clockwise" : "icloud.and.arrow.up")
+                .font(.system(size: 12, weight: .semibold, design: .default))
+                .frame(maxWidth: .infinity, minHeight: 42)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(directionOneChromeText.opacity(0.78))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.22))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.26), lineWidth: 1)
+        )
+        .disabled(vm.isSaving)
+    }
+
+    private var directionOneExportShelfMenu: some View {
+        Menu {
+            Button("Export FDX") { Task { await exportCurrentDraft(format: "fdx") } }
+            Button("Export PDF") { Task { await exportCurrentDraft(format: "pdf") } }
+            Button("Open in Google Docs") { openInGoogleDocs(draft: vm.fountainDraft) }
+        } label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+                .font(.system(size: 12, weight: .semibold, design: .default))
+                .frame(width: 118)
+                .frame(minHeight: 42)
+        }
+        .foregroundStyle(directionOneChromeText.opacity(0.70))
+    }
+
+    private var directionOneAutosaveShelfToggle: some View {
+        Toggle("Autosave", isOn: $vm.autosaveEnabled)
+            .toggleStyle(.switch)
+            .font(.system(size: 12, weight: .semibold, design: .default))
+            .foregroundStyle(directionOneChromeText.opacity(0.70))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 42)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.18))
+            )
+    }
+
+    private func directionOneShelfCommand(
+        systemName: String,
+        title: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: systemName)
+                    .font(.system(size: 13, weight: .medium, design: .default))
+                Text(title.uppercased())
+                    .font(.system(size: 7, weight: .bold, design: .default))
+                    .tracking(0.5)
+            }
+            .foregroundStyle(directionOneChromeText.opacity(0.64))
+            .frame(width: 52, height: 42)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.18))
+            )
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+
     private func directionOnePageEditor(_ size: CGSize) -> some View {
         let verticalBreathingRoom = min(max(size.height * 0.07, 52), 86)
         let pageWidth = min(560, max(size.width * 0.56, 500))
@@ -6276,6 +6869,11 @@ private var directionOneScriptEditor: some View {
                     .frame(maxWidth: .infinity)
             }
 
+            directionOneWritingFormatShelf(pageWidth: pageWidth)
+                .frame(maxWidth: .infinity)
+
+            directionOneDocumentControlsShelf(pageWidth: pageWidth)
+                .frame(maxWidth: .infinity)
 
             screenplayPageSurface(
                 minHeight: pageMinHeight,
@@ -7797,7 +8395,9 @@ Detail:
     private var directionOneRightPanelContentMaxHeight: CGFloat {
         switch directionOneRightPanelTab {
         case .draft:
-            return 560
+            return 620
+        case .scenes:
+            return 700
         case .beats:
             return 700
         case .craft:
@@ -7808,6 +8408,481 @@ Detail:
             return 1120
         case .saved:
             return 560
+        }
+    }
+
+    private var directionOneStoryRailsHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Assistant / Story Rails")
+                    .font(.system(size: 10, weight: .bold, design: .default))
+                    .foregroundStyle(directionOneChromeTertiaryText)
+                    .textCase(.uppercase)
+                    .tracking(0.9)
+                Spacer(minLength: 0)
+                Circle()
+                    .fill(Color.pink.opacity(0.34))
+                    .frame(width: 7, height: 7)
+            }
+
+            Text(directionOneRightPanelTab == .saved ? "Saved history" : directionOneRightPanelTab.title)
+                .font(.system(size: 24, weight: .semibold, design: .default))
+                .foregroundStyle(directionOneChromeText.opacity(0.82))
+                .lineLimit(1)
+
+            HStack(spacing: 10) {
+                directionOneStoryRailQuickButton(.beats)
+                directionOneStoryRailQuickButton(.draft)
+                directionOneStoryRailQuickButton(.saved)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.24))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(directionOneChromeStroke.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private func directionOneStoryRailQuickButton(_ tab: DirectionOneRightPanelTab) -> some View {
+        let isActive = directionOneRightPanelTab == tab
+        return Button {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                directionOneRightPanelTab = tab
+            }
+        } label: {
+            Image(systemName: tab.iconName)
+                .font(.system(size: 13, weight: .semibold, design: .default))
+                .foregroundStyle(isActive ? directionOneChromeText.opacity(0.84) : directionOneChromeSecondaryText)
+                .frame(width: 42, height: 42)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(isActive ? Color.white.opacity(0.50) : directionOneChromeText.opacity(0.10))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(isActive ? Color.pink.opacity(0.28) : directionOneChromeStroke.opacity(0.16), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(tab.title)
+    }
+
+    private var directionOneSavedHistoryPreview: some View {
+        let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let latestLabel = latestVersionID.isEmpty ? "Draft empty" : "Draft \(String(latestVersionID.suffix(4)).uppercased())"
+        let hasDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Saved history")
+                        .font(.system(size: 20, weight: .semibold, design: .default))
+                        .foregroundStyle(directionOneChromeText.opacity(0.82))
+                    Text("Command+S keeps recent versions inside Studio.")
+                        .font(.system(size: 11, weight: .medium, design: .default))
+                        .foregroundStyle(directionOneChromeSecondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                draftStatusChip(latestLabel, prominence: .muted)
+            }
+
+            HStack(alignment: .bottom, spacing: 10) {
+                directionOneHistoryMeter(height: 72, opacity: 0.30)
+                directionOneHistoryMeter(height: 96, opacity: 0.38)
+                directionOneHistoryMeter(height: 88, opacity: 0.34)
+                directionOneHistoryMeter(height: 128, opacity: 0.46)
+                Spacer(minLength: 0)
+            }
+
+            directionOneRecentTornOffPagesMiniList(compact: true)
+
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        directionOneRightPanelTab = .saved
+                    }
+                } label: {
+                    Text(hasDraft ? "Open saves" : "Start saving")
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundStyle(directionOneChromeText.opacity(0.62))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.26), in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                directionOnePaperRailButton
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(directionOneChromeText.opacity(0.24))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+
+    private func directionOneHistoryMeter(height: CGFloat, opacity: Double) -> some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.white.opacity(opacity))
+            .frame(width: 30, height: height)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(directionOneChromeStroke.opacity(0.12), lineWidth: 1)
+            )
+    }
+
+    private var directionOnePaperRailButton: some View {
+        Button {
+            if isScriptPaperTornOff {
+                reopenScriptPaper()
+            } else {
+                tearOffScriptPaper()
+            }
+        } label: {
+            Label(
+                isScriptPaperTornOff ? "Reopen Paper" : "Tear Off Paper",
+                systemImage: isScriptPaperTornOff ? "rectangle.on.rectangle" : "doc.on.doc"
+            )
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(directionOneChromeText.opacity(0.68))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.24), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(isScriptPaperTornOff ? "Reopen the live desktop paper." : "Tear off a live script paper from the Studio page.")
+    }
+
+    private func tearOffScriptPaper() {
+        recordTornOffPaperSnapshot()
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.84)) {
+            isScriptPaperTornOff = true
+            isScriptPaperOverlayVisible = true
+        }
+        vm.infoText = "Script paper torn off to the desktop."
+    }
+
+    private func reopenScriptPaper() {
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.84)) {
+            isScriptPaperTornOff = true
+            isScriptPaperOverlayVisible = true
+        }
+        vm.infoText = "Reopened the live script paper."
+    }
+
+    private func dockScriptPaper() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isScriptPaperOverlayVisible = false
+        }
+        vm.infoText = "Script paper parked. Use Reopen Paper in Saved history to bring it back."
+    }
+
+    private func returnScriptPaperToStudio() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isScriptPaperOverlayVisible = false
+            isScriptPaperTornOff = false
+        }
+        vm.infoText = "Script paper returned to Studio."
+    }
+
+
+    private var currentTornOffPaperPageLabel: String {
+        if let page = vm.paginationPages.first(where: { isPaginationPageActive($0) }) {
+            return "Page \(page.page)"
+        }
+        return vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Blank page" : "Live page"
+    }
+
+    private func tornOffPaperExcerpt(from draft: String) -> String {
+        let cleanLines = draft
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let excerpt = cleanLines.prefix(3).joined(separator: " / ")
+        return excerpt.isEmpty ? "Blank torn-off paper" : excerpt
+    }
+
+    private func recordTornOffPaperSnapshot() {
+        let draftText = vm.fountainDraft
+        let title = vm.selectedProject?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Untitled Draft"
+        let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let snapshot = DirectionOneTornOffPaperSnapshot(
+            id: UUID().uuidString,
+            title: title.isEmpty ? "Untitled Draft" : title,
+            versionLabel: latestVersionID.isEmpty ? "Live draft" : "Draft \(String(latestVersionID.suffix(4)).uppercased())",
+            pageLabel: currentTornOffPaperPageLabel,
+            excerpt: tornOffPaperExcerpt(from: draftText),
+            draftText: draftText,
+            createdAt: Date()
+        )
+
+        tornOffPaperSnapshots.removeAll { existing in
+            existing.title == snapshot.title && existing.excerpt == snapshot.excerpt
+        }
+        tornOffPaperSnapshots.insert(snapshot, at: 0)
+        tornOffPaperSnapshots = Array(tornOffPaperSnapshots.prefix(6))
+    }
+
+    private func loadTornOffPaperSnapshot(_ snapshot: DirectionOneTornOffPaperSnapshot) {
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.84)) {
+            isScriptPaperTornOff = true
+            isScriptPaperOverlayVisible = true
+        }
+        if !snapshot.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           snapshot.draftText != vm.fountainDraft {
+            vm.fountainDraft = snapshot.draftText
+            vm.noteManualDraftEdit()
+            vm.refreshLiveDraftBridgeContext()
+        }
+        vm.infoText = "Opened \(snapshot.pageLabel) from recent torn-off pages."
+    }
+
+    private func directionOneRecentTornOffPagesMiniList(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 7 : 9) {
+            HStack(spacing: 6) {
+                Text("Recent torn-off pages")
+                    .font(.system(size: compact ? 9.5 : 10, weight: .semibold, design: .default))
+                    .foregroundStyle(compact ? directionOneChromeText.opacity(0.50) : Color.herText.opacity(0.46))
+                    .textCase(.uppercase)
+                    .tracking(0.6)
+                Spacer(minLength: 0)
+                if !tornOffPaperSnapshots.isEmpty {
+                    Text("\(tornOffPaperSnapshots.count)")
+                        .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(compact ? directionOneChromeText.opacity(0.48) : Color.herText.opacity(0.46))
+                }
+            }
+
+            if tornOffPaperSnapshots.isEmpty {
+                Text("Tear off the paper once and recent pages will stay here as quick chips.")
+                    .font(.system(size: compact ? 10 : 10.5, weight: .regular, design: .default))
+                    .foregroundStyle(compact ? directionOneChromeSecondaryText.opacity(0.82) : Color.herText.opacity(0.50))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(spacing: compact ? 6 : 7) {
+                    ForEach(Array(tornOffPaperSnapshots.prefix(compact ? 2 : 5))) { snapshot in
+                        directionOneTornOffPaperSnapshotRow(snapshot, compact: compact)
+                    }
+                }
+            }
+        }
+        .padding(compact ? 0 : 10)
+        .background(
+            Group {
+                if compact {
+                    Color.clear
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white.opacity(0.26))
+                }
+            }
+        )
+    }
+
+    private func directionOneTornOffPaperSnapshotRow(_ snapshot: DirectionOneTornOffPaperSnapshot, compact: Bool) -> some View {
+        Button {
+            loadTornOffPaperSnapshot(snapshot)
+        } label: {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "doc.on.clipboard")
+                    .font(.system(size: compact ? 10 : 11, weight: .semibold, design: .default))
+                    .foregroundStyle(compact ? directionOneChromeText.opacity(0.48) : Color.herStudioAccent.opacity(0.72))
+                    .frame(width: compact ? 18 : 22, height: compact ? 18 : 22)
+                    .background(Color.white.opacity(compact ? 0.18 : 0.42), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text(snapshot.pageLabel)
+                            .font(.system(size: compact ? 10.5 : 11, weight: .semibold, design: .default))
+                            .foregroundStyle(compact ? directionOneChromeText.opacity(0.68) : Color.herText.opacity(0.76))
+                        Text(relativeTimestamp(snapshot.createdAt))
+                            .font(.system(size: compact ? 9.5 : 10, weight: .regular, design: .default))
+                            .foregroundStyle(compact ? directionOneChromeSecondaryText : Color.herText.opacity(0.48))
+                    }
+                    Text(snapshot.excerpt)
+                        .font(.system(size: compact ? 10 : 10.5, weight: .regular, design: .default))
+                        .foregroundStyle(compact ? directionOneChromeSecondaryText : Color.herText.opacity(0.56))
+                        .lineLimit(compact ? 1 : 2)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, compact ? 8 : 9)
+            .padding(.vertical, compact ? 6 : 7)
+            .background(Color.white.opacity(compact ? 0.18 : 0.34), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("Open \(snapshot.pageLabel) from recent torn-off pages")
+    }
+
+    private var directionOneDesktopPaperControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herStudioAccent.opacity(0.76))
+                    .frame(width: 28, height: 28)
+                    .background(Color.white.opacity(0.52), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Desktop Paper")
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.78))
+                    Text(isScriptPaperTornOff ? "A live page is parked on the desktop while saved revisions stay frozen here." : "Keep one live page on the desk while older revisions stay frozen beside it.")
+                        .font(.system(size: 10.5, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.54))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                directionOnePaperRailButton
+            }
+
+            if isScriptPaperTornOff {
+                HStack(spacing: 8) {
+                    draftStatusChip(isScriptPaperOverlayVisible ? "Paper open" : "Paper parked", prominence: .muted)
+
+                    Button {
+                        dockScriptPaper()
+                    } label: {
+                        Text("Dock Paper")
+                            .font(.system(size: 10.5, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.62))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.42), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isScriptPaperOverlayVisible)
+                    .opacity(isScriptPaperOverlayVisible ? 1 : 0.55)
+
+                    Button {
+                        returnScriptPaperToStudio()
+                    } label: {
+                        Text("Put Back")
+                            .font(.system(size: 10.5, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.62))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.42), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.herPaper.opacity(0.70))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.24), lineWidth: 1)
+        )
+    }
+
+    private var directionOneTornOffPaperOverlay: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topTrailing) {
+                Color.black.opacity(0.08)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    HStack(spacing: 12) {
+                        directionOneTrafficLights
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Desktop Paper")
+                                .font(.system(size: 12, weight: .semibold, design: .default))
+                                .foregroundStyle(directionOneChromeText.opacity(0.82))
+                            Text(vm.selectedProject?.title ?? "Untitled Draft")
+                                .font(.system(size: 10, weight: .medium, design: .default))
+                                .foregroundStyle(directionOneChromeSecondaryText)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Button {
+                            dockScriptPaper()
+                        } label: {
+                            Label("Dock", systemImage: "rectangle.compress.vertical")
+                                .font(.system(size: 11, weight: .semibold, design: .default))
+                                .foregroundStyle(directionOneChromeText.opacity(0.66))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.28), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            returnScriptPaperToStudio()
+                        } label: {
+                            Label("Put Back", systemImage: "arrow.down.right.and.arrow.up.left")
+                                .font(.system(size: 11, weight: .semibold, design: .default))
+                                .foregroundStyle(directionOneChromeText.opacity(0.66))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.28), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(directionOneChromeTopBar.opacity(0.94))
+
+                    Divider()
+                        .overlay(directionOneChromeStroke.opacity(0.26))
+
+                    ZStack(alignment: .topLeading) {
+                        Color.herPaper
+
+                        if vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Start writing on the torn-off paper...")
+                                .font(.system(size: 13, weight: .regular, design: .monospaced))
+                                .foregroundStyle(Color.herText.opacity(0.32))
+                                .padding(.horizontal, 30)
+                                .padding(.vertical, 30)
+                        }
+
+                        TextEditor(text: $vm.fountainDraft)
+                            .font(.system(size: 13, weight: .regular, design: .monospaced))
+                            .foregroundStyle(Color.herText.opacity(0.90))
+                            .scrollContentBackground(.hidden)
+                            .background(Color.clear)
+                            .padding(24)
+                            .onChange(of: vm.fountainDraft) { _, _ in
+                                vm.noteManualDraftEdit()
+                                vm.refreshLiveDraftBridgeContext()
+                            }
+                    }
+                }
+                .frame(
+                    width: min(max(proxy.size.width * 0.46, 560), 760),
+                    height: min(max(proxy.size.height * 0.74, 580), 860)
+                )
+                .background(Color.herPaper)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.60), lineWidth: 1)
+                )
+                .shadow(color: Color.herPaperShadow.opacity(0.24), radius: 34, y: 20)
+                .padding(.top, 74)
+                .padding(.trailing, 38)
+            }
         }
     }
 
@@ -7865,6 +8940,8 @@ Detail:
             directionOneCraftPanel
         case .outline:
             directionOneOutlinePanel
+        case .scenes:
+            directionOneScenesRightPanel
         case .them:
             directionOneThemPanel
         case .saved:
@@ -7875,6 +8952,12 @@ Detail:
     private var directionOneBeatsPanel: some View {
         sectionCard(title: "Beats") {
             beatsInspectorContent
+        }
+    }
+
+    private var directionOneScenesRightPanel: some View {
+        sectionCard(title: "Scenes") {
+            scenesInspectorContent
         }
     }
 
@@ -8071,7 +9154,7 @@ private var directionOneThemPanel: some View {
         let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
         let latestVersionTag = latestVersionID.isEmpty ? "" : "Version \(String(latestVersionID.suffix(6)).uppercased())"
 
-        return sectionCard(title: "Saved") {
+        return sectionCard(title: "Saved history") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     Button {
@@ -8102,6 +9185,9 @@ private var directionOneThemPanel: some View {
                 Text("Command+S saves the current script here and keeps recent versions inside Studio.")
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.66))
+
+                directionOneDesktopPaperControls
+                directionOneRecentTornOffPagesMiniList(compact: false)
 
                 Divider()
                     .overlay(Color.herShellStroke.opacity(0.18))
@@ -9724,12 +10810,51 @@ private var projectsSidebarContent: some View {
     @ViewBuilder
     private var draftToolsContent: some View {
         switch selectedDraftToolsSection {
+        case .document:
+            draftDocumentToolsContent
         case .pages:
             draftPageToolsContent
         case .revisions:
             draftRevisionToolsContent
         case .snapshots:
             draftSnapshotToolsContent
+        }
+    }
+
+    private var draftDocumentToolsContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                inspectorSubsectionLabel("Document")
+                Text("Save, export, autosave, and torn-off paper controls stay together so the page can stay focused on writing.")
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.54))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    triggerStudioManualSave(revealSavedTab: false)
+                } label: {
+                    Label(vm.isSaving ? "Saving" : "Save Now", systemImage: vm.isSaving ? "arrow.clockwise" : "icloud.and.arrow.up")
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.herText.opacity(0.78))
+                .background(Color.white.opacity(0.24), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .disabled(vm.isSaving)
+
+                directionOneExportShelfMenu
+                    .frame(width: 116)
+
+                Toggle("", isOn: $vm.autosaveEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .frame(width: 52)
+            }
+
+            directionOneDesktopPaperControls
+            directionOneRecentTornOffPagesMiniList(compact: false)
         }
     }
 
@@ -21903,7 +23028,7 @@ Look at the city.
             rawValue: studioDebugDraftInspectorSectionRaw
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-        ) ?? .pages
+        ) ?? .document
         Task { @MainActor in
             openDraftInspector()
             selectedDraftToolsSection = requestedSection

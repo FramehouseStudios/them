@@ -109,7 +109,7 @@ if [[ "${RUN_QUALITY_GATE}" == "1" ]]; then
   fi
 else
   echo "[INFO] Skipping quality gate precheck (RUN_QUALITY_GATE=${RUN_QUALITY_GATE})."
-  echo "[INFO] Run scripts/quality_gate.sh separately, or set RUN_QUALITY_GATE=1 to include backend gates such as speculative reuse."
+  echo "[INFO] Run scripts/quality_gate.sh separately, or set RUN_QUALITY_GATE=1 to include backend gates such as speculative reuse and the screenwriting embedding cache."
   if [[ -n "${CI:-}" ]]; then
     echo "[INFO] CI detected. Release automation should normally set RUN_QUALITY_GATE=1 for combined preflight coverage."
   fi

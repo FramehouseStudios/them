@@ -17,6 +17,10 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(report.drift.timeline.last?.status, "missing")
         XCTAssertEqual(report.overrides.first?.action, "mark_false_positive")
         XCTAssertEqual(report.snapshot?.versionId, "version-7")
+        XCTAssertEqual(report.craftNotes?.first?.page, 3)
+        XCTAssertEqual(report.formattingWarnings?.first?.craftArea, "formatting_fountain")
+        XCTAssertEqual(report.genreDoctorPasses?.first?.genre, "thriller")
+        XCTAssertEqual(report.citationSources?.first?.cardId, "swc_001")
     }
 
     func testCraftReportRoundTripsWithSnakeCaseKeys() throws {
@@ -212,6 +216,62 @@ final class ScreenplayCraftModelsTests: XCTestCase {
               }
             ]
           },
+          "craft_notes": [
+            {
+              "id": "note-1",
+              "page": 3,
+              "line_start": 12,
+              "line_end": 12,
+              "craft_area": "dialogue_economy",
+              "title": "Long dialogue run",
+              "body": "Trim repeated setup.",
+              "severity": "note",
+              "card_id": "swc_001",
+              "citation": "Dialogue economy - Canonical screenwriting craft corpus"
+            }
+          ],
+          "formatting_warnings": [
+            {
+              "id": "lint-1",
+              "page": 1,
+              "line_start": 1,
+              "line_end": 1,
+              "severity": "warning",
+              "craft_area": "formatting_fountain",
+              "title": "Scene heading case",
+              "body": "Use uppercase headings.",
+              "card_id": "swc_200",
+              "citation": "Fountain edge cases"
+            }
+          ],
+          "genre_doctor_passes": [
+            {
+              "id": "doctor-thriller",
+              "genre": "thriller",
+              "title": "Escalation pass",
+              "body": "Audit the ticking pressure.",
+              "craft_area": "genre_conventions",
+              "card_ids": ["swc_151"],
+              "citations": [
+                {
+                  "id": "cite_swc_151",
+                  "card_id": "swc_151",
+                  "title": "Genre conventions",
+                  "source": "Canonical screenwriting craft corpus",
+                  "principle": "Thrillers need urgency."
+                }
+              ]
+            }
+          ],
+          "citation_sources": [
+            {
+              "id": "cite_swc_001",
+              "card_id": "swc_001",
+              "title": "Dialogue economy",
+              "source": "Canonical screenwriting craft corpus",
+              "principle": "Cut greetings."
+            }
+          ],
           "overrides": [
             {
               "id": "override-1",

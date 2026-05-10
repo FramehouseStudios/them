@@ -140,7 +140,19 @@ struct ScreenplayCraftRailView: View {
         VStack(alignment: .leading, spacing: 14) {
             coverageStrip(report)
             majorTurnTimeline(report)
+            if let notes = report.craftNotes, !notes.isEmpty {
+                craftNotesPanel(notes)
+            }
+            if let warnings = report.formattingWarnings, !warnings.isEmpty {
+                formattingWarningsPanel(warnings)
+            }
+            if let passes = report.genreDoctorPasses, !passes.isEmpty {
+                genreDoctorPanel(passes)
+            }
             beatSheetTable(report)
+            if let citations = report.citationSources, !citations.isEmpty {
+                citationPanel(citations)
+            }
             if !report.overrides.isEmpty {
                 overridesStrip(report.overrides)
             }
@@ -295,6 +307,92 @@ struct ScreenplayCraftRailView: View {
         }
         .padding(10)
         .background(Color.white.opacity(0.05))
+    }
+
+    private func craftNotesPanel(_ notes: [ScreenplayCraftNote]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Page-anchored notes")
+            ForEach(notes.prefix(5)) { note in
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        craftChip("p\(note.page)")
+                        Text(note.title)
+                            .font(.system(size: 11, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.84))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    Text(note.body)
+                        .font(.system(size: 10, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.58))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let citation = note.citation, !citation.isEmpty {
+                        Text(citation)
+                            .font(.system(size: 9, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.42))
+                            .lineLimit(2)
+                    }
+                }
+                .padding(10)
+                .background(Color.white.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            }
+        }
+    }
+
+    private func formattingWarningsPanel(_ warnings: [ScreenplayCraftFormattingWarning]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Import/export lint")
+            ForEach(warnings.prefix(4)) { warning in
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: warning.severity.lowercased() == "warning" ? "exclamationmark.triangle" : "info.circle")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(statusColor(warning.severity))
+                        .frame(width: 16)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("p\(warning.page) L\(warning.lineStart): \(warning.title)")
+                            .font(.system(size: 10, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.80))
+                        Text(warning.body)
+                            .font(.system(size: 10, weight: .regular, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.55))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func genreDoctorPanel(_ passes: [ScreenplayCraftGenreDoctorPass]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Genre doctor")
+            ForEach(passes.prefix(3)) { pass in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(pass.title)
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.82))
+                    Text(pass.body)
+                        .font(.system(size: 10, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.56))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func citationPanel(_ citations: [ScreenplayCraftCitation]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel("Craft citations")
+            ForEach(citations.prefix(4)) { citation in
+                Text("\(citation.title) - \(citation.source)")
+                    .font(.system(size: 9, weight: .medium, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.48))
+                    .lineLimit(2)
+            }
+        }
     }
 
     private func overridesStrip(_ overrides: [ScreenplayCraftTurnOverride]) -> some View {

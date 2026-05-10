@@ -82,6 +82,7 @@ jobs:
       RUN_SPECULATIVE_REUSE_GATE: ${{ inputs.run_speculative_reuse_gate && '1' || '0' }}
       RUN_SMOKE: ${{ inputs.run_smoke && '1' || '0' }}
       RUN_TALK_RECOVERY_GATE: ${{ inputs.run_talk_recovery_gate && '1' || '0' }}
+      RUN_KNOWLEDGE_EMBEDDING_GATE: 1
       RUN_ALERT: ${{ inputs.run_alert && '1' || '0' }}
       RUN_LOAD: ${{ inputs.run_load && '1' || '0' }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -147,6 +148,7 @@ jobs:
             echo "- Speculative reuse smoke: $(gate_status "${RUN_SPECULATIVE_REUSE_GATE}")"
             echo "- Smoke suite: $(gate_status "${RUN_SMOKE}")"
             echo "- Talk recovery gate: $(gate_status "${RUN_TALK_RECOVERY_GATE}")"
+            echo "- Screenwriting embedding cache: $(gate_status "${RUN_KNOWLEDGE_EMBEDDING_GATE}")"
             echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
             echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"

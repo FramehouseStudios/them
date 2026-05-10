@@ -5,6 +5,7 @@ import { test } from "node:test";
 
 import {
   buildCraftContextBlock,
+  buildDraftAnalysisPromptBlock,
   buildClassificationPromptBlock,
   CRAFT_BLOCK_OPEN,
   CRAFT_BLOCK_CLOSE,
@@ -54,6 +55,23 @@ test("buildCraftContextBlock summarizes report coverage when present", () => {
   assert.ok(block.includes("drift: drifting"));
   assert.ok(block.includes("missing-or-drifting:"));
   assert.ok(block.includes("all-is-lost"));
+});
+
+test("buildCraftContextBlock can surface craft-card citations", () => {
+  const block = buildCraftContextBlock({ framework: "three-act", craftArea: "dialogue", genre: "noir" });
+  assert.ok(block.includes("craft-card-citations:"));
+  assert.ok(block.includes("citation-rule:"));
+});
+
+test("buildDraftAnalysisPromptBlock locks analysis to selected framework", () => {
+  const block = buildDraftAnalysisPromptBlock({
+    framework: "story-circle",
+    genre: "thriller",
+    draft: "MIDPOINT: the map is false.",
+  });
+  assert.ok(block.includes("selected framework: Story Circle"));
+  assert.ok(block.includes("story-circle"));
+  assert.ok(block.includes("Genre doctor pass: thriller"));
 });
 
 test("buildClassificationPromptBlock embeds the candidate beats and scene excerpt", () => {

@@ -41,6 +41,10 @@ public nonisolated struct ScreenplayCraftReport: Codable, Hashable, Identifiable
     public let drift: ScreenplayCraftDriftReport
     public let overrides: [ScreenplayCraftTurnOverride]
     public let snapshot: ScreenplayCraftSnapshotReference?
+    public let craftNotes: [ScreenplayCraftNote]?
+    public let formattingWarnings: [ScreenplayCraftFormattingWarning]?
+    public let genreDoctorPasses: [ScreenplayCraftGenreDoctorPass]?
+    public let citationSources: [ScreenplayCraftCitation]?
 
     public var missingRequiredMajorTurns: [ScreenplayCraftMajorTurn] {
         majorTurns.filter { $0.required && !$0.isSatisfied }
@@ -199,4 +203,48 @@ public nonisolated struct ScreenplayCraftSnapshotReference: Codable, Hashable, I
     public let reportId: String
     public let frameworkId: String
     public let createdAt: String?
+}
+
+public nonisolated struct ScreenplayCraftCitation: Codable, Hashable, Identifiable {
+    public let id: String
+    public let cardId: String
+    public let title: String
+    public let source: String
+    public let principle: String
+}
+
+public nonisolated struct ScreenplayCraftNote: Codable, Hashable, Identifiable {
+    public let id: String
+    public let page: Int
+    public let lineStart: Int
+    public let lineEnd: Int
+    public let craftArea: String
+    public let title: String
+    public let body: String
+    public let severity: String
+    public let cardId: String?
+    public let citation: String?
+}
+
+public nonisolated struct ScreenplayCraftFormattingWarning: Codable, Hashable, Identifiable {
+    public let id: String
+    public let page: Int
+    public let lineStart: Int
+    public let lineEnd: Int
+    public let severity: String
+    public let craftArea: String
+    public let title: String
+    public let body: String
+    public let cardId: String?
+    public let citation: String?
+}
+
+public nonisolated struct ScreenplayCraftGenreDoctorPass: Codable, Hashable, Identifiable {
+    public let id: String
+    public let genre: String
+    public let title: String
+    public let body: String
+    public let craftArea: String
+    public let cardIds: [String]
+    public let citations: [ScreenplayCraftCitation]
 }

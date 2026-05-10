@@ -30,6 +30,7 @@ jobs:
       RUN_SPECULATIVE_REUSE_GATE: 1
       RUN_SMOKE: 1
       RUN_TALK_RECOVERY_GATE: 1
+      RUN_KNOWLEDGE_EMBEDDING_GATE: 1
       RUN_ALERT: 1
       RUN_LOAD: 0
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -79,6 +80,18 @@ jobs:
 
       - name: Verify Quality Gate Was Enforced
         run: |
+          if [[ "${RUN_KNOWLEDGE_EMBEDDING_GATE:-}" != "1" ]]; then
+            {
+              echo "::error::RUN_KNOWLEDGE_EMBEDDING_GATE=${RUN_KNOWLEDGE_EMBEDDING_GATE:-unset}. Release preflight requires the screenwriting embedding cache gate."
+              echo
+              echo "## Release Preflight Summary"
+              echo
+              echo "- Status: failed - embedding cache gate was not enforced"
+              echo "- RUN_KNOWLEDGE_EMBEDDING_GATE: ${RUN_KNOWLEDGE_EMBEDDING_GATE:-unset}"
+              echo "- Required: 1"
+            } | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
           if [[ "${RUN_QUALITY_GATE:-}" != "1" ]]; then
             {
               echo "::error::RUN_QUALITY_GATE=${RUN_QUALITY_GATE:-unset}. Release preflight requires the quality gate to be enforced. The workflow's env: block must keep RUN_QUALITY_GATE=1 for every release-candidate run."
@@ -115,6 +128,7 @@ jobs:
             echo "- Ref: ${{ github.ref }}"
             echo "- RUN_QUALITY_GATE: enforced"
             echo "- Backend/app gate: enforced before macOS preflight"
+            echo "- Screenwriting embedding cache gate: enforced"
             echo "- Release-candidate tag convention: \`rc-*\`"
             echo "- Required workflow secrets with current defaults: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"

@@ -1,0 +1,57 @@
+{
+  "createdAt": "2026-05-09",
+  "mainProject": {
+    "path": "/Users/halfmutantfilms/Desktop/io.them/them_MAIN.xcodeproj",
+    "projectPbxprojSha256": "3b9063ef942ffe2771a244d7e2ca86880c7540f6878c48f1eed374addd29d8ba",
+    "projectPbxprojLines": 611,
+    "sharedSchemeSha256": "d39dffd4eefd30733de91afaee9b4bdd9b42b18eda60db9cdc377b3ab939bbcd",
+    "sharedSchemeLines": 116,
+    "sourceTree": "/Users/halfmutantfilms/Desktop/io.them",
+    "userState": "moved out of them_MAIN.xcodeproj into ProjectConsolidation/xcodeproj_sources/main_removed_user_state",
+    "keptFromCurrent": [
+      "them app target",
+      "themTests target",
+      "DraftStudio local Swift package",
+      "ScreenplayStudio local Swift package",
+      "current backend and screenplay craft runtime work"
+    ],
+    "mergedFromOlderSnapshots": [
+      "Debug Info.plist split",
+      "Release Info.plist split",
+      "Debug and Release backend URL build settings",
+      "APP_TOKEN build setting wiring",
+      "Release hardened runtime setting",
+      "explicit macOS outgoing network and audio-input sandbox settings"
+    ]
+  },
+  "inputs": [
+    {
+      "name": "current_desktop",
+      "path": "/Users/halfmutantfilms/Desktop/io.them/them.xcodeproj",
+      "projectPbxprojSha256": "e20e091f5c7be555fde38b5973664f04e2a2b4fa5dd630a16de5a907366cf5f3",
+      "projectPbxprojLines": 594,
+      "role": "canonical source authority"
+    },
+    {
+      "name": "rescue_sharp_davinci",
+      "path": "/Users/halfmutantfilms/Desktop/io.them_dirty_rescue_2026-05-09/XcodeProjectStorage_them-dot-claude_worktrees/sharp-davinci-7cbf16/them.xcodeproj",
+      "projectPbxprojSha256": "e0df042f0411a93ce7f494d0acdecdcd63119127d4f4faf20ac58c592dd98ed5",
+      "projectPbxprojLines": 371,
+      "role": "older app-only rescue snapshot"
+    },
+    {
+      "name": "claude_documents",
+      "path": "/Users/halfmutantfilms/Documents/claude.them/them.xcodeproj",
+      "projectPbxprojSha256": "d3c157d7915d6888e5534688b0ffb1f42f1c0ac9076a3689eccb1e331f8ba665",
+      "projectPbxprojLines": 402,
+      "role": "source for Info.plist split and build-setting wiring"
+    },
+    {
+      "name": "codex_stage_archive",
+      "path": "/Users/halfmutantfilms/Desktop/io.them_dirty_rescue_2026-05-09/Archive_Imported_2026-04-15-consolidation-inputs/framehouse.studio.v01/codex_stage/them.xcodeproj",
+      "projectPbxprojSha256": "4105a628d475d83ac4822a3b97170b968e9da45aa74868f95a7ed90114ea897e",
+      "projectPbxprojLines": 378,
+      "role": "source for release hardening and sandbox setting review"
+    }
+  ]
+}
