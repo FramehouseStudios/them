@@ -153,19 +153,19 @@ the persistence-canonical foundation is exercised end-to-end.
 4. Runs `bash ./scripts/quality_gate.sh` with `RUN_QUALITY_GATE=1`,
    `RUN_SERVER=1`, and the `DATABASE_URL` env var set to the local
    container, plus the standard required secrets
-   (`OPENAI_API_KEY`, `APP_TOKEN`).
+   (`OPENAI_API_KEY`; `APP_TOKEN` falls back to a CI test value when the secret is absent).
 5. Captures the gate's backend log on failure and produces a
    `GITHUB_STEP_SUMMARY` with row counts per `persistence_*` table.
 
 ### Required secrets
 
 - `OPENAI_API_KEY` — required by prompt regression and talk recovery.
-- `APP_TOKEN` — required by speculative reuse, smoke, and ops alert.
+- `APP_TOKEN` — used by speculative reuse, smoke, and ops alert. The workflow falls back to `them-eval-gate-app-token` when the secret is absent so PR checks can run in fresh repositories.
 - `JWT_SECRET` — falls back to a hard-coded test value when the
   secret is not configured. Production runs should set it.
 
 The workflow fails fast (with a step-summary diagnosis) before any
-eval execution if `OPENAI_API_KEY` or `APP_TOKEN` is missing.
+eval execution if `OPENAI_API_KEY` is missing.
 
 ### Local invocation
 

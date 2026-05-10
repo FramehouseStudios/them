@@ -51,7 +51,7 @@ jobs:
     env:
       DATABASE_URL: postgres://io_them:io_them_test@localhost:5432/io_them
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      APP_TOKEN: ${{ secrets.APP_TOKEN }}
+      APP_TOKEN: ${{ secrets.APP_TOKEN || 'them-eval-gate-app-token' }}
       JWT_SECRET: ${{ secrets.JWT_SECRET || 'them-eval-gate-jwt-secret' }}
       RUN_QUALITY_GATE: 1
       RUN_SERVER: 1
@@ -63,7 +63,6 @@ jobs:
         run: |
           missing=()
           [[ -z "${OPENAI_API_KEY:-}" ]] && missing+=("OPENAI_API_KEY")
-          [[ -z "${APP_TOKEN:-}" ]] && missing+=("APP_TOKEN")
           if (( ${#missing[@]} > 0 )); then
             {
               echo "## eval-gate-postgres summary"
