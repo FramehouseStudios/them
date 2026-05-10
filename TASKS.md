@@ -20,9 +20,9 @@
 | T03  | Strip `test.mp3` / `test.wav` from app target      | codex  | review            |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
-| T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | ready-for-claude  |
-| T07  | Promote backend persistence to Postgres canonical  | claude | ready-for-claude  |
-| T08  | Centralize prompt assembly + first memory tier     | claude | ready-for-claude  |
+| T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | in-progress       |
+| T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
+| T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | blocked-T02       |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T09       |
@@ -31,6 +31,13 @@
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T15  | Fix iOS simulator test host configuration          | codex  | review            |
 | T16  | Exclude local tooling artifacts from app bundle    | codex  | review            |
+| T17  | Add Swift craft report and beat-sheet models       | codex  | review            |
+| T18  | Add backend craft schemas and analysis endpoints   | claude | ready-for-claude  |
+| T19  | Add BackendClient craft API methods                | codex  | blocked-T18       |
+| T20  | Build Craft tab, turn timeline, and beat sheet     | codex  | blocked-T19       |
+| T21  | Add craft-aware prompts and beat classification    | claude | blocked-T18       |
+| T22  | Persist craft snapshots and turn overrides         | claude | blocked-T18       |
+| T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
 
 ---
 
@@ -73,24 +80,30 @@
 
 ### T06 — Flip `RUN_QUALITY_GATE=1` default in release CI
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T06-quality-gate-default`
 - **Pillar:** infra (enables all)
-- **Status:** ready-for-claude
-- **Done when:** `.github/workflows/release-preflight.yml` runs the gate by default; a smoke run on a synthetic `rc-*` tag confirms the gate executes; `QUALITY_GATE.md` updated.
+- **Status:** in-progress
+- **Done when:** `.github/workflows/release-preflight.yml` runs the gate by default (already true via `env:`) AND fails fast if the gate is silently skipped; `docs/quality-gate-enforcement.md` documents the policy and verification procedure; `QUALITY_GATE.md` (iOS-app copy at `them/QUALITY_GATE.md`) updated to reference the new enforcement step — flagged as **Codex follow-up** because `them/**` is denied to Claude by `.claude/settings.json`.
+- **Scope split:** Claude lands the workflow verification step + repo-root doc. Codex updates `them/QUALITY_GATE.md` in a follow-up row when convenient.
 
 ### T07 — Promote backend persistence to Postgres canonical
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T07-postgres-canonical`
 - **Pillar:** longitudinal learning
-- **Status:** ready-for-claude
-- **Done when:** all `*_store.json` files at backend root are deprecated; backend code reads/writes only Postgres for these domains; migration script ships and is reversible; `npm run eval:gate` green.
+- **Status:** in-progress
+- **Scope (this PR — foundation):** adapter interface + JSON impl + Postgres impl + initial schema for all four store domains + forward and reverse migration scripts + adapter contract tests. Outbox is the proof-wired store.
+- **Scope (follow-up rows, claimed by Claude after this PR merges):** wire `memory_store` (T07a), `screenplay_store` (T07b), and the knowledge embeddings cache (T07c) onto the adapter. Each is a focused PR.
+- **Done when (this PR):** adapter contract tests green; both backends pass the same contract; `scripts/migrate_stores_to_postgres.mjs` and `scripts/dump_stores_to_json.mjs` round-trip a sample dataset; outbox_store reads/writes via the adapter when `DATABASE_URL` is set, falls back to JSON when unset; `docs/T07-persistence-canonical.md` documents the architecture and the migration runbook.
+- **Done when (overall T07):** all four `*_store.json` paths at backend root deprecated; backend reads/writes only via the adapter (Postgres in CI/prod, JSON in local dev as the explicit fallback); `npm run eval:gate` green with `DATABASE_URL` set.
 
-### T08 — Centralize prompt assembly + first memory tier
+### T08 — Centralize prompt assembly + first memory tier (backend)
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/backend-T08-memory-tier`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready-for-claude
-- **Done when:** `ScreenplayPromptBuilder` is the only path that produces a model-bound prompt; a per-user memory record persists style/character/tone signals; all generation requests carry the memory context; prompt regression eval green; documented in `docs/`.
+- **Status:** in-progress
+- **Scope (narrowed):** backend memory tier + backend-side prompt assembly. The original done-when referenced `ScreenplayPromptBuilder` (iOS) which is out of Claude's scope and not yet on `main`. iOS prompt-path consolidation is a sibling Codex follow-up — Codex to add a row when the dirty iOS state lands.
+- **Done when (backend portion):** A creative-companion memory record (style, characters, tone, habits) persists per user; a single `buildModelPrompt(...)` is the only path used by `handleTalkRequest`; every model-bound prompt carries the memory context when present and degrades cleanly when absent; new eval `run_creative_memory_eval.mjs` covers both states and is wired into `eval:gate`; design and final state documented in `docs/T08-prompt-centralization-and-memory-tier.md`.
+- **Design doc:** [docs/T08-prompt-centralization-and-memory-tier.md](docs/T08-prompt-centralization-and-memory-tier.md)
 
 ### T09 — Modularize `DraftStudio` and `ScreenplayStudio` into SwiftPM packages
 - **Owner:** codex
@@ -148,6 +161,55 @@
 - **Pillar:** infra (App Review hygiene)
 - **Status:** review
 - **Done when:** local tooling and scratch paths such as `.codex_tmp/`, `.claude/`, `tmp/`, and non-app docs are excluded from app resources; iOS and macOS builds stay green; a bundle audit finds no local-only artifacts.
+
+### T17 — Add Swift craft report and beat-sheet models
+- **Owner:** codex
+- **Branch:** codex/T17-craft-report-models
+- **Pillar:** voice-to-scene + living companion
+- **Status:** review
+- **Done when:** Swift Codable models cover craft frameworks, beat sheets, major turns, drift reports, snapshots, and user override metadata; decode/encode tests pass against a representative backend-shaped fixture.
+
+### T18 — Add backend craft schemas and analysis endpoints
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** voice-to-scene + longitudinal learning
+- **Status:** ready-for-claude
+- **Done when:** backend exposes craft frameworks, JSON schemas, analysis, and schema-versioned responses; backend tests validate success and failure shapes; Codex can consume the fixture without client-side special cases.
+
+### T19 — Add BackendClient craft API methods
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** voice-to-scene + living companion
+- **Status:** blocked-T18
+- **Done when:** `BackendClient` can fetch frameworks, schemas, analysis reports, snapshots, and override mutations; Swift tests cover request construction, decoding, and unavailable backend states.
+
+### T20 — Build Craft tab, turn timeline, and beat sheet
+- **Owner:** codex
+- **Branch:** —
+- **Pillar:** mobile-first + voice-to-scene
+- **Status:** blocked-T19
+- **Done when:** the studio right rail has a Craft tab with loading/empty/error states, major-turn drift timeline, framework switcher, and beat-sheet table that works on mobile and desktop targets.
+
+### T21 — Add craft-aware prompts and beat classification
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** voice-to-scene + living companion
+- **Status:** blocked-T18
+- **Done when:** structure-help and page-write prompts receive craft schema context; LLM-assisted scene-to-beat classification uses the shared JSON schema; prompt regression and classification evals are green.
+
+### T22 — Persist craft snapshots and turn overrides
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** longitudinal learning + living companion
+- **Status:** blocked-T18
+- **Done when:** craft snapshots persist per screenplay version; user overrides for false-positive major-turn detections round-trip through storage; backend tests prove overrides affect later analysis responses.
+
+### T23 — Add craft completeness RC release gate
+- **Owner:** claude
+- **Branch:** —
+- **Pillar:** infra (enables all)
+- **Status:** blocked-T22
+- **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
 
 ---
 
