@@ -67,6 +67,10 @@ export async function startBackend({
     SCREENPLAY_STORE_PATH: path.join(dataDir, "screenplay_store.json"),
     OUTBOX_STORE_PATH: path.join(dataDir, "outbox_store.json"),
     ASSISTANT_IDENTITY_STORE_PATH: path.join(dataDir, "assistant_identity_store.json"),
+    // T07: isolate the persistence adapter's JSON root per test run so
+    // dual-writes from screenplay/embeddings/etc. don't carry state
+    // across tests via the shared backend/data/persistence/ default.
+    PERSISTENCE_JSON_ROOT: path.join(dataDir, "persistence"),
     ...env,
   };
   const child = spawn(process.execPath, ["index.js"], {
