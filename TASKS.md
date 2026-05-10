@@ -19,7 +19,7 @@
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | completed         |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
-| T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
+| T07a | Wire `outbox_store` to persistence adapter          | claude | in-progress       |
 | T07-eval-gate | Verify eval gate against Postgres          | claude | ready-for-claude  |
 | T07-cutover | Drop dual-write JSON paths after Postgres soak | claude | blocked-T07-eval |
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
@@ -84,10 +84,11 @@
 
 ### T07a — Wire `outbox_store` to persistence adapter
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T07a-outbox-snapshots`
 - **Pillar:** longitudinal learning + infra (enables all)
-- **Status:** ready-for-claude
-- **Done when:** outbox queue durability runs through the persistence adapter when `DATABASE_URL` is set, with `scaleBackplane` retained for cross-process state; the non-mechanical architecture is documented before implementation.
+- **Status:** in-progress
+- **Architectural call:** the outbox is a queue with worker semantics, not domain KV data. `scaleBackplane` is its canonical operational layer (in-memory + Redis stream + Postgres `outbox` table when `SCALE_POSTGRES_URL` is set). The T07 persistence adapter is for KV-style domain data (memory, screenplay, embeddings, craft, creative_memory). Forcing the queue onto the adapter would erase scaleBackplane's queue semantics. **Decision proposed in `docs/T07a-outbox-architecture.md`:** the queue stays on `scaleBackplane`; T07a contributes diagnostic/recovery-grade *snapshots* of outbox state into the adapter under the `outbox` domain, so backend operators have a Postgres-visible record of outbox health without changing the queue path.
+- **Done when:** `OutboxSnapshotter` writes periodic JSON snapshots into the persistence adapter; backend wires the snapshotter at startup; tests assert snapshot shape + that the snapshotter does not interfere with scaleBackplane; `docs/T07a-outbox-architecture.md` documents the architecture and proposes the formal decision (D-something, human authors).
 
 ### T07-eval-gate — Verify eval gate against Postgres
 - **Owner:** claude
