@@ -47,26 +47,27 @@
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
 | T33  | Add Claude command center and prompt printer      | codex  | merged            |
+| T-codex-inbox | Add Codex inbox + prompt printer (Claude→Codex)    | claude | in-progress     |
 | T34  | Build iOS logline rail consumer                   | codex  | merged            |
 | T35  | Build iOS block-signal nudge surface              | codex  | merged            |
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
 | T37  | Build iOS twist-card consumer                     | codex  | merged            |
-| T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | review         |
+| T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | merged         |
 
 ---
 
-## Current next-10 checklist (2026-05-10 after T12 merge)
+## Current next-10 checklist (2026-05-11 after #59 merge)
 
-1. Claude rebases conflict-blocked PRs #59, #60, #63, #64, #65, #66, and #67 over current main; PR #64 also needs its failing `auto-merge-tier1 / evaluate` check fixed without weakening gates.
-2. Review and merge PR #59 (`T-accepted-twist-log`) after rebase so accepted twist cards can feed prompt context.
-3. Review and merge PR #60 (`T-codex-inbox`) after rebase to complete two-way Codex/Claude handoff tooling.
+1. Review-ready Codex PR #71 (`T38`) needs external review/merge; Codex must not merge its own PR.
+2. Review and merge PR #60 (`T-codex-inbox`) after rebase to complete two-way Codex/Claude handoff tooling.
+3. Claude rebases conflict-blocked PRs #63, #64, #65, #66, and #67 over current main; PR #64 also needs its failing `auto-merge-tier1 / evaluate` check fixed without weakening gates.
 4. Review PR #63 (`T-trust-tiers`) after rebase; merge only if the human accepts the standing pre-approval policy changes.
-5. Review PR #65 (`T-coordination-state`) after rebase so automation state has one structured source.
-6. Review PR #66 (`T-decisions-queue`) after rebase so human-needed product calls stop getting buried.
-7. Review PR #67 (`T-tasks-per-row`) after rebase; merge only if the generator keeps `TASKS.md` faithful.
-8. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
-9. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
-10. Run release-readiness plus live-backend smoke passes for T34/T35/T36/T37 and add a Codex acceptance action after PR #59 merges.
+5. Review PR #64 (`T-auto-merge-tier1`) only after the `auto-merge-tier1 / evaluate` check is green.
+6. Review PR #65 (`T-coordination-state`) after rebase so automation state has one structured source.
+7. Review PR #66 (`T-decisions-queue`) after rebase so human-needed product calls stop getting buried.
+8. Review PR #67 (`T-tasks-per-row`) after rebase; merge only if the generator keeps `TASKS.md` faithful.
+9. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+10. After PR #71 merges, run release-readiness plus live-backend smoke passes for T34/T35/T36/T37/T38, including accepted-twist Keep/Dismiss/Reload.
 
 ---
 
@@ -388,11 +389,21 @@
 - **Status:** merged
 - **Done when:** a short repo-visible Claude inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send Claude; `docs/codex-claude-live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
 
+### T-codex-inbox — Add Codex inbox + prompt printer (Claude→Codex)
+- **Owner:** claude
+- **Branch:** `claude/T-codex-inbox`
+- **Pillar:** infra (enables all)
+- **Status:** in-progress
+- **Scope:** symmetric reverse of T33. Adds `docs/codex-inbox.md` (Claude-maintained — current open Claude PRs awaiting Codex action, endpoint contracts ready to consume, blockers, decisions Claude needs from Codex) and `scripts/print_codex_prompt.mjs` (mirrors `print_claude_prompt.mjs` for the Codex direction). Updates `docs/codex-claude-live-handoff.md` so Codex standard read includes the inbox, and `docs/claude-inbox.md` so the human sees both ends of the contract. Removes the need to copy/paste a Claude→Codex handoff after each Claude PR.
+- **Done when:** `docs/codex-inbox.md` exists with current open Claude PRs, endpoint contracts, blockers, and decisions Claude needs from Codex; `scripts/print_codex_prompt.mjs` extracts the same sections and renders a compact prompt; `docs/codex-claude-live-handoff.md` Fast Path lists the new inbox; `docs/claude-inbox.md` notes that Claude maintains the reciprocal channel.
+
+---
+
 ### T-accepted-twist-log — Persist accepted twist cards for prompt context
 - **Owner:** claude
 - **Branch:** `claude/T-accepted-twist-log`
 - **Pillar:** living companion + longitudinal learning (Craft Intelligence Suite, Layer 2 follow-up)
-- **Status:** review
+- **Status:** merged
 - **Scope:** when a writer accepts a twist card surfaced by `POST /craft/twist/suggest` (T-twist-engine), the choice should persist so subsequent prompt-assembly can reference the chosen reversal. New persistence domain `accepted_twists` keyed by `projectId:versionId:twistId` (migration 006). Pure analysis module `backend/lib/accepted_twist_log.js` exposes `recordAcceptedTwist`, `getAcceptedTwistsForProject`, `removeAcceptedTwist`, `buildAcceptedTwistsBlockForPrompt`. Two endpoints under `/craft/twist/accepted`: `POST` to record an acceptance; `GET` to fetch the chronological log for a project; `DELETE /craft/twist/accepted/:twistId?projectId=` to un-accept. Twist shape mirrors the merged T-twist-engine `{ id, label, hook, severity, rationale }`. iOS twist-card consumer (Codex follow-up) can POST on acceptance and consume the GET when re-loading the timeline.
 - **Done when:** module exposes the four functions; new `accepted_twists` domain in `KNOWN_DOMAINS` + migration `006_accepted_twists.sql`; endpoints mounted under `/craft/twist/accepted*`; ≥10 unit tests + ≥4 endpoint integration tests; full backend test suite stays green; design notes in `docs/T-accepted-twist-log.md`.
 
