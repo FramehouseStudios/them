@@ -14,6 +14,7 @@
     "smoke": "bash ./smoke.sh",
     "eval:prompt": "node evals/run_prompt_regression_eval.mjs",
     "eval:prompt:update": "node evals/run_prompt_regression_eval.mjs --write-baseline",
+    "eval:creative-memory": "node evals/run_creative_memory_eval.mjs",
     "eval:regression": "RUN_SERVER=0 node evals/run_nightly_regression.mjs",
     "eval:regression:update": "RUN_SERVER=0 node evals/run_nightly_regression.mjs --write-baseline",
     "load:profile": "node evals/run_load_profile.mjs",

@@ -22,7 +22,7 @@
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
 | T06  | Flip `RUN_QUALITY_GATE=1` default in release CI    | claude | in-progress       |
 | T07  | Promote backend persistence to Postgres canonical  | claude | ready-for-claude  |
-| T08  | Centralize prompt assembly + first memory tier     | claude | ready-for-claude  |
+| T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | blocked-T02       |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T09       |
@@ -83,12 +83,14 @@
 - **Status:** ready-for-claude
 - **Done when:** all `*_store.json` files at backend root are deprecated; backend code reads/writes only Postgres for these domains; migration script ships and is reversible; `npm run eval:gate` green.
 
-### T08 — Centralize prompt assembly + first memory tier
+### T08 — Centralize prompt assembly + first memory tier (backend)
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/backend-T08-memory-tier`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready-for-claude
-- **Done when:** `ScreenplayPromptBuilder` is the only path that produces a model-bound prompt; a per-user memory record persists style/character/tone signals; all generation requests carry the memory context; prompt regression eval green; documented in `docs/`.
+- **Status:** in-progress
+- **Scope (narrowed):** backend memory tier + backend-side prompt assembly. The original done-when referenced `ScreenplayPromptBuilder` (iOS) which is out of Claude's scope and not yet on `main`. iOS prompt-path consolidation is a sibling Codex follow-up — Codex to add a row when the dirty iOS state lands.
+- **Done when (backend portion):** A creative-companion memory record (style, characters, tone, habits) persists per user; a single `buildModelPrompt(...)` is the only path used by `handleTalkRequest`; every model-bound prompt carries the memory context when present and degrades cleanly when absent; new eval `run_creative_memory_eval.mjs` covers both states and is wired into `eval:gate`; design and final state documented in `docs/T08-prompt-centralization-and-memory-tier.md`.
+- **Design doc:** [docs/T08-prompt-centralization-and-memory-tier.md](docs/T08-prompt-centralization-and-memory-tier.md)
 
 ### T09 — Modularize `DraftStudio` and `ScreenplayStudio` into SwiftPM packages
 - **Owner:** codex
