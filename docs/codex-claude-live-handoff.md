@@ -36,7 +36,7 @@ open Codex PR branch that is relevant to the handoff.
 | T24 iOS prompt builder consolidation | `codex/T24-prompt-builder-consolidation` / PR #40 | open, merge conflict reported by GitHub | PR body reports iOS build and macOS tests | Wait for Codex conflict-resolution pass before assuming the iOS prompt path is on main. |
 | T25 additional craft frameworks | `codex/T25-additional-craft-frameworks` / PR #41 | open and mergeable | PR body reports backend and app verification | Claude can rely on Story Circle and Hero's Journey framework data after this merges. |
 | T26 Craft tab polish | `codex/T26-craft-tab-polish` / PR #42 | open and mergeable | Generic iOS build passed; macOS `themTests` passed 45/45 | Backend endpoints already consumed; no Claude action unless endpoint shape changes. |
-| T27 live handoff ledger | `codex/T27-claude-live-handoff` | ready for review | `git diff --check`, generic iOS build, and macOS `themTests` 45/45 passed | After merge, read this file as the standing Codex completion feed. |
+| T27 live handoff ledger | `codex/T27-claude-live-handoff` / PR #44 | ready for review | `git diff --check`, generic iOS build, and macOS `themTests` 45/45 passed | After merge, read this file as the standing Codex completion feed. |
 
 ## Claude Watch List
 
