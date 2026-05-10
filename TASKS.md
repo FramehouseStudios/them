@@ -43,24 +43,24 @@
 | T-logline-distiller | Distill, persist, and drift-score loglines | claude | merged            |
 | T-block-detector | Detect writer-block patterns from talk telemetry | claude | merged            |
 | T-trait-library | Build per-character trait and voice inventory | claude | merged            |
-| T-twist-engine | Beat-aware reversal suggestion engine         | claude | ready-for-claude  |
+| T-twist-engine | Beat-aware reversal suggestion engine         | claude | merged            |
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
 
 ---
 
-## Current next-10 checklist (2026-05-10 after PR stack merge)
+## Current next-10 checklist (2026-05-10 after Layer 2 backend merge stack)
 
-1. Merge T-logline-distiller so the iOS logline rail can consume real backend history and drift.
-2. Build the iOS logline rail consumer for the merged logline endpoints.
-3. Build the iOS block-signal nudge surface for the merged `/memory/block-signal` endpoint.
-4. Codex starts T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
-5. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
-6. Build the iOS character-traits side-rail consumer for the merged trait endpoints.
-7. Claude starts `T-twist-engine`: beat-aware reversal suggestions on top of craft classifications.
-8. Codex prepares iOS consumers for logline, block signal, and character traits.
-9. Claude refreshes PR #33 only enough to resolve conflicts and preserve the exact `OPENAI_API_KEY` Actions-secret blocker.
-10. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
+1. Build the iOS logline rail consumer for the merged logline endpoints.
+2. Build the iOS block-signal nudge surface for the merged `/memory/block-signal` endpoint.
+3. Build the iOS character-traits side-rail consumer for the merged trait endpoints.
+4. Build the iOS twist-card consumer for `POST /craft/twist/suggest`.
+5. Start T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
+6. Add a repo-native Claude inbox/command-center so the human no longer has to copy/paste full checklists.
+7. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
+8. Claude refreshes PR #33 only enough to resolve conflicts and preserve the exact `OPENAI_API_KEY` Actions-secret blocker.
+9. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
+10. Add an accepted-twist persistence follow-up so saved reversal cards can influence future prompt context.
 
 ---
 
@@ -261,25 +261,25 @@
 - **Branch:** `claude/T-logline-distiller`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
-- **Done when:** backend exposes `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; loglines persist in the `craft_loglines` domain with migration coverage; deterministic mode is default, optional LLM mode uses the existing classifier interface; drift scoring is tested; full backend suite is green; PR #48 is conflict-free and ready for Codex review.
+- **Done when:** backend exposes `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; loglines persist in the `craft_loglines` domain with migration coverage; deterministic mode is default, optional LLM mode uses the existing classifier interface; drift scoring is tested; full backend suite is green.
 
 ### T-block-detector — Detect writer-block patterns from talk telemetry
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T-block-detector`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready-for-claude
+- **Status:** merged
 - **Done when:** backend derives structured writer-block signals from `/talk` telemetry, scene-attempt gaps, repeated stalled drafts, and retry loops; exposes a typed endpoint or prompt-context block for iOS companion nudges; tests cover no-signal, soft-signal, and high-confidence block states; docs explain thresholds and privacy behavior.
 
 ### T-trait-library — Build per-character trait and voice inventory
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T-trait-library`
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** backend maintains a persistence-backed per-character trait/voice inventory from creative memory and screenplay dialogue; traits are deduped, source-tagged, and retrievable for prompt assembly; tests cover merge, decay/update, and empty-state behavior; docs explain how iOS should consume it.
 
 ### T-twist-engine — Beat-aware reversal suggestion engine
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T-twist-engine`
 - **Pillar:** voice→scene + living companion
 - **Status:** merged
 - **Done when:** backend produces deterministic beat-aware reversal/twist suggestions using craft framework and classification data; optional LLM mode is isolated behind existing provider patterns; suggestions cite the beat/turn they operate on; tests cover deterministic output, missing craft context, and malformed input.
@@ -370,7 +370,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T32-enable-reply-mentions`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready-for-claude
+- **Status:** merged
 - **Done when:** the iOS reply-side character mention hook defaults on now that T30 is merged; explicit user/debug defaults can still disable it; focused tests cover default-on, explicit-off, and request-shape behavior; the handoff ledger records the completion for Claude.
 
 ---
