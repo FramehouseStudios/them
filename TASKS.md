@@ -39,7 +39,8 @@
 | T26  | Polish Craft tab framework and drift UX            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
-| T30  | Backend `/memory/record-character-mention` endpoint | claude | in-progress       |
+| T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
+| T-block-detector | Writer's-block signal detector + endpoint  | claude | in-progress       |
 
 ---
 
@@ -246,9 +247,17 @@
 - **Owner:** claude
 - **Branch:** `claude/T30-record-character-mention-endpoint`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** merged
 - **Scope:** unblocks Codex PR #50 (T29). Adds `POST /memory/record-character-mention` that persists rendered screenplay character cues through `creativeMemoryStore.recordCharacterMention(...)` — the canonical creative-memory path, not ad hoc JSON. Accepts both `character_name` (snake_case) and `characterName` (camelCase). Threads `source`, `tags`, `write_id`, `line`, and `metadata.{screenplay_write_id, screenplay_project_id, screenplay_version_id}` onto the character record so reply-side mentions are distinguishable from user-input mentions. Missing optional metadata never fails the request. Returns the typed receipt iOS expects: `{ ok, action, characterName, source }`.
 - **Done when:** the endpoint is mounted in `backend/index.js`, persists through `creativeMemoryStore`, validates/sanitizes name and source, accepts snake_case+camelCase, returns the typed receipt; ≥5 endpoint integration tests cover (1) snake_case payload, (2) camelCase payload, (3) metadata + write_id + line preservation, (4) invalid/empty character_name rejection, (5) idempotent-ish repeated mentions; the full backend suite stays green. Codex can enable `memory.reply_character_mentions_enabled` once this merges.
+
+### T-block-detector — Writer's-block signal detector + endpoint
+- **Owner:** claude
+- **Branch:** `claude/T-block-detector`
+- **Pillar:** living companion + longitudinal learning (Craft Intelligence Suite, Layer 2)
+- **Status:** in-progress
+- **Scope:** `backend/lib/block_detector.js` exposes a pure `computeBlockSignal({ habits, nowMs })` that scores writer's-block likelihood (0..1) from existing creative-memory signals plus four new additive `habits` fields (`last_scene_attempt_at`, `last_scene_completion_at`, `last_talk_turn_at`, `recent_short_turns`). Updates to those fields ride on the existing `recordSceneAttempt` / `recordSceneCompletion` / `recordTriggersFromTalkTurn` triggers — no new write site, no new persistence domain. Endpoint `GET /memory/block-signal` resolves the authenticated user and returns the structured signal: score, level (`low` | `medium` | `high`), contributing signals[], thresholded summary string. iOS companion uses the signal to nudge.
+- **Done when:** `computeBlockSignal` returns deterministic scores for fixed inputs; signal updates land on the existing creative-memory triggers (backward-compatible — no impact on cold users); endpoint mounts under `/memory/block-signal`; ≥10 unit tests + ≥4 endpoint integration tests; full backend test suite stays green; design notes in `docs/T-block-detector.md`.
 
 ---
 
