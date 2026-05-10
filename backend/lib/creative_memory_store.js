@@ -112,34 +112,69 @@ function createCreativeMemoryStore({ persistence } = {}) {
 
   // ---------- write triggers ----------
 
-  async function recordCharacterMention({ userId, characterName, voice = "", tags = [] }) {
-    if (!userId || !characterName || typeof characterName !== "string") return;
+  // T30: optional `source` and `metadata` thread through so callers can
+  // distinguish reply-side rendered mentions (e.g. `ios_screenplay_render`)
+  // from user-input mentions. Schema stays backward-compatible: existing
+  // callers pass nothing for these fields and the character record adds
+  // them only when supplied. Returns a small action receipt so route
+  // handlers can build a typed response without a second read; legacy
+  // callers can ignore the return value.
+  async function recordCharacterMention({
+    userId,
+    characterName,
+    voice = "",
+    tags = [],
+    source = "",
+    metadata = null,
+  }) {
+    if (!userId || !characterName || typeof characterName !== "string") {
+      return { ok: false, action: "skipped", reason: "missing_userId_or_name" };
+    }
     const name = characterName.trim();
-    if (!name) return;
+    if (!name) {
+      return { ok: false, action: "skipped", reason: "empty_name" };
+    }
+    const cleanSource = typeof source === "string" ? source.trim() : "";
+    const cleanMetadata = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? metadata
+      : null;
+    let resolvedAction = "recorded";
     await updateUser(userId, (rec) => {
       const characters = Array.isArray(rec.characters) ? rec.characters : [];
       const existingIdx = characters.findIndex((c) => c.name === name);
       const now = nowMs();
       if (existingIdx >= 0) {
+        resolvedAction = "updated";
         characters[existingIdx].last_referenced = now;
         if (voice) characters[existingIdx].voice = voice;
         if (Array.isArray(tags) && tags.length) {
           const set = new Set([...(characters[existingIdx].tags || []), ...tags]);
           characters[existingIdx].tags = [...set];
         }
+        if (cleanSource) characters[existingIdx].source = cleanSource;
+        if (cleanMetadata) {
+          characters[existingIdx].metadata = {
+            ...(characters[existingIdx].metadata || {}),
+            ...cleanMetadata,
+          };
+        }
       } else {
-        characters.push({
+        const entry = {
           name,
           voice: voice || "",
           first_seen: now,
           last_referenced: now,
           tags: Array.isArray(tags) ? [...new Set(tags)] : [],
-        });
+        };
+        if (cleanSource) entry.source = cleanSource;
+        if (cleanMetadata) entry.metadata = { ...cleanMetadata };
+        characters.push(entry);
       }
       characters.sort((a, b) => (b.last_referenced || 0) - (a.last_referenced || 0));
       rec.characters = characters.slice(0, CHARACTERS_MAX);
       return rec;
     });
+    return { ok: true, action: resolvedAction, characterName: name, source: cleanSource };
   }
 
   async function recordSceneCompletion({ userId, scenePageCount }) {
@@ -239,9 +274,17 @@ function createCreativeMemoryStore({ persistence } = {}) {
     });
   }
 
+  // Test seam — clear all entries in this domain.
+  async function _clearAll() {
+    if (typeof store.clear === "function") {
+      await store.clear({ domain: DOMAIN });
+    }
+  }
+
   // T08w-triggers: extract signals from a /talk turn and fire the
   // appropriate write triggers. Pure-ish: deterministic given inputs;
-  // safe to call when userId is null (becomes a no-op).
+  // only side effect is the writes through the existing trigger
+  // functions above. Safe to call when userId is null (becomes a no-op).
   async function recordTriggersFromTalkTurn({
     userId,
     transcript = "",
@@ -257,8 +300,13 @@ function createCreativeMemoryStore({ persistence } = {}) {
     };
 
     const combined = `${String(transcript || "")}\n${String(reply || "")}`;
-    // Use [ \t]* (horizontal whitespace) — \s* would consume newlines
-    // and skip the next cue line.
+
+    // Character mentions: screenplay character cue lines are CAPITALIZED
+    // names on their own line, optionally followed by a parenthetical.
+    // Allow letters, digits ("GUARD 2"), spaces, periods, apostrophes,
+    // and hyphens. Bounded — we cap at 8 unique names per turn.
+    // Use [ \t]* (horizontal whitespace) rather than \s* — \s would
+    // greedily consume trailing newlines and skip the next cue line.
     const cueRegex = /(?:^|\n)[ \t]*([A-Z][A-Z0-9 .'-]{1,34}[A-Z0-9])(?:[ \t]*\([^)]+\))?[ \t]*\n/g;
     const seen = new Set();
     let match;
@@ -266,7 +314,10 @@ function createCreativeMemoryStore({ persistence } = {}) {
     while (limit > 0 && (match = cueRegex.exec(combined)) !== null) {
       const raw = String(match[1] || "").trim();
       if (!raw || raw.length < 2) continue;
+      // Skip screenplay scene headings (INT./EXT. + LOCATION) and common
+      // transition words. Prefix match catches "INT. KITCHEN - NIGHT".
       if (/^(INT\.|EXT\.|INT\/EXT|INT|EXT|FADE|CUT TO|CUT|END|TITLE|MONTAGE|FLASHBACK|SUPER|SMASH CUT|MATCH CUT|DISSOLVE)/.test(raw)) continue;
+      // Skip lines that look like scene actions (multiple spaces after a hyphen).
       if (raw.includes(" - ") && raw.split(" ").length > 4) continue;
       const key = raw.toUpperCase();
       if (seen.has(key)) continue;
@@ -274,10 +325,13 @@ function createCreativeMemoryStore({ persistence } = {}) {
       try {
         await recordCharacterMention({ userId, characterName: raw });
         summary.characterMentions += 1;
-      } catch (_e) { /* never block on memory writes */ }
+      } catch (_e) { /* never block the response on memory writes */ }
       limit -= 1;
     }
 
+    // Lexical fingerprint: capture short evocative phrases from the
+    // user's transcript (4-10 words, ending at sentence boundary).
+    // Bounded — top 4 sentences from this turn.
     if (transcript && typeof transcript === "string") {
       const sentences = transcript
         .split(/[.!?]\s+/)
@@ -295,6 +349,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
       }
     }
 
+    // Session pattern: derive from the session start time when supplied.
     if (Number.isFinite(sessionStartedAt)) {
       try {
         await recordSessionEnd({ userId, sessionStartedAt, sessionDurationMs });
@@ -303,13 +358,6 @@ function createCreativeMemoryStore({ persistence } = {}) {
     }
 
     return summary;
-  }
-
-  // Test seam — clear all entries in this domain.
-  async function _clearAll() {
-    if (typeof store.clear === "function") {
-      await store.clear({ domain: DOMAIN });
-    }
   }
 
   return {

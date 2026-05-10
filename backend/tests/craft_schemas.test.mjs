@@ -17,6 +17,7 @@ import {
   serializeFramework,
   getFrameworkById,
   listFrameworkReferences,
+  FRAMEWORKS_BY_ID,
 } from "../lib/craft_frameworks.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +38,18 @@ test("framework_save_the_cat.json validates against FRAMEWORK_SCHEMA", async () 
 
 test("framework_three_act.json validates against FRAMEWORK_SCHEMA", async () => {
   const fx = await loadFixture("framework_three_act.json");
+  const r = validateAgainstSchema(fx, FRAMEWORK_SCHEMA);
+  assert.ok(r.valid, r.errors.join("; "));
+});
+
+test("framework_story_circle.json validates against FRAMEWORK_SCHEMA", async () => {
+  const fx = await loadFixture("framework_story_circle.json");
+  const r = validateAgainstSchema(fx, FRAMEWORK_SCHEMA);
+  assert.ok(r.valid, r.errors.join("; "));
+});
+
+test("framework_hero_journey.json validates against FRAMEWORK_SCHEMA", async () => {
+  const fx = await loadFixture("framework_hero_journey.json");
   const r = validateAgainstSchema(fx, FRAMEWORK_SCHEMA);
   assert.ok(r.valid, r.errors.join("; "));
 });
@@ -124,6 +137,23 @@ test("Coverage missing requiredMajorTurnCount fails the schema", async () => {
 
 // ---------- serializer omits undefined optionals ----------
 
+test("built-in frameworks serialize and required turn IDs map to required beats", () => {
+  for (const framework of Object.values(FRAMEWORKS_BY_ID)) {
+    const serialized = serializeFramework(framework);
+    const validation = validateAgainstSchema(serialized, FRAMEWORK_SCHEMA);
+    assert.ok(validation.valid, framework.id + ": " + validation.errors.join("; "));
+
+    const requiredBeatTurnIds = new Set(
+      framework.beats
+        .filter((beat) => beat.required && beat.majorTurnId)
+        .map((beat) => beat.majorTurnId),
+    );
+    for (const turnId of framework.requiredMajorTurnIds) {
+      assert.ok(requiredBeatTurnIds.has(turnId), framework.id + " missing required beat for " + turnId);
+    }
+  }
+});
+
 test("serializeFramework omits absent optional fields", () => {
   const minimal = {
     id: "minimal",
@@ -141,7 +171,7 @@ test("serializeFramework omits absent optional fields", () => {
 
 test("listFrameworkReferences returns id+title+version for each framework", () => {
   const refs = listFrameworkReferences();
-  assert.ok(refs.length >= 2);
+  assert.ok(refs.length >= 4);
   for (const ref of refs) {
     assert.ok(ref.id);
     assert.ok(ref.title);
