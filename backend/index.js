@@ -77,6 +77,7 @@ import {
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
+import { buildCraftContextBlock } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
   loadUserStore,
@@ -2805,6 +2806,19 @@ const creativeMemoryStore = createCreativeMemoryStore();
 // T08: wraps a final system prompt with the user's creative-companion
 // memory if any is present. No-op for cold users - the memory block is
 // omitted rather than serialized as null/empty (see prompt_assembly.js).
+// T21: append a craft-context block to the system prompt for
+// screenplay page-write turns. Defaults to the "save-the-cat" framework
+// when the request does not specify a preference; production wiring of
+// per-project framework selection lives in T22's stored reports +
+// Codex-side BackendClient (T19).
+function appendCraftContextToSystem(systemPrompt, { req } = {}) {
+  const requested = String(req?.body?.craft_framework_id || "").trim();
+  const frameworkId = requested || "save-the-cat";
+  const block = buildCraftContextBlock({ framework: frameworkId });
+  if (!block) return systemPrompt;
+  return `${systemPrompt}\n\n${block}`;
+}
+
 function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
   const userId = req?.user?.id || null;
   if (!userId) return systemPrompt;
@@ -30824,7 +30838,14 @@ async function handleTalkRequest(req, res) {
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
     const systemBaseRaw = normalizeSystemPrompt(withOutputContract(presetBoundSystem));
     // T08: augment with per-user creative memory when present (no-op for cold users).
-    const systemBase = wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
+    const systemBaseWithMemory = wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
+    // T21: when this is a screenplay page-write turn, append a compact
+    // craft-context block describing the active framework (and, when
+    // available, the user's coverage state). Cheap and additive: the
+    // LLM gets structural awareness without changing any other path.
+    const systemBase = isScreenplayPageWriteTurn
+      ? appendCraftContextToSystem(systemBaseWithMemory, { req })
+      : systemBaseWithMemory;
     const assistantSelfNameAddendum = `
 ASSISTANT SELF-NAME:
 - Your current self-name is "${assistantSelfName}".
