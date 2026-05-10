@@ -39,7 +39,8 @@
 | T26  | Polish Craft tab framework and drift UX            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
-| T30  | Backend `/memory/record-character-mention` endpoint | claude | in-progress       |
+| T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
+| T-trait-library | Per-character voice/trait inventory          | claude | in-progress       |
 
 ---
 
@@ -246,9 +247,17 @@
 - **Owner:** claude
 - **Branch:** `claude/T30-record-character-mention-endpoint`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** merged
 - **Scope:** unblocks Codex PR #50 (T29). Adds `POST /memory/record-character-mention` that persists rendered screenplay character cues through `creativeMemoryStore.recordCharacterMention(...)` — the canonical creative-memory path, not ad hoc JSON. Accepts both `character_name` (snake_case) and `characterName` (camelCase). Threads `source`, `tags`, `write_id`, `line`, and `metadata.{screenplay_write_id, screenplay_project_id, screenplay_version_id}` onto the character record so reply-side mentions are distinguishable from user-input mentions. Missing optional metadata never fails the request. Returns the typed receipt iOS expects: `{ ok, action, characterName, source }`.
 - **Done when:** the endpoint is mounted in `backend/index.js`, persists through `creativeMemoryStore`, validates/sanitizes name and source, accepts snake_case+camelCase, returns the typed receipt; ≥5 endpoint integration tests cover (1) snake_case payload, (2) camelCase payload, (3) metadata + write_id + line preservation, (4) invalid/empty character_name rejection, (5) idempotent-ish repeated mentions; the full backend suite stays green. Codex can enable `memory.reply_character_mentions_enabled` once this merges.
+
+### T-trait-library — Per-character voice/trait inventory
+- **Owner:** claude
+- **Branch:** `claude/T-trait-library`
+- **Pillar:** living companion + longitudinal learning (Craft Intelligence Suite, Layer 2)
+- **Status:** in-progress
+- **Scope:** `backend/lib/trait_library.js` extracts per-character traits from dialogue (deterministic stub by default; LLM-friendly seam via the T21 classifier interface for future) and stores them as an additive `traits` object on each `creative_memory.characters[]` record. New endpoint `POST /memory/character-trait` records a trait delta (auto-merges with the existing inventory); `GET /memory/character-traits?characterName=` returns one or all character inventories for the requesting user. Trait shape: `{ vocabulary: string[], keywords: string[], speech_style: { pace, syntax }, emotional_default: string, goals: string[], relationships: { [name]: string } }`. The prompt-assembly path already reads `characters[]` for system-prompt context — when `traits` is present, that block becomes a per-character voice profile without further wiring.
+- **Done when:** `extractTraits({ characterName, lines })` returns deterministic traits for fixed inputs; `mergeTraits(prev, next)` is idempotent and bounded (caps per-field array sizes); endpoint mounts under `/memory/character-trait` and `/memory/character-traits`; ≥10 unit tests + ≥4 endpoint integration tests; full backend test suite stays green; design notes in `docs/T-trait-library.md`.
 
 ---
 
