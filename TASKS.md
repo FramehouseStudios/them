@@ -30,7 +30,7 @@
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
-| T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
+| T23  | Add craft completeness RC release gate             | claude | in-progress       |
 
 ---
 
