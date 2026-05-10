@@ -46,15 +46,16 @@ failures by weakening the gate.
 | Item | Branch / PR | Status | Verification | Claude action |
 | --- | --- | --- | --- | --- |
 | T04 canonical io.them name | `codex/T04-io-them-canonical-name` / PR #38 | merged on `main`; `TASKS.md` still needs ledger cleanup from a follow-up | PR #38 merged; no new action in this ledger PR | Treat `io.them` as the canonical user-visible name per D001. |
-| T10 design system | `codex/T10-design-system` / PR #37 | merged on `main` | PR #37 merged after Codex conflict-resolution pass | Build on design tokens from `them/DesignSystem`. |
-| T11 magic moment onboarding | `codex/T11-magic-moment-onboarding` / PR #47 | open and ready for review | `git diff --check`; iOS simulator build passed; iOS `themTests` passed 50/50; macOS app build blocked by local signing certificate | Human still needs real iPhone cold-start <=60s validation before merge. |
+| T10 design system | `codex/T10-design-system` / PR #37 | merged on `main` | PR #37 merged after conflict pass; iOS build and `themTests` were green in the PR | Build on `IOThemColors`, `IOThemTypography`, and `IOThemSpacing` for app-side UI. |
+| T11 magic-moment onboarding | `codex/T11-magic-moment-onboarding` / PR #47 | merged on `main` | `git diff --check`; iOS simulator build passed; iOS simulator `themTests` passed 50/50; generic macOS build blocked by local signing entitlements | T12 may start after latest `main` is pulled; real iPhone <=60s human validation remains the product acceptance check. |
 | T13-client realtime supplier selection | `codex/T13-realtime-supplier-client` / PR #49 | open and ready for review | `git diff --check`; `node --check backend/index.js`; `node --test backend/tests/realtime_supplier.test.mjs` 16/16; backend `npm test` 179 passed / 1 skipped; focused iOS realtime client tests 8/8; full iOS `themTests` 53/53 on iPhone 17 Pro | Codex patched the merged T13 route to actually use `RealtimeSupplier`; Claude should review that backend route fix against PR #36 expectations. |
 | T14 G3 snapshot triage | `codex/T14-g3-snapshot-triage` / PR #43 | open and mergeable | Generic iOS build passed; macOS `themTests` passed 45/45 | Use `docs/T14-g3-snapshot-triage.md`; do not mine `codex-save-primary-folder-20260420` directly. |
-| T24 iOS prompt builder consolidation | `codex/T24-prompt-builder-consolidation` / PR #40 | merged on `main` | PR #40 merged after Codex conflict-resolution pass; backend `npm test` passed during the pass | T11 consumes the centralized prompt path. |
+| T24 iOS prompt builder consolidation | `codex/T24-prompt-builder-consolidation` / PR #40 | merged on `main` | PR #40 merged after conflict pass; backend `npm test`, iOS build, and `themTests` were green in the PR | T11 consumes the single iOS prompt path. |
 | T25 additional craft frameworks | `codex/T25-additional-craft-frameworks` / PR #41 | open and mergeable | PR body reports backend and app verification | Claude can rely on Story Circle and Hero's Journey framework data after this merges. |
 | T26 Craft tab polish | `codex/T26-craft-tab-polish` / PR #42 | open and mergeable | Generic iOS build passed; macOS `themTests` passed 45/45 | Backend endpoints already consumed; no Claude action unless endpoint shape changes. |
-| T27 live handoff ledger | `codex/T27-claude-live-handoff` / PR #44 | merged on `main` | PR #44 merged; this file is now the standing Codex completion feed | Read this file before starting or resuming backend work. |
-| T28 iOS format lint cards | `codex/T28-format-lint-ios` / PR #45 | merged on `main` | PR #45 merged after Codex conflict-resolution pass | Format warnings now surface as non-blocking Studio cards with page/line anchors. |
+| T27 live handoff ledger | `codex/T27-claude-live-handoff` / PR #44 | merged on `main` | PR #44 merged; ledger is now the standing Codex completion feed | Read this file before resuming backend work; Codex updates it for completed/materially advanced tasks. |
+| T28 iOS format lint cards | `codex/T28-format-lint-ios` / PR #45 | merged on `main` | PR #45 merged after conflict pass; Swift package and app tests were green in the PR | Format warnings now surface as non-blocking Studio cards with page/line anchors. |
+
 
 ## Claude Watch List
 

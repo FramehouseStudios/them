@@ -26,7 +26,7 @@
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
 | T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | review            |
-| T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
+| T11  | 60-second magic-moment onboarding                  | codex  | review            |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T13-client | Add iOS realtime supplier selection            | codex  | review            |
@@ -141,9 +141,9 @@
 
 ### T11 — 60-second magic-moment onboarding
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T11-magic-moment-onboarding`
 - **Pillar:** voice→scene + mobile-first
-- **Status:** blocked-T05/T08
+- **Status:** review
 - **Done when:** cold-start to a properly formatted screenplay page in ≤60 seconds on a real iPhone, validated by the human; `first_page_written` (T05) fires; flow uses centralized prompts (T08).
 
 ### T12 — Adopt perceived-speed primitives system-wide
