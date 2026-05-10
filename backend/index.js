@@ -84,6 +84,7 @@ import { mountCraftRoutes } from "./lib/craft_routes.js";
 import { mountPromptRoutes } from "./lib/prompt_routes.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
+import { configureAcceptedTwistLog } from "./lib/accepted_twist_log.js";
 import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
@@ -32832,6 +32833,9 @@ configureCraftAnalysis({ persistence: sharedPersistence });
 // T-logline-distiller: routes use the shared adapter + the default
 // classifier (LLM when OPENAI_API_KEY is set; deterministic stub otherwise).
 configureLoglineDistiller({ persistence: sharedPersistence, classifier: defaultLoglineClassifier() });
+// T-accepted-twist-log: route layer reads from the shared adapter so
+// accepted twist cards survive process restarts.
+configureAcceptedTwistLog({ persistence: sharedPersistence });
 mountCraftRoutes(app);
 mountPromptRoutes(app, {
   creativeMemoryStore,

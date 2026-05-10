@@ -29,6 +29,12 @@ import {
   computeDrift,
   loglineDistillerDeps,
 } from "./logline_distiller.js";
+import {
+  recordAcceptedTwist,
+  getAcceptedTwistsForProject,
+  removeAcceptedTwist,
+  acceptedTwistLogDeps,
+} from "./accepted_twist_log.js";
 
 function errorEnvelope(error, message) {
   const out = { error };
@@ -306,6 +312,73 @@ function mountCraftRoutes(app) {
       return res.status(200).json({ schemaVersion: 1, projectId, entries });
     } catch (e) {
       return sendKnownError(res, "craft_invalid_screenplay", e?.message || "history failed");
+    }
+  });
+
+  // T-accepted-twist-log: persist a twist the writer accepted so the
+  // iOS twist-card consumer can re-load the timeline and the
+  // prompt-assembly path can reference the chosen reversal.
+  app.post("/craft/twist/accepted", async (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const projectId = typeof body.projectId === "string" ? body.projectId : "";
+    const versionId = typeof body.versionId === "string" ? body.versionId : null;
+    const frameworkId = typeof body.frameworkId === "string" ? body.frameworkId : null;
+    const beatId = typeof body.beatId === "string" ? body.beatId : null;
+    const twist = body.twist;
+    const userId = typeof body.userId === "string"
+      ? body.userId
+      : (req?.user?.id || null);
+    const sceneId = typeof body.sceneId === "string" ? body.sceneId : null;
+    const note = typeof body.note === "string" ? body.note : null;
+    if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId is required");
+    const { persistence } = acceptedTwistLogDeps();
+    if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
+    try {
+      const result = await recordAcceptedTwist({
+        persistence, projectId, versionId, frameworkId, beatId, twist, userId, sceneId, note,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({ schemaVersion: 1, ...result });
+    } catch (e) {
+      if (e?.code) return sendKnownError(res, "craft_invalid_screenplay", e.message);
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "accept failed");
+    }
+  });
+
+  // T-accepted-twist-log: chronologically-ordered log for one project.
+  app.get("/craft/twist/accepted", async (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const projectId = typeof req.query?.projectId === "string" ? req.query.projectId : "";
+    if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId query param required");
+    const { persistence } = acceptedTwistLogDeps();
+    if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
+    try {
+      const entries = await getAcceptedTwistsForProject({ persistence, projectId });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({ schemaVersion: 1, projectId, entries });
+    } catch (e) {
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "fetch failed");
+    }
+  });
+
+  // T-accepted-twist-log: un-accept a previously accepted twist.
+  app.delete("/craft/twist/accepted/:twistId", async (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const twistId = req.params.twistId;
+    const projectId = typeof req.query?.projectId === "string" ? req.query.projectId : "";
+    const versionId = typeof req.query?.versionId === "string" ? req.query.versionId : null;
+    if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId query param required");
+    const { persistence } = acceptedTwistLogDeps();
+    if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
+    try {
+      const result = await removeAcceptedTwist({ persistence, projectId, versionId, twistId });
+      if (!result.ok) return sendKnownError(res, "craft_invalid_screenplay", "twist not found");
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({ schemaVersion: 1, ...result });
+    } catch (e) {
+      if (e?.code) return sendKnownError(res, "craft_invalid_screenplay", e.message);
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "delete failed");
     }
   });
 }

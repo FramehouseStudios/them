@@ -51,7 +51,7 @@
 | T35  | Build iOS block-signal nudge surface              | codex  | merged            |
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
 | T37  | Build iOS twist-card consumer                     | codex  | merged            |
-| T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | in-progress    |
+| T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | review         |
 
 ---
 
@@ -392,7 +392,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T-accepted-twist-log`
 - **Pillar:** living companion + longitudinal learning (Craft Intelligence Suite, Layer 2 follow-up)
-- **Status:** in-progress
+- **Status:** review
 - **Scope:** when a writer accepts a twist card surfaced by `POST /craft/twist/suggest` (T-twist-engine), the choice should persist so subsequent prompt-assembly can reference the chosen reversal. New persistence domain `accepted_twists` keyed by `projectId:versionId:twistId` (migration 006). Pure analysis module `backend/lib/accepted_twist_log.js` exposes `recordAcceptedTwist`, `getAcceptedTwistsForProject`, `removeAcceptedTwist`, `buildAcceptedTwistsBlockForPrompt`. Two endpoints under `/craft/twist/accepted`: `POST` to record an acceptance; `GET` to fetch the chronological log for a project; `DELETE /craft/twist/accepted/:twistId?projectId=` to un-accept. Twist shape mirrors the merged T-twist-engine `{ id, label, hook, severity, rationale }`. iOS twist-card consumer (Codex follow-up) can POST on acceptance and consume the GET when re-loading the timeline.
 - **Done when:** module exposes the four functions; new `accepted_twists` domain in `KNOWN_DOMAINS` + migration `006_accepted_twists.sql`; endpoints mounted under `/craft/twist/accepted*`; ≥10 unit tests + ≥4 endpoint integration tests; full backend test suite stays green; design notes in `docs/T-accepted-twist-log.md`.
 
