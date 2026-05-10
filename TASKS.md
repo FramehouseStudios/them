@@ -57,6 +57,7 @@
 | T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | claude | merged         |
 | T-decisions-queue | One-file queue for human decisions               | claude | merged         |
 | T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
+| T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
 
 ---
 
@@ -484,6 +485,16 @@
 - **Status:** merged
 - **Scope:** tighten `.github/workflows/auto-merge-tier1.yml` by removing the four-hour quiet-time fallback and requiring an explicit trusted cross-agent approval signal before any Tier 1 PR can auto-merge.
 - **Done when:** the workflow has no quiet-time merge path; approval still requires a trusted OWNER/MEMBER/COLLABORATOR review or supervisor approval comment; the PR verifies with the workflow evaluate check.
+
+---
+
+### T-tasks-per-row — Per-row task files + TASKS.md regenerator
+- **Owner:** claude
+- **Branch:** `claude/T-tasks-per-row`
+- **Pillar:** infra (enables all)
+- **Status:** merged
+- **Scope:** new `tasks/_active/` directory holds one markdown file per active task (YAML-style front matter + Scope/Done-when body). `scripts/build_tasks_md.mjs` reads these files and renders both the quick-view table and the per-task detail blocks. `--write` mode looks for `<!-- BEGIN AUTOGEN active-tasks -->` / `<!-- END AUTOGEN active-tasks -->` anchors in TASKS.md and overwrites between them; the anchors do not exist yet, so `--write` is a no-op until a follow-up adds them. Removes the recurring “two agents touch line 42 of TASKS.md” merge-conflict class without breaking the current flow.
+- **Done when:** `tasks/README.md` documents the layout; `tasks/_active/` is seeded with at least the per-row files for this PR + T-trust-tiers; `node scripts/build_tasks_md.mjs` prints a valid rendered section; TASKS.md remains the source of truth until a follow-up flips the anchors on.
 
 ---
 
