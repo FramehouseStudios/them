@@ -31,6 +31,7 @@
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
+| T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | in-progress       |
 
 ---
 
@@ -168,6 +169,13 @@
 - **Pillar:** infra (enables all)
 - **Status:** ready-for-claude
 - **Done when:** release/RC gates fail when required major turns are missing, show actionable diagnostics, and pass when a fixture screenplay has complete craft coverage or accepted overrides.
+
+### T24 — Consolidate iOS ScreenplayPromptBuilder path
+- **Owner:** codex
+- **Branch:** `codex/T24-prompt-builder-consolidation`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** in-progress
+- **Done when:** every model-bound prompt request from iOS is produced through one Swift `ScreenplayPromptBuilder` entry point; legacy prompt-construction sites are replaced; the builder routes screenplay requests through the backend endpoint that runs canonical `buildModelPrompt(...)`; tests cover the single-path contract.
 
 ---
 
