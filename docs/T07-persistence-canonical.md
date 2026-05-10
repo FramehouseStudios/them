@@ -165,7 +165,11 @@ the persistence-canonical foundation is exercised end-to-end.
   secret is not configured. Production runs should set it.
 
 The workflow fails fast (with a step-summary diagnosis) before any
-eval execution if `OPENAI_API_KEY` is missing.
+eval execution if `OPENAI_API_KEY` is missing or does not look like
+a literal OpenAI key value. If CI reports that `OPENAI_API_KEY` is
+invalid, update the repository Actions secret itself; the workflow
+cannot evaluate a secret that was saved as a shell command, file path,
+or placeholder.
 
 ### Local invocation
 

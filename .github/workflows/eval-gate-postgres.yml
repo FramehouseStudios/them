@@ -62,15 +62,27 @@ jobs:
       - name: Validate required secrets
         run: |
           missing=()
+          invalid=()
           [[ -z "${OPENAI_API_KEY:-}" ]] && missing+=("OPENAI_API_KEY")
-          if (( ${#missing[@]} > 0 )); then
+          if [[ -n "${OPENAI_API_KEY:-}" && "${OPENAI_API_KEY}" != sk-* ]]; then
+            invalid+=("OPENAI_API_KEY must be the literal OpenAI key value, not a shell command, file path, or placeholder")
+          fi
+          if (( ${#missing[@]} > 0 || ${#invalid[@]} > 0 )); then
             {
               echo "## eval-gate-postgres summary"
               echo
               echo "- Status: failed before execution"
-              echo "- Missing required secrets: ${missing[*]}"
+              if (( ${#missing[@]} > 0 )); then
+                echo "- Missing required secrets: ${missing[*]}"
+              fi
+              if (( ${#invalid[@]} > 0 )); then
+                echo "- Invalid required secrets:"
+                for item in "${invalid[@]}"; do
+                  echo "  - ${item}"
+                done
+              fi
               echo
-              echo "Set the missing secret(s) on the repository's Actions secrets configuration before re-running."
+              echo "Set the repository Actions secret to the actual value, then re-run this workflow."
             } | tee -a "${GITHUB_STEP_SUMMARY}"
             exit 1
           fi
