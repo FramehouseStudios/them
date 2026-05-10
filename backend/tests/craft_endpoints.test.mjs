@@ -20,6 +20,7 @@ import {
   _resetCraftStores,
   configureCraftAnalysis,
 } from "../lib/craft_analysis.js";
+import { configureLoglineDistiller } from "../lib/logline_distiller.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 
 function freshPersistenceRoot() {
@@ -31,7 +32,9 @@ async function withTestServer(fn, { mockUser = null, persistenceRoot = null } = 
   // don't leak between tests.
   const root = persistenceRoot || freshPersistenceRoot();
   _resetCraftStores();
-  configureCraftAnalysis({ persistence: createJsonPersistence({ jsonRoot: root }) });
+  const sharedTestPersistence = createJsonPersistence({ jsonRoot: root });
+  configureCraftAnalysis({ persistence: sharedTestPersistence });
+  configureLoglineDistiller({ persistence: sharedTestPersistence, classifier: null });
   const app = express();
   app.use(express.json());
   if (mockUser) {
@@ -365,5 +368,122 @@ test("[T22] override IDs are UUID-shaped (survive restart)", async () => {
     // Both should have the ov_<uuid> shape.
     assert.match(r1.body.id, /^ov_[0-9a-f-]{36}$/);
     assert.match(r2.body.id, /^ov_[0-9a-f-]{36}$/);
+  });
+});
+
+// ---------- T-logline-distiller ----------
+
+test("[logline-distiller] POST /craft/logline/distill returns a logline and persists it", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const text =
+      "INT. KITCHEN - NIGHT\n\nJUNE\nI can't keep doing this.\n";
+    const { status, body } = await postJson(baseURL, "/craft/logline/distill", {
+      text,
+      projectId: "logline-proj-1",
+      versionId: "v1",
+      frameworkId: "save-the-cat",
+    });
+    assert.equal(status, 200);
+    assert.equal(body.schemaVersion, 1);
+    assert.equal(typeof body.logline, "string");
+    assert.ok(body.logline.length > 0);
+    assert.equal(body.source, "stub");
+    assert.equal(body.stored, true);
+    assert.ok(body.distilledAt);
+  });
+});
+
+test("[logline-distiller] POST /craft/logline/distill requires text", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/craft/logline/distill", {
+      projectId: "logline-proj-2",
+    });
+    assert.equal(status, 400);
+    assert.equal(body.error, "craft_invalid_screenplay");
+  });
+});
+
+test("[logline-distiller] POST /craft/logline/distill requires projectId", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/craft/logline/distill", {
+      text: "INT. ROOM - DAY\n\nJUNE\nHello.\n",
+    });
+    assert.equal(status, 400);
+    assert.equal(body.error, "craft_invalid_screenplay");
+  });
+});
+
+test("[logline-distiller] GET /craft/logline/history returns chrono-ordered entries", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const projectId = "logline-history-proj";
+    await postJson(baseURL, "/craft/logline/distill", {
+      text: "INT. KITCHEN - NIGHT\n\nJUNE\nFirst.\n",
+      projectId,
+      versionId: "v1",
+    });
+    // Small delay so distilledAt timestamps differ in the storage key.
+    await new Promise((r) => setTimeout(r, 5));
+    await postJson(baseURL, "/craft/logline/distill", {
+      text: "EXT. ROOFTOP - DAWN\n\nMARCUS\nSecond.\n",
+      projectId,
+      versionId: "v2",
+    });
+    const { status, body } = await get(
+      baseURL,
+      `/craft/logline/history?projectId=${encodeURIComponent(projectId)}`,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.schemaVersion, 1);
+    assert.equal(body.projectId, projectId);
+    assert.ok(Array.isArray(body.entries));
+    assert.equal(body.entries.length, 2);
+    assert.ok(body.entries[0].distilledAtMs <= body.entries[1].distilledAtMs);
+    assert.equal(body.entries[0].versionId, "v1");
+    assert.equal(body.entries[1].versionId, "v2");
+  });
+});
+
+test("[logline-distiller] GET /craft/logline/drift returns drift envelope after recorded entries", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const projectId = "logline-drift-proj";
+    await postJson(baseURL, "/craft/logline/distill", {
+      text: "INT. CABIN - NIGHT\n\nELLA\nWe're not safe here.\n",
+      projectId,
+      versionId: "v1",
+    });
+    const { status, body } = await get(
+      baseURL,
+      `/craft/logline/drift?projectId=${encodeURIComponent(projectId)}&currentLogline=${encodeURIComponent("A wholly different premise about commerce and lawyers.")}`,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.schemaVersion, 1);
+    assert.equal(typeof body.score, "number");
+    assert.ok(body.score >= 0 && body.score <= 1);
+    assert.ok(typeof body.summary === "string" && body.summary.length > 0);
+    assert.equal(body.historyCount, 1);
+    assert.ok(body.earliest);
+  });
+});
+
+test("[logline-distiller] GET /craft/logline/drift returns empty-history envelope when no entries exist", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await get(
+      baseURL,
+      "/craft/logline/drift?projectId=no-history-yet",
+    );
+    assert.equal(status, 200);
+    assert.equal(body.schemaVersion, 1);
+    assert.equal(body.score, 0);
+    assert.equal(body.historyCount, 0);
+    assert.equal(body.earliest, "");
+    assert.ok(body.summary);
+  });
+});
+
+test("[logline-distiller] GET /craft/logline/history requires projectId", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await get(baseURL, "/craft/logline/history");
+    assert.equal(status, 400);
+    assert.equal(body.error, "craft_invalid_screenplay");
   });
 });

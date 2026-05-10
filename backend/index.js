@@ -80,6 +80,7 @@ import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
 import { mountPromptRoutes } from "./lib/prompt_routes.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
+import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
@@ -32840,6 +32841,9 @@ mountTalkPipelineRoutes(app, {
 // reports and overrides survive process restarts (Postgres-backed when
 // DATABASE_URL is set, JSON-file-backed otherwise).
 configureCraftAnalysis({ persistence: sharedPersistence });
+// T-logline-distiller: routes use the shared adapter + the default
+// classifier (LLM when OPENAI_API_KEY is set; deterministic stub otherwise).
+configureLoglineDistiller({ persistence: sharedPersistence, classifier: defaultLoglineClassifier() });
 mountCraftRoutes(app);
 mountPromptRoutes(app, {
   creativeMemoryStore,
