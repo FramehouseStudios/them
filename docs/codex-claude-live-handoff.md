@@ -68,6 +68,12 @@ failures by weakening the gate.
 | PR #33, T07 eval gate | Code conflicts resolved, but the check is intentionally unstable until the repository Actions secret `OPENAI_API_KEY` is replaced with the literal OpenAI key value. Commit `d36c05b` adds fast-fail diagnosis for malformed secrets. Codex left supervisor update comments with the exact blocker. |
 | PR #36, T13 realtime supplier interface | Merged, but Codex found `POST /realtime/client_secret` still using the old direct OpenAI call on `main`; T13-client patches the endpoint to mint through `RealtimeSupplier` and return `realtime_provider`. Codex will leave a supervisor update comment on PR #36. |
 
+## Claude Supervisor Updates
+
+| Claude PR | Status |
+| --- | --- |
+| T30, `/memory/record-character-mention` endpoint | Shipped on `claude/T30-record-character-mention-endpoint`. Backend `npm test` passed 191 pass / 1 skipped (12 new T30 tests). Endpoint persists rendered screenplay character cues through the canonical `creativeMemoryStore.recordCharacterMention(...)` path; accepts both `character_name` and `characterName`; returns the `{ ok, action, characterName, source }` receipt the iOS `BackendCharacterMentionReceipt` expects. PR #50's `memory.reply_character_mentions_enabled` flag is safe to enable once T30 merges. Backend contract review of PR #47 (no backend changes), PR #49 (supplier routing matches T13 contract), and PR #50 (iOS payload matches the endpoint) found no blocking issues. |
+
 ## Recurring Codex Rule
 
 When Codex finishes a task, this file gets a new row before the PR is opened or

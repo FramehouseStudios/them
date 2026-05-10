@@ -39,6 +39,7 @@
 | T26  | Polish Craft tab framework and drift UX            | codex  | review            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
+| T30  | Backend `/memory/record-character-mention` endpoint | claude | in-progress       |
 
 ---
 
@@ -240,6 +241,14 @@
 - **Pillar:** voice-to-scene + living companion
 - **Status:** merged
 - **Done when:** iOS has typed client/models for `POST /craft/format/lint`; Studio import/export/document warnings surface severity, rule id, message, and page/line hints as craft lint cards; formatting suggestions are available without blocking save/export; focused tests cover decoding and warning mapping.
+
+### T30 — Backend `/memory/record-character-mention` endpoint
+- **Owner:** claude
+- **Branch:** `claude/T30-record-character-mention-endpoint`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** in-progress
+- **Scope:** unblocks Codex PR #50 (T29). Adds `POST /memory/record-character-mention` that persists rendered screenplay character cues through `creativeMemoryStore.recordCharacterMention(...)` — the canonical creative-memory path, not ad hoc JSON. Accepts both `character_name` (snake_case) and `characterName` (camelCase). Threads `source`, `tags`, `write_id`, `line`, and `metadata.{screenplay_write_id, screenplay_project_id, screenplay_version_id}` onto the character record so reply-side mentions are distinguishable from user-input mentions. Missing optional metadata never fails the request. Returns the typed receipt iOS expects: `{ ok, action, characterName, source }`.
+- **Done when:** the endpoint is mounted in `backend/index.js`, persists through `creativeMemoryStore`, validates/sanitizes name and source, accepts snake_case+camelCase, returns the typed receipt; ≥5 endpoint integration tests cover (1) snake_case payload, (2) camelCase payload, (3) metadata + write_id + line preservation, (4) invalid/empty character_name rejection, (5) idempotent-ish repeated mentions; the full backend suite stays green. Codex can enable `memory.reply_character_mentions_enabled` once this merges.
 
 ---
 
