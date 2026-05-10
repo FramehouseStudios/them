@@ -16,7 +16,7 @@
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
-| T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
+| T04  | Apply canonical product name `io.them` end-to-end  | codex  | review            |
 | T05  | Add `first_page_written` client telemetry event    | codex  | completed         |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
 | T07a | Wire `outbox_store` to persistence adapter          | claude | ready-for-claude  |
@@ -28,10 +28,11 @@
 | T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
-| T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
+| T13  | Add second realtime supplier behind interface      | claude | in-progress       |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | review            |
+| T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
 
 ---
 
@@ -61,9 +62,9 @@
 
 ### T04 — Apply canonical product name `io.them` end-to-end
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T04-io-them-canonical-name`
 - **Pillar:** living companion (identity)
-- **Status:** ready
+- **Status:** review
 - **Done when:** `Info.plist` `CFBundleDisplayName`, `README.md` title line, onboarding copy, and any user-visible string read `io.them` (or final agreed casing); no user-visible surface still reads `Framehouse`, `them`, `Clementine`, or `Her*`. References `D001`.
 
 ### T05 — Add `first_page_written` client telemetry event
@@ -150,10 +151,13 @@
 
 ### T13 — Add second realtime supplier behind existing interface
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T13-realtime-supplier-interface`
 - **Pillar:** living companion (resilience)
-- **Status:** ready-for-claude
-- **Done when:** a second supplier ships behind the existing `Realtime` interface; the supplier choice is configurable at runtime; smoke test exercises both paths.
+- **Status:** in-progress
+- **Scope (this PR — foundation):** extract a `RealtimeSupplier` interface; wrap the existing OpenAI client-secret minting path as `OpenAIRealtimeSupplier`; ship a `StubRealtimeSupplier` that satisfies the interface deterministically (placeholder for a future real second supplier); factory selects via `REALTIME_PROVIDER` env var; `POST /realtime/client_secret` routes through the supplier interface; smoke tests assert both suppliers satisfy the interface contract.
+- **Scope (follow-up):** integrate a real second supplier (ElevenLabs Conversational AI / Anthropic Realtime / etc.) once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
+- **Done when (foundation, this PR):** OpenAI logic extracted behind the interface; stub second supplier passes the same contract test; runtime config via `REALTIME_PROVIDER` defaults to `openai`; `POST /realtime/client_secret` returns the supplier's mint result regardless of provider; tests exercise both paths.
+- **Done when (overall T13):** a real second supplier ships behind the same interface and is exercised end-to-end against a live account in CI.
 
 ### T14 — Triage G3 backend feature snapshot
 - **Owner:** codex
@@ -176,6 +180,15 @@
 - **Pillar:** living companion + longitudinal learning
 - **Status:** review
 - **Done when:** every model-bound prompt request from iOS is produced through one Swift `ScreenplayPromptBuilder` entry point; legacy prompt-construction sites are replaced; the builder routes screenplay requests through the backend endpoint that runs canonical `buildModelPrompt(...)`; tests cover the single-path contract.
+
+### T-format-linter — Hollywood format linter (rules v1)
+- **Owner:** claude
+- **Branch:** `claude/T-format-linter`
+- **Pillar:** voice-to-scene + living companion (industry-rule layer of the Craft Intelligence Suite)
+- **Status:** in-progress
+- **Scope:** purely rule-based (no LLM). Rules v1 covers scene-heading shape, character-cue caps + own-line, parenthetical density, action-line voice flags, page-economy heuristic. Each violation is a structured suggestion with severity (`hard` | `medium` | `soft`), not a rejection. Endpoint `POST /craft/format/lint` accepts a screenplay text payload + framework hint and returns suggestions. No iOS work in this PR; Codex's `T-format-iOS` row consumes the endpoint when it's ready.
+- **Done when:** `backend/lib/format_linter.js` exposes `lintScreenplay({ text, frameworkId? })` returning structured suggestions; route mounts under `/craft/format/lint`; ≥15 unit tests cover each rule (positive + negative cases); fixture-driven tests against the existing `report_complete.json` source screenplay shape; full backend test suite stays green; design notes in `docs/T-format-linter.md`.
+
 
 ---
 

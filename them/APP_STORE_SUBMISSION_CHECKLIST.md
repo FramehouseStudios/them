@@ -1,4 +1,4 @@
-# THEM macOS App Store Submission Checklist
+# io.them macOS App Store Submission Checklist
 
 Last updated: 2026-03-27
 

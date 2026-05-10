@@ -403,8 +403,8 @@ enum ClementineVisualContextCapture {
 
     static func permissionStatusText() -> String {
         hasScreenAccess()
-            ? "Screen access granted. Clementine can inspect the active window when visual context is enabled."
-            : "Screen access is not granted yet. Enable it to let Clementine see the active window."
+            ? "Screen access granted. io.them can inspect the active window when visual context is enabled."
+            : "Screen access is not granted yet. Enable it to let io.them see the active window."
     }
 
     @MainActor
@@ -2382,7 +2382,7 @@ struct RootExperienceView: View {
                             guard canStartTalk else { return }
                             startConversationLoopIfNeeded()
                         } label: {
-                            Text(usesRealtimePreviewTransport ? "Start live voice with THEM" : "Hold to speak to THEM")
+                            Text(usesRealtimePreviewTransport ? "Start live voice with io.them" : "Hold to speak to io.them")
                                 .font(.system(size: 17, weight: .regular, design: .default))
                                 .foregroundColor(.herText.opacity(0.92))
                                 .padding(.horizontal, 20)
@@ -4419,7 +4419,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 mode: "page",
                 category: category,
                 title: "Writing On The Page",
-                body: "Clementine is in page mode. If she pitches a beat you want drafted, say yes, write that and she will put it on the page. Ask for stronger conflict, sharper subtext, a harder reversal, cleaner visuals, or the next beat and she will keep writing directly into the draft.",
+                body: "io.them is in page mode. If io.them pitches a beat you want drafted, say yes, write that and it will put it on the page. Ask for stronger conflict, sharper subtext, a harder reversal, cleaner visuals, or the next beat and she will keep writing directly into the draft.",
                 badge: badge,
                 actionSummary: summary
             )
@@ -4430,7 +4430,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayDraftBridge.updateAssistantPin(
                 mode: actionSummary.isEmpty ? "copilot" : "task",
                 category: category,
-                title: actionSummary.isEmpty ? "Clementine Voice Pin" : "Copilot And Task Status",
+                title: actionSummary.isEmpty ? "io.them Voice Pin" : "Copilot And Task Status",
                 body: clippedStudioAssistantText(cleanReply),
                 fullBody: cleanReply,
                 badge: badge,
@@ -4444,7 +4444,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 mode: "task",
                 category: category,
                 title: "Studio Task Status",
-                body: "Clementine handled a screenplay-related action.",
+                body: "io.them handled a screenplay-related action.",
                 badge: badge,
                 actionSummary: actionSummary
             )
@@ -6041,7 +6041,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     ) async -> String? {
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanPrompt.isEmpty else { return "Enter a Studio prompt first." }
-        guard !isTurnSubmitting else { return "Clementine is already working on the current turn." }
+        guard !isTurnSubmitting else { return "io.them is already working on the current turn." }
         let localCommand = runLocalStudioCommandIfNeeded(
             cleanPrompt,
             source: .typed,
@@ -6270,7 +6270,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 if shouldWriteToPage {
                     screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
                 }
-                return "Clementine didn't return a Studio reply."
+                return "io.them didn't return a Studio reply."
             }
 
             backendConnectionState = .up
@@ -6333,7 +6333,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         } catch BackendError.continueListening {
             backendConnectionState = .up
             backendFailureCount = 0
-            return "Try giving Clementine a little more detail."
+            return "Try giving io.them a little more detail."
         } catch {
             if shouldWriteToPage {
                 screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
@@ -6930,7 +6930,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         screenplayDraftBridge.preferredVersionID = cleanVersion
         screenplayDraftBridge.lastUpdatedAt = Date()
         screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
-        screenplayDraftBridge.autoInsertStatusText = "Clementine is preparing the page..."
+        screenplayDraftBridge.autoInsertStatusText = "io.them is preparing the page..."
         return textToInsert
     }
 
@@ -7959,7 +7959,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         components.scheme = "mailto"
         components.path = supportEmailAddress()
         components.queryItems = [
-            URLQueryItem(name: "subject", value: "THEM Problem Report"),
+            URLQueryItem(name: "subject", value: "io.them Problem Report"),
             URLQueryItem(name: "body", value: body)
         ]
 
@@ -8210,7 +8210,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(snapshot)
-        let fileName = "THEM-DebugBundle-\(Int(now.timeIntervalSince1970)).json"
+        let fileName = "io.them-DebugBundle-\(Int(now.timeIntervalSince1970)).json"
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         try data.write(to: fileURL, options: [.atomic])
         return fileURL
@@ -8617,7 +8617,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let cleanTitle = pin.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanBody = pin.body.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanActionSummary = pin.actionSummary.trimmingCharacters(in: .whitespacesAndNewlines)
-            noteTitle = cleanTitle.isEmpty ? "Clementine" : cleanTitle
+            noteTitle = cleanTitle.isEmpty ? "io.them" : cleanTitle
             noteBody = clippedStudioAssistantText(
                 cleanBody.isEmpty ? cleanActionSummary : cleanBody,
                 limit: 280
@@ -9184,8 +9184,8 @@ private enum NoteEditStyle: String, CaseIterable, Identifiable {
 
     var actionTitle: String {
         switch self {
-        case .polish: return "Polish With Clementine"
-        case .tighten: return "Tighten With Clementine"
+        case .polish: return "Polish With io.them"
+        case .tighten: return "Tighten With io.them"
         case .professional: return "Make Professional"
         case .warmer: return "Make Warmer"
         case .summarize: return "Summarize"
@@ -9667,10 +9667,10 @@ private struct NotesPanel: View {
                     .tint(.white.opacity(0.22))
                     .foregroundColor(.herText.opacity(0.92))
             }
-            Text("Save notes directly in-app. Voice notes captured by Clementine appear here too.")
+            Text("Save notes directly in-app. Voice notes captured by io.them appear here too.")
                 .font(.system(size: 14, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.80))
-            Text("Clementine can polish, tighten, professionalize, warm up, or summarize notes while keeping the core meaning intact.")
+            Text("io.them can polish, tighten, professionalize, warm up, or summarize notes while keeping the core meaning intact.")
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.72))
             if !statusText.isEmpty {
@@ -9699,11 +9699,11 @@ private struct NotesPanel: View {
                 )
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Clementine Edit Style")
+                Text("io.them Edit Style")
                     .font(.system(size: 12, weight: .semibold, design: .default))
                     .foregroundColor(.herText.opacity(0.84))
 
-                Picker("Clementine Edit Style", selection: $selectedEditStyle) {
+                Picker("io.them Edit Style", selection: $selectedEditStyle) {
                     ForEach(NoteEditStyle.allCases) { style in
                         Text(style.title).tag(style)
                     }
@@ -9891,7 +9891,7 @@ private struct NotesPanel: View {
                 .tint(.white.opacity(0.24))
             }
 
-            Text("Clementine found two likely notes for \"\(pending.ambiguity.targetHint)\". Pick one to keep going.")
+            Text("io.them found two likely notes for \"\(pending.ambiguity.targetHint)\". Pick one to keep going.")
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.72))
 
@@ -9994,7 +9994,7 @@ private struct NotesPanel: View {
                 }
             }
 
-            NumberedChoiceHintText(message: "Press 1 to keep the original note or 2 to replace it with Clementine's rewrite.")
+            NumberedChoiceHintText(message: "Press 1 to keep the original note or 2 to replace it with io.them's rewrite.")
 
             if let matchContext = preview.matchContext {
                 HStack(spacing: 8) {
@@ -10029,7 +10029,7 @@ private struct NotesPanel: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 rewriteComparisonBlock(title: "Current", text: preview.originalText)
-                rewriteComparisonBlock(title: "Clementine", text: preview.revisedText)
+                rewriteComparisonBlock(title: "io.them", text: preview.revisedText)
             }
         }
         .padding(14)
@@ -10117,7 +10117,7 @@ private struct NotesPanel: View {
         do {
             let revised = try await rewriteNoteText(clean, style: selectedEditStyle)
             draftNote = revised
-            statusText = "Clementine \(selectedEditStyle.successTitle) the draft note."
+            statusText = "io.them \(selectedEditStyle.successTitle) the draft note."
         } catch {
             statusText = error.localizedDescription
         }
@@ -10154,7 +10154,7 @@ private struct NotesPanel: View {
                 style: style,
                 matchContext: matchContext
             )
-            statusText = "Review Clementine's rewrite before replacing the note."
+            statusText = "Review io.them's rewrite before replacing the note."
         } catch {
             statusText = error.localizedDescription
         }
@@ -10172,7 +10172,7 @@ private struct NotesPanel: View {
             throw NSError(
                 domain: "NotesPanel",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Clementine did not return edited note text."]
+                userInfo: [NSLocalizedDescriptionKey: "io.them did not return edited note text."]
             )
         }
         return revised
@@ -10231,7 +10231,7 @@ TASK:
             style: preview.style
         )
         rewritePreview = nil
-        statusText = "Clementine \(preview.style.successTitle) the saved note."
+        statusText = "io.them \(preview.style.successTitle) the saved note."
     }
 
     private func dismissRewritePreview() {
@@ -10254,7 +10254,7 @@ TASK:
         if editingNoteID == lastAppliedRewrite.noteID {
             draftNote = lastAppliedRewrite.originalText
         }
-        statusText = "Restored the version before Clementine \(lastAppliedRewrite.style.successTitle) \"\(lastAppliedRewrite.noteTitle)\"."
+        statusText = "Restored the version before io.them \(lastAppliedRewrite.style.successTitle) \"\(lastAppliedRewrite.noteTitle)\"."
         self.lastAppliedRewrite = nil
     }
 
@@ -11087,7 +11087,7 @@ private struct TasksPanel: View {
                     .foregroundColor(.herText.opacity(0.80))
                     .lineLimit(2)
             } else {
-                Text("Capture tasks as you talk. Clementine keeps open items and recap outcomes.")
+                Text("Capture tasks as you talk. io.them keeps open items and recap outcomes.")
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundColor(.herText.opacity(0.80))
             }
@@ -11502,16 +11502,16 @@ private struct TrustCenterScreen: View {
                         trustBlock(
                             title: "Non-Manipulative Policy",
                             lines: [
-                                "Clementine does not encourage emotional exclusivity.",
-                                "Clementine does not present herself as your only source of meaning.",
-                                "Clementine redirects dependency loops toward user agency.",
-                                "Clementine does not claim a human body or human consciousness."
+                                "io.them does not encourage emotional exclusivity.",
+                                "io.them does not present itself as your only source of meaning.",
+                                "io.them redirects dependency loops toward user agency.",
+                                "io.them does not claim a human body or human consciousness."
                             ]
                         )
                         trustBlock(
                             title: "Conversation Boundaries",
                             lines: [
-                                "If a loop is detected, Clementine names it gently and gives one concrete next step.",
+                                "If a loop is detected, io.them names it gently and gives one concrete next step.",
                                 "If distress is high, responses shift to calm, specific, stabilizing language.",
                                 "One thoughtful question maximum per reply."
                             ]
@@ -11542,7 +11542,7 @@ private struct TrustCenterScreen: View {
             Text("Trust Center")
                 .font(.system(size: 34, weight: .semibold, design: .default))
                 .foregroundColor(.herText.opacity(0.95))
-            Text("How Clementine is designed to stay emotionally mature, safe, and non-possessive.")
+            Text("How io.them is designed to stay emotionally mature, safe, and non-possessive.")
                 .font(.system(size: 15, weight: .regular, design: .default))
                 .foregroundColor(.herText.opacity(0.76))
         }

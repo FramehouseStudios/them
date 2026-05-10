@@ -33,7 +33,7 @@ function mountPromptRoutes(app, {
   creativeMemoryStore = null,
   buildCraftContextBlock = null,
 } = {}) {
-  app.post("/screenplay/prompt/build", (req, res) => {
+  app.post("/screenplay/prompt/build", async (req, res) => {
     const persona = trimToString(
       req.body?.persona ?? req.body?.system_prompt ?? req.body?.systemPrompt,
       16_000
@@ -51,7 +51,7 @@ function mountPromptRoutes(app, {
 
     const userId = resolvePromptUserId(req);
     const creativeMemory = userId && creativeMemoryStore?.getCreativeMemoryForPrompt
-      ? creativeMemoryStore.getCreativeMemoryForPrompt({ userId })
+      ? await creativeMemoryStore.getCreativeMemoryForPrompt({ userId })
       : null;
     const sessionContext = sanitizeSessionContext(
       req.body?.session_context ?? req.body?.sessionContext
