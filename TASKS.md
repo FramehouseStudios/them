@@ -16,7 +16,6 @@
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
-| T02  | Resolve `archive/` vs `Archive/` case collision    | codex  | ready             |
 | T04  | Apply canonical product name `io.them` end-to-end  | codex  | ready             |
 | T05  | Add `first_page_written` client telemetry event    | codex  | ready             |
 | T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
@@ -26,14 +25,14 @@
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
 | T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
-| T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | blocked-T02       |
+| T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | ready             |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T09       |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
 | T13  | Add second realtime supplier behind interface      | claude | ready-for-claude  |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T21  | Add craft-aware prompts and beat classification    | claude | in-progress       |
-| T22  | Persist craft snapshots and turn overrides         | claude | ready-for-claude  |
+| T22  | Persist craft snapshots and turn overrides         | claude | in-progress       |
 | T23  | Add craft completeness RC release gate             | claude | blocked-T22       |
 
 ---
@@ -47,8 +46,8 @@
 5. Claude starts T21: feed craft schemas into prompts and add scene-to-beat classification.
 6. Claude starts T22: persist craft snapshots and turn overrides.
 7. Claude starts T23 after T22: enforce missing-major-turn RC gate.
-8. Codex starts T02: resolve `archive/` vs `Archive/` to unblock T09.
-9. Codex starts T10: consolidate the app design system once T02 is clear.
+8. Codex completed T02: `archive/` is normalized as the canonical tracked casing.
+9. Codex starts T09: modularize `DraftStudio` and `ScreenplayStudio`.
 10. Codex starts T04 or T05, depending whether identity polish or telemetry is the stronger product move.
 
 ---
@@ -61,13 +60,6 @@
 - **Pillar:** infra (enables all)
 - **Status:** ready
 - **Done when:** the snapshot on `codex-save-primary-folder-20260420` is split into ≤6 intent-grouped branches, each open as a PR; no orphan changes remain on the source branch; stale `claude/*` branches with no merged work are deleted.
-
-### T02 — Resolve `archive/` vs `Archive/` case collision
-- **Owner:** codex
-- **Branch:** —
-- **Pillar:** infra (enables all)
-- **Status:** ready
-- **Done when:** only one casing exists in the repo; contents are migrated; commit explicitly states the casing chosen and why; entry recorded in `DECISIONS.md`.
 
 ### T04 — Apply canonical product name `io.them` end-to-end
 - **Owner:** codex
@@ -141,7 +133,7 @@
 - **Owner:** codex
 - **Branch:** —
 - **Pillar:** infra (enables all)
-- **Status:** blocked-T02
+- **Status:** ready
 - **Done when:** `DraftStudio` and `ScreenplayStudio` are local SwiftPM packages; `ContentView.swift` is below 500 LOC; clean build green; `themTests` pass.
 
 ### T10 — Codify single design system (color, typography, spacing)
@@ -190,10 +182,10 @@
 
 ### T22 — Persist craft snapshots and turn overrides
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T22-craft-snapshots-persistence`
 - **Pillar:** longitudinal learning + living companion
-- **Status:** ready-for-claude
-- **Done when:** craft snapshots persist per screenplay version; user overrides for false-positive major-turn detections round-trip through storage; backend tests prove overrides affect later analysis responses.
+- **Status:** in-progress
+- **Done when:** craft snapshots persist per screenplay version through the T07 persistence adapter (`craft_reports` domain); overrides round-trip through storage (`craft_overrides` domain); UUID-based override IDs survive process restarts; backend tests prove overrides affect later analysis responses by clearing the in-memory cache between write and read; the in-memory `Map`-backed MVP in `craft_analysis.js` is replaced.
 
 ### T23 — Add craft completeness RC release gate
 - **Owner:** claude
@@ -205,6 +197,12 @@
 ---
 
 ## Completed (last 30 days)
+
+### T02 — Resolve `archive/` vs `Archive/` case collision
+- **Owner:** codex
+- **Branch:** `codex/T02-archive-case-collision`
+- **Merged:** 2026-05-09 via PR #21.
+- **Note:** Git already tracked lowercase `archive/...`; the local worktree directory was normalized from `Archive/` to `archive/`, and D004 records lowercase `archive/` as the proposed canonical casing.
 
 ### T06 — Flip `RUN_QUALITY_GATE=1` default in release CI
 - **Owner:** claude

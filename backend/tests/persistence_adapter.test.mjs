@@ -209,10 +209,17 @@ for (const impl of makeImplementations()) {
 
 // ---------- module-level invariants ----------
 
-test("KNOWN_DOMAINS includes the four canonical domains", () => {
+test("KNOWN_DOMAINS includes the canonical domains (T07 four + T22 craft pair)", () => {
   assert.deepEqual(
     [...KNOWN_DOMAINS].sort(),
-    ["knowledge_embeddings", "outbox", "screenplay", "user_memory"],
+    [
+      "craft_overrides",
+      "craft_reports",
+      "knowledge_embeddings",
+      "outbox",
+      "screenplay",
+      "user_memory",
+    ],
   );
 });
 

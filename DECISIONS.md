@@ -39,4 +39,12 @@ Status transitions: `proposed` → `accepted`, or `proposed` → `rejected`. An 
 - **Decision:** Codex is the primary app builder (owns `them/`, product, architecture, integration). Claude is the scoped support agent (owns `backend/`, scripts, tests, docs, audits, CI when assigned; never edits the iOS app; never makes product decisions). The human is the product lead (decides direction, accepts decisions, merges PRs). All work flows through `TASKS.md`. The three coordination files — `AGENTS.md`, `TASKS.md`, `DECISIONS.md` — are the operating system.
 - **Consequences:** Replaces the earlier two-file (`AGENTS.md` + `CLAUDE.md`) protocol. `CLAUDE.md` becomes a thin redirect to `AGENTS.md`. Hard scope enforcement via `.claude/settings.json` deny rules to follow. The earlier "Codex-Primary / Claude-Support Architecture" document (PDF section 4) is superseded by this entry and folded into a single "Operating System" section.
 
-## D004 — _next decision goes here_
+## D004 — `archive/` is the canonical legacy archive casing
+
+- **Date:** 2026-05-09
+- **Status:** proposed
+- **Context:** T02 found that Git already tracks the legacy root slice under lowercase `archive/...`, while the macOS worktree had materialized the directory as `Archive/`. Mixed casing is risky on case-insensitive filesystems and blocks package modularization work that needs deterministic paths.
+- **Decision:** Keep lowercase `archive/` as the only repository casing for tracked legacy archive contents. Do not introduce a tracked `Archive/` directory. If a human-only archival folder is needed later, place it outside the repo or record a new accepted ADR that supersedes this one.
+- **Consequences:** Existing README references to `archive/...` remain correct; the local worktree was normalized through a temporary rename so the on-disk directory also reads `archive/`; future migration and modularization work can assume no `Archive/`/`archive/` case collision.
+
+## D005 — _next decision goes here_

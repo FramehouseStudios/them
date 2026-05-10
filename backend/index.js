@@ -76,6 +76,7 @@ import {
 } from "./lib/screenplay_store.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
+import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { buildCraftContextBlock } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
@@ -32722,6 +32723,10 @@ mountTalkPipelineRoutes(app, {
   canReadTalkTurnMeta,
 });
 
+// T22: wire craft analysis through the shared persistence adapter so
+// reports and overrides survive process restarts (Postgres-backed when
+// DATABASE_URL is set, JSON-file-backed otherwise).
+configureCraftAnalysis({ persistence: sharedPersistence });
 mountCraftRoutes(app);
 
 app.all("/auth/signup", methodNotAllowed("POST"));
