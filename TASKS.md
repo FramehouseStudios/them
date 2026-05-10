@@ -53,6 +53,7 @@
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
 | T37  | Build iOS twist-card consumer                     | codex  | merged            |
 | T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | merged         |
+| T-coordination-state | Fast-path coordination.json + CLI helper        | claude | in-progress    |
 
 ---
 
@@ -424,6 +425,14 @@
 - **Pillar:** living companion + longitudinal learning
 - **Status:** merged
 - **Done when:** iOS has typed client/models for `GET /memory/block-signal`; the Studio companion or craft rail renders a non-blocking block-signal nudge gated by backend `level`; focused tests cover decoding and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+
+### T-coordination-state — Fast-path coordination.json + CLI helper
+- **Owner:** claude
+- **Branch:** `claude/T-coordination-state`
+- **Pillar:** infra (enables all)
+- **Status:** in-progress
+- **Scope:** new `docs/coordination.json` is a tiny shared state file (open PRs by tier, blockers by owner, decisions pending, endpoints awaiting iOS consumers). `scripts/coordination_state.mjs` is a dependency-free CLI for read/open-prs/blockers/decisions/add-pr/close-pr/set-pr/add-blocker/clear-blocker/add-decision/clear-decision. Agents stamp `updatedAt` + `updatedBy` automatically. Replaces "re-read three ledgers to see what's open" with one fast read.
+- **Done when:** the JSON file exists with the current open Claude PRs seeded; the CLI reads + mutates it correctly; `node scripts/coordination_state.mjs read` returns a useful summary; both agents can call it without breaking the existing inbox/handoff docs.
 
 ---
 
