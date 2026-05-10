@@ -30,7 +30,7 @@ final class VoiceToPageOrchestrator: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var recentTurns: [(role: String, text: String)] = []
 
-    // System prompt for Clementine in screenplay mode
+    // System prompt for io.them in screenplay mode
     private let screenplaySystemPrompt = """
     You are CLEMENTINE. A single unified voice — warm, sharp, emotionally fluent.
     You are a showrunner and writing partner. Output ONLY pure Fountain screenplay format.
@@ -157,7 +157,8 @@ final class VoiceToPageOrchestrator: ObservableObject {
         do {
             let bootstrap = try await backend.fetchRealtimeClientSecret(
                 systemPrompt: screenplaySystemPrompt,
-                isScreenplayMode: true
+                isScreenplayMode: true,
+                realtimeProvider: ClementineRealtimeSupplierMode.storedProviderParameter()
             )
 
             let session = WebRTCRealtimeSession()

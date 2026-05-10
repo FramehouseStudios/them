@@ -6,7 +6,7 @@ struct ScreenplayPageView: View {
 
     var body: some View {
         ZStack {
-            FountainTypography.pageBackgroundColor
+            IOThemColors.Screenplay.pageBackground
                 .ignoresSafeArea()
 
             ScrollViewReader { proxy in
@@ -78,8 +78,8 @@ struct ScreenplayPageView: View {
                 .fill(Color.red.opacity(0.8))
                 .frame(width: 6, height: 6)
             Text(orchestrator.partialTranscript)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(Color(white: 0.5))
+                .font(IOThemTypography.UI.monoCaption)
+                .foregroundColor(IOThemColors.Screenplay.text.opacity(0.5))
                 .lineLimit(2)
             Spacer()
         }
@@ -91,10 +91,10 @@ struct ScreenplayPageView: View {
         HStack(spacing: 8) {
             ProgressView()
                 .scaleEffect(0.6)
-                .tint(FountainTypography.cursorColor)
-            Text("Clementine is writing...")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundColor(Color(white: 0.4))
+                .tint(IOThemColors.Screenplay.cursor)
+            Text("io.them is writing...")
+                .font(IOThemTypography.UI.monoLabel)
+                .foregroundColor(IOThemColors.Screenplay.text.opacity(0.4))
         }
         .padding(.top, 24)
     }
@@ -103,11 +103,11 @@ struct ScreenplayPageView: View {
         VStack(spacing: 12) {
             Spacer().frame(height: 120)
             Text("Start talking.")
-                .font(.system(size: 16, weight: .light, design: .monospaced))
-                .foregroundColor(Color(white: 0.3))
-            Text("Clementine is listening.")
-                .font(.system(size: 12, weight: .light, design: .monospaced))
-                .foregroundColor(Color(white: 0.2))
+                .font(IOThemTypography.UI.monoPrompt)
+                .foregroundColor(IOThemColors.Screenplay.text.opacity(0.3))
+            Text("io.them is listening.")
+                .font(IOThemTypography.UI.monoCaptionLight)
+                .foregroundColor(IOThemColors.Screenplay.text.opacity(0.2))
         }
         .frame(maxWidth: .infinity)
     }
@@ -127,11 +127,11 @@ struct ScreenplayPageView: View {
 
     private var orbColor: Color {
         if orchestrator.orbAudio.isSpeaking {
-            return FountainTypography.cursorColor
+            return IOThemColors.Screenplay.cursor
         }
         if orchestrator.isListening {
-            return Color(white: 0.5)
+            return IOThemColors.Screenplay.text.opacity(0.5)
         }
-        return Color(white: 0.2)
+        return IOThemColors.Screenplay.text.opacity(0.2)
     }
 }

@@ -428,6 +428,13 @@ nonisolated struct BackendDataControlResponse: Decodable {
     let memoryQuality: BackendMemoryQualitySnapshot?
 }
 
+nonisolated struct BackendCharacterMentionReceipt: Decodable, Equatable {
+    let ok: Bool?
+    let action: String?
+    let characterName: String?
+    let source: String?
+}
+
 nonisolated struct BackendRealtimeTurnCommitResponse: Decodable {
     let ok: Bool
     let action: String
@@ -3483,6 +3490,83 @@ actor BackendMemoryAPI {
             )
         }
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    nonisolated static func characterMentionPayload(
+        mention: ScreenplayRenderedCharacterMention,
+        writeID: String,
+        projectID: String = "",
+        versionID: String = "",
+        source: String = "ios_screenplay_render"
+    ) -> [String: Any] {
+        let characterName = mention.characterName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWriteID = writeID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        var metadata: [String: Any] = [
+            "line": max(0, mention.line),
+            "source": normalizedSource.isEmpty ? "ios_screenplay_render" : normalizedSource,
+        ]
+        if !normalizedWriteID.isEmpty {
+            metadata["screenplay_write_id"] = normalizedWriteID
+        }
+        if !normalizedProjectID.isEmpty {
+            metadata["screenplay_project_id"] = normalizedProjectID
+        }
+        if !normalizedVersionID.isEmpty {
+            metadata["screenplay_version_id"] = normalizedVersionID
+        }
+        return [
+            "character_name": characterName,
+            "characterName": characterName,
+            "voice": "",
+            "tags": mention.tags,
+            "source": normalizedSource.isEmpty ? "ios_screenplay_render" : normalizedSource,
+            "write_id": normalizedWriteID,
+            "line": max(0, mention.line),
+            "metadata": metadata,
+        ]
+    }
+
+    func recordCharacterMentionFromScreenplayReply(
+        _ mention: ScreenplayRenderedCharacterMention,
+        writeID: String,
+        projectID: String = "",
+        versionID: String = "",
+        source: String = "ios_screenplay_render"
+    ) async throws -> BackendCharacterMentionReceipt {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/memory/record-character-mention")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: Self.characterMentionPayload(
+                mention: mention,
+                writeID: writeID,
+                projectID: projectID,
+                versionID: versionID,
+                source: source
+            ),
+            options: []
+        )
+        return try await run(request, as: BackendCharacterMentionReceipt.self)
+    }
+
+    func recordCharacterMentionsFromScreenplayReply(
+        _ mentions: [ScreenplayRenderedCharacterMention],
+        writeID: String,
+        projectID: String = "",
+        versionID: String = "",
+        source: String = "ios_screenplay_render"
+    ) async throws {
+        for mention in mentions {
+            _ = try await recordCharacterMentionFromScreenplayReply(
+                mention,
+                writeID: writeID,
+                projectID: projectID,
+                versionID: versionID,
+                source: source
+            )
+        }
     }
 
     func commitRealtimeTurn(

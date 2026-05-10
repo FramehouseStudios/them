@@ -59,9 +59,12 @@ import {
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
 import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
-import { buildModelPrompt } from "./lib/prompt_assembly.js";
+import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention_route.js";
+import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
+import { createOutboxSnapshotter } from "./lib/outbox_snapshotter.js";
+import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
 import {
   configureScreenplayStore,
   ensureScreenplayOutline,
@@ -76,8 +79,9 @@ import {
 } from "./lib/screenplay_store.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
+import { mountPromptRoutes } from "./lib/prompt_routes.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
-import { buildCraftContextBlock } from "./lib/craft_prompts.js";
+import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
   loadUserStore,
@@ -2796,12 +2800,37 @@ await scaleBackplane.init();
 // fallback otherwise). Stores opt-in by passing it via configureXxxStore deps.
 // Declared early so configureMemoryStore (the first store init) can consume it.
 const sharedPersistence = createPersistence();
+
+// T13: realtime supplier (OpenAI by default; configurable via
+// REALTIME_PROVIDER env). Falls back to the OpenAI supplier even on
+// supplier load errors so the endpoint always has SOMETHING to call.
+let realtimeSupplier = null;
+try {
+  realtimeSupplier = await createRealtimeSupplier({
+    apiKey: OPENAI_API_KEY,
+    defaultModel: OPENAI_REALTIME_MODEL,
+    defaultVoice: OPENAI_REALTIME_VOICE,
+    defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+    defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  });
+  console.log(`[realtime_supplier] kind=${realtimeSupplier.kind}`);
+} catch (e) {
+  console.error(`[realtime_supplier] failed to construct (${e?.code || "unknown"}); using OpenAI default. err=${e?.message || e}`);
+  const mod = await import("./lib/realtime_supplier_openai.js");
+  realtimeSupplier = mod.createOpenAIRealtimeSupplier({
+    apiKey: OPENAI_API_KEY,
+    defaultModel: OPENAI_REALTIME_MODEL,
+    defaultVoice: OPENAI_REALTIME_VOICE,
+    defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+    defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  });
+}
 console.log(`[persistence] kind=${sharedPersistence.kind}`);
 
-// T08: creative memory tier - per-user style/characters/tone/habits.
-// File-backed MVP; T08-postgres follow-up swaps for the T07 adapter
-// without changing the public API. Read by handleTalkRequest below.
-const creativeMemoryStore = createCreativeMemoryStore();
+// T08 + T08-postgres: creative memory tier — per-user style/characters/
+// tone/habits. Persistence-adapter-backed (Postgres when DATABASE_URL
+// is set, JSON-file otherwise via the shared adapter from T07).
+const creativeMemoryStore = createCreativeMemoryStore({ persistence: sharedPersistence });
 
 // T08: wraps a final system prompt with the user's creative-companion
 // memory if any is present. No-op for cold users - the memory block is
@@ -2812,6 +2841,7 @@ const creativeMemoryStore = createCreativeMemoryStore();
 // per-project framework selection lives in T22's stored reports +
 // Codex-side BackendClient (T19).
 function appendCraftContextToSystem(systemPrompt, { req } = {}) {
+  if (String(systemPrompt || "").includes(CRAFT_BLOCK_OPEN)) return systemPrompt;
   const requested = String(req?.body?.craft_framework_id || "").trim();
   const frameworkId = requested || "save-the-cat";
   const block = buildCraftContextBlock({ framework: frameworkId });
@@ -2819,10 +2849,40 @@ function appendCraftContextToSystem(systemPrompt, { req } = {}) {
   return `${systemPrompt}\n\n${block}`;
 }
 
-function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
+// T08w-triggers: fire creative-memory write triggers from a /talk turn.
+// Best-effort, fire-and-forget — never blocks the response. Uses
+// transcript candidates from req.body to detect character mentions and
+// capture lexical phrases. Reply-side detection is a follow-up that
+// requires capturing the final assembled reply; user-side signals here
+// are reliable and the highest-leverage starting point.
+function recordCreativeMemoryTriggersForRequest(req) {
   const userId = req?.user?.id || null;
+  if (!userId) return Promise.resolve({ skipped: true, reason: "no userId" });
+  const transcriptCandidates = [
+    req?.body?.client_transcript,
+    req?.body?.clientTranscript,
+    req?.body?.transcript,
+    req?.body?.debug_transcript,
+    req?.body?.debugTranscript,
+  ];
+  const transcript = transcriptCandidates
+    .map((t) => (typeof t === "string" ? t : ""))
+    .find((t) => t.trim().length > 0) || "";
+  if (!transcript) return Promise.resolve({ skipped: true, reason: "no transcript" });
+  const startedAt = Number(req?.body?.session_started_at) || Number(req?.body?.sessionStartedAt) || null;
+  return creativeMemoryStore.recordTriggersFromTalkTurn({
+    userId,
+    transcript,
+    reply: "",
+    sessionStartedAt: Number.isFinite(startedAt) ? startedAt : null,
+  });
+}
+
+async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
+  if (String(systemPrompt || "").includes(MEMORY_BLOCK_OPEN)) return systemPrompt;
+  const userId = req?.authUser?.id || req?.user?.id || req?.userId || req?.get?.("X-User-Id") || null;
   if (!userId) return systemPrompt;
-  const memory = creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
+  const memory = await creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
   if (!memory) return systemPrompt;
   return buildModelPrompt({ persona: systemPrompt, creativeMemory: memory });
 }
@@ -2891,6 +2951,23 @@ configureScreenplayStore({
   writeJsonFileAtomic,
   persistence: sharedPersistence,
 });
+// T07a: outbox snapshotter — periodic best-effort snapshots of outbox
+// state into the persistence adapter for diagnostics + recovery
+// visibility. Does NOT replace scaleBackplane. See
+// docs/T07a-outbox-architecture.md for the architectural decision.
+const outboxSnapshotter = createOutboxSnapshotter({
+  scaleBackplane,
+  persistence: sharedPersistence,
+  intervalMs: parsePositiveInt(process.env.OUTBOX_SNAPSHOT_INTERVAL_MS, 60_000),
+  keepLast: parsePositiveInt(process.env.OUTBOX_SNAPSHOT_KEEP_LAST, 10),
+  logger: console,
+});
+if (process.env.OUTBOX_SNAPSHOT_ENABLED == null
+  ? true
+  : parseBool(process.env.OUTBOX_SNAPSHOT_ENABLED)) {
+  outboxSnapshotter.start();
+}
+
 configureOutboxStore({
   CALENDAR_COMPOSE_TARGET,
   OUTBOX_ENABLED,
@@ -28629,13 +28706,6 @@ app.patch("/session/evolution", express.json({ limit: "256kb" }), (req, res) => 
 
 app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req, res) => {
   const rid = req.requestId || createRequestId();
-  if (!OPENAI_API_KEY) {
-    return res.status(503).json({
-      stage: "realtime_auth",
-      error: "OpenAI API key is missing for Realtime bootstrap.",
-    });
-  }
-
   const requesterIp = clientIp(req);
   const assistantSelfName = getAssistantSelfNameForIp(requesterIp);
   const requestedPrompt = normalizeSnippet(
@@ -28644,90 +28714,82 @@ app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req
   );
   const requestedVoice = String(req.body?.voice || "").trim().toLowerCase();
   const requestedModel = String(req.body?.model || "").trim();
-  const sessionConfig = buildRealtimeSessionConfig({
+  const rawProvider = String(req.body?.realtime_provider ?? req.body?.provider ?? "").trim().toLowerCase();
+  const requestedProvider = ["", "default", "server_default"].includes(rawProvider) ? "" : rawProvider;
+
+  let supplier = realtimeSupplier;
+  if (!supplier || (requestedProvider && requestedProvider !== String(supplier.kind || "").toLowerCase())) {
+    try {
+      supplier = await createRealtimeSupplier({
+        provider: requestedProvider || process.env.REALTIME_PROVIDER || "openai",
+        apiKey: OPENAI_API_KEY,
+        defaultModel: OPENAI_REALTIME_MODEL,
+        defaultVoice: OPENAI_REALTIME_VOICE,
+        defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+        defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+      });
+    } catch (err) {
+      const status = err?.code === "realtime_supplier_unknown_provider"
+        ? 400
+        : Number(err?.status || 503);
+      return res.status(status).json({
+        stage: "realtime_auth",
+        code: err?.code || "realtime_supplier_unavailable",
+        realtime_provider: requestedProvider || String(supplier?.kind || "unknown"),
+        error: String(err?.message || err || "Realtime supplier unavailable."),
+      });
+    }
+  }
+
+  let minted;
+  try {
+    minted = await supplier.mintClientSecret({
+      instructions: requestedPrompt,
+      voice: requestedVoice || OPENAI_REALTIME_VOICE,
+      model: requestedModel || OPENAI_REALTIME_MODEL,
+      ttlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+    });
+  } catch (err) {
+    return res.status(Number(err?.status || 502)).json({
+      stage: "realtime_auth",
+      code: err?.code || "realtime_supplier_request_failed",
+      realtime_provider: String(supplier?.kind || requestedProvider || "unknown"),
+      error: String(err?.message || err || "Realtime supplier request failed."),
+    });
+  }
+
+  const sessionConfig = minted?.sessionConfig || supplier.buildSessionConfig({
     instructions: requestedPrompt,
     model: requestedModel || OPENAI_REALTIME_MODEL,
     voice: requestedVoice || OPENAI_REALTIME_VOICE,
   });
-
-  let openaiResp;
-  try {
-    openaiResp = await fetchWithTimeout(
-      "https://api.openai.com/v1/realtime/client_secrets",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          expires_after: {
-            anchor: "created_at",
-            seconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
-          },
-          session: sessionConfig,
-        }),
-      },
-      12_000
-    );
-  } catch (err) {
-    const message = isAbortError(err)
-      ? "Realtime client secret request timed out."
-      : String(err?.message || err || "Realtime client secret request failed.");
-    return res.status(isAbortError(err) ? 504 : 502).json({
-      stage: "realtime_auth",
-      error: message,
-    });
-  }
-
-  const raw = await openaiResp.text();
-  if (!openaiResp.ok) {
-    return res.status(openaiResp.status).json({
-      stage: "realtime_auth",
-      error: raw || "OpenAI Realtime client secret request failed.",
-    });
-  }
-
-  let payload = null;
-  try {
-    payload = raw ? JSON.parse(raw) : null;
-  } catch {
-    payload = null;
-  }
-
-  const clientSecretValue = String(
-    payload?.value ||
-    payload?.client_secret?.value ||
-    payload?.clientSecret?.value ||
-    ""
-  ).trim();
-  const expiresAt = Math.max(
-    0,
-    Number(
-      payload?.expires_at ||
-      payload?.client_secret?.expires_at ||
-      payload?.clientSecret?.expiresAt ||
-      0
-    )
-  );
+  const clientSecretValue = String(minted?.value || "").trim();
+  const expiresAt = Math.max(0, Number(minted?.expiresAt || 0));
   if (!clientSecretValue || !expiresAt) {
     return res.status(502).json({
       stage: "realtime_auth",
-      error: raw || "OpenAI Realtime client secret payload was incomplete.",
+      code: "realtime_supplier_response_invalid",
+      realtime_provider: String(supplier?.kind || requestedProvider || "unknown"),
+      error: "Realtime supplier returned an incomplete client secret payload.",
     });
   }
+
+  const sessionVoice = sessionConfig.audio?.output?.voice || requestedVoice || OPENAI_REALTIME_VOICE;
+  const sessionModel = sessionConfig.model || requestedModel || OPENAI_REALTIME_MODEL;
+  console.log(`[${rid}] realtime_client_secret supplier=${supplier.kind} model=${sessionModel} voice=${sessionVoice}`);
 
   res.setHeader("Cache-Control", "no-store");
   return res.status(201).json({
     transport: "webrtc_ephemeral",
     assistant_name: assistantSelfName,
-    model: sessionConfig.model,
-    voice: sessionConfig.audio?.output?.voice || OPENAI_REALTIME_VOICE,
+    realtime_provider: String(supplier.kind || "unknown"),
+    model: sessionModel,
+    voice: sessionVoice,
     session: {
-      type: sessionConfig.type,
-      model: sessionConfig.model,
-      voice: sessionConfig.audio?.output?.voice || OPENAI_REALTIME_VOICE,
-      instructions: sessionConfig.instructions,
+      type: sessionConfig.type || "realtime",
+      model: sessionModel,
+      voice: sessionVoice,
+      instructions: sessionConfig.instructions || requestedPrompt,
       output_modalities: Array.isArray(sessionConfig.output_modalities) ? sessionConfig.output_modalities : ["audio"],
     },
     client_secret: {
@@ -29175,6 +29237,12 @@ async function handleTalkRequest(req, res) {
   const rid = req.requestId || reqId;
   const ts = new Date().toISOString();
   const ip = clientIp(req);
+  // T08w-triggers: fire-and-forget creative-memory writes based on the
+  // request transcript. Never blocks the response. Errors are logged
+  // and swallowed — memory writes must not affect the /talk contract.
+  void recordCreativeMemoryTriggersForRequest(req).catch((err) => {
+    console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
+  });
   const talkStreamMode = parseTalkStreamMode(req);
   const streamAudioRequested = TALK_STREAM_AUDIO_ENABLED && talkStreamMode === "audio";
   const interactiveVoiceProfile = {
@@ -30869,7 +30937,7 @@ async function handleTalkRequest(req, res) {
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
     const systemBaseRaw = normalizeSystemPrompt(withOutputContract(presetBoundSystem));
     // T08: augment with per-user creative memory when present (no-op for cold users).
-    const systemBaseWithMemory = wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
+    const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
     // T21: when this is a screenplay page-write turn, append a compact
     // craft-context block describing the active framework (and, when
     // available, the user's coverage state). Cheap and additive: the
@@ -32759,6 +32827,17 @@ mountTalkPipelineRoutes(app, {
 // DATABASE_URL is set, JSON-file-backed otherwise).
 configureCraftAnalysis({ persistence: sharedPersistence });
 mountCraftRoutes(app);
+mountPromptRoutes(app, {
+  creativeMemoryStore,
+  buildCraftContextBlock,
+});
+
+// T30: /memory/record-character-mention — Codex PR #50 (T29) calls this
+// endpoint from the iOS screenplay-render path. The route persists each
+// rendered character cue through `creativeMemoryStore.recordCharacterMention`
+// (canonical creative-memory path) so reply-side mentions are
+// distinguishable from user-input mentions via the persisted `source`.
+mountMemoryCharacterMentionRoute(app, { creativeMemoryStore });
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
@@ -32797,6 +32876,7 @@ app.all("/screenplay/projects/:projectId/beats", methodNotAllowed("POST"));
 app.all("/screenplay/projects/:projectId/collaborators", methodNotAllowed("GET, POST"));
 app.all("/screenplay/projects/:projectId/comments", methodNotAllowed("GET, POST"));
 app.all("/screenplay/projects/:projectId/version", methodNotAllowed("POST"));
+app.all("/screenplay/prompt/build", methodNotAllowed("POST"));
 app.all("/screenplay/paginate", methodNotAllowed("POST"));
 app.all("/screenplay/revision-colors", methodNotAllowed("POST"));
 app.all("/screenplay/export", methodNotAllowed("POST"));

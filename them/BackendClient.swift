@@ -390,6 +390,7 @@ struct BackendRealtimeSessionPayload: Decodable {
 
 struct BackendRealtimeBootstrapPayload: Decodable {
     let transport: String
+    let realtimeProvider: String?
     let assistantName: String?
     let model: String
     let voice: String
@@ -399,6 +400,7 @@ struct BackendRealtimeBootstrapPayload: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case transport
+        case realtimeProvider = "realtime_provider"
         case assistantName = "assistant_name"
         case model
         case voice
@@ -569,6 +571,7 @@ final class BackendClient {
     private let fallbackURL: URL
     private let urlSession: URLSession
     private let shouldPersistBackendBaseURL: Bool
+    private let shouldAttachUserIDHeader: Bool
     private let devFallbackAppToken: String? = {
 #if DEBUG
         "them-dev"
@@ -647,12 +650,14 @@ final class BackendClient {
             fallback: BackendClient.defaultFallbackBaseURL
         ),
         urlSession: URLSession = .shared,
-        persistBackendBaseURL: Bool = true
+        persistBackendBaseURL: Bool = true,
+        attachUserIDHeader: Bool = true
     ) {
         self.baseURL = baseURL
         self.fallbackURL = fallbackURL
         self.urlSession = urlSession
         self.shouldPersistBackendBaseURL = persistBackendBaseURL
+        self.shouldAttachUserIDHeader = attachUserIDHeader
         persistSharedBackendBaseURL(baseURL)
     }
 
@@ -742,6 +747,22 @@ final class BackendClient {
         )
     }
 
+    func lintCraftFormat(
+        text: String,
+        frameworkId: String? = nil
+    ) async throws -> ScreenplayFormatLintReport {
+        let request = ScreenplayFormatLintRequest(
+            text: try requiredCraftBodyValue(text, field: "text"),
+            frameworkId: try optionalCraftBodyValue(frameworkId, field: "frameworkId")
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "format", "lint"],
+            body: request,
+            responseType: ScreenplayFormatLintReport.self
+        )
+    }
+
     func recordCraftTurnOverride(
         _ override: ScreenplayCraftTurnOverrideMutation
     ) async throws -> ScreenplayCraftTurnOverride {
@@ -762,6 +783,72 @@ final class BackendClient {
             responseType: ScreenplayCraftDeleteOverrideResponse.self
         )
         return response.ok
+    }
+
+    func buildScreenplayModelPrompt(
+        _ promptRequest: BackendScreenplayPromptBuildRequest
+    ) async throws -> BackendScreenplayPromptBuildResponse {
+        let resolvedBaseURL = try await resolveBaseURL()
+        let userID = resolveUserID()
+        let bodyData = try JSONEncoder().encode(promptRequest)
+
+        func performRequest(
+            clientToken: String,
+            allowClientTokenRefresh: Bool
+        ) async throws -> BackendScreenplayPromptBuildResponse {
+            var request = URLRequest(
+                url: resolvedBaseURL
+                    .appendingPathComponent("screenplay")
+                    .appendingPathComponent("prompt")
+                    .appendingPathComponent("build")
+            )
+            request.httpMethod = "POST"
+            request.timeoutInterval = min(15, requestTimeout)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+            if let token = appToken() {
+                request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+            }
+            request.httpBody = bodyData
+
+            let (data, response) = try await urlSession.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendError.http(-1, "Invalid screenplay prompt response.")
+            }
+            guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401, allowClientTokenRefresh {
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
+                }
+                if let stageError = parseStageError(from: data) {
+                    if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
+                        clearSessionToken()
+                        let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                        return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
+                    }
+                    throw BackendError.stage(stageError.stage, stageError.message)
+                }
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                throw BackendError.http(http.statusCode, raw)
+            }
+
+            do {
+                return try JSONDecoder().decode(BackendScreenplayPromptBuildResponse.self, from: data)
+            } catch {
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                throw BackendError.http(502, raw.isEmpty ? "Invalid screenplay prompt payload." : raw)
+            }
+        }
+
+        let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
+        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: true)
     }
 
     func talk(
@@ -1016,7 +1103,7 @@ final class BackendClient {
         body.appendString("--\(boundary)--\r\n")
         request.httpBody = body
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid speculative prepare response.")
         }
@@ -1042,12 +1129,35 @@ final class BackendClient {
         )
     }
 
+    static func realtimeClientSecretBody(
+        systemPrompt: String? = nil,
+        userName: String? = nil,
+        isScreenplayMode: Bool = false,
+        voice: String? = nil,
+        model: String? = nil,
+        realtimeProvider: String? = nil
+    ) -> [String: Any] {
+        var body: [String: Any] = [
+            "system_prompt": systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "user_name": userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "is_screenplay_mode": isScreenplayMode,
+            "voice": voice?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "model": model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+        ]
+        let provider = realtimeProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !provider.isEmpty {
+            body["realtime_provider"] = provider
+        }
+        return body
+    }
+
     func fetchRealtimeClientSecret(
         systemPrompt: String? = nil,
         userName: String? = nil,
         isScreenplayMode: Bool = false,
         voice: String? = nil,
-        model: String? = nil
+        model: String? = nil,
+        realtimeProvider: String? = nil
     ) async throws -> BackendRealtimeBootstrap {
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveUserID()
@@ -1066,16 +1176,17 @@ final class BackendClient {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
 
-        let body: [String: Any] = [
-            "system_prompt": systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            "user_name": userName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            "is_screenplay_mode": isScreenplayMode,
-            "voice": voice?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-            "model": model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
-        ]
+        let body = Self.realtimeClientSecretBody(
+            systemPrompt: systemPrompt,
+            userName: userName,
+            isScreenplayMode: isScreenplayMode,
+            voice: voice,
+            model: model,
+            realtimeProvider: realtimeProvider
+        )
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid realtime session response.")
         }
@@ -1097,6 +1208,7 @@ final class BackendClient {
 
         return BackendRealtimeBootstrap(
             transport: payload.transport,
+            realtimeProvider: payload.realtimeProvider,
             assistantName: payload.assistantName ?? "CLEMENTINE",
             model: payload.model,
             voice: payload.voice,
@@ -2599,7 +2711,7 @@ final class BackendClient {
         request.httpBody = Data("{}".utf8)
 
         print("POST /session -> url=\(request.url?.absoluteString ?? "-") has_app_token=\(appToken != nil)")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? -1
         let requestID = http?.value(forHTTPHeaderField: "X-Request-Id") ?? "-"
@@ -2753,9 +2865,11 @@ final class BackendClient {
         if hasJSONBody {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let userID = resolveUserID()
-        if !userID.isEmpty {
-            request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
         }
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
@@ -3115,7 +3229,7 @@ final class BackendClient {
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
             request.setValue("no-cache", forHTTPHeaderField: "Pragma")
 
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await urlSession.data(for: request)
             let http = response as? HTTPURLResponse
             let status = http?.statusCode ?? -1
             guard status == 304 || (200...299).contains(status) else { return false }

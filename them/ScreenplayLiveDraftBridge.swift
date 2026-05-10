@@ -526,6 +526,81 @@ struct ScreenplayCommittedWrite: Identifiable, Equatable {
     }
 }
 
+struct ScreenplayRenderedCharacterMention: Equatable, Hashable {
+    let characterName: String
+    let line: Int
+    let tags: [String]
+}
+
+enum ScreenplayRenderedCharacterMentionExtractor {
+    private static let blockedCues: Set<String> = [
+        "CUT TO:", "DISSOLVE TO:", "FADE IN:", "FADE OUT:", "FADE TO BLACK", "SMASH CUT TO:",
+        "MATCH CUT TO:", "BACK TO:", "INTERCUT:", "TITLE:", "SUPER:", "END", "THE END"
+    ]
+
+    static func extractMentions(from screenplayText: String, limit: Int = 8) -> [ScreenplayRenderedCharacterMention] {
+        let lines = screenplayText.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        var mentions: [ScreenplayRenderedCharacterMention] = []
+        var seen: Set<String> = []
+        for index in lines.indices {
+            guard mentions.count < max(0, limit) else { break }
+            guard let name = normalizedCharacterName(fromCueLine: lines[index]) else { continue }
+            let key = name.lowercased()
+            guard !seen.contains(key) else { continue }
+            guard hasDialogueAfterCue(lines: lines, cueIndex: index) else { continue }
+            seen.insert(key)
+            mentions.append(ScreenplayRenderedCharacterMention(
+                characterName: name,
+                line: index + 1,
+                tags: ["screenplay_reply", "ios_rendered_page"]
+            ))
+        }
+        return mentions
+    }
+
+    static func normalizedCharacterName(fromCueLine rawLine: String) -> String? {
+        let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (2...48).contains(trimmed.count) else { return nil }
+        guard trimmed == trimmed.uppercased() else { return nil }
+        guard !trimmed.hasPrefix("(") && !trimmed.hasSuffix(":") else { return nil }
+        guard !trimmed.hasPrefix("INT") && !trimmed.hasPrefix("EXT") else { return nil }
+        guard !blockedCues.contains(trimmed) else { return nil }
+        let allowed = CharacterSet.uppercaseLetters
+            .union(.decimalDigits)
+            .union(.whitespaces)
+            .union(CharacterSet(charactersIn: "-.&\u{0027}()"))
+        guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        let withoutExtension = trimmed.replacingOccurrences(
+            of: #"\s*\((?:V\.O\.|O\.S\.|O\.C\.|CONT\x27D|CONTINUED)\)\s*$"#,
+            with: "",
+            options: [.regularExpression]
+        )
+        let collapsed = withoutExtension
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: [.regularExpression])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (2...40).contains(collapsed.count) else { return nil }
+        guard !collapsed.contains(".") else { return nil }
+        guard !blockedCues.contains(collapsed) else { return nil }
+        return collapsed
+    }
+
+    private static func hasDialogueAfterCue(lines: [String], cueIndex: Int) -> Bool {
+        var cursor = cueIndex + 1
+        while cursor < lines.count {
+            let trimmed = lines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { return false }
+            if trimmed.hasPrefix("(") && trimmed.hasSuffix(")") {
+                cursor += 1
+                continue
+            }
+            if normalizedCharacterName(fromCueLine: trimmed) != nil { return false }
+            if trimmed.hasPrefix("INT.") || trimmed.hasPrefix("EXT.") { return false }
+            return true
+        }
+        return false
+    }
+}
+
 struct ScreenplayPendingReplacementTarget: Identifiable, Equatable {
     let id: UUID
     let sourceWriteID: String
@@ -1525,6 +1600,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         didSet {
             refreshIntelligenceReport()
             recordFirstPageWrittenIfNeeded(lastCommittedWrite)
+            recordReplySideCharacterMentionsIfNeeded(lastCommittedWrite)
         }
     }
     @Published var pendingReplacementTarget: ScreenplayPendingReplacementTarget?
@@ -1542,7 +1618,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
     }
 
+    static let replySideCharacterMentionsEnabledKey = "memory.reply_character_mentions_enabled"
+
     private var lastIngestKey: String = ""
+    private var lastRecordedCharacterMentionKey: String = ""
     private var streamingPreviewText: String = ""
     private var streamingPreviewBaseDraft: String = ""
     private var streamTask: Task<Void, Never>?
@@ -2465,6 +2544,48 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         schedulePersistBackendCompanionState()
     }
 
+    static func replySideCharacterMentions(
+        for committedWrite: ScreenplayCommittedWrite?,
+        featureEnabled: Bool
+    ) -> [ScreenplayRenderedCharacterMention] {
+        guard featureEnabled, let committedWrite else { return [] }
+        guard committedWrite.isAuthoritativeWrite else { return [] }
+        let insertedText = committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !insertedText.isEmpty else { return [] }
+        return ScreenplayRenderedCharacterMentionExtractor.extractMentions(from: insertedText)
+    }
+
+    private func recordReplySideCharacterMentionsIfNeeded(_ committedWrite: ScreenplayCommittedWrite?) {
+        let mentions = Self.replySideCharacterMentions(
+            for: committedWrite,
+            featureEnabled: UserDefaults.standard.bool(forKey: Self.replySideCharacterMentionsEnabledKey)
+        )
+        guard let committedWrite, !mentions.isEmpty else { return }
+        let writeID = committedWrite.normalizedWriteID
+        let mentionKey = mentions.map { "\($0.characterName):\($0.line)" }.joined(separator: "|")
+        let recordKey = "\(writeID)|\(mentionKey)"
+        guard recordKey != lastRecordedCharacterMentionKey else { return }
+        lastRecordedCharacterMentionKey = recordKey
+        let projectID = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? projectBinding.projectID
+            : preferredProjectID
+        let versionID = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? projectBinding.versionID
+            : preferredVersionID
+        Task {
+            do {
+                try await BackendMemoryAPI.shared.recordCharacterMentionsFromScreenplayReply(
+                    mentions,
+                    writeID: writeID,
+                    projectID: projectID,
+                    versionID: versionID
+                )
+            } catch {
+                // The endpoint is Claude-owned and may not exist yet; the feature flag keeps this opt-in.
+            }
+        }
+    }
+
     private func schedulePersistBackendCompanionState() {
         guard !isHydratingBackendCompanionState else { return }
         companionBackendSyncTask?.cancel()
@@ -2579,7 +2700,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             mode: .streamPreview,
             replacementTarget: currentInsertionReplacementTarget()
         )
-        autoInsertStatusText = "Clementine is writing..."
+        autoInsertStatusText = "io.them is writing..."
     }
 
     func commitStreamingVoiceTurn(
@@ -2665,7 +2786,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
         let lines = trimmed.components(separatedBy: "\n")
         let totalChars = max(1, trimmed.count)
-        autoInsertStatusText = "Clementine is writing..."
+        autoInsertStatusText = "io.them is writing..."
 
         streamTask = Task { @MainActor in
             var streamedText = ""
@@ -2735,7 +2856,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             interruptionReason: nil,
             failureReason: nil
         )
-        autoInsertStatusText = "Clementine is preparing the page..."
+        autoInsertStatusText = "io.them is preparing the page..."
     }
 
     func resetSyncedVoiceTurnTracking() {
@@ -2771,7 +2892,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !cleanText.isEmpty else { return }
         stagedSyncedVoiceTurnPreviewText = cleanText
         if autoInsertStatusText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            autoInsertStatusText = "Clementine is preparing the page..."
+            autoInsertStatusText = "io.them is preparing the page..."
         }
         refreshSyncedVoiceTurnState()
     }
@@ -3019,7 +3140,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             1,
             plan.replacementTarget?.startLine ?? currentSyncedVoiceAnchorLineHint()
         )
-        autoInsertStatusText = "Clementine is writing..."
+        autoInsertStatusText = "io.them is writing..."
         streamingProgress = 0
         stagedSyncedVoiceTurnRequestID = resolvedRequestID
         stagedSyncedVoiceTurnAuthoritativeText = trimmed
@@ -3193,7 +3314,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         } else if !rollbackDraft, hadQueuedSyncedInsert {
             pendingInsertion = nil
         }
-        if autoInsertStatusText == "Clementine is writing..." {
+        if autoInsertStatusText == "io.them is writing..." {
             autoInsertStatusText = ""
         }
         return wasStreaming || cancelledSynced

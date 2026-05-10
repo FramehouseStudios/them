@@ -50,9 +50,51 @@ const THREE_ACT = Object.freeze({
   ],
 });
 
+const STORY_CIRCLE = Object.freeze({
+  id: "story-circle",
+  title: "Story Circle",
+  summary: "Dan Harmon's eight-step circular structure for tracking desire, threshold-crossing, adaptation, cost, return, and change.",
+  version: "1.0",
+  requiredMajorTurnIds: ["need", "go", "find", "return-changed"],
+  beats: [
+    { id: "you",            label: "You",            summary: "The protagonist in a zone of comfort. Establishes identity, routine, and the pre-change self.",                 expectedPageRange: { start: 1, end: 10 },    required: false },
+    { id: "need",           label: "Need",           summary: "The protagonist wants something, lacks something, or feels a pressure that starts the story engine.",             expectedPageRange: { start: 8, end: 15 },    required: true,  majorTurnId: "need" },
+    { id: "go",             label: "Go",             summary: "The protagonist crosses a threshold into an unfamiliar situation and can no longer solve things the old way.",    expectedPageRange: { start: 20, end: 30 },   required: true,  majorTurnId: "go" },
+    { id: "search",         label: "Search",         summary: "The protagonist adapts, tests tactics, meets resistance, and learns the rules of the new world.",                expectedPageRange: { start: 30, end: 55 },   required: false },
+    { id: "find",           label: "Find",           summary: "The protagonist gets what they were chasing or sees the real nature of the prize; the story pivots.",            expectedPageRange: { start: 52, end: 58 },   required: true,  majorTurnId: "find" },
+    { id: "take",           label: "Take",           summary: "The prize has a cost. The protagonist loses, sacrifices, or discovers that winning changes the terms.",          expectedPageRange: { start: 58, end: 78 },   required: false },
+    { id: "return",         label: "Return",         summary: "The protagonist turns back toward home or the original problem carrying what they found.",                      expectedPageRange: { start: 78, end: 95 },   required: false },
+    { id: "return-changed", label: "Return Changed", summary: "The protagonist integrates the lesson in a final test, proving visible change before the story closes.",          expectedPageRange: { start: 95, end: 110 },  required: true,  majorTurnId: "return-changed" },
+  ],
+});
+
+const HERO_JOURNEY = Object.freeze({
+  id: "hero-journey",
+  title: "Hero's Journey",
+  summary: "A twelve-stage mythic journey framework for departures, initiations, ordeals, transformation, and return.",
+  version: "1.0",
+  requiredMajorTurnIds: ["call-to-adventure", "crossing-first-threshold", "ordeal", "resurrection"],
+  beats: [
+    { id: "ordinary-world",             label: "Ordinary World",              summary: "The hero's starting world, wound, lack, and social order before the adventure disrupts it.",          expectedPageRange: { start: 1, end: 10 },     required: false },
+    { id: "call-to-adventure",          label: "Call to Adventure",           summary: "The invitation, threat, or disruption that asks the hero to leave the known world.",                expectedPageRange: { start: 10, end: 15 },    required: true,  majorTurnId: "call-to-adventure" },
+    { id: "refusal-of-call",            label: "Refusal of the Call",         summary: "Fear, duty, denial, or comfort makes the hero resist the journey before committing.",               expectedPageRange: { start: 12, end: 20 },    required: false },
+    { id: "meeting-the-mentor",         label: "Meeting the Mentor",          summary: "A guide, tool, warning, or worldview prepares the hero for the threshold.",                        expectedPageRange: { start: 15, end: 25 },    required: false },
+    { id: "crossing-first-threshold",   label: "Crossing the First Threshold", summary: "The hero commits and enters the special world, where old assumptions stop working.",                expectedPageRange: { start: 25, end: 30 },    required: true,  majorTurnId: "crossing-first-threshold" },
+    { id: "tests-allies-enemies",       label: "Tests, Allies, Enemies",      summary: "The hero learns the new world's rules through trials, alliances, temptations, and opposition.",     expectedPageRange: { start: 30, end: 50 },    required: false },
+    { id: "approach-inmost-cave",       label: "Approach to the Inmost Cave", summary: "The hero approaches the central danger, secret, or confrontation and prepares for the ordeal.",       expectedPageRange: { start: 50, end: 60 },    required: false },
+    { id: "ordeal",                     label: "Ordeal",                     summary: "A central crisis, death-and-rebirth test, or abyss moment that transforms the hero's stakes.",       expectedPageRange: { start: 55, end: 65 },    required: true,  majorTurnId: "ordeal" },
+    { id: "reward",                     label: "Reward",                     summary: "The hero survives the ordeal and takes possession of the insight, object, or relationship won.",     expectedPageRange: { start: 65, end: 75 },    required: false },
+    { id: "road-back",                  label: "The Road Back",              summary: "Consequences pursue the hero and force a return toward the unresolved outer world.",                 expectedPageRange: { start: 75, end: 88 },    required: false },
+    { id: "resurrection",               label: "Resurrection",               summary: "The final transformation test. The hero must prove the change under maximum pressure.",             expectedPageRange: { start: 90, end: 105 },   required: true,  majorTurnId: "resurrection" },
+    { id: "return-with-elixir",         label: "Return with the Elixir",      summary: "The hero returns with a gift, lesson, repair, or changed order that resolves the journey.",          expectedPageRange: { start: 105, end: 110 },  required: false },
+  ],
+});
+
 const FRAMEWORKS_BY_ID = Object.freeze({
   [SAVE_THE_CAT.id]: SAVE_THE_CAT,
   [THREE_ACT.id]:    THREE_ACT,
+  [STORY_CIRCLE.id]: STORY_CIRCLE,
+  [HERO_JOURNEY.id]: HERO_JOURNEY,
 });
 
 function listFrameworkReferences() {
@@ -101,6 +143,8 @@ function serializeBeatDefinition(beat) {
 export {
   SAVE_THE_CAT,
   THREE_ACT,
+  STORY_CIRCLE,
+  HERO_JOURNEY,
   FRAMEWORKS_BY_ID,
   listFrameworkReferences,
   getFrameworkById,

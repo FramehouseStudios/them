@@ -1,4 +1,4 @@
-# App Store Privacy Mapping (THEM)
+# App Store Privacy Mapping (io.them)
 
 Last updated: 2026-02-28
 

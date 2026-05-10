@@ -82,9 +82,9 @@ test("GET /craft/frameworks lists known frameworks with schemaVersion", async ()
     assert.equal(status, 200);
     assert.equal(body.schemaVersion, CRAFT_SCHEMA_VERSION);
     assert.ok(Array.isArray(body.frameworks));
-    assert.ok(body.frameworks.length >= 2);
+    assert.ok(body.frameworks.length >= 4);
     const ids = body.frameworks.map((f) => f.id).sort();
-    assert.deepEqual(ids, ["save-the-cat", "three-act"]);
+    assert.deepEqual(ids, ["hero-journey", "save-the-cat", "story-circle", "three-act"]);
     for (const ref of body.frameworks) {
       assert.ok(ref.id);
       assert.ok(ref.title);
@@ -100,6 +100,24 @@ test("GET /craft/frameworks/:id returns full framework matching schema", async (
     assert.ok(v.valid, `framework should validate: ${v.errors.join("; ")}`);
     assert.equal(body.id, "save-the-cat");
     assert.deepEqual(body.requiredMajorTurnIds.sort(), ["all-is-lost", "catalyst", "finale", "midpoint"]);
+  });
+});
+
+test("GET /craft/frameworks/:id returns new framework definitions", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const story = await get(baseURL, "/craft/frameworks/story-circle");
+    assert.equal(story.status, 200);
+    assert.equal(story.body.id, "story-circle");
+    assert.deepEqual(story.body.requiredMajorTurnIds, ["need", "go", "find", "return-changed"]);
+    assert.equal(story.body.beats.length, 8);
+    assert.ok(validateAgainstSchema(story.body, FRAMEWORK_SCHEMA).valid);
+
+    const hero = await get(baseURL, "/craft/frameworks/hero-journey");
+    assert.equal(hero.status, 200);
+    assert.equal(hero.body.id, "hero-journey");
+    assert.deepEqual(hero.body.requiredMajorTurnIds, ["call-to-adventure", "crossing-first-threshold", "ordeal", "resurrection"]);
+    assert.equal(hero.body.beats.length, 12);
+    assert.ok(validateAgainstSchema(hero.body, FRAMEWORK_SCHEMA).valid);
   });
 });
 
@@ -317,6 +335,40 @@ test("[T22] overrides survive a simulated process restart via persistence", asyn
     },
     { persistenceRoot: sharedRoot },
   );
+});
+
+// ---------- T-format-linter ----------
+
+test("[format-linter] POST /craft/format/lint returns suggestions for malformed input", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const text = `INT KITCHEN NIGHT\n\nJune\nHello.\n`;
+    const { status, body } = await postJson(baseURL, "/craft/format/lint", { text });
+    assert.equal(status, 200);
+    assert.equal(body.schemaVersion, 1);
+    assert.equal(body.ruleSetVersion, "v1");
+    assert.ok(body.totalSuggestions >= 2);
+    const ruleSet = new Set(body.suggestions.map((s) => s.rule));
+    assert.ok(ruleSet.has("scene_heading_shape"));
+    assert.ok(ruleSet.has("character_cue_caps"));
+  });
+});
+
+test("[format-linter] POST /craft/format/lint returns empty for well-formed input", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const text = `INT. KITCHEN - NIGHT\n\nJUNE\nHello.\n`;
+    const { status, body } = await postJson(baseURL, "/craft/format/lint", { text });
+    assert.equal(status, 200);
+    assert.equal(body.totalSuggestions, 0);
+    assert.deepEqual(body.bySeverity, { hard: 0, medium: 0, soft: 0 });
+  });
+});
+
+test("[format-linter] POST /craft/format/lint requires text", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/craft/format/lint", {});
+    assert.equal(status, 400);
+    assert.equal(body.error, "craft_invalid_screenplay");
+  });
 });
 
 test("[T22] override IDs are UUID-shaped (survive restart)", async () => {
