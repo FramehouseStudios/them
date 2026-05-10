@@ -196,6 +196,12 @@ function createCreativeMemoryStore({ persistence } = {}) {
       rec.habits.page_completion_rate = Math.round(
         (rec.habits._scenes_completed / Math.max(1, attempted)) * 100,
       ) / 100;
+      // T-block-detector: completing a scene clears the recent-short-turn
+      // streak (the writer is no longer stuck) and stamps the activity
+      // timestamps the block_detector reads.
+      rec.habits.last_scene_completion_at = nowMs();
+      rec.habits.last_scene_attempt_at = rec.habits.last_scene_completion_at;
+      rec.habits.recent_short_turns = 0;
       return rec;
     });
   }
@@ -210,6 +216,37 @@ function createCreativeMemoryStore({ persistence } = {}) {
       rec.habits.page_completion_rate = Math.round(
         (completed / Math.max(1, rec.habits._scenes_attempted)) * 100,
       ) / 100;
+      // T-block-detector: stamp the attempt time so block_detector can
+      // measure dry spells. Completion stamps both fields; attempt-only
+      // stamps just `last_scene_attempt_at`.
+      rec.habits.last_scene_attempt_at = nowMs();
+      return rec;
+    });
+  }
+
+  // T-block-detector: record a /talk turn's contribution to the block
+  // signal. Updates `last_talk_turn_at` and maintains a small rolling
+  // counter `recent_short_turns` (transcripts under SHORT_TURN_LEN_CHARS).
+  // Capped at SHORT_TURN_WINDOW so the counter doesn't grow unbounded.
+  // Long turns decay the counter toward zero so the user's recovery is
+  // observable in the next signal computation.
+  async function recordTalkTurnForBlockSignal({ userId, transcript = "", nowAtMs = nowMs() } = {}) {
+    if (!userId) return;
+    const len = typeof transcript === "string" ? transcript.trim().length : 0;
+    const SHORT_TURN_LEN_CHARS = 40;
+    const SHORT_TURN_WINDOW = 8;
+    const isShort = len > 0 && len < SHORT_TURN_LEN_CHARS;
+    const isLong = len >= SHORT_TURN_LEN_CHARS;
+    await updateUser(userId, (rec) => {
+      rec.habits = rec.habits || {};
+      rec.habits.last_talk_turn_at = Number(nowAtMs) || nowMs();
+      const prev = Number(rec.habits.recent_short_turns) || 0;
+      if (isShort) {
+        rec.habits.recent_short_turns = Math.min(prev + 1, SHORT_TURN_WINDOW);
+      } else if (isLong) {
+        // Long turn → fade the short-turn signal one step toward zero.
+        rec.habits.recent_short_turns = Math.max(prev - 1, 0);
+      }
       return rec;
     });
   }
@@ -357,13 +394,29 @@ function createCreativeMemoryStore({ persistence } = {}) {
       } catch (_e) { /* */ }
     }
 
+    // T-block-detector: stamp last_talk_turn_at and maintain the short-
+    // turn counter. Single write; never blocks the response.
+    try {
+      await recordTalkTurnForBlockSignal({ userId, transcript });
+      summary.blockSignalUpdated = true;
+    } catch (_e) { /* */ }
+
     return summary;
+  }
+
+  // T-block-detector: expose the raw habits object so the route layer
+  // can compute a block signal without re-reading the full record.
+  async function getHabitsForUser(userId) {
+    const rec = await readUser(userId);
+    if (!rec || !rec.habits || typeof rec.habits !== "object") return null;
+    return clone(rec.habits);
   }
 
   return {
     SCHEMA_VERSION,
     DOMAIN,
     getCreativeMemoryForPrompt,
+    getHabitsForUser,
     hasMemoryForUser,
     recordCharacterMention,
     recordSceneCompletion,
@@ -371,6 +424,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     recordToneSignal,
     recordSessionEnd,
     recordLexicalFingerprint,
+    recordTalkTurnForBlockSignal,
     recordTriggersFromTalkTurn,
     _clearAll,
   };

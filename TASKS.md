@@ -41,7 +41,7 @@
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
 | T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
 | T-logline-distiller | Distill, persist, and drift-score loglines | claude | merged            |
-| T-block-detector | Detect writer-block patterns from talk telemetry | claude | ready-for-claude  |
+| T-block-detector | Detect writer-block patterns from talk telemetry | claude | merged            |
 | T-trait-library | Build per-character trait and voice inventory | claude | ready-for-claude  |
 | T-twist-engine | Beat-aware reversal suggestion engine         | claude | ready-for-claude  |
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
@@ -53,10 +53,10 @@
 
 1. Merge T-logline-distiller so the iOS logline rail can consume real backend history and drift.
 2. Build the iOS logline rail consumer for the merged logline endpoints.
-3. Merge T-block-detector, then build the iOS block-signal nudge surface.
+3. Build the iOS block-signal nudge surface for the merged `/memory/block-signal` endpoint.
 4. Codex starts T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
 5. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
-6. Claude starts `T-block-detector`: writer-block signals from `/talk` telemetry and scene-attempt gaps.
+6. Merge T-trait-library, then build the iOS character-traits side-rail consumer.
 7. Claude starts `T-trait-library`: persistence-backed character trait/voice inventory.
 8. Claude starts `T-twist-engine`: beat-aware reversal suggestions on top of craft classifications.
 9. Claude refreshes PR #33 only enough to resolve conflicts and preserve the exact `OPENAI_API_KEY` Actions-secret blocker.
@@ -274,14 +274,14 @@
 - **Owner:** claude
 - **Branch:** —
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready-for-claude
+- **Status:** merged
 - **Done when:** backend maintains a persistence-backed per-character trait/voice inventory from creative memory and screenplay dialogue; traits are deduped, source-tagged, and retrievable for prompt assembly; tests cover merge, decay/update, and empty-state behavior; docs explain how iOS should consume it.
 
 ### T-twist-engine — Beat-aware reversal suggestion engine
 - **Owner:** claude
 - **Branch:** —
 - **Pillar:** voice→scene + living companion
-- **Status:** ready-for-claude
+- **Status:** merged
 - **Done when:** backend produces deterministic beat-aware reversal/twist suggestions using craft framework and classification data; optional LLM mode is isolated behind existing provider patterns; suggestions cite the beat/turn they operate on; tests cover deterministic output, missing craft context, and malformed input.
 
 ### T31 — Refresh coordination statuses after merge stack
