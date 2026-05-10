@@ -29,7 +29,7 @@
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T05/T08 |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
 | T13  | Add second realtime supplier behind interface      | claude | in-progress       |
-| T13-client | Add iOS realtime supplier selection          | codex  | in-progress       |
+| T13-client | Add iOS realtime supplier selection            | codex  | review            |
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | review            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
@@ -167,7 +167,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T13-realtime-supplier-client`
 - **Pillar:** living companion (resilience)
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** iOS can choose server default, OpenAI, or stub realtime supplier for `/realtime/client_secret`; the selection is visible in Voice settings and sent in the client-secret request; both OpenAI and stub request paths are exercised by tests or smoke coverage.
 
 ### T14 — Triage G3 backend feature snapshot
