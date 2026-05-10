@@ -60,6 +60,7 @@ import {
 import { createPersonaRuntime } from "./lib/persona.js";
 import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
 import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention_route.js";
+import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
@@ -32838,6 +32839,12 @@ mountPromptRoutes(app, {
 // (canonical creative-memory path) so reply-side mentions are
 // distinguishable from user-input mentions via the persisted `source`.
 mountMemoryCharacterMentionRoute(app, { creativeMemoryStore });
+
+// T-block-detector: GET /memory/block-signal — reads habits from
+// creativeMemoryStore and runs them through the pure
+// computeBlockSignal() so iOS can nudge the writer when block patterns
+// emerge.
+mountBlockSignalRoute(app, { creativeMemoryStore });
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
