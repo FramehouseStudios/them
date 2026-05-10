@@ -32,6 +32,7 @@
 | T14  | Triage G3 backend feature snapshot                 | codex  | ready             |
 | T23  | Add craft completeness RC release gate             | claude | ready-for-claude  |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | in-progress       |
+| T28  | Surface format lint cards in iOS Studio            | codex  | in-progress       |
 
 ---
 
@@ -180,6 +181,14 @@
 - **Status:** in-progress
 - **Scope:** purely rule-based (no LLM). Rules v1 covers scene-heading shape, character-cue caps + own-line, parenthetical density, action-line voice flags, page-economy heuristic. Each violation is a structured suggestion with severity (`hard` | `medium` | `soft`), not a rejection. Endpoint `POST /craft/format/lint` accepts a screenplay text payload + framework hint and returns suggestions. No iOS work in this PR; Codex's `T-format-iOS` row consumes the endpoint when it's ready.
 - **Done when:** `backend/lib/format_linter.js` exposes `lintScreenplay({ text, frameworkId? })` returning structured suggestions; route mounts under `/craft/format/lint`; ≥15 unit tests cover each rule (positive + negative cases); fixture-driven tests against the existing `report_complete.json` source screenplay shape; full backend test suite stays green; design notes in `docs/T-format-linter.md`.
+
+
+### T28 - Surface format lint cards in iOS Studio
+- **Owner:** codex
+- **Branch:** `codex/T28-format-lint-ios`
+- **Pillar:** voice-to-scene + living companion
+- **Status:** in-progress
+- **Done when:** iOS has typed client/models for `POST /craft/format/lint`; Studio import/export/document warnings surface severity, rule id, message, and page/line hints as craft lint cards; formatting suggestions are available without blocking save/export; focused tests cover decoding and warning mapping.
 
 ---
 
