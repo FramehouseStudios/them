@@ -54,7 +54,8 @@
 | T37  | Build iOS twist-card consumer                     | codex  | merged            |
 | T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | merged         |
 | T-coordination-state | Fast-path coordination.json + CLI helper        | claude | merged         |
-| T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | claude | review         |
+| T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | claude | merged         |
+| T-decisions-queue | One-file queue for human decisions               | claude | review         |
 
 ---
 
@@ -441,7 +442,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T-auto-merge-tier1`
 - **Pillar:** infra (enables all)
-- **Status:** review
+- **Status:** merged
 - **Scope:** new GitHub Actions workflow `.github/workflows/auto-merge-tier1.yml`. Activates on PRs (open/sync/label/comment) and on completion of the `quality-gate` workflow. For PRs carrying the `tier-1` label (and not `tier-2`/`tier-3`/`needs-human`/`do-not-merge`), the workflow verifies the merge state is `CLEAN`, then checks for either a formal review approval, a `Codex supervisor update: approved` / `Claude supervisor update: approved` comment, or a quiet-time fallback (≥4h open with no comment containing `block`-family words from the other agent). If all gates pass, it squash-merges and deletes the branch. Tier 3 PRs are never auto-merged. Companion to T-trust-tiers (PR #63).
 - **Done when:** workflow file lands; PR description names the exact gates the workflow checks; the `tier-1` label can be created in the repo (workflow tolerates the label not existing by simply skipping).
 
@@ -462,6 +463,16 @@
 - **Pillar:** living companion + screenplay craft
 - **Status:** merged
 - **Done when:** iOS has typed client/models for `POST /craft/twist/suggest`; the Studio craft or companion rail can request beat-aware reversal cards from the merged twist engine with loading, empty, and retry states; focused tests cover request shape, decoding, and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+
+---
+
+### T-decisions-queue — One-file queue for human decisions
+- **Owner:** claude
+- **Branch:** `claude/T-decisions-queue`
+- **Pillar:** infra (enables all)
+- **Status:** review
+- **Scope:** `docs/decisions-queue.md` is the single place either agent posts "needs human" questions, with a one-line question per entry, the reason it matters, and a safe default. AGENTS.md `Decisions` section gains a one-paragraph pointer so the convention is durable. Open entries follow a stamped shape (`D-<slug>`, `Asked by`, `Asked at`, `Why it matters`, `Question`, `Default if no answer`). Resolved entries move to the bottom with the human's answer. Replaces decisions hidden inside PR bodies and chat memory.
+- **Done when:** the file exists with the documented template and no open entries; AGENTS.md's `Decisions` section names the queue as the canonical channel.
 
 ---
 
