@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 
 struct ScreenplayPageView: View {
     @ObservedObject var orchestrator: VoiceToPageOrchestrator

@@ -1,4 +1,5 @@
 import XCTest
+import ScreenplayStudio
 @testable import them
 
 final class FountainFormatterTests: XCTestCase {

@@ -11,8 +11,8 @@ import Foundation
 // - Favor a minimal Hollywood format: sluglines, action, character, dialogue,
 //   parenthetical, transition.
 
-struct FountainElement {
-    enum Kind {
+public struct FountainElement {
+    public enum Kind {
         case sceneHeading
         case action
         case character
@@ -22,10 +22,10 @@ struct FountainElement {
         case blank
     }
 
-    let kind: Kind
-    let text: String
+    public let kind: Kind
+    public let text: String
 
-    var formatted: String {
+    public var formatted: String {
         switch kind {
         case .sceneHeading:
             return text.uppercased()
@@ -48,24 +48,24 @@ struct FountainElement {
     }
 }
 
-struct ScreenplayPageIntegrityIssue: Identifiable, Equatable, Hashable {
-    let startLine: Int
-    let endLine: Int
-    let preview: String
-    let reason: String
+public struct ScreenplayPageIntegrityIssue: Identifiable, Equatable, Hashable {
+    public let startLine: Int
+    public let endLine: Int
+    public let preview: String
+    public let reason: String
 
-    var id: String {
+    public var id: String {
         "\(startLine)-\(endLine)-\(preview)"
     }
 }
 
-enum FountainFormatter {
+public enum FountainFormatter {
 
-    static func format(rawText: String, existingDraft: String = "") -> String {
+    public static func format(rawText: String, existingDraft: String = "") -> String {
         normalizeHollywoodDraft(rawText, existingDraft: existingDraft)
     }
 
-    static func normalizeHollywoodDraft(_ rawText: String, existingDraft: String = "") -> String {
+    public static func normalizeHollywoodDraft(_ rawText: String, existingDraft: String = "") -> String {
         let sanitized = sanitizeRawScreenplayText(rawText)
         guard !sanitized.isEmpty else { return "" }
         let cleaned = stripMetaInstructionPrefix(sanitized)
@@ -85,7 +85,7 @@ enum FountainFormatter {
         return normalizeStructuredFountain(candidate, existingDraft: existingDraft)
     }
 
-    static func normalizePastedScreenplayBlock(_ rawText: String, existingDraft: String = "") -> String {
+    public static func normalizePastedScreenplayBlock(_ rawText: String, existingDraft: String = "") -> String {
         let sanitized = sanitizeRawScreenplayText(rawText)
         guard !sanitized.isEmpty else { return "" }
         let cleaned = stripMetaInstructionPrefix(sanitized)
@@ -106,7 +106,7 @@ enum FountainFormatter {
     }
 
     // Lightweight client-side validation for Studio auto-insert.
-    static func isLikelyFountainBlock(_ rawText: String) -> Bool {
+    public static func isLikelyFountainBlock(_ rawText: String) -> Bool {
         let raw = sanitizeRawScreenplayText(rawText)
         guard !raw.isEmpty else { return false }
 
@@ -139,7 +139,7 @@ enum FountainFormatter {
         return conversationalCount * 2 < lines.count
     }
 
-    static func isStrongStudioPageWriteCandidate(
+    public static func isStrongStudioPageWriteCandidate(
         _ rawText: String,
         allowActionOnly: Bool = false
     ) -> Bool {
@@ -176,7 +176,7 @@ enum FountainFormatter {
         return conversationalCount == 0
     }
 
-    static func screenplayIntegrityIssues(in draft: String) -> [ScreenplayPageIntegrityIssue] {
+    public static func screenplayIntegrityIssues(in draft: String) -> [ScreenplayPageIntegrityIssue] {
         let normalized = draft
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
@@ -245,7 +245,7 @@ enum FountainFormatter {
         return issues
     }
 
-    static func normalizeEditorLine(
+    public static func normalizeEditorLine(
         _ rawLine: String,
         as element: ScreenplayEditorElement,
         existingDraft: String = ""

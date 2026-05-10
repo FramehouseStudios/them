@@ -25,7 +25,7 @@
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
 | T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
-| T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | ready             |
+| T09  | Modularize `DraftStudio` and `ScreenplayStudio`    | codex  | review            |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | ready             |
 | T11  | 60-second magic-moment onboarding                  | codex  | blocked-T09       |
 | T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T09       |
@@ -47,7 +47,7 @@
 6. Claude starts T22: persist craft snapshots and turn overrides.
 7. Claude starts T23 after T22: enforce missing-major-turn RC gate.
 8. Codex completed T02: `archive/` is normalized as the canonical tracked casing.
-9. Codex starts T09: modularize `DraftStudio` and `ScreenplayStudio`.
+9. Codex has T09 in review: local `DraftStudio` and `ScreenplayStudio` packages are wired into the app; `ContentView.swift` is now under 500 LOC.
 10. Codex starts T04 or T05, depending whether identity polish or telemetry is the stronger product move.
 
 ---
@@ -131,9 +131,9 @@
 
 ### T09 — Modularize `DraftStudio` and `ScreenplayStudio` into SwiftPM packages
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T09-studio-modularization`
 - **Pillar:** infra (enables all)
-- **Status:** ready
+- **Status:** review
 - **Done when:** `DraftStudio` and `ScreenplayStudio` are local SwiftPM packages; `ContentView.swift` is below 500 LOC; clean build green; `themTests` pass.
 
 ### T10 — Codify single design system (color, typography, spacing)
