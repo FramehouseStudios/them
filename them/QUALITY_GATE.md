@@ -82,6 +82,19 @@ cd /Users/halfmutantfilms/Desktop/io.them/them/backend
 npm run eval:gate
 ```
 
+## Desktop and iOS App Tests
+- Use these commands for the shared app/unit-test gate after client changes. macOS local tests disable code signing because the Debug app host has sandbox entitlements but local CI does not require a development certificate.
+
+```bash
+cd /Users/halfmutantfilms/Desktop/io.them
+xcodebuild -project them.xcodeproj -scheme them -configuration Debug -sdk macosx -destination "platform=macOS" -derivedDataPath /tmp/io-them-mac-tests CODE_SIGNING_ALLOWED=NO test
+```
+
+```bash
+cd /Users/halfmutantfilms/Desktop/io.them
+xcodebuild -project them.xcodeproj -scheme them -configuration Debug -sdk iphonesimulator -destination "platform=iOS Simulator,name=iPhone 17" -derivedDataPath /tmp/io-them-ios-tests test
+```
+
 ## CI / External Pipelines
 - Checked-in workflow template: `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/quality-gate.yml`
 - Checked-in release automation template: `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml`
