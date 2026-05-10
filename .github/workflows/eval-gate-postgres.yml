@@ -117,7 +117,10 @@ jobs:
 
       - name: Make scripts executable
         run: |
-          chmod +x ./scripts/quality_gate.sh ./scripts/check_craft_completeness.mjs
+          chmod +x ./scripts/quality_gate.sh
+          if [[ -f ./scripts/check_craft_completeness.mjs ]]; then
+            chmod +x ./scripts/check_craft_completeness.mjs
+          fi
 
       - name: Run eval gate against Postgres
         run: bash ./scripts/quality_gate.sh
