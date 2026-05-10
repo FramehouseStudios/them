@@ -319,6 +319,40 @@ test("[T22] overrides survive a simulated process restart via persistence", asyn
   );
 });
 
+// ---------- T-format-linter ----------
+
+test("[format-linter] POST /craft/format/lint returns suggestions for malformed input", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const text = `INT KITCHEN NIGHT\n\nJune\nHello.\n`;
+    const { status, body } = await postJson(baseURL, "/craft/format/lint", { text });
+    assert.equal(status, 200);
+    assert.equal(body.schemaVersion, 1);
+    assert.equal(body.ruleSetVersion, "v1");
+    assert.ok(body.totalSuggestions >= 2);
+    const ruleSet = new Set(body.suggestions.map((s) => s.rule));
+    assert.ok(ruleSet.has("scene_heading_shape"));
+    assert.ok(ruleSet.has("character_cue_caps"));
+  });
+});
+
+test("[format-linter] POST /craft/format/lint returns empty for well-formed input", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const text = `INT. KITCHEN - NIGHT\n\nJUNE\nHello.\n`;
+    const { status, body } = await postJson(baseURL, "/craft/format/lint", { text });
+    assert.equal(status, 200);
+    assert.equal(body.totalSuggestions, 0);
+    assert.deepEqual(body.bySeverity, { hard: 0, medium: 0, soft: 0 });
+  });
+});
+
+test("[format-linter] POST /craft/format/lint requires text", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/craft/format/lint", {});
+    assert.equal(status, 400);
+    assert.equal(body.error, "craft_invalid_screenplay");
+  });
+});
+
 test("[T22] override IDs are UUID-shaped (survive restart)", async () => {
   await withTestServer(async ({ baseURL }) => {
     const r1 = await postJson(baseURL, "/craft/overrides", {
