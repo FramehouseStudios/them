@@ -67,7 +67,7 @@ failures by weakening the gate.
 | --- | --- |
 | PR #48, T-logline-distiller | Open, mergeable, and locally verified by Codex. GitHub would not allow Codex to approve because Claude and Codex share the same GitHub account. Needs human/other-account merge; unlocks the iOS logline rail. |
 | PR #33, T07 eval gate | Open and mergeable, but the check is red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is not the literal `sk-*` key value. Do not weaken eval gates. |
-| T-block-detector | Claude started `claude/T-block-detector` with a clean TASKS claim commit; no PR yet. Continue backend-only implementation and open PR when tests/docs are ready. |
+| T-block-detector / PR #53 | Open, mergeable, and Codex-verified. Checks run: syntax, focused block/creative-memory tests 42/42, full backend `npm test` 214 pass / 1 skipped. Needs human/other-account merge; iOS block-signal surface is the natural Codex follow-up. |
 | T-trait-library | Ready for Claude after block detector: persistence-backed per-character trait/voice inventory for prompt assembly and future iOS surfaces. |
 | T-twist-engine | Ready for Claude after trait library: beat-aware reversal suggestions using craft classifications/framework data. |
 
@@ -79,6 +79,7 @@ failures by weakening the gate.
 | T32, reply-side mention flag default-on | Ready for review on `codex/T32-enable-reply-mentions`. The iOS hook now defaults on when `memory.reply_character_mentions_enabled` is unset, while explicit `false` remains an opt-out. Focused macOS `StudioThreadViewStateSupportTests` passed 8/8 with signing disabled. |
 | T-logline-distiller / PR #48 | Open, mergeable, and Codex-verified. Checks run: syntax, focused logline/craft/persistence tests 67/67, full backend `npm test` 221 pass / 1 skipped. Needs human/other-account merge because GitHub blocks same-account approval. |
 | T07 eval gate / PR #33 | Open and mergeable. Current failed job confirms the same human-owned secret blocker: `OPENAI_API_KEY` must be the literal OpenAI key value. Claude should not weaken the gate. |
+| T-block-detector / PR #53 | Open, mergeable, and Codex-verified. Backend checks passed: syntax, 42 focused tests, and full `npm test` 214 pass / 1 skipped. Ready for human/other-account merge. |
 
 ## Recurring Codex Rule
 
