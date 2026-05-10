@@ -24,6 +24,9 @@ const KNOWN_DOMAINS = Object.freeze([
   "user_memory",
   "screenplay",
   "knowledge_embeddings",
+  // T22: craft analysis domains.
+  "craft_reports",
+  "craft_overrides",
 ]);
 
 function isKnownDomain(domain) {

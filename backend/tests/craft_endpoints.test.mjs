@@ -3,6 +3,9 @@
 // avoid env coupling to the full backend boot path.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import express from "express";
 
@@ -13,10 +16,22 @@ import {
   FRAMEWORK_SCHEMA,
   validateAgainstSchema,
 } from "../lib/craft_schemas.js";
-import { _resetCraftStores } from "../lib/craft_analysis.js";
+import {
+  _resetCraftStores,
+  configureCraftAnalysis,
+} from "../lib/craft_analysis.js";
+import { createJsonPersistence } from "../lib/persistence_json.js";
 
-async function withTestServer(fn, { mockUser = null } = {}) {
+function freshPersistenceRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "io-them-craft-"));
+}
+
+async function withTestServer(fn, { mockUser = null, persistenceRoot = null } = {}) {
+  // T22: each test runs against a fresh JSON persistence root so writes
+  // don't leak between tests.
+  const root = persistenceRoot || freshPersistenceRoot();
   _resetCraftStores();
+  configureCraftAnalysis({ persistence: createJsonPersistence({ jsonRoot: root }) });
   const app = express();
   app.use(express.json());
   if (mockUser) {
@@ -31,7 +46,7 @@ async function withTestServer(fn, { mockUser = null } = {}) {
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
   try {
-    await fn({ baseURL });
+    await fn({ baseURL, persistenceRoot: root });
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -229,4 +244,92 @@ test("POST /craft/overrides rejects userId mismatch when authenticated user is s
     },
     { mockUser: { id: "user-real" } },
   );
+});
+
+// ---------- T22: persistence proof ----------
+
+test("[T22] reports survive a simulated process restart via persistence", async () => {
+  const sharedRoot = freshPersistenceRoot();
+
+  // First "process": write a report.
+  let writtenId;
+  await withTestServer(
+    async ({ baseURL }) => {
+      const { status, body } = await postJson(baseURL, "/craft/analyze", {
+        projectId: "persistence-proof",
+        versionId: "v1",
+        frameworkId: "save-the-cat",
+        screenplay: { pageCount: 110, title: "Persistence Proof" },
+      });
+      assert.equal(status, 200);
+      writtenId = body.id;
+    },
+    { persistenceRoot: sharedRoot },
+  );
+
+  // Second "process": same persistence root, fresh in-memory state.
+  // The in-memory cache that existed in the first process is gone,
+  // but the report on disk under sharedRoot must be retrievable.
+  await withTestServer(
+    async ({ baseURL }) => {
+      const fetched = await get(baseURL, "/craft/reports/persistence-proof/v1");
+      assert.equal(fetched.status, 200);
+      assert.equal(fetched.body.id, writtenId);
+    },
+    { persistenceRoot: sharedRoot },
+  );
+});
+
+test("[T22] overrides survive a simulated process restart via persistence", async () => {
+  const sharedRoot = freshPersistenceRoot();
+
+  // First "process": create an override.
+  let overrideId;
+  await withTestServer(
+    async ({ baseURL }) => {
+      const { status, body } = await postJson(baseURL, "/craft/overrides", {
+        turnId: "all-is-lost",
+        action: "mark-present",
+        reason: "writer-flagged",
+        sceneId: "s048",
+        page: 73,
+        userId: "user-7",
+      });
+      assert.equal(status, 200);
+      overrideId = body.id;
+      // T22 uses UUID-based override ids.
+      assert.match(overrideId, /^ov_/);
+    },
+    { persistenceRoot: sharedRoot },
+  );
+
+  // Second "process": delete the override. If persistence is genuinely
+  // doing the work, the override is found and deletion succeeds; the
+  // first delete returns 200, the second returns 404.
+  await withTestServer(
+    async ({ baseURL }) => {
+      const first = await del(baseURL, `/craft/overrides/${overrideId}`);
+      assert.equal(first.status, 200);
+      assert.deepEqual(first.body, { ok: true });
+      const second = await del(baseURL, `/craft/overrides/${overrideId}`);
+      assert.equal(second.status, 404);
+      assert.equal(second.body.error, "craft_override_not_found");
+    },
+    { persistenceRoot: sharedRoot },
+  );
+});
+
+test("[T22] override IDs are UUID-shaped (survive restart)", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const r1 = await postJson(baseURL, "/craft/overrides", {
+      turnId: "midpoint", action: "mark-present", userId: "u1",
+    });
+    const r2 = await postJson(baseURL, "/craft/overrides", {
+      turnId: "midpoint", action: "mark-present", userId: "u1",
+    });
+    assert.notEqual(r1.body.id, r2.body.id);
+    // Both should have the ov_<uuid> shape.
+    assert.match(r1.body.id, /^ov_[0-9a-f-]{36}$/);
+    assert.match(r2.body.id, /^ov_[0-9a-f-]{36}$/);
+  });
 });
