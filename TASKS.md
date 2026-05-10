@@ -16,45 +16,52 @@
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|
 | T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
-| T04  | Apply canonical product name `io.them` end-to-end  | codex  | review            |
-| T05  | Add `first_page_written` client telemetry event    | codex  | completed         |
-| T07  | Promote backend persistence to Postgres canonical  | claude | in-progress       |
-| T07a | Wire `outbox_store` to persistence adapter          | claude | in-progress       |
+| T04  | Apply canonical product name `io.them` end-to-end  | codex  | merged            |
+| T05  | Add `first_page_written` client telemetry event    | codex  | merged            |
+| T07  | Promote backend persistence to Postgres canonical  | claude | merged            |
+| T07a | Wire `outbox_store` diagnostic snapshots           | claude | merged            |
 | T07-eval-gate | Verify eval gate against Postgres          | claude | in-progress       |
 | T07-cutover | Drop dual-write JSON paths after Postgres soak | claude | blocked-T07-eval |
-| T08  | Centralize prompt assembly + first memory tier (backend) | claude | in-progress       |
-| T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | ready-for-claude |
-| T08-postgres | Move creative memory store to persistence adapter | claude | ready-for-claude |
-| T10  | Codify single design system (color/typo/spacing)   | codex  | review            |
-| T11  | 60-second magic-moment onboarding                  | codex  | review            |
-| T12  | Adopt perceived-speed primitives system-wide       | codex  | blocked-T11       |
-| T13  | Add second realtime supplier behind interface      | claude | in-progress       |
+| T08  | Centralize prompt assembly + first memory tier (backend) | claude | merged            |
+| T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | merged            |
+| T08-postgres | Move creative memory store to persistence adapter | claude | merged            |
+| T10  | Codify single design system (color/typo/spacing)   | codex  | merged            |
+| T11  | 60-second magic-moment onboarding                  | codex  | merged            |
+| T12  | Adopt perceived-speed primitives system-wide       | codex  | ready             |
+| T13  | Add second realtime supplier behind interface      | claude | merged            |
 | T13-client | Add iOS realtime supplier selection            | codex  | merged            |
-| T29  | Hook iOS reply-side character mentions             | codex  | review            |
-| T14  | Triage G3 backend feature snapshot                 | codex  | review            |
-| T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | merged            |
-| T23  | Add craft completeness RC release gate             | claude | review            |
+| T29  | Hook iOS reply-side character mentions             | codex  | merged            |
+| T14  | Triage G3 backend feature snapshot                 | codex  | merged            |
+| T23  | Add craft completeness RC release gate             | claude | merged            |
 | T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
-| T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
-| T26  | Polish Craft tab framework and drift UX            | codex  | review            |
+| T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | merged            |
+| T26  | Polish Craft tab framework and drift UX            | codex  | merged            |
 | T-format-linter | Hollywood format linter (rules v1)        | claude | merged            |
+| T27  | Add Codex-to-Claude live handoff ledger            | codex  | merged            |
 | T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
-| T30  | Backend `/memory/record-character-mention` endpoint | claude | in-progress       |
+| T30  | Backend `/memory/record-character-mention` endpoint | claude | merged            |
+| T-logline-distiller | Distill, persist, and drift-score loglines | claude | merged            |
+| T-block-detector | Detect writer-block patterns from talk telemetry | claude | merged            |
+| T-trait-library | Build per-character trait and voice inventory | claude | merged            |
+| T-twist-engine | Beat-aware reversal suggestion engine         | claude | merged            |
+| T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
+| T32  | Enable reply-side character mention memory flag | codex  | merged            |
+| T33  | Add Claude command center and prompt printer      | codex  | merged            |
 
 ---
 
-## Current next-10 checklist (2026-05-09 post-T05)
+## Current next-10 checklist (2026-05-10 after Layer 2 backend merge stack)
 
-1. Codex/Claude review and merge PR #26: T08w creative-memory write triggers from `/talk`.
-2. Claude starts T07a: wire outbox durability through the persistence adapter.
-3. Claude starts T07-eval-gate: run `npm run eval:gate` against Postgres in CI.
-4. Claude starts T08-postgres: move `creative_memory_store` onto the persistence adapter.
-5. Claude starts T23: enforce the missing-major-turn RC gate.
-6. Codex starts T04: apply canonical `io.them` naming end-to-end.
-7. Codex starts T10: codify the shared design system.
-8. Codex starts T14: triage the G3 backend feature snapshot into mergeable work.
-9. Codex starts T11 after T08 lands: 60-second magic-moment onboarding using the completed T05 telemetry.
-10. Codex starts T12 after T11: perceived-speed primitives for the magic-moment path.
+1. Build the iOS logline rail consumer for the merged logline endpoints.
+2. Build the iOS block-signal nudge surface for the merged `/memory/block-signal` endpoint.
+3. Build the iOS character-traits side-rail consumer for the merged trait endpoints.
+4. Build the iOS twist-card consumer for `POST /craft/twist/suggest`.
+5. Start T12 perceived-speed primitives now T11 is merged: skeletons, optimistic writes, and audio-first response defaults.
+6. Claude proposes `T-accepted-twist-log` so saved reversal cards can influence future prompt context.
+7. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
+8. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+9. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
+10. Run a release-readiness pass across the merged Craft Intelligence Suite before external review.
 
 ---
 
@@ -71,21 +78,21 @@
 - **Owner:** codex
 - **Branch:** `codex/T04-io-them-canonical-name`
 - **Pillar:** living companion (identity)
-- **Status:** review
+- **Status:** merged
 - **Done when:** `Info.plist` `CFBundleDisplayName`, `README.md` title line, onboarding copy, and any user-visible string read `io.them` (or final agreed casing); no user-visible surface still reads `Framehouse`, `them`, `Clementine`, or `Her*`. References `D001`.
 
 ### T05 — Add `first_page_written` client telemetry event
 - **Owner:** codex
 - **Branch:** `codex/T05-first-page-telemetry`
 - **Pillar:** voice→scene (measurement)
-- **Status:** completed
+- **Status:** merged
 - **Done when:** event fires once per user the first time they ship a screenplay-formatted page; visible in the analytics destination; documented in `docs/`.
 
 ### T07 — Promote backend persistence to Postgres canonical
 - **Owner:** claude
 - **Branch:** `claude/T07-postgres-canonical`
 - **Pillar:** longitudinal learning
-- **Status:** in-progress
+- **Status:** merged
 - **Scope (this PR — foundation):** adapter interface + JSON impl + Postgres impl + initial schema for all four store domains + forward and reverse migration scripts + adapter contract tests. Outbox is the proof-wired store.
 - **Scope (follow-up rows, claimed by Claude after this PR merges):** wire `memory_store` (T07a), `screenplay_store` (T07b), and the knowledge embeddings cache (T07c) onto the adapter. Each is a focused PR.
 - **Done when (this PR):** adapter contract tests green; both backends pass the same contract; `scripts/migrate_stores_to_postgres.mjs` and `scripts/dump_stores_to_json.mjs` round-trip a sample dataset; outbox_store reads/writes via the adapter when `DATABASE_URL` is set, falls back to JSON when unset; `docs/T07-persistence-canonical.md` documents the architecture and the migration runbook.
@@ -95,7 +102,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T07a-outbox-snapshots`
 - **Pillar:** longitudinal learning + infra (enables all)
-- **Status:** in-progress
+- **Status:** merged
 - **Architectural call:** the outbox is a queue with worker semantics, not domain KV data. `scaleBackplane` is its canonical operational layer (in-memory + Redis stream + Postgres `outbox` table when `SCALE_POSTGRES_URL` is set). The T07 persistence adapter is for KV-style domain data (memory, screenplay, embeddings, craft, creative_memory). Forcing the queue onto the adapter would erase scaleBackplane's queue semantics. **Decision proposed in `docs/T07a-outbox-architecture.md`:** the queue stays on `scaleBackplane`; T07a contributes diagnostic/recovery-grade *snapshots* of outbox state into the adapter under the `outbox` domain, so backend operators have a Postgres-visible record of outbox health without changing the queue path.
 - **Done when:** `OutboxSnapshotter` writes periodic JSON snapshots into the persistence adapter; backend wires the snapshotter at startup; tests assert snapshot shape + that the snapshotter does not interfere with scaleBackplane; `docs/T07a-outbox-architecture.md` documents the architecture and proposes the formal decision (D-something, human authors).
 
@@ -104,7 +111,7 @@
 - **Branch:** `claude/T07-eval-gate-postgres`
 - **Pillar:** longitudinal learning + infra (enables all)
 - **Status:** in-progress
-- **Done when:** new `.github/workflows/eval-gate-postgres.yml` workflow boots a Postgres service container, runs the persistence migrations (`001` + `002` + `003`), runs `npm run eval:gate`, and reports green; the workflow is `workflow_dispatch` plus auto-runs on `claude/T07*` branches; `docs/T07-persistence-canonical.md` documents the runbook (how to invoke locally + in CI, expected outcomes, what changes when the gate is added to release-preflight).
+- **Done when:** CI runs the full `npm run eval:gate` path against a live Postgres instance and passes; the result is recorded in `docs/T07-persistence-canonical.md`.
 
 ### T07-cutover — Drop dual-write JSON paths after Postgres soak
 - **Owner:** claude
@@ -117,51 +124,51 @@
 - **Owner:** claude
 - **Branch:** `claude/backend-T08-memory-tier`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** merged
 - **Scope (narrowed):** backend memory tier + backend-side prompt assembly. The original done-when referenced `ScreenplayPromptBuilder` (iOS) which is out of Claude's scope and not yet on `main`. iOS prompt-path consolidation is a sibling Codex follow-up — Codex to add a row when the dirty iOS state lands.
 - **Done when (backend portion):** A creative-companion memory record (style, characters, tone, habits) persists per user; a single `buildModelPrompt(...)` is the only path used by `handleTalkRequest`; every model-bound prompt carries the memory context when present and degrades cleanly when absent; new eval `run_creative_memory_eval.mjs` covers both states and is wired into `eval:gate`; design and final state documented in `docs/T08-prompt-centralization-and-memory-tier.md`.
 - **Design doc:** [docs/T08-prompt-centralization-and-memory-tier.md](docs/T08-prompt-centralization-and-memory-tier.md)
 
 ### T08w-triggers — Fire creative-memory write triggers from `/talk`
 - **Owner:** claude
-- **Branch:** `codex/T14-g3-snapshot-triage`
+- **Branch:** `claude/T08w-triggers`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** review-for-claude
+- **Status:** merged
 - **Done when:** character mentions, scene completions, and tone signals detected in `/talk` exchanges trigger the corresponding `recordXxx` calls on `creativeMemoryStore`; `run_creative_memory_eval.mjs` covers at least one trigger-fired case.
 
 ### T08-postgres — Move creative memory store to persistence adapter
 - **Owner:** claude
-- **Branch:** —
+- **Branch:** `claude/T08-postgres`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** ready-for-claude
+- **Status:** merged
 - **Done when:** `creative_memory_store.js` uses `createPersistence(...)` for the chosen memory domain, its public API stays unchanged, and the eval suite stays green.
 
 ### T10 — Codify single design system (color, typography, spacing)
 - **Owner:** codex
 - **Branch:** `codex/T10-design-system`
 - **Pillar:** mobile-first
-- **Status:** review
+- **Status:** merged
 - **Done when:** one color file, one typography file, one spacing scale; legacy `HerColors`, `FountainTypography`, and `*Chrome*` styling consolidated or deprecated; lint or build rule fails any new file that bypasses them.
 
 ### T11 — 60-second magic-moment onboarding
 - **Owner:** codex
 - **Branch:** `codex/T11-magic-moment-onboarding`
 - **Pillar:** voice→scene + mobile-first
-- **Status:** review
+- **Status:** merged
 - **Done when:** cold-start to a properly formatted screenplay page in ≤60 seconds on a real iPhone, validated by the human; `first_page_written` (T05) fires; flow uses centralized prompts (T08).
 
 ### T12 — Adopt perceived-speed primitives system-wide
 - **Owner:** codex
-- **Branch:** —
+- **Branch:** `codex/T12-perceived-speed`
 - **Pillar:** mobile-first + voice→scene
-- **Status:** blocked-T11
+- **Status:** ready
 - **Done when:** skeletons, optimistic writes, and audio-first responses are the default in the studio surface; measured time-to-perceived-response is ≤100 ms for the magic-moment path.
 
 ### T13 — Add second realtime supplier behind existing interface
 - **Owner:** claude
 - **Branch:** `claude/T13-realtime-supplier-interface`
 - **Pillar:** living companion (resilience)
-- **Status:** in-progress
+- **Status:** merged
 - **Scope (this PR — foundation):** extract a `RealtimeSupplier` interface; wrap the existing OpenAI client-secret minting path as `OpenAIRealtimeSupplier`; ship a `StubRealtimeSupplier` that satisfies the interface deterministically (placeholder for a future real second supplier); factory selects via `REALTIME_PROVIDER` env var; `POST /realtime/client_secret` routes through the supplier interface; smoke tests assert both suppliers satisfy the interface contract.
 - **Scope (follow-up):** integrate a real second supplier (ElevenLabs Conversational AI / Anthropic Realtime / etc.) once API access is provisioned. The interface this PR ships keeps that follow-up to a single new file + a small factory entry.
 - **Done when (foundation, this PR):** OpenAI logic extracted behind the interface; stub second supplier passes the same contract test; runtime config via `REALTIME_PROVIDER` defaults to `openai`; `POST /realtime/client_secret` returns the supplier's mint result regardless of provider; tests exercise both paths.
@@ -178,7 +185,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T-ios-reply-character-mentions`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** review
+- **Status:** merged
 - **Done when:** the iOS screenplay-render path extracts likely rendered character cues from final page text and posts them to `/memory/record-character-mention` behind an opt-in feature flag; missing endpoint or disabled flag is a safe no-op; tests cover extraction, feature flag behavior, and request shape.
 - **Dependency:** Claude/backend still needs to ship `/memory/record-character-mention`; Codex will leave the call site guarded until that endpoint exists.
 
@@ -194,7 +201,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T14-g3-snapshot-triage`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** review
+- **Status:** merged
 - **Done when:** the G3 backend feature work is split into intent-grouped commits or explicitly routed to Claude with context; no G3 backend changes remain orphaned in the dirty tree.
 - **Decision:** Option A from the handoff brief. Codex will own the snapshot triage because the work appears to have been authored before the protocol existed; Claude should run backend eval gates before merge.
 
@@ -202,35 +209,35 @@
 - **Owner:** claude
 - **Branch:** `claude/T23-craft-completeness-gate`
 - **Pillar:** infra (enables all)
-- **Status:** in-progress
+- **Status:** merged
 - **Done when:** new `scripts/check_craft_completeness.mjs` reads a craft report (file path or `craft_reports` adapter key), exits 0 when `coverage.complete === true` (including overrides), exits 1 with actionable diagnostics otherwise; `scripts/quality_gate.sh` runs it under `RUN_CRAFT_COMPLETENESS_GATE=1`; the release-preflight workflow flips the env var on by default for `rc-*` runs; tests assert pass on `report_complete.json` + `report_with_override.json` and fail on `report_with_drift.json`.
 
 ### T24 — Consolidate iOS ScreenplayPromptBuilder path
 - **Owner:** codex
 - **Branch:** `codex/T24-prompt-builder-consolidation`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** review
+- **Status:** merged
 - **Done when:** every model-bound prompt request from iOS is produced through one Swift `ScreenplayPromptBuilder` entry point; legacy prompt-construction sites are replaced; the builder routes screenplay requests through the backend endpoint that runs canonical `buildModelPrompt(...)`; tests cover the single-path contract.
 
 ### T27 — Add Codex-to-Claude live handoff ledger
 - **Owner:** codex
 - **Branch:** `codex/T27-claude-live-handoff`
 - **Pillar:** infra (enables all)
-- **Status:** review
+- **Status:** merged
 - **Done when:** a repo-visible Codex-maintained handoff ledger exists, records each completed Codex task/PR with verification and Claude action items, and PR descriptions point Claude to the ledger as the real-time supervisor status source.
 
 ### T26 — Polish Craft tab framework and drift UX
 - **Owner:** codex
 - **Branch:** `codex/T26-craft-tab-polish`
 - **Pillar:** voice→scene + living companion
-- **Status:** review
+- **Status:** merged
 - **Done when:** the Craft tab has a live-framework switcher, a user-facing override creation flow, and a major-turn timeline that visualizes drift from expected page bands; fixtures support SwiftUI previews; macOS tests and generic iOS build remain green.
 
 ### T-format-linter — Hollywood format linter (rules v1)
 - **Owner:** claude
 - **Branch:** `claude/T-format-linter`
 - **Pillar:** voice-to-scene + living companion (industry-rule layer of the Craft Intelligence Suite)
-- **Status:** in-progress
+- **Status:** merged
 - **Scope:** purely rule-based (no LLM). Rules v1 covers scene-heading shape, character-cue caps + own-line, parenthetical density, action-line voice flags, page-economy heuristic. Each violation is a structured suggestion with severity (`hard` | `medium` | `soft`), not a rejection. Endpoint `POST /craft/format/lint` accepts a screenplay text payload + framework hint and returns suggestions. No iOS work in this PR; Codex's `T-format-iOS` row consumes the endpoint when it's ready.
 - **Done when:** `backend/lib/format_linter.js` exposes `lintScreenplay({ text, frameworkId? })` returning structured suggestions; route mounts under `/craft/format/lint`; ≥15 unit tests cover each rule (positive + negative cases); fixture-driven tests against the existing `report_complete.json` source screenplay shape; full backend test suite stays green; design notes in `docs/T-format-linter.md`.
 
@@ -246,9 +253,44 @@
 - **Owner:** claude
 - **Branch:** `claude/T30-record-character-mention-endpoint`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** merged
 - **Scope:** unblocks Codex PR #50 (T29). Adds `POST /memory/record-character-mention` that persists rendered screenplay character cues through `creativeMemoryStore.recordCharacterMention(...)` — the canonical creative-memory path, not ad hoc JSON. Accepts both `character_name` (snake_case) and `characterName` (camelCase). Threads `source`, `tags`, `write_id`, `line`, and `metadata.{screenplay_write_id, screenplay_project_id, screenplay_version_id}` onto the character record so reply-side mentions are distinguishable from user-input mentions. Missing optional metadata never fails the request. Returns the typed receipt iOS expects: `{ ok, action, characterName, source }`.
 - **Done when:** the endpoint is mounted in `backend/index.js`, persists through `creativeMemoryStore`, validates/sanitizes name and source, accepts snake_case+camelCase, returns the typed receipt; ≥5 endpoint integration tests cover (1) snake_case payload, (2) camelCase payload, (3) metadata + write_id + line preservation, (4) invalid/empty character_name rejection, (5) idempotent-ish repeated mentions; the full backend suite stays green. Codex can enable `memory.reply_character_mentions_enabled` once this merges.
+
+### T-logline-distiller — Distill, persist, and drift-score loglines
+- **Owner:** claude
+- **Branch:** `claude/T-logline-distiller`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** merged
+- **Done when:** backend exposes `POST /craft/logline/distill`, `GET /craft/logline/drift`, and `GET /craft/logline/history`; loglines persist in the `craft_loglines` domain with migration coverage; deterministic mode is default, optional LLM mode uses the existing classifier interface; drift scoring is tested; full backend suite is green.
+
+### T-block-detector — Detect writer-block patterns from talk telemetry
+- **Owner:** claude
+- **Branch:** `claude/T-block-detector`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** merged
+- **Done when:** backend derives structured writer-block signals from `/talk` telemetry, scene-attempt gaps, repeated stalled drafts, and retry loops; exposes a typed endpoint or prompt-context block for iOS companion nudges; tests cover no-signal, soft-signal, and high-confidence block states; docs explain thresholds and privacy behavior.
+
+### T-trait-library — Build per-character trait and voice inventory
+- **Owner:** claude
+- **Branch:** `claude/T-trait-library`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** merged
+- **Done when:** backend maintains a persistence-backed per-character trait/voice inventory from creative memory and screenplay dialogue; traits are deduped, source-tagged, and retrievable for prompt assembly; tests cover merge, decay/update, and empty-state behavior; docs explain how iOS should consume it.
+
+### T-twist-engine — Beat-aware reversal suggestion engine
+- **Owner:** claude
+- **Branch:** `claude/T-twist-engine`
+- **Pillar:** voice→scene + living companion
+- **Status:** merged
+- **Done when:** backend produces deterministic beat-aware reversal/twist suggestions using craft framework and classification data; optional LLM mode is isolated behind existing provider patterns; suggestions cite the beat/turn they operate on; tests cover deterministic output, missing craft context, and malformed input.
+
+### T31 — Refresh coordination statuses after merge stack
+- **Owner:** codex
+- **Branch:** `codex/T31-coordination-status-cleanup`
+- **Pillar:** infra (enables all)
+- **Status:** merged
+- **Done when:** `TASKS.md` and `docs/codex-claude-live-handoff.md` accurately reflect the merged PR stack, current Claude blockers, and next Codex/Claude handoff state; no stale review/in-progress rows remain for already-merged tasks; Claude has GitHub supervisor comments on active Claude PRs.
 
 ---
 
@@ -322,6 +364,24 @@
 - **Owner:** codex
 - **Branch:** `codex/T20-craft-tab-timeline-beats`
 - **Merged:** 2026-05-09 via PR #16.
+
+---
+
+### T32 — Enable reply-side character mention memory flag
+- **Owner:** codex
+- **Branch:** `codex/T32-enable-reply-mentions`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** merged
+- **Done when:** the iOS reply-side character mention hook defaults on now that T30 is merged; explicit user/debug defaults can still disable it; focused tests cover default-on, explicit-off, and request-shape behavior; the handoff ledger records the completion for Claude.
+
+---
+
+### T33 — Add Claude command center and prompt printer
+- **Owner:** codex
+- **Branch:** `codex/T33-claude-command-center`
+- **Pillar:** infra (enables all)
+- **Status:** merged
+- **Done when:** a short repo-visible Claude inbox exists with current assignment, blockers, and Codex supervisor status; a script prints the exact prompt/brief to send Claude; `docs/codex-claude-live-handoff.md` points agents to the new inbox so the human no longer has to copy/paste long checklists.
 
 ---
 

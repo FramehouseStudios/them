@@ -21,6 +21,14 @@ import {
   getOverride,
 } from "./craft_analysis.js";
 import { lintScreenplay } from "./format_linter.js";
+import { suggestTwists } from "./twist_engine.js";
+import {
+  distillLogline,
+  recordLogline,
+  getLoglineHistory,
+  computeDrift,
+  loglineDistillerDeps,
+} from "./logline_distiller.js";
 
 function errorEnvelope(error, message) {
   const out = { error };
@@ -196,6 +204,108 @@ function mountCraftRoutes(app) {
       return res.status(200).json(result);
     } catch (e) {
       return sendKnownError(res, "craft_invalid_screenplay", e?.message || "lint failed");
+    }
+  });
+
+  // T-twist-engine: structured beat-aware reversal suggestions.
+  app.post("/craft/twist/suggest", async (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const frameworkId = typeof body.frameworkId === "string" ? body.frameworkId : "";
+    const currentBeatId = typeof body.currentBeatId === "string" ? body.currentBeatId : "";
+    const sceneSummary = typeof body.sceneSummary === "string" ? body.sceneSummary : "";
+    const count = body.count;
+    if (!frameworkId) return sendKnownError(res, "craft_invalid_framework_id", "frameworkId is required");
+    if (!currentBeatId) return sendKnownError(res, "craft_invalid_screenplay", "currentBeatId is required");
+    try {
+      const result = await suggestTwists({ frameworkId, currentBeatId, sceneSummary, count });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json(result);
+    } catch (e) {
+      if (e?.code === "twist_unknown_framework") {
+        return sendKnownError(res, "craft_invalid_framework_id", e.message);
+      }
+      if (e?.code === "twist_unknown_beat") {
+        return sendKnownError(res, "craft_invalid_screenplay", e.message);
+      }
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "twist failed");
+    }
+  });
+
+  // T-logline-distiller: extract + persist a one-sentence logline.
+  app.post("/craft/logline/distill", async (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const text = typeof body.text === "string" ? body.text : "";
+    const projectId = typeof body.projectId === "string" ? body.projectId : "";
+    const versionId = typeof body.versionId === "string" ? body.versionId : null;
+    const frameworkId = typeof body.frameworkId === "string" ? body.frameworkId : null;
+    if (!text) return sendKnownError(res, "craft_invalid_screenplay", "text is required");
+    if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId is required");
+    const { persistence, classifier } = loglineDistillerDeps();
+    try {
+      const logline = await distillLogline({ text, frameworkId, classifier });
+      const source = classifier?.kind === "openai" ? "openai" : "stub";
+      if (persistence) {
+        const entry = await recordLogline({
+          persistence, projectId, versionId, logline, frameworkId, source,
+        });
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(200).json({
+          schemaVersion: 1,
+          logline: entry.logline,
+          source: entry.source,
+          distilledAt: entry.distilledAt,
+          stored: true,
+        });
+      }
+      // No persistence configured (defensive — should not happen in production).
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({
+        schemaVersion: 1,
+        logline,
+        source,
+        distilledAt: new Date().toISOString(),
+        stored: false,
+      });
+    } catch (e) {
+      if (e?.code) return sendKnownError(res, e.code, e.message);
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "logline distillation failed");
+    }
+  });
+
+  // T-logline-distiller: drift signal between earliest and current/latest logline.
+  app.get("/craft/logline/drift", async (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const projectId = typeof req.query?.projectId === "string" ? req.query.projectId : "";
+    const currentLogline = typeof req.query?.currentLogline === "string"
+      ? req.query.currentLogline
+      : null;
+    if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId query param required");
+    const { persistence } = loglineDistillerDeps();
+    if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
+    try {
+      const drift = await computeDrift({ persistence, projectId, currentLogline });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({ schemaVersion: 1, ...drift });
+    } catch (e) {
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "drift failed");
+    }
+  });
+
+  // T-logline-distiller: full logline history per project (for the iOS surface).
+  app.get("/craft/logline/history", async (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const projectId = typeof req.query?.projectId === "string" ? req.query.projectId : "";
+    if (!projectId) return sendKnownError(res, "craft_invalid_screenplay", "projectId query param required");
+    const { persistence } = loglineDistillerDeps();
+    if (!persistence) return sendKnownError(res, "craft_invalid_screenplay", "persistence not configured");
+    try {
+      const entries = await getLoglineHistory({ persistence, projectId });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({ schemaVersion: 1, projectId, entries });
+    } catch (e) {
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "history failed");
     }
   });
 }
