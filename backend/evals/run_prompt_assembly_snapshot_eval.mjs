@@ -4,7 +4,7 @@
 //
 // buildModelPrompt() concatenates labelled blocks in a fixed order:
 //
-//   persona → <creative_memory> → <session> → <block_signal> → userInput
+//   persona → <creative_memory> → <session> → <accepted_twists> → <block_signal> → userInput
 //
 // Several downstream concerns depend on that ordering (model
 // attention, the prompt-regression baseline, iOS prompt previews).
@@ -33,6 +33,18 @@ const fixture = {
     tone: { emotional_default: "wry" },
   },
   sessionContext: { projectId: "p-1", versionId: "v-1", scene: "ext. rooftop" },
+  acceptedTwists: [
+    {
+      twist: {
+        id: "tw-1",
+        label: "False Victory",
+        hook: "The apparent win costs June the only witness.",
+        severity: "high",
+      },
+      beatId: "midpoint",
+      acceptedAtMs: 1,
+    },
+  ],
   blockCoaching: "Try a quick switch-perspective prompt.",
   userInput: "Write the next beat.",
 };
@@ -53,6 +65,10 @@ const expected = [
   "  scene: ext. rooftop",
   "</session>",
   "",
+  "<accepted_twists>",
+  "- False Victory @midpoint (high): The apparent win costs June the only witness.",
+  "</accepted_twists>",
+  "",
   "<block_signal>",
   "Try a quick switch-perspective prompt.",
   "</block_signal>",
@@ -72,15 +88,17 @@ check(
 const indexOfPersona = actual.indexOf("You are the companion");
 const indexOfMemory = actual.indexOf("<creative_memory>");
 const indexOfSession = actual.indexOf("<session>");
+const indexOfAcceptedTwists = actual.indexOf("<accepted_twists>");
 const indexOfBlockSignal = actual.indexOf("<block_signal>");
 const indexOfUserInput = actual.indexOf("Write the next beat");
 
 check(
-  "ordering: persona < memory < session < block-signal < userInput",
+  "ordering: persona < memory < session < accepted-twists < block-signal < userInput",
   indexOfPersona >= 0 &&
     indexOfPersona < indexOfMemory &&
     indexOfMemory < indexOfSession &&
-    indexOfSession < indexOfBlockSignal &&
+    indexOfSession < indexOfAcceptedTwists &&
+    indexOfAcceptedTwists < indexOfBlockSignal &&
     indexOfBlockSignal < indexOfUserInput,
 );
 

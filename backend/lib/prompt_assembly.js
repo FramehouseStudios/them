@@ -10,6 +10,16 @@
 // produces the same string. Memory absent → no memory block (no
 // "<empty>" markers, no null serialization). Memory present → a
 // compact, model-friendly block immediately before user input.
+//
+// T-prompt-wire-traits-and-twists: this module also renders character
+// traits inline under each recurring character (from T-trait-library)
+// and an `<accepted_twists>` block when accepted reversal cards are
+// supplied (from T-accepted-twist-log). Both fields are optional;
+// callers that don't supply them produce the exact pre-existing
+// output.
+
+import { buildTraitsBlockForPrompt } from "./trait_library.js";
+import { buildAcceptedTwistsBlockForPrompt } from "./accepted_twist_log.js";
 
 const MEMORY_BLOCK_OPEN = "<creative_memory>";
 const MEMORY_BLOCK_CLOSE = "</creative_memory>";
@@ -17,6 +27,11 @@ const MEMORY_BLOCK_CLOSE = "</creative_memory>";
 // the writer-block detector reports medium/high. Empty for low.
 const BLOCK_SIGNAL_BLOCK_OPEN = "<block_signal>";
 const BLOCK_SIGNAL_BLOCK_CLOSE = "</block_signal>";
+// T-prompt-wire-traits-and-twists: accepted-twist log block, placed
+// between session and block_signal so writer-facing coaching still
+// reads last.
+const ACCEPTED_TWISTS_BLOCK_OPEN = "<accepted_twists>";
+const ACCEPTED_TWISTS_BLOCK_CLOSE = "</accepted_twists>";
 
 function isNonEmptyObject(v) {
   return v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length > 0;
@@ -49,11 +64,19 @@ function serializeCharacters(characters) {
   // Most recently referenced first; cap to 8 to keep prompts compact.
   const sorted = [...characters].sort((a, b) => (b.last_referenced || 0) - (a.last_referenced || 0));
   const top = sorted.slice(0, 8);
-  const lines = top.map((c) => {
+  const lines = [];
+  for (const c of top) {
     const tags = isNonEmptyArray(c.tags) ? ` [${c.tags.join(", ")}]` : "";
     const voice = trimToString(c.voice) ? ` — ${trimToString(c.voice)}` : "";
-    return `  - ${c.name}${tags}${voice}`;
-  });
+    lines.push(`  - ${c.name}${tags}${voice}`);
+    // T-prompt-wire-traits-and-twists: render the per-character trait
+    // inventory as an indented `traits:` line. Falls back silently
+    // when no traits exist or when buildTraitsBlockForPrompt returns "".
+    if (c.traits && typeof c.traits === "object") {
+      const traitLine = buildTraitsBlockForPrompt(c.traits);
+      if (traitLine) lines.push(`      traits: ${traitLine}`);
+    }
+  }
   return `recurring-characters:\n${lines.join("\n")}`;
 }
 
@@ -110,6 +133,16 @@ function buildBlockSignalBlock(blockCoaching) {
   return `${BLOCK_SIGNAL_BLOCK_OPEN}\n${text}\n${BLOCK_SIGNAL_BLOCK_CLOSE}`;
 }
 
+// T-prompt-wire-traits-and-twists: render the per-project accepted-twist
+// log as a compact block between session and block_signal. Each entry
+// is one line; newest first; capped by `buildAcceptedTwistsBlockForPrompt`.
+function buildAcceptedTwistsBlock(acceptedTwists) {
+  if (!isNonEmptyArray(acceptedTwists)) return "";
+  const body = buildAcceptedTwistsBlockForPrompt(acceptedTwists);
+  if (!body) return "";
+  return `${ACCEPTED_TWISTS_BLOCK_OPEN}\n${body}\n${ACCEPTED_TWISTS_BLOCK_CLOSE}`;
+}
+
 // Single canonical entry point. Every model-bound prompt the backend
 // constructs goes through this function.
 function buildModelPrompt({
@@ -118,6 +151,7 @@ function buildModelPrompt({
   userInput = "",
   sessionContext = null,
   blockCoaching = "",
+  acceptedTwists = null,
 } = {}) {
   const parts = [];
   const personaText = trimToString(persona);
@@ -128,6 +162,12 @@ function buildModelPrompt({
 
   const sessionBlock = buildSessionContextBlock(sessionContext);
   if (sessionBlock) parts.push(sessionBlock);
+
+  // Order: accepted_twists (story context) before block_signal
+  // (writer-facing coaching) so the coaching block stays adjacent to
+  // the user input. Snapshot eval #112 pins this order.
+  const acceptedTwistsBlock = buildAcceptedTwistsBlock(acceptedTwists);
+  if (acceptedTwistsBlock) parts.push(acceptedTwistsBlock);
 
   const blockSignalBlock = buildBlockSignalBlock(blockCoaching);
   if (blockSignalBlock) parts.push(blockSignalBlock);
@@ -145,6 +185,7 @@ function buildModelPromptParts(args) {
     persona: trimToString(args?.persona),
     memoryBlock: buildMemoryBlock(args?.creativeMemory),
     sessionBlock: buildSessionContextBlock(args?.sessionContext),
+    acceptedTwistsBlock: buildAcceptedTwistsBlock(args?.acceptedTwists),
     blockSignalBlock: buildBlockSignalBlock(args?.blockCoaching),
     userInput: trimToString(args?.userInput),
   };
@@ -157,4 +198,6 @@ export {
   MEMORY_BLOCK_CLOSE,
   BLOCK_SIGNAL_BLOCK_OPEN,
   BLOCK_SIGNAL_BLOCK_CLOSE,
+  ACCEPTED_TWISTS_BLOCK_OPEN,
+  ACCEPTED_TWISTS_BLOCK_CLOSE,
 };
