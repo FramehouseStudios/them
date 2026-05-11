@@ -406,6 +406,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var craftLoglineErrorText: String = ""
     @Published var craftLoglineInfoText: String = ""
     @Published var blockSignal: BackendBlockSignalResponse?
+    @Published var blockSignalHistory: BackendBlockSignalHistoryResponse?
     @Published var isBlockSignalLoading: Bool = false
     @Published var blockSignalErrorText: String = ""
     @Published var blockSignalInfoText: String = ""
@@ -2377,6 +2378,9 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         } catch {
             blockSignalErrorText = error.localizedDescription
             blockSignalInfoText = source
+        }
+        if let history = try? await craftClient.fetchMemoryBlockSignalHistory() {
+            blockSignalHistory = history
         }
     }
 
@@ -8505,6 +8509,7 @@ private var directionOneThemPanel: some View {
     let analytics = liveDraftBridge.companionAnalytics
     let signalState = liveDraftBridge.companionSignalState
     let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
+    let blockSignalHistoryTrend = BackendBlockSignalHistoryTrendState.make(history: vm.blockSignalHistory)
     let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits, archetypes: vm.characterArchetypes)
     let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
 
@@ -8586,8 +8591,8 @@ private var directionOneThemPanel: some View {
                     .controlSize(.small)
                 }
             }
-        } else if blockSignalNudge.shouldRender {
-            directionOneBlockSignalNudgeCard(blockSignalNudge)
+        } else if blockSignalNudge.shouldRender || blockSignalHistoryTrend.shouldRender {
+            directionOneBlockSignalNudgeCard(blockSignalNudge, history: blockSignalHistoryTrend)
         }
 
         if vm.isCharacterTraitsLoading ||
@@ -8629,53 +8634,103 @@ private var directionOneThemPanel: some View {
     )
 }
 
-    private func directionOneBlockSignalNudgeCard(_ state: BackendBlockSignalNudgeState) -> some View {
-        intelligenceCollectionCard(title: state.title, icon: state.level == .high ? "sparkles.rectangle.stack" : "sparkle.magnifyingglass") {
+    private func directionOneBlockSignalNudgeCard(
+        _ state: BackendBlockSignalNudgeState,
+        history: BackendBlockSignalHistoryTrendState
+    ) -> some View {
+        let title = state.shouldRender ? state.title : history.title
+        let icon = state.shouldRender ? (state.level == .high ? "sparkles.rectangle.stack" : "sparkle.magnifyingglass") : "chart.xyaxis.line"
+
+        return intelligenceCollectionCard(title: title, icon: icon) {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Text(state.scoreLabel)
-                        .font(.system(size: 18, weight: .semibold, design: .serif))
-                        .foregroundStyle(blockSignalTint(state.level))
-                    if !state.topSignalLabel.isEmpty {
-                        Text(state.topSignalLabel)
-                            .font(.system(size: 10, weight: .semibold, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.62))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.white.opacity(0.16))
-                            .clipShape(Capsule())
+                if state.shouldRender {
+                    HStack(spacing: 8) {
+                        Text(state.scoreLabel)
+                            .font(.system(size: 18, weight: .semibold, design: .serif))
+                            .foregroundStyle(blockSignalTint(state.level))
+                        if !state.topSignalLabel.isEmpty {
+                            Text(state.topSignalLabel)
+                                .font(.system(size: 10, weight: .semibold, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.62))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.16))
+                                .clipShape(Capsule())
+                        }
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await vm.refreshBlockSignal(source: "Manual check") }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Refresh momentum signal")
                     }
-                    Spacer(minLength: 0)
-                    Button {
-                        Task { await vm.refreshBlockSignal(source: "Manual check") }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.herShellStroke.opacity(0.20))
+                            Capsule()
+                                .fill(blockSignalTint(state.level).opacity(0.58))
+                                .frame(width: max(8, geometry.size.width * state.progress))
+                        }
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Refresh momentum signal")
+                    .frame(height: 5)
+
+                    Text(state.summary)
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.78))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(state.detailLabel)
+                        .font(.system(size: 10, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.48))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(spacing: 8) {
+                        Text(history.trendLabel)
+                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .foregroundStyle(blockSignalTint(history.latestLevel))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await vm.refreshBlockSignal(source: "Manual check") }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Refresh momentum history")
+                    }
                 }
 
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(Color.herShellStroke.opacity(0.20))
-                        Capsule()
-                            .fill(blockSignalTint(state.level).opacity(0.58))
-                            .frame(width: max(8, geometry.size.width * state.progress))
-                    }
+                if history.shouldRender {
+                    directionOneBlockSignalHistorySparkline(history)
                 }
-                .frame(height: 5)
-
-                Text(state.summary)
-                    .font(.system(size: 12, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.78))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(state.detailLabel)
-                    .font(.system(size: 10, weight: .medium, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.48))
-                    .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private func directionOneBlockSignalHistorySparkline(_ history: BackendBlockSignalHistoryTrendState) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 3) {
+                ForEach(Array(history.sparklineScores.enumerated()), id: \.offset) { _, score in
+                    Capsule()
+                        .fill(blockSignalTint(history.latestLevel).opacity(0.30 + (0.42 * score)))
+                        .frame(width: 5, height: CGFloat(max(5, 26 * score)))
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(height: 28)
+
+            HStack(spacing: 8) {
+                Text(history.countLabel)
+                Text(history.levelMixLabel)
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 10, weight: .medium, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.48))
         }
     }
 

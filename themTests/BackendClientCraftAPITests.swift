@@ -283,6 +283,41 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/block-signal"])
     }
 
+    func testBlockSignalHistoryEndpointBuildsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/memory/block-signal/history"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "entries": [
+                    { "at": 1000, "score": 0.1, "level": "low" },
+                    { "at": 300000, "score": 0.5, "level": "medium" },
+                    { "at": 600000, "score": 0.9, "level": "high" }
+                  ],
+                  "counts": {
+                    "total": 3,
+                    "byLevel": { "low": 1, "medium": 1, "high": 1 }
+                  },
+                  "newestAt": 600000,
+                  "oldestAt": 1000
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let history = try await client.fetchMemoryBlockSignalHistory()
+
+        XCTAssertEqual(history.entries.count, 3)
+        XCTAssertEqual(history.entries.last?.level, .high)
+        XCTAssertEqual(history.counts.byLevel.medium, 1)
+        XCTAssertEqual(history.newestAt, 600000)
+        XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/block-signal/history"])
+    }
+
 
 
     func testTwistSuggestPostsExpectedRequest() async throws {
