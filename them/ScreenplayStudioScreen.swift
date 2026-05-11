@@ -410,6 +410,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var blockSignalErrorText: String = ""
     @Published var blockSignalInfoText: String = ""
     @Published var characterTraits: BackendCharacterTraitsResponse?
+    @Published var characterArchetypes: BackendCharacterArchetypesResponse?
     @Published var isCharacterTraitsLoading: Bool = false
     @Published var characterTraitsErrorText: String = ""
     @Published var characterTraitsInfoText: String = ""
@@ -2386,6 +2387,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         do {
             let response = try await craftClient.fetchMemoryCharacterTraits()
             characterTraits = response
+            characterArchetypes = try? await craftClient.fetchMemoryCharacterArchetypes()
             characterTraitsErrorText = ""
             characterTraitsInfoText = source
         } catch {
@@ -8503,7 +8505,7 @@ private var directionOneThemPanel: some View {
     let analytics = liveDraftBridge.companionAnalytics
     let signalState = liveDraftBridge.companionSignalState
     let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
-    let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits)
+    let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits, archetypes: vm.characterArchetypes)
     let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
 
     return VStack(alignment: .leading, spacing: 16) {
@@ -8738,6 +8740,15 @@ private var directionOneThemPanel: some View {
                                         .background(Color.white.opacity(0.14))
                                         .clipShape(Capsule())
                                 }
+                                if card.hasArchetype {
+                                    Text(card.archetypeLabel)
+                                        .font(.system(size: 9, weight: .semibold, design: .default))
+                                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.86))
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(Color.herStudioActiveFill.opacity(0.14))
+                                        .clipShape(Capsule())
+                                }
                                 Spacer(minLength: 0)
                             }
 
@@ -8745,6 +8756,13 @@ private var directionOneThemPanel: some View {
                                 .font(.system(size: 12, weight: .medium, design: .default))
                                 .foregroundStyle(Color.herText.opacity(0.72))
                                 .fixedSize(horizontal: false, vertical: true)
+
+                            if card.hasArchetype && !card.archetypeSummary.isEmpty {
+                                Text(card.archetypeScoreLabel.isEmpty ? card.archetypeSummary : "\(card.archetypeSummary) - \(card.archetypeScoreLabel)")
+                                    .font(.system(size: 11, weight: .semibold, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.62))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
 
                             if !card.chips.isEmpty {
                                 VStack(alignment: .leading, spacing: 5) {

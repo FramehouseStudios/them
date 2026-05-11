@@ -52,11 +52,12 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #93: `T42-supervisor-merge-protocol` records D005 and makes the Codex/Claude handoff lane coordination-first.
 - Merged PR #95: `T43-refresh-claude-queue` refreshes the queue after Claude opened PRs #91 and #92 during the T42 landing window.
 - Merged PR #96: `T44-creative-memory-export-triage` records PR #94 as a human-gated privacy/data-control item.
-- Merged PR #91: `T-archetype-engine`; `GET /memory/character-archetypes` is now available for a future iOS character-traits rail archetype tag.
+- Merged PR #91: `T-archetype-engine`; T48 consumes `GET /memory/character-archetypes` in the iOS character-traits rail.
 - Merged PR #98: `T45-craft-route-json-parser`; Craft routes now own `/craft` JSON parsing in production. Rebase Craft PRs #88 and #92 before asking Codex to review them again.
 - Merged PR #101: `T46-post-review-queue-refresh` updates the coordination queue after the #87/#88/#90/#92/#97 review pass and #91/#98 merges.
 - New Codex triage: PR #99 is tier-3/needs-human/do-not-merge because it is memory deletion privacy work. PR #100 is tier-1/do-not-merge until `/talk/errors` has access-control proof and true `sinceMs` window counts.
-- In-progress PR-to-open: `codex/T47-refresh-after-new-claude-prs` records PR #99/#100 blockers in the repo handoff lane.
+- Merged PR #102: `T47-refresh-after-new-claude-prs` records PR #99/#100 blockers in the repo handoff lane.
+- In-progress PR-to-open: `codex/T48-ios-archetype-traits` consumes PR #91's archetype endpoint as a non-blocking Studio character rail enrichment. No Claude backend action is needed unless the response envelope changes.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

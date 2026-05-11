@@ -464,6 +464,39 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/character-traits"])
     }
 
+    func testCharacterArchetypesEndpointBuildsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/memory/character-archetypes"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "userId": "usr_test",
+                  "entries": [
+                    {
+                      "name": "JUNE",
+                      "primary": { "archetype": "hero", "score": 0.81, "signals": ["traits:2"] },
+                      "candidates": [],
+                      "summary": "JUNE reads as hero."
+                    }
+                  ]
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let response = try await client.fetchMemoryCharacterArchetypes()
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.entries.first?.name, "JUNE")
+        XCTAssertEqual(response.entries.first?.primary?.archetype, "hero")
+        XCTAssertEqual(response.entries.first?.primary?.score, 0.81)
+        XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/character-archetypes"])
+    }
+
     func testRealtimeSupplierBodyOmitsServerDefaultAndIncludesExplicitProviders() throws {
         let serverDefault = BackendClient.realtimeClientSecretBody(
             systemPrompt: "  write in screenplay mode  ",

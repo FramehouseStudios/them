@@ -221,6 +221,52 @@ struct BackendCharacterTraitsResponse: Codable, Equatable {
     let error: String?
 }
 
+struct BackendCharacterArchetypeCandidate: Codable, Equatable {
+    let archetype: String
+    let score: Double
+    let signals: [String]
+
+    init(archetype: String = "", score: Double = 0, signals: [String] = []) {
+        self.archetype = archetype
+        self.score = score
+        self.signals = signals
+    }
+}
+
+struct BackendCharacterArchetypeEntry: Codable, Equatable {
+    let name: String
+    let primary: BackendCharacterArchetypeCandidate?
+    let candidates: [BackendCharacterArchetypeCandidate]
+    let summary: String
+
+    init(
+        name: String = "",
+        primary: BackendCharacterArchetypeCandidate? = nil,
+        candidates: [BackendCharacterArchetypeCandidate] = [],
+        summary: String = ""
+    ) {
+        self.name = name
+        self.primary = primary
+        self.candidates = candidates
+        self.summary = summary
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try container.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        primary = try container.decodeIfPresent(BackendCharacterArchetypeCandidate.self, forKey: .primary)
+        candidates = (try container.decodeIfPresent([BackendCharacterArchetypeCandidate].self, forKey: .candidates)) ?? []
+        summary = (try container.decodeIfPresent(String.self, forKey: .summary)) ?? ""
+    }
+}
+
+struct BackendCharacterArchetypesResponse: Codable, Equatable {
+    let schemaVersion: Int
+    let userId: String?
+    let entries: [BackendCharacterArchetypeEntry]
+    let error: String?
+}
+
 struct BackendCharacterTraitCardState: Identifiable, Equatable {
     let id: String
     let name: String
@@ -228,12 +274,31 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
     let chips: [String]
     let detail: String
     let hasTraits: Bool
+    let archetypeLabel: String
+    let archetypeSummary: String
+    let archetypeScoreLabel: String
+    let hasArchetype: Bool
 
-    static func make(response: BackendCharacterTraitsResponse?) -> [BackendCharacterTraitCardState] {
+    static func make(
+        response: BackendCharacterTraitsResponse?,
+        archetypes: BackendCharacterArchetypesResponse? = nil
+    ) -> [BackendCharacterTraitCardState] {
         guard let response else { return [] }
+        var archetypesByName: [String: BackendCharacterArchetypeEntry] = [:]
+        for entry in archetypes?.entries ?? [] {
+            let key = clean(entry.name).lowercased()
+            if !key.isEmpty, archetypesByName[key] == nil {
+                archetypesByName[key] = entry
+            }
+        }
         return response.characters.prefix(4).enumerated().map { index, record in
             let cleanedName = clean(record.name)
             let traits = record.traits
+            let archetypeEntry = archetypesByName[cleanedName.lowercased()]
+            let primaryArchetype = clean(archetypeEntry?.primary?.archetype ?? "")
+            let score = archetypeEntry?.primary?.score ?? 0
+            let archetypeLabel = displayArchetype(primaryArchetype)
+            let scoreLabel = score > 0 ? "\(Int((score * 100).rounded()))%" : ""
             let styleParts = [
                 clean(traits?.speechStyle.pace ?? ""),
                 clean(traits?.speechStyle.syntax ?? "")
@@ -266,13 +331,29 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
                 summary: summary,
                 chips: chips,
                 detail: detailBits.isEmpty ? "Waiting for more dialogue evidence" : detailBits.joined(separator: " | "),
-                hasTraits: traits?.hasContent ?? false
+                hasTraits: traits?.hasContent ?? false,
+                archetypeLabel: archetypeLabel,
+                archetypeSummary: clean(archetypeEntry?.summary ?? ""),
+                archetypeScoreLabel: scoreLabel,
+                hasArchetype: !archetypeLabel.isEmpty
             )
         }
     }
 
     private static func clean(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func displayArchetype(_ value: String) -> String {
+        let cleaned = clean(value)
+        guard !cleaned.isEmpty else { return "" }
+        return cleaned
+            .split(separator: "_")
+            .map { part in
+                let lower = part.lowercased()
+                return lower.prefix(1).uppercased() + lower.dropFirst()
+            }
+            .joined(separator: " ")
     }
 }
 
@@ -1204,6 +1285,47 @@ final class BackendClient {
         } catch {
             let raw = String(data: data, encoding: .utf8) ?? ""
             throw BackendError.http(502, raw.isEmpty ? "Invalid character-traits payload." : raw)
+        }
+    }
+
+    func fetchMemoryCharacterArchetypes() async throws -> BackendCharacterArchetypesResponse {
+        persistSharedBackendBaseURL(baseURL)
+        var url = baseURL
+        url.appendPathComponent("memory")
+        url.appendPathComponent("character-archetypes")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid character-archetypes response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+        do {
+            return try JSONDecoder().decode(BackendCharacterArchetypesResponse.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid character-archetypes payload." : raw)
         }
     }
 
