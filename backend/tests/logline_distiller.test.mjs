@@ -11,6 +11,7 @@ import {
   recordLogline,
   getLoglineHistory,
   computeDrift,
+  driftAlertForScore,
   normalizeLogline,
   jaccardDistance,
   wordsFrom,
@@ -225,4 +226,68 @@ test("computeDrift handles empty history gracefully", async () => {
 test("LOGLINE_DOMAIN constant matches KNOWN_DOMAINS expectation", () => {
   assert.equal(LOGLINE_DOMAIN, "craft_loglines");
   assert.equal(LOGLINE_SCHEMA_VERSION, 1);
+});
+
+// ---------- T-logline-drift-alert ----------
+
+test("[drift-alert] driftAlertForScore maps each threshold band to a level", () => {
+  assert.equal(driftAlertForScore(0).level, "ok");
+  assert.equal(driftAlertForScore(0.19).level, "ok");
+  assert.equal(driftAlertForScore(0.2).level, "soft");
+  assert.equal(driftAlertForScore(0.39).level, "soft");
+  assert.equal(driftAlertForScore(0.4).level, "firm");
+  assert.equal(driftAlertForScore(0.69).level, "firm");
+  assert.equal(driftAlertForScore(0.7).level, "sharp");
+  assert.equal(driftAlertForScore(1).level, "sharp");
+});
+
+test("[drift-alert] actionable flag flips at the firm threshold", () => {
+  assert.equal(driftAlertForScore(0.19).actionable, false);
+  assert.equal(driftAlertForScore(0.39).actionable, false);
+  assert.equal(driftAlertForScore(0.4).actionable, true);
+  assert.equal(driftAlertForScore(0.9).actionable, true);
+});
+
+test("[drift-alert] recommendation is always a non-empty string", () => {
+  for (const s of [0, 0.2, 0.4, 0.7, 1]) {
+    const a = driftAlertForScore(s);
+    assert.ok(typeof a.recommendation === "string");
+    assert.ok(a.recommendation.length > 0);
+  }
+});
+
+test("[drift-alert] non-finite score defaults to ok level", () => {
+  assert.equal(driftAlertForScore(null).level, "ok");
+  assert.equal(driftAlertForScore(undefined).level, "ok");
+  assert.equal(driftAlertForScore(Number.NaN).level, "ok");
+});
+
+test("[drift-alert] computeDrift attaches alert on the populated path", async () => {
+  const persistence = freshPersistence();
+  await recordLogline({
+    persistence, projectId: "alert-proj",
+    logline: "A scientist studies a strange new fungus.",
+    distilledAtMs: 1_700_000_000_000,
+  });
+  // Force a sharp divergence.
+  const drift = await computeDrift({
+    persistence, projectId: "alert-proj",
+    currentLogline: "A lawyer takes on commerce in the courtroom.",
+  });
+  assert.ok(drift.score >= 0.7);
+  assert.equal(drift.alert.level, "sharp");
+  assert.equal(drift.alert.actionable, true);
+  assert.match(drift.alert.recommendation, /diverged|re-?pitch/i);
+});
+
+test("[drift-alert] computeDrift attaches alert on the empty-history path too", async () => {
+  const persistence = freshPersistence();
+  const drift = await computeDrift({
+    persistence, projectId: "empty-alert",
+    currentLogline: "Anything.",
+  });
+  assert.equal(drift.historyCount, 0);
+  assert.equal(drift.alert.level, "ok");
+  assert.equal(drift.alert.actionable, false);
+  assert.match(drift.alert.recommendation, /no logline history/i);
 });
