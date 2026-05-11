@@ -94,6 +94,7 @@ import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
 import { mountPromptRoutes } from "./lib/prompt_routes.js";
 import { mountFountainImportRoute } from "./lib/fountain_import_route.js";
+import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog } from "./lib/accepted_twist_log.js";
@@ -32846,6 +32847,11 @@ mountPromptRoutes(app, {
 // Reverse of T-fountain-export-endpoint. Parses Fountain text into
 // the canonical screenplay shape.
 mountFountainImportRoute(app);
+
+// T-fdx-export-endpoint: Final Draft XML export companion to the
+// Fountain exporter. JSON envelope by default; XML download with
+// Accept: application/xml or ?format=xml.
+mountFDXExportRoute(app);
 
 // T30: /memory/record-character-mention — Codex PR #50 (T29) calls this
 // endpoint from the iOS screenplay-render path. The route persists each
