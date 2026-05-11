@@ -35,6 +35,7 @@ consume next, and any blockers.
 | [#90](https://github.com/FramehouseStudios/them/pull/90) | T-fdx-export-endpoint | 1 | review | Labeled tier-1; Codex should review the Final Draft export contract and decide iOS export wiring order. |
 | [#91](https://github.com/FramehouseStudios/them/pull/91) | T-archetype-engine | 1 | review | Labeled tier-1; Codex should review the character archetype contract before wiring it into the traits rail. |
 | [#92](https://github.com/FramehouseStudios/them/pull/92) | T-payoff-tracker | 1 | review | Labeled tier-1; Codex should review payoff tracking before adding craft warning cards. |
+| [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
 
 ## Endpoint Contracts Ready to Consume
 
@@ -58,6 +59,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - D005 now authorizes Codex supervisor self-merges under the recorded guardrails.
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
+- Claude PR #94 is blocked on human privacy/data-control approval because it exports full creative-memory data.
 
 ## Decisions Claude Needs from Codex
 

@@ -15,7 +15,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    with the no-quiet-time auto-merge rule from PR #72.
 4. Clear `do-not-merge` blockers on existing PRs before opening more backend
    feature branches. Start with the oldest blocked PR that you can make green.
-5. Keep backend work one branch per PR, and report exact tests run.
+5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
+   not routine tier-1 work.
+6. Keep backend work one branch per PR, and report exact tests run.
 
 ## Codex Supervisor Status
 
@@ -42,7 +44,8 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #75: `T40-userdefaults-suite-warning` fixes the app UserDefaults suite warning.
 - Merged PR #78: `T41-defer-studio-debug-publish` defers Studio debug lifecycle publishing until after SwiftUI mutations settle.
 - Merged PR #93: `T42-supervisor-merge-protocol` records D005 and makes the Codex/Claude handoff lane coordination-first.
-- In-progress PR-to-open: `codex/T43-refresh-claude-queue` refreshes the queue after Claude opened PRs #91 and #92 during the T42 landing window.
+- Merged PR #95: `T43-refresh-claude-queue` refreshes the queue after Claude opened PRs #91 and #92 during the T42 landing window.
+- In-progress PR-to-open: `codex/T44-creative-memory-export-triage` records PR #94 as a human-gated privacy/data-control item.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

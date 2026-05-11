@@ -2,7 +2,7 @@
 id: T44-creative-memory-export-triage
 title: Triage creative-memory export privacy gate
 owner: codex
-status: in-progress
+status: review
 branch: codex/T44-creative-memory-export-triage
 pillar: longitudinal learning
 ---
