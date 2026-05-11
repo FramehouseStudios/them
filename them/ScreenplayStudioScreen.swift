@@ -190,6 +190,14 @@ private func studioDebugMirroredDomains() -> [String] {
     return domains
 }
 
+private func studioDebugMirroredSuiteDefaults(for domain: String) -> UserDefaults? {
+    if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+       domain == bundleID {
+        return nil
+    }
+    return UserDefaults(suiteName: domain)
+}
+
 private func studioDebugMirroredPlistURLs(for domain: String) -> [URL] {
     let libraryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
     let filename = domain.hasSuffix(".plist") ? domain : "\(domain).plist"
@@ -218,8 +226,10 @@ private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, 
 private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugMirroredDomains() {
-        UserDefaults(suiteName: domain)?.set(value, forKey: key)
-        UserDefaults(suiteName: domain)?.synchronize()
+        if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
+            suite.set(value, forKey: key)
+            suite.synchronize()
+        }
         let domainRef = domain as CFString
         CFPreferencesSetAppValue(key as CFString, NSNumber(value: value), domainRef)
         CFPreferencesAppSynchronize(domainRef)
@@ -231,8 +241,10 @@ private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: Str
 private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey key: String) {
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugMirroredDomains() {
-        UserDefaults(suiteName: domain)?.set(value, forKey: key)
-        UserDefaults(suiteName: domain)?.synchronize()
+        if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
+            suite.set(value, forKey: key)
+            suite.synchronize()
+        }
         let domainRef = domain as CFString
         CFPreferencesSetAppValue(key as CFString, value as CFString, domainRef)
         CFPreferencesAppSynchronize(domainRef)
@@ -258,7 +270,7 @@ private func studioDebugMirroredPreferenceValues(forKey key: String) -> [Any] {
                 append(dictionary[key])
             }
         }
-        if let suite = UserDefaults(suiteName: domain) {
+        if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
             suite.synchronize()
             append(suite.object(forKey: key))
         }

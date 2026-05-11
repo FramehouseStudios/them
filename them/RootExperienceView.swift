@@ -185,6 +185,14 @@ private func studioDebugPreferenceDomains() -> [String] {
     return domains
 }
 
+private func studioDebugSuiteDefaults(for domain: String) -> UserDefaults? {
+    if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+       domain == bundleID {
+        return nil
+    }
+    return UserDefaults(suiteName: domain)
+}
+
 private func studioDebugPreferencePlistURLs(for domain: String) -> [URL] {
     let libraryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
     let filename = domain.hasSuffix(".plist") ? domain : "\(domain).plist"
@@ -217,7 +225,7 @@ private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
                 append(dictionary[key])
             }
         }
-        if let suite = UserDefaults(suiteName: domain) {
+        if let suite = studioDebugSuiteDefaults(for: domain) {
             suite.synchronize()
             append(suite.object(forKey: key))
         }
@@ -233,8 +241,10 @@ private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
 private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugPreferenceDomains() {
-        UserDefaults(suiteName: domain)?.set(value, forKey: key)
-        UserDefaults(suiteName: domain)?.synchronize()
+        if let suite = studioDebugSuiteDefaults(for: domain) {
+            suite.set(value, forKey: key)
+            suite.synchronize()
+        }
         let domainRef = domain as CFString
         CFPreferencesSetAppValue(key as CFString, NSNumber(value: value), domainRef)
         CFPreferencesAppSynchronize(domainRef)
@@ -246,8 +256,10 @@ private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
 private func writeStudioDebugPreferenceString(_ value: String, forKey key: String) {
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugPreferenceDomains() {
-        UserDefaults(suiteName: domain)?.set(value, forKey: key)
-        UserDefaults(suiteName: domain)?.synchronize()
+        if let suite = studioDebugSuiteDefaults(for: domain) {
+            suite.set(value, forKey: key)
+            suite.synchronize()
+        }
         let domainRef = domain as CFString
         CFPreferencesSetAppValue(key as CFString, value as CFString, domainRef)
         CFPreferencesAppSynchronize(domainRef)
