@@ -1,8 +1,134 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T19:00:56.000Z",
+  "updatedAt": "2026-05-11T21:42:36.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 90,
+      "title": "T-fdx-export-endpoint",
+      "owner": "claude",
+      "tier": 1,
+      "status": "needs-codex-triage",
+      "branch": "claude/T-fdx-export-endpoint",
+      "blocker": "untriaged: review Final Draft export contract before merge"
+    },
+    {
+      "number": 89,
+      "title": "T-codex-inbox-refresh-2",
+      "owner": "claude",
+      "tier": 1,
+      "status": "needs-codex-triage",
+      "branch": "claude/T-codex-inbox-refresh-2",
+      "blocker": "may be superseded by T42 supervisor protocol refresh"
+    },
+    {
+      "number": 88,
+      "title": "T-coverage-simulator",
+      "owner": "claude",
+      "tier": 1,
+      "status": "needs-codex-triage",
+      "branch": "claude/T-coverage-simulator",
+      "blocker": "untriaged: review coverage simulator contract before merge"
+    },
+    {
+      "number": 87,
+      "title": "T-screenplay-import-fountain",
+      "owner": "claude",
+      "tier": 1,
+      "status": "needs-codex-triage",
+      "branch": "claude/T-screenplay-import-fountain",
+      "blocker": "untriaged: review Fountain import contract before merge"
+    },
+    {
+      "number": 86,
+      "title": "T-genre-classifier",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-genre-classifier",
+      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+    },
+    {
+      "number": 85,
+      "title": "T-backend-surface-smoke",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-backend-surface-smoke",
+      "blocker": "do-not-merge: likely next infra unblock once Claude clears blocker"
+    },
+    {
+      "number": 84,
+      "title": "T-realtime-supplier-failover",
+      "owner": "claude",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/T-realtime-supplier-failover",
+      "blocker": "do-not-merge: route-level coverage and cross-agent review required"
+    },
+    {
+      "number": 83,
+      "title": "T-fountain-export-endpoint",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-fountain-export-endpoint",
+      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+    },
+    {
+      "number": 82,
+      "title": "T-realtime-supplier-health",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-realtime-supplier-health",
+      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+    },
+    {
+      "number": 81,
+      "title": "T-block-signal-clears-on-completion",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-block-signal-clears-on-completion",
+      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+    },
+    {
+      "number": 80,
+      "title": "T-craft-frameworks-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-craft-frameworks-eval",
+      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+    },
+    {
+      "number": 79,
+      "title": "T-first-page-telemetry-sink",
+      "owner": "claude",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/T-first-page-telemetry-sink",
+      "blocker": "do-not-merge: rebase/task detail and green checks required"
+    },
+    {
+      "number": 76,
+      "title": "T-logline-drift-alert",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-logline-drift-alert",
+      "blocker": "do-not-merge: endpoint/status proof required before Codex review"
+    },
+    {
+      "number": 74,
+      "title": "T-prompt-wire-traits-and-twists",
+      "owner": "claude",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/T-prompt-wire-traits-and-twists",
+      "blocker": "do-not-merge: rebase/fix and integration proof required without weakening gates"
+    },
     {
       "number": 63,
       "title": "T-trust-tiers",
@@ -10,25 +136,16 @@
       "tier": 3,
       "status": "policy-gated",
       "branch": "claude/T-trust-tiers",
-      "blocker": "human: standing pre-approval policy needs explicit acceptance before merge"
+      "blocker": "human: D005 records current supervisor authority; do not merge remaining trust-policy changes without explicit approval"
     },
     {
       "number": 33,
       "title": "T07 eval gate",
       "owner": "claude",
       "tier": 3,
-      "status": "review",
+      "status": "blocked",
       "branch": "claude/T07-eval-gate-postgres",
       "blocker": "human: replace malformed OPENAI_API_KEY Actions secret"
-    },
-    {
-      "number": 71,
-      "title": "T38-accepted-twist-ios",
-      "owner": "codex",
-      "tier": 1,
-      "status": "review",
-      "branch": "codex/T38-accepted-twist-ios",
-      "blocker": "external review/merge required; Codex cannot merge own PR"
     }
   ],
   "blockers": [
@@ -37,24 +154,14 @@
       "owner": "human",
       "summary": "Repository Actions secret OPENAI_API_KEY is malformed. Replace with the literal OpenAI key. Blocks PR #33.",
       "since": "2026-05-10"
+    },
+    {
+      "id": "claude-do-not-merge-queue",
+      "owner": "claude",
+      "summary": "Claude PRs #74, #76, and #79-#86 have do-not-merge blockers. Claude should clear these before opening more backend feature branches.",
+      "since": "2026-05-11"
     }
   ],
   "decisionsPending": [],
-  "endpointsAwaitingIosConsumer": [
-    {
-      "endpoint": "POST /craft/twist/accepted",
-      "pr": 59,
-      "consumer": "ios twist-card consumer"
-    },
-    {
-      "endpoint": "GET /craft/twist/accepted",
-      "pr": 59,
-      "consumer": "ios beat-timeline reload"
-    },
-    {
-      "endpoint": "DELETE /craft/twist/accepted/:twistId",
-      "pr": 59,
-      "consumer": "ios twist-card dismiss"
-    }
-  ]
+  "endpointsAwaitingIosConsumer": []
 }

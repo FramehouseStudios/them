@@ -2,7 +2,7 @@
 id: T42-supervisor-merge-protocol
 title: Codex self-merge authority + agent handoff fast lane
 owner: codex
-status: in-progress
+status: review
 branch: codex/T42-supervisor-merge-protocol
 pillar: infra (enables all)
 ---
