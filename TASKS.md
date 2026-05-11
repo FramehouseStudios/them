@@ -56,7 +56,7 @@
 | T-coordination-state | Fast-path coordination.json + CLI helper        | claude | merged         |
 | T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | claude | merged         |
 | T-decisions-queue | One-file queue for human decisions               | claude | merged         |
-| T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | in-progress |
+| T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
 
 ---
 
@@ -444,7 +444,7 @@
 - **Branch:** `claude/T-auto-merge-tier1`
 - **Pillar:** infra (enables all)
 - **Status:** merged
-- **Scope:** new GitHub Actions workflow `.github/workflows/auto-merge-tier1.yml`. Activates on PRs (open/sync/label/comment) and on completion of the `quality-gate` workflow. For PRs carrying the `tier-1` label (and not `tier-2`/`tier-3`/`needs-human`/`do-not-merge`), the workflow verifies the merge state is `CLEAN`, then checks for either a formal review approval, a `Codex supervisor update: approved` / `Claude supervisor update: approved` comment, or a quiet-time fallback (≥4h open with no comment containing `block`-family words from the other agent). If all gates pass, it squash-merges and deletes the branch. Tier 3 PRs are never auto-merged. Companion to T-trust-tiers (PR #63).
+- **Scope:** new GitHub Actions workflow `.github/workflows/auto-merge-tier1.yml`. Activates on PRs (open/sync/label/comment) and on completion of the `quality-gate` workflow. For PRs carrying the `tier-1` label (and not `tier-2`/`tier-3`/`needs-human`/`do-not-merge`), the workflow verifies the merge state is `CLEAN`, then checks for explicit approval through a trusted formal review or trusted `Codex supervisor update: approved` / `Claude supervisor update: approved` comment. There is no quiet-time fallback. If all gates pass, it squash-merges and deletes the branch. Tier 3 PRs are never auto-merged. Companion to T-trust-tiers (PR #63).
 - **Done when:** workflow file lands; PR description names the exact gates the workflow checks; the `tier-1` label can be created in the repo (workflow tolerates the label not existing by simply skipping).
 
 ---
@@ -474,6 +474,16 @@
 - **Status:** merged
 - **Scope:** `docs/decisions-queue.md` is the single place either agent posts "needs human" questions, with a one-line question per entry, the reason it matters, and a safe default. AGENTS.md `Decisions` section gains a one-paragraph pointer so the convention is durable. Open entries follow a stamped shape (`D-<slug>`, `Asked by`, `Asked at`, `Why it matters`, `Question`, `Default if no answer`). Resolved entries move to the bottom with the human's answer. Replaces decisions hidden inside PR bodies and chat memory.
 - **Done when:** the file exists with the documented template and no open entries; AGENTS.md's `Decisions` section names the queue as the canonical channel.
+
+---
+
+### T-strict-auto-merge — Require explicit Codex approval
+- **Owner:** claude
+- **Branch:** `claude/T-strict-auto-merge`
+- **Pillar:** infra (enables all)
+- **Status:** merged
+- **Scope:** tighten `.github/workflows/auto-merge-tier1.yml` by removing the four-hour quiet-time fallback and requiring an explicit trusted cross-agent approval signal before any Tier 1 PR can auto-merge.
+- **Done when:** the workflow has no quiet-time merge path; approval still requires a trusted OWNER/MEMBER/COLLABORATOR review or supervisor approval comment; the PR verifies with the workflow evaluate check.
 
 ---
 
