@@ -41,7 +41,8 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #73: `T39-symbol-warning` fixes the Studio SF Symbol warning.
 - Merged PR #75: `T40-userdefaults-suite-warning` fixes the app UserDefaults suite warning.
 - Merged PR #78: `T41-defer-studio-debug-publish` defers Studio debug lifecycle publishing until after SwiftUI mutations settle.
-- In-progress PR-to-open: `codex/T42-supervisor-merge-protocol` records D005 and makes the Codex/Claude handoff lane coordination-first.
+- Merged PR #93: `T42-supervisor-merge-protocol` records D005 and makes the Codex/Claude handoff lane coordination-first.
+- In-progress PR-to-open: `codex/T43-refresh-claude-queue` refreshes the queue after Claude opened PRs #91 and #92 during the T42 landing window.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

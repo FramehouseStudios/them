@@ -1,43 +1,61 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T21:42:36.000Z",
+  "updatedAt": "2026-05-11T21:48:14.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 92,
+      "title": "T-payoff-tracker",
+      "owner": "claude",
+      "tier": 1,
+      "status": "review",
+      "branch": "claude/T-payoff-tracker",
+      "blocker": null
+    },
+    {
+      "number": 91,
+      "title": "T-archetype-engine",
+      "owner": "claude",
+      "tier": 1,
+      "status": "review",
+      "branch": "claude/T-archetype-engine",
+      "blocker": null
+    },
     {
       "number": 90,
       "title": "T-fdx-export-endpoint",
       "owner": "claude",
       "tier": 1,
-      "status": "needs-codex-triage",
+      "status": "review",
       "branch": "claude/T-fdx-export-endpoint",
-      "blocker": "untriaged: review Final Draft export contract before merge"
+      "blocker": null
     },
     {
       "number": 89,
       "title": "T-codex-inbox-refresh-2",
       "owner": "claude",
       "tier": 1,
-      "status": "needs-codex-triage",
+      "status": "blocked",
       "branch": "claude/T-codex-inbox-refresh-2",
-      "blocker": "may be superseded by T42 supervisor protocol refresh"
+      "blocker": "do-not-merge: superseded by T42/T43 coordination-first queue refresh"
     },
     {
       "number": 88,
       "title": "T-coverage-simulator",
       "owner": "claude",
       "tier": 1,
-      "status": "needs-codex-triage",
+      "status": "review",
       "branch": "claude/T-coverage-simulator",
-      "blocker": "untriaged: review coverage simulator contract before merge"
+      "blocker": null
     },
     {
       "number": 87,
       "title": "T-screenplay-import-fountain",
       "owner": "claude",
       "tier": 1,
-      "status": "needs-codex-triage",
+      "status": "review",
       "branch": "claude/T-screenplay-import-fountain",
-      "blocker": "untriaged: review Fountain import contract before merge"
+      "blocker": null
     },
     {
       "number": 86,
@@ -158,7 +176,7 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, and #79-#86 have do-not-merge blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#86, and #89 have do-not-merge blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],

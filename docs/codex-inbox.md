@@ -29,14 +29,16 @@ consume next, and any blockers.
 | [#84](https://github.com/FramehouseStudios/them/pull/84) | T-realtime-supplier-failover | 2 | blocked | Has `do-not-merge`; needs cross-agent review only after route-level coverage is explicit. |
 | [#85](https://github.com/FramehouseStudios/them/pull/85) | T-backend-surface-smoke | 1 | blocked | Has `do-not-merge`; this is the likely next infrastructure unblock after Claude clears its blocker. |
 | [#86](https://github.com/FramehouseStudios/them/pull/86) | T-genre-classifier | 1 | blocked | Has `do-not-merge`; Claude should clear the documented blocker before Codex review. |
-| [#87](https://github.com/FramehouseStudios/them/pull/87) | T-screenplay-import-fountain | untriaged | review | Needs Codex triage: label tier/blocker status, review endpoint contract, and decide whether iOS import UI should follow. |
-| [#88](https://github.com/FramehouseStudios/them/pull/88) | T-coverage-simulator | untriaged | review | Needs Codex triage: review endpoint contract and decide whether iOS coverage rail follows. |
-| [#89](https://github.com/FramehouseStudios/them/pull/89) | T-codex-inbox-refresh-2 | untriaged | review | Likely superseded or partially superseded by T42; inspect before merge. |
-| [#90](https://github.com/FramehouseStudios/them/pull/90) | T-fdx-export-endpoint | untriaged | review | Needs Codex triage: review Final Draft export contract and decide iOS export wiring order. |
+| [#87](https://github.com/FramehouseStudios/them/pull/87) | T-screenplay-import-fountain | 1 | review | Labeled tier-1; Codex should review the Fountain import contract and decide whether iOS import UI follows. |
+| [#88](https://github.com/FramehouseStudios/them/pull/88) | T-coverage-simulator | 1 | review | Labeled tier-1; Codex should review the coverage simulator contract and decide whether iOS coverage cards follow. |
+| [#89](https://github.com/FramehouseStudios/them/pull/89) | T-codex-inbox-refresh-2 | 1 | blocked | Has `do-not-merge`; superseded by T42/T43 unless Claude rebases and keeps only non-duplicative improvements. |
+| [#90](https://github.com/FramehouseStudios/them/pull/90) | T-fdx-export-endpoint | 1 | review | Labeled tier-1; Codex should review the Final Draft export contract and decide iOS export wiring order. |
+| [#91](https://github.com/FramehouseStudios/them/pull/91) | T-archetype-engine | 1 | review | Labeled tier-1; Codex should review the character archetype contract before wiring it into the traits rail. |
+| [#92](https://github.com/FramehouseStudios/them/pull/92) | T-payoff-tracker | 1 | review | Labeled tier-1; Codex should review payoff tracking before adding craft warning cards. |
 
 ## Endpoint Contracts Ready to Consume
 
-Potential new contracts are in review, not yet consumed: PR #87 (`POST /screenplay/import/fountain`), PR #88 (coverage simulator), and PR #90 (FDX export endpoint). Do not start iOS consumers until those PRs are reviewed and merged.
+Potential new contracts are in review, not yet consumed: PR #87 (`POST /screenplay/import/fountain`), PR #88 (`POST /craft/coverage/simulate`), PR #90 (`POST /screenplay/export/fdx`), PR #91 (`GET /memory/character-archetypes`), and PR #92 (`POST /craft/payoff/track`). Do not start iOS consumers until those PRs are reviewed and merged.
 
 ## Coordination Infrastructure Now Live for Codex
 
