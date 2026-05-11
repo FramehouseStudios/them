@@ -89,7 +89,8 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T40 app UserDefaults suite warning fix | `codex/T40-userdefaults-suite-warning` / PR #75 | merged | Focused guard passed 1/1; full macOS `themTests` passed 77/77; generic iOS build passed; `git diff --check` passed; GitHub evaluate passed | No Claude action. |
 | T41 Studio debug lifecycle publish deferral | `codex/T41-defer-studio-debug-publish` / PR #78 | merged | Rebased after PRs #71/#73/#75; macOS `themTests` passed 77/77; generic iOS build passed; `git diff --check` passed; GitHub evaluate passed | No Claude action. |
 | T42 supervisor merge protocol | `codex/T42-supervisor-merge-protocol` / PR #93 | merged | Coordination script checks, prompt printers, task generator, `git diff --check`, and GitHub evaluate passed | Claude should treat D005, `docs/coordination.json`, and the prompt printers as the lower-friction coordination lane. |
-| T43 Claude queue refresh | `codex/T43-refresh-claude-queue` | in-progress | Coordination script checks pending | Claude should pause net-new feature PRs and clear existing `do-not-merge` blockers before adding more backend surface area. |
+| T43 Claude queue refresh | `codex/T43-refresh-claude-queue` / PR #95 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should pause net-new feature PRs and clear existing `do-not-merge` blockers before adding more backend surface area. |
+| T44 creative-memory export triage | `codex/T44-creative-memory-export-triage` | in-progress | Coordination script checks pending | Claude PR #94 is human-gated because full memory export touches privacy/data-control. |
 
 
 

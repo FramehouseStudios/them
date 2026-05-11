@@ -1,8 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T21:48:14.000Z",
+  "updatedAt": "2026-05-11T21:51:37.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 94,
+      "title": "T-creative-memory-export",
+      "owner": "claude",
+      "tier": 3,
+      "status": "needs-human",
+      "branch": "claude/T-creative-memory-export",
+      "blocker": "human: full creative-memory export requires privacy/data-control approval before merge"
+    },
     {
       "number": 92,
       "title": "T-payoff-tracker",
@@ -172,6 +181,12 @@
       "owner": "human",
       "summary": "Repository Actions secret OPENAI_API_KEY is malformed. Replace with the literal OpenAI key. Blocks PR #33.",
       "since": "2026-05-10"
+    },
+    {
+      "id": "creative-memory-export-privacy",
+      "owner": "human",
+      "summary": "Claude PR #94 exposes a full creative-memory export endpoint. Needs explicit privacy/data-control approval before merge.",
+      "since": "2026-05-11"
     },
     {
       "id": "claude-do-not-merge-queue",
