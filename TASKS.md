@@ -84,6 +84,7 @@
 | T-prompt-assembly-snapshot-eval | Pin canonical buildModelPrompt block order            | claude | review |
 | T-prompt-size-eval | Char-budget guard on assembled model prompts             | claude | review |
 | T-memory-quality-eval | Multi-turn creative-memory recall eval                   | claude | review |
+| T-tasks-sync-check | CI script to detect tasks/_active vs TASKS.md drift      | claude | review |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
