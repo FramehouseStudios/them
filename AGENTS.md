@@ -46,6 +46,8 @@ The purpose of this protocol is to protect the product's central magic: a mobile
 
 Architectural or product decisions are appended to `DECISIONS.md` in ADR form: `id`, `date`, `status`, `context`, `decision`, `consequences`. Codex may propose. Human accepts. Claude may flag the need for a decision but does not author one.
 
+Anything else that needs the human's answer — a one-line product question, a tier-3 ambiguity, an unclear scope — goes into `docs/decisions-queue.md`, not the PR body. The queue is the single place the human checks for open questions. Each entry is one concrete question with a documented safe default the agent will follow absent an answer.
+
 ### Removal principle
 
 Any process, file, or rule that does not help the user write a scene quickly, emotionally, and beautifully is a candidate for deletion. Review quarterly.

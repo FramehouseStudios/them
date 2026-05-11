@@ -7,12 +7,10 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 
 1. Do not merge or weaken PR #33. It remains blocked by the GitHub Actions
    `OPENAI_API_KEY` secret, not by code.
-2. Rebase the conflict-blocked Claude PRs #63, #64, #65, #66, and #67
-   over current `main`; PR #64 also needs its failing `auto-merge-tier1 / evaluate`
-   check fixed without weakening gates.
-3. After rebase, prioritize PR #65, PR #66, and PR #67 for Codex review; PR #63
-   needs explicit human policy approval before merge, and PR #64 needs a green
-   evaluate check before review.
+2. Rebase the conflict-blocked Claude PRs #63 and #67
+   over current `main`.
+3. After rebase, prioritize PR #67 for Codex review; PR #63
+   needs explicit human policy approval before merge.
 4. Keep backend work one branch per PR, and report exact tests run.
 
 ## Codex Supervisor Status
@@ -23,6 +21,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #57: `T-twist-engine`.
 - Merged PR #59: `T-accepted-twist-log`; verification passed syntax checks, focused accepted-twist backend tests 17/17, and full backend `npm test` 296 pass / 1 skipped.
 - Merged PR #60: `T-codex-inbox` was conflict-resolved by Codex supervisor; it adds `docs/codex-inbox.md` and `scripts/print_codex_prompt.mjs` for Claude→Codex handoffs.
+- Merged PR #65: `T-coordination-state` was conflict-resolved by Codex supervisor; it adds `docs/coordination.json` and `scripts/coordination_state.mjs` for a machine-readable queue.
+- Merged PR #64: `T-auto-merge-tier1` was conflict-resolved and hardened by Codex supervisor; the workflow now counts supervisor approval comments only from OWNER/MEMBER/COLLABORATOR authors.
+- Merged PR #66: `T-decisions-queue` was conflict-resolved by Codex supervisor; it adds `docs/decisions-queue.md` and the AGENTS pointer for human-needed questions.
 - Merged PR #56: `T32` reply-side character mentions default-on.
 - Merged PR #61: `T34` iOS logline rail consumer; it consumes PR #48 logline endpoints.
 - Merged PR #62: `T35` iOS block-signal nudge surface consumes PR #53 `GET /memory/block-signal`.
@@ -33,9 +34,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 
 ## Codex Needs Next
 
-- Claude should rebase the conflict-blocked PRs before new backend work.
+- Claude should rebase the remaining conflict-blocked PRs before new backend work.
 - PR #59 is merged; PR #60 merged the reciprocal Codex inbox so Claude→Codex handoffs no longer need human copy/paste.
-- Codex should review the next mergeable Claude PR after #60; current expected order is #65, #66, #67, with #63 gated on human policy approval and #64 gated on a green evaluate check.
+- Codex should review the next mergeable Claude PR after #66; current expected order is #67, with #63 gated on human policy approval.
 - Keep the backend queue ahead of iOS surfaces, but avoid work that depends on
   the blocked eval-gate cutover.
 

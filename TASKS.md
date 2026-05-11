@@ -54,21 +54,22 @@
 | T37  | Build iOS twist-card consumer                     | codex  | merged            |
 | T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | merged         |
 | T-coordination-state | Fast-path coordination.json + CLI helper        | claude | merged         |
-| T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | claude | review         |
+| T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | claude | merged         |
+| T-decisions-queue | One-file queue for human decisions               | claude | merged         |
 
 ---
 
-## Current next-10 checklist (2026-05-11 after #60 merge)
+## Current next-10 checklist (2026-05-11 after #66 merge)
 
 1. Review-ready Codex PR #71 (`T38`) needs external review/merge; Codex must not merge its own PR.
-2. Claude rebases conflict-blocked PRs #63, #64, #65, #66, and #67 over current main; PR #64 also needs its failing `auto-merge-tier1 / evaluate` check fixed without weakening gates.
+2. Claude rebases conflict-blocked PRs #63 and #67 over current main.
 3. Review PR #63 (`T-trust-tiers`) after rebase; merge only if the human accepts the standing pre-approval policy changes.
-4. Review PR #64 (`T-auto-merge-tier1`) only after the `auto-merge-tier1 / evaluate` check is green.
-5. Review PR #65 (`T-coordination-state`) after rebase so automation state has one structured source.
-6. Review PR #66 (`T-decisions-queue`) after rebase so human-needed product calls stop getting buried.
-7. Review PR #67 (`T-tasks-per-row`) after rebase; merge only if the generator keeps `TASKS.md` faithful.
-8. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
-9. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
+4. Use merged PR #66 (`T-decisions-queue`) for human-needed questions.
+5. Review PR #67 (`T-tasks-per-row`) after rebase; merge only if the generator keeps `TASKS.md` faithful.
+6. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+7. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
+8. Use merged PR #65 (`T-coordination-state`) as the fast machine-readable queue: `node scripts/coordination_state.mjs read`.
+9. Use merged PR #64 (`T-auto-merge-tier1`) carefully: only label routine Tier 1 PRs after review, and use blocking labels/comments for anything risky.
 10. After PR #71 merges, run release-readiness plus live-backend smoke passes for T34/T35/T36/T37/T38, including accepted-twist Keep/Dismiss/Reload.
 
 ---
@@ -441,7 +442,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T-auto-merge-tier1`
 - **Pillar:** infra (enables all)
-- **Status:** review
+- **Status:** merged
 - **Scope:** new GitHub Actions workflow `.github/workflows/auto-merge-tier1.yml`. Activates on PRs (open/sync/label/comment) and on completion of the `quality-gate` workflow. For PRs carrying the `tier-1` label (and not `tier-2`/`tier-3`/`needs-human`/`do-not-merge`), the workflow verifies the merge state is `CLEAN`, then checks for either a formal review approval, a `Codex supervisor update: approved` / `Claude supervisor update: approved` comment, or a quiet-time fallback (≥4h open with no comment containing `block`-family words from the other agent). If all gates pass, it squash-merges and deletes the branch. Tier 3 PRs are never auto-merged. Companion to T-trust-tiers (PR #63).
 - **Done when:** workflow file lands; PR description names the exact gates the workflow checks; the `tier-1` label can be created in the repo (workflow tolerates the label not existing by simply skipping).
 
@@ -462,6 +463,16 @@
 - **Pillar:** living companion + screenplay craft
 - **Status:** merged
 - **Done when:** iOS has typed client/models for `POST /craft/twist/suggest`; the Studio craft or companion rail can request beat-aware reversal cards from the merged twist engine with loading, empty, and retry states; focused tests cover request shape, decoding, and view-state mapping; handoff docs name the next Claude/Codex follow-up.
+
+---
+
+### T-decisions-queue — One-file queue for human decisions
+- **Owner:** claude
+- **Branch:** `claude/T-decisions-queue`
+- **Pillar:** infra (enables all)
+- **Status:** merged
+- **Scope:** `docs/decisions-queue.md` is the single place either agent posts "needs human" questions, with a one-line question per entry, the reason it matters, and a safe default. AGENTS.md `Decisions` section gains a one-paragraph pointer so the convention is durable. Open entries follow a stamped shape (`D-<slug>`, `Asked by`, `Asked at`, `Why it matters`, `Question`, `Default if no answer`). Resolved entries move to the bottom with the human's answer. Replaces decisions hidden inside PR bodies and chat memory.
+- **Done when:** the file exists with the documented template and no open entries; AGENTS.md's `Decisions` section names the queue as the canonical channel.
 
 ---
 
