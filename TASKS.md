@@ -69,6 +69,7 @@
 | T-talk-error-rate-tracker | In-memory error counter + GET /talk/errors (safe-public) | claude | review |
 | T-realtime-supplier-health | Supplier shape + live probe + /realtime/health   | claude | review |
 | T-block-signal-clears-on-completion | Behavioral tests lock block-signal recovery | claude | review |
+| T-craft-frameworks-eval | Eval that runs analyzer against all frameworks   | claude | review     |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
 | T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
