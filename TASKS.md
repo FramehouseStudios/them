@@ -59,7 +59,8 @@
 | T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
-| T38  | Wire iOS accepted twist-card actions              | codex  | review            |
+| T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
+| T39  | Fix missing Studio SF Symbol warning              | codex  | in-progress       |
 
 ---
 
@@ -504,6 +505,15 @@
 - **Status:** merged
 - **Scope:** new `tasks/_active/` directory holds one markdown file per active task (YAML-style front matter + Scope/Done-when body). `scripts/build_tasks_md.mjs` reads these files and renders both the quick-view table and the per-task detail blocks. `--write` mode looks for `<!-- BEGIN AUTOGEN active-tasks -->` / `<!-- END AUTOGEN active-tasks -->` anchors in TASKS.md and overwrites between them; the anchors do not exist yet, so `--write` is a no-op until a follow-up adds them. Removes the recurring “two agents touch line 42 of TASKS.md” merge-conflict class without breaking the current flow.
 - **Done when:** `tasks/README.md` documents the layout; `tasks/_active/` is seeded with at least the per-row files for this PR + T-trust-tiers; `node scripts/build_tasks_md.mjs` prints a valid rendered section; TASKS.md remains the source of truth until a follow-up flips the anchors on.
+
+---
+
+### T39 — Fix missing Studio SF Symbol warning
+- **Owner:** codex
+- **Branch:** `codex/T39-fix-missing-symbol`
+- **Pillar:** mobile-first
+- **Status:** in-progress
+- **Done when:** the Studio UI no longer asks SwiftUI for the unavailable `square.stack.badge.plus` SF Symbol; replacement icon preserves the duplicate/stack action meaning; focused build verification passes without the missing-symbol runtime warning.
 
 ---
 
