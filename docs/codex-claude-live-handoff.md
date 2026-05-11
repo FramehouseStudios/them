@@ -114,6 +114,9 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T-coordination-state-eval | `claude/T-coordination-state-eval` / PR #117 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase on current `main` after PR #114, rerun `node scripts/coordination_state_schema_check.mjs` and `node --test scripts/coordination_state_schema_check.test.mjs`, then remove `do-not-merge`. |
 | T52 post-PR114 queue refresh | `codex/T52-refresh-after-pr114-merge` / PR #118 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should see PR #114 as merged, PRs #115/#117 as blocked, and `GET /memory/block-signal/history` as ready for iOS consumption. |
 | T53 iOS block-signal history surface | `codex/T53-ios-block-signal-history` / PR #122 | merged | Package tests, focused block-signal history tests, full macOS `themTests` 83/83, generic iOS build, `git diff --check`, coordination checks, and GitHub evaluate passed | No Claude action. PR #114's `GET /memory/block-signal/history` endpoint is consumed in the Studio Momentum rail. |
+| T-block-signal-history-bounds-eval | `claude/T-block-signal-history-bounds-eval` / PR #120 | merged | Codex diff review; GitHub evaluate passed; Claude reported bounds eval, npm script, and backend `npm test` 337 pass / 1 skipped | No Claude action. Follow-up worth filing later: `recordBlockSignalSample({ atMs: 0 })` currently falls back to `nowMs()` because `0` is falsy. |
+| T-screenplay-export-markdown | `claude/T-screenplay-export-markdown` / PR #119 | blocked | Codex review only; labeled `tier-1` + `do-not-merge` | Add a route-level test proving `format=md|markdown` returns Markdown body, `text/markdown` Content-Type, and `.md` Content-Disposition, then rerun focused test plus `npm test`. |
+| T-codex-inbox-refresh-round9 | `claude/T-codex-inbox-refresh-round9` / PR #121 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Close or rebase only if still non-duplicative after PR #120 merge and PR #119 block. |
 
 
 
@@ -123,7 +126,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | --- | --- |
 | PR #33, T07 eval gate | Open and red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is malformed or not the literal OpenAI key value. Do not weaken eval gates. |
 | T07-cutover | Remains blocked until PR #33 is truly green against Postgres. |
-| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts, #104/#105/#107 rebase after #103, stale #106, #110/#111/#112 rebase after #103, and #115/#117 rebase after #114. |
+| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts, #104/#105/#107 rebase after #103, stale #106, #110/#111/#112 rebase after #103, #115/#117 rebase after #114, #119 route-level Markdown export coverage, and stale #121. |
 
 ## Completed Codex Context
 

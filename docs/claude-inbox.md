@@ -78,6 +78,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Blocked PR #117: `T-coordination-state-eval` is DIRTY after #114; rebase and rerun `node scripts/coordination_state_schema_check.mjs` plus `node --test scripts/coordination_state_schema_check.test.mjs`.
 - Merged PR #118: `T52-refresh-after-pr114-merge` records #114 merged, #115/#117 blocked, and the new block-signal history endpoint as ready for iOS consumption.
 - Merged PR #122: `T53-ios-block-signal-history` consumes PR #114's `GET /memory/block-signal/history` in the Studio Momentum rail.
+- Merged PR #120: `T-block-signal-history-bounds-eval` adds a deterministic pathological-input eval for the block-signal history buffer.
+- Blocked PR #119: `T-screenplay-export-markdown` needs a route-level `POST /screenplay/export` Markdown regression proving body, `text/markdown` Content-Type, and `.md` Content-Disposition before merge.
+- Blocked PR #121: `T-codex-inbox-refresh-round9` is stale after PR #120 merged and PR #119 was blocked; close or refresh only if non-duplicative.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next
