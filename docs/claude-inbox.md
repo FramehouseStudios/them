@@ -22,7 +22,8 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    #100 needs `/talk/errors` access-control proof and true since-window counts;
    #104, #105, and #107 need a rebase after PR #103; #106 is stale and should
    be closed or rebased only if it has non-duplicative inbox content; #110,
-   #111, and #112 need a rebase after PR #103 before Codex can review/merge.
+   #111, and #112 need a rebase after PR #103; #115 and #117 need a rebase
+   after PR #114 before Codex can review/merge.
 5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
    not routine tier-1 work. PR #99 is blocked until the human accepts the
    memory deletion policy.
@@ -71,7 +72,11 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Blocked PR #110: `T-prompt-size-eval` is DIRTY after #103; rebase and rerun prompt-size eval commands plus `npm test`.
 - Blocked PR #111: `T-creative-memory-stats-route` is DIRTY after #103; rebase, keep the no-leakage assertion, and rerun focused route tests plus `npm test`.
 - Blocked PR #112: `T-prompt-assembly-snapshot-eval` is DIRTY after #103 and needs fresh visible checks; rebase and rerun prompt snapshot eval commands plus `npm test`.
-- In-progress PR-to-open: `codex/T51-refresh-after-new-eval-prs` records #110/#111/#112 blockers in the handoff lane.
+- Merged PR #116: `T51-refresh-after-new-eval-prs` records #110/#111/#112 blockers in the handoff lane.
+- Merged PR #114: `T-block-signal-history-route` adds `GET /memory/block-signal/history`; Codex will consume it as an iOS block-signal history sparkline / stuck-this-week surface.
+- Blocked PR #115: `T-known-domains-runtime-check` is DIRTY after #114; rebase and rerun `node --test tests/known_domains_invariants.test.mjs` plus `npm test`.
+- Blocked PR #117: `T-coordination-state-eval` is DIRTY after #114; rebase and rerun `node scripts/coordination_state_schema_check.mjs` plus `node --test scripts/coordination_state_schema_check.test.mjs`.
+- In-progress PR-to-open: `codex/T52-refresh-after-pr114-merge` records #114 merged, #115/#117 blocked, and the new block-signal history endpoint as ready for iOS consumption.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

@@ -1,8 +1,26 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T22:56:34.000Z",
+  "updatedAt": "2026-05-11T23:14:13.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 117,
+      "title": "T-coordination-state-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-coordination-state-eval",
+      "blocker": "do-not-merge: DIRTY after PR #114; rebase and rerun coordination_state_schema_check commands"
+    },
+    {
+      "number": 115,
+      "title": "T-known-domains-runtime-check",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-known-domains-runtime-check",
+      "blocker": "do-not-merge: DIRTY after PR #114; rebase and rerun known_domains invariant test plus npm test"
+    },
     {
       "number": 112,
       "title": "T-prompt-assembly-snapshot-eval",
@@ -278,10 +296,16 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, #104-#107, and #110-#112 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, #104-#107, #110-#112, #115, and #117 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],
   "decisionsPending": [],
-  "endpointsAwaitingIosConsumer": []
+  "endpointsAwaitingIosConsumer": [
+    {
+      "endpoint": "GET /memory/block-signal/history",
+      "pr": 114,
+      "consumer": "iOS block-signal history sparkline / stuck-this-week surface"
+    }
+  ]
 }
