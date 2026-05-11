@@ -58,6 +58,7 @@
 | T-decisions-queue | One-file queue for human decisions               | claude | merged         |
 | T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
+| T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | claude | review |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |

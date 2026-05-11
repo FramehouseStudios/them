@@ -61,6 +61,7 @@ import { createPersonaRuntime } from "./lib/persona.js";
 import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
 import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention_route.js";
 import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
+import { mountArchetypeRoute } from "./lib/archetype_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
@@ -32867,6 +32868,10 @@ mountMemoryCharacterMentionRoute(app, { creativeMemoryStore });
 // (auto-merges with the existing character record); GET
 // /memory/character-traits returns one or all character inventories.
 mountCharacterTraitRoute(app, { creativeMemoryStore });
+// T-archetype-engine: GET /memory/character-archetypes classifies the
+// requesting user's character roster onto canonical narrative
+// archetypes (hero / mentor / shadow / etc.) using the stored traits.
+mountArchetypeRoute(app, { creativeMemoryStore });
 
 // T-block-detector: GET /memory/block-signal — reads habits from
 // creativeMemoryStore and runs them through the pure
