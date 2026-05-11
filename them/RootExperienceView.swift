@@ -575,6 +575,7 @@ struct RootExperienceView: View {
     @State private var isMagicMomentSubmitting = false
     @State private var magicMomentOnboardingError = ""
     @AppStorage("t11.magic_moment_last_duration_ms") private var magicMomentLastDurationMs: Double = 0
+    @AppStorage("t12.magic_moment_perceived_response_ms") private var magicMomentPerceivedResponseMs: Double = 0
     @State private var showingMemories = false
     @State private var showingConversationHistory = false
     @State private var showingNotes = false
@@ -656,7 +657,7 @@ struct RootExperienceView: View {
     @State private var studioTypedPromptRoutingMode: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     @AppStorage("show_live_script_preview") private var showLiveScriptPreview: Bool = true
     @AppStorage(ClementineVoiceSettings.voiceSpeedKey) private var clementineSpeakingPace: Double = 1.0
-    @AppStorage("studio_typed_reply_audio_enabled") private var studioTypedReplyAudioEnabled: Bool = false
+    @AppStorage("studio_typed_reply_audio_enabled") private var studioTypedReplyAudioEnabled: Bool = true
     @AppStorage("clementine_visual_context_enabled") private var visualContextEnabled: Bool = false
     @AppStorage("clementine_voice_transport_mode")
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
@@ -3063,6 +3064,7 @@ struct RootExperienceView: View {
         magicMomentOnboardingError = ""
         openStudio()
         screenplayDraftBridge.autoInsertStatusText = "io.them is writing the first page..."
+        magicMomentPerceivedResponseMs = Date().timeIntervalSince(startedAt) * 1_000
 
         Task { @MainActor in
             await Task.yield()

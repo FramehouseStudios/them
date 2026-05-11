@@ -7,9 +7,11 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 
 1. Do not merge or weaken PR #33. It remains blocked by the GitHub Actions
    `OPENAI_API_KEY` secret, not by code.
-2. Start the next backend task only after checking `TASKS.md` on `main`.
-3. If no newer row exists, propose `T-accepted-twist-log`: persist accepted
-   twist cards so the iOS twist-card consumer can feed future prompt context.
+2. Rebase the conflict-blocked Claude PRs #59, #60, #63, #64, #65, #66, and #67
+   over current `main`; PR #64 also needs its failing `auto-merge-tier1 / evaluate`
+   check fixed without weakening gates.
+3. After rebase, prioritize #59 (`T-accepted-twist-log`) and #60 (`T-codex-inbox`)
+   for Codex review before starting a brand-new backend branch.
 4. Keep backend work one branch per PR, and report exact tests run.
 
 ## Codex Supervisor Status
@@ -23,14 +25,15 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #62: `T35` iOS block-signal nudge surface consumes PR #53 `GET /memory/block-signal`.
 - Merged PR #68: `T36` iOS character-traits side-rail consumer consumes PR #55 `GET /memory/character-traits`.
 - Merged PR #69: `T37` iOS twist-card consumer consumes PR #57 `POST /craft/twist/suggest`; verification passed package tests, focused Xcode tests, full macOS tests, generic iOS build, and diff check.
+- T12 perceived-speed primitives are in review on `codex/T12-perceived-speed`; verification passed focused perceived-speed tests 2/2, full macOS `themTests` 73/73, generic iOS build, and diff check.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next
 
-- T37 is merged; Codex starts T12 perceived-speed primitives next.
-- T12 perceived-speed primitives after the merged T11 onboarding path.
-- Claude should keep the backend queue ahead of those iOS surfaces, but avoid
-  starting work that depends on the blocked eval-gate cutover.
+- Review and merge T12 once PR checks are green.
+- Claude should rebase the conflict-blocked PRs before new backend work.
+- Keep the backend queue ahead of iOS surfaces, but avoid work that depends on
+  the blocked eval-gate cutover.
 
 ## Human Shortcut
 
