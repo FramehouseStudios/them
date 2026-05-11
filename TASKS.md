@@ -63,14 +63,14 @@
 
 ---
 
-## Current next-10 checklist (2026-05-11 after #66 merge)
+## Current next-10 checklist (2026-05-11 after #67 merge)
 
 1. Review-ready Codex PR #71 (`T38`) needs external review/merge; Codex must not merge its own PR.
-2. Claude rebases conflict-blocked PRs #63 and #67 over current main.
-3. Review PR #63 (`T-trust-tiers`) after rebase; merge only if the human accepts the standing pre-approval policy changes.
+2. Review PR #63 (`T-trust-tiers`) only after explicit human acceptance of the standing trust/pre-approval policy; rebase it over current main without restoring any quiet-time auto-merge path.
+3. Keep PR #33 blocked until the human replaces the malformed `OPENAI_API_KEY` Actions secret; do not weaken eval gates.
 4. Use merged PR #66 (`T-decisions-queue`) for human-needed questions.
-5. Review PR #67 (`T-tasks-per-row`) after rebase; merge only if the generator keeps `TASKS.md` faithful.
-6. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+5. Use merged PR #67 (`T-tasks-per-row`) for optional task seeds; `TASKS.md` remains source of truth until a later canonical flip.
+6. After the PR #33 secret is fixed, have Claude refresh the eval-gate branch without weakening it.
 7. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
 8. Use merged PR #65 (`T-coordination-state`) as the fast machine-readable queue: `node scripts/coordination_state.mjs read`.
 9. Use merged PR #64 (`T-auto-merge-tier1`) carefully: only label routine Tier 1 PRs after review, and use blocking labels/comments for anything risky.
