@@ -78,6 +78,7 @@ private enum BeatProvenanceSource: String, Codable, Equatable {
         case .manual:
             return "Manual"
         }
+
     }
 
     var compactTitle: String {
@@ -181,6 +182,7 @@ private func studioDebugMirroredDomains() -> [String] {
        !bundleID.isEmpty {
         domains.append(bundleID)
     }
+
     let fallbackDomain = String(studioDebugMirroredPreferencesDomain)
     if !domains.contains(fallbackDomain) {
         domains.append(fallbackDomain)
@@ -3532,6 +3534,39 @@ struct ScreenplayStudioScreen: View {
     @Binding var typedReplyAudioEnabled: Bool
     var onSubmitPrompt: (String, PromptRoutingMode, String) async -> String?
     var shouldRoutePromptToPage: (String, PromptRoutingMode) -> Bool
+
+    init(
+        onDone: @escaping () -> Void,
+        liveDraftBridge: ScreenplayLiveDraftBridge,
+        onArmTalk: @escaping () -> Void,
+        onStopTalk: @escaping () -> Void,
+        onOpenVoiceSettings: @escaping () -> Void,
+        canTalk: Bool,
+        talkStatusText: String,
+        talkIsActive: Bool,
+        debugVoicePartialStableSeconds: Double,
+        debugVoicePartialStabilityWindowSeconds: Double,
+        isSubmittingPrompt: Bool,
+        typedReplyAudioEnabled: Binding<Bool>,
+        onSubmitPrompt: @escaping (String, PromptRoutingMode, String) async -> String?,
+        shouldRoutePromptToPage: @escaping (String, PromptRoutingMode) -> Bool
+    ) {
+        self.onDone = onDone
+        self.liveDraftBridge = liveDraftBridge
+        self.onArmTalk = onArmTalk
+        self.onStopTalk = onStopTalk
+        self.onOpenVoiceSettings = onOpenVoiceSettings
+        self.canTalk = canTalk
+        self.talkStatusText = talkStatusText
+        self.talkIsActive = talkIsActive
+        self.debugVoicePartialStableSeconds = debugVoicePartialStableSeconds
+        self.debugVoicePartialStabilityWindowSeconds = debugVoicePartialStabilityWindowSeconds
+        self.isSubmittingPrompt = isSubmittingPrompt
+        self._typedReplyAudioEnabled = typedReplyAudioEnabled
+        self.onSubmitPrompt = onSubmitPrompt
+        self.shouldRoutePromptToPage = shouldRoutePromptToPage
+    }
+
     @StateObject private var vm = ScreenplayStudioViewModel()
     @State private var navigatorRootURL: URL?
     @State private var navigatorCurrentURL: URL?
@@ -3561,6 +3596,7 @@ struct ScreenplayStudioScreen: View {
     @State private var studioPromptSeed: String = ""
     @State private var studioPromptIntent: StudioPromptIntent = .advice
     @State private var isSubmittingStudioPrompt: Bool = false
+    @State private var perceivedSpeedState: StudioPerceivedSpeedState = .idle
     @State private var sendingVoicePinSuggestionID: String?
     @State private var pendingDraftImportURL: URL?
     @State private var pendingDraftImportSourceName: String = ""
@@ -6568,6 +6604,13 @@ private var directionOneScriptEditor: some View {
                 .overlay(alignment: .topLeading) {
                     focusedPageDiffAnchoredOverlay
                 }
+                .overlay(alignment: .topTrailing) {
+                    if perceivedSpeedState.isActive && perceivedSpeedState.target == .page {
+                        studioPerceivedPageSkeleton
+                            .padding(.top, 18)
+                            .padding(.trailing, 18)
+                    }
+                }
             }
             .frame(width: pageWidth)
             .frame(maxWidth: .infinity)
@@ -6583,6 +6626,82 @@ private var directionOneScriptEditor: some View {
                 handleDraftDrop(providers: providers)
             }
         }
+    }
+
+    private var isVoicePinPerceivedResponseActive: Bool {
+        perceivedSpeedState.isActive && perceivedSpeedState.target == .voicePin
+    }
+
+    private var studioPerceivedPageSkeleton: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(perceivedSpeedState.statusText)
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.72))
+            }
+
+            ForEach(perceivedSpeedState.skeletonLines, id: \.self) { line in
+                Text(line)
+                    .font(.system(size: line == line.uppercased() ? 9 : 10, weight: line == line.uppercased() ? .semibold : .regular, design: .monospaced))
+                    .foregroundStyle(Color.herText.opacity(line == line.uppercased() ? 0.54 : 0.42))
+                    .lineLimit(1)
+            }
+        }
+        .padding(12)
+        .frame(width: 238, alignment: .leading)
+        .background(Color.white.opacity(0.72))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.herText.opacity(0.10), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 8)
+    }
+
+    private var studioPerceivedVoicePinPendingCard: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(perceivedSpeedState.statusText)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.78))
+                Spacer(minLength: 0)
+                if let ms = perceivedSpeedState.firstFeedbackMilliseconds {
+                    Text("\(Int(ms))ms")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.herText.opacity(0.42))
+                }
+            }
+
+            Text(perceivedSpeedState.prompt)
+                .font(.system(size: 12, weight: .medium, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.58))
+                .lineLimit(2)
+
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(perceivedSpeedState.skeletonLines, id: \.self) { line in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.herText.opacity(0.20))
+                            .frame(width: 4, height: 4)
+                        Text(line)
+                            .font(.system(size: 10, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.42))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var directionOneDraftFooterStrip: some View {
@@ -14425,7 +14544,7 @@ private var projectsSidebarContent: some View {
         VStack(spacing: 0) {
             voicePinHeader
 
-            if voicePinTurns.isEmpty {
+            if voicePinTurns.isEmpty && !isVoicePinPerceivedResponseActive {
                 voicePinEmptyState
             } else {
                 Divider()
@@ -14435,6 +14554,11 @@ private var projectsSidebarContent: some View {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 0) {
                             voicePinThreadHeader
+
+                            if isVoicePinPerceivedResponseActive {
+                                studioPerceivedVoicePinPendingCard
+                                    .padding(.bottom, 8)
+                            }
 
                             ForEach(visibleVoicePinTurns) { turn in
                                 voicePinTurnCard(turn)
@@ -21498,6 +21622,38 @@ Return revised screenplay lines only.
         #endif
     }
 
+    private func beginPerceivedSpeedResponse(
+        prompt: String,
+        requestID: String,
+        target: StudioPerceivedSpeedState.Target,
+        source: StudioPromptSource
+    ) {
+        perceivedSpeedState = StudioPerceivedSpeedState.start(
+            requestID: requestID,
+            prompt: prompt,
+            target: target,
+            sourceRaw: source.rawValue
+        )
+        vm.infoText = perceivedSpeedState.statusText
+        if target == .page {
+            liveDraftBridge.autoInsertStatusText = perceivedSpeedState.statusText
+        } else {
+            withAnimation(.easeInOut(duration: 0.14)) {
+                isDirectionOneRightRailExpanded = true
+                directionOneRightPanelTab = .them
+            }
+        }
+    }
+
+    private func completePerceivedSpeedResponse(requestID: String) {
+        guard perceivedSpeedState.id == requestID else { return }
+        let completedState = perceivedSpeedState.completing()
+        if completedState.target == .page && liveDraftBridge.autoInsertStatusText == perceivedSpeedState.statusText {
+            liveDraftBridge.autoInsertStatusText = ""
+        }
+        perceivedSpeedState = completedState
+    }
+
     private func submitStudioPromptText(
         _ rawText: String,
         displayText: String? = nil,
@@ -21518,7 +21674,14 @@ Return revised screenplay lines only.
         guard !isSubmittingStudioPrompt, !isSubmittingPrompt else { return }
         let routesToPage = shouldRoutePromptToPage(text, routingMode)
         let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
+        let perceivedTarget: StudioPerceivedSpeedState.Target = routesToPage ? .page : .voicePin
 
+        beginPerceivedSpeedResponse(
+            prompt: text,
+            requestID: requestID,
+            target: perceivedTarget,
+            source: source
+        )
         isSubmittingStudioPrompt = true
         self.sendingVoicePinSuggestionID = sendingSuggestionID
         studioPromptFocused = false
@@ -21561,6 +21724,7 @@ Return revised screenplay lines only.
 #endif
                 isSubmittingStudioPrompt = false
                 self.sendingVoicePinSuggestionID = nil
+                completePerceivedSpeedResponse(requestID: requestID)
                 if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 #if DEBUG || os(macOS)
                     if let effectiveDebugSubmitToken {

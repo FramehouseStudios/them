@@ -27,7 +27,7 @@
 | T08-postgres | Move creative memory store to persistence adapter | claude | merged            |
 | T10  | Codify single design system (color/typo/spacing)   | codex  | merged            |
 | T11  | 60-second magic-moment onboarding                  | codex  | merged            |
-| T12  | Adopt perceived-speed primitives system-wide       | codex  | ready             |
+| T12  | Adopt perceived-speed primitives system-wide       | codex  | merged            |
 | T13  | Add second realtime supplier behind interface      | claude | merged            |
 | T13-client | Add iOS realtime supplier selection            | codex  | merged            |
 | T29  | Hook iOS reply-side character mentions             | codex  | merged            |
@@ -54,18 +54,18 @@
 
 ---
 
-## Current next-10 checklist (2026-05-10 after Layer 2 backend merge stack)
+## Current next-10 checklist (2026-05-10 after T12 merge)
 
-1. Start T12 perceived-speed primitives now T11 and the Layer 2 iOS consumers are merged.
-2. Claude rebases PR #59 (`T-accepted-twist-log`) and PR #60 (`T-codex-inbox`) over the current main, then Codex reviews them.
-3. Keep reply-side character mention memory enabled and monitor T30 receipt compatibility.
-4. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
-5. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
-6. Run a release-readiness pass across the merged Craft Intelligence Suite before external review.
-7. Smoke the T34 logline rail against a live backend with real screenplay text.
-8. Smoke the T35 block-signal nudge against a live backend with seeded writer-block telemetry.
-9. Smoke the T36 character-traits rail against a live backend with seeded character memory.
-10. Smoke the T37 twist-card rail against a live backend with a craft report and selected beat.
+1. Claude rebases conflict-blocked PRs #59, #60, #63, #64, #65, #66, and #67 over current main; PR #64 also needs its failing `auto-merge-tier1 / evaluate` check fixed without weakening gates.
+2. Review and merge PR #59 (`T-accepted-twist-log`) after rebase so accepted twist cards can feed prompt context.
+3. Review and merge PR #60 (`T-codex-inbox`) after rebase to complete two-way Codex/Claude handoff tooling.
+4. Review PR #63 (`T-trust-tiers`) after rebase; merge only if the human accepts the standing pre-approval policy changes.
+5. Review PR #65 (`T-coordination-state`) after rebase so automation state has one structured source.
+6. Review PR #66 (`T-decisions-queue`) after rebase so human-needed product calls stop getting buried.
+7. Review PR #67 (`T-tasks-per-row`) after rebase; merge only if the generator keeps `TASKS.md` faithful.
+8. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+9. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
+10. Run release-readiness plus live-backend smoke passes for T34/T35/T36/T37 and add a Codex acceptance action after PR #59 merges.
 
 ---
 
@@ -165,7 +165,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T12-perceived-speed`
 - **Pillar:** mobile-first + voice→scene
-- **Status:** ready
+- **Status:** merged
 - **Done when:** skeletons, optimistic writes, and audio-first responses are the default in the studio surface; measured time-to-perceived-response is ≤100 ms for the magic-moment path.
 
 ### T13 — Add second realtime supplier behind existing interface
