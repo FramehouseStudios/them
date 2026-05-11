@@ -2,6 +2,7 @@
 // All handlers return typed envelopes and the schema-versioned shapes
 // documented in docs/T18-craft-schemas-and-analysis.md.
 
+import express from "express";
 import {
   listFrameworkReferences,
   getFrameworkById,
@@ -94,6 +95,8 @@ function requestingUserIdFor(req) {
 }
 
 function mountCraftRoutes(app) {
+  app.use("/craft", express.json({ limit: "2mb" }));
+
   app.get("/craft/frameworks", (req, res) => {
     if (!checkClientSchemaVersion(req, res)) return;
     res.setHeader("Cache-Control", "no-store");
