@@ -63,6 +63,7 @@ import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention
 import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountArchetypeRoute } from "./lib/archetype_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
+import { mountCreativeMemoryDeleteRoute } from "./lib/creative_memory_delete_route.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
@@ -32878,6 +32879,9 @@ mountArchetypeRoute(app, { creativeMemoryStore });
 // computeBlockSignal() so iOS can nudge the writer when block patterns
 // emerge.
 mountBlockSignalRoute(app, { creativeMemoryStore });
+// T-creative-memory-delete-endpoint: DELETE /memory/forget completes
+// the data-control loop alongside the future /memory/export.
+mountCreativeMemoryDeleteRoute(app, { creativeMemoryStore });
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));

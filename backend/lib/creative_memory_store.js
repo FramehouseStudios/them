@@ -349,6 +349,22 @@ function createCreativeMemoryStore({ persistence } = {}) {
     }
   }
 
+  // T-creative-memory-delete-endpoint: delete a single user's record.
+  // Public path called by the DELETE /memory/forget route. Returns
+  // { ok, deleted } so the route layer can report what happened —
+  // `deleted: false` when no record existed (idempotent / safe).
+  async function deleteMemoryForUser(userId) {
+    const u = userId === null || userId === undefined ? "" : String(userId).trim();
+    if (!u) return { ok: false, deleted: false, reason: "missing_userId" };
+    if (typeof store.delete !== "function") {
+      return { ok: false, deleted: false, reason: "delete_unsupported" };
+    }
+    const existing = await readUser(u);
+    if (!existing) return { ok: true, deleted: false };
+    await store.delete({ domain: DOMAIN, key: u });
+    return { ok: true, deleted: true };
+  }
+
   // T08w-triggers: extract signals from a /talk turn and fire the
   // appropriate write triggers. Pure-ish: deterministic given inputs;
   // only side effect is the writes through the existing trigger
@@ -457,6 +473,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     recordSessionEnd,
     recordLexicalFingerprint,
     recordTalkTurnForBlockSignal,
+    deleteMemoryForUser,
     recordTriggersFromTalkTurn,
     _clearAll,
   };
