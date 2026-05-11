@@ -71,6 +71,7 @@ import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_forma
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
 import { mountDecisionsQueueRoute } from "./lib/decisions_queue_route.js";
 import { mountCreativeMemoryStatsRoute } from "./lib/creative_memory_stats_route.js";
+import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
@@ -32920,6 +32921,18 @@ mountDecisionsQueueRoute(app);
 // for sidebar badges and the "what does it know about me?" UI.
 mountCreativeMemoryStatsRoute(app, { creativeMemoryStore });
 
+// T-talk-turn-meta-stats: GET /talk/stats returns aggregate health
+// over the in-memory talkTurnMetaById store.
+//
+// ACCESS-CONTROL POSTURE (load-bearing — Codex review on #97):
+//   Safe-public, matches /ops/metrics + /ops/alerts.
+//   Response carries COUNTS / PERCENTILES / CARDINALITIES only —
+//   no per-user content (no transcripts, no replies, no user IDs,
+//   no session IDs). The no-leakage property is pinned by the test
+//   suite ("[talk-stats] response contains no per-user content").
+mountTalkTurnStatsRoute(app, {
+  getAllTalkTurns: () => [...talkTurnMetaById.values()],
+});
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
 app.all("/auth/apple", methodNotAllowed("POST"));
