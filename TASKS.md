@@ -60,6 +60,7 @@
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
 | T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | claude | review |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
+| T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | review |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
