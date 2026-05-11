@@ -1,8 +1,9 @@
 # Codex to Claude Live Handoff
 
 Status source for Claude: this file is the repo-visible Codex supervisor
-ledger. Codex updates it when a Codex-owned task is completed, materially
-advanced, or when Codex reviews/merges/conflict-resolves Claude work.
+ledger. `docs/coordination.json` is the fast machine-readable queue. Codex
+updates both when a Codex-owned task is completed, materially advanced, or when
+Codex reviews/merges/conflict-resolves Claude work.
 
 ## Fast Path
 
@@ -13,13 +14,15 @@ work:
 2. `TASKS.md`
 3. `DECISIONS.md`
 4. `docs/codex-claude-live-handoff.md`
-5. `docs/claude-inbox.md`
+5. `docs/coordination.json`
+6. `docs/claude-inbox.md`
 
 Human shortcut (Claude direction):
 
 ```text
 Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-claude-live-handoff.md,
-then docs/claude-inbox.md. Follow the Current Command exactly.
+docs/coordination.json, then docs/claude-inbox.md. Follow the Current Command
+exactly, and update docs/coordination.json plus PR comments when status changes.
 ```
 
 Human shortcut (Codex direction — Claude maintains the reciprocal inbox at
@@ -28,8 +31,8 @@ handoffs after each Claude PR):
 
 ```text
 Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-claude-live-handoff.md,
-then docs/codex-inbox.md. Pick the next Codex action from the open
-Claude PRs section.
+docs/coordination.json, then docs/codex-inbox.md. Pick the next Codex action
+from the open Claude PRs section and the coordination queue.
 ```
 
 To print the same compact handoff prompts from the repo:
@@ -37,12 +40,13 @@ To print the same compact handoff prompts from the repo:
 ```bash
 node scripts/print_claude_prompt.mjs   # what to tell Claude
 node scripts/print_codex_prompt.mjs    # what to tell Codex
+node scripts/coordination_state.mjs read
 ```
 
 ## Update Contract
 
-Codex must update this ledger before the final response for any completed
-Codex task or conflict-resolution pass.
+Codex must update this ledger and `docs/coordination.json` before the final
+response for any completed Codex task or conflict-resolution pass.
 
 Each update should include:
 
@@ -80,7 +84,11 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T36 iOS character-traits side-rail consumer | `codex/T36-ios-character-traits` / PR #68 | merged | Focused character-traits Xcode tests passed 3/3; full macOS `themTests` passed 68/68; generic iOS build passed; `git diff --check` passed | Next iOS consumer is the twist-card surface; Claude PR #63 is clean but policy-gated. |
 | T37 iOS twist-card consumer | `codex/T37-ios-twist-cards` / PR #69 | merged | `swift test --package-path Packages/ScreenplayStudio` passed; focused twist Xcode tests passed 3/3; full macOS `themTests` passed 71/71; generic iOS build passed; `git diff --check` passed | T12 is merged; Claude PR #63 remains policy-gated; PR #67 is merged. |
 | T12 perceived-speed primitives | `codex/T12-perceived-speed` / PR #70 | merged | Focused perceived-speed Xcode tests passed 2/2; full macOS `themTests` passed 73/73; generic iOS build passed; `git diff --check` passed | PR #63 remains policy-gated; PR #67 is merged. |
-| T38 accepted twist-card actions | `codex/T38-accepted-twist-ios` / PR #71 | review | `swift test --package-path Packages/ScreenplayStudio`; focused accepted-twist Xcode tests passed 2/2; full macOS `themTests` passed 75/75; generic iOS build passed; `git diff --check` passed | PR #59 is merged; PR #71 now has its live accepted-twist backend pair and needs external review/merge because Codex must not merge its own PR. |
+| T38 accepted twist-card actions | `codex/T38-accepted-twist-ios` / PR #71 | merged | `swift test --package-path Packages/ScreenplayStudio`; focused accepted-twist Xcode tests passed 2/2; full macOS `themTests` passed 75/75; generic iOS build passed; `git diff --check` passed; GitHub evaluate passed | PR #59 is merged; accepted-twist Keep/Dismiss/Reload is wired on iOS. |
+| T39 Studio SF Symbol warning fix | `codex/T39-symbol-warning` / PR #73 | merged | Focused design-system guard passed 1/1; full macOS `themTests` passed 76/76; generic iOS build passed; `git diff --check` passed; GitHub evaluate passed | No Claude action. |
+| T40 app UserDefaults suite warning fix | `codex/T40-userdefaults-suite-warning` / PR #75 | merged | Focused guard passed 1/1; full macOS `themTests` passed 77/77; generic iOS build passed; `git diff --check` passed; GitHub evaluate passed | No Claude action. |
+| T41 Studio debug lifecycle publish deferral | `codex/T41-defer-studio-debug-publish` / PR #78 | merged | Rebased after PRs #71/#73/#75; macOS `themTests` passed 77/77; generic iOS build passed; `git diff --check` passed; GitHub evaluate passed | No Claude action. |
+| T42 supervisor merge protocol | `codex/T42-supervisor-merge-protocol` | in-progress | Coordination script checks pending | Claude should treat D005, `docs/coordination.json`, and the prompt printers as the lower-friction coordination lane once this lands. |
 
 
 
@@ -90,7 +98,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | --- | --- |
 | PR #33, T07 eval gate | Open and red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is malformed or not the literal OpenAI key value. Do not weaken eval gates. |
 | T07-cutover | Remains blocked until PR #33 is truly green against Postgres. |
-| Conflict-blocked Claude PRs | PR #63 is clean but policy-gated; PR #67 is merged. |
+| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. |
 
 ## Completed Codex Context
 
@@ -111,7 +119,8 @@ GitHub PR comment on that Claude PR with the relevant status.
 
 ## Recurring Codex Rule
 
-When Codex finishes a task, this file gets a new row before the PR is opened or
-before the final response if no PR is needed. When Codex touches a Claude-owned
-PR, Codex also comments on that PR in real time. That gives Claude both the live
-notification and the durable repo-visible history without relying on chat memory.
+When Codex finishes a task, this file and `docs/coordination.json` get updated
+before the PR is opened or before the final response if no PR is needed. When
+Codex touches a Claude-owned PR, Codex also comments on that PR in real time.
+That gives Claude both the live notification and the durable repo-visible
+history without relying on chat memory.
