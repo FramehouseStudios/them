@@ -13,8 +13,9 @@ name: auto-merge-tier1
 #   3. The backend test suite is green on the head SHA.
 #   4. Either:
 #        a. The other agent has approved the PR (formal review approval),
-#        b. OR a comment beginning with "Codex supervisor update: approved"
-#           or "Claude supervisor update: approved" exists,
+#        b. OR a trusted OWNER/MEMBER/COLLABORATOR comment beginning
+#           with "Codex supervisor update: approved" or
+#           "Claude supervisor update: approved" exists,
 #        c. OR the PR has been open for at least 4 hours without any
 #           comment from the other agent containing the word "block",
 #           "block,", or "blocker".
@@ -130,10 +131,8 @@ jobs:
           esac
 
           # Cross-agent approval check.
-          approved_via_review=$(echo "$info" | jq -r '[.reviews[] | select(.state == "APPROVED")] | length')
-          approved_via_comment=$(echo "$info" \
-            | jq -r '.comments[].body' \
-            | grep -cE '^(Codex|Claude) supervisor update: approved' || true)
+          approved_via_review=$(echo "$info" | jq -r "[.reviews[] | select(.state == \"APPROVED\" and (.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)))] | length")
+          approved_via_comment=$(echo "$info" | jq -r "[.comments[] | select((.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)) and (.body | test(\"^(Codex|Claude) supervisor update: approved\")))] | length")
 
           # Quiet-time check: open ≥4h with no explicit blocking signal
           # from either agent. The signal is intentionally narrow so
