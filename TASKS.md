@@ -53,7 +53,8 @@
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
 | T37  | Build iOS twist-card consumer                     | codex  | merged            |
 | T-accepted-twist-log | Persist accepted twist cards for prompt context | claude | merged         |
-| T-coordination-state | Fast-path coordination.json + CLI helper        | claude | in-progress    |
+| T-coordination-state | Fast-path coordination.json + CLI helper        | claude | merged         |
+| T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | claude | review         |
 
 ---
 
@@ -430,9 +431,19 @@
 - **Owner:** claude
 - **Branch:** `claude/T-coordination-state`
 - **Pillar:** infra (enables all)
-- **Status:** in-progress
+- **Status:** merged
 - **Scope:** new `docs/coordination.json` is a tiny shared state file (open PRs by tier, blockers by owner, decisions pending, endpoints awaiting iOS consumers). `scripts/coordination_state.mjs` is a dependency-free CLI for read/open-prs/blockers/decisions/add-pr/close-pr/set-pr/add-blocker/clear-blocker/add-decision/clear-decision. Agents stamp `updatedAt` + `updatedBy` automatically. Replaces "re-read three ledgers to see what's open" with one fast read.
 - **Done when:** the JSON file exists with the current open Claude PRs seeded; the CLI reads + mutates it correctly; `node scripts/coordination_state.mjs read` returns a useful summary; both agents can call it without breaking the existing inbox/handoff docs.
+
+---
+
+### T-auto-merge-tier1 — Auto-merge workflow for Tier 1 PRs
+- **Owner:** claude
+- **Branch:** `claude/T-auto-merge-tier1`
+- **Pillar:** infra (enables all)
+- **Status:** review
+- **Scope:** new GitHub Actions workflow `.github/workflows/auto-merge-tier1.yml`. Activates on PRs (open/sync/label/comment) and on completion of the `quality-gate` workflow. For PRs carrying the `tier-1` label (and not `tier-2`/`tier-3`/`needs-human`/`do-not-merge`), the workflow verifies the merge state is `CLEAN`, then checks for either a formal review approval, a `Codex supervisor update: approved` / `Claude supervisor update: approved` comment, or a quiet-time fallback (≥4h open with no comment containing `block`-family words from the other agent). If all gates pass, it squash-merges and deletes the branch. Tier 3 PRs are never auto-merged. Companion to T-trust-tiers (PR #63).
+- **Done when:** workflow file lands; PR description names the exact gates the workflow checks; the `tier-1` label can be created in the repo (workflow tolerates the label not existing by simply skipping).
 
 ---
 
