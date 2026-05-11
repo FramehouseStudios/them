@@ -61,7 +61,7 @@
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
-| T40  | Fix app UserDefaults suite warning                | codex  | in-progress       |
+| T40  | Fix app UserDefaults suite warning                | codex  | review            |
 
 ---
 
@@ -86,7 +86,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T40-userdefaults-suite-warning`
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** app launch and test runs no longer open a `UserDefaults` suite using the app bundle identifier; Studio debug preference mirroring still writes to the standard app defaults and any legacy shared mirror domain intentionally; focused tests cover the domain selection behavior.
 
 ---

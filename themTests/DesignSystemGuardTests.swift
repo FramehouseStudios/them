@@ -84,6 +84,40 @@ final class DesignSystemGuardTests: XCTestCase {
         )
     }
 
+    func testAppDoesNotOpenDefaultsSuiteWithAppBundleIdentifier() throws {
+        let root = try repositoryRoot()
+        let forbiddenPatterns: [(name: String, pattern: String)] = [
+            ("literal app-domain suite", #"UserDefaults\s*\(\s*suiteName:\s*"io\.them\.them"\s*\)"#),
+            ("unguarded domain suite write", #"UserDefaults\s*\(\s*suiteName:\s*domain\s*\)\?\.(set|synchronize)"#),
+            ("unguarded domain suite binding", #"if\s+let\s+suite\s*=\s*UserDefaults\s*\(\s*suiteName:\s*domain\s*\)"#)
+        ]
+        let files = try swiftFiles(
+            under: root,
+            scopedTo: [
+                "them"
+            ]
+        )
+        var violations: [String] = []
+
+        for file in files {
+            let relative = relativePath(for: file, root: root)
+            let source = try String(contentsOf: file, encoding: .utf8)
+            for pattern in forbiddenPatterns where source.range(of: pattern.pattern, options: .regularExpression) != nil {
+                violations.append("\(relative): \(pattern.name)")
+            }
+        }
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            """
+            Opening UserDefaults suites with the app bundle identifier logs a runtime warning.
+            Use UserDefaults.standard for the app domain, and only open suite defaults after guarding mirror domains.
+            Violations:
+            \(violations.sorted().joined(separator: "\n"))
+            """
+        )
+    }
+
     private func repositoryRoot() throws -> URL {
         var cursor = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while cursor.path != cursor.deletingLastPathComponent().path {

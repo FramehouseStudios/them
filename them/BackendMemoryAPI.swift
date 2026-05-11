@@ -1774,6 +1774,14 @@ nonisolated enum BackendAuthClient {
         return domains
     }
 
+    private static func suiteDefaults(forPreferenceDomain domain: String) -> UserDefaults? {
+        if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           domain == bundleID {
+            return nil
+        }
+        return UserDefaults(suiteName: domain)
+    }
+
     private static func preferencePlistURLs(for domain: String) -> [URL] {
         #if os(macOS)
         let libraryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
@@ -1807,7 +1815,7 @@ nonisolated enum BackendAuthClient {
         UserDefaults.standard.synchronize()
         append(UserDefaults.standard.object(forKey: key))
         for domain in preferenceDomains() {
-            if let suite = UserDefaults(suiteName: domain) {
+            if let suite = suiteDefaults(forPreferenceDomain: domain) {
                 suite.synchronize()
                 append(suite.object(forKey: key))
             }
