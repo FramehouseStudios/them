@@ -2,7 +2,7 @@
 id: T43-refresh-claude-queue
 title: Refresh Claude queue after supervisor protocol merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T43-refresh-claude-queue
 pillar: infra (enables all)
 ---
