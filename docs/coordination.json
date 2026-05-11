@@ -1,8 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T21:51:37.000Z",
+  "updatedAt": "2026-05-11T22:03:08.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 97,
+      "title": "T-talk-turn-meta-stats",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-talk-turn-meta-stats",
+      "blocker": "do-not-merge: branch is dirty and /talk/stats needs an explicit access-control policy/test"
+    },
     {
       "number": 94,
       "title": "T-creative-memory-export",
@@ -17,27 +26,18 @@
       "title": "T-payoff-tracker",
       "owner": "claude",
       "tier": 1,
-      "status": "review",
+      "status": "blocked",
       "branch": "claude/T-payoff-tracker",
-      "blocker": null
-    },
-    {
-      "number": 91,
-      "title": "T-archetype-engine",
-      "owner": "claude",
-      "tier": 1,
-      "status": "review",
-      "branch": "claude/T-archetype-engine",
-      "blocker": null
+      "blocker": "do-not-merge: repeated object payoff line can become a new unpaid setup; rebase after #98"
     },
     {
       "number": 90,
       "title": "T-fdx-export-endpoint",
       "owner": "claude",
       "tier": 1,
-      "status": "review",
+      "status": "blocked",
       "branch": "claude/T-fdx-export-endpoint",
-      "blocker": null
+      "blocker": "do-not-merge: route reads req.body without its own JSON parser; add production-style parser test"
     },
     {
       "number": 89,
@@ -46,25 +46,25 @@
       "tier": 1,
       "status": "blocked",
       "branch": "claude/T-codex-inbox-refresh-2",
-      "blocker": "do-not-merge: superseded by T42/T43 coordination-first queue refresh"
+      "blocker": "do-not-merge: superseded by T42/T43/T46 coordination-first queue refreshes"
     },
     {
       "number": 88,
       "title": "T-coverage-simulator",
       "owner": "claude",
       "tier": 1,
-      "status": "review",
+      "status": "blocked",
       "branch": "claude/T-coverage-simulator",
-      "blocker": null
+      "blocker": "do-not-merge: rebase after #98 and refresh checks before review"
     },
     {
       "number": 87,
       "title": "T-screenplay-import-fountain",
       "owner": "claude",
       "tier": 1,
-      "status": "review",
+      "status": "blocked",
       "branch": "claude/T-screenplay-import-fountain",
-      "blocker": null
+      "blocker": "do-not-merge: payload-too-large path returns generic Express error; add 413 route test"
     },
     {
       "number": 86,
@@ -191,10 +191,16 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#86, and #89 have do-not-merge blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#90, #92, and #97 have do-not-merge blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],
   "decisionsPending": [],
-  "endpointsAwaitingIosConsumer": []
+  "endpointsAwaitingIosConsumer": [
+    {
+      "endpoint": "GET /memory/character-archetypes",
+      "pr": 91,
+      "consumer": "iOS character traits rail archetype tag"
+    }
+  ]
 }
