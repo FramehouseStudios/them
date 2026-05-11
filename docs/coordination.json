@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T16:49:35.373Z",
+  "updatedAt": "2026-05-11T18:20:26.047Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -13,15 +13,6 @@
       "blocker": "human: standing pre-approval policy needs explicit acceptance before merge"
     },
     {
-      "number": 64,
-      "title": "T-auto-merge-tier1",
-      "owner": "claude",
-      "tier": 2,
-      "status": "review",
-      "branch": "claude/T-auto-merge-tier1",
-      "blocker": "claude: rebase and fix failing auto-merge-tier1/evaluate without weakening gates"
-    },
-    {
       "number": 33,
       "title": "T07 eval gate",
       "owner": "claude",
@@ -29,24 +20,6 @@
       "status": "review",
       "branch": "claude/T07-eval-gate-postgres",
       "blocker": "human: replace malformed OPENAI_API_KEY Actions secret"
-    },
-    {
-      "number": 65,
-      "title": "T-coordination-state",
-      "owner": "claude",
-      "tier": 1,
-      "status": "review",
-      "branch": "claude/T-coordination-state",
-      "blocker": null
-    },
-    {
-      "number": 66,
-      "title": "T-decisions-queue",
-      "owner": "claude",
-      "tier": 2,
-      "status": "review",
-      "branch": "claude/T-decisions-queue",
-      "blocker": "claude: rebase over current main"
     },
     {
       "number": 67,
