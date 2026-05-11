@@ -60,7 +60,7 @@
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
-| T39  | Fix missing Studio SF Symbol warning              | codex  | in-progress       |
+| T39  | Fix missing Studio SF Symbol warning              | codex  | review            |
 
 ---
 
@@ -124,7 +124,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T07-eval-gate-postgres`
 - **Pillar:** longitudinal learning + infra (enables all)
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** CI runs the full `npm run eval:gate` path against a live Postgres instance and passes; the result is recorded in `docs/T07-persistence-canonical.md`.
 
 ### T07-cutover — Drop dual-write JSON paths after Postgres soak

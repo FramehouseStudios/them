@@ -52,6 +52,38 @@ final class DesignSystemGuardTests: XCTestCase {
         )
     }
 
+    func testStudioDoesNotReferenceUnavailableSFSymbols() throws {
+        let root = try repositoryRoot()
+        let unavailableSymbols = [
+            "square.stack.badge.plus"
+        ]
+        let files = try swiftFiles(
+            under: root,
+            scopedTo: [
+                "Packages/ScreenplayStudio/Sources/ScreenplayStudio",
+                "them"
+            ]
+        )
+        var violations: [String] = []
+
+        for file in files {
+            let relative = relativePath(for: file, root: root)
+            let source = try String(contentsOf: file, encoding: .utf8)
+            for symbol in unavailableSymbols where source.contains(symbol) {
+                violations.append("\(relative): \(symbol)")
+            }
+        }
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            """
+            SwiftUI logs invalid-configuration warnings when an unavailable SF Symbol is requested.
+            Violations:
+            \(violations.sorted().joined(separator: "\n"))
+            """
+        )
+    }
+
     private func repositoryRoot() throws -> URL {
         var cursor = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while cursor.path != cursor.deletingLastPathComponent().path {
