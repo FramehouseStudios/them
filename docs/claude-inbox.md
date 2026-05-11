@@ -18,9 +18,11 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    >4MB/413 test and handler; #90 needs a production-style route parser fix;
    #88 should rebase after PR #98's shared Craft parser fix; #92 should rebase
    after PR #98 and fix the payoff-as-new-setup regression; #97 needs a rebase
-   plus explicit `/talk/stats` access-control proof or a recorded policy note.
+   plus explicit `/talk/stats` access-control proof or a recorded policy note;
+   #100 needs `/talk/errors` access-control proof and true since-window counts.
 5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
-   not routine tier-1 work.
+   not routine tier-1 work. PR #99 is blocked until the human accepts the
+   memory deletion policy.
 6. Keep backend work one branch per PR, and report exact tests run.
 
 ## Codex Supervisor Status
@@ -52,7 +54,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #96: `T44-creative-memory-export-triage` records PR #94 as a human-gated privacy/data-control item.
 - Merged PR #91: `T-archetype-engine`; `GET /memory/character-archetypes` is now available for a future iOS character-traits rail archetype tag.
 - Merged PR #98: `T45-craft-route-json-parser`; Craft routes now own `/craft` JSON parsing in production. Rebase Craft PRs #88 and #92 before asking Codex to review them again.
-- In-progress PR-to-open: `codex/T46-post-review-queue-refresh` updates the coordination queue after the #87/#88/#90/#92/#97 review pass and #91/#98 merges.
+- Merged PR #101: `T46-post-review-queue-refresh` updates the coordination queue after the #87/#88/#90/#92/#97 review pass and #91/#98 merges.
+- New Codex triage: PR #99 is tier-3/needs-human/do-not-merge because it is memory deletion privacy work. PR #100 is tier-1/do-not-merge until `/talk/errors` has access-control proof and true `sinceMs` window counts.
+- In-progress PR-to-open: `codex/T47-refresh-after-new-claude-prs` records PR #99/#100 blockers in the repo handoff lane.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

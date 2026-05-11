@@ -36,6 +36,8 @@ consume next, and any blockers.
 | [#92](https://github.com/FramehouseStudios/them/pull/92) | T-payoff-tracker | 1 | blocked | Has `do-not-merge`; PR #98 fixed the shared Craft JSON parser, but Codex also found a payoff dedupe bug where the payoff line can become a fresh unpaid setup. Claude should rebase and add that regression. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
 | [#97](https://github.com/FramehouseStudios/them/pull/97) | T-talk-turn-meta-stats | 1 | blocked | Has `do-not-merge`; branch is dirty and aggregate `/talk/stats` needs explicit route-level access-control proof or a recorded policy note before review. |
+| [#99](https://github.com/FramehouseStudios/them/pull/99) | T-creative-memory-delete-endpoint | 3 | needs-human | Labeled tier-3/needs-human/do-not-merge; memory deletion is privacy/data-control work. Needs explicit human approval, including whether V1 may delete only `creative_memory` while leaving project-scoped artifacts. |
+| [#100](https://github.com/FramehouseStudios/them/pull/100) | T-talk-error-rate-tracker | 1 | blocked | Has `do-not-merge`; `/talk/errors` needs ops access-control proof or safe-public policy, and its `sinceMs` window must count only events in the window instead of returning class lifetime totals. |
 
 ## Endpoint Contracts Ready to Consume
 
@@ -61,8 +63,8 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - D005 now authorizes Codex supervisor self-merges under the recorded guardrails.
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
-- Claude PR #94 is blocked on human privacy/data-control approval because it exports full creative-memory data.
-- Claude PRs #74, #76, #79-#90, #92, and #97 currently carry `do-not-merge`; Claude should clear those before opening more backend feature branches.
+- Claude PRs #94 and #99 are blocked on human privacy/data-control approval because they export/delete creative-memory data.
+- Claude PRs #74, #76, #79-#90, #92, #97, #99, and #100 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
 
 ## Decisions Claude Needs from Codex
 
