@@ -82,6 +82,32 @@ struct BackendBlockSignalResponse: Codable, Equatable {
     let error: String?
 }
 
+struct BackendBlockSignalHistoryEntry: Codable, Equatable {
+    let at: Double
+    let score: Double
+    let level: BackendBlockSignalLevel
+}
+
+struct BackendBlockSignalHistoryCountsByLevel: Codable, Equatable {
+    let low: Int
+    let medium: Int
+    let high: Int
+}
+
+struct BackendBlockSignalHistoryCounts: Codable, Equatable {
+    let total: Int
+    let byLevel: BackendBlockSignalHistoryCountsByLevel
+}
+
+struct BackendBlockSignalHistoryResponse: Codable, Equatable {
+    let schemaVersion: Int
+    let entries: [BackendBlockSignalHistoryEntry]
+    let counts: BackendBlockSignalHistoryCounts
+    let newestAt: Double?
+    let oldestAt: Double?
+    let error: String?
+}
+
 struct BackendBlockSignalNudgeState: Equatable {
     let shouldRender: Bool
     let title: String
@@ -130,6 +156,60 @@ struct BackendBlockSignalNudgeState: Equatable {
         case "talk_turn_gap": return "Time away"
         default: return "Momentum"
         }
+    }
+}
+
+struct BackendBlockSignalHistoryTrendState: Equatable {
+    let shouldRender: Bool
+    let title: String
+    let countLabel: String
+    let trendLabel: String
+    let levelMixLabel: String
+    let sparklineScores: [Double]
+    let latestLevel: BackendBlockSignalLevel
+
+    static func make(history: BackendBlockSignalHistoryResponse?) -> BackendBlockSignalHistoryTrendState {
+        guard let history else {
+            return BackendBlockSignalHistoryTrendState(
+                shouldRender: false,
+                title: "Momentum history",
+                countLabel: "No samples",
+                trendLabel: "Waiting for a few writing passes",
+                levelMixLabel: "",
+                sparklineScores: [],
+                latestLevel: .low
+            )
+        }
+
+        let sortedEntries = history.entries.sorted { $0.at < $1.at }
+        let clampedScores = sortedEntries
+            .suffix(12)
+            .map { min(max($0.score, 0), 1) }
+        let latestLevel = sortedEntries.last?.level ?? .low
+        let total = max(history.counts.total, sortedEntries.count)
+        let countLabel = total == 1 ? "1 sample" : "\(total) samples"
+        let trend = trendLabel(for: clampedScores)
+        let mixLabel = "High \(history.counts.byLevel.high) / Medium \(history.counts.byLevel.medium)"
+
+        return BackendBlockSignalHistoryTrendState(
+            shouldRender: clampedScores.count >= 2,
+            title: "Momentum history",
+            countLabel: countLabel,
+            trendLabel: trend,
+            levelMixLabel: mixLabel,
+            sparklineScores: clampedScores,
+            latestLevel: latestLevel
+        )
+    }
+
+    private static func trendLabel(for scores: [Double]) -> String {
+        guard let first = scores.first, let last = scores.last else {
+            return "Waiting for a few writing passes"
+        }
+        let delta = last - first
+        if delta >= 0.15 { return "Momentum rising" }
+        if delta <= -0.15 { return "Momentum settling" }
+        return "Momentum steady"
     }
 }
 
@@ -1234,6 +1314,48 @@ final class BackendClient {
         } catch {
             let raw = String(data: data, encoding: .utf8) ?? ""
             throw BackendError.http(502, raw.isEmpty ? "Invalid block-signal payload." : raw)
+        }
+    }
+
+    func fetchMemoryBlockSignalHistory() async throws -> BackendBlockSignalHistoryResponse {
+        persistSharedBackendBaseURL(baseURL)
+        var url = baseURL
+        url.appendPathComponent("memory")
+        url.appendPathComponent("block-signal")
+        url.appendPathComponent("history")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid block-signal history response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+        do {
+            return try JSONDecoder().decode(BackendBlockSignalHistoryResponse.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid block-signal history payload." : raw)
         }
     }
 

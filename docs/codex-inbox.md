@@ -50,7 +50,7 @@ consume next, and any blockers.
 
 ## Endpoint Contracts Ready to Consume
 
-PR #114 merged `GET /memory/block-signal/history`. The next Codex iOS consumer should add a compact block-signal history sparkline / stuck-this-week surface near the existing block-signal nudge.
+PR #114's `GET /memory/block-signal/history` endpoint is consumed by `codex/T53-ios-block-signal-history` as a compact Studio Momentum history sparkline / stuck-this-week surface.
 
 PR #108 already consumed PR #91's `GET /memory/character-archetypes` endpoint as an archetype tag/insight in the character traits rail.
 

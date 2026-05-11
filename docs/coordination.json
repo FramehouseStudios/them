@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T23:14:13.000Z",
+  "updatedAt": "2026-05-11T23:50:04.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -301,11 +301,5 @@
     }
   ],
   "decisionsPending": [],
-  "endpointsAwaitingIosConsumer": [
-    {
-      "endpoint": "GET /memory/block-signal/history",
-      "pr": 114,
-      "consumer": "iOS block-signal history sparkline / stuck-this-week surface"
-    }
-  ]
+  "endpointsAwaitingIosConsumer": []
 }

@@ -258,6 +258,30 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(signal.habitsObserved.recentShortTurns, 5)
     }
 
+    func testBlockSignalHistoryResponseDecodesBackendEnvelope() throws {
+        let history = try JSONDecoder().decode(BackendBlockSignalHistoryResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "entries": [
+            { "at": 1000, "score": 0.1, "level": "low" },
+            { "at": 300000, "score": 0.5, "level": "medium" },
+            { "at": 600000, "score": 0.9, "level": "high" }
+          ],
+          "counts": {
+            "total": 3,
+            "byLevel": { "low": 1, "medium": 1, "high": 1 }
+          },
+          "newestAt": 600000,
+          "oldestAt": 1000
+        }
+        """#.utf8))
+
+        XCTAssertEqual(history.schemaVersion, 1)
+        XCTAssertEqual(history.entries.last?.level, .high)
+        XCTAssertEqual(history.counts.total, 3)
+        XCTAssertEqual(history.counts.byLevel.low, 1)
+    }
+
     func testBlockSignalNudgeStateMapsAndClampsSignal() throws {
         let state = BackendBlockSignalNudgeState.make(signal: BackendBlockSignalResponse(
             schemaVersion: 1,
@@ -282,6 +306,31 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(state.scoreLabel, "100%")
         XCTAssertEqual(state.topSignalLabel, "Started vs. finished")
         XCTAssertEqual(state.progress, 1)
+    }
+
+    func testBlockSignalHistoryTrendStateMapsAndClampsHistory() throws {
+        let state = BackendBlockSignalHistoryTrendState.make(history: BackendBlockSignalHistoryResponse(
+            schemaVersion: 1,
+            entries: [
+                BackendBlockSignalHistoryEntry(at: 300_000, score: 1.3, level: .high),
+                BackendBlockSignalHistoryEntry(at: 1000, score: -0.2, level: .low),
+                BackendBlockSignalHistoryEntry(at: 600_000, score: 0.7, level: .medium)
+            ],
+            counts: BackendBlockSignalHistoryCounts(
+                total: 3,
+                byLevel: BackendBlockSignalHistoryCountsByLevel(low: 1, medium: 1, high: 1)
+            ),
+            newestAt: 600_000,
+            oldestAt: 1000,
+            error: nil
+        ))
+
+        XCTAssertTrue(state.shouldRender)
+        XCTAssertEqual(state.countLabel, "3 samples")
+        XCTAssertEqual(state.trendLabel, "Momentum rising")
+        XCTAssertEqual(state.levelMixLabel, "High 1 / Medium 1")
+        XCTAssertEqual(state.sparklineScores, [0, 1, 0.7])
+        XCTAssertEqual(state.latestLevel, .medium)
     }
 
 
