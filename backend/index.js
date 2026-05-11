@@ -81,6 +81,7 @@ import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js
 import { createOutboxSnapshotter } from "./lib/outbox_snapshotter.js";
 import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
 import { probeSupplierShape, probeSupplierLive, createSupplierHealthCache } from "./lib/realtime_supplier_health.js";
+import { mintWithFailover } from "./lib/realtime_supplier_failover.js";
 import {
   configureScreenplayStore,
   ensureScreenplayOutline,
@@ -28814,21 +28815,63 @@ app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req
     }
   }
 
+  // T-realtime-supplier-failover: when the caller didn't pin a
+  // specific provider and the primary mint fails, transparently fall
+  // back to the stub supplier so /talk never returns a hard 502. The
+  // response includes `fallback: true` + `fallback_reason` so iOS can
+  // surface a banner / log the degradation. Logic lives in
+  // `lib/realtime_supplier_failover.js` so it's testable in isolation.
+  const allowFallback = !requestedProvider
+    && String(supplier?.kind || "").toLowerCase() !== "stub";
+  const mintParams = {
+    instructions: requestedPrompt,
+    voice: requestedVoice || OPENAI_REALTIME_VOICE,
+    model: requestedModel || OPENAI_REALTIME_MODEL,
+    ttlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  };
   let minted;
+  let fallbackReason = null;
+  let primarySupplierKind = String(supplier?.kind || "unknown");
   try {
-    minted = await supplier.mintClientSecret({
-      instructions: requestedPrompt,
-      voice: requestedVoice || OPENAI_REALTIME_VOICE,
-      model: requestedModel || OPENAI_REALTIME_MODEL,
-      ttlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+    const result = await mintWithFailover({
+      primarySupplier: supplier,
+      mintParams,
+      allowFallback,
+      loadStubSupplier: async () => {
+        const stubMod = await import("./lib/realtime_supplier_stub.js");
+        return stubMod.createStubRealtimeSupplier({
+          defaultModel: OPENAI_REALTIME_MODEL,
+          defaultVoice: OPENAI_REALTIME_VOICE,
+          defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+          defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+        });
+      },
     });
+    minted = result.minted;
+    supplier = result.supplierUsed;
+    fallbackReason = result.fallbackReason;
+    if (fallbackReason) {
+      console.warn(`[${rid}] realtime_supplier_fallback from=${primarySupplierKind} reason=${fallbackReason}`);
+    }
   } catch (err) {
     // T-talk-error-rate-tracker: record the mint failure.
     incrementErrorCounter(err?.code || "realtime_supplier_request_failed");
+    if (err?.code === "supplier_fallback_failed") {
+      const cause = err.cause || err;
+      return res.status(Number(cause?.status || 502)).json({
+        stage: "realtime_auth",
+        code: cause?.code || "realtime_supplier_request_failed",
+        realtime_provider: primarySupplierKind,
+        fallback: false,
+        fallback_attempted: true,
+        fallback_error: err.message,
+        error: String(cause?.message || cause || "Realtime supplier request failed."),
+      });
+    }
     return res.status(Number(err?.status || 502)).json({
       stage: "realtime_auth",
       code: err?.code || "realtime_supplier_request_failed",
-      realtime_provider: String(supplier?.kind || requestedProvider || "unknown"),
+      realtime_provider: primarySupplierKind,
       error: String(err?.message || err || "Realtime supplier request failed."),
     });
   }
@@ -28860,6 +28903,10 @@ app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req
     transport: "webrtc_ephemeral",
     assistant_name: assistantSelfName,
     realtime_provider: String(supplier.kind || "unknown"),
+    // T-realtime-supplier-failover: fallback flag + reason. Present
+    // only when the primary supplier failed and we transparently fell
+    // back to the stub. iOS can surface a small degraded-mode banner.
+    ...(fallbackReason ? { fallback: true, fallback_reason: fallbackReason, primary_supplier: primarySupplierKind } : {}),
     model: sessionModel,
     voice: sessionVoice,
     session: {
