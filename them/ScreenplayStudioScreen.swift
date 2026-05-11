@@ -17856,7 +17856,7 @@ Current draft version:
                     if vm.selectedProject == nil {
                         screenplayPageActionChipButton(
                             title: "Create Project",
-                            systemImage: "square.stack.badge.plus",
+                            systemImage: "rectangle.stack.badge.plus",
                             tint: Color.accentColor.opacity(0.84),
                             fill: Color.accentColor.opacity(0.08),
                             stroke: Color.accentColor.opacity(0.18)
