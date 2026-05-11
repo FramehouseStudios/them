@@ -406,6 +406,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var craftTwistErrorText: String = ""
     @Published var craftTwistInfoText: String = ""
     @Published var craftTwistBeatLabel: String = ""
+    @Published var acceptedCraftTwists: [ScreenplayCraftAcceptedTwistEntry] = []
+    @Published var isAcceptedCraftTwistMutating: Bool = false
+    @Published var acceptedCraftTwistErrorText: String = ""
+    @Published var acceptedCraftTwistInfoText: String = ""
 
     var formatLintCards: [ScreenplayFormatLintCard] {
         ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
@@ -2156,6 +2160,9 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         craftTwistErrorText = ""
         craftTwistInfoText = ""
         craftTwistBeatLabel = ""
+        acceptedCraftTwists = []
+        acceptedCraftTwistErrorText = ""
+        acceptedCraftTwistInfoText = ""
         if clearFrameworks {
             craftFrameworks = []
             selectedCraftFrameworkID = ""
@@ -2194,6 +2201,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             if selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 selectedCraftFrameworkID = report.framework.id
             }
+            await loadAcceptedCraftTwists(projectId: project.id, source: "Craft report")
             craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft report loaded."
         } catch BackendError.http(let status, _) where status == 404 {
             craftReport = nil
@@ -2226,6 +2234,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             )
             craftReport = report
             selectedCraftFrameworkID = report.framework.id
+            await loadAcceptedCraftTwists(projectId: project.id, source: "Craft report")
             craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft analysis complete."
         } catch {
             craftErrorText = error.localizedDescription
@@ -2392,6 +2401,88 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         } catch {
             craftTwistErrorText = error.localizedDescription
             craftTwistInfoText = source
+        }
+    }
+
+    func refreshAcceptedCraftTwists(source: String = "io.them") async {
+        guard let project = selectedProject else {
+            acceptedCraftTwists = []
+            acceptedCraftTwistErrorText = ""
+            acceptedCraftTwistInfoText = "Select a screenplay project to track kept reversals."
+            return
+        }
+        await loadAcceptedCraftTwists(projectId: project.id, source: source)
+    }
+
+    private func loadAcceptedCraftTwists(projectId: String, source: String) async {
+        do {
+            let response = try await craftClient.fetchAcceptedCraftTwists(projectId: projectId)
+            guard selectedProject?.id == projectId else { return }
+            acceptedCraftTwists = response.entries
+            acceptedCraftTwistErrorText = ""
+            acceptedCraftTwistInfoText = source
+        } catch {
+            acceptedCraftTwistErrorText = error.localizedDescription
+            acceptedCraftTwistInfoText = source
+        }
+    }
+
+    func acceptCraftTwist(_ card: ScreenplayCraftTwistCardState) async {
+        guard !isAcceptedCraftTwistMutating else { return }
+        guard let project = selectedProject else {
+            acceptedCraftTwistErrorText = "Select a screenplay project before keeping a reversal."
+            return
+        }
+
+        isAcceptedCraftTwistMutating = true
+        defer { isAcceptedCraftTwistMutating = false }
+        acceptedCraftTwistErrorText = ""
+        let context = preferredCraftTwistContext()
+        do {
+            let response = try await craftClient.recordAcceptedCraftTwist(
+                projectId: project.id,
+                versionId: activeCraftVersionID,
+                frameworkId: craftTwists?.frameworkId ?? context.frameworkId,
+                beatId: craftTwists?.currentBeatId ?? context.beatId,
+                twist: card.suggestion,
+                sceneId: nil,
+                note: nil
+            )
+            guard selectedProject?.id == project.id else { return }
+            acceptedCraftTwists.removeAll { existing in
+                existing.twist.id == response.entry.twist.id && (existing.versionId ?? "") == (response.entry.versionId ?? "")
+            }
+            acceptedCraftTwists.append(response.entry)
+            acceptedCraftTwistInfoText = "Kept \(card.label) for future draft context."
+        } catch {
+            acceptedCraftTwistErrorText = "Could not keep reversal yet: \(error.localizedDescription)"
+            acceptedCraftTwistInfoText = "Keep action stayed local."
+        }
+    }
+
+    func dismissAcceptedCraftTwist(_ card: ScreenplayCraftTwistCardState) async {
+        guard !isAcceptedCraftTwistMutating else { return }
+        guard let project = selectedProject else {
+            acceptedCraftTwistErrorText = "Select a screenplay project before dismissing a reversal."
+            return
+        }
+
+        isAcceptedCraftTwistMutating = true
+        defer { isAcceptedCraftTwistMutating = false }
+        do {
+            _ = try await craftClient.deleteAcceptedCraftTwist(
+                twistId: card.id,
+                projectId: project.id,
+                versionId: activeCraftVersionID
+            )
+            guard selectedProject?.id == project.id else { return }
+            acceptedCraftTwists.removeAll { $0.twist.id == card.id }
+            acceptedCraftTwistErrorText = ""
+            acceptedCraftTwistInfoText = "Dismissed \(card.label)."
+        } catch {
+            acceptedCraftTwists.removeAll { $0.twist.id == card.id }
+            acceptedCraftTwistErrorText = "Dismiss sync is pending: \(error.localizedDescription)"
+            acceptedCraftTwistInfoText = "Dismissed locally."
         }
     }
 
@@ -4106,7 +4197,10 @@ Replace is best when this file should become the script you edit. Append is safe
                 vm.screenplayBindings = currentScreenplayBindingPayload()
                 if directionOneRightPanelTab == .craft {
                     vm.resetCraftReportForProjectChange()
-                    Task { await vm.loadCraftReport(force: true) }
+                    Task {
+                        await vm.loadCraftReport(force: true)
+                        await vm.refreshAcceptedCraftTwists(source: "Version")
+                    }
                     Task { await vm.refreshCraftLogline(source: "Version") }
                 }
                 publishDebugStudioDiffState()
@@ -4165,13 +4259,17 @@ Replace is best when this file should become the script you edit. Append is safe
                         await vm.refreshBlockSignal(source: "io.them rail")
                         await vm.refreshCharacterTraits(source: "io.them rail")
                         await vm.refreshCraftTwists(source: "io.them rail")
+                        await vm.refreshAcceptedCraftTwists(source: "io.them rail")
                     }
                 }
                 if newValue == .saved {
                     isDirectionOneSavedExpanded = true
                 }
                 if newValue == .craft {
-                    Task { await vm.loadCraftReport() }
+                    Task {
+                        await vm.loadCraftReport()
+                        await vm.refreshAcceptedCraftTwists(source: "Craft rail")
+                    }
                     Task { await vm.refreshCraftLogline(source: "Craft rail") }
                 }
                 persistInspectorWorkspaceState()
@@ -4350,6 +4448,7 @@ Replace is best when this file should become the script you edit. Append is safe
                     await vm.refreshBlockSignal(source: "Studio open")
                     await vm.refreshCharacterTraits(source: "Studio open")
                     await vm.refreshCraftTwists(source: "Studio open")
+                    await vm.refreshAcceptedCraftTwists(source: "Studio open")
                 }
             }
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
@@ -8393,7 +8492,7 @@ private var directionOneThemPanel: some View {
     let signalState = liveDraftBridge.companionSignalState
     let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
     let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits)
-    let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists)
+    let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
 
     return VStack(alignment: .leading, spacing: 16) {
         VStack(alignment: .leading, spacing: 6) {
@@ -8677,13 +8776,28 @@ private var directionOneThemPanel: some View {
                     }
                     Spacer(minLength: 0)
                     Button {
-                        Task { await vm.refreshCraftTwists(source: "Manual check") }
+                        Task {
+                            await vm.refreshCraftTwists(source: "Manual check")
+                            await vm.refreshAcceptedCraftTwists(source: "Manual check")
+                        }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .help("Refresh reversal cards")
+                }
+
+                if !vm.acceptedCraftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(vm.acceptedCraftTwistErrorText)
+                        .font(.system(size: 10, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.56))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if !vm.acceptedCraftTwists.isEmpty {
+                    Text("\(vm.acceptedCraftTwists.count) kept reversal\(vm.acceptedCraftTwists.count == 1 ? "" : "s") linked to this project.")
+                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.56))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if vm.isCraftTwistLoading {
@@ -8719,6 +8833,15 @@ private var directionOneThemPanel: some View {
                                     .padding(.vertical, 3)
                                     .background(twistSeverityTint(card.severity).opacity(0.12))
                                     .clipShape(Capsule())
+                                if card.isAccepted {
+                                    Text("Kept")
+                                        .font(.system(size: 9, weight: .semibold, design: .default))
+                                        .foregroundStyle(Color.herText.opacity(0.78))
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(Color.white.opacity(0.16))
+                                        .clipShape(Capsule())
+                                }
                                 Spacer(minLength: 0)
                             }
 
@@ -8732,6 +8855,32 @@ private var directionOneThemPanel: some View {
                                     .font(.system(size: 10, weight: .medium, design: .default))
                                     .foregroundStyle(Color.herText.opacity(0.48))
                                     .fixedSize(horizontal: false, vertical: true)
+                            }
+
+                            HStack(spacing: 8) {
+                                Button {
+                                    Task { await vm.acceptCraftTwist(card) }
+                                } label: {
+                                    Label(card.isAccepted ? "Kept" : "Keep", systemImage: card.isAccepted ? "checkmark.circle.fill" : "pin")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(vm.isAcceptedCraftTwistMutating || card.isAccepted || vm.selectedProject == nil)
+
+                                Button {
+                                    Task { await vm.dismissAcceptedCraftTwist(card) }
+                                } label: {
+                                    Label("Dismiss", systemImage: "xmark.circle")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(vm.isAcceptedCraftTwistMutating || vm.selectedProject == nil)
+
+                                if vm.isAcceptedCraftTwistMutating {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Spacer(minLength: 0)
                             }
                         }
                         .padding(10)

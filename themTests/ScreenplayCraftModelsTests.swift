@@ -310,6 +310,57 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(response.twists.first?.severity, "high")
     }
 
+    func testAcceptedTwistResponsesDecodeBackendEnvelopes() throws {
+        let recorded = try JSONDecoder().decode(ScreenplayCraftAcceptedTwistResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "ok": true,
+          "action": "recorded",
+          "entry": {
+            "schemaVersion": 1,
+            "projectId": "proj-17",
+            "versionId": "v1",
+            "frameworkId": "save-the-cat",
+            "beatId": "midpoint",
+            "twist": {
+              "id": "stc-midpoint-1",
+              "label": "False Victory",
+              "hook": "The win becomes a trap.",
+              "severity": "high",
+              "rationale": "Turns success into pressure."
+            },
+            "acceptedAt": "2026-05-10T22:00:00.000Z",
+            "acceptedAtMs": 1770000000000,
+            "lastUpdatedAt": "2026-05-10T22:00:00.000Z",
+            "lastUpdatedAtMs": 1770000000000,
+            "userId": "usr_test",
+            "sceneId": "scene-1",
+            "note": "Keep this reversal."
+          }
+        }
+        """#.utf8))
+
+        let list = try JSONDecoder().decode(ScreenplayCraftAcceptedTwistListResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "projectId": "proj-17",
+          "entries": []
+        }
+        """#.utf8))
+
+        let deleted = try JSONDecoder().decode(ScreenplayCraftAcceptedTwistDeleteResponse.self, from: Data(#"""
+        { "schemaVersion": 1, "ok": true, "action": "removed" }
+        """#.utf8))
+
+        XCTAssertTrue(recorded.ok)
+        XCTAssertEqual(recorded.action, "recorded")
+        XCTAssertEqual(recorded.entry.id, "proj-17:v1:stc-midpoint-1")
+        XCTAssertEqual(recorded.entry.twist.label, "False Victory")
+        XCTAssertEqual(list.projectId, "proj-17")
+        XCTAssertTrue(list.entries.isEmpty)
+        XCTAssertEqual(deleted.action, "removed")
+    }
+
     func testTwistCardStateMapsSeverityAndCopy() throws {
         let response = ScreenplayCraftTwistSuggestResponse(
             schemaVersion: 1,
@@ -335,6 +386,8 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(cards.first?.severity, "high")
         XCTAssertEqual(cards.first?.severityLabel, "High")
         XCTAssertEqual(cards.first?.rationale, "Re-aims the third act.")
+        XCTAssertEqual(cards.first?.suggestion.id, "stc-midpoint-1")
+        XCTAssertEqual(cards.first?.isAccepted, false)
     }
 
     func testCharacterTraitsResponseDecodesBackendEnvelope() throws {

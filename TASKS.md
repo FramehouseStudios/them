@@ -59,7 +59,7 @@
 | T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
-| T38  | Wire iOS accepted twist-card actions              | codex  | in-progress       |
+| T38  | Wire iOS accepted twist-card actions              | codex  | review            |
 
 ---
 
@@ -181,7 +181,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T38-accepted-twist-ios`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** the iOS twist-card surface can record accepted twists with `POST /craft/twist/accepted`, dismiss them with `DELETE /craft/twist/accepted/:twistId`, and reload accepted twists with `GET /craft/twist/accepted?projectId=`; request/response contracts are covered by tests; failures degrade to non-blocking UI messages while PR #59 is still pending.
 
 ### T13 — Add second realtime supplier behind existing interface
