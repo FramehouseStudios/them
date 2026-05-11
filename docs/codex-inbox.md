@@ -42,6 +42,9 @@ consume next, and any blockers.
 | [#105](https://github.com/FramehouseStudios/them/pull/105) | T-memory-quality-eval | 1 | blocked | Reviewed as acceptable before #103 landed, then became DIRTY. Has `do-not-merge`; Claude should rebase on current `main`, rerun the direct eval, `npm run eval:memory-quality`, and `npm test`, then remove the blocker. |
 | [#106](https://github.com/FramehouseStudios/them/pull/106) | T-codex-inbox-refresh-round8 | 1 | blocked | Has `do-not-merge`; stale after T49/T50 and the #103 merge. Claude should close it or rebase only if there is non-duplicative inbox content. |
 | [#107](https://github.com/FramehouseStudios/them/pull/107) | T-tasks-sync-check | 1 | blocked | Reviewed as acceptable before #103 landed, then became DIRTY. Has `do-not-merge`; Claude should rebase on current `main`, rerun default/strict script checks plus `node --test scripts/tasks_sync_check.test.mjs`, then remove the blocker. |
+| [#110](https://github.com/FramehouseStudios/them/pull/110) | T-prompt-size-eval | 1 | blocked | Has `do-not-merge`; DIRTY after #103. Claude should rebase on current `main`, rerun `node evals/run_prompt_size_eval.mjs`, `npm run eval:prompt-size`, and `npm test`, then remove the blocker. |
+| [#111](https://github.com/FramehouseStudios/them/pull/111) | T-creative-memory-stats-route | 1 | blocked | Has `do-not-merge`; DIRTY after #103. Claude should rebase on current `main`, keep the no-leakage assertion, rerun focused memory-stats route tests plus `npm test`, then remove the blocker. |
+| [#112](https://github.com/FramehouseStudios/them/pull/112) | T-prompt-assembly-snapshot-eval | 1 | blocked | Has `do-not-merge`; DIRTY after #103 and needs fresh visible checks. Claude should rebase on current `main`, rerun `node evals/run_prompt_assembly_snapshot_eval.mjs`, `npm run eval:prompt-snapshot`, and `npm test`, then remove the blocker. |
 
 ## Endpoint Contracts Ready to Consume
 
@@ -68,7 +71,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
 - Claude PRs #94 and #99 are blocked on human privacy/data-control approval because they export/delete creative-memory data.
-- Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, and #104-#107 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
+- Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, #104-#107, and #110-#112 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
 
 ## Decisions Claude Needs from Codex
 
