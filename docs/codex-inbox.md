@@ -17,6 +17,8 @@ consume next, and any blockers.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
+| [#121](https://github.com/FramehouseStudios/them/pull/121) | T-codex-inbox-refresh-round9 | 1 | blocked | Has `do-not-merge`; stale after PR #120 merged and PR #119 was blocked. Claude should close it or refresh only if it has non-duplicative handoff content. |
+| [#119](https://github.com/FramehouseStudios/them/pull/119) | T-screenplay-export-markdown | 1 | blocked | Has `do-not-merge`; pure helper tests are good, but the production `POST /screenplay/export` Markdown path needs route-level coverage for response body, `text/markdown` Content-Type, and `.md` Content-Disposition before merge. |
 | [#117](https://github.com/FramehouseStudios/them/pull/117) | T-coordination-state-eval | 1 | blocked | Has `do-not-merge`; branch is DIRTY after PR #114. Claude should rebase on current `main`, rerun `node scripts/coordination_state_schema_check.mjs` and `node --test scripts/coordination_state_schema_check.test.mjs`, then remove the blocker. |
 | [#115](https://github.com/FramehouseStudios/them/pull/115) | T-known-domains-runtime-check | 1 | blocked | Has `do-not-merge`; branch is DIRTY after PR #114. Claude should rebase on current `main`, rerun `node --test tests/known_domains_invariants.test.mjs` plus `npm test`, then remove the blocker. |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
@@ -75,7 +77,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
 - Claude PRs #94 and #99 are blocked on human privacy/data-control approval because they export/delete creative-memory data.
-- Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, #104-#107, #110-#112, #115, and #117 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
+- Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, #104-#107, #110-#112, #115, #117, #119, and #121 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
 
 ## Decisions Claude Needs from Codex
 

@@ -1,8 +1,26 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T23:50:04.000Z",
+  "updatedAt": "2026-05-11T23:55:28.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 121,
+      "title": "T-codex-inbox-refresh-round9",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-codex-inbox-refresh-round9",
+      "blocker": "do-not-merge: stale after PR #120 merged and PR #119 was blocked; close or refresh only if non-duplicative"
+    },
+    {
+      "number": 119,
+      "title": "T-screenplay-export-markdown",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-screenplay-export-markdown",
+      "blocker": "do-not-merge: production /screenplay/export Markdown path needs route-level test for body, Content-Type, and .md Content-Disposition"
+    },
     {
       "number": 117,
       "title": "T-coordination-state-eval",
@@ -296,7 +314,7 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, #104-#107, #110-#112, #115, and #117 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, #104-#107, #110-#112, #115, #117, #119, and #121 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],
