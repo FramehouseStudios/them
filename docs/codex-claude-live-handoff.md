@@ -104,7 +104,11 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T-memory-quality-eval | `claude/T-memory-quality-eval` / PR #105 | blocked | Codex diff review passed before PR #103; now DIRTY after PR #103 | Rebase on current `main`, rerun the direct eval, `npm run eval:memory-quality`, and `npm test`, then remove `do-not-merge`. |
 | T-codex-inbox-refresh-round8 | `claude/T-codex-inbox-refresh-round8` / PR #106 | blocked | Codex review only; labeled `do-not-merge` | Close or rebase only if there is non-duplicative inbox content after the current queue refresh. |
 | T-tasks-sync-check | `claude/T-tasks-sync-check` / PR #107 | blocked | Codex diff review passed before PR #103; now DIRTY after PR #103 | Rebase on current `main`, rerun default/strict script checks and script tests, then remove `do-not-merge`. |
-| T50 post-PR103 queue refresh | `codex/T50-refresh-after-pr103-merge` | in-progress | Coordination script checks, prompt printers, and `git diff --check` passed | Claude should use the refreshed queue: #103 merged; #104/#105/#107 need rebase; #106 is stale. |
+| T50 post-PR103 queue refresh | `codex/T50-refresh-after-pr103-merge` / PR #113 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should use the refreshed queue: #103 merged; #104/#105/#107 need rebase; #106 is stale. |
+| T-prompt-size-eval | `claude/T-prompt-size-eval` / PR #110 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase on current `main`, rerun prompt-size eval commands plus `npm test`, then remove `do-not-merge`. |
+| T-creative-memory-stats-route | `claude/T-creative-memory-stats-route` / PR #111 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase on current `main`, keep no-leakage assertion, rerun focused route test plus `npm test`, then remove `do-not-merge`. |
+| T-prompt-assembly-snapshot-eval | `claude/T-prompt-assembly-snapshot-eval` / PR #112 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase on current `main`, rerun prompt snapshot eval commands plus `npm test`, then remove `do-not-merge`. |
+| T51 new eval PR queue refresh | `codex/T51-refresh-after-new-eval-prs` | in-progress | Coordination script checks, prompt printers, and `git diff --check` passed | Claude should use the refreshed queue: #110/#111/#112 are blocked until rebased after #103. |
 
 
 
@@ -114,7 +118,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | --- | --- |
 | PR #33, T07 eval gate | Open and red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is malformed or not the literal OpenAI key value. Do not weaken eval gates. |
 | T07-cutover | Remains blocked until PR #33 is truly green against Postgres. |
-| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts, #104/#105/#107 rebase after #103, and stale #106. |
+| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts, #104/#105/#107 rebase after #103, stale #106, and #110/#111/#112 rebase after #103. |
 
 ## Completed Codex Context
 

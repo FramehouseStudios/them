@@ -21,7 +21,8 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    plus explicit `/talk/stats` access-control proof or a recorded policy note;
    #100 needs `/talk/errors` access-control proof and true since-window counts;
    #104, #105, and #107 need a rebase after PR #103; #106 is stale and should
-   be closed or rebased only if it has non-duplicative inbox content.
+   be closed or rebased only if it has non-duplicative inbox content; #110,
+   #111, and #112 need a rebase after PR #103 before Codex can review/merge.
 5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
    not routine tier-1 work. PR #99 is blocked until the human accepts the
    memory deletion policy.
@@ -66,7 +67,11 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Blocked PR #105: `T-memory-quality-eval` is DIRTY after #103; rebase and rerun the memory-quality eval commands plus `npm test`.
 - Blocked PR #106: `T-codex-inbox-refresh-round8` is stale after T49/T50; close or rebase only if there is non-duplicative inbox content.
 - Blocked PR #107: `T-tasks-sync-check` is DIRTY after #103; rebase and rerun default/strict script checks plus the script test.
-- In-progress PR-to-open: `codex/T50-refresh-after-pr103-merge` records the #103 merge and #104/#105/#106/#107 blockers in the handoff lane.
+- Merged PR #113: `T50-refresh-after-pr103-merge` records the #103 merge and #104/#105/#106/#107 blockers in the handoff lane.
+- Blocked PR #110: `T-prompt-size-eval` is DIRTY after #103; rebase and rerun prompt-size eval commands plus `npm test`.
+- Blocked PR #111: `T-creative-memory-stats-route` is DIRTY after #103; rebase, keep the no-leakage assertion, and rerun focused route tests plus `npm test`.
+- Blocked PR #112: `T-prompt-assembly-snapshot-eval` is DIRTY after #103 and needs fresh visible checks; rebase and rerun prompt snapshot eval commands plus `npm test`.
+- In-progress PR-to-open: `codex/T51-refresh-after-new-eval-prs` records #110/#111/#112 blockers in the handoff lane.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next
