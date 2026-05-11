@@ -61,7 +61,8 @@
 | T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | claude | review |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
-| T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | review |
+| T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
+| T-block-signal-history-bounds-eval | Pathological-input guard on the BS history buffer | claude | review |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
