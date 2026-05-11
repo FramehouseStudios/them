@@ -8,17 +8,18 @@ name: auto-merge-tier1
 #
 # A PR is auto-merged when ALL of the following hold:
 #   1. It carries the `tier-1` label.
-#   2. It does NOT carry the `tier-2`, `tier-3`, `needs-human`, or
-#      `do-not-merge` labels.
+#   2. It does NOT carry the `tier-2`, `tier-3`, `needs-human`,
+#      `do-not-merge`, or `block-merge` labels.
 #   3. The backend test suite is green on the head SHA.
-#   4. Either:
-#        a. The other agent has approved the PR (formal review approval),
-#        b. OR a trusted OWNER/MEMBER/COLLABORATOR comment beginning
-#           with "Codex supervisor update: approved" or
-#           "Claude supervisor update: approved" exists,
-#        c. OR the PR has been open for at least 4 hours without any
-#           comment from the other agent containing the word "block",
-#           "block,", or "blocker".
+#   4. Explicit cross-agent approval — one of:
+#        a. A formal Approve review from a trusted OWNER/MEMBER/COLLABORATOR.
+#        b. A trusted OWNER/MEMBER/COLLABORATOR comment beginning with
+#           "Codex supervisor update: approved" or
+#           "Claude supervisor update: approved".
+#
+# There is NO quiet-time fallback. Per the human's rule (2026-05-11),
+# the auto-merger never merges anything without an explicit approval
+# signal from the other agent. An idle PR sits idle.
 #
 # Either agent can escalate a PR by replacing the label with `tier-2` /
 # `tier-3` and leaving a comment. Escalation cannot be reversed by an
@@ -130,36 +131,18 @@ jobs:
               echo "PR #$PR mergeStateStatus=$mss is not green-enough; skipping."; exit 0 ;;
           esac
 
-          # Cross-agent approval check.
+          # Cross-agent approval check. Strict: an explicit signal from a
+          # trusted OWNER/MEMBER/COLLABORATOR is required. There is no
+          # quiet-time fallback — the workflow never merges anything
+          # without explicit approval from the other agent.
           approved_via_review=$(echo "$info" | jq -r "[.reviews[] | select(.state == \"APPROVED\" and (.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)))] | length")
           approved_via_comment=$(echo "$info" | jq -r "[.comments[] | select((.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)) and (.body | test(\"^(Codex|Claude) supervisor update: approved\")))] | length")
 
-          # Quiet-time check: open ≥4h with no explicit blocking signal
-          # from either agent. The signal is intentionally narrow so
-          # benign mentions of the noun "blocker" (in PR templates or
-          # status reports) do not stop a merge — use the explicit
-          # `BLOCK MERGE` token or the `block-merge` label to object.
-          created_at=$(echo "$info" | jq -r '.createdAt')
-          created_epoch=$(date -u -d "$created_at" +%s 2>/dev/null \
-            || gdate -u -d "$created_at" +%s 2>/dev/null \
-            || python3 -c "import datetime,sys;print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$created_at")
-          now_epoch=$(date -u +%s)
-          age_hours=$(( (now_epoch - created_epoch) / 3600 ))
-
-          blocking_comment=$(echo "$info" \
-            | jq -r '.comments[].body' \
-            | grep -cE 'BLOCK MERGE|do-not-merge:' || true)
-
-          quiet_path_ok=0
-          if [[ "$age_hours" -ge 4 && "$blocking_comment" -eq 0 ]]; then
-            quiet_path_ok=1
-          fi
-
-          if [[ "$approved_via_review" -eq 0 && "$approved_via_comment" -eq 0 && "$quiet_path_ok" -eq 0 ]]; then
-            echo "PR #$PR not approved (review=0, comment=0) and age=${age_hours}h with $blocking_comment blocking comments; skipping."
+          if [[ "$approved_via_review" -eq 0 && "$approved_via_comment" -eq 0 ]]; then
+            echo "PR #$PR has no explicit cross-agent approval (review=0, comment=0); skipping."
             exit 0
           fi
 
-          echo "PR #$PR is tier-1, mergeable, and approved. Merging."
+          echo "PR #$PR is tier-1, mergeable, and explicitly approved. Merging."
           gh pr merge "$PR" --repo "$REPO" --squash --auto --delete-branch \
             || gh pr merge "$PR" --repo "$REPO" --squash --delete-branch
