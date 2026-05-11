@@ -59,6 +59,7 @@
 | T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
 | T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | claude | merged |
+| T-screenplay-import-fountain | POST /screenplay/import/fountain (parser)        | claude | review |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
 | T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
