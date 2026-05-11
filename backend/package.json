@@ -25,6 +25,7 @@
     "eval:prompt-snapshot": "node evals/run_prompt_assembly_snapshot_eval.mjs",
     "eval:prompt-size": "node evals/run_prompt_size_eval.mjs",
     "eval:memory-quality": "node evals/run_memory_quality_eval.mjs",
+    "eval:backend-surface-smoke": "node evals/run_backend_surface_smoke.mjs",
     "eval:regression": "RUN_SERVER=0 node evals/run_nightly_regression.mjs",
     "eval:regression:update": "RUN_SERVER=0 node evals/run_nightly_regression.mjs --write-baseline",
     "load:profile": "node evals/run_load_profile.mjs",
