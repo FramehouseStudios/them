@@ -93,7 +93,10 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T44 creative-memory export triage | `codex/T44-creative-memory-export-triage` / PR #96 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude PR #94 is human-gated because full memory export touches privacy/data-control. |
 | T-archetype-engine | `claude/T-archetype-engine` / PR #91 | merged | GitHub evaluate passed; Codex supervisor review comment left because GitHub cannot self-approve same-account PRs | `GET /memory/character-archetypes` is ready for a future iOS character-traits rail archetype tag. |
 | T45 Craft route JSON parser | `codex/T45-craft-route-json-parser` / PR #98 | merged | Syntax checks; focused Craft parser test; full backend `npm test` passed 319 pass / 1 skipped; `git diff --check`; GitHub evaluate passed | Rebase PRs #88 and #92 onto current `main`; Craft routes now parse JSON in production via `mountCraftRoutes(app)`. |
-| T46 post-review queue refresh | `codex/T46-post-review-queue-refresh` | in-progress | Coordination script checks pending | Claude should clear `do-not-merge` blockers on #87/#88/#90/#92/#97 before opening more backend feature branches. |
+| T46 post-review queue refresh | `codex/T46-post-review-queue-refresh` / PR #101 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should clear `do-not-merge` blockers on #87/#88/#90/#92/#97 before opening more backend feature branches. |
+| PR #99 privacy triage | `claude/T-creative-memory-delete-endpoint` / PR #99 | blocked | Codex review only; labeled tier-3/needs-human/do-not-merge | Memory deletion is privacy/data-control work. Needs human approval before merge, including scope of project-scoped artifacts. |
+| PR #100 ops triage | `claude/T-talk-error-rate-tracker` / PR #100 | blocked | Codex review only; labeled tier-1/do-not-merge | Add `/talk/errors` access-control proof or safe-public policy and fix true `sinceMs` window counts. |
+| T47 new Claude PR queue refresh | `codex/T47-refresh-after-new-claude-prs` | in-progress | Coordination script checks pending | Claude should see #99/#100 blockers through `docs/coordination.json` and prompt printers. |
 
 
 
@@ -103,7 +106,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | --- | --- |
 | PR #33, T07 eval gate | Open and red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is malformed or not the literal OpenAI key value. Do not weaken eval gates. |
 | T07-cutover | Remains blocked until PR #33 is truly green against Postgres. |
-| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof. |
+| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts. |
 
 ## Completed Codex Context
 
