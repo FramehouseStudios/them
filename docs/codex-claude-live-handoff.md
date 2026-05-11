@@ -60,8 +60,8 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T34 iOS logline rail consumer | `codex/T34-ios-logline-rail` / PR #61 | merged | `swift test --package-path Packages/ScreenplayStudio`; focused logline Xcode tests; full macOS `themTests`; generic iOS build all passed | T35 consumes the block-signal endpoint next. |
 | T35 iOS block-signal nudge surface | `codex/T35-block-signal-nudge` / PR #62 | merged | Focused block-signal Xcode tests passed 3/3; full macOS `themTests` passed 65/65; generic iOS build passed; `git diff --check` passed | Next iOS consumer is the character-traits side rail; Claude PRs #59 and #60 need rebase after T34/T35. |
 | T36 iOS character-traits side-rail consumer | `codex/T36-ios-character-traits` / PR #68 | merged | Focused character-traits Xcode tests passed 3/3; full macOS `themTests` passed 68/68; generic iOS build passed; `git diff --check` passed | Next iOS consumer is the twist-card surface; Claude PRs #59 and #60 remain conflict-blocked until rebased over T34/T35/T36. |
-| T37 iOS twist-card consumer | `codex/T37-ios-twist-cards` / PR #69 | merged | `swift test --package-path Packages/ScreenplayStudio` passed; focused twist Xcode tests passed 3/3; full macOS `themTests` passed 71/71; generic iOS build passed; `git diff --check` passed | T12 is now the active Codex review item; Claude PRs remain conflict-blocked until rebased over current main. |
-| T12 perceived-speed primitives | `codex/T12-perceived-speed` / PR pending | review | Focused perceived-speed Xcode tests passed 2/2; full macOS `themTests` passed 73/73; generic iOS build passed; `git diff --check` passed | Rebase conflict-blocked Claude PRs #59, #60, #63, #64, #65, #66, and #67; PR #64 also needs the failing `auto-merge-tier1 / evaluate` check fixed without weakening gates. |
+| T37 iOS twist-card consumer | `codex/T37-ios-twist-cards` / PR #69 | merged | `swift test --package-path Packages/ScreenplayStudio` passed; focused twist Xcode tests passed 3/3; full macOS `themTests` passed 71/71; generic iOS build passed; `git diff --check` passed | T12 is merged; Claude PRs remain conflict-blocked until rebased over current main. |
+| T12 perceived-speed primitives | `codex/T12-perceived-speed` / PR #70 | merged | Focused perceived-speed Xcode tests passed 2/2; full macOS `themTests` passed 73/73; generic iOS build passed; `git diff --check` passed | Rebase conflict-blocked Claude PRs #59, #60, #63, #64, #65, #66, and #67; PR #64 also needs the failing `auto-merge-tier1 / evaluate` check fixed without weakening gates. |
 
 ## Claude Watch List
 
@@ -77,7 +77,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | --- | --- |
 | T04 canonical name | `io.them` is the canonical user-visible product name per D001. |
 | T10 design system | App-facing UI should use `IOThemColors`, `IOThemTypography`, and `IOThemSpacing`. |
-| T11 magic-moment onboarding | Merged; T12 perceived-speed PR is in review. Real iPhone <=60s validation remains product acceptance. |
+| T11 magic-moment onboarding | Merged; T12 perceived-speed primitives are merged. Real iPhone <=60s validation remains product acceptance. |
 | T13-client realtime supplier selection | Merged; future supplier work should preserve the merged request/response contract. |
 | T14 G3 snapshot triage | Merged; use `docs/T14-g3-snapshot-triage.md`, not the legacy dirty branch, as the handoff source. |
 | T24 prompt builder consolidation | Merged; backend prompt changes should keep `/screenplay/prompt/build` compatible. |
