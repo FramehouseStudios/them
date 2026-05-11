@@ -56,6 +56,7 @@
 | T-coordination-state | Fast-path coordination.json + CLI helper        | claude | merged         |
 | T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | claude | merged         |
 | T-decisions-queue | One-file queue for human decisions               | claude | merged         |
+| T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | in-progress |
 
 ---
 
