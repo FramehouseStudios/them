@@ -50,6 +50,7 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
@@ -68,7 +69,7 @@ jobs:
             workflow_run)
               # Find the PR(s) whose head SHA matches the completed workflow.
               SHA="${{ github.event.workflow_run.head_sha }}"
-              PR=$(gh pr list --state open --search "$SHA" --json number --jq '.[0].number')
+              PR=$(gh pr list --repo "$REPO" --state open --search "$SHA" --json number --jq '.[0].number')
               echo "pr_number=${PR:-}" >> "$GITHUB_OUTPUT"
               ;;
             *)
@@ -84,11 +85,16 @@ jobs:
         if: steps.pr.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.pr_number }}
         run: |
           set -euo pipefail
 
-          info=$(gh pr view "$PR" --json number,headRefOid,mergeable,mergeStateStatus,labels,reviews,comments,createdAt,isDraft,state)
+          # All gh calls explicitly pass --repo so the workflow does not
+          # require an actions/checkout step. (Without --repo, gh falls
+          # back to the local git remote and fails with "not a git
+          # repository" on the merge step.)
+          info=$(gh pr view "$PR" --repo "$REPO" --json number,headRefOid,mergeable,mergeStateStatus,labels,reviews,comments,createdAt,isDraft,state)
           state=$(echo "$info" | jq -r '.state')
           if [[ "$state" != "OPEN" ]]; then
             echo "PR #$PR is not open (state=$state); skipping."; exit 0
@@ -102,7 +108,7 @@ jobs:
           if ! echo " $labels " | grep -q " tier-1 "; then
             echo "PR #$PR is not tier-1; skipping."; exit 0
           fi
-          for forbidden in tier-2 tier-3 needs-human do-not-merge; do
+          for forbidden in tier-2 tier-3 needs-human do-not-merge block-merge; do
             if echo " $labels " | grep -q " $forbidden "; then
               echo "PR #$PR carries blocking label $forbidden; skipping."; exit 0
             fi
@@ -113,34 +119,37 @@ jobs:
             echo "PR #$PR not mergeable (mergeable=$mergeable); skipping."; exit 0
           fi
 
-          # Check suite status via merge-state.
+          # Check suite status via merge-state. UNSTABLE = required checks
+          # passed but a non-required check failed; refuse to auto-merge in
+          # that case so the agent or the human can decide.
           mss=$(echo "$info" | jq -r '.mergeStateStatus')
-          if [[ "$mss" != "CLEAN" && "$mss" != "UNSTABLE" && "$mss" != "HAS_HOOKS" ]]; then
-            echo "PR #$PR mergeStateStatus=$mss is not green-enough; skipping."; exit 0
-          fi
-          if [[ "$mss" == "UNSTABLE" ]]; then
-            # UNSTABLE = required checks passed but a non-required check failed.
-            # Refuse to auto-merge to be conservative; let the human or agent decide.
-            echo "PR #$PR has non-required check failures (UNSTABLE); skipping."; exit 0
-          fi
+          case "$mss" in
+            CLEAN|HAS_HOOKS) ;;
+            *)
+              echo "PR #$PR mergeStateStatus=$mss is not green-enough; skipping."; exit 0 ;;
+          esac
 
           # Cross-agent approval check.
           approved_via_review=$(echo "$info" | jq -r '[.reviews[] | select(.state == "APPROVED")] | length')
           approved_via_comment=$(echo "$info" \
             | jq -r '.comments[].body' \
-            | grep -E '^(Codex|Claude) supervisor update: approved' | wc -l | tr -d ' ')
+            | grep -cE '^(Codex|Claude) supervisor update: approved' || true)
 
-          # Quiet-time check: open ≥4h with no blocking comment from the
-          # other agent (here we count any comment containing the word "block"
-          # — case-insensitive, word-boundary).
+          # Quiet-time check: open ≥4h with no explicit blocking signal
+          # from either agent. The signal is intentionally narrow so
+          # benign mentions of the noun "blocker" (in PR templates or
+          # status reports) do not stop a merge — use the explicit
+          # `BLOCK MERGE` token or the `block-merge` label to object.
           created_at=$(echo "$info" | jq -r '.createdAt')
-          created_epoch=$(date -u -d "$created_at" +%s 2>/dev/null || gdate -u -d "$created_at" +%s 2>/dev/null || python3 -c "import datetime,sys;print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$created_at")
+          created_epoch=$(date -u -d "$created_at" +%s 2>/dev/null \
+            || gdate -u -d "$created_at" +%s 2>/dev/null \
+            || python3 -c "import datetime,sys;print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$created_at")
           now_epoch=$(date -u +%s)
           age_hours=$(( (now_epoch - created_epoch) / 3600 ))
 
           blocking_comment=$(echo "$info" \
             | jq -r '.comments[].body' \
-            | grep -iE '\bblock(er|ed|ing)?\b' | wc -l | tr -d ' ')
+            | grep -cE 'BLOCK MERGE|do-not-merge:' || true)
 
           quiet_path_ok=0
           if [[ "$age_hours" -ge 4 && "$blocking_comment" -eq 0 ]]; then
@@ -148,8 +157,10 @@ jobs:
           fi
 
           if [[ "$approved_via_review" -eq 0 && "$approved_via_comment" -eq 0 && "$quiet_path_ok" -eq 0 ]]; then
-            echo "PR #$PR not approved (review=0, comment=0) and age=${age_hours}h with $blocking_comment blocking comments; skipping."; exit 0
+            echo "PR #$PR not approved (review=0, comment=0) and age=${age_hours}h with $blocking_comment blocking comments; skipping."
+            exit 0
           fi
 
           echo "PR #$PR is tier-1, mergeable, and approved. Merging."
-          gh pr merge "$PR" --squash --auto --delete-branch || gh pr merge "$PR" --squash --delete-branch
+          gh pr merge "$PR" --repo "$REPO" --squash --auto --delete-branch \
+            || gh pr merge "$PR" --repo "$REPO" --squash --delete-branch
