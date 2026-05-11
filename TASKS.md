@@ -61,7 +61,8 @@
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
-| T40  | Fix app UserDefaults suite warning                | codex  | review            |
+| T40  | Fix app UserDefaults suite warning                | codex  | merged            |
+| T41  | Defer Studio debug-state publishing               | codex  | in-progress       |
 
 ---
 
@@ -86,8 +87,15 @@
 - **Owner:** codex
 - **Branch:** `codex/T40-userdefaults-suite-warning`
 - **Pillar:** mobile-first
-- **Status:** review
+- **Status:** merged
 - **Done when:** app launch and test runs no longer open a `UserDefaults` suite using the app bundle identifier; Studio debug preference mirroring still writes to the standard app defaults and any legacy shared mirror domain intentionally; focused tests cover the domain selection behavior.
+
+### T41 — Defer Studio debug-state publishing
+- **Owner:** codex
+- **Branch:** `codex/T41-defer-studio-debug-publish`
+- **Pillar:** mobile-first
+- **Status:** in-progress
+- **Done when:** Studio debug-state publication no longer mutates SwiftUI storage synchronously from `onChange`/view-update callbacks; macOS verification no longer logs SwiftUI "Publishing changes from within view updates" for this path; full themTests and generic iOS build pass.
 
 ---
 
