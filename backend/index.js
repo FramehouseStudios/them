@@ -62,6 +62,7 @@ import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
 import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention_route.js";
 import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
+import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
@@ -2888,7 +2889,20 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
   if (!userId) return systemPrompt;
   const memory = await creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
   if (!memory) return systemPrompt;
-  return buildModelPrompt({ persona: systemPrompt, creativeMemory: memory });
+
+  // T-block-signal-system-prompt: when the writer's habits indicate
+  // medium/high block signal, inject a compact coaching note so the
+  // model softens tone and asks for less. Cold users + low-block
+  // users see no change.
+  let blockCoaching = "";
+  if (memory.habits && typeof memory.habits === "object") {
+    try {
+      const signal = computeBlockSignal({ habits: memory.habits });
+      blockCoaching = buildBlockCoachingBlockForPrompt(signal);
+    } catch (_e) { /* never block the prompt on signal computation */ }
+  }
+
+  return buildModelPrompt({ persona: systemPrompt, creativeMemory: memory, blockCoaching });
 }
 
 configureMemoryStore({

@@ -13,6 +13,10 @@
 
 const MEMORY_BLOCK_OPEN = "<creative_memory>";
 const MEMORY_BLOCK_CLOSE = "</creative_memory>";
+// T-block-signal-system-prompt: a compact coaching note injected when
+// the writer-block detector reports medium/high. Empty for low.
+const BLOCK_SIGNAL_BLOCK_OPEN = "<block_signal>";
+const BLOCK_SIGNAL_BLOCK_CLOSE = "</block_signal>";
 
 function isNonEmptyObject(v) {
   return v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length > 0;
@@ -96,6 +100,16 @@ function buildSessionContextBlock(sessionContext) {
   return parts.length ? `<session>\n${parts.map((p) => `  ${p}`).join("\n")}\n</session>` : "";
 }
 
+// T-block-signal-system-prompt: wrap the coaching string (produced by
+// `block_detector.buildBlockCoachingBlockForPrompt`) in tagged block
+// form. Empty coaching → empty block; the prompt path produces zero
+// extra bytes for cold/low-block users.
+function buildBlockSignalBlock(blockCoaching) {
+  const text = trimToString(blockCoaching);
+  if (!text) return "";
+  return `${BLOCK_SIGNAL_BLOCK_OPEN}\n${text}\n${BLOCK_SIGNAL_BLOCK_CLOSE}`;
+}
+
 // Single canonical entry point. Every model-bound prompt the backend
 // constructs goes through this function.
 function buildModelPrompt({
@@ -103,6 +117,7 @@ function buildModelPrompt({
   creativeMemory = null,
   userInput = "",
   sessionContext = null,
+  blockCoaching = "",
 } = {}) {
   const parts = [];
   const personaText = trimToString(persona);
@@ -113,6 +128,9 @@ function buildModelPrompt({
 
   const sessionBlock = buildSessionContextBlock(sessionContext);
   if (sessionBlock) parts.push(sessionBlock);
+
+  const blockSignalBlock = buildBlockSignalBlock(blockCoaching);
+  if (blockSignalBlock) parts.push(blockSignalBlock);
 
   const inputText = trimToString(userInput);
   if (inputText) parts.push(inputText);
@@ -127,6 +145,7 @@ function buildModelPromptParts(args) {
     persona: trimToString(args?.persona),
     memoryBlock: buildMemoryBlock(args?.creativeMemory),
     sessionBlock: buildSessionContextBlock(args?.sessionContext),
+    blockSignalBlock: buildBlockSignalBlock(args?.blockCoaching),
     userInput: trimToString(args?.userInput),
   };
 }
@@ -136,4 +155,6 @@ export {
   buildModelPromptParts,
   MEMORY_BLOCK_OPEN,
   MEMORY_BLOCK_CLOSE,
+  BLOCK_SIGNAL_BLOCK_OPEN,
+  BLOCK_SIGNAL_BLOCK_CLOSE,
 };
