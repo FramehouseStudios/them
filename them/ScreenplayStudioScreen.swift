@@ -23951,10 +23951,12 @@ Look at the city.
         let encoder = JSONEncoder()
         guard let data = try? encoder.encode(state),
               let encoded = String(data: data, encoding: .utf8) else { return }
-        studioDebugDiffStateJSON = encoded
-        #if os(macOS)
-        writeMirroredStudioDebugPreferenceString(encoded, forKey: "studio_debug_diff_state_json")
-        #endif
+        DispatchQueue.main.async {
+            studioDebugDiffStateJSON = encoded
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceString(encoded, forKey: "studio_debug_diff_state_json")
+            #endif
+        }
         #endif
     }
 

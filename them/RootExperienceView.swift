@@ -918,33 +918,51 @@ struct RootExperienceView: View {
         AnyView(
             rootBodyView
                 .onChange(of: studioDebugOpenToken) { _, _ in
-                    handleStudioDebugOpenChange()
+                    DispatchQueue.main.async {
+                        handleStudioDebugOpenChange()
+                    }
                 }
                 .onChange(of: studioDebugLoadProjectToken) { _, newValue in
-                    handleStudioDebugLoadProjectTokenChange(newValue)
+                    DispatchQueue.main.async {
+                        handleStudioDebugLoadProjectTokenChange(newValue)
+                    }
                 }
                 .onChange(of: studioDebugVoiceTurnToken) { _, newValue in
-                    handleStudioDebugVoiceTurnTokenChange(newValue)
+                    DispatchQueue.main.async {
+                        handleStudioDebugVoiceTurnTokenChange(newValue)
+                    }
                 }
 #if os(macOS)
                 .onReceive(studioDebugDefaultsBridge.$openToken.removeDuplicates()) { token in
-                    handleStudioDebugOpenChange(token)
+                    DispatchQueue.main.async {
+                        handleStudioDebugOpenChange(token)
+                    }
                 }
                 .onReceive(studioDebugDefaultsBridge.$loadProjectToken.removeDuplicates()) { token in
-                    handleStudioDebugLoadProjectTokenChange(token)
+                    DispatchQueue.main.async {
+                        handleStudioDebugLoadProjectTokenChange(token)
+                    }
                 }
                 .onReceive(studioDebugDefaultsBridge.$voiceTurnToken.removeDuplicates()) { token in
-                    handleStudioDebugVoiceTurnTokenChange(token)
+                    DispatchQueue.main.async {
+                        handleStudioDebugVoiceTurnTokenChange(token)
+                    }
                 }
 #endif
                 .onChange(of: homeTurnCueDebugToken) { _, newValue in
-                    handleHomeTurnCueDebugTokenChange(newValue)
+                    DispatchQueue.main.async {
+                        handleHomeTurnCueDebugTokenChange(newValue)
+                    }
                 }
                 .onChange(of: orbEchoDebugShowToken) { _, newValue in
-                    handleOrbEchoDebugShowChange(newValue)
+                    DispatchQueue.main.async {
+                        handleOrbEchoDebugShowChange(newValue)
+                    }
                 }
                 .onChange(of: orbEchoDebugHideToken) { _, newValue in
-                    handleOrbEchoDebugHideChange(newValue)
+                    DispatchQueue.main.async {
+                        handleOrbEchoDebugHideChange(newValue)
+                    }
                 }
         )
     }
@@ -952,19 +970,35 @@ struct RootExperienceView: View {
     private var bodyWithLifecycleObservers: AnyView {
         AnyView(
             bodyWithObservedChanges
-                .onAppear(perform: handleContentViewAppear)
-                .onDisappear(perform: handleContentViewDisappear)
+                .onAppear {
+                    DispatchQueue.main.async {
+                        handleContentViewAppear()
+                    }
+                }
+                .onDisappear {
+                    DispatchQueue.main.async {
+                        handleContentViewDisappear()
+                    }
+                }
                 .onChange(of: scenePhase) { _, newPhase in
-                    handleScenePhaseChange(newPhase)
+                    DispatchQueue.main.async {
+                        handleScenePhaseChange(newPhase)
+                    }
                 }
                 .onChange(of: isStudioSurfaceActive) { _, newValue in
-                    voice.isStudioMode = newValue
+                    DispatchQueue.main.async {
+                        voice.isStudioMode = newValue
+                    }
                 }
                 .onChange(of: voiceTransportModeRaw) { _, newValue in
-                    handleVoiceTransportModeChange(newValue)
+                    DispatchQueue.main.async {
+                        handleVoiceTransportModeChange(newValue)
+                    }
                 }
                 .onChange(of: realtimeSupplierModeRaw) { _, newValue in
-                    handleRealtimeSupplierModeChange(newValue)
+                    DispatchQueue.main.async {
+                        handleRealtimeSupplierModeChange(newValue)
+                    }
                 }
         )
     }

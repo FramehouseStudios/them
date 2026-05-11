@@ -62,7 +62,7 @@
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
-| T41  | Defer Studio debug-state publishing               | codex  | in-progress       |
+| T41  | Defer Studio debug-state publishing               | codex  | review            |
 
 ---
 
@@ -94,7 +94,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T41-defer-studio-debug-publish`
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** Studio debug-state publication no longer mutates SwiftUI storage synchronously from `onChange`/view-update callbacks; macOS verification no longer logs SwiftUI "Publishing changes from within view updates" for this path; full themTests and generic iOS build pass.
 
 ---
