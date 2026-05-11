@@ -29,17 +29,19 @@ consume next, and any blockers.
 | [#84](https://github.com/FramehouseStudios/them/pull/84) | T-realtime-supplier-failover | 2 | blocked | Has `do-not-merge`; needs cross-agent review only after route-level coverage is explicit. |
 | [#85](https://github.com/FramehouseStudios/them/pull/85) | T-backend-surface-smoke | 1 | blocked | Has `do-not-merge`; this is the likely next infrastructure unblock after Claude clears its blocker. |
 | [#86](https://github.com/FramehouseStudios/them/pull/86) | T-genre-classifier | 1 | blocked | Has `do-not-merge`; Claude should clear the documented blocker before Codex review. |
-| [#87](https://github.com/FramehouseStudios/them/pull/87) | T-screenplay-import-fountain | 1 | review | Labeled tier-1; Codex should review the Fountain import contract and decide whether iOS import UI follows. |
-| [#88](https://github.com/FramehouseStudios/them/pull/88) | T-coverage-simulator | 1 | review | Labeled tier-1; Codex should review the coverage simulator contract and decide whether iOS coverage cards follow. |
+| [#87](https://github.com/FramehouseStudios/them/pull/87) | T-screenplay-import-fountain | 1 | blocked | Has `do-not-merge`; Codex review found the advertised >4MB 413 path likely escapes route handling as a generic Express error. Claude should add route-local parsing/error handling plus a production-style 413 integration test. |
+| [#88](https://github.com/FramehouseStudios/them/pull/88) | T-coverage-simulator | 1 | blocked | Has `do-not-merge`; PR #98 fixed the shared Craft JSON parser on `main`. Claude should rebase onto current `main`, rerun backend tests, and confirm the production-style parser path stays green. |
 | [#89](https://github.com/FramehouseStudios/them/pull/89) | T-codex-inbox-refresh-2 | 1 | blocked | Has `do-not-merge`; superseded by T42/T43 unless Claude rebases and keeps only non-duplicative improvements. |
-| [#90](https://github.com/FramehouseStudios/them/pull/90) | T-fdx-export-endpoint | 1 | review | Labeled tier-1; Codex should review the Final Draft export contract and decide iOS export wiring order. |
-| [#91](https://github.com/FramehouseStudios/them/pull/91) | T-archetype-engine | 1 | review | Labeled tier-1; Codex should review the character archetype contract before wiring it into the traits rail. |
-| [#92](https://github.com/FramehouseStudios/them/pull/92) | T-payoff-tracker | 1 | review | Labeled tier-1; Codex should review payoff tracking before adding craft warning cards. |
+| [#90](https://github.com/FramehouseStudios/them/pull/90) | T-fdx-export-endpoint | 1 | blocked | Has `do-not-merge`; Codex review found the endpoint reads `req.body` without a route-local JSON parser, while tests mask it with app-level parsing. Claude should add a production-style parser test and route parser. |
+| [#92](https://github.com/FramehouseStudios/them/pull/92) | T-payoff-tracker | 1 | blocked | Has `do-not-merge`; PR #98 fixed the shared Craft JSON parser, but Codex also found a payoff dedupe bug where the payoff line can become a fresh unpaid setup. Claude should rebase and add that regression. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
+| [#97](https://github.com/FramehouseStudios/them/pull/97) | T-talk-turn-meta-stats | 1 | blocked | Has `do-not-merge`; branch is dirty and aggregate `/talk/stats` needs explicit route-level access-control proof or a recorded policy note before review. |
 
 ## Endpoint Contracts Ready to Consume
 
-Potential new contracts are in review, not yet consumed: PR #87 (`POST /screenplay/import/fountain`), PR #88 (`POST /craft/coverage/simulate`), PR #90 (`POST /screenplay/export/fdx`), PR #91 (`GET /memory/character-archetypes`), and PR #92 (`POST /craft/payoff/track`). Do not start iOS consumers until those PRs are reviewed and merged.
+Ready for Codex iOS follow-up: PR #91 merged `GET /memory/character-archetypes`; the natural consumer is an archetype tag/insight in the character traits rail.
+
+Blocked contracts not ready to consume: PR #87 (`POST /screenplay/import/fountain`), PR #88 (`POST /craft/coverage/simulate`), PR #90 (`POST /screenplay/export/fdx`), PR #92 (`POST /craft/payoff/track`), and PR #97 (`GET /talk/stats`). Do not start iOS consumers until those PRs are rebased, reviewed, and merged.
 
 ## Coordination Infrastructure Now Live for Codex
 
@@ -60,6 +62,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
 - Claude PR #94 is blocked on human privacy/data-control approval because it exports full creative-memory data.
+- Claude PRs #74, #76, #79-#90, #92, and #97 currently carry `do-not-merge`; Claude should clear those before opening more backend feature branches.
 
 ## Decisions Claude Needs from Codex
 

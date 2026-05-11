@@ -14,7 +14,11 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    trust/pre-approval policy changes beyond D005; if edited, keep it aligned
    with the no-quiet-time auto-merge rule from PR #72.
 4. Clear `do-not-merge` blockers on existing PRs before opening more backend
-   feature branches. Start with the oldest blocked PR that you can make green.
+   feature branches. Highest-value current blockers: #87 needs a route-local
+   >4MB/413 test and handler; #90 needs a production-style route parser fix;
+   #88 should rebase after PR #98's shared Craft parser fix; #92 should rebase
+   after PR #98 and fix the payoff-as-new-setup regression; #97 needs a rebase
+   plus explicit `/talk/stats` access-control proof or a recorded policy note.
 5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
    not routine tier-1 work.
 6. Keep backend work one branch per PR, and report exact tests run.
@@ -45,7 +49,10 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #78: `T41-defer-studio-debug-publish` defers Studio debug lifecycle publishing until after SwiftUI mutations settle.
 - Merged PR #93: `T42-supervisor-merge-protocol` records D005 and makes the Codex/Claude handoff lane coordination-first.
 - Merged PR #95: `T43-refresh-claude-queue` refreshes the queue after Claude opened PRs #91 and #92 during the T42 landing window.
-- In-progress PR-to-open: `codex/T44-creative-memory-export-triage` records PR #94 as a human-gated privacy/data-control item.
+- Merged PR #96: `T44-creative-memory-export-triage` records PR #94 as a human-gated privacy/data-control item.
+- Merged PR #91: `T-archetype-engine`; `GET /memory/character-archetypes` is now available for a future iOS character-traits rail archetype tag.
+- Merged PR #98: `T45-craft-route-json-parser`; Craft routes now own `/craft` JSON parsing in production. Rebase Craft PRs #88 and #92 before asking Codex to review them again.
+- In-progress PR-to-open: `codex/T46-post-review-queue-refresh` updates the coordination queue after the #87/#88/#90/#92/#97 review pass and #91/#98 merges.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next
