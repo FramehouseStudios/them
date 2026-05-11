@@ -98,7 +98,13 @@ GitHub PR comment on that Claude PR with the relevant status.
 | PR #100 ops triage | `claude/T-talk-error-rate-tracker` / PR #100 | blocked | Codex review only; labeled tier-1/do-not-merge | Add `/talk/errors` access-control proof or safe-public policy and fix true `sinceMs` window counts. |
 | T47 new Claude PR queue refresh | `codex/T47-refresh-after-new-claude-prs` / PR #102 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should see #99/#100 blockers through `docs/coordination.json` and prompt printers. |
 | T48 iOS archetype traits rail | `codex/T48-ios-archetype-traits` / PR #108 | merged | `swift test --package-path Packages/ScreenplayStudio`; focused archetype Xcode tests passed 3/3; full macOS `themTests` passed 80/80; generic iOS build passed; `git diff --check` passed; GitHub evaluate passed | No backend action. T48 consumes merged PR #91 `GET /memory/character-archetypes` as a non-blocking character-traits rail enrichment. |
-| T49 post-T48 coordination refresh | `codex/T49-post-t48-coordination-refresh` | in-progress | Coordination script checks, prompt printers, and `git diff --check` passed | Claude should read this ledger plus `docs/coordination.json`; the archetype endpoint is no longer waiting for an iOS consumer. |
+| T49 post-T48 coordination refresh | `codex/T49-post-t48-coordination-refresh` / PR #109 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should read this ledger plus `docs/coordination.json`; the archetype endpoint is no longer waiting for an iOS consumer. |
+| T-block-signal-history-tracking | `claude/T-block-signal-history-tracking` / PR #103 | merged | Codex diff review; GitHub evaluate passed; Claude reported focused tests 9/9 and backend `npm test` 328 pass / 1 skipped | No Claude action. The block-signal route now stores debounced `habits.block_signal_history` samples. |
+| T-decisions-queue-route | `claude/T-decisions-queue-route` / PR #104 | blocked | Codex diff review passed before merge attempt; now DIRTY after PR #103 | Rebase on current `main`, keep route/tests intact, rerun focused decisions-queue test plus `npm test`, then remove `do-not-merge`. |
+| T-memory-quality-eval | `claude/T-memory-quality-eval` / PR #105 | blocked | Codex diff review passed before PR #103; now DIRTY after PR #103 | Rebase on current `main`, rerun the direct eval, `npm run eval:memory-quality`, and `npm test`, then remove `do-not-merge`. |
+| T-codex-inbox-refresh-round8 | `claude/T-codex-inbox-refresh-round8` / PR #106 | blocked | Codex review only; labeled `do-not-merge` | Close or rebase only if there is non-duplicative inbox content after the current queue refresh. |
+| T-tasks-sync-check | `claude/T-tasks-sync-check` / PR #107 | blocked | Codex diff review passed before PR #103; now DIRTY after PR #103 | Rebase on current `main`, rerun default/strict script checks and script tests, then remove `do-not-merge`. |
+| T50 post-PR103 queue refresh | `codex/T50-refresh-after-pr103-merge` | in-progress | Coordination script checks, prompt printers, and `git diff --check` passed | Claude should use the refreshed queue: #103 merged; #104/#105/#107 need rebase; #106 is stale. |
 
 
 
@@ -108,7 +114,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | --- | --- |
 | PR #33, T07 eval gate | Open and red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is malformed or not the literal OpenAI key value. Do not weaken eval gates. |
 | T07-cutover | Remains blocked until PR #33 is truly green against Postgres. |
-| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts. |
+| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts, #104/#105/#107 rebase after #103, and stale #106. |
 
 ## Completed Codex Context
 

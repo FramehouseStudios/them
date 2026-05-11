@@ -1,8 +1,44 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T22:42:34.000Z",
+  "updatedAt": "2026-05-11T22:50:02.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 107,
+      "title": "T-tasks-sync-check",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-tasks-sync-check",
+      "blocker": "do-not-merge: DIRTY after PR #103; rebase and rerun default/strict script checks plus script test"
+    },
+    {
+      "number": 106,
+      "title": "T-codex-inbox-refresh-round8",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-codex-inbox-refresh-round8",
+      "blocker": "do-not-merge: stale after T49/T50 and PR #103; close or rebase only if non-duplicative"
+    },
+    {
+      "number": 105,
+      "title": "T-memory-quality-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-memory-quality-eval",
+      "blocker": "do-not-merge: DIRTY after PR #103; rebase and rerun memory-quality eval plus npm test"
+    },
+    {
+      "number": 104,
+      "title": "T-decisions-queue-route",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-decisions-queue-route",
+      "blocker": "do-not-merge: DIRTY after PR #103; rebase and rerun focused route tests plus npm test"
+    },
     {
       "number": 100,
       "title": "T-talk-error-rate-tracker",
@@ -215,7 +251,7 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#90, #92, #97, #99, and #100 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, and #104-#107 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],
