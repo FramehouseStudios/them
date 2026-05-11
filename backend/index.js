@@ -69,6 +69,7 @@ import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
+import { mountDecisionsQueueRoute } from "./lib/decisions_queue_route.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
@@ -32901,6 +32902,11 @@ mountOpsHealthSummaryRoute(app, {
 // SUPPORTED_ROUTES manifest in lib/ops_routes_list_route.js for the
 // scope rule.
 mountOpsRoutesListRoute(app);
+
+// T-decisions-queue-route: GET /coordination/decisions-queue exposes
+// docs/decisions-queue.md as machine-readable JSON so iOS / dashboards
+// can surface "items waiting on the human" without re-parsing markdown.
+mountDecisionsQueueRoute(app);
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
