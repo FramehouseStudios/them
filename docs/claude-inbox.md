@@ -19,7 +19,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    #88 should rebase after PR #98's shared Craft parser fix; #92 should rebase
    after PR #98 and fix the payoff-as-new-setup regression; #97 needs a rebase
    plus explicit `/talk/stats` access-control proof or a recorded policy note;
-   #100 needs `/talk/errors` access-control proof and true since-window counts.
+   #100 needs `/talk/errors` access-control proof and true since-window counts;
+   #104, #105, and #107 need a rebase after PR #103; #106 is stale and should
+   be closed or rebased only if it has non-duplicative inbox content.
 5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
    not routine tier-1 work. PR #99 is blocked until the human accepts the
    memory deletion policy.
@@ -58,7 +60,13 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - New Codex triage: PR #99 is tier-3/needs-human/do-not-merge because it is memory deletion privacy work. PR #100 is tier-1/do-not-merge until `/talk/errors` has access-control proof and true `sinceMs` window counts.
 - Merged PR #102: `T47-refresh-after-new-claude-prs` records PR #99/#100 blockers in the repo handoff lane.
 - Merged PR #108: `T48-ios-archetype-traits` consumes PR #91's archetype endpoint as a non-blocking Studio character rail enrichment. No Claude backend action is needed unless the response envelope changes.
-- In-progress PR-to-open: `codex/T49-post-t48-coordination-refresh` removes stale T48 in-progress wording from the repo-native handoff lane.
+- Merged PR #109: `T49-post-t48-coordination-refresh` removes stale T48 in-progress wording from the repo-native handoff lane.
+- Merged PR #103: `T-block-signal-history-tracking` records debounced block-signal samples in creative-memory habits.
+- Blocked PR #104: `T-decisions-queue-route` is DIRTY after #103; rebase and rerun focused route tests plus `npm test`.
+- Blocked PR #105: `T-memory-quality-eval` is DIRTY after #103; rebase and rerun the memory-quality eval commands plus `npm test`.
+- Blocked PR #106: `T-codex-inbox-refresh-round8` is stale after T49/T50; close or rebase only if there is non-duplicative inbox content.
+- Blocked PR #107: `T-tasks-sync-check` is DIRTY after #103; rebase and rerun default/strict script checks plus the script test.
+- In-progress PR-to-open: `codex/T50-refresh-after-pr103-merge` records the #103 merge and #104/#105/#106/#107 blockers in the handoff lane.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next
