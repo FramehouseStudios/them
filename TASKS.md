@@ -47,7 +47,7 @@
 | T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
 | T32  | Enable reply-side character mention memory flag | codex  | merged            |
 | T33  | Add Claude command center and prompt printer      | codex  | merged            |
-| T-codex-inbox | Add Codex inbox + prompt printer (Claude→Codex)    | claude | review          |
+| T-codex-inbox | Add Codex inbox + prompt printer (Claude→Codex)    | claude | merged         |
 | T34  | Build iOS logline rail consumer                   | codex  | merged            |
 | T35  | Build iOS block-signal nudge surface              | codex  | merged            |
 | T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
@@ -56,17 +56,17 @@
 
 ---
 
-## Current next-10 checklist (2026-05-11 after #59 merge)
+## Current next-10 checklist (2026-05-11 after #60 merge)
 
 1. Review-ready Codex PR #71 (`T38`) needs external review/merge; Codex must not merge its own PR.
-2. Review and merge PR #60 (`T-codex-inbox`) after rebase to complete two-way Codex/Claude handoff tooling.
-3. Claude rebases conflict-blocked PRs #63, #64, #65, #66, and #67 over current main; PR #64 also needs its failing `auto-merge-tier1 / evaluate` check fixed without weakening gates.
-4. Review PR #63 (`T-trust-tiers`) after rebase; merge only if the human accepts the standing pre-approval policy changes.
-5. Review PR #64 (`T-auto-merge-tier1`) only after the `auto-merge-tier1 / evaluate` check is green.
-6. Review PR #65 (`T-coordination-state`) after rebase so automation state has one structured source.
-7. Review PR #66 (`T-decisions-queue`) after rebase so human-needed product calls stop getting buried.
-8. Review PR #67 (`T-tasks-per-row`) after rebase; merge only if the generator keeps `TASKS.md` faithful.
-9. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+2. Claude rebases conflict-blocked PRs #63, #64, #65, #66, and #67 over current main; PR #64 also needs its failing `auto-merge-tier1 / evaluate` check fixed without weakening gates.
+3. Review PR #63 (`T-trust-tiers`) after rebase; merge only if the human accepts the standing pre-approval policy changes.
+4. Review PR #64 (`T-auto-merge-tier1`) only after the `auto-merge-tier1 / evaluate` check is green.
+5. Review PR #65 (`T-coordination-state`) after rebase so automation state has one structured source.
+6. Review PR #66 (`T-decisions-queue`) after rebase so human-needed product calls stop getting buried.
+7. Review PR #67 (`T-tasks-per-row`) after rebase; merge only if the generator keeps `TASKS.md` faithful.
+8. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+9. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
 10. After PR #71 merges, run release-readiness plus live-backend smoke passes for T34/T35/T36/T37/T38, including accepted-twist Keep/Dismiss/Reload.
 
 ---
@@ -393,7 +393,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T-codex-inbox`
 - **Pillar:** infra (enables all)
-- **Status:** review
+- **Status:** merged
 - **Scope:** symmetric reverse of T33. Adds `docs/codex-inbox.md` (Claude-maintained — current open Claude PRs awaiting Codex action, endpoint contracts ready to consume, blockers, decisions Claude needs from Codex) and `scripts/print_codex_prompt.mjs` (mirrors `print_claude_prompt.mjs` for the Codex direction). Updates `docs/codex-claude-live-handoff.md` so Codex standard read includes the inbox, and `docs/claude-inbox.md` so the human sees both ends of the contract. Removes the need to copy/paste a Claude→Codex handoff after each Claude PR.
 - **Done when:** `docs/codex-inbox.md` exists with current open Claude PRs, endpoint contracts, blockers, and decisions Claude needs from Codex; `scripts/print_codex_prompt.mjs` extracts the same sections and renders a compact prompt; `docs/codex-claude-live-handoff.md` Fast Path lists the new inbox; `docs/claude-inbox.md` notes that Claude maintains the reciprocal channel.
 

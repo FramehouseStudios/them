@@ -29,7 +29,7 @@ No unconsumed Claude endpoint contracts are waiting on Codex right now. PR #59 (
 
 ## Coordination Infrastructure Now Live for Codex
 
-After PR #60, #63, #64, #65, #66, #67 merge, the day-to-day loop changes:
+With PR #60 live, the remaining coordination upgrades change the day-to-day loop as they merge:
 
 1. **Trust tiers** (PR #63 / `AGENTS.md`) — every Codex PR gets a tier label:
    - **Tier 1** (default, auto-mergeable): routine iOS feature work consuming a merged Claude contract, doc fixes, conflict refreshes, status flips.
