@@ -23,6 +23,7 @@ import {
 } from "./craft_analysis.js";
 import { lintScreenplay } from "./format_linter.js";
 import { suggestTwists } from "./twist_engine.js";
+import { simulateCoverage } from "./coverage_simulator.js";
 import {
   distillLogline,
   recordLogline,
@@ -213,6 +214,25 @@ function mountCraftRoutes(app) {
       return res.status(200).json(result);
     } catch (e) {
       return sendKnownError(res, "craft_invalid_screenplay", e?.message || "lint failed");
+    }
+  });
+
+  // T-coverage-simulator: pre-submission "what a reader sees" report.
+  app.post("/craft/coverage/simulate", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const text = typeof body.text === "string" ? body.text : "";
+    const pageCount = Number.isInteger(body.pageCount) ? body.pageCount : null;
+    const frameworkId = typeof body.frameworkId === "string" ? body.frameworkId : null;
+    if (!text) {
+      return sendKnownError(res, "craft_invalid_screenplay", "text is required");
+    }
+    try {
+      const result = simulateCoverage({ text, pageCount, frameworkId });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json(result);
+    } catch (e) {
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "coverage simulation failed");
     }
   });
 
