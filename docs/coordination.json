@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-05-11T16:49:35.373Z",
+  "updatedBy": "codex",
+  "openPullRequests": [
+    {
+      "number": 63,
+      "title": "T-trust-tiers",
+      "owner": "claude",
+      "tier": 3,
+      "status": "review",
+      "branch": "claude/T-trust-tiers",
+      "blocker": "human: standing pre-approval policy needs explicit acceptance before merge"
+    },
+    {
+      "number": 64,
+      "title": "T-auto-merge-tier1",
+      "owner": "claude",
+      "tier": 2,
+      "status": "review",
+      "branch": "claude/T-auto-merge-tier1",
+      "blocker": "claude: rebase and fix failing auto-merge-tier1/evaluate without weakening gates"
+    },
+    {
+      "number": 33,
+      "title": "T07 eval gate",
+      "owner": "claude",
+      "tier": 3,
+      "status": "review",
+      "branch": "claude/T07-eval-gate-postgres",
+      "blocker": "human: replace malformed OPENAI_API_KEY Actions secret"
+    },
+    {
+      "number": 65,
+      "title": "T-coordination-state",
+      "owner": "claude",
+      "tier": 1,
+      "status": "review",
+      "branch": "claude/T-coordination-state",
+      "blocker": null
+    },
+    {
+      "number": 66,
+      "title": "T-decisions-queue",
+      "owner": "claude",
+      "tier": 2,
+      "status": "review",
+      "branch": "claude/T-decisions-queue",
+      "blocker": "claude: rebase over current main"
+    },
+    {
+      "number": 67,
+      "title": "T-tasks-per-row",
+      "owner": "claude",
+      "tier": 1,
+      "status": "review",
+      "branch": "claude/T-tasks-per-row",
+      "blocker": "claude: rebase over current main"
+    },
+    {
+      "number": 71,
+      "title": "T38-accepted-twist-ios",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T38-accepted-twist-ios",
+      "blocker": "external review/merge required; Codex cannot merge own PR"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "openai-api-key-secret",
+      "owner": "human",
+      "summary": "Repository Actions secret OPENAI_API_KEY is malformed. Replace with the literal OpenAI key. Blocks PR #33.",
+      "since": "2026-05-10"
+    }
+  ],
+  "decisionsPending": [],
+  "endpointsAwaitingIosConsumer": [
+    {
+      "endpoint": "POST /craft/twist/accepted",
+      "pr": 59,
+      "consumer": "ios twist-card consumer"
+    },
+    {
+      "endpoint": "GET /craft/twist/accepted",
+      "pr": 59,
+      "consumer": "ios beat-timeline reload"
+    },
+    {
+      "endpoint": "DELETE /craft/twist/accepted/:twistId",
+      "pr": 59,
+      "consumer": "ios twist-card dismiss"
+    }
+  ]
+}
