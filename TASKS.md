@@ -58,6 +58,7 @@
 | T-decisions-queue | One-file queue for human decisions               | claude | merged         |
 | T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
+| T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 
 ---
 

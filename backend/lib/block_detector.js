@@ -195,8 +195,38 @@ function computeBlockSignal({ habits = {}, nowMs = Date.now() } = {}) {
   };
 }
 
+// T-block-signal-system-prompt: produce a compact coaching block the
+// prompt-assembly path can inject into the system prompt when a
+// writer's block signal warrants it. Returns "" for `low` so the
+// happy-case prompt is unchanged. `medium` and `high` produce
+// progressively firmer coaching tones.
+function buildBlockCoachingBlockForPrompt(signal) {
+  if (!signal || typeof signal !== "object") return "";
+  const level = signal.level;
+  if (level !== "medium" && level !== "high") return "";
+  const summary = typeof signal.summary === "string" && signal.summary
+    ? signal.summary
+    : "Writer may be stuck.";
+  if (level === "high") {
+    return [
+      "writer-coaching-note:",
+      `  observation: ${summary}`,
+      "  tone: warmer, shorter sentences, lower-stakes prompts",
+      "  ask: invite ONE concrete image or beat — do not ask for a finished scene",
+    ].join("\n");
+  }
+  // medium
+  return [
+    "writer-coaching-note:",
+    `  observation: ${summary}`,
+    "  tone: gentle, encouraging",
+    "  ask: a small concrete prompt that builds on what the writer already has",
+  ].join("\n");
+}
+
 export {
   computeBlockSignal,
+  buildBlockCoachingBlockForPrompt,
   SCHEMA_VERSION as BLOCK_SIGNAL_SCHEMA_VERSION,
   SIGNAL_WEIGHTS,
   LEVEL_LOW_MAX,

@@ -10,10 +10,17 @@ import express from "express";
 
 import {
   computeBlockSignal,
+  buildBlockCoachingBlockForPrompt,
   SIGNAL_WEIGHTS,
   LEVEL_LOW_MAX,
   LEVEL_MEDIUM_MAX,
 } from "../lib/block_detector.js";
+import {
+  buildModelPrompt,
+  buildModelPromptParts,
+  BLOCK_SIGNAL_BLOCK_OPEN,
+  BLOCK_SIGNAL_BLOCK_CLOSE,
+} from "../lib/prompt_assembly.js";
 import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { mountBlockSignalRoute } from "../lib/block_signal_route.js";
@@ -319,4 +326,80 @@ test("[block-detector] endpoint score round-trips the pure analyzer for the same
     },
     { userId: "u-rt", store },
   );
+});
+
+// ---------- T-block-signal-system-prompt ----------
+
+test("[block-prompt] coaching block is empty for level=low signals", () => {
+  const signal = computeBlockSignal({ habits: {}, nowMs: 0 });
+  assert.equal(signal.level, "low");
+  assert.equal(buildBlockCoachingBlockForPrompt(signal), "");
+});
+
+test("[block-prompt] coaching block emits warmer tone for medium signals", () => {
+  const signal = {
+    level: "medium",
+    summary: "You haven't shipped a scene in a few days — a short scene can break the spell.",
+  };
+  const block = buildBlockCoachingBlockForPrompt(signal);
+  assert.ok(block.includes("writer-coaching-note"));
+  assert.ok(/gentle|encouraging/i.test(block));
+  assert.ok(block.includes(signal.summary));
+});
+
+test("[block-prompt] coaching block escalates for high signals", () => {
+  const signal = {
+    level: "high",
+    summary: "Recent prompts have been very short. Try describing one image you can't shake.",
+  };
+  const block = buildBlockCoachingBlockForPrompt(signal);
+  assert.ok(block.includes("writer-coaching-note"));
+  assert.ok(/warmer|shorter|low-stakes/i.test(block));
+  assert.ok(block.includes("ONE concrete image"));
+});
+
+test("[block-prompt] coaching block tolerates missing summary", () => {
+  const block = buildBlockCoachingBlockForPrompt({ level: "medium" });
+  assert.ok(block.includes("writer-coaching-note"));
+  assert.ok(block.includes("Writer may be stuck"));
+});
+
+test("[block-prompt] coaching block returns empty for malformed input", () => {
+  assert.equal(buildBlockCoachingBlockForPrompt(null), "");
+  assert.equal(buildBlockCoachingBlockForPrompt({}), "");
+  assert.equal(buildBlockCoachingBlockForPrompt({ level: "ok" }), "");
+});
+
+test("[block-prompt] buildModelPrompt emits a <block_signal> block when coaching is supplied", () => {
+  const coaching = buildBlockCoachingBlockForPrompt({
+    level: "high",
+    summary: "Long gap since last scene.",
+  });
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    blockCoaching: coaching,
+    userInput: "next scene",
+  });
+  assert.ok(out.includes(BLOCK_SIGNAL_BLOCK_OPEN));
+  assert.ok(out.includes(BLOCK_SIGNAL_BLOCK_CLOSE));
+  assert.ok(out.includes("writer-coaching-note"));
+});
+
+test("[block-prompt] buildModelPrompt emits no <block_signal> block when coaching is empty", () => {
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    blockCoaching: "",
+    userInput: "next scene",
+  });
+  assert.ok(!out.includes("block_signal"));
+});
+
+test("[block-prompt] buildModelPromptParts surfaces blockSignalBlock", () => {
+  const coaching = buildBlockCoachingBlockForPrompt({
+    level: "medium",
+    summary: "Some drift.",
+  });
+  const parts = buildModelPromptParts({ persona: "P", blockCoaching: coaching, userInput: "U" });
+  assert.ok(parts.blockSignalBlock.includes(BLOCK_SIGNAL_BLOCK_OPEN));
+  assert.ok(parts.blockSignalBlock.includes("writer-coaching-note"));
 });
