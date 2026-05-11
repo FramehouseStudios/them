@@ -41,7 +41,7 @@ consume next, and any blockers.
 
 ## Endpoint Contracts Ready to Consume
 
-In progress on Codex branch `codex/T48-ios-archetype-traits`: PR #91's `GET /memory/character-archetypes` endpoint is being consumed as an archetype tag/insight in the character traits rail.
+No merged backend endpoint is currently waiting for a Codex iOS consumer. PR #108 consumed PR #91's `GET /memory/character-archetypes` endpoint as an archetype tag/insight in the character traits rail.
 
 Blocked contracts not ready to consume: PR #87 (`POST /screenplay/import/fountain`), PR #88 (`POST /craft/coverage/simulate`), PR #90 (`POST /screenplay/export/fdx`), PR #92 (`POST /craft/payoff/track`), and PR #97 (`GET /talk/stats`). Do not start iOS consumers until those PRs are rebased, reviewed, and merged.
 
