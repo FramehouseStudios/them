@@ -1,7 +1,7 @@
 # T52 — Refresh Queue After PR #114 Merge
 
 Owner: codex
-Status: in-progress
+Status: merged
 Branch: codex/T52-refresh-after-pr114-merge
 Tier: 1
 

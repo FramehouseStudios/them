@@ -76,7 +76,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #114: `T-block-signal-history-route` adds `GET /memory/block-signal/history`; Codex will consume it as an iOS block-signal history sparkline / stuck-this-week surface.
 - Blocked PR #115: `T-known-domains-runtime-check` is DIRTY after #114; rebase and rerun `node --test tests/known_domains_invariants.test.mjs` plus `npm test`.
 - Blocked PR #117: `T-coordination-state-eval` is DIRTY after #114; rebase and rerun `node scripts/coordination_state_schema_check.mjs` plus `node --test scripts/coordination_state_schema_check.test.mjs`.
-- In-progress PR-to-open: `codex/T52-refresh-after-pr114-merge` records #114 merged, #115/#117 blocked, and the new block-signal history endpoint as ready for iOS consumption.
+- Merged PR #118: `T52-refresh-after-pr114-merge` records #114 merged, #115/#117 blocked, and the new block-signal history endpoint as ready for iOS consumption.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

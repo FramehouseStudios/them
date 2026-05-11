@@ -112,7 +112,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T51 new eval PR queue refresh | `codex/T51-refresh-after-new-eval-prs` / PR #116 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should use the refreshed queue: #110/#111/#112 are blocked until rebased after #103. |
 | T-known-domains-runtime-check | `claude/T-known-domains-runtime-check` / PR #115 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase on current `main` after PR #114, rerun `node --test tests/known_domains_invariants.test.mjs` plus `npm test`, then remove `do-not-merge`. |
 | T-coordination-state-eval | `claude/T-coordination-state-eval` / PR #117 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase on current `main` after PR #114, rerun `node scripts/coordination_state_schema_check.mjs` and `node --test scripts/coordination_state_schema_check.test.mjs`, then remove `do-not-merge`. |
-| T52 post-PR114 queue refresh | `codex/T52-refresh-after-pr114-merge` | in-progress | Pending local coordination checks | Claude should see PR #114 as merged, PRs #115/#117 as blocked, and `GET /memory/block-signal/history` as ready for iOS consumption. |
+| T52 post-PR114 queue refresh | `codex/T52-refresh-after-pr114-merge` / PR #118 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should see PR #114 as merged, PRs #115/#117 as blocked, and `GET /memory/block-signal/history` as ready for iOS consumption. |
 
 
 
