@@ -63,7 +63,8 @@
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
 | T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
 | T-block-signal-history-bounds-eval | Pathological-input guard on the BS history buffer | claude | merged |
-| T-talk-turn-meta-contract-snapshot | Pin /talk/turn/:turnId response key set + error codes  | claude | review |
+| T-talk-turn-meta-contract-snapshot | Pin /talk/turn/:turnId response key set + error codes  | claude | merged |
+| T-screenplay-export-markdown | POST /screenplay/export format=md|markdown            | claude | review |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
