@@ -113,7 +113,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T-known-domains-runtime-check | `claude/T-known-domains-runtime-check` / PR #115 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase on current `main` after PR #114, rerun `node --test tests/known_domains_invariants.test.mjs` plus `npm test`, then remove `do-not-merge`. |
 | T-coordination-state-eval | `claude/T-coordination-state-eval` / PR #117 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase on current `main` after PR #114, rerun `node scripts/coordination_state_schema_check.mjs` and `node --test scripts/coordination_state_schema_check.test.mjs`, then remove `do-not-merge`. |
 | T52 post-PR114 queue refresh | `codex/T52-refresh-after-pr114-merge` / PR #118 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should see PR #114 as merged, PRs #115/#117 as blocked, and `GET /memory/block-signal/history` as ready for iOS consumption. |
-| T53 iOS block-signal history surface | `codex/T53-ios-block-signal-history` | in-progress | Package tests, focused block-signal history tests, full macOS `themTests`, generic iOS build, and `git diff --check` passed locally | No Claude action. PR #114's `GET /memory/block-signal/history` endpoint is consumed in the Studio Momentum rail. |
+| T53 iOS block-signal history surface | `codex/T53-ios-block-signal-history` / PR #122 | merged | Package tests, focused block-signal history tests, full macOS `themTests` 83/83, generic iOS build, `git diff --check`, coordination checks, and GitHub evaluate passed | No Claude action. PR #114's `GET /memory/block-signal/history` endpoint is consumed in the Studio Momentum rail. |
 
 
 

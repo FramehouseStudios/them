@@ -1,7 +1,7 @@
 # T53 — iOS Block-Signal History Surface
 
 Owner: codex
-Status: in-progress
+Status: merged
 Branch: codex/T53-ios-block-signal-history
 Tier: 1
 
