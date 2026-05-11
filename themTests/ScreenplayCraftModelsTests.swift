@@ -419,6 +419,33 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(response.characters.last?.traits, nil)
     }
 
+    func testCharacterArchetypesResponseDecodesBackendEnvelope() throws {
+        let response = try JSONDecoder().decode(BackendCharacterArchetypesResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "userId": "usr_test",
+          "entries": [
+            {
+              "name": "JUNE",
+              "primary": { "archetype": "hero", "score": 0.72, "signals": ["traits:2"] },
+              "candidates": [
+                { "archetype": "hero", "score": 0.72, "signals": ["traits:2"] },
+                { "archetype": "ally", "score": 0.18, "signals": ["emotion:earnest"] }
+              ],
+              "summary": "JUNE reads as hero."
+            }
+          ]
+        }
+        """#.utf8))
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.entries.count, 1)
+        XCTAssertEqual(response.entries.first?.name, "JUNE")
+        XCTAssertEqual(response.entries.first?.primary?.archetype, "hero")
+        XCTAssertEqual(response.entries.first?.primary?.score, 0.72)
+        XCTAssertEqual(response.entries.first?.candidates.last?.archetype, "ally")
+    }
+
     func testCharacterTraitCardStateMapsVoiceInventory() throws {
         let response = BackendCharacterTraitsResponse(
             schemaVersion: 1,
@@ -449,6 +476,39 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(cards.first?.detail, "2 phrases | 1 goal | 1 tie")
         XCTAssertTrue(cards.first?.hasTraits == true)
         XCTAssertEqual(cards.last?.summary, "Known character; voice inventory is still learning.")
+    }
+
+    func testCharacterTraitCardStateMapsArchetypeInsight() throws {
+        let traits = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            characters: [
+                BackendCharacterTraitRecord(
+                    name: "JUNE",
+                    traits: BackendCharacterTraits(keywords: ["earnest"], emotionalDefault: "earnest")
+                )
+            ],
+            error: nil
+        )
+        let archetypes = BackendCharacterArchetypesResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            entries: [
+                BackendCharacterArchetypeEntry(
+                    name: " june ",
+                    primary: BackendCharacterArchetypeCandidate(archetype: "threshold_guardian", score: 0.44),
+                    summary: "JUNE reads as threshold_guardian with mixed secondary signals."
+                )
+            ],
+            error: nil
+        )
+
+        let cards = BackendCharacterTraitCardState.make(response: traits, archetypes: archetypes)
+
+        XCTAssertEqual(cards.first?.archetypeLabel, "Threshold Guardian")
+        XCTAssertEqual(cards.first?.archetypeScoreLabel, "44%")
+        XCTAssertEqual(cards.first?.archetypeSummary, "JUNE reads as threshold_guardian with mixed secondary signals.")
+        XCTAssertEqual(cards.first?.hasArchetype, true)
     }
 
     private func decodeReportFixture() throws -> ScreenplayCraftReport {

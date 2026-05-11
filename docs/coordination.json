@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T22:23:04.000Z",
+  "updatedAt": "2026-05-11T22:38:53.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -220,11 +220,5 @@
     }
   ],
   "decisionsPending": [],
-  "endpointsAwaitingIosConsumer": [
-    {
-      "endpoint": "GET /memory/character-archetypes",
-      "pr": 91,
-      "consumer": "iOS character traits rail archetype tag"
-    }
-  ]
+  "endpointsAwaitingIosConsumer": []
 }
