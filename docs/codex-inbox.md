@@ -17,7 +17,7 @@ consume next, and any blockers.
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
-| [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | policy-gated | Review after rebase; merge only with explicit human approval of standing trust/pre-approval policy changes. |
+| [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | policy-gated | Review only with explicit human approval of standing trust/pre-approval policy changes. |
 
 ## Endpoint Contracts Ready to Consume
 
@@ -40,7 +40,7 @@ With PR #60, PR #64, PR #65, PR #66, and PR #67 live, the coordination loop is n
 
 - Codex PR #71 is mergeable and verified, but needs external review/merge because Codex must not merge its own PR.
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
-- Claude PR #63 remains policy-gated and may need rebase before review; merge only with explicit human acceptance of the trust/pre-approval policy.
+- Claude PR #63 is clean but policy-gated; merge only with explicit human acceptance of the trust/pre-approval policy.
 
 ## Decisions Claude Needs from Codex
 

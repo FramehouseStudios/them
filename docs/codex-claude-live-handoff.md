@@ -76,8 +76,8 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T-strict-auto-merge | `claude/T-strict-auto-merge` / PR #72 | merged | `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/auto-merge-tier1.yml")'`; `git diff --check` | Tier 1 auto-merge now requires explicit trusted approval; no quiet-time fallback. |
 | T-tasks-per-row | `claude/T-tasks-per-row` / PR #67 | merged | `node --check scripts/build_tasks_md.mjs`; `node scripts/build_tasks_md.mjs`; `git diff --check`; GitHub `auto-merge-tier1 / evaluate` passed | Use `tasks/_active/` for optional per-row task seeds; `TASKS.md` remains source of truth until a later canonical flip. |
 | T34 iOS logline rail consumer | `codex/T34-ios-logline-rail` / PR #61 | merged | `swift test --package-path Packages/ScreenplayStudio`; focused logline Xcode tests; full macOS `themTests`; generic iOS build all passed | T35 consumes the block-signal endpoint next. |
-| T35 iOS block-signal nudge surface | `codex/T35-block-signal-nudge` / PR #62 | merged | Focused block-signal Xcode tests passed 3/3; full macOS `themTests` passed 65/65; generic iOS build passed; `git diff --check` passed | Next iOS consumer is the character-traits side rail; Claude PR #63 remains policy-gated and may need rebase. |
-| T36 iOS character-traits side-rail consumer | `codex/T36-ios-character-traits` / PR #68 | merged | Focused character-traits Xcode tests passed 3/3; full macOS `themTests` passed 68/68; generic iOS build passed; `git diff --check` passed | Next iOS consumer is the twist-card surface; Claude PR #63 remains policy-gated and may need rebase. |
+| T35 iOS block-signal nudge surface | `codex/T35-block-signal-nudge` / PR #62 | merged | Focused block-signal Xcode tests passed 3/3; full macOS `themTests` passed 65/65; generic iOS build passed; `git diff --check` passed | Next iOS consumer is the character-traits side rail; Claude PR #63 is clean but policy-gated. |
+| T36 iOS character-traits side-rail consumer | `codex/T36-ios-character-traits` / PR #68 | merged | Focused character-traits Xcode tests passed 3/3; full macOS `themTests` passed 68/68; generic iOS build passed; `git diff --check` passed | Next iOS consumer is the twist-card surface; Claude PR #63 is clean but policy-gated. |
 | T37 iOS twist-card consumer | `codex/T37-ios-twist-cards` / PR #69 | merged | `swift test --package-path Packages/ScreenplayStudio` passed; focused twist Xcode tests passed 3/3; full macOS `themTests` passed 71/71; generic iOS build passed; `git diff --check` passed | T12 is merged; Claude PR #63 remains policy-gated; PR #67 is merged. |
 | T12 perceived-speed primitives | `codex/T12-perceived-speed` / PR #70 | merged | Focused perceived-speed Xcode tests passed 2/2; full macOS `themTests` passed 73/73; generic iOS build passed; `git diff --check` passed | PR #63 remains policy-gated; PR #67 is merged. |
 | T38 accepted twist-card actions | `codex/T38-accepted-twist-ios` / PR #71 | review | `swift test --package-path Packages/ScreenplayStudio`; focused accepted-twist Xcode tests passed 2/2; full macOS `themTests` passed 75/75; generic iOS build passed; `git diff --check` passed | PR #59 is merged; PR #71 now has its live accepted-twist backend pair and needs external review/merge because Codex must not merge its own PR. |
@@ -90,7 +90,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | --- | --- |
 | PR #33, T07 eval gate | Open and red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is malformed or not the literal OpenAI key value. Do not weaken eval gates. |
 | T07-cutover | Remains blocked until PR #33 is truly green against Postgres. |
-| Conflict-blocked Claude PRs | PR #63 remains policy-gated and may need rebase before review; PR #67 is merged. |
+| Conflict-blocked Claude PRs | PR #63 is clean but policy-gated; PR #67 is merged. |
 
 ## Completed Codex Context
 

@@ -66,7 +66,7 @@
 ## Current next-10 checklist (2026-05-11 after #67 merge)
 
 1. Review-ready Codex PR #71 (`T38`) needs external review/merge; Codex must not merge its own PR.
-2. Review PR #63 (`T-trust-tiers`) only after explicit human acceptance of the standing trust/pre-approval policy; rebase it over current main without restoring any quiet-time auto-merge path.
+2. Review PR #63 (`T-trust-tiers`) only after explicit human acceptance of the standing trust/pre-approval policy; do not restore any quiet-time auto-merge path.
 3. Keep PR #33 blocked until the human replaces the malformed `OPENAI_API_KEY` Actions secret; do not weaken eval gates.
 4. Use merged PR #66 (`T-decisions-queue`) for human-needed questions.
 5. Use merged PR #67 (`T-tasks-per-row`) for optional task seeds; `TASKS.md` remains source of truth until a later canonical flip.

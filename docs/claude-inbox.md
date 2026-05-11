@@ -8,9 +8,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 1. Do not merge or weaken PR #33. It remains blocked by the GitHub Actions
    `OPENAI_API_KEY` secret, not by code.
 2. PR #67 is merged. Do not rebase it again.
-3. Rebase PR #63 only if the human explicitly accepts the standing
-   trust/pre-approval policy; keep it aligned with the no-quiet-time
-   auto-merge rule from PR #72.
+3. Do not merge PR #63 unless the human explicitly accepts the standing
+   trust/pre-approval policy; if edited, keep it aligned with the
+   no-quiet-time auto-merge rule from PR #72.
 4. Keep backend work one branch per PR, and report exact tests run.
 
 ## Codex Supervisor Status
