@@ -9,9 +9,15 @@ struct ScreenplayCraftTwistCardState: Identifiable, Equatable {
     let severity: String
     let rationale: String
     let severityLabel: String
+    let suggestion: ScreenplayCraftTwistSuggestion
+    let isAccepted: Bool
 
-    static func cards(from response: ScreenplayCraftTwistSuggestResponse?) -> [ScreenplayCraftTwistCardState] {
+    static func cards(
+        from response: ScreenplayCraftTwistSuggestResponse?,
+        acceptedTwists: [ScreenplayCraftAcceptedTwistEntry] = []
+    ) -> [ScreenplayCraftTwistCardState] {
         guard let response else { return [] }
+        let acceptedIDs = Set(acceptedTwists.map(\.twist.id))
         return response.twists.map { twist in
             let cleanSeverity = twist.severity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             return ScreenplayCraftTwistCardState(
@@ -20,7 +26,9 @@ struct ScreenplayCraftTwistCardState: Identifiable, Equatable {
                 hook: clean(twist.hook),
                 severity: cleanSeverity.isEmpty ? "low" : cleanSeverity,
                 rationale: clean(twist.rationale),
-                severityLabel: cleanSeverity.isEmpty ? "Low" : cleanSeverity.capitalized
+                severityLabel: cleanSeverity.isEmpty ? "Low" : cleanSeverity.capitalized,
+                suggestion: twist,
+                isAccepted: acceptedIDs.contains(twist.id)
             )
         }
     }

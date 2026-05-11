@@ -59,17 +59,18 @@
 | T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
+| T38  | Wire iOS accepted twist-card actions              | codex  | review            |
 
 ---
 
-## Current next-10 checklist (2026-05-11 after #66 merge)
+## Current next-10 checklist (2026-05-11 after #67 merge)
 
 1. Review-ready Codex PR #71 (`T38`) needs external review/merge; Codex must not merge its own PR.
-2. Claude rebases conflict-blocked PRs #63 and #67 over current main.
-3. Review PR #63 (`T-trust-tiers`) after rebase; merge only if the human accepts the standing pre-approval policy changes.
+2. Review PR #63 (`T-trust-tiers`) only after explicit human acceptance of the standing trust/pre-approval policy; do not restore any quiet-time auto-merge path.
+3. Keep PR #33 blocked until the human replaces the malformed `OPENAI_API_KEY` Actions secret; do not weaken eval gates.
 4. Use merged PR #66 (`T-decisions-queue`) for human-needed questions.
-5. Review PR #67 (`T-tasks-per-row`) after rebase; merge only if the generator keeps `TASKS.md` faithful.
-6. Human fixes the PR #33 `OPENAI_API_KEY` Actions secret, then Claude refreshes the eval-gate branch without weakening it.
+5. Use merged PR #67 (`T-tasks-per-row`) for optional task seeds; `TASKS.md` remains source of truth until a later canonical flip.
+6. After the PR #33 secret is fixed, have Claude refresh the eval-gate branch without weakening it.
 7. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
 8. Use merged PR #65 (`T-coordination-state`) as the fast machine-readable queue: `node scripts/coordination_state.mjs read`.
 9. Use merged PR #64 (`T-auto-merge-tier1`) carefully: only label routine Tier 1 PRs after review, and use blocking labels/comments for anything risky.
@@ -175,6 +176,13 @@
 - **Pillar:** mobile-first + voice→scene
 - **Status:** merged
 - **Done when:** skeletons, optimistic writes, and audio-first responses are the default in the studio surface; measured time-to-perceived-response is ≤100 ms for the magic-moment path.
+
+### T38 — Wire iOS accepted twist-card actions
+- **Owner:** codex
+- **Branch:** `codex/T38-accepted-twist-ios`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** review
+- **Done when:** the iOS twist-card surface can record accepted twists with `POST /craft/twist/accepted`, dismiss them with `DELETE /craft/twist/accepted/:twistId`, and reload accepted twists with `GET /craft/twist/accepted?projectId=`; request/response contracts are covered by tests; failures degrade to non-blocking UI messages while PR #59 is still pending.
 
 ### T13 — Add second realtime supplier behind existing interface
 - **Owner:** claude

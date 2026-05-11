@@ -1059,6 +1059,62 @@ final class BackendClient {
         )
     }
 
+    func recordAcceptedCraftTwist(
+        projectId: String,
+        versionId: String? = nil,
+        frameworkId: String? = nil,
+        beatId: String? = nil,
+        twist: ScreenplayCraftTwistSuggestion,
+        sceneId: String? = nil,
+        note: String? = nil
+    ) async throws -> ScreenplayCraftAcceptedTwistResponse {
+        _ = try requiredCraftBodyValue(twist.id, field: "twist.id")
+        let request = ScreenplayCraftAcceptedTwistRequest(
+            projectId: try requiredCraftBodyValue(projectId, field: "projectId"),
+            versionId: try optionalCraftBodyValue(versionId, field: "versionId"),
+            frameworkId: try optionalCraftBodyValue(frameworkId, field: "frameworkId"),
+            beatId: try optionalCraftBodyValue(beatId, field: "beatId"),
+            twist: twist,
+            sceneId: try optionalCraftBodyValue(sceneId, field: "sceneId"),
+            note: try optionalCraftBodyValue(note, field: "note")
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "twist", "accepted"],
+            body: request,
+            responseType: ScreenplayCraftAcceptedTwistResponse.self
+        )
+    }
+
+    func fetchAcceptedCraftTwists(
+        projectId: String
+    ) async throws -> ScreenplayCraftAcceptedTwistListResponse {
+        try await performCraftRequest(
+            pathComponents: ["craft", "twist", "accepted"],
+            queryItems: [URLQueryItem(name: "projectId", value: try requiredCraftBodyValue(projectId, field: "projectId"))],
+            responseType: ScreenplayCraftAcceptedTwistListResponse.self
+        )
+    }
+
+    func deleteAcceptedCraftTwist(
+        twistId: String,
+        projectId: String,
+        versionId: String? = nil
+    ) async throws -> ScreenplayCraftAcceptedTwistDeleteResponse {
+        var queryItems = [
+            URLQueryItem(name: "projectId", value: try requiredCraftBodyValue(projectId, field: "projectId"))
+        ]
+        if let versionId = try optionalCraftBodyValue(versionId, field: "versionId") {
+            queryItems.append(URLQueryItem(name: "versionId", value: versionId))
+        }
+        return try await performCraftRequest(
+            method: "DELETE",
+            pathComponents: ["craft", "twist", "accepted", try requiredCraftPathValue(twistId, field: "twistId")],
+            queryItems: queryItems,
+            responseType: ScreenplayCraftAcceptedTwistDeleteResponse.self
+        )
+    }
+
     func fetchMemoryBlockSignal() async throws -> BackendBlockSignalResponse {
         persistSharedBackendBaseURL(baseURL)
         var url = baseURL

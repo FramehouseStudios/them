@@ -328,6 +328,103 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(body["count"] as? Int, 2)
     }
 
+    func testAcceptedTwistEndpointsBuildExpectedRequests() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/craft/twist/accepted"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "ok": true,
+                  "action": "recorded",
+                  "entry": {
+                    "schemaVersion": 1,
+                    "projectId": "proj-17",
+                    "versionId": "v1",
+                    "frameworkId": "save-the-cat",
+                    "beatId": "midpoint",
+                    "twist": {
+                      "id": "stc-midpoint-1",
+                      "label": "False Victory",
+                      "hook": "The win is real, but the cost was paid by the wrong person.",
+                      "severity": "high",
+                      "rationale": "Converts triumph into a trap."
+                    },
+                    "acceptedAt": "2026-05-10T22:00:00.000Z",
+                    "acceptedAtMs": 1770000000000,
+                    "lastUpdatedAt": "2026-05-10T22:00:00.000Z",
+                    "lastUpdatedAtMs": 1770000000000,
+                    "userId": "usr_test",
+                    "sceneId": "scene-1",
+                    "note": "Keep this reversal."
+                  }
+                }
+                """#)
+            case ("GET", "/craft/twist/accepted"):
+                XCTAssertEqual(request.url?.query, "projectId=proj-17")
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "projectId": "proj-17",
+                  "entries": []
+                }
+                """#)
+            case ("DELETE", "/craft/twist/accepted/stc-midpoint-1"):
+                XCTAssertEqual(request.url?.query?.contains("projectId=proj-17"), true)
+                XCTAssertEqual(request.url?.query?.contains("versionId=v1"), true)
+                return .json(#"""
+                { "schemaVersion": 1, "ok": true, "action": "removed" }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let twist = ScreenplayCraftTwistSuggestion(
+            id: "stc-midpoint-1",
+            label: "False Victory",
+            hook: "The win is real, but the cost was paid by the wrong person.",
+            severity: "high",
+            rationale: "Converts triumph into a trap."
+        )
+
+        let recorded = try await client.recordAcceptedCraftTwist(
+            projectId: "proj-17",
+            versionId: "v1",
+            frameworkId: "save-the-cat",
+            beatId: "midpoint",
+            twist: twist,
+            sceneId: "scene-1",
+            note: "Keep this reversal."
+        )
+        let fetched = try await client.fetchAcceptedCraftTwists(projectId: "proj-17")
+        let deleted = try await client.deleteAcceptedCraftTwist(
+            twistId: "stc-midpoint-1",
+            projectId: "proj-17",
+            versionId: "v1"
+        )
+
+        XCTAssertEqual(recorded.action, "recorded")
+        XCTAssertEqual(recorded.entry.twist.id, "stc-midpoint-1")
+        XCTAssertEqual(fetched.projectId, "proj-17")
+        XCTAssertEqual(deleted.action, "removed")
+        XCTAssertEqual(recorder.methodsAndPaths, [
+            "POST /craft/twist/accepted",
+            "GET /craft/twist/accepted",
+            "DELETE /craft/twist/accepted/stc-midpoint-1"
+        ])
+        let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
+        XCTAssertEqual(body["projectId"] as? String, "proj-17")
+        XCTAssertEqual(body["versionId"] as? String, "v1")
+        XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+        XCTAssertEqual(body["beatId"] as? String, "midpoint")
+        XCTAssertEqual(body["sceneId"] as? String, "scene-1")
+        XCTAssertEqual(body["note"] as? String, "Keep this reversal.")
+        let bodyTwist = try XCTUnwrap(body["twist"] as? [String: Any])
+        XCTAssertEqual(bodyTwist["id"] as? String, "stc-midpoint-1")
+    }
+
     func testCharacterTraitsEndpointBuildsExpectedRequest() async throws {
         let recorder = CraftRequestRecorder()
         let client = makeClient(recorder: recorder) { request in

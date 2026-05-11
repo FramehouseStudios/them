@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T18:20:26.047Z",
+  "updatedAt": "2026-05-11T19:00:56.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -8,7 +8,7 @@
       "title": "T-trust-tiers",
       "owner": "claude",
       "tier": 3,
-      "status": "review",
+      "status": "policy-gated",
       "branch": "claude/T-trust-tiers",
       "blocker": "human: standing pre-approval policy needs explicit acceptance before merge"
     },
@@ -20,15 +20,6 @@
       "status": "review",
       "branch": "claude/T07-eval-gate-postgres",
       "blocker": "human: replace malformed OPENAI_API_KEY Actions secret"
-    },
-    {
-      "number": 67,
-      "title": "T-tasks-per-row",
-      "owner": "claude",
-      "tier": 1,
-      "status": "review",
-      "branch": "claude/T-tasks-per-row",
-      "blocker": "claude: rebase over current main"
     },
     {
       "number": 71,
