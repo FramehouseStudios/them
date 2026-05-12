@@ -68,7 +68,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #87: `T-screenplay-import-fountain`; PR #176 / T73 consumes it on iOS with the Studio Import Script path.
 - Merged PR #142: `T-known-domains-startup-check`; Codex verified focused startup-check tests.
 - Merged PR #133: `T-build-tasks-md-anchors`; Codex verified generator idempotency.
-- Merged PR #148: `T-ops-routes-list-route`; T74 consumes it in the app support diagnostics/debug bundle.
+- Merged PR #148: `T-ops-routes-list-route`; PR #178 / T74 consumes it in the app support diagnostics/debug bundle.
 - Blocked PR #159: `T-ops-health-summary-eval` because the eval injects local expected features instead of reading the production-mounted feature source.
 - Blocked PR #161: `T-trait-library-canon-eval` because duplicate canonical traits can pass.
 - Blocked PR #163 and PR #164: rebase after PR #160's package/task-file merge.

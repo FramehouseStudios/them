@@ -92,7 +92,7 @@ handoff lane.
 
 PR #87's `POST /screenplay/import/fountain` path is consumed by PR #176 / T73 / `codex/T73-ios-fountain-import`: Studio script imports use the backend Fountain parser when available and fall back to local normalization offline.
 
-PR #148's `GET /ops/routes` manifest is consumed by T74 / `codex/T74-ops-routes-diagnostics`: support summaries and debug bundles include route-manifest counts and groups when the backend provides them.
+PR #148's `GET /ops/routes` manifest is consumed by PR #178 / T74 / `codex/T74-ops-routes-diagnostics`: support summaries and debug bundles include route-manifest counts and groups when the backend provides them.
 
 PR #170's optional `GET /talk/turn/:turnId` limiter behavior is merged. When a backend mount supplies the limiter, iOS may see a 429 `{ error: "rate_limited", retry_after_ms }` response and should surface a friendly retry affordance.
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T18:45:52.000Z",
+  "updatedAt": "2026-05-12T18:48:49.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -622,6 +622,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T73-ios-fountain-import",
+      "blocker": null
+    },
+    {
+      "number": 178,
+      "title": "T74-ops-routes-diagnostics",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T74-ops-routes-diagnostics",
       "blocker": null
     }
   ],
