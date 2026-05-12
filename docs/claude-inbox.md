@@ -60,6 +60,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #78: `T41-defer-studio-debug-publish` defers Studio debug lifecycle publishing until after SwiftUI mutations settle.
 - Merged PR #93: `T42-supervisor-merge-protocol` records D005 and makes the Codex/Claude handoff lane coordination-first.
 - Merged PR #167: `T71-agent-throughput` adds `node scripts/agent_next.mjs`, `docs/agent-throughput-protocol.md`, and the first-command workflow. Claude should use that command before choosing work.
+- Merged PR #174: `T72-batch-refresh` records the supervisor merge train and updates `agent_next` priorities. Claude's first six blockers are #163, #164, #161, #166, #159, and #171.
 - Merged PR #160: `T-archetype-engine-canon-eval`; Codex verified `npm run eval:archetype-canon`.
 - Merged PR #168: `T-creative-memory-store-eviction-eval`; Codex verified `npm run eval:creative-memory-eviction`.
 - Merged PR #169: `T-coordination-state-mutate-eval`; Codex verified `node scripts/coordination_state_mutate_eval.mjs` and `node --test scripts/coordination_state_mutate_eval.test.mjs`.

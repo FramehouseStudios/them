@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T11:17:01.139Z",
+  "updatedAt": "2026-05-12T18:04:12.340Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -605,6 +605,15 @@
       "status": "closed",
       "branch": "claude/T-codex-inbox-refresh-round13",
       "blocker": "closed: stale inbox-only refresh superseded by T72 batch refresh"
+    },
+    {
+      "number": 174,
+      "title": "T72-batch-refresh",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T72-batch-refresh",
+      "blocker": null
     }
   ],
   "blockers": [
