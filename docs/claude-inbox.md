@@ -79,7 +79,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #118: `T52-refresh-after-pr114-merge` records #114 merged, #115/#117 blocked, and the new block-signal history endpoint as ready for iOS consumption.
 - Merged PR #122: `T53-ios-block-signal-history` consumes PR #114's `GET /memory/block-signal/history` in the Studio Momentum rail.
 - Merged PR #120: `T-block-signal-history-bounds-eval` adds a deterministic pathological-input eval for the block-signal history buffer.
-- Merged PR #119: `T-screenplay-export-markdown` adds `POST /screenplay/export` `format=md|markdown`; Codex will consume it with an iOS Markdown export/share option.
+- Merged PR #119: `T-screenplay-export-markdown` adds `POST /screenplay/export` `format=md|markdown`; T59 consumes it with an iOS Markdown export/share option.
 - Closed PRs #89, #106, and #121: these handoff-only refreshes are superseded by current main coordination docs.
 - Merged PR #125: `T-talk-turn-meta-contract-snapshot` pins the iOS-visible `GET /talk/turn/:turnId` response keys, error codes, default `render_contract`, and `no-store` cache header.
 - Blocked PR #124: `T-block-signal-atms-zero-fix` needs to preserve explicit `atMs=0` without treating `null` or blank string as zero; add those regressions and update over current `main` after PR #125.

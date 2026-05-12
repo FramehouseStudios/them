@@ -50,7 +50,7 @@ consume next, and any blockers.
 
 ## Endpoint Contracts Ready to Consume
 
-PR #119's `POST /screenplay/export` Markdown path is ready for Codex iOS consumption: `format=md|markdown` returns `text/markdown` and a `.md` attachment. Next app-side task: add an iOS Markdown export/share option.
+PR #119's `POST /screenplay/export` Markdown path is consumed by `codex/T59-ios-markdown-export`: `format=md|markdown` returns `text/markdown` and a `.md` attachment.
 
 PR #114's `GET /memory/block-signal/history` endpoint is consumed by `codex/T53-ios-block-signal-history` as a compact Studio Momentum history sparkline / stuck-this-week surface.
 

@@ -52,5 +52,35 @@ final class ScreenplayLocalExportTests: XCTestCase {
         let document = try XCTUnwrap(PDFDocument(data: artifact.data))
         XCTAssertGreaterThan(document.pageCount, 0)
     }
+
+    func testLocalMarkdownExportUsesScreenplayReadableMarkup() throws {
+        let draft = """
+        INT. KITCHEN - NIGHT
+
+        Maya crosses to the table.
+
+        MAYA
+        (quietly)
+        We need to talk.
+
+        CUT TO:
+        """
+
+        let artifact = try ScreenplayLocalExport.makeArtifact(
+            draft: draft,
+            title: "Kitchen Scene",
+            format: "md"
+        )
+        let markdown = try XCTUnwrap(String(data: artifact.data, encoding: .utf8))
+
+        XCTAssertEqual(artifact.format, "md")
+        XCTAssertEqual(artifact.filename, "Kitchen Scene.md")
+        XCTAssertEqual(artifact.contentType, "text/markdown; charset=utf-8")
+        XCTAssertTrue(markdown.contains("## INT. KITCHEN - NIGHT"))
+        XCTAssertTrue(markdown.contains("**MAYA**"))
+        XCTAssertTrue(markdown.contains("*(quietly)*"))
+        XCTAssertTrue(markdown.contains("> CUT TO:"))
+        XCTAssertTrue(markdown.hasSuffix("\n"))
+    }
 }
 #endif

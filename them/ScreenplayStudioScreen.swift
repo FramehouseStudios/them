@@ -10411,6 +10411,9 @@ private var projectsSidebarContent: some View {
                     Button("Export FDX") {
                         Task { await exportCurrentDraft(format: "fdx") }
                     }
+                    Button("Export Markdown") {
+                        Task { await exportCurrentDraft(format: "md") }
+                    }
                     Button("Export PDF") {
                         Task { await exportCurrentDraft(format: "pdf") }
                     }
