@@ -1,8 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T06:58:38.000Z",
+  "updatedAt": "2026-05-12T07:08:13.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 148,
+      "title": "T-ops-routes-list-route",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-ops-routes-list-route",
+      "blocker": "do-not-merge: conflicting after PR #149/T66; route manifest contract is broader than static list, so rebase and either narrow documented scope or include the full intended route set with regression coverage"
+    },
     {
       "number": 142,
       "title": "T-known-domains-startup-check",
@@ -289,7 +298,7 @@
       "tier": 1,
       "status": "blocked",
       "branch": "claude/T-build-tasks-md-anchors",
-      "blocker": "do-not-merge: still non-idempotent after merging post-#144 main; rerun build_tasks_md --write, commit generated TASKS.md, verify second write is clean"
+      "blocker": "do-not-merge: still non-idempotent after merging post-#149 main; rerun build_tasks_md --write, commit generated TASKS.md, verify second write is clean"
     },
     {
       "number": 134,
@@ -298,7 +307,7 @@
       "tier": 1,
       "status": "blocked",
       "branch": "claude/T-ops-health-summary-route",
-      "blocker": "do-not-merge: still carries do-not-merge after post-#144 main; rebase/update as needed, preserve safe-public no-user-data posture, rerun focused test plus npm test"
+      "blocker": "do-not-merge: still carries do-not-merge after post-#149 main; rebase/update as needed, preserve safe-public no-user-data posture, rerun focused test plus npm test"
     },
     {
       "number": 138,
@@ -389,6 +398,15 @@
       "status": "merged",
       "branch": "codex/T66-refresh-after-claude-pr-triage",
       "blocker": null
+    },
+    {
+      "number": 152,
+      "title": "T67-refresh-after-pr148-triage",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T67-refresh-after-pr148-triage",
+      "blocker": null
     }
   ],
   "blockers": [
@@ -413,7 +431,7 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, #134, and #142 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, #134, #142, and #148 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],

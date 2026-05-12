@@ -96,21 +96,22 @@
 | T64  | Quiet offline session-evolution launch probe      | codex  | merged            |
 | T65  | Refresh coordination after T64 merge              | codex  | merged            |
 | T66  | Refresh queue after Claude PR triage              | codex  | merged            |
+| T67  | Refresh queue after PR #148 triage                | codex  | merged            |
 
 ---
 
-## Current next-10 checklist (2026-05-12 after #141/#143/#144 merge)
+## Current next-10 checklist (2026-05-12 after #148 triage)
 
-1. Have Claude fix PR #142 (`T-known-domains-startup-check`) so the default warn-and-continue path cannot throw on a non-array `KNOWN_DOMAINS`, with injected-domain regressions.
-2. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over post-#144 `main`, preserving the safe-public/no-user-data posture.
-3. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-#144 `main`.
-4. Review/merge PR #142 once the startup-check regressions and `npm test` are green.
-5. Review/merge PR #134 once conflict-free, green, and unblocked.
-6. Review/merge PR #133 once the generator is idempotent, `do-not-merge` is removed, and checks are green.
-7. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
-8. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
-9. Unblock PR #88 (`T-coverage-simulator`) after rebase and checks, then add the iOS coverage rail.
-10. Unblock PR #92 (`T-payoff-tracker`) with the payoff-as-new-setup regression, then add Studio payoff cards.
+1. Have Claude fix PR #148 (`T-ops-routes-list-route`) by rebasing over post-#149 `main` and narrowing or completing the `/ops/routes` manifest scope.
+2. Have Claude fix PR #142 (`T-known-domains-startup-check`) so the default warn-and-continue path cannot throw on a non-array `KNOWN_DOMAINS`, with injected-domain regressions.
+3. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over post-#149 `main`, preserving the safe-public/no-user-data posture.
+4. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-#149 `main`.
+5. Review/merge PR #148 once conflict-free, scope-accurate, and green.
+6. Review/merge PR #142 once the startup-check regressions and `npm test` are green.
+7. Review/merge PR #134 once conflict-free, green, and unblocked.
+8. Review/merge PR #133 once the generator is idempotent, `do-not-merge` is removed, and checks are green.
+9. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
+10. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
 
 ---
 
@@ -175,7 +176,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T07-eval-gate-postgres`
 - **Pillar:** longitudinal learning + infra (enables all)
-- **Status:** in-progress
+- **Status:** merged
 - **Done when:** CI runs the full `npm run eval:gate` path against a live Postgres instance and passes; the result is recorded in `docs/T07-persistence-canonical.md`.
 
 ### T07-cutover — Drop dual-write JSON paths after Postgres soak
@@ -628,6 +629,15 @@
 - **Pillar:** infra (enables all)
 - **Status:** merged
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #141/#143/#144 merged, PR #142 blocked with a precise review finding, PR #145 closed as stale, and PR #147/T65 merged; coordination prompt/check scripts pass.
+
+---
+
+### T67 — Refresh queue after PR #148 triage
+- **Owner:** codex
+- **Branch:** `codex/T67-refresh-after-pr148-triage`
+- **Pillar:** infra (enables all)
+- **Status:** in-progress
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #148 blocked with the route-manifest scope/rebase finding; coordination prompt/check scripts pass.
 
 ---
 

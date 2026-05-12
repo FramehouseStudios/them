@@ -17,8 +17,9 @@ consume next, and any blockers.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
-| [#134](https://github.com/FramehouseStudios/them/pull/134) | T-ops-health-summary-route | 1 | blocked | Has `do-not-merge`; still needs a post-#144 update/recheck. Claude should rebase/update as needed, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then request review. |
-| [#133](https://github.com/FramehouseStudios/them/pull/133) | T-build-tasks-md-anchors | 1 | blocked | Has `do-not-merge`; after merging post-#144 `main`, the generator still needs an idempotency proof. Claude should commit the current generated `TASKS.md`, verify a second `node scripts/build_tasks_md.mjs --write` is clean, then request review. |
+| [#148](https://github.com/FramehouseStudios/them/pull/148) | T-ops-routes-list-route | 1 | blocked | Has `do-not-merge`; conflicting after PR #149/T66, and the route-manifest contract is broader than the static list. Claude should rebase, then either narrow/document the response as a curated subset with an explicit scope or include the full intended route set with regression coverage. |
+| [#134](https://github.com/FramehouseStudios/them/pull/134) | T-ops-health-summary-route | 1 | blocked | Has `do-not-merge`; still needs a post-#149 update/recheck. Claude should rebase/update as needed, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then request review. |
+| [#133](https://github.com/FramehouseStudios/them/pull/133) | T-build-tasks-md-anchors | 1 | blocked | Has `do-not-merge`; after merging post-#149 `main`, the generator still needs an idempotency proof. Claude should commit the current generated `TASKS.md`, verify a second `node scripts/build_tasks_md.mjs --write` is clean, then request review. |
 | [#142](https://github.com/FramehouseStudios/them/pull/142) | T-known-domains-startup-check | 1 | blocked | Has `do-not-merge`; default warn-and-continue can still throw if `KNOWN_DOMAINS` is corrupted to a non-array. Claude should guard iteration with `Array.isArray` or inject domains for testing, add non-array/duplicate/non-snake-case regressions, rerun focused test plus `npm test`, then request review. |
 | [#127](https://github.com/FramehouseStudios/them/pull/127) | T-decisions-queue-md-lint | 1 | blocked | Has `do-not-merge`; branch is DIRTY against current `main` and has no current checks. Rebase/update, rerun `node scripts/decisions_queue_lint.mjs` and `node --test scripts/decisions_queue_lint.test.mjs`, then request full review. |
 | [#124](https://github.com/FramehouseStudios/them/pull/124) | T-block-signal-atms-zero-fix | 1 | blocked | Has `do-not-merge`; the `atMs=0` fix must distinguish explicit zero from `null`/blank input, add regressions for `atMs: null` and empty string falling back to `nowMs()`, then update over current `main` after PR #125. |
@@ -61,6 +62,8 @@ Codex T64 / PR #146 / `codex/T64-session-evolution-quiet` is merged and extends 
 
 PR #141's `npm run eval:block-signal-block-cap`, PR #143's `docs/decisions-queue-template.md`, and PR #144's `node scripts/coordination_state.mjs validate` are merged. PR #145 is closed as a stale conflicting inbox-only refresh. PR #142 is blocked on the known-domains startup-check review finding.
 
+PR #148's `GET /ops/routes` manifest is blocked until the response scope matches the documented contract and the branch is rebased over post-#149 `main`.
+
 PR #114's `GET /memory/block-signal/history` endpoint is consumed by `codex/T53-ios-block-signal-history` as a compact Studio Momentum history sparkline / stuck-this-week surface.
 
 PR #108 already consumed PR #91's `GET /memory/character-archetypes` endpoint as an archetype tag/insight in the character traits rail.
@@ -86,7 +89,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
 - Claude PRs #94 and #99 are blocked on human privacy/data-control approval because they export/delete creative-memory data.
-- Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, #134, and #142 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
+- Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, #134, #142, and #148 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
 
 ## Decisions Claude Needs from Codex
 
