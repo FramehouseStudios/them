@@ -1735,12 +1735,14 @@ nonisolated enum BackendAuthClient {
     }
 
     fileprivate static func accessToken() -> String? {
+        guard !IOThemRuntime.isRunningTests else { return nil }
         let token = readKeychainString(account: authAccessTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func refreshToken() -> String? {
+        guard !IOThemRuntime.isRunningTests else { return nil }
         let token = readKeychainString(account: authRefreshTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -3924,6 +3926,12 @@ actor BackendMemoryAPI {
     ) {
         Task {
             do {
+                guard BackendEvolutionSyncPolicy.shouldAutoSync(
+                    sessionId: syncState.sessionId,
+                    cachedSessionAvailable: cachedSession != nil
+                ) else {
+                    return
+                }
                 let url = baseURL().appendingPathComponent("session").appendingPathComponent("evolution")
                 var request = URLRequest(url: url)
                 request.httpMethod = "PATCH"

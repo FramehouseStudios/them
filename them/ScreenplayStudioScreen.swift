@@ -516,6 +516,15 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func load() async {
+        guard !IOThemRuntime.isRunningTests else {
+            didLoadScreenplayProjectsFromBackend = false
+            projects = []
+            selectedProjectID = ""
+            selectedProject = nil
+            outline = .empty
+            syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
+            return
+        }
         isLoading = true
         defer { isLoading = false }
         errorText = ""
@@ -2377,6 +2386,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func refreshBlockSignal(source: String = "io.them") async {
+        guard !IOThemRuntime.isRunningTests else { return }
         guard !isBlockSignalLoading else { return }
         isBlockSignalLoading = true
         defer { isBlockSignalLoading = false }
@@ -2395,6 +2405,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func refreshCharacterTraits(source: String = "io.them") async {
+        guard !IOThemRuntime.isRunningTests else { return }
         guard !isCharacterTraitsLoading else { return }
         isCharacterTraitsLoading = true
         defer { isCharacterTraitsLoading = false }
@@ -2411,6 +2422,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func refreshCraftTwists(source: String = "io.them") async {
+        guard !IOThemRuntime.isRunningTests else { return }
         guard !isCraftTwistLoading else { return }
         let context = preferredCraftTwistContext()
         isCraftTwistLoading = true
@@ -2433,6 +2445,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func refreshAcceptedCraftTwists(source: String = "io.them") async {
+        guard !IOThemRuntime.isRunningTests else { return }
         guard let project = selectedProject else {
             acceptedCraftTwists = []
             acceptedCraftTwistErrorText = ""
@@ -21182,6 +21195,12 @@ Return revised screenplay lines only.
     private func restoreStudioAskNoteHistory(for key: String) async {
         let store = loadStudioAskNoteHistoryMap()
         let decoded = applyStoredWriteAnchors(to: Array((store[key] ?? []).prefix(24)), for: key)
+        if IOThemRuntime.isRunningTests {
+            studioAskNoteHistory = decoded
+            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: decoded)
+            syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
+            return
+        }
         let shouldBackfill = decoded.count < 8
 
         do {
@@ -22584,6 +22603,7 @@ Return revised screenplay lines only.
 
     private func applyDebugLoadProjectIfNeeded() {
         #if DEBUG || os(macOS)
+        guard !IOThemRuntime.isRunningTests else { return }
         guard studioDebugLoadProjectToken > 0 else { return }
         guard studioDebugLoadProjectToken != studioDebugLoadProjectAckToken else { return }
         guard studioDebugLoadProjectToken != lastAppliedStudioDebugLoadProjectToken else { return }
@@ -22609,6 +22629,7 @@ Return revised screenplay lines only.
     @MainActor
     private func applyBridgeDebugProjectLoadIfNeeded(force: Bool = false) async {
         #if DEBUG || os(macOS)
+        guard !IOThemRuntime.isRunningTests else { return }
         let token = liveDraftBridge.debugProjectLoadToken
         let requestedProjectID = liveDraftBridge.debugRequestedProjectID
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -24127,6 +24148,7 @@ Look at the city.
     }
 
     private func bootstrapNavigatorIfNeeded() {
+        guard !IOThemRuntime.isRunningTests else { return }
         guard navigatorCurrentURL == nil else { return }
         let fallback = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
@@ -25640,6 +25662,7 @@ Look at the city.
 
     @MainActor
     private func selectPreferredProjectIfNeeded(_ projectID: String) async {
+        guard !IOThemRuntime.isRunningTests else { return }
         let clean = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         guard vm.selectedProjectID != clean else { return }

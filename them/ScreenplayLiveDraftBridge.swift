@@ -2478,6 +2478,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func hydrateBackendCompanionState(force: Bool = false) async {
+        guard !IOThemRuntime.isRunningTests else { return }
         if isHydratingBackendCompanionState && !force { return }
         isHydratingBackendCompanionState = true
         defer { isHydratingBackendCompanionState = false }
