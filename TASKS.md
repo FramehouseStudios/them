@@ -78,6 +78,7 @@
 | T-known-domains-startup-check | Validate KNOWN_DOMAINS at backend startup | claude | merged |
 | T-screenplay-export-pdf-error-clarity | Add helpful PDF rejection payload | claude | merged |
 | T-ops-routes-list-route | GET /ops/routes curated manifest of optional surfaces    | claude | merged |
+| T-decisions-queue-md-lint | Lint docs/decisions-queue.md format                       | claude | review |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
