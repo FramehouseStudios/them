@@ -2,7 +2,7 @@
 id: T74
 title: Surface ops route manifest in diagnostics
 owner: codex
-status: in-progress
+status: merged
 branch: codex/T74-ops-routes-diagnostics
 pillar: mobile-first + infra
 ---

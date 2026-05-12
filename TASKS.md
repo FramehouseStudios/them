@@ -113,7 +113,7 @@
 | T71  | Add agent throughput protocol and next-action CLI | codex  | merged            |
 | T72  | Refresh queue after supervisor merge train        | codex  | merged            |
 | T73  | Build iOS Fountain import surface                 | codex  | merged            |
-| T74  | Surface ops route manifest in diagnostics         | codex  | in-progress       |
+| T74  | Surface ops route manifest in diagnostics         | codex  | merged            |
 
 ---
 
@@ -727,7 +727,7 @@
 | T71                                     | Add agent throughput protocol and next-action CLI                 | codex  | merged      |
 | T72                                     | Refresh queue after supervisor merge train                        | codex  | merged      |
 | T73                                     | Build iOS Fountain import surface                                 | codex  | merged      |
-| T74                                     | Surface ops route manifest in diagnostics                         | codex  | in-progress |
+| T74                                     | Surface ops route manifest in diagnostics                         | codex  | merged      |
 
 ## Active work — full detail (auto-generated)
 
@@ -2005,7 +2005,7 @@ marks PR #87 as awaiting an iOS consumer.
 - **Owner:** codex
 - **Branch:** codex/T74-ops-routes-diagnostics
 - **Pillar:** mobile-first + infra
-- **Status:** in-progress
+- **Status:** merged
 
 ## Scope
 

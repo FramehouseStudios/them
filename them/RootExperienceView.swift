@@ -46,6 +46,7 @@ private struct DebugBundleSnapshot: Codable {
     let diagnosticsSummary: String
     let speculative: DebugBundleSpeculativeSnapshot
     let backendHealth: DebugBundleHealthSnapshot?
+    let backendRoutes: DebugBundleRoutesSnapshot?
     let backendSync: DebugBundleSyncSnapshot
 }
 
@@ -72,6 +73,17 @@ private struct DebugBundleHealthSnapshot: Codable {
     let lastUpdatedAt: TimeInterval
     let historyUpdatedAt: TimeInterval
     let memoryUpdatedAt: TimeInterval
+}
+
+private struct DebugBundleRoutesSnapshot: Codable {
+    let schemaVersion: Int
+    let scope: String
+    let total: Int
+    let diagnosticsSummary: String
+    let groups: [String]
+    let routes: [BackendOpsRoute]
+    let refreshedAtISO8601: String
+    let lastError: String
 }
 
 private struct DebugBundleSyncSnapshot: Codable {
@@ -628,6 +640,9 @@ struct RootExperienceView: View {
     @State private var isTurnSubmitting = false
     @State private var lastIssueSummary = ""
     @State private var lastHealthStatus: BackendHealthStatus?
+    @State private var lastOpsRoutesManifest: BackendOpsRouteManifestResponse?
+    @State private var lastOpsRoutesManifestRefreshedAt: Date?
+    @State private var lastOpsRoutesManifestError = ""
     @State private var lastSubmittedFingerprint = ""
     @State private var lastSubmittedAt: Date = .distantPast
     @State private var lastOpenedEmailTurnID = ""
@@ -6677,6 +6692,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if isUp {
                 backendConnectionState = .up
                 backendFailureCount = 0
+                await refreshOpsRouteManifestIfNeeded(force: false)
                 return
             }
 
@@ -6692,6 +6708,24 @@ Write this approved story direction directly into screenplay pages now. Maintain
         lastIssueSummary = reason
         if backendFailureCount >= 1 {
             backendConnectionState = .reconnecting
+        }
+    }
+
+    @MainActor
+    private func refreshOpsRouteManifestIfNeeded(force: Bool) async {
+        guard !IOThemRuntime.isRunningTests else { return }
+        let now = Date()
+        if !force,
+           let lastRefresh = lastOpsRoutesManifestRefreshedAt,
+           now.timeIntervalSince(lastRefresh) < 300 {
+            return
+        }
+        lastOpsRoutesManifestRefreshedAt = now
+        do {
+            lastOpsRoutesManifest = try await BackendMemoryAPI.shared.fetchOpsRoutesManifest()
+            lastOpsRoutesManifestError = ""
+        } catch {
+            lastOpsRoutesManifestError = error.localizedDescription
         }
     }
 
@@ -8349,10 +8383,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func buildDebugBundleFile() async throws -> URL {
+        await refreshOpsRouteManifestIfNeeded(force: true)
         let now = Date()
         let formatter = ISO8601DateFormatter()
         let sync = await BackendMemoryAPI.shared.currentSyncState()
         let health = lastHealthStatus
+        let routeManifest = lastOpsRoutesManifest
 
         let snapshot = DebugBundleSnapshot(
             generatedAtISO8601: formatter.string(from: now),
@@ -8407,6 +8443,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     memoryUpdatedAt: $0.memoryUpdatedAt
                 )
             },
+            backendRoutes: routeManifest.map {
+                DebugBundleRoutesSnapshot(
+                    schemaVersion: $0.schemaVersion,
+                    scope: $0.scope,
+                    total: $0.routeCountForDiagnostics,
+                    diagnosticsSummary: $0.diagnosticsSummary,
+                    groups: $0.groupNamesForDiagnostics,
+                    routes: $0.routes,
+                    refreshedAtISO8601: formatter.string(from: lastOpsRoutesManifestRefreshedAt ?? now),
+                    lastError: lastOpsRoutesManifestError
+                )
+            },
             backendSync: DebugBundleSyncSnapshot(
                 status: sync.status,
                 sessionId: sync.sessionId,
@@ -8443,7 +8491,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             "Backend speculative reuse: \(speculativeTalk.telemetry.lastBackendReuseHit ? "hit" : "miss")",
             "Backend status: \(health?.status ?? "n/a")",
             "Backend boot id: \(health?.backendBootId ?? "n/a")",
-            "Last turn: \(health?.lastTurnId ?? "n/a")"
+            "Last turn: \(health?.lastTurnId ?? "n/a")",
+            "Backend routes: \(lastOpsRoutesManifest?.diagnosticsSummary ?? "n/a")",
+            "Backend route error: \(lastOpsRoutesManifestError.isEmpty ? "n/a" : lastOpsRoutesManifestError)"
         ].joined(separator: "\n")
     }
 
