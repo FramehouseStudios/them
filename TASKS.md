@@ -82,6 +82,7 @@
 | T-block-signal-atms-zero-fix | Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)    | claude | review |
 | T-known-domains-runtime-check | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip) | claude | review |
 | T-prompt-assembly-snapshot-eval | Pin canonical buildModelPrompt block order            | claude | review |
+| T-prompt-size-eval | Char-budget guard on assembled model prompts             | claude | review |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
