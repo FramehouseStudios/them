@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T18:48:49.000Z",
+  "updatedAt": "2026-05-12T19:05:51.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -632,6 +632,15 @@
       "status": "merged",
       "branch": "codex/T74-ops-routes-diagnostics",
       "blocker": null
+    },
+    {
+      "number": 179,
+      "title": "T75-talk-turn-rate-limit-retry",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T75-talk-turn-rate-limit-retry",
+      "blocker": null
     }
   ],
   "blockers": [
@@ -661,11 +670,5 @@
     }
   ],
   "decisionsPending": [],
-  "endpointsAwaitingIosConsumer": [
-    {
-      "pr": 170,
-      "endpoint": "GET /talk/turn/:turnId 429 rate_limited",
-      "consumer": "Surface a friendly retry affordance when talk-turn reads return rate_limited."
-    }
-  ]
+  "endpointsAwaitingIosConsumer": []
 }

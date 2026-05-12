@@ -94,7 +94,7 @@ PR #87's `POST /screenplay/import/fountain` path is consumed by PR #176 / T73 / 
 
 PR #148's `GET /ops/routes` manifest is consumed by PR #178 / T74 / `codex/T74-ops-routes-diagnostics`: support summaries and debug bundles include route-manifest counts and groups when the backend provides them.
 
-PR #170's optional `GET /talk/turn/:turnId` limiter behavior is merged. When a backend mount supplies the limiter, iOS may see a 429 `{ error: "rate_limited", retry_after_ms }` response and should surface a friendly retry affordance.
+PR #170's optional `GET /talk/turn/:turnId` limiter behavior is merged and consumed by PR #179 / T75 / `codex/T75-talk-turn-rate-limit-retry`: iOS preserves the saved talk response and surfaces a friendly retry interval when metadata reads return `rate_limited`.
 
 PR #150's `npm run eval:creative-memory-version` is merged and pins the creative-memory snapshot `version` field. PR #151's PDF export rejection payload is merged; Studio export UI can now read `message`, `alternative_formats`, and `docs_path` when `format=pdf` is rejected.
 

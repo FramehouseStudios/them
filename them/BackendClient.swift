@@ -497,6 +497,66 @@ private struct BackendTalkTurnMetaRenderContractPayload: Decodable {
     }
 }
 
+private struct BackendTalkTurnMetaRateLimitEnvelope: Decodable {
+    let error: String?
+    let retryAfterMs: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case retryAfterMs = "retry_after_ms"
+    }
+}
+
+struct BackendTalkTurnMetaRateLimitNotice: Equatable {
+    let turnId: String
+    let retryAfterMs: Int?
+
+    init?(
+        turnId: String,
+        statusCode: Int,
+        data: Data,
+        retryAfterHeader: String?
+    ) {
+        guard statusCode == 429 else { return nil }
+        let envelope = try? JSONDecoder().decode(BackendTalkTurnMetaRateLimitEnvelope.self, from: data)
+        let error = (envelope?.error ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard error.isEmpty || error == "rate_limited" else { return nil }
+
+        let headerRetryMs = retryAfterHeader
+            .flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .map { Int(ceil(max(0, $0) * 1000)) }
+        let parsedRetryMs = envelope?.retryAfterMs ?? headerRetryMs
+
+        self.turnId = turnId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.retryAfterMs = parsedRetryMs.map { max(0, $0) }
+    }
+
+    var retryDelayLabel: String {
+        guard let retryAfterMs else { return "a moment" }
+        if retryAfterMs <= 0 { return "now" }
+        if retryAfterMs < 1000 { return "less than a second" }
+        let seconds = max(1, Int(ceil(Double(retryAfterMs) / 1000.0)))
+        return seconds == 1 ? "1 second" : "\(seconds) seconds"
+    }
+
+    var bannerText: String {
+        let retryPhrase = retryDelayLabel == "now"
+            ? "retry now"
+            : "retry in \(retryDelayLabel)"
+        return "Saved the response. Extra turn details are cooling down; \(retryPhrase)."
+    }
+}
+
+private struct BackendTalkTurnMetaRateLimitError: LocalizedError {
+    let notice: BackendTalkTurnMetaRateLimitNotice
+
+    var errorDescription: String? {
+        notice.bannerText
+    }
+}
+
 struct BackendTalkKnowledgeTrace {
     let topics: [String]
     let citations: [String]
@@ -694,6 +754,7 @@ struct BackendTalkResult {
     let calendarAction: BackendCalendarComposeAction?
     let taskAction: BackendTaskAction?
     let speculativeTrace: BackendTalkSpeculativeTrace
+    let turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
     let commit: BackendTurnCommitSignal?
 }
 
@@ -3021,6 +3082,7 @@ final class BackendClient {
             (screenplayOutput?.writesToPage == true && !renderContract.previewReplyOnly) ||
             (knowledgeTopics.isEmpty && knowledgeCitations.isEmpty)
         )
+        var turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
         if shouldFetchTurnMeta, let commitSignal {
             do {
                 let payload = try await fetchTurnMeta(
@@ -3071,6 +3133,9 @@ final class BackendClient {
                 if knowledgeContradictionRisk <= 0 {
                     knowledgeContradictionRisk = min(max(payload.knowledgeContradictionRisk ?? 0, 0), 1)
                 }
+            } catch let error as BackendTalkTurnMetaRateLimitError {
+                turnMetaRateLimitNotice = error.notice
+                print("GET /talk/turn/\(commitSignal.turnId) rate limited: \(error.localizedDescription)")
             } catch {
                 print("GET /talk/turn/\(commitSignal.turnId) failed: \(error.localizedDescription)")
             }
@@ -3258,6 +3323,7 @@ final class BackendClient {
             calendarAction: calendarAction,
             taskAction: taskAction,
             speculativeTrace: speculativeTrace,
+            turnMetaRateLimitNotice: turnMetaRateLimitNotice,
             commit: commitSignal
         )
     }
@@ -3292,6 +3358,14 @@ final class BackendClient {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid turn metadata response")
+        }
+        if let notice = BackendTalkTurnMetaRateLimitNotice(
+            turnId: normalizedTurnID,
+            statusCode: http.statusCode,
+            data: data,
+            retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+        ) {
+            throw BackendTalkTurnMetaRateLimitError(notice: notice)
         }
         guard http.statusCode == 200 else {
             let raw = String(data: data, encoding: .utf8) ?? ""

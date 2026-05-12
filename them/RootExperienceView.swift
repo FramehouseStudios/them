@@ -6731,6 +6731,21 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func updateTransientTurnBanner(from result: BackendTalkResult) {
+        if let notice = result.turnMetaRateLimitNotice {
+            transientTurnBannerTask?.cancel()
+            withAnimation(.easeInOut(duration: 0.18)) {
+                transientTurnBannerText = notice.bannerText
+            }
+            transientTurnBannerTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_400_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    transientTurnBannerText = nil
+                }
+            }
+            return
+        }
+
         guard result.turnStatus == "error_recovered" else { return }
 
         let stage = (result.turnErrorStage ?? "response")
@@ -7488,6 +7503,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             calendarAction: nil,
             taskAction: nil,
             speculativeTrace: .none,
+            turnMetaRateLimitNotice: nil,
             commit: nil
         )
     }
