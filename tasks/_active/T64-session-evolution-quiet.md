@@ -2,7 +2,7 @@
 id: T64
 title: Quiet offline session-evolution launch probe
 owner: codex
-status: review
+status: merged
 branch: codex/T64-session-evolution-quiet
 pillar: mobile-first + infra
 ---

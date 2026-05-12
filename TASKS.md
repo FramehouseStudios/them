@@ -90,14 +90,15 @@
 | T61  | Refresh coordination after T60 merge              | codex  | merged            |
 | T62  | Quiet offline Studio export-format refresh        | codex  | merged            |
 | T63  | Refresh coordination after T62 merge              | codex  | merged            |
-| T64  | Quiet offline session-evolution launch probe      | codex  | review            |
+| T64  | Quiet offline session-evolution launch probe      | codex  | merged            |
+| T65  | Refresh coordination after T64 merge              | codex  | review            |
 
 ---
 
-## Current next-10 checklist (2026-05-11 after #139 merge)
+## Current next-10 checklist (2026-05-12 after #146 merge)
 
-1. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over post-T62 `main`, preserving the safe-public/no-user-data posture.
-2. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-T62 `main`.
+1. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over post-T64 `main`, preserving the safe-public/no-user-data posture.
+2. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-T64 `main`.
 3. Review/merge PR #134 once conflict-free and green.
 4. Review/merge PR #133 once the generator is idempotent, `do-not-merge` is removed, and checks are green.
 5. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
@@ -603,8 +604,17 @@
 - **Owner:** codex
 - **Branch:** `codex/T64-session-evolution-quiet`
 - **Pillar:** mobile-first + infra
-- **Status:** review
+- **Status:** merged
 - **Done when:** app/test launches no longer surface noisy localhost `/session/evolution`, `/session`, `/history`, health, keychain, project-outline, or Studio navigator probes during XCTest/offline startup; manual or backend-backed refresh remains available; focused tests cover the quiet policy.
+
+---
+
+### T65 — Refresh coordination after T64 merge
+- **Owner:** codex
+- **Branch:** `codex/T65-post-t64-coordination-refresh`
+- **Pillar:** mobile-first + infra
+- **Status:** review
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64 merged; Claude's #133/#134 blockers remain current; coordination prompt/check scripts pass.
 
 ---
 
