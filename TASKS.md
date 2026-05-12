@@ -100,7 +100,7 @@
 | T66  | Refresh queue after Claude PR triage              | codex  | merged            |
 | T67  | Refresh queue after PR #148 triage                | codex  | merged            |
 | T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
-| T69  | Refresh queue after PR #134 merge                 | codex  | in-progress       |
+| T69  | Refresh queue after PR #134 merge                 | codex  | review            |
 
 ---
 

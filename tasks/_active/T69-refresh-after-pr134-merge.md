@@ -2,7 +2,7 @@
 id: T69
 title: Refresh queue after PR #134 merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T69-refresh-after-pr134
 pillar: coordination
 ---
