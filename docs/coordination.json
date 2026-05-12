@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T07:36:30.000Z",
+  "updatedAt": "2026-05-12T07:54:30.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -442,6 +442,51 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T69-refresh-after-pr134",
+      "blocker": null
+    },
+    {
+      "number": 154,
+      "title": "T-talk-turn-rate-limit-helper",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-talk-turn-rate-limit-helper",
+      "blocker": null
+    },
+    {
+      "number": 155,
+      "title": "T-tasks-active-frontmatter-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-tasks-active-frontmatter-eval",
+      "blocker": null
+    },
+    {
+      "number": 156,
+      "title": "T-prompt-assembly-readme",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-prompt-assembly-readme",
+      "blocker": null
+    },
+    {
+      "number": 158,
+      "title": "T-tasks-active-stats",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-tasks-active-stats",
+      "blocker": null
+    },
+    {
+      "number": 162,
+      "title": "T70-refresh-after-pr154-158",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T70-refresh-after-pr154-158",
       "blocker": null
     }
   ],

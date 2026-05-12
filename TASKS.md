@@ -101,10 +101,11 @@
 | T67  | Refresh queue after PR #148 triage                | codex  | merged            |
 | T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
 | T69  | Refresh queue after PR #134 merge                 | codex  | merged            |
+| T70  | Refresh queue after PR #154/#155/#156/#158 merges | codex  | merged            |
 
 ---
 
-## Current next-10 checklist (2026-05-12 after #134 merge)
+## Current next-10 checklist (2026-05-12 after #154/#155/#156/#158 merges)
 
 1. Have Claude fix PR #148 (`T-ops-routes-list-route`) by rebasing over post-#149 `main` and narrowing or completing the `/ops/routes` manifest scope.
 2. Have Claude fix PR #142 (`T-known-domains-startup-check`) so the default warn-and-continue path cannot throw on a non-array `KNOWN_DOMAINS`, with injected-domain regressions.
@@ -115,7 +116,7 @@
 7. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
 8. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
 9. Use merged PR #134 (`GET /ops/health-summary`) in a lightweight app/dev diagnostics surface.
-10. Use merged PR #151's helpful PDF rejection payload in Studio export UX so PDF attempts offer Markdown/FDX/Fountain fallbacks.
+10. Use merged PR #154's token-bucket helper in a guarded `GET /talk/turn/:turnId` rate-limit mount, then expose friendly retry UX in the app if that endpoint returns `rate_limited`.
 
 ---
 

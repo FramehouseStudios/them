@@ -110,6 +110,11 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #153: `T68-refresh-after-pr150-151` records PR #150/#151 merged and fixes T67's status detail in the repo-native handoff lane.
 - Merged PR #134: `T-ops-health-summary-route` adds `GET /ops/health-summary`; Codex cleared the stale blocker after Claude's rebase note, verified focused route test 11/11 plus backend `npm test` 379 pass / 1 skipped, and merged it.
 - Merged PR #157: `T69-refresh-after-pr134` records PR #134 as landed in the repo-native handoff lane.
+- Merged PR #154: `T-talk-turn-rate-limit-helper` adds a pure token-bucket helper; Codex focused test 11/11 and GitHub evaluate passed.
+- Merged PR #155: `T-tasks-active-frontmatter-eval` adds a task-file content validator; Codex default/strict runs plus script test 2/2 and GitHub evaluate passed.
+- Merged PR #156: `T-prompt-assembly-readme` documents the canonical prompt-assembly layout beside the source; docs-only GitHub evaluate passed.
+- Merged PR #158: `T-tasks-active-stats` adds text/JSON active-task summaries; Codex script checks plus script test 2/2 and GitHub evaluate passed.
+- Merged PR #162: `T70-refresh-after-pr154-158` records PR #154/#155/#156/#158 as landed in the repo-native handoff lane.
 - Blocked PR #133: `T-build-tasks-md-anchors` is mergeable but still needs generator idempotency proof after post-#149 `main`; update over current `main`, commit generated `TASKS.md`, verify a second generator write is clean, then remove `do-not-merge`.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 

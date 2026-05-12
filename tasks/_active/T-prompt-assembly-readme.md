@@ -2,7 +2,7 @@
 id: T-prompt-assembly-readme
 title: README for backend/lib/prompt_assembly.js
 owner: claude
-status: review
+status: merged
 branch: claude/T-prompt-assembly-readme
 pillar: docs (prompt-stability)
 ---
