@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T08:25:24.000Z",
+  "updatedAt": "2026-05-12T11:17:01.139Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -8,18 +8,18 @@
       "title": "T-ops-routes-list-route",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-ops-routes-list-route",
-      "blocker": "do-not-merge: conflicting after PR #149/T66; route manifest contract is broader than static list, so rebase and either narrow documented scope or include the full intended route set with regression coverage"
+      "blocker": null
     },
     {
       "number": 142,
       "title": "T-known-domains-startup-check",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-known-domains-startup-check",
-      "blocker": "do-not-merge: default warn-and-continue path can still throw on non-array KNOWN_DOMAINS; add injected-domain regressions and guard iteration"
+      "blocker": null
     },
     {
       "number": 127,
@@ -179,9 +179,9 @@
       "title": "T-screenplay-import-fountain",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-screenplay-import-fountain",
-      "blocker": "do-not-merge: payload-too-large path returns generic Express error; add 413 route test"
+      "blocker": null
     },
     {
       "number": 86,
@@ -296,9 +296,9 @@
       "title": "T-build-tasks-md-anchors",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-build-tasks-md-anchors",
-      "blocker": "do-not-merge: still non-idempotent after merging post-#149 main; rerun build_tasks_md --write, commit generated TASKS.md, verify second write is clean"
+      "blocker": null
     },
     {
       "number": 134,
@@ -497,6 +497,114 @@
       "status": "merged",
       "branch": "codex/T71-agent-throughput",
       "blocker": null
+    },
+    {
+      "number": 160,
+      "title": "T-archetype-engine-canon-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-archetype-engine-canon-eval",
+      "blocker": null
+    },
+    {
+      "number": 168,
+      "title": "T-creative-memory-store-eviction-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-creative-memory-store-eviction-eval",
+      "blocker": null
+    },
+    {
+      "number": 169,
+      "title": "T-coordination-state-mutate-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-coordination-state-mutate-eval",
+      "blocker": null
+    },
+    {
+      "number": 170,
+      "title": "T-talk-turn-rate-limit-route",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-talk-turn-rate-limit-route",
+      "blocker": null
+    },
+    {
+      "number": 159,
+      "title": "T-ops-health-summary-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-ops-health-summary-eval",
+      "blocker": "do-not-merge: eval injects EXPECTED_FEATURES instead of reading the production-mounted feature source and needs refactor or narrowed wording, then rerun eval/backend tests"
+    },
+    {
+      "number": 161,
+      "title": "T-trait-library-canon-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-trait-library-canon-eval",
+      "blocker": "do-not-merge: eval allows duplicate canonical traits and needs duplicate/length assertion before merge"
+    },
+    {
+      "number": 163,
+      "title": "T-twist-engine-canon-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-twist-engine-canon-eval",
+      "blocker": "do-not-merge: conflicting after PR #160 merge; rebase on current main, keep behavior, rerun focused eval/backend tests"
+    },
+    {
+      "number": 164,
+      "title": "T-block-detector-canon-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-block-detector-canon-eval",
+      "blocker": "do-not-merge: conflicting after PR #160 merge; rebase on current main, keep behavior, rerun focused eval/backend tests"
+    },
+    {
+      "number": 166,
+      "title": "T-format-linter-rules-canon-eval",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-format-linter-rules-canon-eval",
+      "blocker": "do-not-merge: eval only exercises part of the canonical 8-rule set; needs registry/export assertion or fixtures covering all 8 rules"
+    },
+    {
+      "number": 171,
+      "title": "T-eval-gate-add-canon-evals",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-eval-gate-add-canon-evals",
+      "blocker": "do-not-merge: umbrella eval is stale while canon eval PRs are still landing; update eval:canon after the stack settles"
+    },
+    {
+      "number": 165,
+      "title": "T-codex-inbox-refresh-round12",
+      "owner": "claude",
+      "tier": 1,
+      "status": "closed",
+      "branch": "claude/T-codex-inbox-refresh-round12",
+      "blocker": "closed: stale inbox-only refresh superseded by T72 batch refresh"
+    },
+    {
+      "number": 172,
+      "title": "T-codex-inbox-refresh-round13",
+      "owner": "claude",
+      "tier": 1,
+      "status": "closed",
+      "branch": "claude/T-codex-inbox-refresh-round13",
+      "blocker": "closed: stale inbox-only refresh superseded by T72 batch refresh"
     }
   ],
   "blockers": [
@@ -521,10 +629,26 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, #142, and #148 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#86, #88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #159, #161, #163, #164, #166, and #171 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],
   "decisionsPending": [],
-  "endpointsAwaitingIosConsumer": []
+  "endpointsAwaitingIosConsumer": [
+    {
+      "pr": 87,
+      "endpoint": "POST /screenplay/import/fountain",
+      "consumer": "Build the iOS Studio Fountain import surface."
+    },
+    {
+      "pr": 148,
+      "endpoint": "GET /ops/routes",
+      "consumer": "Use the route manifest in a lightweight Studio/dev diagnostics surface."
+    },
+    {
+      "pr": 170,
+      "endpoint": "GET /talk/turn/:turnId 429 rate_limited",
+      "consumer": "Surface a friendly retry affordance when talk-turn reads return rate_limited."
+    }
+  ]
 }

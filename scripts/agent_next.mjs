@@ -22,6 +22,12 @@ const BLOCKED_STATUSES = new Set(["blocked"]);
 const REVIEW_STATUSES = new Set(["review", "ready", "ready-for-review"]);
 
 const CLAUDE_PRIORITY = new Map([
+  [163, 100],
+  [164, 98],
+  [161, 96],
+  [166, 94],
+  [159, 92],
+  [171, 90],
   [148, 100],
   [142, 96],
   [133, 92],

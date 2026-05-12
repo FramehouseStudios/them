@@ -2,7 +2,7 @@
 id: T-archetype-engine-canon-eval
 title: Pin canonical archetype set + per-entry shape
 owner: claude
-status: review
+status: merged
 branch: claude/T-archetype-engine-canon-eval
 pillar: evals (contract stability)
 ---
