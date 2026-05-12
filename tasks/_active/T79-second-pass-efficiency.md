@@ -2,7 +2,7 @@
 id: T79
 title: Codify second-pass agent efficiency protocol
 owner: codex
-status: in-progress
+status: merged
 branch: codex/T79-second-pass-efficiency
 pillar: infra (coordination)
 ---

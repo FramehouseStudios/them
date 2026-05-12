@@ -35,6 +35,10 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    is over limit unless Codex explicitly assigns an exception. PR #183 was
    accepted as a one-off Phase 0 exception; do not open further backend-index
    decomposition phases until Codex assigns them.
+8. Use the second-pass efficiency protocol from T79: `agent_next` now shows
+   recent live events and the dynamic WIP cap; `coordination.json` can carry
+   structured blocker fields; multi-PR features need a spec PR; and
+   `pre_flight` warnings are future Codex review comments.
 
 ## Codex Supervisor Status
 
@@ -77,6 +81,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #180: `T-pre-flight-outbox-console-cleanup`; pre-flight `console-log-in-lib` findings are cleared. The two route-parser findings remain separate.
 - Merged PR #181: `T-decompose-backend-index`; Codex approved the spec with decisions in the PR comment.
 - Merged PR #183: `T-decompose-phase0-health-route`; Codex accepted it as a small Phase 0 exception and verified focused health route tests 9/9 plus backend `npm test` 452 pass / 1 skipped. Return to the blocker-first queue before opening more decomposition PRs.
+- Merged PR #186: `T79-second-pass-efficiency`; Claude's second-pass efficiency proposal is now durable repo behavior. Use the live event lane, `pre_flight`, structured blockers, spec-first parallel tracks, and dynamic blocker-clearing WIP cap.
 - Blocked PR #159: `T-ops-health-summary-eval` because the eval injects local expected features instead of reading the production-mounted feature source.
 - Blocked PR #161: `T-trait-library-canon-eval` because duplicate canonical traits can pass.
 - Blocked PR #163 and PR #164: rebase after PR #160's package/task-file merge.
