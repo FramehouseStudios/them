@@ -427,6 +427,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var screenplayExportFormats: [BackendScreenplayExportFormat] = []
     @Published var isScreenplayExportFormatsLoading: Bool = false
     @Published var screenplayExportFormatsErrorText: String = ""
+    private var didLoadScreenplayProjectsFromBackend: Bool = false
 
     var formatLintCards: [ScreenplayFormatLintCard] {
         ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
@@ -525,6 +526,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 includeVersions: false,
                 includeDrafts: false
             )
+            didLoadScreenplayProjectsFromBackend = true
             projects = result.payload.screenplayProjects
             let preferredID = (result.payload.screenplayActiveProjectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !preferredID.isEmpty, projects.contains(where: { $0.id == preferredID }) {
@@ -534,6 +536,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             }
             await loadSelectedProjectOutline()
         } catch {
+            didLoadScreenplayProjectsFromBackend = false
             errorText = error.localizedDescription
             selectedProject = nil
             outline = .empty
@@ -2628,7 +2631,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         )
     }
 
-    func refreshScreenplayExportFormats() async {
+    func refreshScreenplayExportFormats(reportErrors: Bool = true) async {
         guard !isScreenplayExportFormatsLoading else { return }
         isScreenplayExportFormatsLoading = true
         defer { isScreenplayExportFormatsLoading = false }
@@ -2638,8 +2641,17 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             screenplayExportFormatsErrorText = ""
         } catch {
             screenplayExportFormats = []
-            screenplayExportFormatsErrorText = error.localizedDescription
+            screenplayExportFormatsErrorText = reportErrors ? error.localizedDescription : ""
         }
+    }
+
+    func refreshScreenplayExportFormatsAutomatically() async {
+        guard ScreenplayExportFormatRefreshPolicy.shouldAutoRefresh(
+            projectListLoadedFromBackend: didLoadScreenplayProjectsFromBackend
+        ) else {
+            return
+        }
+        await refreshScreenplayExportFormats(reportErrors: false)
     }
 
     private func loadSelectedProjectOutline() async {
@@ -4477,7 +4489,7 @@ Replace is best when this file should become the script you edit. Append is safe
         studioBaseLayout
             .task {
                 await vm.load()
-                Task { await vm.refreshScreenplayExportFormats() }
+                await vm.refreshScreenplayExportFormatsAutomatically()
                 await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
                 await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 vm.replaceDraftFromVoiceBridgeIfNeeded(liveDraftBridge.draftText)
