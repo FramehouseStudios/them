@@ -1,26 +1,8 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T08:25:24.000Z",
-  "updatedBy": "codex",
+  "updatedAt": "2026-05-12T17:57:53.615Z",
+  "updatedBy": "unknown",
   "openPullRequests": [
-    {
-      "number": 148,
-      "title": "T-ops-routes-list-route",
-      "owner": "claude",
-      "tier": 1,
-      "status": "blocked",
-      "branch": "claude/T-ops-routes-list-route",
-      "blocker": "do-not-merge: conflicting after PR #149/T66; route manifest contract is broader than static list, so rebase and either narrow documented scope or include the full intended route set with regression coverage"
-    },
-    {
-      "number": 142,
-      "title": "T-known-domains-startup-check",
-      "owner": "claude",
-      "tier": 1,
-      "status": "blocked",
-      "branch": "claude/T-known-domains-startup-check",
-      "blocker": "do-not-merge: default warn-and-continue path can still throw on non-array KNOWN_DOMAINS; add injected-domain regressions and guard iteration"
-    },
     {
       "number": 127,
       "title": "T-decisions-queue-md-lint",
@@ -161,9 +143,9 @@
       "title": "T-fdx-export-endpoint",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-fdx-export-endpoint",
-      "blocker": "do-not-merge: route reads req.body without its own JSON parser; add production-style parser test"
+      "blocker": null
     },
     {
       "number": 88,
@@ -173,15 +155,6 @@
       "status": "blocked",
       "branch": "claude/T-coverage-simulator",
       "blocker": "do-not-merge: rebase after #98 and refresh checks before review"
-    },
-    {
-      "number": 87,
-      "title": "T-screenplay-import-fountain",
-      "owner": "claude",
-      "tier": 1,
-      "status": "blocked",
-      "branch": "claude/T-screenplay-import-fountain",
-      "blocker": "do-not-merge: payload-too-large path returns generic Express error; add 413 route test"
     },
     {
       "number": 86,
@@ -290,15 +263,6 @@
       "status": "blocked",
       "branch": "claude/T07-eval-gate-postgres",
       "blocker": "human: replace malformed OPENAI_API_KEY Actions secret"
-    },
-    {
-      "number": 133,
-      "title": "T-build-tasks-md-anchors",
-      "owner": "claude",
-      "tier": 1,
-      "status": "blocked",
-      "branch": "claude/T-build-tasks-md-anchors",
-      "blocker": "do-not-merge: still non-idempotent after merging post-#149 main; rerun build_tasks_md --write, commit generated TASKS.md, verify second write is clean"
     },
     {
       "number": 134,
