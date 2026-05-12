@@ -17,19 +17,15 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    trust/pre-approval policy changes beyond D005; if edited, keep it aligned
    with the no-quiet-time auto-merge rule from PR #72.
 4. Clear `do-not-merge` blockers on existing PRs before opening more backend
-   feature branches. Highest-value current blockers: #148 needs a rebase over
-   post-#149 `main` plus a route-manifest scope fix; #142 needs a guarded
-   non-array `KNOWN_DOMAINS` startup-check path with injected-domain tests;
-   #87 needs a route-local
-   >4MB/413 test and handler; #90 needs a production-style route parser fix;
-   #88 should rebase after PR #98's shared Craft parser fix; #92 should rebase
-   after PR #98 and fix the payoff-as-new-setup regression; #97 needs a rebase
-   plus explicit `/talk/stats` access-control proof or a recorded policy note;
-   #100 needs `/talk/errors` access-control proof and true since-window counts;
-   #104, #105, and #107 need a rebase after PR #103; #110, #111, and #112
-   need a rebase after PR #103; #115 and #117 need a rebase after PR #114;
-   #124 needs null/blank `atMs` fallback regressions plus an update over current `main`; #127
-   needs a rebase/update and fresh decisions-queue lint checks.
+   feature branches. Highest-value current blockers: #163 and #164 need a
+   rebase after PR #160; #161 needs duplicate/length assertions for canonical
+   traits; #166 must prove all 8 format-linter rules; #159 must read the
+   production-mounted feature source or narrow the eval contract; #171 should
+   wait for the canon-eval stack to settle. Then continue older blockers:
+   #90 parser proof, #88 rebase after PR #98, #92 payoff regression, #97/#100
+   ops access-control/window fixes, #104/#105/#107 after #103, #110/#111/#112
+   after #103, #115/#117 after #114, #124 null/blank `atMs` regressions, and
+   #127 decisions-queue lint checks.
 5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
    not routine tier-1 work. PR #99 is blocked until the human accepts the
    memory deletion policy.
@@ -64,6 +60,21 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #78: `T41-defer-studio-debug-publish` defers Studio debug lifecycle publishing until after SwiftUI mutations settle.
 - Merged PR #93: `T42-supervisor-merge-protocol` records D005 and makes the Codex/Claude handoff lane coordination-first.
 - Merged PR #167: `T71-agent-throughput` adds `node scripts/agent_next.mjs`, `docs/agent-throughput-protocol.md`, and the first-command workflow. Claude should use that command before choosing work.
+- Merged PR #174: `T72-batch-refresh` records the supervisor merge train and updates `agent_next` priorities. Claude's first six blockers are #163, #164, #161, #166, #159, and #171.
+- Merged PR #160: `T-archetype-engine-canon-eval`; Codex verified `npm run eval:archetype-canon`.
+- Merged PR #168: `T-creative-memory-store-eviction-eval`; Codex verified `npm run eval:creative-memory-eviction`.
+- Merged PR #169: `T-coordination-state-mutate-eval`; Codex verified `node scripts/coordination_state_mutate_eval.mjs` and `node --test scripts/coordination_state_mutate_eval.test.mjs`.
+- Merged PR #170: `T-talk-turn-rate-limit-route`; Codex verified focused route tests and backend `npm test`.
+- Merged PR #87: `T-screenplay-import-fountain`; Codex verified focused Fountain import tests plus backend `npm test`. This is ready for iOS import UI.
+- Merged PR #142: `T-known-domains-startup-check`; Codex verified focused startup-check tests.
+- Merged PR #133: `T-build-tasks-md-anchors`; Codex verified generator idempotency.
+- Merged PR #148: `T-ops-routes-list-route`; Codex verified focused route tests.
+- Blocked PR #159: `T-ops-health-summary-eval` because the eval injects local expected features instead of reading the production-mounted feature source.
+- Blocked PR #161: `T-trait-library-canon-eval` because duplicate canonical traits can pass.
+- Blocked PR #163 and PR #164: rebase after PR #160's package/task-file merge.
+- Blocked PR #166: `T-format-linter-rules-canon-eval` because not all 8 canonical rules are exercised.
+- Blocked PR #171: `T-eval-gate-add-canon-evals` until the canon eval stack settles.
+- Closed PR #165 and PR #172 as stale inbox-only refreshes superseded by the T72 batch refresh.
 - Merged PR #95: `T43-refresh-claude-queue` refreshes the queue after Claude opened PRs #91 and #92 during the T42 landing window.
 - Merged PR #96: `T44-creative-memory-export-triage` records PR #94 as a human-gated privacy/data-control item.
 - Merged PR #91: `T-archetype-engine`; T48 consumes `GET /memory/character-archetypes` in the iOS character-traits rail.
@@ -105,12 +116,12 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #146: `T64-session-evolution-quiet` quiets automatic XCTest/offline launch probes for session evolution, health/hydration, keychain auth reads, Studio history, project outline, and navigator loading while preserving backend-backed/manual refresh paths. No Claude backend action is needed unless one of those contracts changes.
 - Merged PR #147: `T65-post-t64-coordination-refresh` marks PR #146/T64 merged across the repo-native handoff lane and keeps #133/#134 blockers current.
 - Merged PR #141: `T-prompt-assembly-block-signal-cap-eval` adds `npm run eval:block-signal-block-cap`; Codex diff review passed and GitHub evaluate was green.
-- Blocked PR #142: `T-known-domains-startup-check` now has `tier-1` + `do-not-merge`; fix the warn-and-continue path so non-array `KNOWN_DOMAINS` cannot throw, add injected-domain regressions, rerun focused test plus `npm test`, then request review.
+- Merged PR #142: `T-known-domains-startup-check` fixed the warn-and-continue startup path and is no longer a Claude blocker.
 - Merged PR #143: `T-decisions-queue-fixture-template` adds the decisions-queue entry template; docs-only and GitHub evaluate was green.
 - Merged PR #144: `T-coordination-state-cli-validate` adds `node scripts/coordination_state.mjs validate`; Codex diff review passed and GitHub evaluate was green.
 - Closed PR #145: `T-codex-inbox-refresh-round11` was a stale conflicting inbox-only refresh superseded by current coordination docs.
 - Merged PR #149: `T66-refresh-after-claude-pr-triage` records the #141/#143/#144 merges, #142 blocker, #145 close, and post-#144 Claude next actions in the repo-native handoff lane.
-- Blocked PR #148: `T-ops-routes-list-route` now has `tier-1` + `do-not-merge`; rebase over post-#149 `main`, then either narrow/document the manifest as a curated subset with an explicit scope or include the full intended optional route set with regression coverage. Rerun focused route test plus `npm test`.
+- Merged PR #148: `T-ops-routes-list-route` is no longer blocked; `GET /ops/routes` is ready for Codex diagnostics work.
 - Merged PR #152: `T67-refresh-after-pr148-triage` records PR #148's blocker in the repo-native handoff lane.
 - Merged PR #150: `T-creative-memory-version-check-eval` adds `npm run eval:creative-memory-version`; Codex diff review passed and GitHub evaluate was green.
 - Merged PR #151: `T-screenplay-export-pdf-error-clarity` adds `message`, `alternative_formats`, and `docs_path` to the PDF export rejection payload; Codex diff review passed and GitHub evaluate was green.
@@ -122,7 +133,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #156: `T-prompt-assembly-readme` documents the canonical prompt-assembly layout beside the source; docs-only GitHub evaluate passed.
 - Merged PR #158: `T-tasks-active-stats` adds text/JSON active-task summaries; Codex script checks plus script test 2/2 and GitHub evaluate passed.
 - Merged PR #162: `T70-refresh-after-pr154-158` records PR #154/#155/#156/#158 as landed in the repo-native handoff lane.
-- Blocked PR #133: `T-build-tasks-md-anchors` is mergeable but still needs generator idempotency proof after post-#149 `main`; update over current `main`, commit generated `TASKS.md`, verify a second generator write is clean, then remove `do-not-merge`.
+- Merged PR #133: `T-build-tasks-md-anchors` is no longer blocked; the AUTOGEN anchor path is live.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

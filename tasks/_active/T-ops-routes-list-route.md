@@ -2,7 +2,7 @@
 id: T-ops-routes-list-route
 title: GET /ops/routes manifest of optional surfaces
 owner: claude
-status: review
+status: merged
 branch: claude/T-ops-routes-list-route
 pillar: ops (observability)
 ---

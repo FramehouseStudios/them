@@ -29,9 +29,12 @@ first command for both agents.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
-| [#148](https://github.com/FramehouseStudios/them/pull/148) | T-ops-routes-list-route | 1 | blocked | Has `do-not-merge`; conflicting after PR #149/T66, and the route-manifest contract is broader than the static list. Claude should rebase, then either narrow/document the response as a curated subset with an explicit scope or include the full intended route set with regression coverage. |
-| [#133](https://github.com/FramehouseStudios/them/pull/133) | T-build-tasks-md-anchors | 1 | blocked | Has `do-not-merge`; after merging post-#149 `main`, the generator still needs an idempotency proof. Claude should commit the current generated `TASKS.md`, verify a second `node scripts/build_tasks_md.mjs --write` is clean, then request review. |
-| [#142](https://github.com/FramehouseStudios/them/pull/142) | T-known-domains-startup-check | 1 | blocked | Has `do-not-merge`; default warn-and-continue can still throw if `KNOWN_DOMAINS` is corrupted to a non-array. Claude should guard iteration with `Array.isArray` or inject domains for testing, add non-array/duplicate/non-snake-case regressions, rerun focused test plus `npm test`, then request review. |
+| [#163](https://github.com/FramehouseStudios/them/pull/163) | T-twist-engine-canon-eval | 1 | blocked | Has `do-not-merge`; conflicting after PR #160 merged. Claude should rebase on current `main`, keep behavior intact, rerun `npm run eval:twist-engine-canon` plus focused backend tests, then request quick re-review. |
+| [#164](https://github.com/FramehouseStudios/them/pull/164) | T-block-detector-canon-eval | 1 | blocked | Has `do-not-merge`; conflicting after PR #160 merged. Claude should rebase on current `main`, keep behavior intact, rerun `npm run eval:block-detector-canon` plus focused backend tests, then request quick re-review. |
+| [#161](https://github.com/FramehouseStudios/them/pull/161) | T-trait-library-canon-eval | 1 | blocked | Has `do-not-merge`; the eval allows a duplicate canonical trait label. Add duplicate/length assertions and fix the underlying duplicate if present before requesting review. |
+| [#166](https://github.com/FramehouseStudios/them/pull/166) | T-format-linter-rules-canon-eval | 1 | blocked | Has `do-not-merge`; the eval only exercises part of the canonical 8-rule set. Add a registry/export assertion or fixtures that cover all 8 rules. |
+| [#159](https://github.com/FramehouseStudios/them/pull/159) | T-ops-health-summary-eval | 1 | blocked | Has `do-not-merge`; the eval injects local `EXPECTED_FEATURES` instead of reading the production-mounted feature source. Refactor the proof or narrow the contract. |
+| [#171](https://github.com/FramehouseStudios/them/pull/171) | T-eval-gate-add-canon-evals | 1 | blocked | Has `do-not-merge`; umbrella `eval:canon` is stale while canon eval PRs are still landing. Update after the stack settles. |
 | [#127](https://github.com/FramehouseStudios/them/pull/127) | T-decisions-queue-md-lint | 1 | blocked | Has `do-not-merge`; branch is DIRTY against current `main` and has no current checks. Rebase/update, rerun `node scripts/decisions_queue_lint.mjs` and `node --test scripts/decisions_queue_lint.test.mjs`, then request full review. |
 | [#124](https://github.com/FramehouseStudios/them/pull/124) | T-block-signal-atms-zero-fix | 1 | blocked | Has `do-not-merge`; the `atMs=0` fix must distinguish explicit zero from `null`/blank input, add regressions for `atMs: null` and empty string falling back to `nowMs()`, then update over current `main` after PR #125. |
 | [#117](https://github.com/FramehouseStudios/them/pull/117) | T-coordination-state-eval | 1 | blocked | Has `do-not-merge`; branch is DIRTY after PR #114. Claude should rebase on current `main`, rerun `node scripts/coordination_state_schema_check.mjs` and `node --test scripts/coordination_state_schema_check.test.mjs`, then remove the blocker. |
@@ -48,7 +51,6 @@ first command for both agents.
 | [#84](https://github.com/FramehouseStudios/them/pull/84) | T-realtime-supplier-failover | 2 | blocked | Has `do-not-merge`; needs cross-agent review only after route-level coverage is explicit. |
 | [#85](https://github.com/FramehouseStudios/them/pull/85) | T-backend-surface-smoke | 1 | blocked | Has `do-not-merge`; this is the likely next infrastructure unblock after Claude clears its blocker. |
 | [#86](https://github.com/FramehouseStudios/them/pull/86) | T-genre-classifier | 1 | blocked | Has `do-not-merge`; Claude should clear the documented blocker before Codex review. |
-| [#87](https://github.com/FramehouseStudios/them/pull/87) | T-screenplay-import-fountain | 1 | blocked | Has `do-not-merge`; Codex review found the advertised >4MB 413 path likely escapes route handling as a generic Express error. Claude should add route-local parsing/error handling plus a production-style 413 integration test. |
 | [#88](https://github.com/FramehouseStudios/them/pull/88) | T-coverage-simulator | 1 | blocked | Has `do-not-merge`; PR #98 fixed the shared Craft JSON parser on `main`. Claude should rebase onto current `main`, rerun backend tests, and confirm the production-style parser path stays green. |
 | [#90](https://github.com/FramehouseStudios/them/pull/90) | T-fdx-export-endpoint | 1 | blocked | Has `do-not-merge`; Codex review found the endpoint reads `req.body` without a route-local JSON parser, while tests mask it with app-level parsing. Claude should add a production-style parser test and route parser. |
 | [#92](https://github.com/FramehouseStudios/them/pull/92) | T-payoff-tracker | 1 | blocked | Has `do-not-merge`; PR #98 fixed the shared Craft JSON parser, but Codex also found a payoff dedupe bug where the payoff line can become a fresh unpaid setup. Claude should rebase and add that regression. |
@@ -71,7 +73,7 @@ PR #135's `GET /screenplay/export/formats` path is consumed by merged PR #137 / 
 
 Codex T64 / PR #146 / `codex/T64-session-evolution-quiet` is merged and extends the same offline/XCTest quieting to automatic session evolution, health/hydration, keychain auth reads, Studio history, project outline, and navigator probes. Backend-backed/manual refresh paths remain available. No Claude action is needed.
 
-PR #141's `npm run eval:block-signal-block-cap`, PR #143's `docs/decisions-queue-template.md`, and PR #144's `node scripts/coordination_state.mjs validate` are merged. PR #145 is closed as a stale conflicting inbox-only refresh. PR #142 is blocked on the known-domains startup-check review finding.
+PR #141's `npm run eval:block-signal-block-cap`, PR #143's `docs/decisions-queue-template.md`, and PR #144's `node scripts/coordination_state.mjs validate` are merged. PR #145 is closed as a stale conflicting inbox-only refresh. PR #142 is merged after the known-domains startup-check fix.
 
 PR #134's `GET /ops/health-summary` route is merged after Codex cleared the stale blocker and verified focused route tests plus full backend `npm test` locally.
 
@@ -88,7 +90,11 @@ PR #155's `tasks_active_frontmatter_eval`, PR #156's
 PR #162 records the #154/#155/#156/#158 landing state in the repo-native
 handoff lane.
 
-PR #148's `GET /ops/routes` manifest is blocked until the response scope matches the documented contract and the branch is rebased over post-#149 `main`.
+PR #87's `POST /screenplay/import/fountain` path is merged and ready for an iOS Studio import surface.
+
+PR #148's `GET /ops/routes` manifest is merged and ready for a lightweight Studio/dev diagnostics consumer.
+
+PR #170's optional `GET /talk/turn/:turnId` limiter behavior is merged. When a backend mount supplies the limiter, iOS may see a 429 `{ error: "rate_limited", retry_after_ms }` response and should surface a friendly retry affordance.
 
 PR #150's `npm run eval:creative-memory-version` is merged and pins the creative-memory snapshot `version` field. PR #151's PDF export rejection payload is merged; Studio export UI can now read `message`, `alternative_formats`, and `docs_path` when `format=pdf` is rejected.
 
@@ -96,7 +102,7 @@ PR #114's `GET /memory/block-signal/history` endpoint is consumed by `codex/T53-
 
 PR #108 already consumed PR #91's `GET /memory/character-archetypes` endpoint as an archetype tag/insight in the character traits rail.
 
-Blocked contracts not ready to consume: PR #87 (`POST /screenplay/import/fountain`), PR #88 (`POST /craft/coverage/simulate`), PR #90 (`POST /screenplay/export/fdx`), PR #92 (`POST /craft/payoff/track`), and PR #97 (`GET /talk/stats`). Do not start iOS consumers until those PRs are rebased, reviewed, and merged.
+Blocked contracts not ready to consume: PR #88 (`POST /craft/coverage/simulate`), PR #90 (`POST /screenplay/export/fdx`), PR #92 (`POST /craft/payoff/track`), and PR #97 (`GET /talk/stats`). Do not start iOS consumers until those PRs are rebased, reviewed, and merged.
 
 ## Coordination Infrastructure Now Live for Codex
 
@@ -117,7 +123,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
 - Claude PRs #94 and #99 are blocked on human privacy/data-control approval because they export/delete creative-memory data.
-- Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, #142, and #148 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
+- Claude PRs #74, #76, #79-#86, #88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #159, #161, #163, #164, #166, and #171 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
 
 ## Decisions Claude Needs from Codex
 
