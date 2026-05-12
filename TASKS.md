@@ -662,3 +662,1084 @@
 - Claim a row by editing it to `Owner=<you>, Status=in-progress` **as the first commit on your new branch**. If two agents try to claim the same row, the merge conflict on this file is the correct signal — do not work around it; resolve the intent.
 - New rows must include a one-line "done when" before they go to `ready` or `ready-for-claude`. A row without a definition of done does not belong in this file.
 - When a row reaches `merged`, move it to "Completed" with the merge date. Prune rows older than 30 days.
+
+---
+
+<!-- BEGIN AUTOGEN active-tasks -->
+
+## Active work — quick view (auto-generated from tasks/_active/)
+
+| ID                                      | Title                                                             | Owner  | Status      |
+|-----------------------------------------|-------------------------------------------------------------------|--------|-------------|
+| T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer       | claude | review      |
+| T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                    | claude | review      |
+| T-block-signal-history-tracking         | Persist block-signal samples to creative memory habits            | claude | review      |
+| T-build-tasks-md-anchors                | Add AUTOGEN anchors to TASKS.md + harden anchor matcher           | claude | review      |
+| T-coordination-state-cli-validate       | Add `validate` subcommand to coordination_state.mjs               | claude | merged      |
+| T-creative-memory-version-check-eval    | Pin the `version` field on creative-memory snapshots              | claude | merged      |
+| T-decisions-queue-fixture-template      | docs/decisions-queue-template.md (copy-paste entry template)      | claude | merged      |
+| T-ops-health-summary-route              | GET /ops/health-summary cheap uptime-dashboard endpoint           | claude | merged      |
+| T-prompt-assembly-block-signal-cap-eval | Cap on <block_signal> block size under pathological inputs        | claude | merged      |
+| T-prompt-assembly-readme                | README for backend/lib/prompt_assembly.js                         | claude | merged      |
+| T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list              | claude | review      |
+| T-screenplay-export-markdown            | POST /screenplay/export format=md|markdown                        | claude | review      |
+| T-screenplay-export-pdf-error-clarity   | Add human-readable help payload to PDF export rejection           | claude | merged      |
+| T-talk-turn-meta-contract-snapshot      | Pin /talk/turn/:turnId response key set + error codes             | claude | review      |
+| T-talk-turn-rate-limit-helper           | Pure token-bucket rate limiter for talk-turn reads                | claude | merged      |
+| T-task-files-cleanup                    | Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)  | claude | review      |
+| T-tasks-active-frontmatter-eval         | Validate every tasks/_active/T-*.md front-matter                  | claude | merged      |
+| T-tasks-active-stats                    | At-a-glance counts over tasks/_active/                            | claude | merged      |
+| T-tasks-per-row                         | Per-row task files + TASKS.md regenerator (no canonical flip yet) | claude | merged      |
+| T-trust-tiers                           | Trust tiers + standing pre-approvals (AGENTS.md)                  | claude | review      |
+| T42-supervisor-merge-protocol           | Codex self-merge authority + agent handoff fast lane              | codex  | review      |
+| T43-refresh-claude-queue                | Refresh Claude queue after supervisor protocol merge              | codex  | review      |
+| T44-creative-memory-export-triage       | Triage creative-memory export privacy gate                        | codex  | review      |
+| T46-post-review-queue-refresh           | Refresh queue after Codex PR reviews                              | codex  | review      |
+| T47-refresh-after-new-claude-prs        | Refresh queue after new Claude PR triage                          | codex  | review      |
+| T48-ios-archetype-traits                | Surface character archetypes in the Studio traits rail            | codex  | in-progress |
+| T60                                     | Consume screenplay export formats in Studio                       | codex  | merged      |
+| T61                                     | Refresh coordination after T60 merge                              | codex  | merged      |
+| T62                                     | Quiet offline Studio export-format refresh                        | codex  | merged      |
+| T63                                     | Refresh coordination after T62 merge                              | codex  | merged      |
+| T64                                     | Quiet offline session-evolution launch probe                      | codex  | merged      |
+| T65                                     | Refresh coordination after T64 merge                              | codex  | merged      |
+| T66                                     | Refresh queue after Claude PR triage                              | codex  | merged      |
+| T67                                     | Refresh queue after PR #148 triage                                | codex  | merged      |
+| T68                                     | Refresh queue after PR #150/#151 merges                           | codex  | merged      |
+| T69                                     | Refresh queue after PR #134 merge                                 | codex  | merged      |
+| T70                                     | Refresh queue after PR #154/#155/#156/#158 merges                 | codex  | merged      |
+| T71                                     | Add agent throughput protocol and next-action CLI                 | codex  | merged      |
+
+## Active work — full detail (auto-generated)
+
+### T-block-signal-history-bounds-eval — Pathological-input guard on the block-signal history buffer
+- **Owner:** claude
+- **Branch:** claude/T-block-signal-history-bounds-eval
+- **Pillar:** evals (layer-3-living)
+- **Status:** review
+
+## Scope
+
+PR #103 covers happy-path semantics of `recordBlockSignalSample` (ring
+buffer, debounce, NaN coercion). This eval pounds the buffer with
+pathological inputs:
+
+- 1,000 alternating low/medium/high samples — ring buffer must still
+  cap at 30 and preserve newest.
+- 500 same-level polls inside the 60s window — debounce must hold;
+  exactly 1 entry recorded.
+- Boundary: delta=59,999ms blocks; delta=60,000ms releases.
+- Missing / empty / undefined userId is a no-op (no record created).
+- `NaN`, `+Infinity`, `-Infinity` scores all coerce to 0.
+- Pounding userA does not leak into userB's buffer.
+
+Wired via `npm run eval:block-signal-history-bounds`. No LLM, no I/O.
+
+## Side finding
+
+The boundary tests revealed that `recordBlockSignalSample({ atMs: 0 })`
+silently substitutes `nowMs()` because the store does
+`Number(atMs) || nowMs()` — `0` is falsy. Not fixed in this PR (out of
+scope for an eval) but worth a follow-up that uses `Number.isFinite()`
+explicitly. The eval works around the gotcha by anchoring fixtures at
+`atMs=1000` instead of `0`.
+
+## Done when
+
+`backend/evals/run_block_signal_history_bounds_eval.mjs` exits 0 with
+all checks passing; `npm run eval:block-signal-history-bounds` works;
+`npm test` still green.
+
+### T-block-signal-history-route — GET /memory/block-signal/history read endpoint
+- **Owner:** claude
+- **Branch:** claude/T-block-signal-history-route
+- **Pillar:** layer-3-living (creative-memory surfaces)
+- **Status:** review
+
+## Scope
+
+PR #103 (now merged) added `habits.block_signal_history` — a 30-entry
+ring buffer of block-signal samples written on each
+`GET /memory/block-signal` call. That endpoint also re-runs the
+debounce + ring-buffer semantics on every poll, which is exactly
+what a sparkline UI does *not* want.
+
+This PR adds `GET /memory/block-signal/history`: a read-only
+projection that returns the buffer plus a small summary envelope:
+
+```json
+{
+  "schemaVersion": 1,
+  "entries": [...],
+  "counts": { "total": N, "byLevel": { "low": ..., "medium": ..., "high": ... } },
+  "newestAt": ...,
+  "oldestAt": ...
+}
+```
+
+Pure read — does not append a sample. Unauthenticated → zero-state
+envelope (matches the polling endpoint's posture).
+
+## Done when
+
+`GET /memory/block-signal/history` mounted in `backend/index.js`;
+`backend/tests/block_signal_history_route.test.mjs` covers summarizer
++ endpoint integration + mount guards; `npm test` green.
+
+### T-block-signal-history-tracking — Persist block-signal samples to creative memory habits
+- **Owner:** claude
+- **Branch:** claude/T-block-signal-history-tracking
+- **Pillar:** layer-3-living (creative-memory longitudinal)
+- **Status:** review
+
+## Scope
+
+Each `GET /memory/block-signal` call evaluates the user's current
+block-state but discards the sample after responding. To support
+longitudinal "have I been stuck a lot lately?" insights and future UI
+sparkline / coaching tone-shifts, the block-signal value should be
+appended to the user's creative-memory `habits.block_signal_history`
+ring buffer.
+
+This PR adds `recordBlockSignalSample({ userId, score, level, atMs })`
+to the creative-memory store with:
+- 60-second debounce on same-level samples (so a stable level doesn't
+  flood the buffer when the client polls frequently).
+- Always-record on level change (low ↔ medium ↔ high transitions).
+- 30-entry ring buffer cap (newest preserved).
+- Non-finite score coerced to 0; missing `userId` is a no-op.
+
+The block-signal HTTP route wires the call as a best-effort append
+after computing the signal — never blocks the response, swallows
+record errors.
+
+## Done when
+
+`backend/lib/creative_memory_store.js` exposes
+`recordBlockSignalSample`; `backend/lib/block_signal_route.js` calls
+it after computing the signal; `backend/tests/block_signal_history.test.mjs`
+covers append / debounce / level-change / time-based recording /
+ring-buffer cap / NaN coercion / endpoint integration; `npm test`
+green.
+
+### T-build-tasks-md-anchors — Add AUTOGEN anchors to TASKS.md + harden anchor matcher
+- **Owner:** claude
+- **Branch:** claude/T-build-tasks-md-anchors
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+`scripts/build_tasks_md.mjs --write` is the canonical regenerator
+for the active-tasks section of TASKS.md. PR #67 shipped the
+regenerator but TASKS.md lacked the BEGIN/END AUTOGEN anchors, so
+`--write` was a no-op.
+
+This PR:
+
+1. **Hardens the matcher**: `current.indexOf(BEGIN_ANCHOR)` happily
+   matched the anchor strings inside the inline reference quoted in
+   T-tasks-per-row's own description. Running `--write` once would
+   overwrite from inside the description, corrupting unrelated rows.
+   Switched to a `findStandaloneAnchor()` that requires the anchor
+   to sit alone on its own line (surrounded by newlines or buffer
+   ends). Inline mentions are now correctly ignored.
+
+2. **Adds the anchors** as standalone lines at the bottom of
+   TASKS.md (`<!-- BEGIN AUTOGEN active-tasks -->` /
+   `<!-- END AUTOGEN active-tasks -->`).
+
+3. **Runs `--write` once** to populate the autogen section with a
+   mirror of every `tasks/_active/T-*.md` file. The hand-maintained
+   table above stays the canonical source for now; the autogen
+   block is a parallel view that lets future PRs incrementally
+   migrate rows.
+
+## Done when
+
+`node scripts/build_tasks_md.mjs --write` overwrites only the
+between-anchors region; inline mentions in descriptions don't
+match; the autogen block is present at the end of TASKS.md.
+
+### T-coordination-state-cli-validate — Add `validate` subcommand to coordination_state.mjs
+- **Owner:** claude
+- **Branch:** claude/T-coordination-state-cli-validate
+- **Pillar:** infra (coordination)
+- **Status:** merged
+
+## Scope
+
+PR #117 added `scripts/coordination_state_schema_check.mjs` — a
+standalone validator for `docs/coordination.json`. This PR surfaces
+the same checks as a `validate` subcommand on the existing
+`coordination_state.mjs` CLI, next to `read` / `open-prs` /
+`blockers` / `decisions` / mutate commands.
+
+```
+node scripts/coordination_state.mjs validate
+# → "coordination_state validate: OK (N open PRs, M blockers, K decisions)"
+# or exit 1 with a per-finding diff
+```
+
+Same invariant set as the standalone schema-check:
+- `schemaVersion` is a number >= 1
+- `updatedAt` is ISO-8601
+- `updatedBy` is non-empty
+- `openPullRequests`, `blockers`, `decisionsPending` are arrays
+- Per-PR: `number` (int), `title`, `owner ∈ {claude, codex, human}`,
+  `tier ∈ {1, 2, 3}`, `status`, `branch`
+- Per-blocker: `id`, `owner`, `summary`
+
+Strict by default (no `--strict` flag here, because this state file
+should always be the canonical source of truth — there's no "warn"
+mode for it).
+
+## Done when
+
+`node scripts/coordination_state.mjs validate` exits 0 against
+current main; smoke test covers happy path + unknown-command path;
+remains additive (no behavior change to existing subcommands).
+
+### T-creative-memory-version-check-eval — Pin the `version` field on creative-memory snapshots
+- **Owner:** claude
+- **Branch:** claude/T-creative-memory-version-check-eval
+- **Pillar:** evals (contract stability)
+- **Status:** merged
+
+## Scope
+
+`getCreativeMemoryForPrompt({ userId })` returns either `null` (cold
+user) or an envelope whose canonical shape opens with `version`,
+`userId`, `updatedAt`. iOS and the backend prompt-assembly path
+both depend on `version` to know which decoding path to take. A
+future refactor that drops the field would silently break every
+consumer.
+
+This eval pins:
+
+1. Cold user → `null` (no envelope).
+2. Seeded user → envelope with `version === 1` (current
+   `SCHEMA_VERSION`).
+3. Envelope has `userId` (non-empty string) + `updatedAt` (number).
+4. `version` stays stable across multiple `recordCharacterMention`
+   / `recordToneSignal` calls (a hot user doesn't bump it).
+
+Wired via `npm run eval:creative-memory-version`.
+
+## Done when
+
+`backend/evals/run_creative_memory_version_eval.mjs` exits 0 with
+all checks passing; `npm test` still green.
+
+### T-decisions-queue-fixture-template — docs/decisions-queue-template.md (copy-paste entry template)
+- **Owner:** claude
+- **Branch:** claude/T-decisions-queue-fixture-template
+- **Pillar:** infra (coordination)
+- **Status:** merged
+
+## Scope
+
+`docs/decisions-queue.md` declares its own format inline, but the
+format is easy to get subtly wrong (non-ISO date, multi-question
+entry, missing default). PR #104 parses the file programmatically;
+PR #127 lints it. This PR adds a copy-paste-friendly template at
+`docs/decisions-queue-template.md` so both agents (and the human)
+have one place to grab a known-good entry skeleton.
+
+Includes:
+
+- The canonical markdown template (the same one PR #104's parser
+  expects).
+- Required vs optional field rules.
+- A concrete worked example.
+- Anti-examples (multi-question, non-ISO date, slug with whitespace)
+  that the lint script will reject.
+
+No code change. Pure docs. Lives next to `docs/decisions-queue.md`
+so the cross-reference is one filesystem hop away.
+
+## Done when
+
+`docs/decisions-queue-template.md` exists and matches the format
+PR #104's parser + PR #127's lint accept.
+
+### T-ops-health-summary-route — GET /ops/health-summary cheap uptime-dashboard endpoint
+- **Owner:** claude
+- **Branch:** claude/T-ops-health-summary-route
+- **Pillar:** ops (observability)
+- **Status:** merged
+
+## Scope
+
+`/ops/metrics` already exposes the heavy state (recent talk samples,
+backplane status, concurrency counters), but it's expensive to dump
+and verbose. Uptime dashboards / external healthchecks want a small
+cheap response on a tight poll cadence.
+
+This PR adds `GET /ops/health-summary`:
+
+```json
+{
+  "schemaVersion": 1,
+  "status": "ok" | "degraded" | "error" | "unknown",
+  "reasons": [...],
+  "uptimeMs": 12345,
+  "uptimeHuman": "3m 25s",
+  "node": { "version": "v24.x.x", "platform": "darwin" },
+  "features": {
+    "creative_memory": true,
+    "block_signal": true,
+    "block_signal_history": true,
+    "talk_pipeline": true,
+    "screenplay_export_markdown": true
+  }
+}
+```
+
+The `features` map answers "is this deployment fully wired?" without
+calling into any per-user state. `status`/`reasons` come from the
+existing `deriveBackendRuntimeStatus()`. `Cache-Control: no-store` on
+every response.
+
+Helper module is pure (no I/O), so tests cover `humanizeMs`,
+`normalizeFeatures`, error fallback, header behavior, uptime offset,
+and the mount guard — 11 tests total.
+
+## Done when
+
+`GET /ops/health-summary` returns the envelope above; helper has
+unit tests; `npm test` green.
+
+### T-prompt-assembly-block-signal-cap-eval — Cap on <block_signal> block size under pathological inputs
+- **Owner:** claude
+- **Branch:** claude/T-prompt-assembly-block-signal-cap-eval
+- **Pillar:** evals (prompt-stability)
+- **Status:** merged
+
+## Scope
+
+`buildBlockCoachingBlockForPrompt(signal)` injects a `<block_signal>`
+block into the assembled prompt for `medium`/`high` levels. Today
+the structure caps at the literal lines we emit; only
+`signal.summary` is a free-form pass-through. If a future change
+sources `summary` from an unbounded place (model rationale, telemetry
+trace), the block can blow up.
+
+This eval asserts:
+
+- `null` / `undefined` / `low` signals → empty block (happy-path
+  prompt unchanged).
+- `medium` / `high` with a normal summary → block < 500 chars.
+- `medium` / `high` with a 10k pathological summary → block < 12k
+  chars (the summary is the only growth surface; this caps it).
+- Assembled prompts with a normal block_signal block stay under
+  4k chars; with a pathological summary, still under 24k.
+
+Wired via `npm run eval:block-signal-block-cap`.
+
+## Done when
+
+`backend/evals/run_block_signal_block_cap_eval.mjs` exits 0 with all
+checks passing; `npm test` still green.
+
+### T-prompt-assembly-readme — README for backend/lib/prompt_assembly.js
+- **Owner:** claude
+- **Branch:** claude/T-prompt-assembly-readme
+- **Pillar:** docs (prompt-stability)
+- **Status:** merged
+
+## Scope
+
+`buildModelPrompt()` is the single load-bearing entry point for
+every model-bound prompt. Today its canonical layout (block order,
+field set, tag names) is documented only in the function's source
+comments and pinned by a handful of evals (PR #105, #110, #112,
+#141). New contributors have to read the source to know that the
+order is load-bearing and which evals will fail loudly if it
+changes.
+
+This PR adds `backend/lib/prompt_assembly.README.md` co-located
+with the source, covering:
+
+- The canonical block order (literal layout).
+- Each field's source-of-truth (creative_memory_store,
+  block_detector).
+- The full table of pinned invariants and which PR pins each.
+- The change-the-layout checklist (update snapshot eval +
+  this README + bump SCHEMA_VERSION if shape change).
+
+Docs-only. No code change.
+
+## Done when
+
+`backend/lib/prompt_assembly.README.md` exists and accurately
+describes the layout and pinned invariants of the current
+`buildModelPrompt` on main.
+
+### T-screenplay-export-formats-list-route — GET /screenplay/export/formats canonical format list
+- **Owner:** claude
+- **Branch:** claude/T-screenplay-export-formats-list-route
+- **Pillar:** layer-1-craft (export discovery)
+- **Status:** review
+
+## Scope
+
+`POST /screenplay/export` accepts a handful of `format` values
+(`fountain`, `txt`, `fdx`, `md`, `markdown`) and rejects others.
+Today iOS has to hard-code the set, guess the right MIME type, and
+re-derive the right file extension. This PR adds a tiny
+discoverable contract: `GET /screenplay/export/formats` returns the
+canonical list as a frozen snapshot:
+
+```json
+{
+  "schemaVersion": 1,
+  "defaultFormat": "fountain",
+  "formats": [
+    { "format": "fountain",  "extension": "fountain", "mediaType": "text/plain; charset=utf-8",     "supported": true,  "description": "..." },
+    { "format": "txt",       "extension": "fountain", "mediaType": "text/plain; charset=utf-8",     "supported": true,  "description": "Alias of fountain" },
+    { "format": "fdx",       "extension": "fdx",      "mediaType": "application/vnd.final-draft",   "supported": true,  "description": "Final Draft XML" },
+    { "format": "md",        "extension": "md",       "mediaType": "text/markdown; charset=utf-8",  "supported": true,  "description": "..." },
+    { "format": "markdown",  "extension": "md",       "mediaType": "text/markdown; charset=utf-8",  "supported": true,  "description": "Alias of md" },
+    { "format": "pdf",       "extension": "pdf",      "mediaType": "application/pdf",               "supported": false, "description": "Not supported locally" }
+  ]
+}
+```
+
+`Cache-Control: no-store`. The canonical set is `Object.freeze`d so
+unit tests pin the snapshot — a future change to `POST /screenplay/export`
+that adds a new format must also update this list (the test asserts
+the symmetric set).
+
+## Done when
+
+`GET /screenplay/export/formats` returns the envelope above; the
+snapshot is frozen at the module level; `npm test` green.
+
+### T-screenplay-export-markdown — POST /screenplay/export format=md|markdown
+- **Owner:** claude
+- **Branch:** claude/T-screenplay-export-markdown
+- **Pillar:** layer-1-craft (export)
+- **Status:** review
+
+## Scope
+
+`POST /screenplay/export` already handles `fountain`, `txt`, `fdx`,
+and rejects `pdf`. This PR adds `md` / `markdown` as a fourth format,
+useful for handing a screenplay to any tool that consumes Markdown
+(GitHub, Notion, Obsidian, Pandoc).
+
+Conversion rules mirror the FDX paragraph-typing rules so a given
+line ends up in the same logical role in both outputs:
+
+- Scene Heading                       → `## ...`
+- Character                           → `**...**`
+- Parenthetical                       → `*...*`
+- Transition                          → `> ...`
+- Dialogue / Action                   → plain paragraph
+
+Pure helper at `backend/lib/screenplay_markdown_export.js` so the
+conversion is unit-testable without spinning up the full app.
+12 unit tests cover paragraph typing, full conversion, empty/null
+input, `\r\n` normalization, blank-line collapsing, and determinism.
+
+## Done when
+
+`POST /screenplay/export` accepts `format=md` and `format=markdown`,
+returns `text/markdown; charset=utf-8` with a `.md` Content-Disposition;
+the conversion helper is tested; `npm test` green.
+
+### T-screenplay-export-pdf-error-clarity — Add human-readable help payload to PDF export rejection
+- **Owner:** claude
+- **Branch:** claude/T-screenplay-export-pdf-error-clarity
+- **Pillar:** layer-1-craft (export)
+- **Status:** merged
+
+## Scope
+
+`POST /screenplay/export` with `format=pdf` returns 400 with just
+`{ stage, error: "pdf_export_not_supported_locally" }`. iOS / API
+callers have to know in advance that this is a "not implemented"
+situation rather than a transient failure, and they have to
+re-derive the right fallback path from memory.
+
+This PR extends the rejection payload with three additional fields
+while keeping the existing `error` class string for backwards
+compatibility:
+
+- `message`: human-readable explanation pointing at Fountain /
+  Markdown / FDX as alternatives.
+- `alternative_formats`: array `["fountain", "fdx", "md"]` —
+  caller can surface a chooser.
+- `docs_path`: `"/screenplay/export/formats"` — points at PR #135's
+  discoverable list.
+
+No backwards-incompatible change for existing clients reading the
+error class. Adds 4 integration-style tests that mirror the
+production branch through a small fixture.
+
+## Done when
+
+`POST /screenplay/export` with `format=pdf` returns the augmented
+payload; existing clients reading `error` still work; `npm test`
+green.
+
+### T-talk-turn-meta-contract-snapshot — Pin /talk/turn/:turnId response key set + error codes
+- **Owner:** claude
+- **Branch:** claude/T-talk-pipeline-error-class-snapshot
+- **Pillar:** evals (contract stability)
+- **Status:** review
+
+## Scope
+
+`GET /talk/turn/:turnId` is a load-bearing iOS contract — the client
+reads every field of the success body and switches on the error
+code. A silent rename or shape change in `lib/talk_pipeline.js`
+would silently regress every iOS consumer at once.
+
+This PR adds `backend/tests/talk_turn_meta_contract.test.mjs` which
+pins:
+
+1. The full set of canonical error codes: `invalid_turn_id`,
+   `turn_not_found`, `forbidden`.
+2. The exact key set of the success response body (14 keys, listed
+   explicitly in the test).
+3. The 3 default keys on `render_contract` for legacy turns
+   (`reply_role`, `authoritative_page_text_available`, `sync_ready`).
+4. `Cache-Control: no-store` on the response.
+
+The test mounts the route in isolation with stub middleware so it
+runs fast and deterministic; no real talk pipeline state required.
+
+## Done when
+
+`backend/tests/talk_turn_meta_contract.test.mjs` covers the four
+contract surfaces; `npm test` green.
+
+### T-talk-turn-rate-limit-helper — Pure token-bucket rate limiter for talk-turn reads
+- **Owner:** claude
+- **Branch:** claude/T-talk-turn-rate-limit-helper
+- **Pillar:** infra (talk pipeline)
+- **Status:** merged
+
+## Scope
+
+`GET /talk/turn/:turnId` is pinned as a contract (PR #125) but uses
+a permissive read path: any caller can enumerate turn IDs at HTTP
+throughput. We want a cheap per-key burst guard before a production
+deploy.
+
+This PR ships **the pure limiter only**, with no Express coupling.
+A follow-up PR will mount it on the route once Codex reviews the
+algorithm.
+
+`backend/lib/talk_turn_rate_limit.js`:
+
+- `createTalkTurnRateLimiter({ refillPerSec, capacity, capCacheEntries, nowFn })`
+- Token bucket per key, refill rate R tokens/sec, capacity C.
+- Deny with `{ allowed: false, reason: "rate_limited", retryAfterMs }`.
+- LRU eviction at `capCacheEntries` (default 10,000) to bound memory.
+- Missing/empty keys are rejected explicitly so unauthenticated traffic
+  doesn't pool behind a single bucket.
+- Deterministic with an injected `nowFn` so tests are fast and stable.
+
+11 unit tests cover: first-call allowed, burst exhaustion, refill,
+capacity cap, missing key, per-key isolation, LRU eviction, inspect/
+reset, invalid config, determinism.
+
+## Done when
+
+`backend/lib/talk_turn_rate_limit.js` exports the factory; tests
+green; `npm test` green. Mount happens in a follow-up PR.
+
+### T-task-files-cleanup — Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)
+- **Owner:** claude
+- **Branch:** claude/T-task-files-cleanup
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+`tasks/_active/` accumulated 16 task files with no matching rows in
+`TASKS.md`:
+
+- `T-trust-tiers.md` (Claude)
+- `T42-supervisor-merge-protocol.md` through
+  `T56-refresh-after-talk-contract.md` (Codex, all merged via PRs on
+  `main`)
+
+PR #107's `scripts/tasks_sync_check.mjs` already detects this drift
+and was sitting on warn-only mode to give us time to clean up before
+flipping `--strict`. This PR is that cleanup.
+
+For the Codex tasks (T42–T56), all merge commits are present on
+`main`, so the rows are marked `merged`. `T-trust-tiers` was already
+`review` in its task file's front matter — that status is carried
+forward.
+
+After this PR merges, the `--strict` flag on PR #107 can be enabled
+in CI cleanly (no remaining drift findings for files with valid
+front matter). Files using Codex's plain-markdown convention
+(T49–T56) still surface as `missing_or_invalid_front_matter` but
+that's a separate format-convergence question between agents — out
+of scope here.
+
+## Done when
+
+`TASKS.md` has rows for every YAML-front-matter file in
+`tasks/_active/`; rows match the file's `id`, `owner`, and `status`.
+
+### T-tasks-active-frontmatter-eval — Validate every tasks/_active/T-*.md front-matter
+- **Owner:** claude
+- **Branch:** claude/T-tasks-active-frontmatter-eval
+- **Pillar:** infra (coordination)
+- **Status:** merged
+
+## Scope
+
+Sits next to PR #107's `scripts/tasks_sync_check.mjs` (which
+validates the TASKS.md ↔ tasks/_active/ row mapping). This script
+validates the **content** of each task file in `tasks/_active/`.
+
+Two accepted layouts:
+
+1. **YAML front matter** (Claude convention):
+
+   ```yaml
+   ---
+   id: T-<slug>
+   title: ...
+   owner: claude | codex | human
+   status: ready | in-progress | review | merged | blocked-...
+   branch: ...
+   ---
+   ```
+
+2. **Legacy header** (Codex convention for T42–T68):
+
+   ```
+   # T49 — Post-T48 Coordination Refresh
+
+   Owner: codex
+   Status: in-progress
+   Branch: codex/T49-...
+   ```
+
+Filename matching is lenient: `<id>.md` or `<id>-<slug>.md` both
+pass (Codex's `id: T60` + filename `T60-export-formats-picker.md`
+is accepted alongside Claude's strict `id == filename` convention).
+
+Default mode prints findings + exits 0. `--strict` exits 1 on any
+finding — flip to that in CI once both conventions are normalized.
+
+## Done when
+
+`node scripts/tasks_active_frontmatter_eval.mjs` exits 0 against
+the current `tasks/_active/` (40 files); smoke test exits 0 in
+both modes.
+
+### T-tasks-active-stats — At-a-glance counts over tasks/_active/
+- **Owner:** claude
+- **Branch:** claude/T-tasks-active-stats
+- **Pillar:** infra (coordination)
+- **Status:** merged
+
+## Scope
+
+Quick "how much is in flight?" report over `tasks/_active/`:
+
+```
+$ node scripts/tasks_active_stats.mjs
+tasks_active_stats: 41 task file(s)
+
+by owner:
+    26  codex
+    15  claude
+
+by status:
+    17  merged
+    14  review
+    10  in-progress
+
+by pillar:
+     9  infra (enables all)
+     ...
+```
+
+`--json` emits the same data as machine-readable JSON for CI /
+inbox automation.
+
+Sits next to `tasks_sync_check.mjs` (PR #107) and
+`tasks_active_frontmatter_eval.mjs` (PR #155) — the same parse-the-
+front-matter loop, different report. Skips files that don't parse
+(YAML front-matter or `# Tn — title` header) and surfaces them as
+`unrecognized` instead of crashing.
+
+Useful for inbox refresh PRs ("queue has 26 codex tasks, 15
+claude") and for the human's at-a-glance read.
+
+## Done when
+
+`node scripts/tasks_active_stats.mjs` prints a valid summary;
+`--json` emits parseable JSON; smoke test green.
+
+### T-tasks-per-row — Per-row task files + TASKS.md regenerator (no canonical flip yet)
+- **Owner:** claude
+- **Branch:** claude/T-tasks-per-row
+- **Pillar:** infra (enables all)
+- **Status:** merged
+
+## Scope
+
+New `tasks/_active/` directory with one markdown file per currently-active
+task. Each file carries a YAML-style front matter block (id, title,
+owner, status, branch, pillar) and body sections (Scope, Done when).
+`scripts/build_tasks_md.mjs` reads these files and can print or write
+the quick-view table + detail blocks for the active section of
+`TASKS.md`.
+
+This PR ships the layout and the regenerator; it does **not** flip
+`TASKS.md` to be a build artifact. Adoption is opt-in. A follow-up
+will flip the canonical source once enough rows have moved.
+
+## Done when
+
+`tasks/README.md` documents the convention; `tasks/_active/` is
+populated with at least one example file (this one); the regenerator
+prints a valid quick-view table when run; `TASKS.md` remains the
+source of truth for now (the README explains the migration plan).
+
+### T-trust-tiers — Trust tiers + standing pre-approvals (AGENTS.md)
+- **Owner:** claude
+- **Branch:** claude/T-trust-tiers
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+## Scope
+
+Adds a new `## Trust Tiers (standing pre-approvals)` section to
+`AGENTS.md` defining three merge tiers — Tier 1 (agent-owned,
+merge-eligible only when the suite is green and a trusted cross-agent approval is present),
+Tier 2 (cross-agent review required), Tier 3 (human approval
+required). Codifies which classes of PRs can ship without the human
+becoming the merge bottleneck. Canonical reference point for the
+`auto-merge-tier1.yml` workflow.
+
+## Done when
+
+AGENTS.md carries the Trust Tiers section with explicit lists of
+what's Tier 1 / 2 / 3 and the escalation rules; the section names the
+`tier-1` / `tier-2` / `tier-3` labels the auto-merge workflow will
+read.
+
+### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
+- **Owner:** codex
+- **Branch:** codex/T42-supervisor-merge-protocol
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+- **Done when:** the human-approved Codex self-merge authority is recorded as an accepted decision; `AGENTS.md` explains when Codex may merge its own PRs; the Codex/Claude fast-path handoff tells both agents how to act from `docs/coordination.json` without chat copy/paste; verification commands for the coordination scripts pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T43-refresh-claude-queue — Refresh Claude queue after supervisor protocol merge
+- **Owner:** codex
+- **Branch:** codex/T43-refresh-claude-queue
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+- **Done when:** `docs/coordination.json` and Codex/Claude inboxes reflect the current open Claude PR queue after T42, including PRs #91 and #92; superseded PR #89 is marked blocked; verification commands for the coordination scripts pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T44-creative-memory-export-triage — Triage creative-memory export privacy gate
+- **Owner:** codex
+- **Branch:** codex/T44-creative-memory-export-triage
+- **Pillar:** longitudinal learning
+- **Status:** review
+
+- **Done when:** `docs/coordination.json` and inboxes mark Claude PR #94 as tier-3/needs-human because it exposes a full creative-memory export surface; verification commands for the coordination scripts pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T46-post-review-queue-refresh — Refresh queue after Codex PR reviews
+- **Owner:** codex
+- **Branch:** codex/T46-post-review-queue-refresh
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+- **Done when:** `docs/coordination.json` and inboxes reflect the current state after #91 and #98 merge; blocked Claude PRs #87/#88/#90/#92/#97 show their exact blockers; verification commands for the coordination scripts pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T47-refresh-after-new-claude-prs — Refresh queue after new Claude PR triage
+- **Owner:** codex
+- **Branch:** codex/T47-refresh-after-new-claude-prs
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+- **Done when:** `docs/coordination.json`, Codex inbox, Claude inbox, and the live handoff ledger record PR #99 as human-gated privacy/data-control work and PR #100 as blocked on ops access-control plus true windowed counts; prompt printers and coordination script checks pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T48-ios-archetype-traits — Surface character archetypes in the Studio traits rail
+- **Owner:** codex
+- **Branch:** codex/T48-ios-archetype-traits
+- **Pillar:** living companion + longitudinal learning
+- **Status:** in-progress
+
+- **Done when:** iOS has typed models/client coverage for `GET /memory/character-archetypes`; the existing character-traits rail can show a compact archetype tag/insight when backend data is present; empty/failure states remain non-blocking; focused tests cover decoding and view-state mapping.
+
+- **Scope:** iOS app/package integration only. Backend contract already merged in PR #91.
+
+### T60 — Consume screenplay export formats in Studio
+- **Owner:** codex
+- **Branch:** codex/T60-export-formats-picker
+- **Pillar:** mobile-first + screenplay craft
+- **Status:** merged
+
+## Scope
+
+PR #135 added `GET /screenplay/export/formats` so iOS no longer has to
+hard-code the export contract. This task adds the app-side consumer:
+typed decoding, a small view-state adapter for supported formats, and
+a Studio export menu that can prefer backend-discovered formats while
+keeping local fallbacks available when the backend is unreachable.
+
+## Done when
+
+iOS has typed client/model coverage for `GET /screenplay/export/formats`;
+the Studio export menu can render supported formats from the backend
+contract while preserving local fallback options; focused tests cover
+decoding, fallback ordering, and unsupported-format filtering; handoff
+docs tell Claude the endpoint has an app consumer.
+
+### T61 — Refresh coordination after T60 merge
+- **Owner:** codex
+- **Branch:** codex/T61-post-t60-coordination-refresh
+- **Pillar:** mobile-first + infra
+- **Status:** merged
+
+## Scope
+
+PR #137 merged T60, so the repo-native coordination lane needs to stop
+showing the export formats picker as review work and should keep Claude's
+current blockers precise.
+
+## Done when
+
+`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
+`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #137/T60
+merged; PR #133/#134 blockers are current; prompt printers and
+coordination-state checks are green.
+
+### T62 — Quiet offline Studio export-format refresh
+- **Owner:** codex
+- **Branch:** codex/T62-studio-offline-refresh-quiet
+- **Pillar:** mobile-first + infra
+- **Status:** merged
+
+## Scope
+
+T60 added backend-driven export format discovery. The Studio currently tries
+that fetch automatically on view load, which creates noisy localhost failures
+in test/offline runs even though local fallback export options are available.
+
+## Done when
+
+Studio still discovers backend export formats when appropriate, but app/test
+launches do not surface noisy localhost connection failures; manual Refresh
+Formats remains available; focused tests cover the quiet/fallback behavior.
+
+### T63 — Refresh coordination after T62 merge
+- **Owner:** codex
+- **Branch:** codex/T63-post-t62-coordination-refresh
+- **Pillar:** mobile-first + infra
+- **Status:** merged
+
+## Scope
+
+PR #139 merged T62, so the repo-native coordination lane should mark the
+offline export-format quieting task as merged and keep Claude's immediate
+blockers precise against post-T62 `main`.
+
+## Done when
+
+`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
+`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #139/T62
+merged; Claude's #133/#134 blockers are current against post-T62 `main`;
+coordination prompt/check scripts pass.
+
+### T64 — Quiet offline session-evolution launch probe
+- **Owner:** codex
+- **Branch:** codex/T64-session-evolution-quiet
+- **Pillar:** mobile-first + infra
+- **Status:** merged
+
+## Scope
+
+After T62 quieted export-format discovery, offline/test Studio launches still
+surface a localhost `/session/evolution` connection failure from an automatic
+launch probe. This task applies the same conservative policy: only auto-refresh
+when the app has backend-backed session context and never during XCTest. While
+tracing the launch path, the same XCTest/offline quieting now covers automatic
+health, hydration, keychain-token, history, project-outline, preferred-project,
+and navigator probes that were also surfacing localhost noise.
+
+## Done when
+
+App/test launches no longer surface noisy localhost `/session/evolution`
+connection failures when no backend session has been loaded, and related
+startup probes stay quiet during XCTest/offline startup; manual or
+backend-backed refresh remains available; focused tests cover the quiet policy.
+
+### T65 — Refresh coordination after T64 merge
+- **Owner:** codex
+- **Branch:** codex/T65-post-t64-coordination-refresh
+- **Pillar:** mobile-first + infra
+- **Status:** merged
+
+## Scope
+
+PR #146 merged T64, so the repo-native coordination lane should mark the
+session-evolution launch quieting task as merged and keep Claude's immediate
+blockers precise against post-T64 `main`.
+
+## Done when
+
+`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
+`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64
+merged; Claude's #133/#134 blockers remain current; coordination prompt/check
+scripts pass.
+
+### T66 — Refresh queue after Claude PR triage
+- **Owner:** codex
+- **Branch:** codex/T66-refresh-after-claude-pr-triage
+- **Pillar:** infra (enables all)
+- **Status:** merged
+
+## Scope
+
+Codex reviewed the fresh Claude PR stack after T65: merged the clean
+additive PRs #141, #143, and #144; blocked #142 on a startup-check
+contract issue; and closed the stale conflicting inbox refresh #145.
+The repo-native coordination lane needs to reflect those actions.
+
+## Done when
+
+`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
+`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #141/#143/#144
+merged, PR #142 blocked with the known-domains startup-check finding,
+PR #145 closed as stale, and PR #147/T65 merged; coordination prompt/check
+scripts pass.
+
+### T67 — Refresh queue after PR #148 triage
+- **Owner:** codex
+- **Branch:** codex/T67-refresh-after-pr148-triage
+- **Pillar:** infra (enables all)
+- **Status:** merged
+
+## Scope
+
+Codex reviewed Claude PR #148 (`T-ops-routes-list-route`) after T66
+merged. The PR is useful, but it conflicts with current `main` and its
+route-manifest wording is broader than the static list it returns.
+The repo-native coordination lane needs to reflect the blocker so
+Claude can clear it without a human copy-paste loop.
+
+## Done when
+
+`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
+`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #148 blocked
+with the route-manifest scope/rebase finding; coordination prompt/check
+scripts pass.
+
+### T68 — Refresh queue after PR #150/#151 merges
+- **Owner:** codex
+- **Branch:** codex/T68-refresh-after-pr150-151
+- **Pillar:** infra (enables all)
+- **Status:** merged
+
+## Scope
+
+Codex merged Claude PR #150 (`T-creative-memory-version-check-eval`) and
+PR #151 (`T-screenplay-export-pdf-error-clarity`). The repo-native
+coordination lane needs to record those merges and clean up T67's
+status detail so Claude and Codex read a consistent queue.
+
+## Done when
+
+`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
+`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #150 and
+PR #151 merged; T67 status is internally consistent; coordination prompt/check
+scripts pass.
+
+### T69 — Refresh queue after PR #134 merge
+- **Owner:** codex
+- **Branch:** codex/T69-refresh-after-pr134
+- **Pillar:** coordination
+- **Status:** merged
+
+## Scope
+
+Record that Claude's `T-ops-health-summary-route` PR #134 landed after
+Codex cleared the stale `do-not-merge` label, verified the focused route
+test plus full backend suite, and merged it under D005.
+
+## Done when
+
+`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
+`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #134 merged;
+the current next-10 queue no longer asks Claude to fix or review it; and
+coordination prompt/check scripts pass.
+
+### T70 — Refresh queue after PR #154/#155/#156/#158 merges
+- **Owner:** codex
+- **Branch:** codex/T70-refresh-after-pr154-158
+- **Pillar:** coordination
+- **Status:** merged
+
+## Scope
+
+Record the merged Claude tier-1 support PRs:
+
+- PR #154 `T-talk-turn-rate-limit-helper`
+- PR #155 `T-tasks-active-frontmatter-eval`
+- PR #156 `T-prompt-assembly-readme`
+- PR #158 `T-tasks-active-stats`
+
+## Done when
+
+`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
+`docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect those PRs
+merged; the task files are marked merged; and coordination prompt/check
+scripts pass.
+
+### T71 — Add agent throughput protocol and next-action CLI
+- **Owner:** codex
+- **Branch:** codex/T71-agent-throughput
+- **Pillar:** infra (enables all)
+- **Status:** merged
+
+## Scope
+
+Reduce coordination drag between Codex, Claude, and the human by
+codifying the working-speed rules and adding a repo-native next-action
+command.
+
+This task adds:
+
+- A concise throughput protocol: WIP limits, merge-train batching,
+  blocker-first rule, and ready-for-iOS label semantics.
+- A script that prints the next top Codex and Claude actions from
+  `docs/coordination.json`.
+- Handoff updates so both agents can self-start from the repo instead
+  of relying on human copy/paste.
+
+## Done when
+
+The protocol is documented, `AGENTS.md` points to it, the CLI can print
+top Codex/Claude actions and JSON output, tests cover prioritization,
+and the new flow is referenced from the handoff docs.
+
+<!-- END AUTOGEN active-tasks -->
