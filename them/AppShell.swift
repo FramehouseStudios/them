@@ -64,6 +64,7 @@ final class AppShellBackendBridge: ObservableObject {
     }
 
     func refresh(force: Bool = false) async {
+        guard !IOThemRuntime.isRunningTests else { return }
         if isRefreshing { return }
         isRefreshing = true
         defer { isRefreshing = false }

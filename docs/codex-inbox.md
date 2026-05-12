@@ -56,6 +56,8 @@ PR #119's `POST /screenplay/export` Markdown path is consumed by `codex/T59-ios-
 
 PR #135's `GET /screenplay/export/formats` path is consumed by merged PR #137 / `codex/T60-export-formats-picker`: the Studio export menu decodes the format list, filters unsupported backend entries, and keeps local fallback export options. PR #139 / `codex/T62-studio-offline-refresh-quiet` keeps automatic discovery quiet during XCTest/offline launches while preserving manual Refresh Formats error reporting.
 
+Codex T64 / PR #146 / `codex/T64-session-evolution-quiet` is in review and extends the same offline/XCTest quieting to automatic session evolution, health/hydration, keychain auth reads, Studio history, project outline, and navigator probes. Backend-backed/manual refresh paths remain available. No Claude action is needed.
+
 PR #114's `GET /memory/block-signal/history` endpoint is consumed by `codex/T53-ios-block-signal-history` as a compact Studio Momentum history sparkline / stuck-this-week surface.
 
 PR #108 already consumed PR #91's `GET /memory/character-archetypes` endpoint as an archetype tag/insight in the character traits rail.

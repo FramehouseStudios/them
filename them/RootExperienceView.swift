@@ -1169,6 +1169,7 @@ struct RootExperienceView: View {
     }
 
     private func noteStudioDebugLifecycle(_ stage: String) {
+        guard !IOThemRuntime.isRunningTests else { return }
         let cleanStage = stage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanStage.isEmpty else { return }
         let timestamp = Int(Date().timeIntervalSince1970 * 1000)
@@ -1210,6 +1211,7 @@ struct RootExperienceView: View {
     }
 
     private func processPendingStudioDebugCommandsIfNeeded() {
+        guard !IOThemRuntime.isRunningTests else { return }
         handleStudioDebugLoadProjectRequestFileIfNeeded()
 
         let openToken = studioDebugPreferenceInt("studio_debug_open_token")
@@ -1262,6 +1264,7 @@ struct RootExperienceView: View {
 
     #if os(macOS)
     private func startStudioDebugCommandPolling() {
+        guard !IOThemRuntime.isRunningTests else { return }
         studioDebugCommandPollTask?.cancel()
         noteStudioDebugLifecycle("polling_started")
         studioDebugCommandPollTask = Task { @MainActor in
@@ -4825,6 +4828,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func scheduleBackendHydration() {
+        guard !IOThemRuntime.isRunningTests else { return }
         backendHydrationTask?.cancel()
         backendHydrationTask = Task { @MainActor in
             await hydrateBackendState()
@@ -4833,6 +4837,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func hydrateBackendState() async {
+        guard !IOThemRuntime.isRunningTests else { return }
         do {
             let session = try? await BackendMemoryAPI.shared.bootstrapSession(force: false)
             if let evolutionSync = session?.evolutionSync {
@@ -6640,6 +6645,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func startBackendHealthMonitoring() {
+        guard !IOThemRuntime.isRunningTests else { return }
         backendHealthTask?.cancel()
         backendConnectionState = .checking
         backendFailureCount = 0
@@ -6661,6 +6667,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func refreshBackendHealth() async {
+        guard !IOThemRuntime.isRunningTests else { return }
         do {
             let health = try await BackendMemoryAPI.shared.fetchHealth()
             lastHealthStatus = health

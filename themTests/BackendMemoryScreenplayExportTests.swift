@@ -225,12 +225,14 @@ private final class ScreenplayExportRequestRecorder: @unchecked Sendable {
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer { buffer.deallocate() }
 
-        while stream.hasBytesAvailable {
+        while true {
             let read = stream.read(buffer, maxLength: bufferSize)
             if read > 0 {
                 data.append(buffer, count: read)
-            } else {
+            } else if read == 0 {
                 break
+            } else {
+                return nil
             }
         }
         return data.isEmpty ? nil : data
