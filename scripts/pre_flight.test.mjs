@@ -15,10 +15,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const script = path.resolve(__dirname, "pre_flight.mjs");
 
-function tempRepo({ withRouteFile, withConstantFile, withMiddlewareFile, withConsoleLogFile } = {}) {
+function tempRepo({
+  withRouteFile,
+  withConstantFile,
+  withMiddlewareFile,
+  withConsoleLogFile,
+  withEvalFile,
+  withEnvelopeRouteFile,
+} = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-preflight-"));
   fs.mkdirSync(path.join(tmp, "scripts"));
   fs.mkdirSync(path.join(tmp, "backend", "lib"), { recursive: true });
+  fs.mkdirSync(path.join(tmp, "backend", "evals"), { recursive: true });
   fs.copyFileSync(script, path.join(tmp, "scripts", "pre_flight.mjs"));
   if (withRouteFile) {
     fs.writeFileSync(path.join(tmp, "backend", "lib", "thing_route.js"), withRouteFile);
@@ -31,6 +39,12 @@ function tempRepo({ withRouteFile, withConstantFile, withMiddlewareFile, withCon
   }
   if (withConsoleLogFile) {
     fs.writeFileSync(path.join(tmp, "backend", "lib", "noisy_lib.js"), withConsoleLogFile);
+  }
+  if (withEvalFile) {
+    fs.writeFileSync(path.join(tmp, "backend", "evals", "run_sample_eval.mjs"), withEvalFile);
+  }
+  if (withEnvelopeRouteFile) {
+    fs.writeFileSync(path.join(tmp, "backend", "lib", "envelope_route.js"), withEnvelopeRouteFile);
   }
   return tmp;
 }
@@ -208,6 +222,64 @@ export { doWork };
   const tmp = tempRepo({ withConsoleLogFile: lib });
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /console-log-in-lib/);
+});
+
+// ---------- eval-missing-determinism-check ----------
+
+test("[pre-flight] flags eval without a determinism check", () => {
+  const evalFile = `
+function run() {
+  assertShape(buildOutput());
+}
+run();
+`;
+  const tmp = tempRepo({ withEvalFile: evalFile });
+  const r = runIn(tmp);
+  assert.match(r.stderr, /eval-missing-determinism-check/);
+  assert.match(r.stderr, /run_sample_eval\.mjs/);
+});
+
+test("[pre-flight] eval mentioning deterministic output is NOT flagged", () => {
+  const evalFile = `
+function run() {
+  check("deterministic: same input yields same output", true);
+}
+run();
+`;
+  const tmp = tempRepo({ withEvalFile: evalFile });
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /eval-missing-determinism-check/);
+});
+
+// ---------- schema-envelope-missing-version ----------
+
+test("[pre-flight] flags envelope-like route response without schemaVersion", () => {
+  const route = `
+function mountFoo(app) {
+  app.get("/foo", (_req, res) => {
+    return res.json({ entries: [], counts: { total: 0 } });
+  });
+}
+export { mountFoo };
+`;
+  const tmp = tempRepo({ withEnvelopeRouteFile: route });
+  const r = runIn(tmp);
+  assert.match(r.stderr, /schema-envelope-missing-version/);
+  assert.match(r.stderr, /envelope_route\.js/);
+});
+
+test("[pre-flight] schemaVersion envelope is NOT flagged", () => {
+  const route = `
+function mountFoo(app) {
+  app.get("/foo", (_req, res) => {
+    return res.json({ schemaVersion: 1, entries: [], counts: { total: 0 } });
+  });
+}
+export { mountFoo };
+`;
+  const tmp = tempRepo({ withEnvelopeRouteFile: route });
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /schema-envelope-missing-version/);
 });
 
 // ---------- strict mode ----------

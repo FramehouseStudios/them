@@ -67,13 +67,34 @@ function assertValid(label) {
   check(`${label}: validate exits 0`, r.status === 0, `stderr:\n${r.stderr}`);
 }
 
-// 1. add-pr → validate
-let r = runCli(["add-pr", "--number=42", "--title=Test PR", "--owner=claude", "--tier=1", "--branch=claude/test"]);
+// 1. add-pr with structured blocker metadata → validate
+let r = runCli([
+  "add-pr",
+  "--number=42",
+  "--title=Test PR",
+  "--owner=claude",
+  "--tier=1",
+  "--branch=claude/test",
+  "--blocker=needs clean rebase",
+  "--blocker-kind=needs_rebase",
+  "--blocker-against-pr=41",
+  "--reviewer-note=rebase only",
+  "--expected-action=rebase on current main and rerun npm test",
+]);
 check("add-pr exits 0", r.status === 0, r.stderr);
 assertValid("after add-pr");
 
-// 2. set-pr → validate
-r = runCli(["set-pr", "--number=42", "--status=review"]);
+// 2. set-pr clears structured blocker metadata → validate
+r = runCli([
+  "set-pr",
+  "--number=42",
+  "--status=review",
+  "--blocker=",
+  "--blocker-kind=",
+  "--blocker-against-pr=",
+  "--reviewer-note=",
+  "--expected-action=",
+]);
 check("set-pr exits 0", r.status === 0, r.stderr);
 assertValid("after set-pr");
 

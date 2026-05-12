@@ -15,6 +15,8 @@
 //   - middleware uses next(new Error(...)) for a 413/400
 //   - exported all-caps constants not Object.freeze'd
 //   - console.log in backend/lib/* (production code path)
+//   - eval files without a determinism/idempotency check
+//   - route response envelopes that look versioned but omit schemaVersion
 //
 // Default mode prints findings + exits 0. `--strict` exits 1 on
 // any finding. Run from repo root.
@@ -161,12 +163,62 @@ function checkConsoleLogInProductionLib() {
   }
 }
 
+function checkEvalDeterminismCoverage() {
+  // Recent canon evals caught shape regressions but missed "same input
+  // produces same output" checks. This is heuristic by design: any
+  // backend/evals/* file should mention determinism/idempotency/repeatability
+  // unless it is explicitly a load/nightly/gate runner.
+  const files = walkFiles(
+    path.join(repoRoot, "backend", "evals"),
+    (p) => /run_.*eval\.mjs$/.test(path.basename(p)),
+  );
+  for (const f of files) {
+    const base = path.basename(f);
+    if (/gate|nightly|load|smoke/i.test(base)) continue;
+    const text = fs.readFileSync(f, "utf8");
+    if (/\b(determinism|deterministic|idempotent|repeatable|same input|same-input|stable output)\b/i.test(text)) {
+      continue;
+    }
+    add(
+      "eval-missing-determinism-check",
+      path.relative(repoRoot, f),
+      null,
+      "eval does not appear to assert determinism/idempotency; add a same-input/same-output check or document why it is not deterministic",
+    );
+  }
+}
+
+function checkSchemaVersionedEnvelopes() {
+  // App-facing list/report envelopes should carry schemaVersion so iOS can
+  // decode defensively. Keep this conservative: only flag route files that
+  // return JSON objects with envelope-looking keys and no schemaVersion or
+  // legacy schema_version anywhere in the file.
+  const files = walkFiles(
+    path.join(repoRoot, "backend", "lib"),
+    (p) => p.endsWith("_route.js"),
+  );
+  for (const f of files) {
+    const text = fs.readFileSync(f, "utf8");
+    if (/\bschemaVersion\b|\bschema_version\b/.test(text)) continue;
+    if (!/\b(res\.json|\.json)\s*\(\s*\{/.test(text)) continue;
+    if (!/\b(entries|items|results|counts|features|suggestions|report|summary)\s*:/.test(text)) continue;
+    add(
+      "schema-envelope-missing-version",
+      path.relative(repoRoot, f),
+      null,
+      "route returns an envelope-like JSON object without schemaVersion/schema_version; add a version field or document why this response is unversioned",
+    );
+  }
+}
+
 // ---------- orchestration ----------
 
 checkRouteJsonParsers();
 checkRouteErrorEscapes();
 checkFrozenExportedConstants();
 checkConsoleLogInProductionLib();
+checkEvalDeterminismCoverage();
+checkSchemaVersionedEnvelopes();
 
 const strict = process.argv.includes("--strict");
 
