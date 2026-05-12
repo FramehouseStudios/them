@@ -2,7 +2,7 @@
 id: T76
 title: Refresh coordination after efficiency merge train
 owner: codex
-status: in-progress
+status: merged
 branch: codex/T76-efficiency-merge-refresh
 pillar: infra (coordination)
 ---

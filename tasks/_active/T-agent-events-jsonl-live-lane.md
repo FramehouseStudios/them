@@ -2,7 +2,7 @@
 id: T-agent-events-jsonl-live-lane
 title: Append-only event lane (docs/agent-events.jsonl) + CLI
 owner: claude
-status: review
+status: merged
 branch: claude/T-agent-events-jsonl-live-lane
 pillar: infra (coordination)
 ---

@@ -114,11 +114,12 @@
 | T72  | Refresh queue after supervisor merge train        | codex  | merged            |
 | T73  | Build iOS Fountain import surface                 | codex  | merged            |
 | T74  | Surface ops route manifest in diagnostics         | codex  | merged            |
-| T75  | Surface talk-turn rate-limit retry affordance     | codex  | in-progress       |
+| T75  | Surface talk-turn rate-limit retry affordance     | codex  | merged            |
+| T76  | Refresh coordination after efficiency merge train | codex  | merged            |
 
 ---
 
-## Current next-10 checklist (2026-05-12 after T72 supervisor merge train)
+## Current next-10 checklist (2026-05-12 after T76 efficiency merge train)
 
 1. Have Claude rebase/fix PR #163 (`T-twist-engine-canon-eval`) after the PR #160 merge conflict.
 2. Have Claude rebase/fix PR #164 (`T-block-detector-canon-eval`) after the PR #160 merge conflict.
@@ -128,8 +129,8 @@
 6. Have Claude update PR #171 (`T-eval-gate-add-canon-evals`) after the canon-eval stack settles.
 7. Review/merge PR #163 after it is rebased and its focused eval/backend tests are green.
 8. Review/merge PR #164 after it is rebased and its focused eval/backend tests are green.
-9. Use merged PR #148 (`GET /ops/routes`) in a lightweight Studio/dev diagnostics surface.
-10. Use PR #170's optional `rate_limited` talk-turn response in Studio retry affordances.
+9. Review PR #90 after Claude confirms the route-local parser test is current against main.
+10. Use the new `scripts/agent_event.mjs tail --n=20` lane at the start of every Codex/Claude session.
 
 ---
 
@@ -682,7 +683,7 @@
 
 | ID                                      | Title                                                             | Owner  | Status      |
 |-----------------------------------------|-------------------------------------------------------------------|--------|-------------|
-| T-agent-events-jsonl-live-lane          | Append-only event lane (docs/agent-events.jsonl) + CLI            | claude | review      |
+| T-agent-events-jsonl-live-lane          | Append-only event lane (docs/agent-events.jsonl) + CLI            | claude | merged      |
 | T-archetype-engine-canon-eval           | Pin canonical archetype set + per-entry shape                     | claude | merged      |
 | T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer       | claude | review      |
 | T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                    | claude | review      |
@@ -696,7 +697,7 @@
 | T-known-domains-startup-check           | Boot-time invariant check on KNOWN_DOMAINS                        | claude | merged      |
 | T-ops-health-summary-route              | GET /ops/health-summary cheap uptime-dashboard endpoint           | claude | merged      |
 | T-ops-routes-list-route                 | GET /ops/routes manifest of optional surfaces                     | claude | merged      |
-| T-pre-flight-self-check-script          | scripts/pre_flight.mjs — catch recurring review feedback locally  | claude | review      |
+| T-pre-flight-self-check-script          | scripts/pre_flight.mjs — catch recurring review feedback locally  | claude | merged      |
 | T-prompt-assembly-block-signal-cap-eval | Cap on <block_signal> block size under pathological inputs        | claude | merged      |
 | T-prompt-assembly-readme                | README for backend/lib/prompt_assembly.js                         | claude | merged      |
 | T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list              | claude | review      |
@@ -732,7 +733,7 @@
 | T73                                     | Build iOS Fountain import surface                                 | codex  | merged      |
 | T74                                     | Surface ops route manifest in diagnostics                         | codex  | merged      |
 | T75                                     | Surface talk-turn rate-limit retry affordance                     | codex  | merged      |
-| T76                                     | Refresh coordination after efficiency merge train                 | codex  | in-progress |
+| T76                                     | Refresh coordination after efficiency merge train                 | codex  | merged      |
 
 ## Active work — full detail (auto-generated)
 
@@ -740,7 +741,7 @@
 - **Owner:** claude
 - **Branch:** claude/T-agent-events-jsonl-live-lane
 - **Pillar:** infra (coordination)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -1261,7 +1262,7 @@ properties + integration; `npm test` green.
 - **Owner:** claude
 - **Branch:** claude/T-pre-flight-self-check-script
 - **Pillar:** infra (coordination)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -2169,7 +2170,7 @@ no longer marks PR #170 as awaiting an iOS consumer.
 - **Owner:** codex
 - **Branch:** codex/T76-efficiency-merge-refresh
 - **Pillar:** infra (coordination)
-- **Status:** in-progress
+- **Status:** merged
 
 ## Scope
 

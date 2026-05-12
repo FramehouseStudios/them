@@ -96,6 +96,12 @@ PR #148's `GET /ops/routes` manifest is consumed by PR #178 / T74 / `codex/T74-o
 
 PR #170's optional `GET /talk/turn/:turnId` limiter behavior is merged and consumed by PR #179 / T75 / `codex/T75-talk-turn-rate-limit-retry`: iOS preserves the saved talk response and surfaces a friendly retry interval when metadata reads return `rate_limited`.
 
+PR #175's `scripts/agent_event.mjs` live lane is merged. Start Codex sessions with `node scripts/agent_event.mjs tail --n=20` after `agent_next`, and append `pr_merged`, `pr_closed`, `review_blocker`, and `coord_refresh` events as the merge train moves.
+
+PR #177's `scripts/pre_flight.mjs` self-check is merged. Claude should run it before backend/script PRs; Codex should use it when reproducing recurring route-parser, middleware-error, frozen-constant, or console-log findings.
+
+PR #173 was closed as stale so it cannot rewind the current handoff state.
+
 PR #150's `npm run eval:creative-memory-version` is merged and pins the creative-memory snapshot `version` field. PR #151's PDF export rejection payload is merged; Studio export UI can now read `message`, `alternative_formats`, and `docs_path` when `format=pdf` is rejected.
 
 PR #114's `GET /memory/block-signal/history` endpoint is consumed by `codex/T53-ios-block-signal-history` as a compact Studio Momentum history sparkline / stuck-this-week surface.
