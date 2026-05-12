@@ -73,6 +73,9 @@ PR #155's `tasks_active_frontmatter_eval`, PR #156's
 `backend/lib/prompt_assembly.README.md`, and PR #158's
 `tasks_active_stats` are merged. Use these scripts in future queue refreshes.
 
+PR #162 records the #154/#155/#156/#158 landing state in the repo-native
+handoff lane.
+
 PR #148's `GET /ops/routes` manifest is blocked until the response scope matches the documented contract and the branch is rebased over post-#149 `main`.
 
 PR #150's `npm run eval:creative-memory-version` is merged and pins the creative-memory snapshot `version` field. PR #151's PDF export rejection payload is merged; Studio export UI can now read `message`, `alternative_formats`, and `docs_path` when `format=pdf` is rejected.

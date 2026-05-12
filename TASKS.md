@@ -101,7 +101,7 @@
 | T67  | Refresh queue after PR #148 triage                | codex  | merged            |
 | T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
 | T69  | Refresh queue after PR #134 merge                 | codex  | merged            |
-| T70  | Refresh queue after PR #154/#155/#156/#158 merges | codex  | review            |
+| T70  | Refresh queue after PR #154/#155/#156/#158 merges | codex  | merged            |
 
 ---
 

@@ -114,6 +114,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #155: `T-tasks-active-frontmatter-eval` adds a task-file content validator; Codex default/strict runs plus script test 2/2 and GitHub evaluate passed.
 - Merged PR #156: `T-prompt-assembly-readme` documents the canonical prompt-assembly layout beside the source; docs-only GitHub evaluate passed.
 - Merged PR #158: `T-tasks-active-stats` adds text/JSON active-task summaries; Codex script checks plus script test 2/2 and GitHub evaluate passed.
+- Merged PR #162: `T70-refresh-after-pr154-158` records PR #154/#155/#156/#158 as landed in the repo-native handoff lane.
 - Blocked PR #133: `T-build-tasks-md-anchors` is mergeable but still needs generator idempotency proof after post-#149 `main`; update over current `main`, commit generated `TASKS.md`, verify a second generator write is clean, then remove `do-not-merge`.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
