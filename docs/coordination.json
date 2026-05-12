@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T19:03:03.000Z",
+  "updatedAt": "2026-05-12T19:05:51.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -631,6 +631,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T74-ops-routes-diagnostics",
+      "blocker": null
+    },
+    {
+      "number": 179,
+      "title": "T75-talk-turn-rate-limit-retry",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T75-talk-turn-rate-limit-retry",
       "blocker": null
     }
   ],
