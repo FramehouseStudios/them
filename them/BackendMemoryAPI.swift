@@ -1402,6 +1402,49 @@ nonisolated struct BackendHealthStatus {
     let turnReliability: BackendTurnReliabilitySnapshot
 }
 
+nonisolated struct BackendOpsRoute: Codable, Hashable, Identifiable {
+    let method: String
+    let path: String
+    let group: String
+
+    var id: String { "\(method.uppercased()) \(path)" }
+}
+
+nonisolated struct BackendOpsRouteManifestResponse: Codable, Hashable {
+    let schemaVersion: Int
+    let scope: String
+    let total: Int
+    let routes: [BackendOpsRoute]
+
+    var routeCountForDiagnostics: Int {
+        total > 0 ? total : routes.count
+    }
+
+    var diagnosticsSummary: String {
+        let groups = groupCountsForDiagnostics
+        guard !groups.isEmpty else {
+            return "\(routeCountForDiagnostics) routes"
+        }
+        let groupText = groups
+            .map { "\($0.group) \($0.count)" }
+            .joined(separator: ", ")
+        return "\(routeCountForDiagnostics) routes across \(groups.count) groups: \(groupText)"
+    }
+
+    var groupNamesForDiagnostics: [String] {
+        groupCountsForDiagnostics.map(\.group)
+    }
+
+    private var groupCountsForDiagnostics: [(group: String, count: Int)] {
+        let counts = Dictionary(grouping: routes) { route in
+            route.group.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return counts
+            .map { (group: $0.key.isEmpty ? "ungrouped" : $0.key, count: $0.value.count) }
+            .sorted { lhs, rhs in lhs.group < rhs.group }
+    }
+}
+
 nonisolated struct BackendTurnReliabilitySnapshot {
     let sampleCount: Int
     let silentTurnRate: Double
@@ -2278,6 +2321,21 @@ actor BackendMemoryAPI {
         } catch {
             return try await fetchHealth(path: "/health")
         }
+    }
+
+    func fetchOpsRoutesManifest() async throws -> BackendOpsRouteManifestResponse {
+        let request = try makeRequest(path: "/ops/routes")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(BackendOpsRouteManifestResponse.self, from: data)
     }
 
     private func fetchHealth(path: String) async throws -> BackendHealthStatus {

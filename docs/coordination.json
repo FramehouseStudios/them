@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T18:29:43.000Z",
+  "updatedAt": "2026-05-12T18:48:49.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -623,6 +623,15 @@
       "status": "merged",
       "branch": "codex/T73-ios-fountain-import",
       "blocker": null
+    },
+    {
+      "number": 178,
+      "title": "T74-ops-routes-diagnostics",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T74-ops-routes-diagnostics",
+      "blocker": null
     }
   ],
   "blockers": [
@@ -653,11 +662,6 @@
   ],
   "decisionsPending": [],
   "endpointsAwaitingIosConsumer": [
-    {
-      "pr": 148,
-      "endpoint": "GET /ops/routes",
-      "consumer": "Use the route manifest in a lightweight Studio/dev diagnostics surface."
-    },
     {
       "pr": 170,
       "endpoint": "GET /talk/turn/:turnId 429 rate_limited",

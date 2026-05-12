@@ -226,6 +226,67 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(importRequest.method, "POST")
         XCTAssertEqual(importRequest.bodyObject?["text"] as? String, "Title: io.them\n\nINT. KITCHEN - NIGHT\n\nJUNE\nWe are still here.")
     }
+
+    func testFetchOpsRoutesManifestDecodesDiagnosticGroups() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/ops/routes":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "Cache-Control": "no-store",
+                    ],
+                    body: Data(
+                        #"""
+                        {
+                          "schemaVersion": 1,
+                          "scope": "Curated subset of app-facing optional surfaces.",
+                          "total": 3,
+                          "routes": [
+                            { "method": "GET", "path": "/memory/block-signal", "group": "creative-memory" },
+                            { "method": "POST", "path": "/talk", "group": "talk-pipeline" },
+                            { "method": "GET", "path": "/memory/block-signal/history", "group": "creative-memory" }
+                          ]
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        let response = try await api.fetchOpsRoutesManifest()
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.routeCountForDiagnostics, 3)
+        XCTAssertEqual(response.routes.first?.id, "GET /memory/block-signal")
+        XCTAssertEqual(response.groupNamesForDiagnostics, ["creative-memory", "talk-pipeline"])
+        XCTAssertEqual(
+            response.diagnosticsSummary,
+            "3 routes across 2 groups: creative-memory 2, talk-pipeline 1"
+        )
+
+        let routesRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/ops/routes" })
+        XCTAssertEqual(routesRequest.method, "GET")
+        XCTAssertNil(routesRequest.bodyObject)
+        XCTAssertFalse(recorder.requests.contains { $0.path == "/session" })
+    }
 }
 
 private struct ScreenplayExportHTTPStub {

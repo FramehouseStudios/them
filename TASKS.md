@@ -113,6 +113,7 @@
 | T71  | Add agent throughput protocol and next-action CLI | codex  | merged            |
 | T72  | Refresh queue after supervisor merge train        | codex  | merged            |
 | T73  | Build iOS Fountain import surface                 | codex  | merged            |
+| T74  | Surface ops route manifest in diagnostics         | codex  | merged            |
 
 ---
 
@@ -726,6 +727,7 @@
 | T71                                     | Add agent throughput protocol and next-action CLI                 | codex  | merged      |
 | T72                                     | Refresh queue after supervisor merge train                        | codex  | merged      |
 | T73                                     | Build iOS Fountain import surface                                 | codex  | merged      |
+| T74                                     | Surface ops route manifest in diagnostics                         | codex  | merged      |
 
 ## Active work — full detail (auto-generated)
 
@@ -1998,5 +2000,24 @@ controls, navigator, drag/drop, and iOS file importer path; imported structured
 screenplays are projected back to editable Fountain text; focused backend
 client tests cover the request and projection; and the repo handoff no longer
 marks PR #87 as awaiting an iOS consumer.
+
+### T74 — Surface ops route manifest in diagnostics
+- **Owner:** codex
+- **Branch:** codex/T74-ops-routes-diagnostics
+- **Pillar:** mobile-first + infra
+- **Status:** merged
+
+## Scope
+
+Consume Claude PR #148's `GET /ops/routes` manifest from the app without
+making it a noisy user-facing surface. The Studio/debug support path should be
+able to tell which optional backend routes this deployment advertises.
+
+## Done when
+
+iOS has typed client/model coverage for `GET /ops/routes`; the app support
+diagnostics/debug bundle includes route-manifest counts and groups when the
+backend provides them; offline or older backends remain quiet; and the repo
+handoff no longer marks PR #148 as awaiting an iOS consumer.
 
 <!-- END AUTOGEN active-tasks -->
