@@ -88,6 +88,7 @@ import {
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
 import { mountCraftRoutes } from "./lib/craft_routes.js";
 import { mountPromptRoutes } from "./lib/prompt_routes.js";
+import { mountFountainImportRoute } from "./lib/fountain_import_route.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog } from "./lib/accepted_twist_log.js";
@@ -32876,6 +32877,10 @@ mountPromptRoutes(app, {
   creativeMemoryStore,
   buildCraftContextBlock,
 });
+// T-screenplay-import-fountain: POST /screenplay/import/fountain.
+// Reverse of T-fountain-export-endpoint. Parses Fountain text into
+// the canonical screenplay shape.
+mountFountainImportRoute(app);
 
 // T30: /memory/record-character-mention — Codex PR #50 (T29) calls this
 // endpoint from the iOS screenplay-render path. The route persists each
