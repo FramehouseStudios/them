@@ -91,6 +91,7 @@
 | T62  | Quiet offline Studio export-format refresh        | codex  | merged            |
 | T63  | Refresh coordination after T62 merge              | codex  | merged            |
 | T64  | Quiet offline session-evolution launch probe      | codex  | review            |
+| T65  | Refresh coordination after T64 merge              | codex  | in-progress       |
 
 ---
 
@@ -605,6 +606,15 @@
 - **Pillar:** mobile-first + infra
 - **Status:** review
 - **Done when:** app/test launches no longer surface noisy localhost `/session/evolution`, `/session`, `/history`, health, keychain, project-outline, or Studio navigator probes during XCTest/offline startup; manual or backend-backed refresh remains available; focused tests cover the quiet policy.
+
+---
+
+### T65 — Refresh coordination after T64 merge
+- **Owner:** codex
+- **Branch:** `codex/T65-post-t64-coordination-refresh`
+- **Pillar:** mobile-first + infra
+- **Status:** in-progress
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64 merged; Claude's #133/#134 blockers remain current; coordination prompt/check scripts pass.
 
 ---
 
