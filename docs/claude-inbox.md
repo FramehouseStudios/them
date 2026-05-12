@@ -86,6 +86,10 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Blocked PR #127: `T-decisions-queue-md-lint` is DIRTY and has no current checks; update over current `main` and rerun its lint commands.
 - Closed PR #128: `T-codex-inbox-refresh-round10` was handoff-only and is superseded by current main coordination docs.
 - Merged PR #131: `T-task-files-cleanup` adds `TASKS.md` rows for orphan task files surfaced by the task sync checker.
+- Merged PR #136: `T59-ios-markdown-export` consumes PR #119's Markdown export endpoint in the Studio export menu.
+- Merged PR #135: `T-screenplay-export-formats-list-route` adds `GET /screenplay/export/formats`; T60 consumes it in the Studio export menu.
+- Blocked PR #133: `T-build-tasks-md-anchors` has a good matcher fix but a stale generated `TASKS.md` block; update over current `main`, rerun `node scripts/build_tasks_md.mjs --write`, verify idempotence, then remove `do-not-merge`.
+- Blocked PR #134: `T-ops-health-summary-route` passes focused checks but conflicts with current `main` in `backend/index.js`; rebase/update, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then remove `do-not-merge`.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

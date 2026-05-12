@@ -424,9 +424,16 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isAcceptedCraftTwistMutating: Bool = false
     @Published var acceptedCraftTwistErrorText: String = ""
     @Published var acceptedCraftTwistInfoText: String = ""
+    @Published var screenplayExportFormats: [BackendScreenplayExportFormat] = []
+    @Published var isScreenplayExportFormatsLoading: Bool = false
+    @Published var screenplayExportFormatsErrorText: String = ""
 
     var formatLintCards: [ScreenplayFormatLintCard] {
         ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
+    }
+
+    var screenplayExportMenuItems: [ScreenplayExportMenuItem] {
+        ScreenplayExportFormatMenu.items(from: screenplayExportFormats)
     }
 
     @Published var newProjectTitle: String = ""
@@ -2621,6 +2628,20 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         )
     }
 
+    func refreshScreenplayExportFormats() async {
+        guard !isScreenplayExportFormatsLoading else { return }
+        isScreenplayExportFormatsLoading = true
+        defer { isScreenplayExportFormatsLoading = false }
+        do {
+            let response = try await BackendMemoryAPI.shared.fetchScreenplayExportFormats()
+            screenplayExportFormats = response.formats
+            screenplayExportFormatsErrorText = ""
+        } catch {
+            screenplayExportFormats = []
+            screenplayExportFormatsErrorText = error.localizedDescription
+        }
+    }
+
     private func loadSelectedProjectOutline() async {
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else {
@@ -4456,6 +4477,7 @@ Replace is best when this file should become the script you edit. Append is safe
         studioBaseLayout
             .task {
                 await vm.load()
+                Task { await vm.refreshScreenplayExportFormats() }
                 await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
                 await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 vm.replaceDraftFromVoiceBridgeIfNeeded(liveDraftBridge.draftText)
@@ -10408,14 +10430,14 @@ private var projectsSidebarContent: some View {
                 .disabled(vm.isSaving)
 
                 Menu {
-                    Button("Export FDX") {
-                        Task { await exportCurrentDraft(format: "fdx") }
+                    ForEach(vm.screenplayExportMenuItems) { item in
+                        Button(item.title) {
+                            Task { await exportCurrentDraft(format: item.format) }
+                        }
                     }
-                    Button("Export Markdown") {
-                        Task { await exportCurrentDraft(format: "md") }
-                    }
-                    Button("Export PDF") {
-                        Task { await exportCurrentDraft(format: "pdf") }
+                    Divider()
+                    Button("Refresh Formats") {
+                        Task { await vm.refreshScreenplayExportFormats() }
                     }
                     Button("Open in Google Docs") {
                         openInGoogleDocs(draft: vm.fountainDraft)

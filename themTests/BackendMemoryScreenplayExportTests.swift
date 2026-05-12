@@ -62,6 +62,81 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(exportRequest.bodyObject?["project_id"] as? String, "proj-1")
         XCTAssertEqual(exportRequest.bodyObject?["version_id"] as? String, "version-1")
     }
+
+    func testFetchScreenplayExportFormatsDecodesExtensionField() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/screenplay/export/formats":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "Cache-Control": "no-store",
+                    ],
+                    body: Data(
+                        #"""
+                        {
+                          "schemaVersion": 1,
+                          "defaultFormat": "fountain",
+                          "formats": [
+                            {
+                              "format": "md",
+                              "extension": "md",
+                              "mediaType": "text/markdown; charset=utf-8",
+                              "description": "Markdown projection",
+                              "supported": true
+                            },
+                            {
+                              "format": "pdf",
+                              "extension": "pdf",
+                              "mediaType": "application/pdf",
+                              "description": "Not supported locally",
+                              "supported": false
+                            }
+                          ]
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        let response = try await api.fetchScreenplayExportFormats()
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.defaultFormat, "fountain")
+        XCTAssertEqual(response.formats.count, 2)
+        XCTAssertEqual(response.formats.first?.format, "md")
+        XCTAssertEqual(response.formats.first?.fileExtension, "md")
+        XCTAssertEqual(response.formats.first?.mediaType, "text/markdown; charset=utf-8")
+        XCTAssertEqual(response.formats.last?.supported, false)
+
+        let formatsRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/screenplay/export/formats" })
+        XCTAssertEqual(formatsRequest.method, "GET")
+        XCTAssertNil(formatsRequest.bodyObject)
+    }
 }
 
 private struct ScreenplayExportHTTPStub {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T01:44:00.000Z",
+  "updatedAt": "2026-05-12T02:21:16.591Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -272,6 +272,24 @@
       "status": "blocked",
       "branch": "claude/T07-eval-gate-postgres",
       "blocker": "human: replace malformed OPENAI_API_KEY Actions secret"
+    },
+    {
+      "number": 133,
+      "title": "T-build-tasks-md-anchors",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-build-tasks-md-anchors",
+      "blocker": "do-not-merge: stale generated TASKS.md block; update over current main, rerun build_tasks_md --write, verify idempotence"
+    },
+    {
+      "number": 134,
+      "title": "T-ops-health-summary-route",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-ops-health-summary-route",
+      "blocker": "do-not-merge: conflicts with current main after PR #135 in backend/index.js; rebase/update, preserve safe-public no-user-data posture, rerun focused test plus npm test"
     }
   ],
   "blockers": [
@@ -296,7 +314,7 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, and #127 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, and #134 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],

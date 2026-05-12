@@ -86,6 +86,7 @@
 | T55-close-stale-handoff-prs | Close stale handoff PRs                                | codex | merged |
 | T56-refresh-after-talk-contract | Refresh queue after talk contract merge            | codex | merged |
 | T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | claude | review |
+| T60  | Consume screenplay export formats in Studio       | codex  | review            |
 
 ---
 
@@ -553,8 +554,17 @@
 - **Owner:** codex
 - **Branch:** `codex/T39-fix-missing-symbol`
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** the Studio UI no longer asks SwiftUI for the unavailable `square.stack.badge.plus` SF Symbol; replacement icon preserves the duplicate/stack action meaning; focused build verification passes without the missing-symbol runtime warning.
+
+---
+
+### T60 — Consume screenplay export formats in Studio
+- **Owner:** codex
+- **Branch:** `codex/T60-export-formats-picker`
+- **Pillar:** mobile-first + screenplay craft
+- **Status:** in-progress
+- **Done when:** iOS has typed client/model coverage for `GET /screenplay/export/formats`; the Studio export menu can render supported formats from the backend contract while preserving local fallback options; focused tests cover decoding, fallback ordering, and unsupported-format filtering; handoff docs tell Claude the endpoint has an app consumer.
 
 ---
 
