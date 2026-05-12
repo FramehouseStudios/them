@@ -8,6 +8,16 @@
 // restart, which is fine for a live error-rate signal; persistent
 // historical stats are a separate concern).
 //
+// Access-control posture: SAFE-PUBLIC.
+//   GET /talk/errors is mounted without authentication, matching the
+//   ops dashboard pattern used by /ops/metrics, /ops/alerts, and
+//   /ops/health-summary. The response contains ONLY error-class names
+//   (e.g. "supplier_unavailable") and counts. It contains NO per-user
+//   content, NO request bodies, NO user IDs, NO prompts, NO model
+//   output, NO IPs, and NO timestamps tied to a specific user. If a
+//   future change adds anything user-derived to a counter key,
+//   re-evaluate this posture before merging.
+//
 // Public surface:
 //
 //   incrementErrorCounter(errorClass, { now? })
@@ -18,20 +28,31 @@
 //     schemaVersion, total, sinceMs, counts, lastOccurrence,
 //     errorRatePerHour
 //   }
-//     `since` (ms) optionally bounds the window. If `since` is null,
-//     reports the lifetime total. `errorRatePerHour` is the rate
-//     across the observed window (total / hours since the oldest
-//     counter event, capped at the actual observation duration).
+//     `since` (ms) optionally bounds the window. When `since` is set,
+//     `counts` and `total` reflect ONLY events whose timestamp is
+//     >= since (not the class's lifetime count). When `since` is
+//     null, reports the lifetime total. `errorRatePerHour` is the
+//     rate across the observed window.
 //
 //   resetErrorCounters() — used by tests and by an explicit ops
 //     reset endpoint (future scope).
 //
 //   mountTalkErrorRoute(app, { now? }) mounts GET /talk/errors.
+//
+// Storage shape:
+//   counts:         Map<class, lifetimeCount>
+//   lastOccurrence: Map<class, mostRecentMs>
+//   occurrences:    Map<class, number[]>   // sorted timestamps,
+//                                          // ring-buffered to cap mem
+// The occurrences ring is what makes the `since` window honest. Cap
+// is per-class so a hot class doesn't crowd out a rare one.
 
 const SCHEMA_VERSION = 1;
+const OCCURRENCE_RING_CAP_PER_CLASS = 2048;
 
-let counts = new Map();             // errorClass → integer
+let counts = new Map();             // errorClass → integer (lifetime)
 let lastOccurrence = new Map();     // errorClass → ms timestamp
+let occurrences = new Map();        // errorClass → sorted ms timestamps
 let earliestStampedAt = null;       // ms timestamp of the first event
 
 function incrementErrorCounter(errorClass, { now = Date.now() } = {}) {
@@ -40,9 +61,32 @@ function incrementErrorCounter(errorClass, { now = Date.now() } = {}) {
     : "unknown";
   counts.set(key, (counts.get(key) || 0) + 1);
   lastOccurrence.set(key, now);
+  let ring = occurrences.get(key);
+  if (!ring) {
+    ring = [];
+    occurrences.set(key, ring);
+  }
+  ring.push(now);
+  // Bound memory: keep the most recent N timestamps per class. The
+  // ring is append-mostly-monotonic in practice (now flows forward),
+  // but tests may pass arbitrary `now` values, so trim by length.
+  if (ring.length > OCCURRENCE_RING_CAP_PER_CLASS) {
+    ring.splice(0, ring.length - OCCURRENCE_RING_CAP_PER_CLASS);
+  }
   if (earliestStampedAt === null || now < earliestStampedAt) {
     earliestStampedAt = now;
   }
+}
+
+function countSince(ring, since) {
+  // ring is push-ordered; if `now` arrived monotonically, ring is
+  // sorted ascending and we could binary-search. To stay correct
+  // under out-of-order test timestamps, do a linear scan.
+  let n = 0;
+  for (let i = 0; i < ring.length; i += 1) {
+    if (ring[i] >= since) n += 1;
+  }
+  return n;
 }
 
 function getErrorCounts({ since = null, now = Date.now() } = {}) {
@@ -52,11 +96,12 @@ function getErrorCounts({ since = null, now = Date.now() } = {}) {
   if (since !== null && Number.isFinite(since)) {
     filteredCounts = {};
     filteredLastOccurrence = {};
-    for (const [key, lastAt] of lastOccurrence.entries()) {
-      if (lastAt >= since) {
-        filteredCounts[key] = counts.get(key) || 0;
-        filteredLastOccurrence[key] = lastAt;
-        total += filteredCounts[key];
+    for (const [key, ring] of occurrences.entries()) {
+      const windowCount = countSince(ring, since);
+      if (windowCount > 0) {
+        filteredCounts[key] = windowCount;
+        filteredLastOccurrence[key] = lastOccurrence.get(key);
+        total += windowCount;
       }
     }
   } else {
@@ -85,6 +130,7 @@ function getErrorCounts({ since = null, now = Date.now() } = {}) {
 function resetErrorCounters() {
   counts = new Map();
   lastOccurrence = new Map();
+  occurrences = new Map();
   earliestStampedAt = null;
 }
 
@@ -92,6 +138,8 @@ function mountTalkErrorRoute(app) {
   if (!app || typeof app.get !== "function") {
     throw new Error("mountTalkErrorRoute requires an Express app");
   }
+  // Safe-public: see module header. Counts + class names only; no
+  // user-derived data ever lands in the response.
   app.get("/talk/errors", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const sinceRaw = req.query?.sinceMs;
@@ -109,4 +157,5 @@ export {
   resetErrorCounters,
   mountTalkErrorRoute,
   SCHEMA_VERSION as TALK_ERROR_COUNTER_SCHEMA_VERSION,
+  OCCURRENCE_RING_CAP_PER_CLASS,
 };

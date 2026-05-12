@@ -32885,6 +32885,10 @@ mountBlockSignalRoute(app, { creativeMemoryStore });
 // T-talk-error-rate-tracker: GET /talk/errors snapshots in-memory
 // error counters. Wired into the /realtime/client_secret error paths
 // above; additional /talk pipeline call sites are a small follow-up.
+// Access-control posture: SAFE-PUBLIC. Response contains only error-
+// class names + counts (no per-user content). Matches the public ops
+// surface (/ops/metrics, /ops/alerts, /ops/health-summary). See
+// `backend/lib/talk_error_counter.js` header for the no-leakage rule.
 mountTalkErrorRoute(app);
 
 // T-block-signal-history-route: read-only projection of the block-
