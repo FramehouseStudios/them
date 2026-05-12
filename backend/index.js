@@ -27193,7 +27193,18 @@ app.post("/screenplay/export", express.json({ limit: "2mb" }), (req, res) => {
     return res.status(200).send(xml);
   }
   if (format === "pdf") {
-    return res.status(400).json({ stage: "screenplay_export", error: "pdf_export_not_supported_locally" });
+    // T-screenplay-export-pdf-error-clarity: keep the existing error
+    // class string for backwards compatibility, but add a help payload
+    // so iOS / API callers can render a useful fallback path instead
+    // of just "exporter unavailable". The alternative_formats list
+    // mirrors the supported set in /screenplay/export/formats.
+    return res.status(400).json({
+      stage: "screenplay_export",
+      error: "pdf_export_not_supported_locally",
+      message: "PDF export is not implemented on this backend. Export Fountain or Markdown and convert client-side (e.g. via Highland, Final Draft, or a Markdown-to-PDF tool).",
+      alternative_formats: ["fountain", "fdx", "md"],
+      docs_path: "/screenplay/export/formats",
+    });
   }
   if (format === "md" || format === "markdown") {
     // T-screenplay-export-markdown: line-by-line Markdown projection
