@@ -228,6 +228,57 @@ switch (cmd) {
     console.log(`cleared decision ${id}`);
     break;
   }
+  case "validate": {
+    // T-coordination-state-cli-validate: same checks as
+    // scripts/coordination_state_schema_check.mjs (PR #117), but
+    // surfaced as a CLI subcommand so it shows up next to the read/
+    // mutate commands. Exits 1 on the first finding (strict by
+    // default — there's no "warn" mode here because the state file
+    // is supposed to be the single source of truth).
+    const state = readState();
+    const errors = [];
+    const allowedOwners = new Set(["claude", "codex", "human"]);
+    const allowedTiers = new Set([1, 2, 3]);
+    if (typeof state.schemaVersion !== "number" || state.schemaVersion < 1) {
+      errors.push(`schemaVersion: must be a number >= 1 (got ${state.schemaVersion})`);
+    }
+    if (typeof state.updatedAt !== "string" || Number.isNaN(Date.parse(state.updatedAt))) {
+      errors.push(`updatedAt: must be an ISO-8601 string (got ${state.updatedAt})`);
+    }
+    if (typeof state.updatedBy !== "string" || state.updatedBy.length === 0) {
+      errors.push(`updatedBy: must be a non-empty string`);
+    }
+    if (!Array.isArray(state.openPullRequests)) errors.push("openPullRequests must be an array");
+    if (!Array.isArray(state.blockers)) errors.push("blockers must be an array");
+    if (!Array.isArray(state.decisionsPending)) errors.push("decisionsPending must be an array");
+    for (const pr of state.openPullRequests || []) {
+      const label = `pr#${pr?.number ?? "??"}`;
+      if (!Number.isInteger(pr?.number)) errors.push(`${label}: number must be an integer`);
+      if (typeof pr?.title !== "string" || pr.title.length === 0) errors.push(`${label}: title required`);
+      if (!allowedOwners.has(pr?.owner)) errors.push(`${label}: owner must be claude|codex|human (got ${pr?.owner})`);
+      if (!allowedTiers.has(pr?.tier)) errors.push(`${label}: tier must be 1|2|3 (got ${pr?.tier})`);
+      if (typeof pr?.status !== "string" || pr.status.length === 0) errors.push(`${label}: status required`);
+      if (typeof pr?.branch !== "string" || pr.branch.length === 0) errors.push(`${label}: branch required`);
+    }
+    for (const b of state.blockers || []) {
+      const label = `blocker ${b?.id ?? "??"}`;
+      if (typeof b?.id !== "string" || b.id.length === 0) errors.push(`${label}: id required`);
+      if (!allowedOwners.has(b?.owner)) errors.push(`${label}: owner must be claude|codex|human (got ${b?.owner})`);
+      if (typeof b?.summary !== "string" || b.summary.length === 0) errors.push(`${label}: summary required`);
+    }
+    if (errors.length > 0) {
+      console.error("coordination_state validate: FAILED");
+      for (const e of errors) console.error(`  - ${e}`);
+      process.exit(1);
+    }
+    console.log(
+      `coordination_state validate: OK ` +
+      `(${state.openPullRequests.length} open PRs, ` +
+      `${state.blockers.length} blockers, ` +
+      `${state.decisionsPending.length} decisions)`,
+    );
+    break;
+  }
   default:
     fail(`unknown command: ${cmd}`);
 }
