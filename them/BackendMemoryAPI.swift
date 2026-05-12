@@ -1218,6 +1218,112 @@ nonisolated struct BackendScreenplayExportFormatsResponse: Decodable, Hashable {
     let formats: [BackendScreenplayExportFormat]
 }
 
+nonisolated struct BackendScreenplayImportResponse: Decodable, Hashable {
+    let schemaVersion: Int
+    let screenplay: BackendImportedScreenplay
+}
+
+nonisolated struct BackendImportedScreenplay: Decodable, Hashable {
+    let title: BackendImportedScreenplayTitle?
+    let scenes: [BackendImportedScreenplayScene]
+
+    var fountainDraft: String {
+        var blocks: [String] = []
+        if let titleBlock = title?.fountainBlock, !titleBlock.isEmpty {
+            blocks.append(titleBlock)
+        }
+        for scene in scenes {
+            let block = scene.fountainBlock
+            if !block.isEmpty {
+                blocks.append(block)
+            }
+        }
+        return blocks.joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+nonisolated struct BackendImportedScreenplayTitle: Decodable, Hashable {
+    let title: String?
+    let author: String?
+
+    var fountainBlock: String {
+        var lines: [String] = []
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            lines.append("Title: \(title)")
+        }
+        if let author = author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty {
+            lines.append("Author: \(author)")
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+nonisolated struct BackendImportedScreenplayScene: Decodable, Hashable {
+    let heading: String?
+    let lines: [BackendImportedScreenplayLine]
+
+    var fountainBlock: String {
+        var blocks: [String] = []
+        if let heading = heading?.trimmingCharacters(in: .whitespacesAndNewlines), !heading.isEmpty {
+            blocks.append(heading)
+        }
+        for line in lines {
+            let block = line.fountainBlock
+            if !block.isEmpty {
+                blocks.append(block)
+            }
+        }
+        return blocks.joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+nonisolated struct BackendImportedScreenplayLine: Decodable, Hashable {
+    let kind: String
+    let text: String?
+    let name: String?
+    let parenthetical: String?
+    let dialogue: [String]?
+
+    var fountainBlock: String {
+        switch kind.lowercased() {
+        case "section":
+            return prefixedText("#")
+        case "synopsis":
+            return prefixedText("=")
+        case "character":
+            return characterBlock
+        default:
+            return text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+    }
+
+    private func prefixedText(_ prefix: String) -> String {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return ""
+        }
+        return "\(prefix) \(text)"
+    }
+
+    private var characterBlock: String {
+        guard let cleanName = name?.trimmingCharacters(in: .whitespacesAndNewlines), !cleanName.isEmpty else {
+            return ""
+        }
+        var lines = [cleanName]
+        if let parenthetical = parenthetical?.trimmingCharacters(in: .whitespacesAndNewlines), !parenthetical.isEmpty {
+            lines.append("(\(parenthetical))")
+        }
+        for dialogueLine in dialogue ?? [] {
+            let cleanDialogue = dialogueLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanDialogue.isEmpty {
+                lines.append(cleanDialogue)
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
 nonisolated struct BackendScreenplaySceneDraft: Hashable {
     var id: String?
     var slugline: String
@@ -3402,6 +3508,26 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(BackendScreenplayExportFormatsResponse.self, from: data)
+    }
+
+    func importFountainDraft(text: String) async throws -> BackendScreenplayImportResponse {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/screenplay/import/fountain")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text], options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(headerSync, emitTurnEvent: false)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(BackendScreenplayImportResponse.self, from: data)
     }
 
     func updateMemoryCard(

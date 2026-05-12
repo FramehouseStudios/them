@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T18:04:12.340Z",
+  "updatedAt": "2026-05-12T18:29:43.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -614,6 +614,15 @@
       "status": "merged",
       "branch": "codex/T72-batch-refresh",
       "blocker": null
+    },
+    {
+      "number": 176,
+      "title": "T73-ios-fountain-import",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T73-ios-fountain-import",
+      "blocker": null
     }
   ],
   "blockers": [
@@ -644,11 +653,6 @@
   ],
   "decisionsPending": [],
   "endpointsAwaitingIosConsumer": [
-    {
-      "pr": 87,
-      "endpoint": "POST /screenplay/import/fountain",
-      "consumer": "Build the iOS Studio Fountain import surface."
-    },
     {
       "pr": 148,
       "endpoint": "GET /ops/routes",

@@ -3313,6 +3313,24 @@ struct ScreenplayStudioScreen: View {
         case append
     }
 
+    private static let draftImportTextExtensions: Set<String> = [
+        "fountain",
+        "txt",
+        "md",
+        "text",
+        "screenplay",
+    ]
+
+    private static var draftImportContentTypes: [UTType] {
+        var types: [UTType] = [.pdf, .plainText, .text]
+        for ext in draftImportTextExtensions.sorted() {
+            if let type = UTType(filenameExtension: ext), !types.contains(type) {
+                types.append(type)
+            }
+        }
+        return types
+    }
+
     private enum StudioTarget: String, Codable, Equatable {
         case page
         case voicePin
@@ -3756,6 +3774,7 @@ struct ScreenplayStudioScreen: View {
     @State private var pendingDraftImportURL: URL?
     @State private var pendingDraftImportSourceName: String = ""
     @State private var showingDraftImportChoice = false
+    @State private var showingDraftFileImporter = false
     @State private var showingLeadReferenceDetails = false
     @State private var showingScreenplayShortcuts = false
     @State private var hoveredScreenplayElement: ScreenplayEditorElement?
@@ -4032,6 +4051,19 @@ Press 1 to replace or 2 to append.
 Replace is best when this file should become the script you edit. Append is safest only for partial scenes, selected pages, or fragments you intentionally want to add after the current draft.
 """
                 )
+            }
+            .fileImporter(
+                isPresented: $showingDraftFileImporter,
+                allowedContentTypes: Self.draftImportContentTypes,
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    queueDraftImport(from: url)
+                case .failure(let error):
+                    vm.errorText = error.localizedDescription
+                }
             }
     }
 
@@ -10313,8 +10345,8 @@ private var projectsSidebarContent: some View {
                     .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                    Button("Import PDF…") {
-                        importDraftPDF()
+                    Button("Import Script…") {
+                        importDraftDocument()
                     }
                     .buttonStyle(.bordered)
                 }
@@ -10322,7 +10354,7 @@ private var projectsSidebarContent: some View {
             }
 
             draftUtilityRow(
-                message: "Save, export, and page review live in the Draft rail so the screenplay page can stay clear."
+                message: "Save, import, export, and page review live in the Draft rail so the screenplay page can stay clear."
             )
         }
     }
@@ -10345,8 +10377,8 @@ private var projectsSidebarContent: some View {
                     .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                    Button("Import PDF…") {
-                        importDraftPDF()
+                    Button("Import Script…") {
+                        importDraftDocument()
                     }
                     .buttonStyle(.bordered)
                 }
@@ -10439,7 +10471,7 @@ private var projectsSidebarContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 inspectorSubsectionLabel("Document Controls")
-                Text("Save, export, and autosave live here so the rest of the inspector can stay focused on the draft itself.")
+                Text("Save, import, export, and autosave live here so the rest of the inspector can stay focused on the draft itself.")
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.54))
             }
@@ -10453,6 +10485,14 @@ private var projectsSidebarContent: some View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(vm.isSaving)
+
+                Button {
+                    importDraftDocument()
+                } label: {
+                    Label("Import", systemImage: "square.and.arrow.down")
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                }
+                .buttonStyle(.bordered)
 
                 Menu {
                     ForEach(vm.screenplayExportMenuItems) { item in
@@ -24249,15 +24289,8 @@ Look at the city.
             return
         }
         let ext = entry.url.pathExtension.lowercased()
-        if ["fountain", "txt", "md", "text", "screenplay"].contains(ext) {
-            do {
-                let content = try String(contentsOf: entry.url, encoding: .utf8)
-                vm.fountainDraft = content
-                liveDraftBridge.draftText = content
-                vm.infoText = "Loaded \(entry.name)"
-            } catch {
-                vm.errorText = error.localizedDescription
-            }
+        if Self.draftImportTextExtensions.contains(ext) {
+            queueDraftImport(from: entry.url)
             return
         }
         if ext == "pdf" {
@@ -24449,18 +24482,20 @@ Look at the city.
         }
     }
 
-    private func importDraftPDF() {
+    private func importDraftDocument() {
         #if os(macOS)
         let panel = NSOpenPanel()
-        panel.title = "Import Screenplay PDF"
+        panel.title = "Import Screenplay"
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.canCreateDirectories = false
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.pdf]
+        panel.allowedContentTypes = Self.draftImportContentTypes
         if panel.runModal() == .OK, let url = panel.url {
             queueDraftImport(from: url)
         }
+        #else
+        showingDraftFileImporter = true
         #endif
     }
 
@@ -24468,7 +24503,7 @@ Look at the city.
         let standardizedURL = sourceURL.standardizedFileURL
         let hasExistingDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard hasExistingDraft else {
-            importDraftFile(from: standardizedURL, appendToExisting: false)
+            Task { await importDraftFile(from: standardizedURL, appendToExisting: false) }
             return
         }
         pendingDraftImportURL = standardizedURL
@@ -24480,7 +24515,7 @@ Look at the city.
         guard let sourceURL = pendingDraftImportURL else { return }
         let shouldAppend = (mode == .append)
         clearPendingDraftImport()
-        importDraftFile(from: sourceURL, appendToExisting: shouldAppend)
+        Task { await importDraftFile(from: sourceURL, appendToExisting: shouldAppend) }
     }
 
     private func clearPendingDraftImport() {
@@ -24488,7 +24523,7 @@ Look at the city.
         pendingDraftImportSourceName = ""
     }
 
-    private func importDraftFile(from sourceURL: URL, appendToExisting: Bool) {
+    private func importDraftFile(from sourceURL: URL, appendToExisting: Bool) async {
         let source = sourceURL.standardizedFileURL
         let hasAccess = source.startAccessingSecurityScopedResource()
         defer {
@@ -24496,7 +24531,7 @@ Look at the city.
         }
 
         do {
-            let importedDraft = try extractedEditableDraft(from: source)
+            let importedDraft = try await extractedEditableDraft(from: source)
             vm.importExternalDraft(
                 importedDraft.text,
                 sourceName: source.lastPathComponent,
@@ -24505,19 +24540,29 @@ Look at the city.
             if importedDraft.usedOCR {
                 vm.infoText += " OCR was used for scanned pages."
             }
+            if importedDraft.usedBackendFountainImport {
+                vm.infoText += " Parsed with the Fountain import service."
+            }
             liveDraftBridge.draftText = vm.fountainDraft
         } catch {
             vm.errorText = error.localizedDescription
         }
     }
 
-    private func extractedEditableDraft(from sourceURL: URL) throws -> (text: String, usedOCR: Bool) {
+    private func extractedEditableDraft(from sourceURL: URL) async throws -> (text: String, usedOCR: Bool, usedBackendFountainImport: Bool) {
         let ext = sourceURL.pathExtension.lowercased()
         if ext == "pdf" {
-            return try extractDraftTextFromPDF(sourceURL)
+            let extracted = try extractDraftTextFromPDF(sourceURL)
+            return (extracted.text, extracted.usedOCR, false)
         }
-        if ["fountain", "txt", "md", "text", "screenplay"].contains(ext) {
+        if Self.draftImportTextExtensions.contains(ext) {
             let raw = try String(contentsOf: sourceURL, encoding: .utf8)
+            if let imported = try? await BackendMemoryAPI.shared.importFountainDraft(text: raw) {
+                let parsedDraft = normalizeImportedDraftText(imported.screenplay.fountainDraft)
+                if !parsedDraft.isEmpty {
+                    return (parsedDraft, false, true)
+                }
+            }
             let normalized = normalizeImportedDraftText(raw)
             guard !normalized.isEmpty else {
                 throw NSError(
@@ -24526,12 +24571,12 @@ Look at the city.
                     userInfo: [NSLocalizedDescriptionKey: "That file did not contain readable screenplay text."]
                 )
             }
-            return (normalized, false)
+            return (normalized, false, false)
         }
         throw NSError(
             domain: "ScreenplayStudioImport",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Only screenplay PDFs and plain-text script files can be imported into the draft."]
+            userInfo: [NSLocalizedDescriptionKey: "Only screenplay PDFs and Fountain/plain-text script files can be imported into the draft."]
         )
     }
 
