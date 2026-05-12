@@ -729,7 +729,7 @@
 | T72                                     | Refresh queue after supervisor merge train                        | codex  | merged      |
 | T73                                     | Build iOS Fountain import surface                                 | codex  | merged      |
 | T74                                     | Surface ops route manifest in diagnostics                         | codex  | merged      |
-| T75                                     | Surface talk-turn rate-limit retry affordance                     | codex  | in-progress |
+| T75                                     | Surface talk-turn rate-limit retry affordance                     | codex  | merged      |
 
 ## Active work — full detail (auto-generated)
 
@@ -2026,7 +2026,7 @@ handoff no longer marks PR #148 as awaiting an iOS consumer.
 - **Owner:** codex
 - **Branch:** codex/T75-talk-turn-rate-limit-retry
 - **Pillar:** mobile-first + infra
-- **Status:** in-progress
+- **Status:** merged
 
 ## Scope
 

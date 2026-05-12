@@ -3,6 +3,51 @@ import ScreenplayStudio
 @testable import them
 
 final class BackendClientCraftAPITests: XCTestCase {
+    func testTalkTurnRateLimitNoticeParsesRetryAfterMsAndBannerCopy() throws {
+        let notice = try XCTUnwrap(
+            BackendTalkTurnMetaRateLimitNotice(
+                turnId: "turn-7",
+                statusCode: 429,
+                data: Data(#"{ "error": "rate_limited", "retry_after_ms": 1250 }"#.utf8),
+                retryAfterHeader: nil
+            )
+        )
+
+        XCTAssertEqual(notice.turnId, "turn-7")
+        XCTAssertEqual(notice.retryAfterMs, 1250)
+        XCTAssertEqual(notice.retryDelayLabel, "2 seconds")
+        XCTAssertEqual(
+            notice.bannerText,
+            "Saved the response. Extra turn details are cooling down; retry in 2 seconds."
+        )
+    }
+
+    func testTalkTurnRateLimitNoticeFallsBackToRetryAfterHeader() throws {
+        let notice = try XCTUnwrap(
+            BackendTalkTurnMetaRateLimitNotice(
+                turnId: " turn-8 ",
+                statusCode: 429,
+                data: Data(#"{ "error": "rate_limited" }"#.utf8),
+                retryAfterHeader: "3"
+            )
+        )
+
+        XCTAssertEqual(notice.turnId, "turn-8")
+        XCTAssertEqual(notice.retryAfterMs, 3000)
+        XCTAssertEqual(notice.retryDelayLabel, "3 seconds")
+    }
+
+    func testTalkTurnRateLimitNoticeIgnoresOtherErrors() {
+        let notice = BackendTalkTurnMetaRateLimitNotice(
+            turnId: "turn-9",
+            statusCode: 500,
+            data: Data(#"{ "error": "rate_limited", "retry_after_ms": 1000 }"#.utf8),
+            retryAfterHeader: "1"
+        )
+
+        XCTAssertNil(notice)
+    }
+
     func testFetchesCraftFrameworksAndSchemasWithVersionHeader() async throws {
         let recorder = CraftRequestRecorder()
         let client = makeClient(recorder: recorder) { request in

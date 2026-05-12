@@ -2,7 +2,7 @@
 id: T75
 title: Surface talk-turn rate-limit retry affordance
 owner: codex
-status: in-progress
+status: merged
 branch: codex/T75-talk-turn-rate-limit-retry
 pillar: mobile-first + infra
 ---
