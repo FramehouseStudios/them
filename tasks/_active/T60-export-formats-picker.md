@@ -2,7 +2,7 @@
 id: T60
 title: Consume screenplay export formats in Studio
 owner: codex
-status: in-progress
+status: review
 branch: codex/T60-export-formats-picker
 pillar: mobile-first + screenplay craft
 ---

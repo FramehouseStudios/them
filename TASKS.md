@@ -86,7 +86,7 @@
 | T55-close-stale-handoff-prs | Close stale handoff PRs                                | codex | merged |
 | T56-refresh-after-talk-contract | Refresh queue after talk contract merge            | codex | merged |
 | T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | claude | review |
-| T60  | Consume screenplay export formats in Studio       | codex  | in-progress       |
+| T60  | Consume screenplay export formats in Studio       | codex  | review            |
 
 ---
 
@@ -554,7 +554,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T39-fix-missing-symbol`
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** the Studio UI no longer asks SwiftUI for the unavailable `square.stack.badge.plus` SF Symbol; replacement icon preserves the duplicate/stack action meaning; focused build verification passes without the missing-symbol runtime warning.
 
 ---

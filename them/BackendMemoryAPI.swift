@@ -1194,6 +1194,30 @@ nonisolated struct BackendScreenplayExportArtifact {
     let data: Data
 }
 
+nonisolated struct BackendScreenplayExportFormat: Decodable, Hashable, Identifiable {
+    let format: String
+    let fileExtension: String
+    let mediaType: String
+    let description: String
+    let supported: Bool
+
+    var id: String { format }
+
+    private enum CodingKeys: String, CodingKey {
+        case format
+        case fileExtension = "extension"
+        case mediaType
+        case description
+        case supported
+    }
+}
+
+nonisolated struct BackendScreenplayExportFormatsResponse: Decodable, Hashable {
+    let schemaVersion: Int
+    let defaultFormat: String
+    let formats: [BackendScreenplayExportFormat]
+}
+
 nonisolated struct BackendScreenplaySceneDraft: Hashable {
     var id: String?
     var slugline: String
@@ -3360,6 +3384,22 @@ actor BackendMemoryAPI {
             contentType: contentType.isEmpty ? "application/octet-stream" : contentType,
             data: data
         )
+    }
+
+    func fetchScreenplayExportFormats() async throws -> BackendScreenplayExportFormatsResponse {
+        _ = try? await bootstrapSession(force: false)
+        let request = try makeRequest(path: "/screenplay/export/formats")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(BackendScreenplayExportFormatsResponse.self, from: data)
     }
 
     func updateMemoryCard(
