@@ -2035,6 +2035,7 @@ actor BackendMemoryAPI {
 #endif
     }()
     private let session: URLSession
+    private let baseURLOverride: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
     private var syncState: BackendSyncState = .empty
@@ -2045,8 +2046,9 @@ actor BackendMemoryAPI {
     private var lastForcedSessionRefreshAt: Date?
     private let forcedSessionRefreshCooldown: TimeInterval = 8
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, baseURL: URL? = nil) {
         self.session = session
+        self.baseURLOverride = baseURL
     }
 
     func currentSyncState() -> BackendSyncState {
@@ -4720,6 +4722,8 @@ actor BackendMemoryAPI {
             return "pdf"
         case "json":
             return "json"
+        case "md", "markdown":
+            return "md"
         case "txt":
             return "txt"
         default:
@@ -4744,6 +4748,9 @@ actor BackendMemoryAPI {
     }
 
     private func baseURL() -> URL {
+        if let baseURLOverride {
+            return baseURLOverride
+        }
         let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
         if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults) {
             return canonicalizeLoopbackURL(url)

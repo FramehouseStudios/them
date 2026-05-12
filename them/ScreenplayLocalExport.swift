@@ -52,6 +52,15 @@ enum ScreenplayLocalExport {
                 contentType: "text/plain; charset=utf-8",
                 data: data
             )
+        case "md", "markdown":
+            let filename = "\(baseName).md"
+            let markdown = markdownDocument(for: cleanDraft)
+            return BackendScreenplayExportArtifact(
+                format: "md",
+                filename: filename,
+                contentType: "text/markdown; charset=utf-8",
+                data: Data(markdown.utf8)
+            )
         case "fdx":
             let filename = "\(baseName).fdx"
             let xml = finalDraftXML(for: cleanDraft)
@@ -83,6 +92,8 @@ enum ScreenplayLocalExport {
             return UTType(filenameExtension: "fdx") ?? .xml
         case "fountain", "txt":
             return UTType(filenameExtension: "fountain") ?? .plainText
+        case "md", "markdown":
+            return UTType(filenameExtension: "md") ?? .plainText
         default:
             return .data
         }
@@ -119,6 +130,47 @@ enum ScreenplayLocalExport {
 
         let body = paragraphs.joined(separator: "\n")
         return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?>\n<FinalDraft DocumentType=\"Script\" Template=\"No\" Version=\"1\">\n  <Content>\n\(body)\n  </Content>\n</FinalDraft>\n"
+    }
+
+    private static func markdownDocument(for draft: String) -> String {
+        let normalizedDraft = draft.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalizedDraft.components(separatedBy: .newlines)
+        let inferred = ScreenplayEditorElement.inferredSequence(for: normalizedDraft)
+        var output: [String] = []
+        var previousType: String?
+
+        for (index, rawLine) in lines.enumerated() {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                if !output.isEmpty, output.last != "" {
+                    output.append("")
+                }
+                previousType = nil
+                continue
+            }
+
+            let element = inferred.indices.contains(index) ? inferred[index] : nil
+            let type = finalDraftParagraphType(for: trimmed, element: element, previousType: previousType)
+            switch type {
+            case "Scene Heading":
+                output.append("## \(trimmed)")
+            case "Character":
+                output.append("**\(trimmed)**")
+            case "Parenthetical":
+                output.append("*\(trimmed)*")
+            case "Transition":
+                output.append("> \(trimmed)")
+            default:
+                output.append(trimmed)
+            }
+            previousType = type
+        }
+
+        let collapsed = output
+            .joined(separator: "\n")
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .newlines)
+        return collapsed + "\n"
     }
 
     private static func finalDraftParagraphType(
