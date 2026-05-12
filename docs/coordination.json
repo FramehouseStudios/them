@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T05:19:59.101Z",
+  "updatedAt": "2026-05-12T05:36:13.429Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -325,6 +325,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T64-session-evolution-quiet",
+      "blocker": null
+    },
+    {
+      "number": 147,
+      "title": "T65-post-t64-coordination-refresh",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T65-post-t64-coordination-refresh",
       "blocker": null
     }
   ],

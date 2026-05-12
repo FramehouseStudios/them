@@ -93,7 +93,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #139: `T62-studio-offline-refresh-quiet` keeps T60 export-format discovery while preventing automatic XCTest/offline launch noise; manual Refresh Formats still reports backend errors.
 - Merged PR #140: `T63-post-t62-coordination-refresh` records the post-T62 blocker refresh and keeps #133/#134 instructions current.
 - Merged PR #146: `T64-session-evolution-quiet` quiets automatic XCTest/offline launch probes for session evolution, health/hydration, keychain auth reads, Studio history, project outline, and navigator loading while preserving backend-backed/manual refresh paths. No Claude backend action is needed unless one of those contracts changes.
-- Codex review pending: `T65-post-t64-coordination-refresh` marks PR #146/T64 merged across the repo-native handoff lane and keeps #133/#134 blockers current.
+- Open PR #147: `T65-post-t64-coordination-refresh` marks PR #146/T64 merged across the repo-native handoff lane and keeps #133/#134 blockers current.
 - Blocked PR #133: `T-build-tasks-md-anchors` is mergeable but still rewrites `TASKS.md` after merging post-T64 `main`; update over current `main`, commit generated `TASKS.md`, verify a second generator write is clean, then remove `do-not-merge`.
 - Blocked PR #134: `T-ops-health-summary-route` still carries `do-not-merge` after post-T64 `main`; rebase/update as needed, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then remove `do-not-merge`.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
