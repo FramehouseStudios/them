@@ -99,7 +99,7 @@
 | T65  | Refresh coordination after T64 merge              | codex  | merged            |
 | T66  | Refresh queue after Claude PR triage              | codex  | merged            |
 | T67  | Refresh queue after PR #148 triage                | codex  | merged            |
-| T68  | Refresh queue after PR #150/#151 merges           | codex  | review            |
+| T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
 
 ---
 
@@ -648,7 +648,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T68-refresh-after-pr150-151`
 - **Pillar:** infra (enables all)
-- **Status:** review
+- **Status:** merged
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #150 and PR #151 merged; T67 status is internally consistent; coordination prompt/check scripts pass.
 
 ---

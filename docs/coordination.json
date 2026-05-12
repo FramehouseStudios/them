@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T07:15:25.000Z",
+  "updatedAt": "2026-05-12T07:19:00.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -424,6 +424,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "claude/T-screenplay-export-pdf-error-clarity",
+      "blocker": null
+    },
+    {
+      "number": 153,
+      "title": "T68-refresh-after-pr150-151",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T68-refresh-after-pr150-151",
       "blocker": null
     }
   ],
