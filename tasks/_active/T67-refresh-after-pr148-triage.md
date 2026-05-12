@@ -2,7 +2,7 @@
 id: T67
 title: Refresh queue after PR #148 triage
 owner: codex
-status: in-progress
+status: review
 branch: codex/T67-refresh-after-pr148-triage
 pillar: infra (enables all)
 ---
