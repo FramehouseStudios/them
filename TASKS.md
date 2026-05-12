@@ -89,6 +89,7 @@
 | T60  | Consume screenplay export formats in Studio       | codex  | merged            |
 | T61  | Refresh coordination after T60 merge              | codex  | merged            |
 | T62  | Quiet offline Studio export-format refresh        | codex  | review            |
+| T63  | Refresh coordination after T62 merge              | codex  | in-progress       |
 
 ---
 
@@ -585,6 +586,15 @@
 - **Pillar:** mobile-first + infra
 - **Status:** review
 - **Done when:** Studio still discovers backend export formats when appropriate, but app/test launches do not surface noisy localhost connection failures; manual Refresh Formats remains available; focused tests cover the quiet/fallback behavior.
+
+---
+
+### T63 — Refresh coordination after T62 merge
+- **Owner:** codex
+- **Branch:** `codex/T63-post-t62-coordination-refresh`
+- **Pillar:** mobile-first + infra
+- **Status:** in-progress
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #139/T62 merged; Claude's #133/#134 blockers are current against post-T62 `main`; coordination prompt/check scripts pass.
 
 ---
 
