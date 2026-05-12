@@ -2,7 +2,7 @@
 id: T-tasks-active-stats
 title: At-a-glance counts over tasks/_active/
 owner: claude
-status: review
+status: merged
 branch: claude/T-tasks-active-stats
 pillar: infra (coordination)
 ---

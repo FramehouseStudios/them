@@ -2,7 +2,7 @@
 id: T-tasks-active-frontmatter-eval
 title: Validate every tasks/_active/T-*.md front-matter
 owner: claude
-status: review
+status: merged
 branch: claude/T-tasks-active-frontmatter-eval
 pillar: infra (coordination)
 ---

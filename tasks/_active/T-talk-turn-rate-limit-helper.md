@@ -2,7 +2,7 @@
 id: T-talk-turn-rate-limit-helper
 title: Pure token-bucket rate limiter for talk-turn reads
 owner: claude
-status: review
+status: merged
 branch: claude/T-talk-turn-rate-limit-helper
 pillar: infra (talk pipeline)
 ---
