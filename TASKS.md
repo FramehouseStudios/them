@@ -682,6 +682,7 @@
 
 | ID                                      | Title                                                             | Owner  | Status      |
 |-----------------------------------------|-------------------------------------------------------------------|--------|-------------|
+| T-agent-events-jsonl-live-lane          | Append-only event lane (docs/agent-events.jsonl) + CLI            | claude | review      |
 | T-archetype-engine-canon-eval           | Pin canonical archetype set + per-entry shape                     | claude | merged      |
 | T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer       | claude | review      |
 | T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                    | claude | review      |
@@ -695,6 +696,7 @@
 | T-known-domains-startup-check           | Boot-time invariant check on KNOWN_DOMAINS                        | claude | merged      |
 | T-ops-health-summary-route              | GET /ops/health-summary cheap uptime-dashboard endpoint           | claude | merged      |
 | T-ops-routes-list-route                 | GET /ops/routes manifest of optional surfaces                     | claude | merged      |
+| T-pre-flight-self-check-script          | scripts/pre_flight.mjs — catch recurring review feedback locally  | claude | review      |
 | T-prompt-assembly-block-signal-cap-eval | Cap on <block_signal> block size under pathological inputs        | claude | merged      |
 | T-prompt-assembly-readme                | README for backend/lib/prompt_assembly.js                         | claude | merged      |
 | T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list              | claude | review      |
@@ -730,8 +732,71 @@
 | T73                                     | Build iOS Fountain import surface                                 | codex  | merged      |
 | T74                                     | Surface ops route manifest in diagnostics                         | codex  | merged      |
 | T75                                     | Surface talk-turn rate-limit retry affordance                     | codex  | merged      |
+| T76                                     | Refresh coordination after efficiency merge train                 | codex  | in-progress |
 
 ## Active work — full detail (auto-generated)
+
+### T-agent-events-jsonl-live-lane — Append-only event lane (docs/agent-events.jsonl) + CLI
+- **Owner:** claude
+- **Branch:** claude/T-agent-events-jsonl-live-lane
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Adds a live event lane between Claude and Codex so state transitions
+(PR opened / rebased / merged / blocker flagged or cleared / coord
+refresh / spec approved) are visible in seconds, not the next
+coordination-refresh PR cycle.
+
+Per the second-pass efficiency protocol Codex accepted: this is
+proposal #1 (live event lane).
+
+## Surface area
+
+- `scripts/agent_event.mjs` — append / tail / stats CLI
+- `scripts/agent_event.test.mjs` — 16 unit tests (round-trip, kind
+  enum, --by enum, blocker_kind required, --extra JSON merge,
+  --since / --by / --kind filters, stats, empty-state, real-repo
+  smoke)
+- `docs/agent-events.README.md` — file layout, event-kind reference,
+  CLI usage, the "what goes here vs coordination.json" boundary
+- File: `docs/agent-events-<ISO-year>-W<ww>.jsonl` (created on first
+  append; weekly rotation)
+
+## Boundary with coordination.json
+
+| | agent-events.jsonl | coordination.json |
+|---|---|---|
+| Authority | Tape of intent | Canonical state |
+| Cadence | Per transition (seconds) | Per refresh PR (hours) |
+| Mutability | Append-only | Read/write/replace |
+| Rotation | Weekly | None |
+
+agent-events answers "what just happened?", coordination.json
+answers "what's currently true?".
+
+## Canonical event kinds (enforced by CLI)
+
+`session_start, pr_opened, pr_rebased, pr_merged, pr_closed,
+review_blocker, blocker_cleared, coord_refresh, spec_opened,
+spec_approved, note`. Unknown kinds → CLI exit 1. `review_blocker`
+requires `--blocker-kind`.
+
+## Done when
+
+`scripts/agent_event.mjs` ships with append/tail/stats commands;
+canonical event-kind enum is enforced; weekly rotation works;
+README explains the lane vs coordination.json boundary; tests
+green.
+
+## Follow-ups (not in this PR)
+
+- Wire `agent_next.mjs` to surface "new events since last poll" in
+  its output (one-line change once #1 lands).
+- Codex emits `pr_merged` events from the auto-merge-tier1 workflow.
+- Claude emits `pr_rebased` + `blocker_cleared` events from rebase
+  scripts.
 
 ### T-archetype-engine-canon-eval — Pin canonical archetype set + per-entry shape
 - **Owner:** claude
@@ -1191,6 +1256,63 @@ Returns `{ schemaVersion, total, routes[] }` with
 
 `GET /ops/routes` returns the frozen manifest; tests cover snapshot
 properties + integration; `npm test` green.
+
+### T-pre-flight-self-check-script — scripts/pre_flight.mjs — catch recurring review feedback locally
+- **Owner:** claude
+- **Branch:** claude/T-pre-flight-self-check-script
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Ships proposal #2 of the second-pass efficiency protocol: a
+one-shot self-check Claude runs **before** opening a PR. Catches
+the recurring classes of review feedback locally so they don't
+cost a full review cycle to surface and clear.
+
+## Findings the script catches
+
+| Check | Why | Reference |
+|---|---|---|
+| `route-needs-own-parser` | Route reads `req.body` without route-local `express.json()` | Codex #90 review |
+| `middleware-error-escapes` | `next(new Error(...))` falls through to Express's default handler (HTML 500 instead of structured JSON) | Codex #87 review |
+| `exported-const-not-frozen` | Exported ALL_CAPS array/object literal without `Object.freeze` | Codex canon-eval reviews (#160 / #161 / #163 / #164) |
+| `console-log-in-lib` | `console.log` in `backend/lib/*` leaks to deploy logs (use `console.error`/`warn`) | hygiene |
+
+Each finding lists file + line + a one-line explanation. Default
+mode prints findings and exits 0; `--strict` exits 1.
+
+## Current main snapshot
+
+Running against `main` today surfaces 8 pre-existing findings:
+- 6 `console.log` calls (outbox_snapshotter, outbox_store)
+- 2 routes that read `req.body` without route-local parsers
+  (character_trait_route, memory_character_mention_route)
+
+The script defaults to **warn-only** so it can ship without forcing
+those fixes in this PR. Once Codex cleans up the existing findings,
+the strict-mode flip is a one-line CI change.
+
+## Tests
+
+`scripts/pre_flight.test.mjs` — 14 tests covering each check with
+positive + negative fixtures + the --strict exit-code contract + a
+real-repo smoke run.
+
+## Done when
+
+`scripts/pre_flight.mjs` runs cleanly against current main in warn
+mode; `scripts/pre_flight.test.mjs` green.
+
+## Follow-ups (not in this PR)
+
+- Add `eval-missing-determinism-check` check (search
+  `backend/evals/run_*_eval.mjs` for files without a determinism
+  test).
+- Add `schema-version-missing` check (search response envelopes
+  for `return res.status(200).json({` without `schemaVersion`).
+- Wire into a pre-push git hook (opt-in).
+- Once existing findings are cleaned, flip CI to `--strict`.
 
 ### T-prompt-assembly-block-signal-cap-eval — Cap on <block_signal> block size under pathological inputs
 - **Owner:** claude
@@ -2042,5 +2164,26 @@ talk-turn metadata reads; `BackendTalkResult` carries a typed retry notice; the
 root experience shows a transient human-readable retry banner when metadata is
 rate-limited; focused tests cover parsing and banner copy; and the repo handoff
 no longer marks PR #170 as awaiting an iOS consumer.
+
+### T76 — Refresh coordination after efficiency merge train
+- **Owner:** codex
+- **Branch:** codex/T76-efficiency-merge-refresh
+- **Pillar:** infra (coordination)
+- **Status:** in-progress
+
+## Scope
+
+Record the May 12 efficiency merge train after T75 landed, Claude's live
+agent-event lane merged, Claude's pre-flight self-check merged, and stale
+coordination PR #173 was closed. Keep the repo-native handoff lane current so
+Codex and Claude can coordinate through files instead of human copy/paste.
+
+## Done when
+
+`TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`,
+`docs/claude-inbox.md`, and `docs/codex-inbox.md` agree that PR #175 and
+PR #177 are merged, PR #173 is closed as stale, T75 consumed PR #170, and the
+next-agent queue points Claude at the remaining blockers. Coordination,
+agent-next, task-frontmatter, task-stats, task-generation, and diff checks pass.
 
 <!-- END AUTOGEN active-tasks -->
