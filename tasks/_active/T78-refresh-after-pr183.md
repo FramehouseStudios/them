@@ -2,7 +2,7 @@
 id: T78
 title: Refresh coordination after PR #183
 owner: codex
-status: in-progress
+status: merged
 branch: codex/T78-refresh-after-pr183
 pillar: infra (coordination)
 ---

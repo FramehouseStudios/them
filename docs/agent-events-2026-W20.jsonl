@@ -6,3 +6,5 @@
 {"at":"2026-05-12T19:40:58.207Z","by":"codex","kind":"pr_merged","pr":180,"comment":"Merged outbox console pre-flight cleanup after local verification"}
 {"at":"2026-05-12T19:41:04.699Z","by":"codex","kind":"pr_merged","pr":181,"comment":"Merged backend index decomposition spec with Codex phasing decisions"}
 {"at":"2026-05-12T19:41:12.899Z","by":"codex","kind":"coord_refresh","comment":"T77 records PR 180 and PR 181 merge state"}
+{"at":"2026-05-12T20:19:41.741Z","by":"codex","kind":"pr_merged","pr":183,"comment":"Merged Phase 0 health/bridge extraction after local route/backend verification"}
+{"at":"2026-05-12T20:19:41.743Z","by":"codex","kind":"coord_refresh","comment":"T78 records PR 183 merge state and returns Claude to blocker-first queue"}
