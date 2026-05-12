@@ -105,6 +105,7 @@
 | T69  | Refresh queue after PR #134 merge                 | codex  | merged            |
 | T70  | Refresh queue after PR #154/#155/#156/#158 merges | codex  | merged            |
 | T71  | Add agent throughput protocol and next-action CLI | codex  | merged            |
+| T72  | Refresh queue after supervisor merge train        | codex  | in-progress       |
 
 ---
 
