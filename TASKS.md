@@ -86,7 +86,8 @@
 | T55-close-stale-handoff-prs | Close stale handoff PRs                                | codex | merged |
 | T56-refresh-after-talk-contract | Refresh queue after talk contract merge            | codex | merged |
 | T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | claude | review |
-| T60  | Consume screenplay export formats in Studio       | codex  | review            |
+| T60  | Consume screenplay export formats in Studio       | codex  | merged            |
+| T61  | Refresh coordination after T60 merge              | codex  | in-progress       |
 
 ---
 
@@ -563,8 +564,17 @@
 - **Owner:** codex
 - **Branch:** `codex/T60-export-formats-picker`
 - **Pillar:** mobile-first + screenplay craft
-- **Status:** in-progress
+- **Status:** merged
 - **Done when:** iOS has typed client/model coverage for `GET /screenplay/export/formats`; the Studio export menu can render supported formats from the backend contract while preserving local fallback options; focused tests cover decoding, fallback ordering, and unsupported-format filtering; handoff docs tell Claude the endpoint has an app consumer.
+
+---
+
+### T61 — Refresh coordination after T60 merge
+- **Owner:** codex
+- **Branch:** `codex/T61-post-t60-coordination-refresh`
+- **Pillar:** mobile-first + infra
+- **Status:** in-progress
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #137/T60 merged; PR #133/#134 blockers are current; prompt printers and coordination-state checks are green.
 
 ---
 
