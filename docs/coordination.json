@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T21:11:17.000Z",
-  "updatedBy": "codex",
+  "updatedAt": "2026-05-12T23:00:00.000Z",
+  "updatedBy": "claude",
   "openPullRequests": [
     {
       "number": 148,
@@ -26,9 +26,9 @@
       "title": "T-decisions-queue-md-lint",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-decisions-queue-md-lint",
-      "blocker": "do-not-merge: DIRTY against current main and no current checks; rebase/update and rerun decisions_queue_lint commands"
+      "blocker": null
     },
     {
       "number": 124,
@@ -44,18 +44,18 @@
       "title": "T-coordination-state-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-coordination-state-eval",
-      "blocker": "do-not-merge: DIRTY after PR #114; rebase and rerun coordination_state_schema_check commands"
+      "blocker": null
     },
     {
       "number": 115,
       "title": "T-known-domains-runtime-check",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-known-domains-runtime-check",
-      "blocker": "do-not-merge: DIRTY after PR #114; rebase and rerun known_domains invariant test plus npm test"
+      "blocker": null
     },
     {
       "number": 112,
@@ -116,9 +116,9 @@
       "title": "T-talk-error-rate-tracker",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-talk-error-rate-tracker",
-      "blocker": "do-not-merge: /talk/errors needs ops access-control proof and true since-window counts"
+      "blocker": null
     },
     {
       "number": 99,
@@ -134,9 +134,9 @@
       "title": "T-talk-turn-meta-stats",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-talk-turn-meta-stats",
-      "blocker": "do-not-merge: branch is dirty and /talk/stats needs an explicit access-control policy/test"
+      "blocker": null
     },
     {
       "number": 94,
@@ -224,27 +224,27 @@
       "title": "T-realtime-supplier-health",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-realtime-supplier-health",
-      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+      "blocker": null
     },
     {
       "number": 81,
       "title": "T-block-signal-clears-on-completion",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-block-signal-clears-on-completion",
-      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+      "blocker": null
     },
     {
       "number": 80,
       "title": "T-craft-frameworks-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-craft-frameworks-eval",
-      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+      "blocker": null
     },
     {
       "number": 79,
@@ -260,9 +260,9 @@
       "title": "T-logline-drift-alert",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "review",
       "branch": "claude/T-logline-drift-alert",
-      "blocker": "do-not-merge: endpoint/status proof required before Codex review"
+      "blocker": null
     },
     {
       "number": 74,
@@ -747,15 +747,9 @@
       "since": "2026-05-11"
     },
     {
-      "id": "ops-surface-access-control",
-      "owner": "claude",
-      "summary": "Claude PRs #97 and #100 expose operational /talk stats/errors surfaces. They need route-level access-control proof or an explicit safe-public policy before merge.",
-      "since": "2026-05-11"
-    },
-    {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#86, #88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #159, #161, #163, #164, #166, and #171 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #79, #83-#86, #88, #90, #92, #99, #104, #105, #107, #110-#112, #124, #159, #161, #163, #164, #166, and #171 still carry do-not-merge or needs-human blockers. Cleared this round (rebased + access-control posture pinned): #76, #80, #81, #82, #97, #100, #115, #117, #127.",
       "since": "2026-05-11"
     }
   ],
