@@ -15,6 +15,7 @@
     "eval:prompt": "node evals/run_prompt_regression_eval.mjs",
     "eval:prompt:update": "node evals/run_prompt_regression_eval.mjs --write-baseline",
     "eval:craft-classification": "node evals/run_craft_classification_eval.mjs",
+    "eval:craft-frameworks": "node evals/run_craft_frameworks_eval.mjs",
     "eval:creative-memory": "node evals/run_creative_memory_eval.mjs",
     "eval:creative-memory-version": "node evals/run_creative_memory_version_eval.mjs",
     "eval:creative-memory-eviction": "node evals/run_creative_memory_eviction_eval.mjs",
