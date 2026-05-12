@@ -70,6 +70,7 @@ import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.j
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
 import { mountDecisionsQueueRoute } from "./lib/decisions_queue_route.js";
+import { mountCreativeMemoryStatsRoute } from "./lib/creative_memory_stats_route.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
@@ -32907,6 +32908,11 @@ mountOpsRoutesListRoute(app);
 // docs/decisions-queue.md as machine-readable JSON so iOS / dashboards
 // can surface "items waiting on the human" without re-parsing markdown.
 mountDecisionsQueueRoute(app);
+
+// T-creative-memory-stats-route: GET /memory/stats — content-free
+// summary (counts only, no names) of what the companion remembers,
+// for sidebar badges and the "what does it know about me?" UI.
+mountCreativeMemoryStatsRoute(app, { creativeMemoryStore });
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
