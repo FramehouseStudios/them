@@ -2,7 +2,7 @@
 id: T61
 title: Refresh coordination after T60 merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T61-post-t60-coordination-refresh
 pillar: mobile-first + infra
 ---

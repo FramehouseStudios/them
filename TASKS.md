@@ -58,17 +58,17 @@
 | T-decisions-queue | One-file queue for human decisions               | claude | merged         |
 | T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | claude | merged |
 | T-tasks-per-row | Per-row task files + TASKS.md regenerator        | claude | merged    |
-| T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | claude | review |
+| T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | claude | merged |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
 | T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
 | T-block-signal-history-bounds-eval | Pathological-input guard on the BS history buffer | claude | merged |
 | T-talk-turn-meta-contract-snapshot | Pin /talk/turn/:turnId response key set + error codes  | claude | merged |
-| T-screenplay-export-markdown | POST /screenplay/export format=md|markdown            | claude | review |
+| T-screenplay-export-markdown | POST /screenplay/export format=md|markdown            | claude | merged |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
-| T41  | Defer Studio debug-state publishing               | codex  | review            |
+| T41  | Defer Studio debug-state publishing               | codex  | merged            |
 | T-trust-tiers | Trust tiers + standing pre-approvals (AGENTS.md)              | claude | review            |
 | T42-supervisor-merge-protocol | Codex self-merge authority + agent handoff fast lane | codex | merged |
 | T43-refresh-claude-queue | Refresh Claude queue after supervisor protocol merge      | codex | merged |
@@ -85,24 +85,24 @@
 | T54-refresh-after-block-history-merge | Refresh queue after block-history eval merge | codex | merged |
 | T55-close-stale-handoff-prs | Close stale handoff PRs                                | codex | merged |
 | T56-refresh-after-talk-contract | Refresh queue after talk contract merge            | codex | merged |
-| T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | claude | review |
+| T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | claude | merged |
 | T60  | Consume screenplay export formats in Studio       | codex  | merged            |
-| T61  | Refresh coordination after T60 merge              | codex  | in-progress       |
+| T61  | Refresh coordination after T60 merge              | codex  | review            |
 
 ---
 
-## Current next-10 checklist (2026-05-11 after #67 merge)
+## Current next-10 checklist (2026-05-11 after #137 merge)
 
-1. Review-ready Codex PR #71 (`T38`) needs external review/merge; Codex must not merge its own PR.
-2. Review PR #63 (`T-trust-tiers`) only after explicit human acceptance of the standing trust/pre-approval policy; do not restore any quiet-time auto-merge path.
-3. Keep PR #33 blocked until the human replaces the malformed `OPENAI_API_KEY` Actions secret; do not weaken eval gates.
-4. Use merged PR #66 (`T-decisions-queue`) for human-needed questions.
-5. Use merged PR #67 (`T-tasks-per-row`) for optional task seeds; `TASKS.md` remains source of truth until a later canonical flip.
-6. After the PR #33 secret is fixed, have Claude refresh the eval-gate branch without weakening it.
-7. After eval-gate is truly green, Claude resumes `T07-cutover` to drop legacy dual-write JSON paths.
-8. Use merged PR #65 (`T-coordination-state`) as the fast machine-readable queue: `node scripts/coordination_state.mjs read`.
-9. Use merged PR #64 (`T-auto-merge-tier1`) carefully: only label routine Tier 1 PRs after review, and use blocking labels/comments for anything risky.
-10. After PR #71 merges, run release-readiness plus live-backend smoke passes for T34/T35/T36/T37/T38, including accepted-twist Keep/Dismiss/Reload.
+1. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over current `main`, preserving the safe-public/no-user-data posture.
+2. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against current `main`.
+3. Review/merge PR #134 once conflict-free and green.
+4. Review/merge PR #133 once the generator is idempotent and checks are green.
+5. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
+6. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
+7. Unblock PR #88 (`T-coverage-simulator`) after rebase and checks, then add the iOS coverage rail.
+8. Unblock PR #92 (`T-payoff-tracker`) with the payoff-as-new-setup regression, then add Studio payoff cards.
+9. Keep PR #94/#99 privacy-gated until the human explicitly approves memory export/delete scope.
+10. Keep PR #33 blocked until the Actions `OPENAI_API_KEY` secret is fixed; after it is green, resume T07 cutover planning without weakening eval gates.
 
 ---
 
@@ -119,7 +119,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T41-defer-studio-debug-publish`
 - **Pillar:** mobile-first
-- **Status:** review
+- **Status:** merged
 - **Done when:** Studio debug-state publication no longer mutates SwiftUI storage synchronously from `onChange`/view-update callbacks; macOS verification no longer logs SwiftUI "Publishing changes from within view updates" for this path; full themTests and generic iOS build pass.
 
 ---
@@ -167,7 +167,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T07-eval-gate-postgres`
 - **Pillar:** longitudinal learning + infra (enables all)
-- **Status:** review
+- **Status:** in-progress
 - **Done when:** CI runs the full `npm run eval:gate` path against a live Postgres instance and passes; the result is recorded in `docs/T07-persistence-canonical.md`.
 
 ### T07-cutover — Drop dual-write JSON paths after Postgres soak
@@ -225,7 +225,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T38-accepted-twist-ios`
 - **Pillar:** living companion + longitudinal learning
-- **Status:** review
+- **Status:** merged
 - **Done when:** the iOS twist-card surface can record accepted twists with `POST /craft/twist/accepted`, dismiss them with `DELETE /craft/twist/accepted/:twistId`, and reload accepted twists with `GET /craft/twist/accepted?projectId=`; request/response contracts are covered by tests; failures degrade to non-blocking UI messages while PR #59 is still pending.
 
 ### T13 — Add second realtime supplier behind existing interface
@@ -555,7 +555,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T39-fix-missing-symbol`
 - **Pillar:** mobile-first
-- **Status:** review
+- **Status:** merged
 - **Done when:** the Studio UI no longer asks SwiftUI for the unavailable `square.stack.badge.plus` SF Symbol; replacement icon preserves the duplicate/stack action meaning; focused build verification passes without the missing-symbol runtime warning.
 
 ---
@@ -573,7 +573,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T61-post-t60-coordination-refresh`
 - **Pillar:** mobile-first + infra
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #137/T60 merged; PR #133/#134 blockers are current; prompt printers and coordination-state checks are green.
 
 ---
