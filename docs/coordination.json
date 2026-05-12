@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T03:19:04.369Z",
+  "updatedAt": "2026-05-12T05:19:59.101Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -316,6 +316,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T63-post-t62-coordination-refresh",
+      "blocker": null
+    },
+    {
+      "number": 146,
+      "title": "T64-session-evolution-quiet",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T64-session-evolution-quiet",
       "blocker": null
     }
   ],
