@@ -68,6 +68,23 @@
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
 | T41  | Defer Studio debug-state publishing               | codex  | review            |
+| T-trust-tiers | Trust tiers + standing pre-approvals (AGENTS.md)              | claude | review            |
+| T42-supervisor-merge-protocol | Codex self-merge authority + agent handoff fast lane | codex | merged |
+| T43-refresh-claude-queue | Refresh Claude queue after supervisor protocol merge      | codex | merged |
+| T44-creative-memory-export-triage | Triage creative-memory export privacy gate       | codex | merged |
+| T45-craft-route-json-parser | Parse Craft route JSON in production                   | codex | merged |
+| T46-post-review-queue-refresh | Refresh queue after Codex PR reviews                  | codex | merged |
+| T47-refresh-after-new-claude-prs | Refresh queue after new Claude PR triage           | codex | merged |
+| T48-ios-archetype-traits | Surface character archetypes in the Studio traits rail   | codex | merged |
+| T49-post-t48-coordination-refresh | Post-T48 coordination refresh                     | codex | merged |
+| T50-refresh-after-pr103-merge | Refresh coordination after PR #103 merge              | codex | merged |
+| T51-refresh-after-new-eval-prs | Refresh queue for eval PR blockers                   | codex | merged |
+| T52-refresh-after-pr114-merge | Refresh coordination after PR #114 merge              | codex | merged |
+| T53-ios-block-signal-history | Add iOS block-signal history surface                   | codex | merged |
+| T54-refresh-after-block-history-merge | Refresh queue after block-history eval merge | codex | merged |
+| T55-close-stale-handoff-prs | Close stale handoff PRs                                | codex | merged |
+| T56-refresh-after-talk-contract | Refresh queue after talk contract merge            | codex | merged |
+| T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | claude | review |
 
 ---
 
