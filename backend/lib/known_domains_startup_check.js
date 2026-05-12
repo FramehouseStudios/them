@@ -12,36 +12,50 @@
 //
 // Cheap — no I/O, just iterates the constant array.
 
-import { KNOWN_DOMAINS } from "./persistence_adapter.js";
+import { KNOWN_DOMAINS as PRODUCTION_KNOWN_DOMAINS } from "./persistence_adapter.js";
 
-function checkKnownDomainsAtStartup({ logger = console, throwOnError = false } = {}) {
+function checkKnownDomainsAtStartup({
+  logger = console,
+  throwOnError = false,
+  // Optional injection point so the script can be unit-tested
+  // against pathological inputs (non-array, empty, dupes,
+  // non-snake_case) without corrupting the production constant.
+  domainsForTest = undefined,
+} = {}) {
+  const domains = domainsForTest === undefined ? PRODUCTION_KNOWN_DOMAINS : domainsForTest;
   const errors = [];
-  if (!Object.isFrozen(KNOWN_DOMAINS)) {
-    errors.push("KNOWN_DOMAINS is not frozen (callers can mutate it at runtime)");
+
+  if (!Array.isArray(domains)) {
+    errors.push(`KNOWN_DOMAINS is not an array (got ${typeof domains})`);
+  } else {
+    if (!Object.isFrozen(domains)) {
+      errors.push("KNOWN_DOMAINS is not frozen (callers can mutate it at runtime)");
+    }
+    if (domains.length === 0) {
+      errors.push("KNOWN_DOMAINS is empty");
+    }
+    const seen = new Set();
+    for (const d of domains) {
+      if (typeof d !== "string" || d.length === 0) {
+        errors.push(`KNOWN_DOMAINS contains a non-string or empty entry: ${JSON.stringify(d)}`);
+        continue;
+      }
+      if (d !== d.trim()) {
+        errors.push(`KNOWN_DOMAINS entry has whitespace: ${JSON.stringify(d)}`);
+      }
+      if (d !== d.toLowerCase()) {
+        errors.push(`KNOWN_DOMAINS entry not lowercase: ${d}`);
+      }
+      if (!/^[a-z][a-z0-9_]*$/.test(d)) {
+        errors.push(`KNOWN_DOMAINS entry not snake_case: ${d}`);
+      }
+      if (seen.has(d)) {
+        errors.push(`KNOWN_DOMAINS duplicate entry: ${d}`);
+      }
+      seen.add(d);
+    }
   }
-  if (!Array.isArray(KNOWN_DOMAINS) || KNOWN_DOMAINS.length === 0) {
-    errors.push("KNOWN_DOMAINS is empty or not an array");
-  }
-  const seen = new Set();
-  for (const d of KNOWN_DOMAINS || []) {
-    if (typeof d !== "string" || d.length === 0) {
-      errors.push(`KNOWN_DOMAINS contains a non-string or empty entry: ${JSON.stringify(d)}`);
-      continue;
-    }
-    if (d !== d.trim()) {
-      errors.push(`KNOWN_DOMAINS entry has whitespace: ${JSON.stringify(d)}`);
-    }
-    if (d !== d.toLowerCase()) {
-      errors.push(`KNOWN_DOMAINS entry not lowercase: ${d}`);
-    }
-    if (!/^[a-z][a-z0-9_]*$/.test(d)) {
-      errors.push(`KNOWN_DOMAINS entry not snake_case: ${d}`);
-    }
-    if (seen.has(d)) {
-      errors.push(`KNOWN_DOMAINS duplicate entry: ${d}`);
-    }
-    seen.add(d);
-  }
+
   if (errors.length > 0) {
     const msg = `KNOWN_DOMAINS invariants violated:\n  - ${errors.join("\n  - ")}`;
     if (throwOnError) throw new Error(msg);
