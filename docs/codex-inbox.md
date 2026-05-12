@@ -108,6 +108,13 @@ PR #181's backend-index decomposition spec is merged. Codex approved low-risk ro
 
 PR #183's Phase 0 `/health` + `/bridge` extraction is merged as a one-off Codex-accepted exception. Do not let more backend-index decomposition phases start until the blocker-first queue is healthier unless explicitly assigned.
 
+PR #186 / T79 is merged. The second-pass efficiency protocol is the active
+operating mode: `agent_next` shows recent event-lane entries, blocker-clearing
+mode raises Claude's temporary cap to six, `coordination_state` supports
+structured blocker metadata, `pre_flight` catches determinism/schema-version
+warnings, and multi-PR features start with a spec before backend/iOS parallel
+tracks begin.
+
 PR #150's `npm run eval:creative-memory-version` is merged and pins the creative-memory snapshot `version` field. PR #151's PDF export rejection payload is merged; Studio export UI can now read `message`, `alternative_formats`, and `docs_path` when `format=pdf` is rejected.
 
 PR #114's `GET /memory/block-signal/history` endpoint is consumed by `codex/T53-ios-block-signal-history` as a compact Studio Momentum history sparkline / stuck-this-week surface.

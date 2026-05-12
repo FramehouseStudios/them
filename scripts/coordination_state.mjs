@@ -17,8 +17,12 @@
 //
 //   add-pr --number=N --title=T --owner=claude|codex --tier=1|2|3 \
 //          --branch=B [--status=review|in-progress] [--blocker=TEXT]
+//          [--blocker-kind=needs_rebase|needs_test_fix|needs_scope_narrowing|policy_gated|needs_human]
+//          [--blocker-against-pr=N] [--reviewer-note=TEXT] [--expected-action=TEXT]
 //   close-pr --number=N
 //   set-pr --number=N [--status=...] [--tier=...] [--blocker=...]
+//          [--blocker-kind=...] [--blocker-against-pr=N] [--reviewer-note=TEXT]
+//          [--expected-action=TEXT]
 //
 //   add-blocker --id=ID --owner=human|claude|codex --summary=TEXT
 //   clear-blocker --id=ID
@@ -43,6 +47,13 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const FILE = path.join(repoRoot, "docs/coordination.json");
+const STRUCTURED_BLOCKER_KINDS = new Set([
+  "needs_rebase",
+  "needs_test_fix",
+  "needs_scope_narrowing",
+  "policy_gated",
+  "needs_human",
+]);
 
 function readState() {
   const raw = fs.readFileSync(FILE, "utf8");
@@ -73,6 +84,27 @@ function fail(msg) {
   process.exit(1);
 }
 
+function assignStructuredBlockerFields(target, args) {
+  if (args["blocker-kind"] !== undefined) {
+    target.blocker_kind = args["blocker-kind"] === "" ? null : String(args["blocker-kind"]);
+  }
+  if (args["blocker-against-pr"] !== undefined) {
+    if (args["blocker-against-pr"] === "") {
+      target.blocker_against_pr = null;
+    } else {
+      const n = Number(args["blocker-against-pr"]);
+      if (!Number.isInteger(n) || n <= 0) fail("--blocker-against-pr must be a positive integer");
+      target.blocker_against_pr = n;
+    }
+  }
+  if (args["reviewer-note"] !== undefined) {
+    target.reviewer_note = args["reviewer-note"] === "" ? null : String(args["reviewer-note"]);
+  }
+  if (args["expected-action"] !== undefined) {
+    target.expected_action = args["expected-action"] === "" ? null : String(args["expected-action"]);
+  }
+}
+
 function textFormat(state) {
   const lines = [];
   lines.push(`updatedAt: ${state.updatedAt}  by ${state.updatedBy}`);
@@ -80,7 +112,12 @@ function textFormat(state) {
   lines.push(`Open PRs (${state.openPullRequests.length}):`);
   for (const pr of state.openPullRequests) {
     const blocker = pr.blocker ? `  blocker: ${pr.blocker}` : "";
+    const structured = [];
+    if (pr.blocker_kind) structured.push(`blocker_kind: ${pr.blocker_kind}`);
+    if (pr.blocker_against_pr) structured.push(`against: #${pr.blocker_against_pr}`);
+    if (pr.expected_action) structured.push(`expected_action: ${pr.expected_action}`);
     lines.push(`  #${pr.number} [${pr.status}] tier-${pr.tier} ${pr.owner}: ${pr.title}${blocker}`);
+    if (structured.length) lines.push(`    ${structured.join("  ")}`);
   }
   lines.push("");
   lines.push(`Blockers (${state.blockers.length}):`);
@@ -138,7 +175,7 @@ switch (cmd) {
     if (state.openPullRequests.find((p) => p.number === number)) {
       fail(`PR #${number} already in coordination state — use set-pr to update`);
     }
-    state.openPullRequests.push({
+    const record = {
       number,
       title: String(args.title || ""),
       owner: String(args.owner || ""),
@@ -146,7 +183,9 @@ switch (cmd) {
       status: String(args.status || "review"),
       branch: String(args.branch || ""),
       blocker: args.blocker ? String(args.blocker) : null,
-    });
+    };
+    assignStructuredBlockerFields(record, args);
+    state.openPullRequests.push(record);
     writeState(state);
     console.log(`added #${number}`);
     break;
@@ -176,6 +215,7 @@ switch (cmd) {
     if (args.blocker !== undefined) {
       pr.blocker = args.blocker === false || args.blocker === "" ? null : String(args.blocker);
     }
+    assignStructuredBlockerFields(pr, args);
     writeState(state);
     console.log(`updated #${number}`);
     break;
@@ -259,6 +299,18 @@ switch (cmd) {
       if (!allowedTiers.has(pr?.tier)) errors.push(`${label}: tier must be 1|2|3 (got ${pr?.tier})`);
       if (typeof pr?.status !== "string" || pr.status.length === 0) errors.push(`${label}: status required`);
       if (typeof pr?.branch !== "string" || pr.branch.length === 0) errors.push(`${label}: branch required`);
+      if (pr?.blocker_kind !== undefined && pr.blocker_kind !== null && !STRUCTURED_BLOCKER_KINDS.has(pr.blocker_kind)) {
+        errors.push(`${label}: blocker_kind must be one of ${[...STRUCTURED_BLOCKER_KINDS].join("|")} (got ${pr.blocker_kind})`);
+      }
+      if (pr?.blocker_against_pr !== undefined && pr.blocker_against_pr !== null && (!Number.isInteger(pr.blocker_against_pr) || pr.blocker_against_pr <= 0)) {
+        errors.push(`${label}: blocker_against_pr must be a positive integer`);
+      }
+      if (pr?.reviewer_note !== undefined && pr.reviewer_note !== null && typeof pr.reviewer_note !== "string") {
+        errors.push(`${label}: reviewer_note must be a string when present`);
+      }
+      if (pr?.expected_action !== undefined && pr.expected_action !== null && typeof pr.expected_action !== "string") {
+        errors.push(`${label}: expected_action must be a string when present`);
+      }
     }
     for (const b of state.blockers || []) {
       const label = `blocker ${b?.id ?? "??"}`;

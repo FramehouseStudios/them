@@ -8,3 +8,4 @@
 {"at":"2026-05-12T19:41:12.899Z","by":"codex","kind":"coord_refresh","comment":"T77 records PR 180 and PR 181 merge state"}
 {"at":"2026-05-12T20:19:41.741Z","by":"codex","kind":"pr_merged","pr":183,"comment":"Merged Phase 0 health/bridge extraction after local route/backend verification"}
 {"at":"2026-05-12T20:19:41.743Z","by":"codex","kind":"coord_refresh","comment":"T78 records PR 183 merge state and returns Claude to blocker-first queue"}
+{"at":"2026-05-12T21:11:48.725Z","by":"codex","kind":"coord_refresh","comment":"T79 codifies second-pass efficiency protocol and updates agent_next/pre_flight/coordination blockers"}

@@ -54,6 +54,10 @@ node scripts/agent_event.mjs append \
 # Tail recent events
 node scripts/agent_event.mjs tail --n=20
 
+# `agent_next` also surfaces recent events beside the canonical queue
+node scripts/agent_next.mjs --role=claude --events-limit=5
+node scripts/agent_next.mjs --role=codex --events-since=2026-05-12T18:00:00Z
+
 # Filter
 node scripts/agent_event.mjs tail --by=codex --kind=review_blocker
 node scripts/agent_event.mjs tail --since=2026-05-12T00:00:00Z
@@ -74,8 +78,9 @@ node scripts/agent_event.mjs stats
 
 A typical Claude session goes:
 
-1. Read `agent_next` and `coordination_state read` (canonical state).
-2. Read `agent_event tail --n=20` (what changed since I last looked).
+1. Read `agent_next` and `coordination_state read` (canonical state plus
+   recent events).
+2. Optionally read `agent_event tail --n=20` for a wider event tape.
 3. Act.
 4. Append events as I act (`pr_rebased`, `coord_refresh`, etc.).
 

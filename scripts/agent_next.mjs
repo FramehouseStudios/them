@@ -3,10 +3,11 @@
 // scripts/agent_next.mjs
 //
 // Prints the next high-leverage actions for Codex and Claude from
-// docs/coordination.json. This is intentionally small and deterministic:
+// docs/coordination.json, plus the recent live event tape from
+// docs/agent-events-*.jsonl. This is intentionally small and deterministic:
 // no GitHub API calls, no network, no dependencies. The coordination file
-// remains the durable source of truth; this script just makes it fast to
-// consume.
+// remains the durable source of truth; the event tape answers "what just
+// happened?"
 
 import fs from "node:fs";
 import path from "node:path";
@@ -15,6 +16,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const DEFAULT_STATE = path.join(repoRoot, "docs/coordination.json");
+const DEFAULT_EVENTS_DIR = path.join(repoRoot, "docs");
 
 const DONE_STATUSES = new Set(["merged", "closed"]);
 const HUMAN_STATUSES = new Set(["needs-human", "policy-gated"]);
@@ -50,7 +52,16 @@ const CLAUDE_PRIORITY = new Map([
 ]);
 
 function parseArgs(argv) {
-  const args = { role: "all", limit: 5, format: "text", state: DEFAULT_STATE };
+  const args = {
+    role: "all",
+    limit: 5,
+    format: "text",
+    state: DEFAULT_STATE,
+    events: true,
+    eventsDir: DEFAULT_EVENTS_DIR,
+    eventsLimit: 5,
+    eventsSince: null,
+  };
   for (const arg of argv) {
     if (!arg.startsWith("--")) continue;
     const [key, ...rest] = arg.slice(2).split("=");
@@ -60,12 +71,46 @@ function parseArgs(argv) {
     else if (key === "format") args.format = value;
     else if (key === "json") args.format = "json";
     else if (key === "state") args.state = path.resolve(value);
+    else if (key === "no-events") args.events = false;
+    else if (key === "events-dir") args.eventsDir = path.resolve(value);
+    else if (key === "events-limit") args.eventsLimit = Math.max(0, Number(value) || 0);
+    else if (key === "events-since") args.eventsSince = value;
   }
   return args;
 }
 
 function readState(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function readRecentEvents({ eventsDir, eventsLimit, eventsSince }) {
+  if (eventsLimit <= 0 || !fs.existsSync(eventsDir)) return [];
+  const sinceMs = eventsSince ? Date.parse(eventsSince) : null;
+  const files = fs.readdirSync(eventsDir)
+    .filter((f) => /^agent-events-\d{4}-W\d{2}\.jsonl$/.test(f))
+    .sort()
+    .reverse();
+  const events = [];
+  for (const file of files) {
+    const lines = fs.readFileSync(path.join(eventsDir, file), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .reverse();
+    for (const line of lines) {
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const atMs = Date.parse(event.at);
+      if (sinceMs !== null && (Number.isNaN(atMs) || atMs < sinceMs)) continue;
+      events.push(event);
+      if (events.length >= eventsLimit) break;
+    }
+    if (events.length >= eventsLimit) break;
+  }
+  return events.reverse();
 }
 
 function isDone(pr) {
@@ -104,7 +149,14 @@ function summarize(pr) {
   return `#${pr.number} ${pr.title} [${pr.status}, tier-${pr.tier}]${blocker}`;
 }
 
-function buildNext(state, { limit }) {
+function eventSummary(event) {
+  const pr = event.pr ? `#${event.pr} ` : "";
+  const note = event.comment ? ` — ${event.comment}` : "";
+  const blocker = event.blocker_kind ? ` (${event.blocker_kind})` : "";
+  return `${event.at} ${event.by}:${event.kind} ${pr}${blocker}${note}`.trim();
+}
+
+function buildNext(state, { limit, recentEvents = [] }) {
   const prs = state.openPullRequests || [];
   const active = prs.filter((pr) => !isDone(pr));
   const activeByOwner = {
@@ -116,6 +168,9 @@ function buildNext(state, { limit }) {
   const humanGated = active.filter(isHumanGated);
   const reviewableClaude = active.filter(isReviewable);
   const codexOwn = active.filter((pr) => pr.owner === "codex" && !isBlocked(pr));
+  const claudeBlockedRatio = activeByOwner.claude === 0
+    ? 0
+    : blockedClaude.length / activeByOwner.claude;
 
   const claude = blockedClaude
     .sort((a, b) => scoreClaude(b) - scoreClaude(a) || a.number - b.number)
@@ -163,14 +218,16 @@ function buildNext(state, { limit }) {
     });
   }
 
-  const wipLimit = 3;
+  const wipLimit = claudeBlockedRatio >= 0.8 ? 6 : 3;
   return {
     updatedAt: state.updatedAt,
     throughput: {
       wipLimit,
+      wipMode: wipLimit === 6 ? "blocker-clearing" : "normal",
       activeByOwner,
       claudeOverLimit: activeByOwner.claude > wipLimit,
       blockedClaudeCount: blockedClaude.length,
+      claudeBlockedRatio,
       humanGatedCount: humanGated.length,
       reviewableClaudeCount: reviewableClaude.length,
       recommendation: activeByOwner.claude > wipLimit || blockedClaude.length > 0
@@ -184,6 +241,7 @@ function buildNext(state, { limit }) {
       title: pr.title,
       action: pr.blocker || "Needs explicit human approval.",
     })),
+    recentEvents,
   };
 }
 
@@ -192,11 +250,16 @@ function formatText(next, role) {
   lines.push(`agent_next: ${next.updatedAt}`);
   lines.push("");
   lines.push("Throughput");
-  lines.push(`- WIP limit per support agent: ${next.throughput.wipLimit}`);
+  lines.push(`- WIP limit per support agent: ${next.throughput.wipLimit} (${next.throughput.wipMode})`);
   lines.push(`- Active PRs: claude ${next.throughput.activeByOwner.claude}, codex ${next.throughput.activeByOwner.codex}, human ${next.throughput.activeByOwner.human}`);
   lines.push(`- Claude blockers: ${next.throughput.blockedClaudeCount}`);
   lines.push(`- Reviewable Claude PRs in coordination.json: ${next.throughput.reviewableClaudeCount}`);
   lines.push(`- ${next.throughput.recommendation}`);
+  if (next.recentEvents.length > 0) {
+    lines.push("");
+    lines.push(`Recent Events ${next.recentEvents.length}`);
+    for (const event of next.recentEvents) lines.push(`- ${eventSummary(event)}`);
+  }
   const includeClaude = role === "all" || role === "claude";
   const includeCodex = role === "all" || role === "codex";
   if (includeClaude) {
@@ -222,11 +285,13 @@ function formatText(next, role) {
   }
   lines.push("");
   lines.push("Use: node scripts/agent_next.mjs --role=claude|codex --limit=5");
+  lines.push("Tip: add --events-since=<ISO time> to see only events after your last poll, or --no-events for quiet output.");
   return lines.join("\n");
 }
 
 const args = parseArgs(process.argv.slice(2));
-const next = buildNext(readState(args.state), args);
+const recentEvents = args.events ? readRecentEvents(args) : [];
+const next = buildNext(readState(args.state), { ...args, recentEvents });
 if (args.format === "json") {
   console.log(JSON.stringify(next, null, 2));
 } else {
