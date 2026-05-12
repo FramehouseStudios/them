@@ -200,3 +200,44 @@ test("[import] POST rejects empty body with 400 craft_invalid_screenplay", async
     assert.equal(body.error, "craft_invalid_screenplay");
   });
 });
+
+// T-screenplay-import-fountain — Codex's review specifically asked
+// for a production-style 413 integration test. These tests hit the
+// real route through a live Express server (no stubbing) and verify
+// the response is a structured JSON 413, not a default Express
+// HTML error page.
+
+test("[import] POST > 4MB body is rejected route-locally with structured 413", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    // Build a real > 4MB body. The middleware's Content-Length check
+    // should short-circuit before the body is fully read.
+    const bigChunk = "x".repeat(1_000_000); // 1MB of placeholder
+    const body = bigChunk.repeat(5); // 5MB total
+    const r = await fetch(`${baseURL}/screenplay/import/fountain`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body,
+    });
+    assert.equal(r.status, 413);
+    const json = await r.json();
+    assert.equal(json.error, "payload_too_large");
+    assert.equal(json.max_bytes, 4_000_000);
+    // Response must be application/json, not the default HTML Express
+    // serves when an error escapes route handling.
+    assert.match(r.headers.get("content-type") || "", /application\/json/);
+    assert.equal(r.headers.get("cache-control"), "no-store");
+  });
+});
+
+test("[import] POST < 4MB body still works (regression check)", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const r = await fetch(`${baseURL}/screenplay/import/fountain`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: SAMPLE,
+    });
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.equal(body.screenplay.title.title, "io.them");
+  });
+});
