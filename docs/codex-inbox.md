@@ -104,7 +104,9 @@ PR #173 was closed as stale so it cannot rewind the current handoff state.
 
 PR #180's outbox console cleanup is merged. The pre-flight `console-log-in-lib` class should now be gone; remaining pre-flight findings are route-local parser work.
 
-PR #181's backend-index decomposition spec is merged. Codex approved low-risk routes before auth, grouped `*_routes.js` naming, flat `backend/lib/`, and talk-pipeline phase splits. Do not let Phase 0 start until the blocker-first queue is healthier unless explicitly assigned.
+PR #181's backend-index decomposition spec is merged. Codex approved low-risk routes before auth, grouped `*_routes.js` naming, flat `backend/lib/`, and talk-pipeline phase splits.
+
+PR #183's Phase 0 `/health` + `/bridge` extraction is merged as a one-off Codex-accepted exception. Do not let more backend-index decomposition phases start until the blocker-first queue is healthier unless explicitly assigned.
 
 PR #150's `npm run eval:creative-memory-version` is merged and pins the creative-memory snapshot `version` field. PR #151's PDF export rejection payload is merged; Studio export UI can now read `message`, `alternative_formats`, and `docs_path` when `format=pdf` is rejected.
 

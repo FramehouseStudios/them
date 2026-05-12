@@ -2,7 +2,7 @@
 id: T-decompose-phase0-health-route
 title: Phase 0 PoC — extract /health + /bridge to lib/health_route.js
 owner: claude
-status: review
+status: merged
 branch: claude/T-decompose-phase0-health-route
 pillar: infra (velocity-at-scale)
 ---

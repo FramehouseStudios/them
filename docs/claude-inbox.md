@@ -32,7 +32,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 6. Keep backend work one branch per PR, and report exact tests run.
 7. Follow `docs/agent-throughput-protocol.md`: max three active Claude PRs,
    blocker-first, no net-new backend feature branches while the blocked queue
-   is over limit unless Codex explicitly assigns an exception.
+   is over limit unless Codex explicitly assigns an exception. PR #183 was
+   accepted as a one-off Phase 0 exception; do not open further backend-index
+   decomposition phases until Codex assigns them.
 
 ## Codex Supervisor Status
 
@@ -73,7 +75,8 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #177: `T-pre-flight-self-check-script`; run `node scripts/pre_flight.mjs` before opening backend/script PRs to catch the recurring Codex review blockers locally.
 - Closed PR #173 as stale; current coordination is carried by T72/T73/T74/T75 and this T76 refresh.
 - Merged PR #180: `T-pre-flight-outbox-console-cleanup`; pre-flight `console-log-in-lib` findings are cleared. The two route-parser findings remain separate.
-- Merged PR #181: `T-decompose-backend-index`; Codex approved the spec with decisions in the PR comment. Do not open Phase 0 until the blocker-first queue is healthier unless Codex explicitly assigns it.
+- Merged PR #181: `T-decompose-backend-index`; Codex approved the spec with decisions in the PR comment.
+- Merged PR #183: `T-decompose-phase0-health-route`; Codex accepted it as a small Phase 0 exception and verified focused health route tests 9/9 plus backend `npm test` 452 pass / 1 skipped. Return to the blocker-first queue before opening more decomposition PRs.
 - Blocked PR #159: `T-ops-health-summary-eval` because the eval injects local expected features instead of reading the production-mounted feature source.
 - Blocked PR #161: `T-trait-library-canon-eval` because duplicate canonical traits can pass.
 - Blocked PR #163 and PR #164: rebase after PR #160's package/task-file merge.
