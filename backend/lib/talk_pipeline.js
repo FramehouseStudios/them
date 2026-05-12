@@ -1,3 +1,15 @@
+// T-talk-turn-rate-limit-route: keys the rate limiter on the
+// caller — userId when authenticated, else the request IP. Keeps
+// unauthenticated traffic from pooling behind a single bucket.
+function defaultRateLimitKey(req) {
+  const userId = req?.user?.id || req?.authUser?.id || req?.userId;
+  if (typeof userId === "string" && userId.length > 0) return `user:${userId}`;
+  // Express's req.ip is a string when trust-proxy is configured; fall
+  // back to the socket remote address.
+  const ip = req?.ip || req?.socket?.remoteAddress || "unknown";
+  return `ip:${ip}`;
+}
+
 function mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,
   requireClientTokenForTalk,
@@ -9,8 +21,27 @@ function mountTalkPipelineRoutes(app, {
   normalizeTalkTurnId,
   getTalkTurnMeta,
   canReadTalkTurnMeta,
+  // Optional. If supplied, GET /talk/turn/:turnId gates entry on
+  // `rateLimiter.attempt(key)`. Backwards-compatible: omitted →
+  // no limiter, current behavior.
+  turnReadRateLimiter = null,
+  turnReadRateLimitKey = defaultRateLimitKey,
 } = {}) {
   app.get("/talk/turn/:turnId", (req, res) => {
+    if (turnReadRateLimiter && typeof turnReadRateLimiter.attempt === "function") {
+      const key = turnReadRateLimitKey(req);
+      const verdict = turnReadRateLimiter.attempt(key);
+      if (verdict && verdict.allowed === false) {
+        res.setHeader("Cache-Control", "no-store");
+        if (Number.isFinite(verdict.retryAfterMs)) {
+          res.setHeader("Retry-After", Math.ceil(verdict.retryAfterMs / 1000));
+        }
+        return res.status(429).json({
+          error: "rate_limited",
+          retry_after_ms: Number.isFinite(verdict.retryAfterMs) ? verdict.retryAfterMs : null,
+        });
+      }
+    }
     const turnId = normalizeTalkTurnId(req.params?.turnId);
     if (!turnId) {
       return res.status(400).json({ error: "invalid_turn_id" });
