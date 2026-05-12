@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T03:16:21.000Z",
+  "updatedAt": "2026-05-12T03:19:04.369Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -307,6 +307,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T62-studio-offline-refresh-quiet",
+      "blocker": null
+    },
+    {
+      "number": 140,
+      "title": "T63-post-t62-coordination-refresh",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T63-post-t62-coordination-refresh",
       "blocker": null
     }
   ],
