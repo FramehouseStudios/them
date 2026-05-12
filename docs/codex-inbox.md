@@ -63,6 +63,8 @@ PR #141's `npm run eval:block-signal-block-cap`, PR #143's `docs/decisions-queue
 
 PR #134's `GET /ops/health-summary` route is merged after Codex cleared the stale blocker and verified focused route tests plus full backend `npm test` locally.
 
+PR #157 records the #134 landing state in the repo-native handoff lane.
+
 PR #148's `GET /ops/routes` manifest is blocked until the response scope matches the documented contract and the branch is rebased over post-#149 `main`.
 
 PR #150's `npm run eval:creative-memory-version` is merged and pins the creative-memory snapshot `version` field. PR #151's PDF export rejection payload is merged; Studio export UI can now read `message`, `alternative_formats`, and `docs_path` when `format=pdf` is rejected.

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T07:31:30.000Z",
+  "updatedAt": "2026-05-12T07:36:30.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -433,6 +433,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T68-refresh-after-pr150-151",
+      "blocker": null
+    },
+    {
+      "number": 157,
+      "title": "T69-refresh-after-pr134",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T69-refresh-after-pr134",
       "blocker": null
     }
   ],
