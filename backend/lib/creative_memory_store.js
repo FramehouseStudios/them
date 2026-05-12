@@ -289,7 +289,26 @@ function createCreativeMemoryStore({ persistence } = {}) {
   // poll loop doesn't flood the buffer with redundant entries.
   async function recordBlockSignalSample({ userId, score, level, atMs = nowMs() } = {}) {
     if (!userId) return { skipped: true, reason: "no userId" };
-    const n = Number(atMs) || nowMs();
+    // Resolve atMs:
+    //   - explicit number (including 0) → honored verbatim
+    //   - null / undefined / "" / non-numeric string → nowMs() fallback
+    //   - non-finite number (NaN / Infinity) → nowMs() fallback
+    //
+    // Naive `Number(atMs) || nowMs()` had the falsy-zero bug (PR #120
+    // side finding). Naive `Number.isFinite(Number(atMs))` silently
+    // coerced `null` and `""` to 0 (because Number(null)=0,
+    // Number("")=0) — Codex review on #124 flagged this.
+    // The explicit null/blank check below distinguishes them.
+    let n;
+    if (atMs === null || atMs === undefined || atMs === "") {
+      n = nowMs();
+    } else if (typeof atMs === "number") {
+      n = Number.isFinite(atMs) ? atMs : nowMs();
+    } else {
+      // String / other coercible. Reject NaN explicitly.
+      const candidate = Number(atMs);
+      n = Number.isFinite(candidate) ? candidate : nowMs();
+    }
     const cleanLevel = typeof level === "string" && level.trim() ? level.trim() : "low";
     const cleanScore = Number.isFinite(score) ? Math.round(Number(score) * 1000) / 1000 : 0;
     const BLOCK_SIGNAL_HISTORY_MAX = 30;

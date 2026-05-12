@@ -82,6 +82,79 @@ test("[block-history] non-finite score coerces to 0", async () => {
   assert.equal(habits.block_signal_history[0].score, 0);
 });
 
+test("[block-history] atMs=0 is honored verbatim (regression against falsy-coerce bug)", async () => {
+  const store = freshStore();
+  await store.recordBlockSignalSample({ userId: "u-zero", score: 0.1, level: "low", atMs: 0 });
+  const habits = await store.getHabitsForUser("u-zero");
+  assert.equal(habits.block_signal_history.length, 1);
+  assert.equal(habits.block_signal_history[0].at, 0);
+});
+
+test("[block-history] non-finite atMs falls back to nowMs", async () => {
+  const store = freshStore();
+  await store.recordBlockSignalSample({ userId: "u-nan-at", score: 0.1, level: "low", atMs: Number.NaN });
+  await store.recordBlockSignalSample({ userId: "u-nan-at", score: 0.2, level: "medium", atMs: "not a number" });
+  const habits = await store.getHabitsForUser("u-nan-at");
+  // Both samples recorded with sensible (positive) timestamps.
+  assert.equal(habits.block_signal_history.length, 2);
+  for (const entry of habits.block_signal_history) {
+    assert.ok(Number.isFinite(entry.at) && entry.at > 0, `bad at: ${entry.at}`);
+  }
+});
+
+// Codex review on #124 specifically asked: atMs=0 (explicit zero)
+// must be honored, but atMs=null / atMs="" must fall back to nowMs().
+// Naive Number()-coercion treats them all the same (0). These tests
+// pin the distinction.
+
+test("[block-history] atMs=null falls back to nowMs (not 0)", async () => {
+  const store = freshStore();
+  const before = Date.now();
+  await store.recordBlockSignalSample({ userId: "u-null", score: 0.1, level: "low", atMs: null });
+  const habits = await store.getHabitsForUser("u-null");
+  assert.equal(habits.block_signal_history.length, 1);
+  const at = habits.block_signal_history[0].at;
+  assert.ok(at >= before, `null atMs should fall back to nowMs (got ${at}, expected >= ${before})`);
+  assert.notEqual(at, 0, "null atMs should NOT be recorded as 0");
+});
+
+test("[block-history] atMs='' (empty string) falls back to nowMs (not 0)", async () => {
+  const store = freshStore();
+  const before = Date.now();
+  await store.recordBlockSignalSample({ userId: "u-empty", score: 0.1, level: "low", atMs: "" });
+  const habits = await store.getHabitsForUser("u-empty");
+  assert.equal(habits.block_signal_history.length, 1);
+  const at = habits.block_signal_history[0].at;
+  assert.ok(at >= before, `"" atMs should fall back to nowMs (got ${at}, expected >= ${before})`);
+  assert.notEqual(at, 0, '"" atMs should NOT be recorded as 0');
+});
+
+test("[block-history] atMs=undefined falls back to nowMs (not 0)", async () => {
+  const store = freshStore();
+  const before = Date.now();
+  await store.recordBlockSignalSample({ userId: "u-undef", score: 0.1, level: "low", atMs: undefined });
+  const habits = await store.getHabitsForUser("u-undef");
+  assert.equal(habits.block_signal_history.length, 1);
+  const at = habits.block_signal_history[0].at;
+  assert.ok(at >= before, `undefined atMs should fall back to nowMs`);
+});
+
+test("[block-history] atMs=0 (explicit zero) vs atMs=null are observably different", async () => {
+  // Round-trip distinction check: same userId + level, two records,
+  // one with atMs:0 and one with atMs:null. Should produce 2 entries
+  // with distinct `at` values (debounce only blocks same-level
+  // within 60s; null falls back to current ms which is far above 0).
+  const storeZero = freshStore();
+  await storeZero.recordBlockSignalSample({ userId: "u-distinct", score: 0.1, level: "low", atMs: 0 });
+  const habitsZero = await storeZero.getHabitsForUser("u-distinct");
+  assert.equal(habitsZero.block_signal_history[0].at, 0);
+
+  const storeNull = freshStore();
+  await storeNull.recordBlockSignalSample({ userId: "u-distinct", score: 0.1, level: "low", atMs: null });
+  const habitsNull = await storeNull.getHabitsForUser("u-distinct");
+  assert.notEqual(habitsNull.block_signal_history[0].at, 0);
+});
+
 // ---------- endpoint integration ----------
 
 async function withTestServer(fn, { userId = "u-test" } = {}) {
