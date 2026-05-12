@@ -100,21 +100,22 @@
 | T66  | Refresh queue after Claude PR triage              | codex  | merged            |
 | T67  | Refresh queue after PR #148 triage                | codex  | merged            |
 | T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
+| T69  | Refresh queue after PR #134 merge                 | codex  | merged            |
 
 ---
 
-## Current next-10 checklist (2026-05-12 after #148 triage)
+## Current next-10 checklist (2026-05-12 after #134 merge)
 
 1. Have Claude fix PR #148 (`T-ops-routes-list-route`) by rebasing over post-#149 `main` and narrowing or completing the `/ops/routes` manifest scope.
 2. Have Claude fix PR #142 (`T-known-domains-startup-check`) so the default warn-and-continue path cannot throw on a non-array `KNOWN_DOMAINS`, with injected-domain regressions.
-3. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over post-#149 `main`, preserving the safe-public/no-user-data posture.
-4. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-#149 `main`.
-5. Review/merge PR #148 once conflict-free, scope-accurate, and green.
-6. Review/merge PR #142 once the startup-check regressions and `npm test` are green.
-7. Review/merge PR #134 once conflict-free, green, and unblocked.
-8. Review/merge PR #133 once the generator is idempotent, `do-not-merge` is removed, and checks are green.
-9. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
-10. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
+3. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-#153 `main`.
+4. Review/merge PR #148 once conflict-free, scope-accurate, and green.
+5. Review/merge PR #142 once the startup-check regressions and `npm test` are green.
+6. Review/merge PR #133 once the generator is idempotent, `do-not-merge` is removed, and checks are green.
+7. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
+8. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
+9. Use merged PR #134 (`GET /ops/health-summary`) in a lightweight app/dev diagnostics surface.
+10. Use merged PR #151's helpful PDF rejection payload in Studio export UX so PDF attempts offer Markdown/FDX/Fountain fallbacks.
 
 ---
 

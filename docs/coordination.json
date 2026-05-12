@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T07:19:00.000Z",
+  "updatedAt": "2026-05-12T07:36:30.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -305,9 +305,9 @@
       "title": "T-ops-health-summary-route",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-ops-health-summary-route",
-      "blocker": "do-not-merge: still carries do-not-merge after post-#149 main; rebase/update as needed, preserve safe-public no-user-data posture, rerun focused test plus npm test"
+      "blocker": null
     },
     {
       "number": 138,
@@ -434,6 +434,15 @@
       "status": "merged",
       "branch": "codex/T68-refresh-after-pr150-151",
       "blocker": null
+    },
+    {
+      "number": 157,
+      "title": "T69-refresh-after-pr134",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T69-refresh-after-pr134",
+      "blocker": null
     }
   ],
   "blockers": [
@@ -458,7 +467,7 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, #134, #142, and #148 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, #142, and #148 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],
