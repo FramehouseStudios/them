@@ -63,6 +63,7 @@
 | T-archetype-engine-canon-eval | Pin canonical archetype set + per-entry shape | claude | merged |
 | T-screenplay-import-fountain | POST /screenplay/import/fountain (parser)        | claude | merged |
 | T-coverage-simulator | What-a-reader-sees coverage report + endpoint           | claude | review |
+| T-fdx-export-endpoint | POST /screenplay/export/fdx (Final Draft XML)   | claude | review |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
 | T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
