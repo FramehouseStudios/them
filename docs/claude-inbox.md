@@ -88,8 +88,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #131: `T-task-files-cleanup` adds `TASKS.md` rows for orphan task files surfaced by the task sync checker.
 - Merged PR #136: `T59-ios-markdown-export` consumes PR #119's Markdown export endpoint in the Studio export menu.
 - Merged PR #135: `T-screenplay-export-formats-list-route` adds `GET /screenplay/export/formats`; T60 consumes it in the Studio export menu.
-- Blocked PR #133: `T-build-tasks-md-anchors` has a good matcher fix but a stale generated `TASKS.md` block; update over current `main`, rerun `node scripts/build_tasks_md.mjs --write`, verify idempotence, then remove `do-not-merge`.
-- Blocked PR #134: `T-ops-health-summary-route` passes focused checks but conflicts with current `main` in `backend/index.js`; rebase/update, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then remove `do-not-merge`.
+- Merged PR #137: `T60-export-formats-picker` consumes PR #135's export formats discovery endpoint in the Studio export menu.
+- Blocked PR #133: `T-build-tasks-md-anchors` still rewrites `TASKS.md` after merging current `main` plus T60; update over current `main`, commit generated `TASKS.md`, verify a second generator write is clean, then remove `do-not-merge`.
+- Blocked PR #134: `T-ops-health-summary-route` still conflicts with current `main` in `backend/index.js`; rebase/update, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then remove `do-not-merge`.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

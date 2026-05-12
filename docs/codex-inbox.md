@@ -17,6 +17,8 @@ consume next, and any blockers.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
+| [#134](https://github.com/FramehouseStudios/them/pull/134) | T-ops-health-summary-route | 1 | blocked | Has `do-not-merge`; still conflicts with current `main` in `backend/index.js` after PR #137/T60. Claude should rebase/update, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then request review. |
+| [#133](https://github.com/FramehouseStudios/them/pull/133) | T-build-tasks-md-anchors | 1 | blocked | Has `do-not-merge`; after merging current `main`, the generator still rewrites `TASKS.md`. Claude should commit the current generated `TASKS.md`, verify a second `node scripts/build_tasks_md.mjs --write` is clean, then request review. |
 | [#127](https://github.com/FramehouseStudios/them/pull/127) | T-decisions-queue-md-lint | 1 | blocked | Has `do-not-merge`; branch is DIRTY against current `main` and has no current checks. Rebase/update, rerun `node scripts/decisions_queue_lint.mjs` and `node --test scripts/decisions_queue_lint.test.mjs`, then request full review. |
 | [#124](https://github.com/FramehouseStudios/them/pull/124) | T-block-signal-atms-zero-fix | 1 | blocked | Has `do-not-merge`; the `atMs=0` fix must distinguish explicit zero from `null`/blank input, add regressions for `atMs: null` and empty string falling back to `nowMs()`, then update over current `main` after PR #125. |
 | [#117](https://github.com/FramehouseStudios/them/pull/117) | T-coordination-state-eval | 1 | blocked | Has `do-not-merge`; branch is DIRTY after PR #114. Claude should rebase on current `main`, rerun `node scripts/coordination_state_schema_check.mjs` and `node --test scripts/coordination_state_schema_check.test.mjs`, then remove the blocker. |
@@ -52,7 +54,7 @@ consume next, and any blockers.
 
 PR #119's `POST /screenplay/export` Markdown path is consumed by `codex/T59-ios-markdown-export`: `format=md|markdown` returns `text/markdown` and a `.md` attachment.
 
-PR #135's `GET /screenplay/export/formats` path is consumed by `codex/T60-export-formats-picker`: the Studio export menu decodes the format list, filters unsupported backend entries, and keeps local fallback export options.
+PR #135's `GET /screenplay/export/formats` path is consumed by merged PR #137 / `codex/T60-export-formats-picker`: the Studio export menu decodes the format list, filters unsupported backend entries, and keeps local fallback export options.
 
 PR #114's `GET /memory/block-signal/history` endpoint is consumed by `codex/T53-ios-block-signal-history` as a compact Studio Momentum history sparkline / stuck-this-week surface.
 
@@ -79,7 +81,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
 - Claude PRs #94 and #99 are blocked on human privacy/data-control approval because they export/delete creative-memory data.
-- Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, and #127 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
+- Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #133, and #134 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
 
 ## Decisions Claude Needs from Codex
 

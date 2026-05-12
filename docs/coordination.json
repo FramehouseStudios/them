@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T02:21:16.591Z",
+  "updatedAt": "2026-05-12T02:57:47.569Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -280,7 +280,7 @@
       "tier": 1,
       "status": "blocked",
       "branch": "claude/T-build-tasks-md-anchors",
-      "blocker": "do-not-merge: stale generated TASKS.md block; update over current main, rerun build_tasks_md --write, verify idempotence"
+      "blocker": "do-not-merge: still non-idempotent after merging current main/T60; rerun build_tasks_md --write, commit generated TASKS.md, verify second write is clean"
     },
     {
       "number": 134,
@@ -289,7 +289,16 @@
       "tier": 1,
       "status": "blocked",
       "branch": "claude/T-ops-health-summary-route",
-      "blocker": "do-not-merge: conflicts with current main after PR #135 in backend/index.js; rebase/update, preserve safe-public no-user-data posture, rerun focused test plus npm test"
+      "blocker": "do-not-merge: still conflicts with current main/T60 in backend/index.js; rebase/update, preserve safe-public no-user-data posture, rerun focused test plus npm test"
+    },
+    {
+      "number": 138,
+      "title": "T61-post-t60-coordination-refresh",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T61-post-t60-coordination-refresh",
+      "blocker": null
     }
   ],
   "blockers": [
