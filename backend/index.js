@@ -63,6 +63,7 @@ import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention
 import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountArchetypeRoute } from "./lib/archetype_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
+import { mountOpsHealthSummaryRoute } from "./lib/ops_health_summary_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
@@ -32908,6 +32909,21 @@ mountBlockSignalHistoryRoute(app, { creativeMemoryStore });
 // returns the canonical list of supported export formats so iOS / API
 // consumers don't have to hard-code the set or guess MIME types.
 mountScreenplayExportFormatsRoute(app);
+
+// T-ops-health-summary-route: GET /ops/health-summary — cheap
+// always-on diagnostic for uptime dashboards (status, uptime, mounted
+// optional surfaces). Distinct from /ops/metrics (hot-path counters).
+mountOpsHealthSummaryRoute(app, {
+  deriveBackendStatus: deriveBackendRuntimeStatus,
+  features: {
+    creative_memory: true,
+    block_signal: true,
+    block_signal_history: true,
+    talk_pipeline: true,
+    screenplay_export_markdown: true,
+    screenplay_export_formats: true,
+  },
+});
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
