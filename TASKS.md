@@ -88,16 +88,17 @@
 | T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | claude | merged |
 | T60  | Consume screenplay export formats in Studio       | codex  | merged            |
 | T61  | Refresh coordination after T60 merge              | codex  | merged            |
-| T62  | Quiet offline Studio export-format refresh        | codex  | review            |
+| T62  | Quiet offline Studio export-format refresh        | codex  | merged            |
+| T63  | Refresh coordination after T62 merge              | codex  | review            |
 
 ---
 
-## Current next-10 checklist (2026-05-11 after #137 merge)
+## Current next-10 checklist (2026-05-11 after #139 merge)
 
-1. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over current `main`, preserving the safe-public/no-user-data posture.
-2. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against current `main`.
+1. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over post-T62 `main`, preserving the safe-public/no-user-data posture.
+2. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-T62 `main`.
 3. Review/merge PR #134 once conflict-free and green.
-4. Review/merge PR #133 once the generator is idempotent and checks are green.
+4. Review/merge PR #133 once the generator is idempotent, `do-not-merge` is removed, and checks are green.
 5. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
 6. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
 7. Unblock PR #88 (`T-coverage-simulator`) after rebase and checks, then add the iOS coverage rail.
@@ -583,8 +584,17 @@
 - **Owner:** codex
 - **Branch:** `codex/T62-studio-offline-refresh-quiet`
 - **Pillar:** mobile-first + infra
-- **Status:** review
+- **Status:** merged
 - **Done when:** Studio still discovers backend export formats when appropriate, but app/test launches do not surface noisy localhost connection failures; manual Refresh Formats remains available; focused tests cover the quiet/fallback behavior.
+
+---
+
+### T63 — Refresh coordination after T62 merge
+- **Owner:** codex
+- **Branch:** `codex/T63-post-t62-coordination-refresh`
+- **Pillar:** mobile-first + infra
+- **Status:** review
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #139/T62 merged; Claude's #133/#134 blockers are current against post-T62 `main`; coordination prompt/check scripts pass.
 
 ---
 
