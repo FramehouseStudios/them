@@ -707,6 +707,7 @@
 | T68                                     | Refresh queue after PR #150/#151 merges                           | codex  | merged      |
 | T69                                     | Refresh queue after PR #134 merge                                 | codex  | merged      |
 | T70                                     | Refresh queue after PR #154/#155/#156/#158 merges                 | codex  | merged      |
+| T71                                     | Add agent throughput protocol and next-action CLI                 | codex  | merged      |
 
 ## Active work — full detail (auto-generated)
 
@@ -1712,5 +1713,32 @@ Record the merged Claude tier-1 support PRs:
 `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect those PRs
 merged; the task files are marked merged; and coordination prompt/check
 scripts pass.
+
+### T71 — Add agent throughput protocol and next-action CLI
+- **Owner:** codex
+- **Branch:** codex/T71-agent-throughput
+- **Pillar:** infra (enables all)
+- **Status:** merged
+
+## Scope
+
+Reduce coordination drag between Codex, Claude, and the human by
+codifying the working-speed rules and adding a repo-native next-action
+command.
+
+This task adds:
+
+- A concise throughput protocol: WIP limits, merge-train batching,
+  blocker-first rule, and ready-for-iOS label semantics.
+- A script that prints the next top Codex and Claude actions from
+  `docs/coordination.json`.
+- Handoff updates so both agents can self-start from the repo instead
+  of relying on human copy/paste.
+
+## Done when
+
+The protocol is documented, `AGENTS.md` points to it, the CLI can print
+top Codex/Claude actions and JSON output, tests cover prioritization,
+and the new flow is referenced from the handoff docs.
 
 <!-- END AUTOGEN active-tasks -->
