@@ -87,8 +87,8 @@
 | T56-refresh-after-talk-contract | Refresh queue after talk contract merge            | codex | merged |
 | T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | claude | merged |
 | T60  | Consume screenplay export formats in Studio       | codex  | merged            |
-| T61  | Refresh coordination after T60 merge              | codex  | review            |
-| T62  | Quiet offline Studio export-format refresh        | codex  | in-progress       |
+| T61  | Refresh coordination after T60 merge              | codex  | merged            |
+| T62  | Quiet offline Studio export-format refresh        | codex  | review            |
 
 ---
 
@@ -574,7 +574,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T61-post-t60-coordination-refresh`
 - **Pillar:** mobile-first + infra
-- **Status:** review
+- **Status:** merged
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #137/T60 merged; PR #133/#134 blockers are current; prompt printers and coordination-state checks are green.
 
 ---
@@ -583,7 +583,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T62-studio-offline-refresh-quiet`
 - **Pillar:** mobile-first + infra
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** Studio still discovers backend export formats when appropriate, but app/test launches do not surface noisy localhost connection failures; manual Refresh Formats remains available; focused tests cover the quiet/fallback behavior.
 
 ---

@@ -296,7 +296,7 @@
       "title": "T61-post-t60-coordination-refresh",
       "owner": "codex",
       "tier": 1,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T61-post-t60-coordination-refresh",
       "blocker": null
     }

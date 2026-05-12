@@ -2,7 +2,7 @@
 id: T62
 title: Quiet offline Studio export-format refresh
 owner: codex
-status: in-progress
+status: review
 branch: codex/T62-studio-offline-refresh-quiet
 pillar: mobile-first + infra
 ---
