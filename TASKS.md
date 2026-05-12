@@ -661,3 +661,319 @@
 - Claim a row by editing it to `Owner=<you>, Status=in-progress` **as the first commit on your new branch**. If two agents try to claim the same row, the merge conflict on this file is the correct signal — do not work around it; resolve the intent.
 - New rows must include a one-line "done when" before they go to `ready` or `ready-for-claude`. A row without a definition of done does not belong in this file.
 - When a row reaches `merged`, move it to "Completed" with the merge date. Prune rows older than 30 days.
+
+---
+
+<!-- BEGIN AUTOGEN active-tasks -->
+
+## Active work — quick view (auto-generated from tasks/_active/)
+
+| ID                                 | Title                                                             | Owner  | Status      |
+|------------------------------------|-------------------------------------------------------------------|--------|-------------|
+| T-block-signal-history-bounds-eval | Pathological-input guard on the block-signal history buffer       | claude | review      |
+| T-block-signal-history-route       | GET /memory/block-signal/history read endpoint                    | claude | review      |
+| T-block-signal-history-tracking    | Persist block-signal samples to creative memory habits            | claude | review      |
+| T-build-tasks-md-anchors           | Add AUTOGEN anchors to TASKS.md + harden anchor matcher           | claude | review      |
+| T-talk-turn-meta-contract-snapshot | Pin /talk/turn/:turnId response key set + error codes             | claude | review      |
+| T-tasks-per-row                    | Per-row task files + TASKS.md regenerator (no canonical flip yet) | claude | merged      |
+| T-trust-tiers                      | Trust tiers + standing pre-approvals (AGENTS.md)                  | claude | review      |
+| T42-supervisor-merge-protocol      | Codex self-merge authority + agent handoff fast lane              | codex  | review      |
+| T43-refresh-claude-queue           | Refresh Claude queue after supervisor protocol merge              | codex  | review      |
+| T44-creative-memory-export-triage  | Triage creative-memory export privacy gate                        | codex  | review      |
+| T46-post-review-queue-refresh      | Refresh queue after Codex PR reviews                              | codex  | review      |
+| T47-refresh-after-new-claude-prs   | Refresh queue after new Claude PR triage                          | codex  | review      |
+| T48-ios-archetype-traits           | Surface character archetypes in the Studio traits rail            | codex  | in-progress |
+
+## Active work — full detail (auto-generated)
+
+### T-block-signal-history-bounds-eval — Pathological-input guard on the block-signal history buffer
+- **Owner:** claude
+- **Branch:** claude/T-block-signal-history-bounds-eval
+- **Pillar:** evals (layer-3-living)
+- **Status:** review
+
+## Scope
+
+PR #103 covers happy-path semantics of `recordBlockSignalSample` (ring
+buffer, debounce, NaN coercion). This eval pounds the buffer with
+pathological inputs:
+
+- 1,000 alternating low/medium/high samples — ring buffer must still
+  cap at 30 and preserve newest.
+- 500 same-level polls inside the 60s window — debounce must hold;
+  exactly 1 entry recorded.
+- Boundary: delta=59,999ms blocks; delta=60,000ms releases.
+- Missing / empty / undefined userId is a no-op (no record created).
+- `NaN`, `+Infinity`, `-Infinity` scores all coerce to 0.
+- Pounding userA does not leak into userB's buffer.
+
+Wired via `npm run eval:block-signal-history-bounds`. No LLM, no I/O.
+
+## Side finding
+
+The boundary tests revealed that `recordBlockSignalSample({ atMs: 0 })`
+silently substitutes `nowMs()` because the store does
+`Number(atMs) || nowMs()` — `0` is falsy. Not fixed in this PR (out of
+scope for an eval) but worth a follow-up that uses `Number.isFinite()`
+explicitly. The eval works around the gotcha by anchoring fixtures at
+`atMs=1000` instead of `0`.
+
+## Done when
+
+`backend/evals/run_block_signal_history_bounds_eval.mjs` exits 0 with
+all checks passing; `npm run eval:block-signal-history-bounds` works;
+`npm test` still green.
+
+### T-block-signal-history-route — GET /memory/block-signal/history read endpoint
+- **Owner:** claude
+- **Branch:** claude/T-block-signal-history-route
+- **Pillar:** layer-3-living (creative-memory surfaces)
+- **Status:** review
+
+## Scope
+
+PR #103 (now merged) added `habits.block_signal_history` — a 30-entry
+ring buffer of block-signal samples written on each
+`GET /memory/block-signal` call. That endpoint also re-runs the
+debounce + ring-buffer semantics on every poll, which is exactly
+what a sparkline UI does *not* want.
+
+This PR adds `GET /memory/block-signal/history`: a read-only
+projection that returns the buffer plus a small summary envelope:
+
+```json
+{
+  "schemaVersion": 1,
+  "entries": [...],
+  "counts": { "total": N, "byLevel": { "low": ..., "medium": ..., "high": ... } },
+  "newestAt": ...,
+  "oldestAt": ...
+}
+```
+
+Pure read — does not append a sample. Unauthenticated → zero-state
+envelope (matches the polling endpoint's posture).
+
+## Done when
+
+`GET /memory/block-signal/history` mounted in `backend/index.js`;
+`backend/tests/block_signal_history_route.test.mjs` covers summarizer
++ endpoint integration + mount guards; `npm test` green.
+
+### T-block-signal-history-tracking — Persist block-signal samples to creative memory habits
+- **Owner:** claude
+- **Branch:** claude/T-block-signal-history-tracking
+- **Pillar:** layer-3-living (creative-memory longitudinal)
+- **Status:** review
+
+## Scope
+
+Each `GET /memory/block-signal` call evaluates the user's current
+block-state but discards the sample after responding. To support
+longitudinal "have I been stuck a lot lately?" insights and future UI
+sparkline / coaching tone-shifts, the block-signal value should be
+appended to the user's creative-memory `habits.block_signal_history`
+ring buffer.
+
+This PR adds `recordBlockSignalSample({ userId, score, level, atMs })`
+to the creative-memory store with:
+- 60-second debounce on same-level samples (so a stable level doesn't
+  flood the buffer when the client polls frequently).
+- Always-record on level change (low ↔ medium ↔ high transitions).
+- 30-entry ring buffer cap (newest preserved).
+- Non-finite score coerced to 0; missing `userId` is a no-op.
+
+The block-signal HTTP route wires the call as a best-effort append
+after computing the signal — never blocks the response, swallows
+record errors.
+
+## Done when
+
+`backend/lib/creative_memory_store.js` exposes
+`recordBlockSignalSample`; `backend/lib/block_signal_route.js` calls
+it after computing the signal; `backend/tests/block_signal_history.test.mjs`
+covers append / debounce / level-change / time-based recording /
+ring-buffer cap / NaN coercion / endpoint integration; `npm test`
+green.
+
+### T-build-tasks-md-anchors — Add AUTOGEN anchors to TASKS.md + harden anchor matcher
+- **Owner:** claude
+- **Branch:** claude/T-build-tasks-md-anchors
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+`scripts/build_tasks_md.mjs --write` is the canonical regenerator
+for the active-tasks section of TASKS.md. PR #67 shipped the
+regenerator but TASKS.md lacked the BEGIN/END AUTOGEN anchors, so
+`--write` was a no-op.
+
+This PR:
+
+1. **Hardens the matcher**: `current.indexOf(BEGIN_ANCHOR)` happily
+   matched the anchor strings inside the inline reference quoted in
+   T-tasks-per-row's own description. Running `--write` once would
+   overwrite from inside the description, corrupting unrelated rows.
+   Switched to a `findStandaloneAnchor()` that requires the anchor
+   to sit alone on its own line (surrounded by newlines or buffer
+   ends). Inline mentions are now correctly ignored.
+
+2. **Adds the anchors** as standalone lines at the bottom of
+   TASKS.md (`<!-- BEGIN AUTOGEN active-tasks -->` /
+   `<!-- END AUTOGEN active-tasks -->`).
+
+3. **Runs `--write` once** to populate the autogen section with a
+   mirror of every `tasks/_active/T-*.md` file. The hand-maintained
+   table above stays the canonical source for now; the autogen
+   block is a parallel view that lets future PRs incrementally
+   migrate rows.
+
+## Done when
+
+`node scripts/build_tasks_md.mjs --write` overwrites only the
+between-anchors region; inline mentions in descriptions don't
+match; the autogen block is present at the end of TASKS.md.
+
+### T-talk-turn-meta-contract-snapshot — Pin /talk/turn/:turnId response key set + error codes
+- **Owner:** claude
+- **Branch:** claude/T-talk-pipeline-error-class-snapshot
+- **Pillar:** evals (contract stability)
+- **Status:** review
+
+## Scope
+
+`GET /talk/turn/:turnId` is a load-bearing iOS contract — the client
+reads every field of the success body and switches on the error
+code. A silent rename or shape change in `lib/talk_pipeline.js`
+would silently regress every iOS consumer at once.
+
+This PR adds `backend/tests/talk_turn_meta_contract.test.mjs` which
+pins:
+
+1. The full set of canonical error codes: `invalid_turn_id`,
+   `turn_not_found`, `forbidden`.
+2. The exact key set of the success response body (14 keys, listed
+   explicitly in the test).
+3. The 3 default keys on `render_contract` for legacy turns
+   (`reply_role`, `authoritative_page_text_available`, `sync_ready`).
+4. `Cache-Control: no-store` on the response.
+
+The test mounts the route in isolation with stub middleware so it
+runs fast and deterministic; no real talk pipeline state required.
+
+## Done when
+
+`backend/tests/talk_turn_meta_contract.test.mjs` covers the four
+contract surfaces; `npm test` green.
+
+### T-tasks-per-row — Per-row task files + TASKS.md regenerator (no canonical flip yet)
+- **Owner:** claude
+- **Branch:** claude/T-tasks-per-row
+- **Pillar:** infra (enables all)
+- **Status:** merged
+
+## Scope
+
+New `tasks/_active/` directory with one markdown file per currently-active
+task. Each file carries a YAML-style front matter block (id, title,
+owner, status, branch, pillar) and body sections (Scope, Done when).
+`scripts/build_tasks_md.mjs` reads these files and can print or write
+the quick-view table + detail blocks for the active section of
+`TASKS.md`.
+
+This PR ships the layout and the regenerator; it does **not** flip
+`TASKS.md` to be a build artifact. Adoption is opt-in. A follow-up
+will flip the canonical source once enough rows have moved.
+
+## Done when
+
+`tasks/README.md` documents the convention; `tasks/_active/` is
+populated with at least one example file (this one); the regenerator
+prints a valid quick-view table when run; `TASKS.md` remains the
+source of truth for now (the README explains the migration plan).
+
+### T-trust-tiers — Trust tiers + standing pre-approvals (AGENTS.md)
+- **Owner:** claude
+- **Branch:** claude/T-trust-tiers
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+## Scope
+
+Adds a new `## Trust Tiers (standing pre-approvals)` section to
+`AGENTS.md` defining three merge tiers — Tier 1 (agent-owned,
+merge-eligible only when the suite is green and a trusted cross-agent approval is present),
+Tier 2 (cross-agent review required), Tier 3 (human approval
+required). Codifies which classes of PRs can ship without the human
+becoming the merge bottleneck. Canonical reference point for the
+`auto-merge-tier1.yml` workflow.
+
+## Done when
+
+AGENTS.md carries the Trust Tiers section with explicit lists of
+what's Tier 1 / 2 / 3 and the escalation rules; the section names the
+`tier-1` / `tier-2` / `tier-3` labels the auto-merge workflow will
+read.
+
+### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
+- **Owner:** codex
+- **Branch:** codex/T42-supervisor-merge-protocol
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+- **Done when:** the human-approved Codex self-merge authority is recorded as an accepted decision; `AGENTS.md` explains when Codex may merge its own PRs; the Codex/Claude fast-path handoff tells both agents how to act from `docs/coordination.json` without chat copy/paste; verification commands for the coordination scripts pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T43-refresh-claude-queue — Refresh Claude queue after supervisor protocol merge
+- **Owner:** codex
+- **Branch:** codex/T43-refresh-claude-queue
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+- **Done when:** `docs/coordination.json` and Codex/Claude inboxes reflect the current open Claude PR queue after T42, including PRs #91 and #92; superseded PR #89 is marked blocked; verification commands for the coordination scripts pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T44-creative-memory-export-triage — Triage creative-memory export privacy gate
+- **Owner:** codex
+- **Branch:** codex/T44-creative-memory-export-triage
+- **Pillar:** longitudinal learning
+- **Status:** review
+
+- **Done when:** `docs/coordination.json` and inboxes mark Claude PR #94 as tier-3/needs-human because it exposes a full creative-memory export surface; verification commands for the coordination scripts pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T46-post-review-queue-refresh — Refresh queue after Codex PR reviews
+- **Owner:** codex
+- **Branch:** codex/T46-post-review-queue-refresh
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+- **Done when:** `docs/coordination.json` and inboxes reflect the current state after #91 and #98 merge; blocked Claude PRs #87/#88/#90/#92/#97 show their exact blockers; verification commands for the coordination scripts pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T47-refresh-after-new-claude-prs — Refresh queue after new Claude PR triage
+- **Owner:** codex
+- **Branch:** codex/T47-refresh-after-new-claude-prs
+- **Pillar:** infra (enables all)
+- **Status:** review
+
+- **Done when:** `docs/coordination.json`, Codex inbox, Claude inbox, and the live handoff ledger record PR #99 as human-gated privacy/data-control work and PR #100 as blocked on ops access-control plus true windowed counts; prompt printers and coordination script checks pass.
+
+- **Scope:** protocol/docs only. No app or backend runtime changes.
+
+### T48-ios-archetype-traits — Surface character archetypes in the Studio traits rail
+- **Owner:** codex
+- **Branch:** codex/T48-ios-archetype-traits
+- **Pillar:** living companion + longitudinal learning
+- **Status:** in-progress
+
+- **Done when:** iOS has typed models/client coverage for `GET /memory/character-archetypes`; the existing character-traits rail can show a compact archetype tag/insight when backend data is present; empty/failure states remain non-blocking; focused tests cover decoding and view-state mapping.
+
+- **Scope:** iOS app/package integration only. Backend contract already merged in PR #91.
+
+<!-- END AUTOGEN active-tasks -->

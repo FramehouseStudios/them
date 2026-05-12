@@ -14,10 +14,10 @@
 //   ...generated content...
 //   <!-- END AUTOGEN active-tasks -->
 //
-// Anchors don't exist in `TASKS.md` today — `--write` is a no-op
-// until the canonical flip lands. Until then, agents may continue
-// editing `TASKS.md` directly. This script ships the regenerator so
-// the eventual flip is a small follow-up, not a rewrite.
+// The anchors must appear as standalone lines (surrounded by
+// newlines). Inline mentions inside descriptions / code spans are
+// ignored. `--write` is a no-op until at least one standalone pair
+// is present.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -70,7 +70,6 @@ function padRight(s, width) {
 }
 
 function renderQuickViewTable(tasks) {
-  // Find column widths so the table reads as cleanly as the hand-written one.
   const ids = tasks.map((t) => t.id);
   const titles = tasks.map((t) => t.title || "");
   const owners = tasks.map((t) => t.owner || "");
@@ -123,21 +122,41 @@ function renderAll(tasks) {
   return out.join("\n");
 }
 
+// Find an anchor that sits alone on its own line (surrounded by
+// newlines or buffer ends). Skips inline occurrences inside
+// descriptions / code spans.
+function findStandaloneAnchor(text, anchor) {
+  let from = 0;
+  while (true) {
+    const idx = text.indexOf(anchor, from);
+    if (idx === -1) return -1;
+    const startOk = idx === 0 || text[idx - 1] === "\n";
+    const endChar = text[idx + anchor.length];
+    const endOk = endChar === undefined || endChar === "\n";
+    if (startOk && endOk) return idx;
+    from = idx + 1;
+  }
+}
+
 function writeIntoTasksMd(rendered) {
   if (!fs.existsSync(tasksMd)) {
     console.error("TASKS.md not found");
     process.exit(1);
   }
   const current = fs.readFileSync(tasksMd, "utf8");
-  const beginIdx = current.indexOf(BEGIN_ANCHOR);
-  const endIdx = current.indexOf(END_ANCHOR);
+  const beginIdx = findStandaloneAnchor(current, BEGIN_ANCHOR);
+  const endIdx = findStandaloneAnchor(current, END_ANCHOR);
   if (beginIdx === -1 || endIdx === -1) {
     console.error(
-      "TASKS.md does not contain the autogen anchors yet.\n" +
+      "TASKS.md does not contain the autogen anchors as standalone lines.\n" +
         "Add these two lines somewhere in TASKS.md to enable --write:\n" +
         `  ${BEGIN_ANCHOR}\n` +
         `  ${END_ANCHOR}\n`,
     );
+    process.exit(2);
+  }
+  if (beginIdx >= endIdx) {
+    console.error(`autogen anchors out of order in TASKS.md (begin=${beginIdx} >= end=${endIdx})`);
     process.exit(2);
   }
   const before = current.slice(0, beginIdx);
