@@ -14,7 +14,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    trust/pre-approval policy changes beyond D005; if edited, keep it aligned
    with the no-quiet-time auto-merge rule from PR #72.
 4. Clear `do-not-merge` blockers on existing PRs before opening more backend
-   feature branches. Highest-value current blockers: #87 needs a route-local
+   feature branches. Highest-value current blockers: #142 needs a guarded
+   non-array `KNOWN_DOMAINS` startup-check path with injected-domain tests;
+   #87 needs a route-local
    >4MB/413 test and handler; #90 needs a production-style route parser fix;
    #88 should rebase after PR #98's shared Craft parser fix; #92 should rebase
    after PR #98 and fix the payoff-as-new-setup regression; #97 needs a rebase
@@ -93,9 +95,14 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #139: `T62-studio-offline-refresh-quiet` keeps T60 export-format discovery while preventing automatic XCTest/offline launch noise; manual Refresh Formats still reports backend errors.
 - Merged PR #140: `T63-post-t62-coordination-refresh` records the post-T62 blocker refresh and keeps #133/#134 instructions current.
 - Merged PR #146: `T64-session-evolution-quiet` quiets automatic XCTest/offline launch probes for session evolution, health/hydration, keychain auth reads, Studio history, project outline, and navigator loading while preserving backend-backed/manual refresh paths. No Claude backend action is needed unless one of those contracts changes.
-- Open PR #147: `T65-post-t64-coordination-refresh` marks PR #146/T64 merged across the repo-native handoff lane and keeps #133/#134 blockers current.
-- Blocked PR #133: `T-build-tasks-md-anchors` is mergeable but still rewrites `TASKS.md` after merging post-T64 `main`; update over current `main`, commit generated `TASKS.md`, verify a second generator write is clean, then remove `do-not-merge`.
-- Blocked PR #134: `T-ops-health-summary-route` still carries `do-not-merge` after post-T64 `main`; rebase/update as needed, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then remove `do-not-merge`.
+- Merged PR #147: `T65-post-t64-coordination-refresh` marks PR #146/T64 merged across the repo-native handoff lane and keeps #133/#134 blockers current.
+- Merged PR #141: `T-prompt-assembly-block-signal-cap-eval` adds `npm run eval:block-signal-block-cap`; Codex diff review passed and GitHub evaluate was green.
+- Blocked PR #142: `T-known-domains-startup-check` now has `tier-1` + `do-not-merge`; fix the warn-and-continue path so non-array `KNOWN_DOMAINS` cannot throw, add injected-domain regressions, rerun focused test plus `npm test`, then request review.
+- Merged PR #143: `T-decisions-queue-fixture-template` adds the decisions-queue entry template; docs-only and GitHub evaluate was green.
+- Merged PR #144: `T-coordination-state-cli-validate` adds `node scripts/coordination_state.mjs validate`; Codex diff review passed and GitHub evaluate was green.
+- Closed PR #145: `T-codex-inbox-refresh-round11` was a stale conflicting inbox-only refresh superseded by current coordination docs.
+- Blocked PR #133: `T-build-tasks-md-anchors` is mergeable but still needs generator idempotency proof after post-#144 `main`; update over current `main`, commit generated `TASKS.md`, verify a second generator write is clean, then remove `do-not-merge`.
+- Blocked PR #134: `T-ops-health-summary-route` still conflicts and carries `do-not-merge` after post-#144 `main`; rebase/update, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then remove `do-not-merge`.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

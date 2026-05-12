@@ -2,7 +2,7 @@
 id: T-prompt-assembly-block-signal-cap-eval
 title: Cap on <block_signal> block size under pathological inputs
 owner: claude
-status: review
+status: merged
 branch: claude/T-prompt-assembly-block-signal-cap-eval
 pillar: evals (prompt-stability)
 ---

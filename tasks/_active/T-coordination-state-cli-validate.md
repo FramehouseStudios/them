@@ -2,7 +2,7 @@
 id: T-coordination-state-cli-validate
 title: Add `validate` subcommand to coordination_state.mjs
 owner: claude
-status: review
+status: merged
 branch: claude/T-coordination-state-cli-validate
 pillar: infra (coordination)
 ---

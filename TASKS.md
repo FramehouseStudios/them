@@ -63,8 +63,11 @@
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
 | T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
 | T-block-signal-history-bounds-eval | Pathological-input guard on the BS history buffer | claude | merged |
+| T-prompt-assembly-block-signal-cap-eval | Cap on `<block_signal>` block size under pathological inputs | claude | merged |
 | T-talk-turn-meta-contract-snapshot | Pin /talk/turn/:turnId response key set + error codes  | claude | merged |
 | T-screenplay-export-markdown | POST /screenplay/export format=md|markdown            | claude | merged |
+| T-decisions-queue-fixture-template | docs/decisions-queue-template.md entry skeleton | claude | merged |
+| T-coordination-state-cli-validate | Add validate subcommand to coordination_state.mjs | claude | merged |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
@@ -91,23 +94,23 @@
 | T62  | Quiet offline Studio export-format refresh        | codex  | merged            |
 | T63  | Refresh coordination after T62 merge              | codex  | merged            |
 | T64  | Quiet offline session-evolution launch probe      | codex  | merged            |
-| T65  | Refresh coordination after T64 merge              | codex  | review            |
-| T66  | Refresh queue after Claude PR triage              | codex  | in-progress       |
+| T65  | Refresh coordination after T64 merge              | codex  | merged            |
+| T66  | Refresh queue after Claude PR triage              | codex  | review            |
 
 ---
 
-## Current next-10 checklist (2026-05-12 after #146 merge)
+## Current next-10 checklist (2026-05-12 after #141/#143/#144 merge)
 
-1. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over post-T64 `main`, preserving the safe-public/no-user-data posture.
-2. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-T64 `main`.
-3. Review/merge PR #134 once conflict-free and green.
-4. Review/merge PR #133 once the generator is idempotent, `do-not-merge` is removed, and checks are green.
-5. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
-6. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
-7. Unblock PR #88 (`T-coverage-simulator`) after rebase and checks, then add the iOS coverage rail.
-8. Unblock PR #92 (`T-payoff-tracker`) with the payoff-as-new-setup regression, then add Studio payoff cards.
-9. Keep PR #94/#99 privacy-gated until the human explicitly approves memory export/delete scope.
-10. Keep PR #33 blocked until the Actions `OPENAI_API_KEY` secret is fixed; after it is green, resume T07 cutover planning without weakening eval gates.
+1. Have Claude fix PR #142 (`T-known-domains-startup-check`) so the default warn-and-continue path cannot throw on a non-array `KNOWN_DOMAINS`, with injected-domain regressions.
+2. Have Claude rebase/fix PR #134 (`T-ops-health-summary-route`) over post-#144 `main`, preserving the safe-public/no-user-data posture.
+3. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-#144 `main`.
+4. Review/merge PR #142 once the startup-check regressions and `npm test` are green.
+5. Review/merge PR #134 once conflict-free, green, and unblocked.
+6. Review/merge PR #133 once the generator is idempotent, `do-not-merge` is removed, and checks are green.
+7. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
+8. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
+9. Unblock PR #88 (`T-coverage-simulator`) after rebase and checks, then add the iOS coverage rail.
+10. Unblock PR #92 (`T-payoff-tracker`) with the payoff-as-new-setup regression, then add Studio payoff cards.
 
 ---
 
@@ -614,7 +617,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T65-post-t64-coordination-refresh`
 - **Pillar:** mobile-first + infra
-- **Status:** review
+- **Status:** merged
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #146/T64 merged; Claude's #133/#134 blockers remain current; coordination prompt/check scripts pass.
 
 ---
@@ -623,7 +626,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T66-refresh-after-claude-pr-triage`
 - **Pillar:** infra (enables all)
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #141/#143/#144 merged, PR #142 blocked with a precise review finding, PR #145 closed as stale, and PR #147/T65 merged; coordination prompt/check scripts pass.
 
 ---
