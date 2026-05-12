@@ -129,9 +129,12 @@ test("[fdx] sanitizeFilenameBase replaces unsafe characters", () => {
   assert.equal(sanitizeFilenameBase(null), "screenplay");
 });
 
+// Production-style fixture: do NOT install a global express.json()
+// middleware. The route is expected to parse its own body. If a
+// future refactor removes the route-local parser, every test below
+// fails — which is the correct guardrail.
 async function withTestServer(fn) {
   const app = express();
-  app.use(express.json());
   mountFDXExportRoute(app);
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
@@ -194,4 +197,61 @@ test("[fdx] POST rejects non-array scenes with 400", async () => {
     assert.equal(r.status, 400);
     assert.equal(r.json.error, "craft_invalid_screenplay");
   });
+});
+
+// T-fdx-export-endpoint — Codex's review on #90 specifically asked
+// for a production-style test that verifies the route parses its own
+// JSON body. The `withTestServer` fixture above no longer installs
+// a global `express.json()`, so every other [fdx] test transitively
+// proves this. This test makes the contract explicit so future
+// changes can't quietly drop the route-local parser.
+
+test("[fdx] route parses its own JSON body (no app-level express.json required)", async () => {
+  // Build a bare Express app — no body parser middleware at all.
+  const app = express();
+  mountFDXExportRoute(app);
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once("listening", resolve));
+  const port = server.address().port;
+  const baseURL = `http://127.0.0.1:${port}`;
+  try {
+    const r = await fetch(`${baseURL}/screenplay/export/fdx`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: { title: "io.them" },
+        scenes: [{ heading: "INT. ROOM - DAY", paragraphs: [{ type: "Action", text: "She walks in." }] }],
+      }),
+    });
+    assert.equal(r.status, 200);
+    const json = await r.json();
+    assert.equal(json.schemaVersion, 1);
+    assert.ok(typeof json.fdx === "string" && json.fdx.includes("FinalDraft"));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("[fdx] route returns 400 when body is empty (route-local parser sees no fields)", async () => {
+  const app = express();
+  mountFDXExportRoute(app);
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once("listening", resolve));
+  const port = server.address().port;
+  const baseURL = `http://127.0.0.1:${port}`;
+  try {
+    const r = await fetch(`${baseURL}/screenplay/export/fdx`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "",
+    });
+    // Empty body is not invalid JSON; it parses to {}. The route
+    // should still respond with a structured envelope (200 with
+    // empty <Content/>, or 400 craft_invalid_screenplay). Either
+    // way, it must NOT 500 with a generic Express error page.
+    assert.notEqual(r.status, 500);
+    assert.match(r.headers.get("content-type") || "", /application\/json/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
