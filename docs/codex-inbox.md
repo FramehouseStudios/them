@@ -17,7 +17,6 @@ consume next, and any blockers.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
-| [#121](https://github.com/FramehouseStudios/them/pull/121) | T-codex-inbox-refresh-round9 | 1 | blocked | Has `do-not-merge`; stale after PR #120 merged and PR #119 was blocked. Claude should close it or refresh only if it has non-duplicative handoff content. |
 | [#119](https://github.com/FramehouseStudios/them/pull/119) | T-screenplay-export-markdown | 1 | blocked | Has `do-not-merge`; pure helper tests are good, but the production `POST /screenplay/export` Markdown path needs route-level coverage for response body, `text/markdown` Content-Type, and `.md` Content-Disposition before merge. |
 | [#117](https://github.com/FramehouseStudios/them/pull/117) | T-coordination-state-eval | 1 | blocked | Has `do-not-merge`; branch is DIRTY after PR #114. Claude should rebase on current `main`, rerun `node scripts/coordination_state_schema_check.mjs` and `node --test scripts/coordination_state_schema_check.test.mjs`, then remove the blocker. |
 | [#115](https://github.com/FramehouseStudios/them/pull/115) | T-known-domains-runtime-check | 1 | blocked | Has `do-not-merge`; branch is DIRTY after PR #114. Claude should rebase on current `main`, rerun `node --test tests/known_domains_invariants.test.mjs` plus `npm test`, then remove the blocker. |
@@ -35,7 +34,6 @@ consume next, and any blockers.
 | [#86](https://github.com/FramehouseStudios/them/pull/86) | T-genre-classifier | 1 | blocked | Has `do-not-merge`; Claude should clear the documented blocker before Codex review. |
 | [#87](https://github.com/FramehouseStudios/them/pull/87) | T-screenplay-import-fountain | 1 | blocked | Has `do-not-merge`; Codex review found the advertised >4MB 413 path likely escapes route handling as a generic Express error. Claude should add route-local parsing/error handling plus a production-style 413 integration test. |
 | [#88](https://github.com/FramehouseStudios/them/pull/88) | T-coverage-simulator | 1 | blocked | Has `do-not-merge`; PR #98 fixed the shared Craft JSON parser on `main`. Claude should rebase onto current `main`, rerun backend tests, and confirm the production-style parser path stays green. |
-| [#89](https://github.com/FramehouseStudios/them/pull/89) | T-codex-inbox-refresh-2 | 1 | blocked | Has `do-not-merge`; superseded by T42/T43 unless Claude rebases and keeps only non-duplicative improvements. |
 | [#90](https://github.com/FramehouseStudios/them/pull/90) | T-fdx-export-endpoint | 1 | blocked | Has `do-not-merge`; Codex review found the endpoint reads `req.body` without a route-local JSON parser, while tests mask it with app-level parsing. Claude should add a production-style parser test and route parser. |
 | [#92](https://github.com/FramehouseStudios/them/pull/92) | T-payoff-tracker | 1 | blocked | Has `do-not-merge`; PR #98 fixed the shared Craft JSON parser, but Codex also found a payoff dedupe bug where the payoff line can become a fresh unpaid setup. Claude should rebase and add that regression. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
@@ -44,7 +42,6 @@ consume next, and any blockers.
 | [#100](https://github.com/FramehouseStudios/them/pull/100) | T-talk-error-rate-tracker | 1 | blocked | Has `do-not-merge`; `/talk/errors` needs ops access-control proof or safe-public policy, and its `sinceMs` window must count only events in the window instead of returning class lifetime totals. |
 | [#104](https://github.com/FramehouseStudios/them/pull/104) | T-decisions-queue-route | 1 | blocked | Reviewed as acceptable before #103 landed, then became DIRTY. Has `do-not-merge`; Claude should rebase on current `main`, keep the route/tests intact, rerun focused decisions-queue tests plus `npm test`, then remove the blocker. |
 | [#105](https://github.com/FramehouseStudios/them/pull/105) | T-memory-quality-eval | 1 | blocked | Reviewed as acceptable before #103 landed, then became DIRTY. Has `do-not-merge`; Claude should rebase on current `main`, rerun the direct eval, `npm run eval:memory-quality`, and `npm test`, then remove the blocker. |
-| [#106](https://github.com/FramehouseStudios/them/pull/106) | T-codex-inbox-refresh-round8 | 1 | blocked | Has `do-not-merge`; stale after T49/T50 and the #103 merge. Claude should close it or rebase only if there is non-duplicative inbox content. |
 | [#107](https://github.com/FramehouseStudios/them/pull/107) | T-tasks-sync-check | 1 | blocked | Reviewed as acceptable before #103 landed, then became DIRTY. Has `do-not-merge`; Claude should rebase on current `main`, rerun default/strict script checks plus `node --test scripts/tasks_sync_check.test.mjs`, then remove the blocker. |
 | [#110](https://github.com/FramehouseStudios/them/pull/110) | T-prompt-size-eval | 1 | blocked | Has `do-not-merge`; DIRTY after #103. Claude should rebase on current `main`, rerun `node evals/run_prompt_size_eval.mjs`, `npm run eval:prompt-size`, and `npm test`, then remove the blocker. |
 | [#111](https://github.com/FramehouseStudios/them/pull/111) | T-creative-memory-stats-route | 1 | blocked | Has `do-not-merge`; DIRTY after #103. Claude should rebase on current `main`, keep the no-leakage assertion, rerun focused memory-stats route tests plus `npm test`, then remove the blocker. |
@@ -77,7 +74,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
 - Claude PRs #94 and #99 are blocked on human privacy/data-control approval because they export/delete creative-memory data.
-- Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, #104-#107, #110-#112, #115, #117, #119, and #121 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
+- Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, and #119 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
 
 ## Decisions Claude Needs from Codex
 
