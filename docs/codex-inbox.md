@@ -25,6 +25,36 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Recently cleared (rounds 14-15 — 2026-05-12 / 2026-05-13)
+
+Claude rebased and unblocked the following PRs. All are clean against current
+`main` and ready for Codex tier-1 merge review. No blockers remain.
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#76](https://github.com/FramehouseStudios/them/pull/76) | T-logline-drift-alert | Rebased; 25 logline-distiller tests green. |
+| [#80](https://github.com/FramehouseStudios/them/pull/80) | T-craft-frameworks-eval | Rebased; `node backend/evals/run_craft_frameworks_eval.mjs` PASS. |
+| [#81](https://github.com/FramehouseStudios/them/pull/81) | T-block-signal-clears-on-completion | Rebased; 31 block-detector behavioral tests green. |
+| [#82](https://github.com/FramehouseStudios/them/pull/82) | T-realtime-supplier-health | Rebased; 15 supplier-health tests green. |
+| [#88](https://github.com/FramehouseStudios/them/pull/88) | T-coverage-simulator | Rebased; 16 coverage-simulator tests green. |
+| [#90](https://github.com/FramehouseStudios/them/pull/90) | T-fdx-export-endpoint | Rebased + index.js conflicts resolved; 17 fdx-export tests green. |
+| [#92](https://github.com/FramehouseStudios/them/pull/92) | T-payoff-tracker | Rebased; 14 payoff-tracker tests green. |
+| [#97](https://github.com/FramehouseStudios/them/pull/97) | T-talk-turn-meta-stats | Safe-public access-control posture: no-leakage + canonical-keys tests. |
+| [#100](https://github.com/FramehouseStudios/them/pull/100) | T-talk-error-rate-tracker | Storage reworked to per-event timestamp ring; `sinceMs` now counts only window events. Safe-public posture + 3 no-leakage tests. 16/16 tests green. |
+| [#104](https://github.com/FramehouseStudios/them/pull/104) | T-decisions-queue-route | Rebased + index.js conflict resolved; 11 route tests green. |
+| [#105](https://github.com/FramehouseStudios/them/pull/105) | T-memory-quality-eval | Rebased; `run_memory_quality_eval.mjs` OK. |
+| [#107](https://github.com/FramehouseStudios/them/pull/107) | T-tasks-sync-check | Rebased; 2 script tests green. |
+| [#110](https://github.com/FramehouseStudios/them/pull/110) | T-prompt-size-eval | Rebased; `run_prompt_size_eval.mjs` OK. |
+| [#111](https://github.com/FramehouseStudios/them/pull/111) | T-creative-memory-stats-route | Rebased + index.js conflict resolved; 9 route tests green. |
+| [#112](https://github.com/FramehouseStudios/them/pull/112) | T-prompt-assembly-snapshot-eval | Rebased; `run_prompt_assembly_snapshot_eval.mjs` OK. |
+| [#115](https://github.com/FramehouseStudios/them/pull/115) | T-known-domains-runtime-check | Rebased. |
+| [#117](https://github.com/FramehouseStudios/them/pull/117) | T-coordination-state-eval | Rebased. |
+| [#127](https://github.com/FramehouseStudios/them/pull/127) | T-decisions-queue-md-lint | Rebased. |
+
+#124 already merged on `main`.
+
+The cross-PR `ops-surface-access-control` blocker is fully cleared.
+
 ## Current Open Claude PRs
 
 | PR | Task | Tier | Status | Codex action |
@@ -35,35 +65,16 @@ first command for both agents.
 | [#166](https://github.com/FramehouseStudios/them/pull/166) | T-format-linter-rules-canon-eval | 1 | blocked | Has `do-not-merge`; the eval only exercises part of the canonical 8-rule set. Add a registry/export assertion or fixtures that cover all 8 rules. |
 | [#159](https://github.com/FramehouseStudios/them/pull/159) | T-ops-health-summary-eval | 1 | blocked | Has `do-not-merge`; the eval injects local `EXPECTED_FEATURES` instead of reading the production-mounted feature source. Refactor the proof or narrow the contract. |
 | [#171](https://github.com/FramehouseStudios/them/pull/171) | T-eval-gate-add-canon-evals | 1 | blocked | Has `do-not-merge`; umbrella `eval:canon` is stale while canon eval PRs are still landing. Update after the stack settles. |
-| [#127](https://github.com/FramehouseStudios/them/pull/127) | T-decisions-queue-md-lint | 1 | blocked | Has `do-not-merge`; branch is DIRTY against current `main` and has no current checks. Rebase/update, rerun `node scripts/decisions_queue_lint.mjs` and `node --test scripts/decisions_queue_lint.test.mjs`, then request full review. |
-| [#124](https://github.com/FramehouseStudios/them/pull/124) | T-block-signal-atms-zero-fix | 1 | blocked | Has `do-not-merge`; the `atMs=0` fix must distinguish explicit zero from `null`/blank input, add regressions for `atMs: null` and empty string falling back to `nowMs()`, then update over current `main` after PR #125. |
-| [#117](https://github.com/FramehouseStudios/them/pull/117) | T-coordination-state-eval | 1 | blocked | Has `do-not-merge`; branch is DIRTY after PR #114. Claude should rebase on current `main`, rerun `node scripts/coordination_state_schema_check.mjs` and `node --test scripts/coordination_state_schema_check.test.mjs`, then remove the blocker. |
-| [#115](https://github.com/FramehouseStudios/them/pull/115) | T-known-domains-runtime-check | 1 | blocked | Has `do-not-merge`; branch is DIRTY after PR #114. Claude should rebase on current `main`, rerun `node --test tests/known_domains_invariants.test.mjs` plus `npm test`, then remove the blocker. |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
 | [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | policy-gated | D005 now records the human-approved Codex supervisor authority. Do not merge #63 unless it is reconciled with D005 and has explicit human approval for any remaining trust-policy changes. |
 | [#74](https://github.com/FramehouseStudios/them/pull/74) | T-prompt-wire-traits-and-twists | 2 | blocked | Has `do-not-merge`; Claude must rebase/fix and provide integration proof without weakening gates. |
-| [#76](https://github.com/FramehouseStudios/them/pull/76) | T-logline-drift-alert | 1 | blocked | Has `do-not-merge`; needs endpoint/status proof before Codex review. |
 | [#79](https://github.com/FramehouseStudios/them/pull/79) | T-first-page-telemetry-sink | 2 | blocked | Has `do-not-merge`; needs rebase/task detail and green checks. |
-| [#80](https://github.com/FramehouseStudios/them/pull/80) | T-craft-frameworks-eval | 1 | blocked | Has `do-not-merge`; Claude should clear the documented blocker and keep eval coverage intact. |
-| [#81](https://github.com/FramehouseStudios/them/pull/81) | T-block-signal-clears-on-completion | 1 | blocked | Has `do-not-merge`; Claude should clear the documented blocker and keep behavior tests. |
-| [#82](https://github.com/FramehouseStudios/them/pull/82) | T-realtime-supplier-health | 1 | blocked | Has `do-not-merge`; Claude should clear the documented blocker and keep route tests. |
 | [#83](https://github.com/FramehouseStudios/them/pull/83) | T-fountain-export-endpoint | 1 | blocked | Has `do-not-merge`; Claude should clear the documented blocker and keep endpoint tests. |
 | [#84](https://github.com/FramehouseStudios/them/pull/84) | T-realtime-supplier-failover | 2 | blocked | Has `do-not-merge`; needs cross-agent review only after route-level coverage is explicit. |
 | [#85](https://github.com/FramehouseStudios/them/pull/85) | T-backend-surface-smoke | 1 | blocked | Has `do-not-merge`; this is the likely next infrastructure unblock after Claude clears its blocker. |
 | [#86](https://github.com/FramehouseStudios/them/pull/86) | T-genre-classifier | 1 | blocked | Has `do-not-merge`; Claude should clear the documented blocker before Codex review. |
-| [#88](https://github.com/FramehouseStudios/them/pull/88) | T-coverage-simulator | 1 | blocked | Has `do-not-merge`; PR #98 fixed the shared Craft JSON parser on `main`. Claude should rebase onto current `main`, rerun backend tests, and confirm the production-style parser path stays green. |
-| [#90](https://github.com/FramehouseStudios/them/pull/90) | T-fdx-export-endpoint | 1 | blocked | Has `do-not-merge`; Codex review found the endpoint reads `req.body` without a route-local JSON parser, while tests mask it with app-level parsing. Claude should add a production-style parser test and route parser. |
-| [#92](https://github.com/FramehouseStudios/them/pull/92) | T-payoff-tracker | 1 | blocked | Has `do-not-merge`; PR #98 fixed the shared Craft JSON parser, but Codex also found a payoff dedupe bug where the payoff line can become a fresh unpaid setup. Claude should rebase and add that regression. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
-| [#97](https://github.com/FramehouseStudios/them/pull/97) | T-talk-turn-meta-stats | 1 | blocked | Has `do-not-merge`; branch is dirty and aggregate `/talk/stats` needs explicit route-level access-control proof or a recorded policy note before review. |
 | [#99](https://github.com/FramehouseStudios/them/pull/99) | T-creative-memory-delete-endpoint | 3 | needs-human | Labeled tier-3/needs-human/do-not-merge; memory deletion is privacy/data-control work. Needs explicit human approval, including whether V1 may delete only `creative_memory` while leaving project-scoped artifacts. |
-| [#100](https://github.com/FramehouseStudios/them/pull/100) | T-talk-error-rate-tracker | 1 | blocked | Has `do-not-merge`; `/talk/errors` needs ops access-control proof or safe-public policy, and its `sinceMs` window must count only events in the window instead of returning class lifetime totals. |
-| [#104](https://github.com/FramehouseStudios/them/pull/104) | T-decisions-queue-route | 1 | blocked | Reviewed as acceptable before #103 landed, then became DIRTY. Has `do-not-merge`; Claude should rebase on current `main`, keep the route/tests intact, rerun focused decisions-queue tests plus `npm test`, then remove the blocker. |
-| [#105](https://github.com/FramehouseStudios/them/pull/105) | T-memory-quality-eval | 1 | blocked | Reviewed as acceptable before #103 landed, then became DIRTY. Has `do-not-merge`; Claude should rebase on current `main`, rerun the direct eval, `npm run eval:memory-quality`, and `npm test`, then remove the blocker. |
-| [#107](https://github.com/FramehouseStudios/them/pull/107) | T-tasks-sync-check | 1 | blocked | Reviewed as acceptable before #103 landed, then became DIRTY. Has `do-not-merge`; Claude should rebase on current `main`, rerun default/strict script checks plus `node --test scripts/tasks_sync_check.test.mjs`, then remove the blocker. |
-| [#110](https://github.com/FramehouseStudios/them/pull/110) | T-prompt-size-eval | 1 | blocked | Has `do-not-merge`; DIRTY after #103. Claude should rebase on current `main`, rerun `node evals/run_prompt_size_eval.mjs`, `npm run eval:prompt-size`, and `npm test`, then remove the blocker. |
-| [#111](https://github.com/FramehouseStudios/them/pull/111) | T-creative-memory-stats-route | 1 | blocked | Has `do-not-merge`; DIRTY after #103. Claude should rebase on current `main`, keep the no-leakage assertion, rerun focused memory-stats route tests plus `npm test`, then remove the blocker. |
-| [#112](https://github.com/FramehouseStudios/them/pull/112) | T-prompt-assembly-snapshot-eval | 1 | blocked | Has `do-not-merge`; DIRTY after #103 and needs fresh visible checks. Claude should rebase on current `main`, rerun `node evals/run_prompt_assembly_snapshot_eval.mjs`, `npm run eval:prompt-snapshot`, and `npm test`, then remove the blocker. |
 
 ## Endpoint Contracts Ready to Consume
 
