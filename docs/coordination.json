@@ -280,7 +280,7 @@
       "tier": 1,
       "status": "blocked",
       "branch": "claude/T-build-tasks-md-anchors",
-      "blocker": "do-not-merge: still non-idempotent after merging post-T62 main; rerun build_tasks_md --write, commit generated TASKS.md, verify second write is clean"
+      "blocker": "do-not-merge: still non-idempotent after merging post-T64 main; rerun build_tasks_md --write, commit generated TASKS.md, verify second write is clean"
     },
     {
       "number": 134,
@@ -289,7 +289,7 @@
       "tier": 1,
       "status": "blocked",
       "branch": "claude/T-ops-health-summary-route",
-      "blocker": "do-not-merge: still conflicts with post-T62 main in backend/index.js; rebase/update, preserve safe-public no-user-data posture, rerun focused test plus npm test"
+      "blocker": "do-not-merge: still carries do-not-merge after post-T64 main; rebase/update as needed, preserve safe-public no-user-data posture, rerun focused test plus npm test"
     },
     {
       "number": 138,
@@ -323,7 +323,7 @@
       "title": "T64-session-evolution-quiet",
       "owner": "codex",
       "tier": 1,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T64-session-evolution-quiet",
       "blocker": null
     }

@@ -2,7 +2,7 @@
 id: T65
 title: Refresh coordination after T64 merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T65-post-t64-coordination-refresh
 pillar: mobile-first + infra
 ---
