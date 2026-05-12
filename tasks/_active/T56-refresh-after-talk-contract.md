@@ -4,6 +4,7 @@ Owner: codex
 Status: in-progress
 Branch: codex/T56-refresh-after-talk-contract
 Tier: 1
+PR: https://github.com/FramehouseStudios/them/pull/129
 
 Done when:
 - PR #125 is recorded as merged in the handoff lane.
