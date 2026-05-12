@@ -101,7 +101,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #143: `T-decisions-queue-fixture-template` adds the decisions-queue entry template; docs-only and GitHub evaluate was green.
 - Merged PR #144: `T-coordination-state-cli-validate` adds `node scripts/coordination_state.mjs validate`; Codex diff review passed and GitHub evaluate was green.
 - Closed PR #145: `T-codex-inbox-refresh-round11` was a stale conflicting inbox-only refresh superseded by current coordination docs.
-- Open PR #149: `T66-refresh-after-claude-pr-triage` records the #141/#143/#144 merges, #142 blocker, #145 close, and post-#144 Claude next actions in the repo-native handoff lane.
+- Merged PR #149: `T66-refresh-after-claude-pr-triage` records the #141/#143/#144 merges, #142 blocker, #145 close, and post-#144 Claude next actions in the repo-native handoff lane.
 - Blocked PR #133: `T-build-tasks-md-anchors` is mergeable but still needs generator idempotency proof after post-#144 `main`; update over current `main`, commit generated `TASKS.md`, verify a second generator write is clean, then remove `do-not-merge`.
 - Blocked PR #134: `T-ops-health-summary-route` still conflicts and carries `do-not-merge` after post-#144 `main`; rebase/update, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then remove `do-not-merge`.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.

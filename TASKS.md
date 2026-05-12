@@ -95,7 +95,7 @@
 | T63  | Refresh coordination after T62 merge              | codex  | merged            |
 | T64  | Quiet offline session-evolution launch probe      | codex  | merged            |
 | T65  | Refresh coordination after T64 merge              | codex  | merged            |
-| T66  | Refresh queue after Claude PR triage              | codex  | review            |
+| T66  | Refresh queue after Claude PR triage              | codex  | merged            |
 
 ---
 
@@ -626,7 +626,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T66-refresh-after-claude-pr-triage`
 - **Pillar:** infra (enables all)
-- **Status:** review
+- **Status:** merged
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #141/#143/#144 merged, PR #142 blocked with a precise review finding, PR #145 closed as stale, and PR #147/T65 merged; coordination prompt/check scripts pass.
 
 ---

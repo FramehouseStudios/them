@@ -2,7 +2,7 @@
 id: T66
 title: Refresh queue after Claude PR triage
 owner: codex
-status: review
+status: merged
 branch: codex/T66-refresh-after-claude-pr-triage
 pillar: infra (enables all)
 ---

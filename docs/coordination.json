@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T06:56:38.000Z",
+  "updatedAt": "2026-05-12T06:58:38.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -386,7 +386,7 @@
       "title": "T66-refresh-after-claude-pr-triage",
       "owner": "codex",
       "tier": 1,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T66-refresh-after-claude-pr-triage",
       "blocker": null
     }
