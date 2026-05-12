@@ -63,7 +63,7 @@ import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention
 import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountArchetypeRoute } from "./lib/archetype_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
-import { exportScreenplayToMarkdown } from "./lib/screenplay_markdown_export.js";
+import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
@@ -27196,13 +27196,8 @@ app.post("/screenplay/export", express.json({ limit: "2mb" }), (req, res) => {
   }
   if (format === "md" || format === "markdown") {
     // T-screenplay-export-markdown: line-by-line Markdown projection
-    // of the draft. Helper lives in lib/screenplay_markdown_export.js
-    // for unit-testability without spinning up the full app.
-    const filename = `${baseName}.md`;
-    const body = exportScreenplayToMarkdown(draft);
-    res.setHeader("Content-Type", "text/markdown; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    return res.status(200).send(body);
+    // of the draft, via the pure helper in lib/.
+    return respondScreenplayMarkdown(res, { draft, baseName });
   }
   return res.status(400).json({ stage: "screenplay_export", error: "unsupported_format" });
 });

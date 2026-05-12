@@ -57,4 +57,16 @@ function exportScreenplayToMarkdown(draft) {
   return mdLines.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "") + "\n";
 }
 
-export { exportScreenplayToMarkdown, paragraphTypeForLine };
+// T-screenplay-export-route-integration-test: small response-side
+// helper used by the POST /screenplay/export markdown branch. Pulled
+// into lib/ so a unit test can mount it via a stub Express app and
+// pin response headers / body without spinning up the full backend.
+function respondScreenplayMarkdown(res, { draft, baseName }) {
+  const filename = `${baseName}.md`;
+  const body = exportScreenplayToMarkdown(draft);
+  res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  return res.status(200).send(body);
+}
+
+export { exportScreenplayToMarkdown, paragraphTypeForLine, respondScreenplayMarkdown };
