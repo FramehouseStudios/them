@@ -2,7 +2,7 @@
 id: T77
 title: Refresh coordination after PR #180/#181
 owner: codex
-status: in-progress
+status: merged
 branch: codex/T77-post-efficiency-prs-refresh
 pillar: infra (coordination)
 ---

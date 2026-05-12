@@ -2,7 +2,7 @@
 id: T-decompose-backend-index
 title: Decompose 33k-line backend/index.js into per-domain route libs
 owner: claude
-status: review
+status: merged
 branch: claude/T-decompose-backend-index
 pillar: infra (velocity-at-scale)
 ---

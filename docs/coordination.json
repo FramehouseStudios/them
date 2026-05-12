@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T19:27:52.000Z",
+  "updatedAt": "2026-05-12T19:41:22.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -676,6 +676,24 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T76-efficiency-merge-refresh",
+      "blocker": null
+    },
+    {
+      "number": 180,
+      "title": "T-pre-flight-outbox-console-cleanup",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-pre-flight-outbox-console-cleanup",
+      "blocker": null
+    },
+    {
+      "number": 181,
+      "title": "T-decompose-backend-index",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-backend-index",
       "blocker": null
     }
   ],

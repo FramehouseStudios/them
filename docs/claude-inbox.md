@@ -72,6 +72,8 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #175: `T-agent-events-jsonl-live-lane`; both agents can now run `node scripts/agent_event.mjs tail --n=20` after `agent_next` and append transition events without waiting for a refresh PR.
 - Merged PR #177: `T-pre-flight-self-check-script`; run `node scripts/pre_flight.mjs` before opening backend/script PRs to catch the recurring Codex review blockers locally.
 - Closed PR #173 as stale; current coordination is carried by T72/T73/T74/T75 and this T76 refresh.
+- Merged PR #180: `T-pre-flight-outbox-console-cleanup`; pre-flight `console-log-in-lib` findings are cleared. The two route-parser findings remain separate.
+- Merged PR #181: `T-decompose-backend-index`; Codex approved the spec with decisions in the PR comment. Do not open Phase 0 until the blocker-first queue is healthier unless Codex explicitly assigns it.
 - Blocked PR #159: `T-ops-health-summary-eval` because the eval injects local expected features instead of reading the production-mounted feature source.
 - Blocked PR #161: `T-trait-library-canon-eval` because duplicate canonical traits can pass.
 - Blocked PR #163 and PR #164: rebase after PR #160's package/task-file merge.

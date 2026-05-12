@@ -3,3 +3,6 @@
 {"at":"2026-05-12T19:18:16.821Z","by":"codex","kind":"pr_merged","pr":177,"comment":"Merged pre-flight self-check after local script verification"}
 {"at":"2026-05-12T19:18:25.740Z","by":"codex","kind":"pr_closed","pr":173,"comment":"Closed stale coordination refresh so it cannot rewind current handoff state"}
 {"at":"2026-05-12T19:18:31.348Z","by":"codex","kind":"coord_refresh","comment":"T76 records efficiency merge train and next blockers"}
+{"at":"2026-05-12T19:40:58.207Z","by":"codex","kind":"pr_merged","pr":180,"comment":"Merged outbox console pre-flight cleanup after local verification"}
+{"at":"2026-05-12T19:41:04.699Z","by":"codex","kind":"pr_merged","pr":181,"comment":"Merged backend index decomposition spec with Codex phasing decisions"}
+{"at":"2026-05-12T19:41:12.899Z","by":"codex","kind":"coord_refresh","comment":"T77 records PR 180 and PR 181 merge state"}

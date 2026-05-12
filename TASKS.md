@@ -116,10 +116,11 @@
 | T74  | Surface ops route manifest in diagnostics         | codex  | merged            |
 | T75  | Surface talk-turn rate-limit retry affordance     | codex  | merged            |
 | T76  | Refresh coordination after efficiency merge train | codex  | merged            |
+| T77  | Refresh coordination after PR #180/#181           | codex  | merged            |
 
 ---
 
-## Current next-10 checklist (2026-05-12 after T76 efficiency merge train)
+## Current next-10 checklist (2026-05-12 after T77 post-efficiency refresh)
 
 1. Have Claude rebase/fix PR #163 (`T-twist-engine-canon-eval`) after the PR #160 merge conflict.
 2. Have Claude rebase/fix PR #164 (`T-block-detector-canon-eval`) after the PR #160 merge conflict.
@@ -694,11 +695,11 @@
 | T-creative-memory-store-eviction-eval   | Pathological-input guard on creative-memory character roster         | claude | merged      |
 | T-creative-memory-version-check-eval    | Pin the `version` field on creative-memory snapshots                 | claude | merged      |
 | T-decisions-queue-fixture-template      | docs/decisions-queue-template.md (copy-paste entry template)         | claude | merged      |
-| T-decompose-backend-index               | Decompose 33k-line backend/index.js into per-domain route libs       | claude | review      |
+| T-decompose-backend-index               | Decompose 33k-line backend/index.js into per-domain route libs       | claude | merged      |
 | T-known-domains-startup-check           | Boot-time invariant check on KNOWN_DOMAINS                           | claude | merged      |
 | T-ops-health-summary-route              | GET /ops/health-summary cheap uptime-dashboard endpoint              | claude | merged      |
 | T-ops-routes-list-route                 | GET /ops/routes manifest of optional surfaces                        | claude | merged      |
-| T-pre-flight-outbox-console-cleanup     | Convert outbox console.log → console.warn/error (pre-flight class 1) | claude | review      |
+| T-pre-flight-outbox-console-cleanup     | Convert outbox console.log → console.warn/error (pre-flight class 1) | claude | merged      |
 | T-pre-flight-self-check-script          | scripts/pre_flight.mjs — catch recurring review feedback locally     | claude | merged      |
 | T-prompt-assembly-block-signal-cap-eval | Cap on <block_signal> block size under pathological inputs           | claude | merged      |
 | T-prompt-assembly-readme                | README for backend/lib/prompt_assembly.js                            | claude | merged      |
@@ -736,7 +737,7 @@
 | T74                                     | Surface ops route manifest in diagnostics                            | codex  | merged      |
 | T75                                     | Surface talk-turn rate-limit retry affordance                        | codex  | merged      |
 | T76                                     | Refresh coordination after efficiency merge train                    | codex  | merged      |
-| T77                                     | Refresh coordination after PR #180/#181                              | codex  | in-progress |
+| T77                                     | Refresh coordination after PR #180/#181                              | codex  | merged      |
 
 ## Active work — full detail (auto-generated)
 
@@ -1160,7 +1161,7 @@ PR #104's parser + PR #127's lint accept.
 - **Owner:** claude
 - **Branch:** claude/T-decompose-backend-index
 - **Pillar:** infra (velocity-at-scale)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -1298,7 +1299,7 @@ properties + integration; `npm test` green.
 - **Owner:** claude
 - **Branch:** claude/T-pre-flight-outbox-console-cleanup
 - **Pillar:** infra (hygiene)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -2275,7 +2276,7 @@ agent-next, task-frontmatter, task-stats, task-generation, and diff checks pass.
 - **Owner:** codex
 - **Branch:** codex/T77-post-efficiency-prs-refresh
 - **Pillar:** infra (coordination)
-- **Status:** in-progress
+- **Status:** merged
 
 ## Scope
 
