@@ -102,21 +102,22 @@
 | T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
 | T69  | Refresh queue after PR #134 merge                 | codex  | merged            |
 | T70  | Refresh queue after PR #154/#155/#156/#158 merges | codex  | merged            |
+| T71  | Add agent throughput protocol and next-action CLI | codex  | merged            |
 
 ---
 
-## Current next-10 checklist (2026-05-12 after #154/#155/#156/#158 merges)
+## Current next-10 checklist (2026-05-12 after T71 throughput protocol)
 
-1. Have Claude fix PR #148 (`T-ops-routes-list-route`) by rebasing over post-#149 `main` and narrowing or completing the `/ops/routes` manifest scope.
-2. Have Claude fix PR #142 (`T-known-domains-startup-check`) so the default warn-and-continue path cannot throw on a non-array `KNOWN_DOMAINS`, with injected-domain regressions.
-3. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against post-#153 `main`.
+1. Run `node scripts/agent_next.mjs --role=claude` at the start of every Claude session and follow its top blocker unless Codex assigns an exception.
+2. Have Claude fix PR #148 (`T-ops-routes-list-route`) by rebasing over post-#149 `main` and narrowing or completing the `/ops/routes` manifest scope.
+3. Have Claude fix PR #142 (`T-known-domains-startup-check`) so the default warn-and-continue path cannot throw on a non-array `KNOWN_DOMAINS`, with injected-domain regressions.
 4. Review/merge PR #148 once conflict-free, scope-accurate, and green.
 5. Review/merge PR #142 once the startup-check regressions and `npm test` are green.
-6. Review/merge PR #133 once the generator is idempotent, `do-not-merge` is removed, and checks are green.
-7. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
-8. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
-9. Use merged PR #134 (`GET /ops/health-summary`) in a lightweight app/dev diagnostics surface.
-10. Use merged PR #154's token-bucket helper in a guarded `GET /talk/turn/:turnId` rate-limit mount, then expose friendly retry UX in the app if that endpoint returns `rate_limited`.
+6. Have Claude update PR #133 (`T-build-tasks-md-anchors`) so `node scripts/build_tasks_md.mjs --write` is idempotent against current `main`.
+7. Batch-review any clean tier-1 Claude PRs surfaced by `node scripts/agent_next.mjs --role=codex`, then open only one coordination refresh for the batch.
+8. Unblock PR #87 (`T-screenplay-import-fountain`) with route-local >4MB/413 handling, then build the iOS Fountain import surface.
+9. Unblock PR #90 (`T-fdx-export-endpoint`) with a production-style parser test, then wire app-side FDX export to the backend.
+10. Use merged PR #134 (`GET /ops/health-summary`) in a lightweight app/dev diagnostics surface and merged PR #154's token-bucket helper in a guarded `GET /talk/turn/:turnId` rate-limit mount.
 
 ---
 
