@@ -20,10 +20,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    after PR #98 and fix the payoff-as-new-setup regression; #97 needs a rebase
    plus explicit `/talk/stats` access-control proof or a recorded policy note;
    #100 needs `/talk/errors` access-control proof and true since-window counts;
-   #104, #105, and #107 need a rebase after PR #103; #106 is stale and should
-   be closed or rebased only if it has non-duplicative inbox content; #110,
-   #111, and #112 need a rebase after PR #103; #115 and #117 need a rebase
-   after PR #114 before Codex can review/merge.
+   #104, #105, and #107 need a rebase after PR #103; #110, #111, and #112
+   need a rebase after PR #103; #115 and #117 need a rebase after PR #114;
+   #119 needs route-level Markdown export coverage before Codex can review/merge.
 5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
    not routine tier-1 work. PR #99 is blocked until the human accepts the
    memory deletion policy.
@@ -66,7 +65,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #103: `T-block-signal-history-tracking` records debounced block-signal samples in creative-memory habits.
 - Blocked PR #104: `T-decisions-queue-route` is DIRTY after #103; rebase and rerun focused route tests plus `npm test`.
 - Blocked PR #105: `T-memory-quality-eval` is DIRTY after #103; rebase and rerun the memory-quality eval commands plus `npm test`.
-- Blocked PR #106: `T-codex-inbox-refresh-round8` is stale after T49/T50; close or rebase only if there is non-duplicative inbox content.
+- Closed PR #106: `T-codex-inbox-refresh-round8` was handoff-only and is superseded by current main coordination docs.
 - Blocked PR #107: `T-tasks-sync-check` is DIRTY after #103; rebase and rerun default/strict script checks plus the script test.
 - Merged PR #113: `T50-refresh-after-pr103-merge` records the #103 merge and #104/#105/#106/#107 blockers in the handoff lane.
 - Blocked PR #110: `T-prompt-size-eval` is DIRTY after #103; rebase and rerun prompt-size eval commands plus `npm test`.
@@ -80,7 +79,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #122: `T53-ios-block-signal-history` consumes PR #114's `GET /memory/block-signal/history` in the Studio Momentum rail.
 - Merged PR #120: `T-block-signal-history-bounds-eval` adds a deterministic pathological-input eval for the block-signal history buffer.
 - Blocked PR #119: `T-screenplay-export-markdown` needs a route-level `POST /screenplay/export` Markdown regression proving body, `text/markdown` Content-Type, and `.md` Content-Disposition before merge.
-- Blocked PR #121: `T-codex-inbox-refresh-round9` is stale after PR #120 merged and PR #119 was blocked; close or refresh only if non-duplicative.
+- Closed PRs #89, #106, and #121: these handoff-only refreshes are superseded by current main coordination docs.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

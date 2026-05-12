@@ -1,17 +1,8 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-11T23:55:28.000Z",
+  "updatedAt": "2026-05-12T00:04:42.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
-    {
-      "number": 121,
-      "title": "T-codex-inbox-refresh-round9",
-      "owner": "claude",
-      "tier": 1,
-      "status": "blocked",
-      "branch": "claude/T-codex-inbox-refresh-round9",
-      "blocker": "do-not-merge: stale after PR #120 merged and PR #119 was blocked; close or refresh only if non-duplicative"
-    },
     {
       "number": 119,
       "title": "T-screenplay-export-markdown",
@@ -74,15 +65,6 @@
       "status": "blocked",
       "branch": "claude/T-tasks-sync-check",
       "blocker": "do-not-merge: DIRTY after PR #103; rebase and rerun default/strict script checks plus script test"
-    },
-    {
-      "number": 106,
-      "title": "T-codex-inbox-refresh-round8",
-      "owner": "claude",
-      "tier": 1,
-      "status": "blocked",
-      "branch": "claude/T-codex-inbox-refresh-round8",
-      "blocker": "do-not-merge: stale after T49/T50 and PR #103; close or rebase only if non-duplicative"
     },
     {
       "number": 105,
@@ -155,15 +137,6 @@
       "status": "blocked",
       "branch": "claude/T-fdx-export-endpoint",
       "blocker": "do-not-merge: route reads req.body without its own JSON parser; add production-style parser test"
-    },
-    {
-      "number": 89,
-      "title": "T-codex-inbox-refresh-2",
-      "owner": "claude",
-      "tier": 1,
-      "status": "blocked",
-      "branch": "claude/T-codex-inbox-refresh-2",
-      "blocker": "do-not-merge: superseded by T42/T43/T46 coordination-first queue refreshes"
     },
     {
       "number": 88,
@@ -314,7 +287,7 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#90, #92, #97, #99, #100, #104-#107, #110-#112, #115, #117, #119, and #121 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, and #119 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],

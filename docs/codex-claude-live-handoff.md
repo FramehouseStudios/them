@@ -103,7 +103,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T-block-signal-history-route | `claude/T-block-signal-history-route` / PR #114 | merged | Codex diff review; GitHub evaluate passed; Claude reported focused route tests 9/9 and backend `npm test` 337 pass / 1 skipped | No Claude action. `GET /memory/block-signal/history` is ready for a Codex iOS history sparkline/stuck-this-week consumer. |
 | T-decisions-queue-route | `claude/T-decisions-queue-route` / PR #104 | blocked | Codex diff review passed before merge attempt; now DIRTY after PR #103 | Rebase on current `main`, keep route/tests intact, rerun focused decisions-queue test plus `npm test`, then remove `do-not-merge`. |
 | T-memory-quality-eval | `claude/T-memory-quality-eval` / PR #105 | blocked | Codex diff review passed before PR #103; now DIRTY after PR #103 | Rebase on current `main`, rerun the direct eval, `npm run eval:memory-quality`, and `npm test`, then remove `do-not-merge`. |
-| T-codex-inbox-refresh-round8 | `claude/T-codex-inbox-refresh-round8` / PR #106 | blocked | Codex review only; labeled `do-not-merge` | Close or rebase only if there is non-duplicative inbox content after the current queue refresh. |
+| T-codex-inbox-refresh-round8 | `claude/T-codex-inbox-refresh-round8` / PR #106 | closed | Supervisor close; handoff-only content superseded by current main coordination docs | No Claude action. |
 | T-tasks-sync-check | `claude/T-tasks-sync-check` / PR #107 | blocked | Codex diff review passed before PR #103; now DIRTY after PR #103 | Rebase on current `main`, rerun default/strict script checks and script tests, then remove `do-not-merge`. |
 | T50 post-PR103 queue refresh | `codex/T50-refresh-after-pr103-merge` / PR #113 | merged | Coordination script checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should use the refreshed queue: #103 merged; #104/#105/#107 need rebase; #106 is stale. |
 | T-prompt-size-eval | `claude/T-prompt-size-eval` / PR #110 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase on current `main`, rerun prompt-size eval commands plus `npm test`, then remove `do-not-merge`. |
@@ -116,7 +116,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T53 iOS block-signal history surface | `codex/T53-ios-block-signal-history` / PR #122 | merged | Package tests, focused block-signal history tests, full macOS `themTests` 83/83, generic iOS build, `git diff --check`, coordination checks, and GitHub evaluate passed | No Claude action. PR #114's `GET /memory/block-signal/history` endpoint is consumed in the Studio Momentum rail. |
 | T-block-signal-history-bounds-eval | `claude/T-block-signal-history-bounds-eval` / PR #120 | merged | Codex diff review; GitHub evaluate passed; Claude reported bounds eval, npm script, and backend `npm test` 337 pass / 1 skipped | No Claude action. Follow-up worth filing later: `recordBlockSignalSample({ atMs: 0 })` currently falls back to `nowMs()` because `0` is falsy. |
 | T-screenplay-export-markdown | `claude/T-screenplay-export-markdown` / PR #119 | blocked | Codex review only; labeled `tier-1` + `do-not-merge` | Add a route-level test proving `format=md|markdown` returns Markdown body, `text/markdown` Content-Type, and `.md` Content-Disposition, then rerun focused test plus `npm test`. |
-| T-codex-inbox-refresh-round9 | `claude/T-codex-inbox-refresh-round9` / PR #121 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Close or rebase only if still non-duplicative after PR #120 merge and PR #119 block. |
+| T-codex-inbox-refresh-round9 | `claude/T-codex-inbox-refresh-round9` / PR #121 | closed | Supervisor close; handoff-only content superseded by current main coordination docs | No Claude action. |
 
 
 
@@ -126,7 +126,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | --- | --- |
 | PR #33, T07 eval gate | Open and red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is malformed or not the literal OpenAI key value. Do not weaken eval gates. |
 | T07-cutover | Remains blocked until PR #33 is truly green against Postgres. |
-| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts, #104/#105/#107 rebase after #103, stale #106, #110/#111/#112 rebase after #103, #115/#117 rebase after #114, #119 route-level Markdown export coverage, and stale #121. |
+| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts, #104/#105/#107 rebase after #103, #110/#111/#112 rebase after #103, #115/#117 rebase after #114, and #119 route-level Markdown export coverage. |
 
 ## Completed Codex Context
 
