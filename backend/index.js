@@ -72,6 +72,7 @@ import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
 import { mountDecisionsQueueRoute } from "./lib/decisions_queue_route.js";
 import { mountCreativeMemoryStatsRoute } from "./lib/creative_memory_stats_route.js";
 import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
+import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
@@ -28739,6 +28740,8 @@ app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req
       const status = err?.code === "realtime_supplier_unknown_provider"
         ? 400
         : Number(err?.status || 503);
+      // T-talk-error-rate-tracker: record the supplier-load failure.
+      incrementErrorCounter(err?.code || "realtime_supplier_unavailable");
       return res.status(status).json({
         stage: "realtime_auth",
         code: err?.code || "realtime_supplier_unavailable",
@@ -28757,6 +28760,8 @@ app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req
       ttlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
     });
   } catch (err) {
+    // T-talk-error-rate-tracker: record the mint failure.
+    incrementErrorCounter(err?.code || "realtime_supplier_request_failed");
     return res.status(Number(err?.status || 502)).json({
       stage: "realtime_auth",
       code: err?.code || "realtime_supplier_request_failed",
@@ -28773,6 +28778,8 @@ app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req
   const clientSecretValue = String(minted?.value || "").trim();
   const expiresAt = Math.max(0, Number(minted?.expiresAt || 0));
   if (!clientSecretValue || !expiresAt) {
+    // T-talk-error-rate-tracker: record the invalid-response case.
+    incrementErrorCounter("realtime_supplier_response_invalid");
     return res.status(502).json({
       stage: "realtime_auth",
       code: "realtime_supplier_response_invalid",
@@ -32875,6 +32882,14 @@ mountArchetypeRoute(app, { creativeMemoryStore });
 // computeBlockSignal() so iOS can nudge the writer when block patterns
 // emerge.
 mountBlockSignalRoute(app, { creativeMemoryStore });
+// T-talk-error-rate-tracker: GET /talk/errors snapshots in-memory
+// error counters. Wired into the /realtime/client_secret error paths
+// above; additional /talk pipeline call sites are a small follow-up.
+// Access-control posture: SAFE-PUBLIC. Response contains only error-
+// class names + counts (no per-user content). Matches the public ops
+// surface (/ops/metrics, /ops/alerts, /ops/health-summary). See
+// `backend/lib/talk_error_counter.js` header for the no-leakage rule.
+mountTalkErrorRoute(app);
 
 // T-block-signal-history-route: read-only projection of the block-
 // signal ring buffer maintained by PR #103. Used by sparkline /
