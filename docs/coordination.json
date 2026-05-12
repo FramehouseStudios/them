@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T02:52:31.972Z",
+  "updatedAt": "2026-05-12T02:57:47.569Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -290,6 +290,15 @@
       "status": "blocked",
       "branch": "claude/T-ops-health-summary-route",
       "blocker": "do-not-merge: still conflicts with current main/T60 in backend/index.js; rebase/update, preserve safe-public no-user-data posture, rerun focused test plus npm test"
+    },
+    {
+      "number": 138,
+      "title": "T61-post-t60-coordination-refresh",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T61-post-t60-coordination-refresh",
+      "blocker": null
     }
   ],
   "blockers": [
