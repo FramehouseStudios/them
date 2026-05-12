@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T19:05:51.000Z",
+  "updatedAt": "2026-05-12T19:27:52.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -640,6 +640,42 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T75-talk-turn-rate-limit-retry",
+      "blocker": null
+    },
+    {
+      "number": 175,
+      "title": "T-agent-events-jsonl-live-lane",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-agent-events-jsonl-live-lane",
+      "blocker": null
+    },
+    {
+      "number": 177,
+      "title": "T-pre-flight-self-check-script",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-pre-flight-self-check-script",
+      "blocker": null
+    },
+    {
+      "number": 173,
+      "title": "T-coord-refresh-clear-148-142-133-87-90",
+      "owner": "claude",
+      "tier": 1,
+      "status": "closed",
+      "branch": "claude/T-coord-refresh-clear-148-142-133-87-90",
+      "blocker": "closed: stale coordination refresh superseded by T72/T73/T74/T75 and the T76 efficiency merge refresh"
+    },
+    {
+      "number": 182,
+      "title": "T76-efficiency-merge-refresh",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T76-efficiency-merge-refresh",
       "blocker": null
     }
   ],

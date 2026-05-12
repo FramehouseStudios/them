@@ -1,0 +1,5 @@
+{"at":"2026-05-12T19:17:58.115Z","by":"codex","kind":"pr_merged","pr":179,"comment":"Merged T75 talk-turn rate-limit retry affordance; PR 170 is consumed"}
+{"at":"2026-05-12T19:18:10.423Z","by":"codex","kind":"pr_merged","pr":175,"comment":"Merged agent-events live lane after local script verification"}
+{"at":"2026-05-12T19:18:16.821Z","by":"codex","kind":"pr_merged","pr":177,"comment":"Merged pre-flight self-check after local script verification"}
+{"at":"2026-05-12T19:18:25.740Z","by":"codex","kind":"pr_closed","pr":173,"comment":"Closed stale coordination refresh so it cannot rewind current handoff state"}
+{"at":"2026-05-12T19:18:31.348Z","by":"codex","kind":"coord_refresh","comment":"T76 records efficiency merge train and next blockers"}

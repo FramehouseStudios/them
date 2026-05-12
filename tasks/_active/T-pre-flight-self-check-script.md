@@ -2,7 +2,7 @@
 id: T-pre-flight-self-check-script
 title: scripts/pre_flight.mjs — catch recurring review feedback locally
 owner: claude
-status: review
+status: merged
 branch: claude/T-pre-flight-self-check-script
 pillar: infra (coordination)
 ---
