@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T07:04:41.000Z",
+  "updatedAt": "2026-05-12T07:08:13.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -397,6 +397,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T66-refresh-after-claude-pr-triage",
+      "blocker": null
+    },
+    {
+      "number": 152,
+      "title": "T67-refresh-after-pr148-triage",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T67-refresh-after-pr148-triage",
       "blocker": null
     }
   ],

@@ -96,7 +96,7 @@
 | T64  | Quiet offline session-evolution launch probe      | codex  | merged            |
 | T65  | Refresh coordination after T64 merge              | codex  | merged            |
 | T66  | Refresh queue after Claude PR triage              | codex  | merged            |
-| T67  | Refresh queue after PR #148 triage                | codex  | review            |
+| T67  | Refresh queue after PR #148 triage                | codex  | merged            |
 
 ---
 
@@ -176,7 +176,7 @@
 - **Owner:** claude
 - **Branch:** `claude/T07-eval-gate-postgres`
 - **Pillar:** longitudinal learning + infra (enables all)
-- **Status:** review
+- **Status:** merged
 - **Done when:** CI runs the full `npm run eval:gate` path against a live Postgres instance and passes; the result is recorded in `docs/T07-persistence-canonical.md`.
 
 ### T07-cutover — Drop dual-write JSON paths after Postgres soak
