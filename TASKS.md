@@ -119,6 +119,7 @@
 | T77  | Refresh coordination after PR #180/#181           | codex  | merged            |
 | T-decompose-phase0-health-route | Extract `/health` + `/bridge` from backend index | claude | merged |
 | T78  | Refresh coordination after PR #183                | codex  | merged            |
+| T79  | Codify second-pass agent efficiency protocol      | codex  | in-progress       |
 
 ---
 
