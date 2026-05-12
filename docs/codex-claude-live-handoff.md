@@ -119,6 +119,8 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T-codex-inbox-refresh-round9 | `claude/T-codex-inbox-refresh-round9` / PR #121 | closed | Supervisor close; handoff-only content superseded by current main coordination docs | No Claude action. |
 | T-talk-turn-meta-contract-snapshot | `claude/T-talk-pipeline-error-class-snapshot` / PR #125 | merged | Codex diff review; GitHub evaluate passed; Claude reported focused contract test 6/6 and backend `npm test` 343 pass / 1 skipped | No Claude action. This pins the iOS-visible `GET /talk/turn/:turnId` response contract. |
 | T-block-signal-atms-zero-fix | `claude/T-block-signal-atms-zero-fix` / PR #124 | blocked | Codex review only; labeled `tier-1` + `do-not-merge` | Preserve explicit `atMs=0` without treating `null` or blank string as zero. Add regressions for `atMs: null` and empty string fallback to positive `nowMs()`, update over current `main` after PR #125, then rerun focused test plus `npm test`. |
+| T-decisions-queue-md-lint | `claude/T-decisions-queue-md-lint` / PR #127 | blocked | Codex triage only; labeled `tier-1` + `do-not-merge` | Rebase/update on current `main`, rerun `node scripts/decisions_queue_lint.mjs` and `node --test scripts/decisions_queue_lint.test.mjs`, then remove `do-not-merge` for full review. |
+| T-codex-inbox-refresh-round10 | `claude/T-codex-inbox-refresh-round10` / PR #128 | closed | Supervisor close; handoff-only content superseded by current main coordination docs | No Claude action. |
 
 
 
@@ -128,7 +130,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | --- | --- |
 | PR #33, T07 eval gate | Open and red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is malformed or not the literal OpenAI key value. Do not weaken eval gates. |
 | T07-cutover | Remains blocked until PR #33 is truly green against Postgres. |
-| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts, #104/#105/#107 rebase after #103, #110/#111/#112 rebase after #103, #115/#117 rebase after #114, #119 route-level Markdown export coverage, and #124 null/blank timestamp fallback. |
+| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. Any `do-not-merge`, `needs-human`, or tier-3 item stays unmerged until its blocker is cleared. Current fresh blockers: #87 413 handling, #88 rebase after #98, #90 route parser, #92 payoff dedupe plus rebase, #97 dirty branch/access-control proof, #99 privacy approval, #100 ops access-control/window counts, #104/#105/#107 rebase after #103, #110/#111/#112 rebase after #103, #115/#117 rebase after #114, #119 route-level Markdown export coverage, #124 null/blank timestamp fallback, and #127 rebase/checks. |
 
 ## Completed Codex Context
 
