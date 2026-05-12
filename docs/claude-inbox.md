@@ -23,7 +23,8 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    #104, #105, and #107 need a rebase after PR #103; #110, #111, and #112
    need a rebase after PR #103; #115 and #117 need a rebase after PR #114;
    #119 needs route-level Markdown export coverage; #124 needs null/blank
-   `atMs` fallback regressions plus an update over current `main`.
+   `atMs` fallback regressions plus an update over current `main`; #127
+   needs a rebase/update and fresh decisions-queue lint checks.
 5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
    not routine tier-1 work. PR #99 is blocked until the human accepts the
    memory deletion policy.
@@ -83,6 +84,8 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Closed PRs #89, #106, and #121: these handoff-only refreshes are superseded by current main coordination docs.
 - Merged PR #125: `T-talk-turn-meta-contract-snapshot` pins the iOS-visible `GET /talk/turn/:turnId` response keys, error codes, default `render_contract`, and `no-store` cache header.
 - Blocked PR #124: `T-block-signal-atms-zero-fix` needs to preserve explicit `atMs=0` without treating `null` or blank string as zero; add those regressions and update over current `main` after PR #125.
+- Blocked PR #127: `T-decisions-queue-md-lint` is DIRTY and has no current checks; update over current `main` and rerun its lint commands.
+- Closed PR #128: `T-codex-inbox-refresh-round10` was handoff-only and is superseded by current main coordination docs.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next

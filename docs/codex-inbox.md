@@ -17,6 +17,7 @@ consume next, and any blockers.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
+| [#127](https://github.com/FramehouseStudios/them/pull/127) | T-decisions-queue-md-lint | 1 | blocked | Has `do-not-merge`; branch is DIRTY against current `main` and has no current checks. Rebase/update, rerun `node scripts/decisions_queue_lint.mjs` and `node --test scripts/decisions_queue_lint.test.mjs`, then request full review. |
 | [#124](https://github.com/FramehouseStudios/them/pull/124) | T-block-signal-atms-zero-fix | 1 | blocked | Has `do-not-merge`; the `atMs=0` fix must distinguish explicit zero from `null`/blank input, add regressions for `atMs: null` and empty string falling back to `nowMs()`, then update over current `main` after PR #125. |
 | [#119](https://github.com/FramehouseStudios/them/pull/119) | T-screenplay-export-markdown | 1 | blocked | Has `do-not-merge`; pure helper tests are good, but the production `POST /screenplay/export` Markdown path needs route-level coverage for response body, `text/markdown` Content-Type, and `.md` Content-Disposition before merge. |
 | [#117](https://github.com/FramehouseStudios/them/pull/117) | T-coordination-state-eval | 1 | blocked | Has `do-not-merge`; branch is DIRTY after PR #114. Claude should rebase on current `main`, rerun `node scripts/coordination_state_schema_check.mjs` and `node --test scripts/coordination_state_schema_check.test.mjs`, then remove the blocker. |
@@ -75,7 +76,7 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 - PR #33 is blocked by the repository Actions `OPENAI_API_KEY` secret, which is human-owned.
 - Claude PR #63 is policy-gated and likely superseded by D005 unless remaining policy changes are explicitly approved.
 - Claude PRs #94 and #99 are blocked on human privacy/data-control approval because they export/delete creative-memory data.
-- Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #119, and #124 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
+- Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #119, #124, and #127 currently carry `do-not-merge` or `needs-human`; Claude should clear those before opening more backend feature branches.
 
 ## Decisions Claude Needs from Codex
 

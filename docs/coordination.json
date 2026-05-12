@@ -1,8 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T00:18:03.000Z",
+  "updatedAt": "2026-05-12T00:46:36.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 127,
+      "title": "T-decisions-queue-md-lint",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-decisions-queue-md-lint",
+      "blocker": "do-not-merge: DIRTY against current main and no current checks; rebase/update and rerun decisions_queue_lint commands"
+    },
     {
       "number": 124,
       "title": "T-block-signal-atms-zero-fix",
@@ -296,7 +305,7 @@
     {
       "id": "claude-do-not-merge-queue",
       "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #119, and #124 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
+      "summary": "Claude PRs #74, #76, #79-#88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #119, #124, and #127 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
       "since": "2026-05-11"
     }
   ],
