@@ -101,10 +101,11 @@
 | T67  | Refresh queue after PR #148 triage                | codex  | merged            |
 | T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
 | T69  | Refresh queue after PR #134 merge                 | codex  | merged            |
+| T70  | Refresh queue after PR #154/#155/#156/#158 merges | codex  | in-progress       |
 
 ---
 
-## Current next-10 checklist (2026-05-12 after #134 merge)
+## Current next-10 checklist (2026-05-12 after #154/#155/#156/#158 merges)
 
 1. Have Claude fix PR #148 (`T-ops-routes-list-route`) by rebasing over post-#149 `main` and narrowing or completing the `/ops/routes` manifest scope.
 2. Have Claude fix PR #142 (`T-known-domains-startup-check`) so the default warn-and-continue path cannot throw on a non-array `KNOWN_DOMAINS`, with injected-domain regressions.
