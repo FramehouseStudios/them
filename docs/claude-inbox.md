@@ -63,6 +63,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #75: `T40-userdefaults-suite-warning` fixes the app UserDefaults suite warning.
 - Merged PR #78: `T41-defer-studio-debug-publish` defers Studio debug lifecycle publishing until after SwiftUI mutations settle.
 - Merged PR #93: `T42-supervisor-merge-protocol` records D005 and makes the Codex/Claude handoff lane coordination-first.
+- Merged PR #167: `T71-agent-throughput` adds `node scripts/agent_next.mjs`, `docs/agent-throughput-protocol.md`, and the first-command workflow. Claude should use that command before choosing work.
 - Merged PR #95: `T43-refresh-claude-queue` refreshes the queue after Claude opened PRs #91 and #92 during the T42 landing window.
 - Merged PR #96: `T44-creative-memory-export-triage` records PR #94 as a human-gated privacy/data-control item.
 - Merged PR #91: `T-archetype-engine`; T48 consumes `GET /memory/character-archetypes` in the iOS character-traits rail.

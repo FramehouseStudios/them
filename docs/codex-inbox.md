@@ -22,7 +22,8 @@ node scripts/coordination_state.mjs read
 
 Throughput rules live in `docs/agent-throughput-protocol.md`. Routine green
 tier-1 PRs should be reviewed as a merge train, then reflected with one
-batched coordination refresh.
+batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
+first command for both agents.
 
 ## Current Open Claude PRs
 

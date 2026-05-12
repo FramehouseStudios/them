@@ -102,7 +102,7 @@
 | T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
 | T69  | Refresh queue after PR #134 merge                 | codex  | merged            |
 | T70  | Refresh queue after PR #154/#155/#156/#158 merges | codex  | merged            |
-| T71  | Add agent throughput protocol and next-action CLI | codex  | review            |
+| T71  | Add agent throughput protocol and next-action CLI | codex  | merged            |
 
 ---
 

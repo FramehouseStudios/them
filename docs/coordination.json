@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T08:23:14.000Z",
+  "updatedAt": "2026-05-12T08:25:24.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -494,7 +494,7 @@
       "title": "T71-agent-throughput",
       "owner": "codex",
       "tier": 2,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T71-agent-throughput",
       "blocker": null
     }
