@@ -32,7 +32,11 @@ const SNAPSHOT_KEY_PREFIX = "snapshot:";
 
 function defaultLogger() {
   return {
-    log: (msg) => console.log(`[outbox_snapshotter] ${msg}`),
+    // Route diagnostic output to console.warn so it surfaces in stderr
+    // logs (matched by ops collectors that look for stderr-only
+    // messages). console.log was leaking into stdout and getting
+    // intermixed with payloads. Flagged by scripts/pre_flight.mjs.
+    log: (msg) => console.warn(`[outbox_snapshotter] ${msg}`),
     error: (msg) => console.error(`[outbox_snapshotter] ${msg}`),
   };
 }
