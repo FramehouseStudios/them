@@ -67,6 +67,7 @@ import { mountOpsHealthSummaryRoute } from "./lib/ops_health_summary_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
+import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
@@ -32930,6 +32931,15 @@ mountOpsHealthSummaryRoute(app, {
     screenplay_export_formats: true,
   },
 });
+
+// T-ops-routes-list-route: GET /ops/routes — curated manifest of the
+// app-facing HTTP routes this deployment advertises, by group. Cheap
+// static list. Complements /ops/health-summary's boolean `features`
+// map by giving callers the actual method+path pairs. Explicitly a
+// curated subset, NOT a reflection of every mounted route — see the
+// SUPPORTED_ROUTES manifest in lib/ops_routes_list_route.js for the
+// scope rule.
+mountOpsRoutesListRoute(app);
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));

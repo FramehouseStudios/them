@@ -71,6 +71,7 @@
 | T-coordination-state-cli-validate | Add validate subcommand to coordination_state.mjs | claude | merged |
 | T-creative-memory-version-check-eval | Pin creative-memory snapshot version field | claude | merged |
 | T-screenplay-export-pdf-error-clarity | Add helpful PDF rejection payload | claude | merged |
+| T-ops-routes-list-route | GET /ops/routes curated manifest of optional surfaces    | claude | review |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
