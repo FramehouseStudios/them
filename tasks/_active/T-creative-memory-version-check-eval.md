@@ -2,7 +2,7 @@
 id: T-creative-memory-version-check-eval
 title: Pin the `version` field on creative-memory snapshots
 owner: claude
-status: review
+status: merged
 branch: claude/T-creative-memory-version-check-eval
 pillar: evals (contract stability)
 ---

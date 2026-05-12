@@ -105,6 +105,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #149: `T66-refresh-after-claude-pr-triage` records the #141/#143/#144 merges, #142 blocker, #145 close, and post-#144 Claude next actions in the repo-native handoff lane.
 - Blocked PR #148: `T-ops-routes-list-route` now has `tier-1` + `do-not-merge`; rebase over post-#149 `main`, then either narrow/document the manifest as a curated subset with an explicit scope or include the full intended optional route set with regression coverage. Rerun focused route test plus `npm test`.
 - Merged PR #152: `T67-refresh-after-pr148-triage` records PR #148's blocker in the repo-native handoff lane.
+- Merged PR #150: `T-creative-memory-version-check-eval` adds `npm run eval:creative-memory-version`; Codex diff review passed and GitHub evaluate was green.
+- Merged PR #151: `T-screenplay-export-pdf-error-clarity` adds `message`, `alternative_formats`, and `docs_path` to the PDF export rejection payload; Codex diff review passed and GitHub evaluate was green.
+- Merged PR #153: `T68-refresh-after-pr150-151` records PR #150/#151 merged and fixes T67's status detail in the repo-native handoff lane.
 - Blocked PR #133: `T-build-tasks-md-anchors` is mergeable but still needs generator idempotency proof after post-#149 `main`; update over current `main`, commit generated `TASKS.md`, verify a second generator write is clean, then remove `do-not-merge`.
 - Blocked PR #134: `T-ops-health-summary-route` still conflicts and carries `do-not-merge` after post-#149 `main`; rebase/update, preserve the safe-public/no-user-data posture, rerun focused route test plus `npm test`, then remove `do-not-merge`.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
