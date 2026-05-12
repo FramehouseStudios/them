@@ -2,7 +2,7 @@
 id: T68
 title: Refresh queue after PR #150/#151 merges
 owner: codex
-status: in-progress
+status: review
 branch: codex/T68-refresh-after-pr150-151
 pillar: infra (enables all)
 ---

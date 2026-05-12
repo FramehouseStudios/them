@@ -64,6 +64,8 @@ PR #141's `npm run eval:block-signal-block-cap`, PR #143's `docs/decisions-queue
 
 PR #148's `GET /ops/routes` manifest is blocked until the response scope matches the documented contract and the branch is rebased over post-#149 `main`.
 
+PR #150's `npm run eval:creative-memory-version` is merged and pins the creative-memory snapshot `version` field. PR #151's PDF export rejection payload is merged; Studio export UI can now read `message`, `alternative_formats`, and `docs_path` when `format=pdf` is rejected.
+
 PR #114's `GET /memory/block-signal/history` endpoint is consumed by `codex/T53-ios-block-signal-history` as a compact Studio Momentum history sparkline / stuck-this-week surface.
 
 PR #108 already consumed PR #91's `GET /memory/character-archetypes` endpoint as an archetype tag/insight in the character traits rail.

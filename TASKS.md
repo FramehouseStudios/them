@@ -68,6 +68,8 @@
 | T-screenplay-export-markdown | POST /screenplay/export format=md|markdown            | claude | merged |
 | T-decisions-queue-fixture-template | docs/decisions-queue-template.md entry skeleton | claude | merged |
 | T-coordination-state-cli-validate | Add validate subcommand to coordination_state.mjs | claude | merged |
+| T-creative-memory-version-check-eval | Pin creative-memory snapshot version field | claude | merged |
+| T-screenplay-export-pdf-error-clarity | Add helpful PDF rejection payload | claude | merged |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
@@ -97,7 +99,7 @@
 | T65  | Refresh coordination after T64 merge              | codex  | merged            |
 | T66  | Refresh queue after Claude PR triage              | codex  | merged            |
 | T67  | Refresh queue after PR #148 triage                | codex  | merged            |
-| T68  | Refresh queue after PR #150/#151 merges           | codex  | in-progress       |
+| T68  | Refresh queue after PR #150/#151 merges           | codex  | review            |
 
 ---
 
@@ -637,7 +639,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T67-refresh-after-pr148-triage`
 - **Pillar:** infra (enables all)
-- **Status:** in-progress
+- **Status:** merged
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #148 blocked with the route-manifest scope/rebase finding; coordination prompt/check scripts pass.
 
 ---
@@ -646,7 +648,7 @@
 - **Owner:** codex
 - **Branch:** `codex/T68-refresh-after-pr150-151`
 - **Pillar:** infra (enables all)
-- **Status:** in-progress
+- **Status:** review
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #150 and PR #151 merged; T67 status is internally consistent; coordination prompt/check scripts pass.
 
 ---
