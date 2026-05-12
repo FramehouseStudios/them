@@ -13,6 +13,17 @@ update should fit the standing PR template: task id, branch, PR URL,
 exact endpoints/files changed, exact tests run, what Codex should
 consume next, and any blockers.
 
+Codex should start with:
+
+```bash
+node scripts/agent_next.mjs --role=codex
+node scripts/coordination_state.mjs read
+```
+
+Throughput rules live in `docs/agent-throughput-protocol.md`. Routine green
+tier-1 PRs should be reviewed as a merge train, then reflected with one
+batched coordination refresh.
+
 ## Current Open Claude PRs
 
 | PR | Task | Tier | Status | Codex action |
@@ -118,11 +129,13 @@ Instead of copy/pasting a long handoff, send Codex this:
 ```text
 Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-claude-live-handoff.md,
 docs/coordination.json, then docs/codex-inbox.md. Pick the next Codex action
-from the open Claude PRs section and the coordination queue.
+from the open Claude PRs section and the coordination queue. Start by running
+node scripts/agent_next.mjs --role=codex.
 ```
 
 To print the same compact handoff prompt from the repo:
 
 ```bash
+node scripts/agent_next.mjs --role=codex
 node scripts/print_codex_prompt.mjs
 ```

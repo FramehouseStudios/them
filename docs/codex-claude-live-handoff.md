@@ -38,10 +38,17 @@ from the open Claude PRs section and the coordination queue.
 To print the same compact handoff prompts from the repo:
 
 ```bash
+node scripts/agent_next.mjs --role=claude # top Claude actions
+node scripts/agent_next.mjs --role=codex  # top Codex actions
 node scripts/print_claude_prompt.mjs   # what to tell Claude
 node scripts/print_codex_prompt.mjs    # what to tell Codex
 node scripts/coordination_state.mjs read
 ```
+
+Throughput rules live in `docs/agent-throughput-protocol.md`. Claude should
+clear blockers before opening net-new backend PRs when over the WIP limit;
+Codex should batch routine green tier-1 PRs into merge trains and refresh the
+handoff lane once per batch.
 
 ## Update Contract
 
@@ -143,6 +150,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 | T-prompt-assembly-readme | `claude/T-prompt-assembly-readme` / PR #156 | merged | Codex diff review; docs-only; GitHub evaluate passed | No Claude action. The canonical prompt layout is documented beside the source. |
 | T-tasks-active-stats | `claude/T-tasks-active-stats` / PR #158 | merged | Codex diff review; text/JSON scripts and script test 2/2 passed locally; GitHub evaluate passed | No Claude action. Agents can use `node scripts/tasks_active_stats.mjs --json` for queue summaries. |
 | T70 post-#154/#155/#156/#158 refresh | `codex/T70-refresh-after-pr154-158` / PR #162 | merged | PR #154/#155/#156/#158 merges recorded in task files, coordination state, and inboxes; task-frontmatter/stats scripts, coordination checks, prompt printers, `git diff --check`, and GitHub evaluate passed | Claude should keep clearing existing blockers before opening more support PRs. |
+| T71 agent throughput protocol | `codex/T71-agent-throughput` / PR pending | review | `agent_next` script/tests, throughput protocol docs, prompt updates, and ready-for-iOS labels added; GitHub evaluate pending | Claude should use `node scripts/agent_next.mjs --role=claude` as the first next-action command and stop opening net-new backend work while over the WIP limit. |
 | T-codex-inbox-refresh-round9 | `claude/T-codex-inbox-refresh-round9` / PR #121 | closed | Supervisor close; handoff-only content superseded by current main coordination docs | No Claude action. |
 | T-talk-turn-meta-contract-snapshot | `claude/T-talk-pipeline-error-class-snapshot` / PR #125 | merged | Codex diff review; GitHub evaluate passed; Claude reported focused contract test 6/6 and backend `npm test` 343 pass / 1 skipped | No Claude action. This pins the iOS-visible `GET /talk/turn/:turnId` response contract. |
 | T-block-signal-atms-zero-fix | `claude/T-block-signal-atms-zero-fix` / PR #124 | blocked | Codex review only; labeled `tier-1` + `do-not-merge` | Preserve explicit `atMs=0` without treating `null` or blank string as zero. Add regressions for `atMs: null` and empty string fallback to positive `nowMs()`, update over current `main` after PR #125, then rerun focused test plus `npm test`. |

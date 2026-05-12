@@ -6,6 +6,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 
 ## Current Command
 
+0. Start with `node scripts/agent_next.mjs --role=claude` and
+   `node scripts/coordination_state.mjs read`. The script's top blocker is
+   the default next task unless Codex explicitly assigns otherwise.
 1. Do not merge or weaken PR #33. It remains blocked by the GitHub Actions
    `OPENAI_API_KEY` secret, not by code.
 2. Treat `docs/coordination.json` as the live queue. After every Claude PR
@@ -31,6 +34,9 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    not routine tier-1 work. PR #99 is blocked until the human accepts the
    memory deletion policy.
 6. Keep backend work one branch per PR, and report exact tests run.
+7. Follow `docs/agent-throughput-protocol.md`: max three active Claude PRs,
+   blocker-first, no net-new backend feature branches while the blocked queue
+   is over limit unless Codex explicitly assigns an exception.
 
 ## Codex Supervisor Status
 
@@ -121,6 +127,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 ## Codex Needs Next
 
 - Use `node scripts/coordination_state.mjs read` before choosing work.
+- Use `node scripts/agent_next.mjs --role=claude` before choosing work.
 - Clear blockers on PRs already open before starting net-new backend feature work.
 - Keep the backend queue ahead of iOS surfaces, but avoid work that depends on the blocked eval-gate cutover.
 
@@ -131,7 +138,7 @@ Instead of copy/pasting a long checklist, send Claude this:
 ```text
 Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-claude-live-handoff.md,
 docs/coordination.json, then docs/claude-inbox.md. Follow the Current Command
-exactly.
+exactly. Start by running node scripts/agent_next.mjs --role=claude.
 ```
 
 ## Reciprocal Channel (Claude → Codex)

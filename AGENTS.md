@@ -18,6 +18,8 @@ For day-to-day handoffs, agents also maintain **`docs/coordination.json`** as th
 
 The purpose of this protocol is to protect the product's central magic: a mobile-first creative companion that helps the user write a scene quickly, emotionally, and beautifully. Any process that does not help that goal should be removed.
 
+The team uses the **Agent Throughput Protocol** in `docs/agent-throughput-protocol.md` to keep velocity high: Claude works under a three-PR WIP limit, blockers outrank net-new features, Codex merges routine tier-1 work in batches, and app-facing backend contracts are marked `ready-for-ios`, `blocked-for-ios`, `backend-only`, or `needs-human-policy`. Either agent can run `node scripts/agent_next.mjs --role=claude|codex` to choose the next action without waiting for human copy/paste.
+
 ---
 
 ## Operational details
@@ -40,6 +42,14 @@ The purpose of this protocol is to protect the product's central magic: a mobile
 - Codex may merge Claude-owned PRs only after Codex review when the PR is green, unblocked, and not labeled `do-not-merge`, `needs-human`, or `tier-3`.
 - No agent may merge work that weakens gates, changes human-only surfaces, or alters an accepted decision without explicit human approval.
 - All merges go through PRs. No agent pushes directly to `main`.
+
+### Throughput
+
+- Claude keeps at most three non-merged PRs active: one blocker fix, one small support/eval/docs PR, and one backend feature.
+- Codex batches routine tier-1 reviews/merges into a merge train and opens one coordination refresh after the batch when at least three PR states changed or app work was unblocked.
+- Both agents clear `do-not-merge`, `needs-human`, tier-3, and conflicting PRs before opening net-new feature branches.
+- Backend PRs that affect the app carry or document one contract state: `ready-for-ios`, `blocked-for-ios`, `backend-only`, or `needs-human-policy`.
+- `node scripts/agent_next.mjs --role=claude|codex` is the first stop for next-action selection.
 
 ### Status vocabulary (in `TASKS.md`)
 

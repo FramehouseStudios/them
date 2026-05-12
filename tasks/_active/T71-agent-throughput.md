@@ -2,7 +2,7 @@
 id: T71
 title: Add agent throughput protocol and next-action CLI
 owner: codex
-status: in-progress
+status: review
 branch: codex/T71-agent-throughput
 pillar: infra (enables all)
 ---
