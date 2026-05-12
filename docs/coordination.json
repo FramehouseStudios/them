@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T19:41:22.000Z",
+  "updatedAt": "2026-05-12T19:48:08.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -694,6 +694,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "claude/T-decompose-backend-index",
+      "blocker": null
+    },
+    {
+      "number": 184,
+      "title": "T77-post-efficiency-prs-refresh",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T77-post-efficiency-prs-refresh",
       "blocker": null
     }
   ],
