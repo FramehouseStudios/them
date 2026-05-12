@@ -117,6 +117,7 @@
 | T75  | Surface talk-turn rate-limit retry affordance     | codex  | merged            |
 | T76  | Refresh coordination after efficiency merge train | codex  | merged            |
 | T77  | Refresh coordination after PR #180/#181           | codex  | merged            |
+| T78  | Refresh coordination after PR #183                | codex  | in-progress       |
 
 ---
 
