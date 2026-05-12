@@ -64,6 +64,7 @@ import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountArchetypeRoute } from "./lib/archetype_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
 import { mountOpsHealthSummaryRoute } from "./lib/ops_health_summary_route.js";
+import { mountHealthRoutes } from "./lib/health_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
@@ -27218,64 +27219,24 @@ app.post("/screenplay/export", express.json({ limit: "2mb" }), (req, res) => {
   return res.status(400).json({ stage: "screenplay_export", error: "unsupported_format" });
 });
 
-app.get("/health", (req, res) => {
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const readMeta = buildReadStateMeta(req, selected.memory, selected.ip);
-  const runtime = deriveBackendRuntimeStatus();
-  const backplaneStatus = scaleBackplane.status();
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  applyReadStateHeaders(res, readMeta);
-  res.setHeader("x-backend-status", runtime.status);
-  return res.status(200).json({
-    ok: true,
-    status: runtime.status,
-    reasons: runtime.reasons,
-    schema_version: API_SCHEMA_VERSION,
-    backend_build: BACKEND_BUILD,
-    backend_boot_id: BACKEND_BOOT_ID,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    talk_in_flight: talkInFlight,
-    talk_sessions_in_flight: talkInFlightBySession.size,
-    talk_metrics: runtime.metrics,
-    scale_backplane: backplaneStatus,
-  });
-});
-
-app.get("/bridge", (req, res) => {
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const readMeta = buildReadStateMeta(req, selected.memory, selected.ip);
-  const runtime = deriveBackendRuntimeStatus();
-  const backplaneStatus = scaleBackplane.status();
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  applyReadStateHeaders(res, readMeta);
-  res.setHeader("x-backend-status", runtime.status);
-  return res.status(200).json({
-    ok: true,
-    status: runtime.status,
-    reasons: runtime.reasons,
-    schema_version: API_SCHEMA_VERSION,
-    backend_build: BACKEND_BUILD,
-    backend_boot_id: BACKEND_BOOT_ID,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    talk_in_flight: talkInFlight,
-    talk_sessions_in_flight: talkInFlightBySession.size,
-    talk_metrics: runtime.metrics,
-    scale_backplane: backplaneStatus,
-  });
+// T-decompose-phase0-health-route: /health + /bridge moved into
+// lib/health_route.js. Inline handlers were byte-identical; now
+// they share a single helper. No behavior change — see the spec
+// at docs/specs/T-decompose-backend-index.md for the full plan.
+mountHealthRoutes(app, {
+  selectMemoryRecordForRead,
+  buildReadStateMeta,
+  deriveBackendRuntimeStatus,
+  scaleBackplane,
+  applyReadStateHeaders,
+  // talkInFlight / talkInFlightBySession are mutable module-scoped
+  // state; pass them as accessor functions so the handler reads the
+  // current value at request time, not the value at mount time.
+  talkInFlight: () => talkInFlight,
+  talkInFlightBySession: () => talkInFlightBySession,
+  API_SCHEMA_VERSION,
+  BACKEND_BUILD,
+  BACKEND_BOOT_ID,
 });
 
 app.get("/ops/metrics", (req, res) => {
