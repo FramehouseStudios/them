@@ -137,6 +137,95 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(formatsRequest.method, "GET")
         XCTAssertNil(formatsRequest.bodyObject)
     }
+
+    func testFountainImportPostsTextAndProjectsBackToEditableDraft() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/screenplay/import/fountain":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json",
+                        "Cache-Control": "no-store",
+                    ],
+                    body: Data(
+                        #"""
+                        {
+                          "schemaVersion": 1,
+                          "screenplay": {
+                            "title": { "title": "io.them", "author": "Half Mutant Films" },
+                            "scenes": [
+                              {
+                                "heading": "INT. KITCHEN - NIGHT",
+                                "lines": [
+                                  { "kind": "action", "text": "Rain bruises the window." },
+                                  {
+                                    "kind": "character",
+                                    "name": "JUNE",
+                                    "parenthetical": "quiet",
+                                    "dialogue": ["We are still here."]
+                                  },
+                                  { "kind": "transition", "text": "CUT TO:" }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        let response = try await api.importFountainDraft(
+            text: "Title: io.them\n\nINT. KITCHEN - NIGHT\n\nJUNE\nWe are still here."
+        )
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(
+            response.screenplay.fountainDraft,
+            """
+            Title: io.them
+            Author: Half Mutant Films
+
+            INT. KITCHEN - NIGHT
+
+            Rain bruises the window.
+
+            JUNE
+            (quiet)
+            We are still here.
+
+            CUT TO:
+            """
+        )
+
+        let importRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/screenplay/import/fountain" })
+        XCTAssertEqual(importRequest.method, "POST")
+        XCTAssertEqual(importRequest.bodyObject?["text"] as? String, "Title: io.them\n\nINT. KITCHEN - NIGHT\n\nJUNE\nWe are still here.")
+    }
 }
 
 private struct ScreenplayExportHTTPStub {

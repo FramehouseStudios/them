@@ -112,7 +112,7 @@
 | T70  | Refresh queue after PR #154/#155/#156/#158 merges | codex  | merged            |
 | T71  | Add agent throughput protocol and next-action CLI | codex  | merged            |
 | T72  | Refresh queue after supervisor merge train        | codex  | merged            |
-| T73  | Build iOS Fountain import surface                 | codex  | in-progress       |
+| T73  | Build iOS Fountain import surface                 | codex  | merged            |
 
 ---
 
@@ -126,8 +126,8 @@
 6. Have Claude update PR #171 (`T-eval-gate-add-canon-evals`) after the canon-eval stack settles.
 7. Review/merge PR #163 after it is rebased and its focused eval/backend tests are green.
 8. Review/merge PR #164 after it is rebased and its focused eval/backend tests are green.
-9. Build the iOS Fountain import surface now that PR #87 (`POST /screenplay/import/fountain`) is merged.
-10. Use merged PR #148 (`GET /ops/routes`) and PR #170's optional `rate_limited` talk-turn response in Studio diagnostics/retry affordances.
+9. Use merged PR #148 (`GET /ops/routes`) in a lightweight Studio/dev diagnostics surface.
+10. Use PR #170's optional `rate_limited` talk-turn response in Studio retry affordances.
 
 ---
 
@@ -725,6 +725,7 @@
 | T70                                     | Refresh queue after PR #154/#155/#156/#158 merges                 | codex  | merged      |
 | T71                                     | Add agent throughput protocol and next-action CLI                 | codex  | merged      |
 | T72                                     | Refresh queue after supervisor merge train                        | codex  | merged      |
+| T73                                     | Build iOS Fountain import surface                                 | codex  | merged      |
 
 ## Active work — full detail (auto-generated)
 
@@ -1976,5 +1977,26 @@ blocked canon-eval PRs, and stale inbox-only closures.
 merged, which PRs remain blocked, and which app-facing backend contracts
 are ready for Codex. Coordination validation, agent-next commands,
 task-frontmatter checks, task stats, task generation, and diff checks pass.
+
+### T73 — Build iOS Fountain import surface
+- **Owner:** codex
+- **Branch:** codex/T73-ios-fountain-import
+- **Pillar:** mobile-first + screenplay craft
+- **Status:** merged
+
+## Scope
+
+Consume Claude PR #87's `POST /screenplay/import/fountain` contract from the
+Studio app. Script text imports should use the backend Fountain parser when it
+is available, fall back to local normalization when offline, and keep PDF/OCR
+import behavior intact.
+
+## Done when
+
+The Studio can import Fountain/plain-text screenplay files from the document
+controls, navigator, drag/drop, and iOS file importer path; imported structured
+screenplays are projected back to editable Fountain text; focused backend
+client tests cover the request and projection; and the repo handoff no longer
+marks PR #87 as awaiting an iOS consumer.
 
 <!-- END AUTOGEN active-tasks -->

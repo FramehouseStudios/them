@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T18:04:12.340Z",
+  "updatedAt": "2026-05-12T18:20:58.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -644,11 +644,6 @@
   ],
   "decisionsPending": [],
   "endpointsAwaitingIosConsumer": [
-    {
-      "pr": 87,
-      "endpoint": "POST /screenplay/import/fountain",
-      "consumer": "Build the iOS Studio Fountain import surface."
-    },
     {
       "pr": 148,
       "endpoint": "GET /ops/routes",

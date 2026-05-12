@@ -65,7 +65,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #168: `T-creative-memory-store-eviction-eval`; Codex verified `npm run eval:creative-memory-eviction`.
 - Merged PR #169: `T-coordination-state-mutate-eval`; Codex verified `node scripts/coordination_state_mutate_eval.mjs` and `node --test scripts/coordination_state_mutate_eval.test.mjs`.
 - Merged PR #170: `T-talk-turn-rate-limit-route`; Codex verified focused route tests and backend `npm test`.
-- Merged PR #87: `T-screenplay-import-fountain`; Codex verified focused Fountain import tests plus backend `npm test`. This is ready for iOS import UI.
+- Merged PR #87: `T-screenplay-import-fountain`; T73 consumes it on iOS with the Studio Import Script path.
 - Merged PR #142: `T-known-domains-startup-check`; Codex verified focused startup-check tests.
 - Merged PR #133: `T-build-tasks-md-anchors`; Codex verified generator idempotency.
 - Merged PR #148: `T-ops-routes-list-route`; Codex verified focused route tests.
