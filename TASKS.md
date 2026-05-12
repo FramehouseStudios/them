@@ -90,6 +90,7 @@
 | T61  | Refresh coordination after T60 merge              | codex  | merged            |
 | T62  | Quiet offline Studio export-format refresh        | codex  | merged            |
 | T63  | Refresh coordination after T62 merge              | codex  | review            |
+| T64  | Quiet offline session-evolution launch probe      | codex  | in-progress       |
 
 ---
 
@@ -595,6 +596,15 @@
 - **Pillar:** mobile-first + infra
 - **Status:** review
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #139/T62 merged; Claude's #133/#134 blockers are current against post-T62 `main`; coordination prompt/check scripts pass.
+
+---
+
+### T64 — Quiet offline session-evolution launch probe
+- **Owner:** codex
+- **Branch:** `codex/T64-session-evolution-quiet`
+- **Pillar:** mobile-first + infra
+- **Status:** in-progress
+- **Done when:** app/test launches no longer surface noisy localhost `/session/evolution` connection failures when no backend session has been loaded; manual or backend-backed evolution refresh remains available; focused tests cover the quiet policy.
 
 ---
 
