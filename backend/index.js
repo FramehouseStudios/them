@@ -71,6 +71,7 @@ import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/bloc
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
+import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
 import { createOutboxSnapshotter } from "./lib/outbox_snapshotter.js";
 import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
 import {
@@ -33025,6 +33026,11 @@ process.on("SIGTERM", () => { void closeScaleBackplaneOnce(); });
 process.on("exit", () => { void closeScaleBackplaneOnce(); });
 
 if (SHOULD_START_SERVER) {
+  // T-known-domains-startup-check: cheap boot-time invariant on the
+  // persistence-adapter KNOWN_DOMAINS export. Logs (does not throw)
+  // so a deploy with a corrupted constant fails diagnostics loudly
+  // instead of crashing on the first persistence call.
+  checkKnownDomainsAtStartup();
   app.listen(PORT, () => {
     console.log(`Backend listening on http://localhost:${PORT}`);
     if (OUTBOX_ENABLED && OUTBOX_WORKER_ENABLED) {
