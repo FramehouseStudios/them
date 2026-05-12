@@ -80,6 +80,7 @@ import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
 import { createOutboxSnapshotter } from "./lib/outbox_snapshotter.js";
 import { createRealtimeSupplier } from "./lib/realtime_supplier.js";
+import { probeSupplierShape, probeSupplierLive, createSupplierHealthCache } from "./lib/realtime_supplier_health.js";
 import {
   configureScreenplayStore,
   ensureScreenplayOutline,
@@ -28710,6 +28711,43 @@ app.patch("/session/evolution", express.json({ limit: "256kb" }), (req, res) => 
     `[${rid}] session_evolution synced stage=${stage ?? "n/a"} depth=${depthScore ?? "n/a"} romance=${romanceTension ?? "n/a"} reassure_style=${reassuranceStyleHint || "n/a"} affection=${affectionStyleHint || "n/a"} love_topic=${loveTopicActive == null ? "n/a" : (loveTopicActive ? "1" : "0")} ip=${requesterIp}`
   );
   return res.status(204).end();
+});
+
+// T-realtime-supplier-health: readiness probe for the configured
+// supplier. Default returns the cached (or fresh) shape probe;
+// `?deep=1` runs a live mintClientSecret call against the supplier
+// with a short timeout. Deep results are cached for 30s so a polling
+// dashboard doesn't fire a fresh mint each tick.
+const _realtimeHealthCache = createSupplierHealthCache();
+app.get("/realtime/health", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const supplier = realtimeSupplier;
+  const deep = String(req.query?.deep || "").trim() === "1";
+  const recordedAt = new Date().toISOString();
+  if (!deep) {
+    const shape = probeSupplierShape(supplier);
+    return res.status(200).json({
+      schemaVersion: 1,
+      mode: "shape",
+      kind: shape.kind || (supplier && supplier.kind) || null,
+      healthy: Boolean(shape.healthy),
+      error: shape.error,
+      recordedAt,
+    });
+  }
+  const cached = _realtimeHealthCache.get(supplier);
+  if (cached) {
+    return res.status(200).json({
+      schemaVersion: 1,
+      mode: "live",
+      cached: true,
+      ...cached,
+    });
+  }
+  const live = await probeSupplierLive(supplier, { timeoutMs: 5000 });
+  const result = { kind: live.kind, healthy: Boolean(live.healthy), error: live.error, latencyMs: live.latencyMs, recordedAt };
+  _realtimeHealthCache.set(supplier, result);
+  return res.status(200).json({ schemaVersion: 1, mode: "live", cached: false, ...result });
 });
 
 app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req, res) => {

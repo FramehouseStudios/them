@@ -67,6 +67,7 @@
 | T-payoff-tracker | Setup → payoff detection + endpoint                          | claude | review |
 | T-talk-turn-meta-stats | GET /talk/stats — aggregate /talk health (safe-public)   | claude | review |
 | T-talk-error-rate-tracker | In-memory error counter + GET /talk/errors (safe-public) | claude | review |
+| T-realtime-supplier-health | Supplier shape + live probe + /realtime/health   | claude | review |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
 | T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
