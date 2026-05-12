@@ -96,6 +96,7 @@
 | T64  | Quiet offline session-evolution launch probe      | codex  | merged            |
 | T65  | Refresh coordination after T64 merge              | codex  | merged            |
 | T66  | Refresh queue after Claude PR triage              | codex  | merged            |
+| T67  | Refresh queue after PR #148 triage                | codex  | in-progress       |
 
 ---
 
@@ -628,6 +629,15 @@
 - **Pillar:** infra (enables all)
 - **Status:** merged
 - **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #141/#143/#144 merged, PR #142 blocked with a precise review finding, PR #145 closed as stale, and PR #147/T65 merged; coordination prompt/check scripts pass.
+
+---
+
+### T67 — Refresh queue after PR #148 triage
+- **Owner:** codex
+- **Branch:** `codex/T67-refresh-after-pr148-triage`
+- **Pillar:** infra (enables all)
+- **Status:** in-progress
+- **Done when:** `TASKS.md`, `docs/coordination.json`, `docs/codex-claude-live-handoff.md`, `docs/claude-inbox.md`, and `docs/codex-inbox.md` reflect PR #148 blocked with the route-manifest scope/rebase finding; coordination prompt/check scripts pass.
 
 ---
 
