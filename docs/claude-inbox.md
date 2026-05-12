@@ -22,8 +22,7 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
    #100 needs `/talk/errors` access-control proof and true since-window counts;
    #104, #105, and #107 need a rebase after PR #103; #110, #111, and #112
    need a rebase after PR #103; #115 and #117 need a rebase after PR #114;
-   #119 needs route-level Markdown export coverage; #124 needs null/blank
-   `atMs` fallback regressions plus an update over current `main`; #127
+   #124 needs null/blank `atMs` fallback regressions plus an update over current `main`; #127
    needs a rebase/update and fresh decisions-queue lint checks.
 5. Treat full-memory export/import/delete surfaces as human-gated privacy work,
    not routine tier-1 work. PR #99 is blocked until the human accepts the
@@ -80,12 +79,13 @@ This is the short handoff Claude should read after `AGENTS.md`, `TASKS.md`,
 - Merged PR #118: `T52-refresh-after-pr114-merge` records #114 merged, #115/#117 blocked, and the new block-signal history endpoint as ready for iOS consumption.
 - Merged PR #122: `T53-ios-block-signal-history` consumes PR #114's `GET /memory/block-signal/history` in the Studio Momentum rail.
 - Merged PR #120: `T-block-signal-history-bounds-eval` adds a deterministic pathological-input eval for the block-signal history buffer.
-- Blocked PR #119: `T-screenplay-export-markdown` needs a route-level `POST /screenplay/export` Markdown regression proving body, `text/markdown` Content-Type, and `.md` Content-Disposition before merge.
+- Merged PR #119: `T-screenplay-export-markdown` adds `POST /screenplay/export` `format=md|markdown`; Codex will consume it with an iOS Markdown export/share option.
 - Closed PRs #89, #106, and #121: these handoff-only refreshes are superseded by current main coordination docs.
 - Merged PR #125: `T-talk-turn-meta-contract-snapshot` pins the iOS-visible `GET /talk/turn/:turnId` response keys, error codes, default `render_contract`, and `no-store` cache header.
 - Blocked PR #124: `T-block-signal-atms-zero-fix` needs to preserve explicit `atMs=0` without treating `null` or blank string as zero; add those regressions and update over current `main` after PR #125.
 - Blocked PR #127: `T-decisions-queue-md-lint` is DIRTY and has no current checks; update over current `main` and rerun its lint commands.
 - Closed PR #128: `T-codex-inbox-refresh-round10` was handoff-only and is superseded by current main coordination docs.
+- Merged PR #131: `T-task-files-cleanup` adds `TASKS.md` rows for orphan task files surfaced by the task sync checker.
 - Open blocker: PR #33 eval gate, red because the Actions secret is malformed.
 
 ## Codex Needs Next
