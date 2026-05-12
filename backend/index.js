@@ -65,6 +65,7 @@ import { mountArchetypeRoute } from "./lib/archetype_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
+import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
@@ -32891,6 +32892,11 @@ mountBlockSignalRoute(app, { creativeMemoryStore });
 // "stuck-this-week?" UI without re-triggering the polling endpoint's
 // debounce.
 mountBlockSignalHistoryRoute(app, { creativeMemoryStore });
+
+// T-screenplay-export-formats-list-route: GET /screenplay/export/formats
+// returns the canonical list of supported export formats so iOS / API
+// consumers don't have to hard-code the set or guess MIME types.
+mountScreenplayExportFormatsRoute(app);
 
 app.all("/auth/signup", methodNotAllowed("POST"));
 app.all("/auth/login", methodNotAllowed("POST"));
