@@ -90,7 +90,7 @@ PR #155's `tasks_active_frontmatter_eval`, PR #156's
 PR #162 records the #154/#155/#156/#158 landing state in the repo-native
 handoff lane.
 
-PR #87's `POST /screenplay/import/fountain` path is consumed by T73 / `codex/T73-ios-fountain-import`: Studio script imports use the backend Fountain parser when available and fall back to local normalization offline.
+PR #87's `POST /screenplay/import/fountain` path is consumed by PR #176 / T73 / `codex/T73-ios-fountain-import`: Studio script imports use the backend Fountain parser when available and fall back to local normalization offline.
 
 PR #148's `GET /ops/routes` manifest is merged and ready for a lightweight Studio/dev diagnostics consumer.
 
