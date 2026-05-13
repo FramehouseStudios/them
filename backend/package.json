@@ -29,6 +29,7 @@
     "eval:ops-health-summary": "node evals/run_ops_health_summary_eval.mjs",
     "eval:trait-library-canon": "node evals/run_trait_library_canon_eval.mjs",
     "eval:twist-engine-canon": "node evals/run_twist_engine_canon_eval.mjs",
+    "eval:block-detector-canon": "node evals/run_block_detector_canon_eval.mjs",
     "eval:regression": "RUN_SERVER=0 node evals/run_nightly_regression.mjs",
     "eval:regression:update": "RUN_SERVER=0 node evals/run_nightly_regression.mjs --write-baseline",
     "load:profile": "node evals/run_load_profile.mjs",
