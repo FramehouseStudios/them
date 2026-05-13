@@ -72,6 +72,7 @@
 | T-craft-frameworks-eval | Eval that runs analyzer against all frameworks   | claude | review     |
 | T-fountain-export-endpoint | POST /screenplay/export/fountain (Fountain text) | claude | review |
 | T-backend-surface-smoke | Whole-surface smoke eval for every iOS-facing route | claude | review |
+| T-genre-classifier | Deterministic genre + tone classifier + endpoint | claude | review |
 | T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
 | T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |

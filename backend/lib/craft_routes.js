@@ -25,6 +25,7 @@ import { lintScreenplay } from "./format_linter.js";
 import { suggestTwists } from "./twist_engine.js";
 import { simulateCoverage } from "./coverage_simulator.js";
 import { trackPayoffs } from "./payoff_tracker.js";
+import { classifyGenre } from "./genre_classifier.js";
 import {
   distillLogline,
   recordLogline,
@@ -252,6 +253,24 @@ function mountCraftRoutes(app) {
       return res.status(200).json(result);
     } catch (e) {
       return sendKnownError(res, "craft_invalid_screenplay", e?.message || "payoff tracking failed");
+    }
+  });
+
+  // T-genre-classifier: deterministic genre + tone classifier.
+  app.post("/craft/genre/classify", (req, res) => {
+    if (!checkClientSchemaVersion(req, res)) return;
+    const body = req.body || {};
+    const text = typeof body.text === "string" ? body.text : "";
+    const frameworkId = typeof body.frameworkId === "string" ? body.frameworkId : null;
+    if (!text) {
+      return sendKnownError(res, "craft_invalid_screenplay", "text is required");
+    }
+    try {
+      const result = classifyGenre({ text, frameworkId });
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json(result);
+    } catch (e) {
+      return sendKnownError(res, "craft_invalid_screenplay", e?.message || "classify failed");
     }
   });
 
