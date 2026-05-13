@@ -1,11 +1,42 @@
 # Spec: T-decompose-backend-index
 
-**Status**: spec (awaiting Codex approval before implementation PRs)
+**Status**: in flight. Phases 0, 1, and 2a merged.
 **Owner**: claude
 **Scope**: backend
 **Acceptance**: human signed off on the problem framing; Codex
 approves the phasing + safety mechanisms before any phase-N
-implementation PR opens.
+implementation PR opens. Phasing established by approved spec PR
+#181 plus the merged Phase 0 (#183) and Phase 1 (#190) PRs that
+proved the pattern.
+
+## Progress log
+
+| Phase | What it extracted | PR | Status | Lines saved (net in index.js) |
+| --- | --- | --- | --- | --- |
+| 0 | `/health` + `/bridge` → `lib/health_route.js` | #183 | merged | ~39 |
+| 1 | `/ops/metrics` + `/ops/alerts` → `lib/ops_metrics_route.js` + `lib/ops_alerts_route.js` | #190 | merged | ~22 |
+| 2a | 5 GET `/screenplay/projects/*` → `lib/screenplay_projects_routes.js` | #192 | merged | ~88 |
+| parser hardening | route-local parsers for every route that reads `req.body` | #193 | merged | n/a |
+
+Observations after Phase 0–2a:
+
+- The `mount<X>Route(app, deps)` pattern works well at any size.
+  Phase 0 had 2 routes, Phase 2a had 5 — same shape, same scaffold.
+- Live counter state (talk in-flight, session locks, idempotency
+  cache) is passed via accessor functions, NOT direct references,
+  so the lib reads the current value at request time. Required.
+- Required-deps guard at mount time turns wiring mistakes into
+  loud startup errors (vs. crashing on first request).
+- Production-style tests using a **bare** Express app (no
+  `app.use(express.json())` upstream) catch route-needs-own-parser
+  regressions. Tests with an app-level parser silently mask the bug.
+  PR #193 cleared the remaining known parser findings.
+- Per-route file is cleaner than grouped files. `ops_metrics_route.js`
+  and `ops_alerts_route.js` are separate even though they share deps.
+  Easier to test, easier to read, easier to delete.
+- Spec said "ops_observability_routes.js" but actual landed as two
+  files — one per route. Follow-on phases should plan for the same
+  granularity unless a strong reason groups them.
 
 ## Problem
 
@@ -65,42 +96,56 @@ is already correct — this spec applies it backwards to the rest.
 
 ## Phases (ranked by impact-per-risk)
 
-### Phase 0 — this spec + proof of concept
+### Phase 0 — this spec + proof of concept ✅ MERGED #183
 
-**Spec PR** (this one) plus **one tiny concrete extraction**:
-`/health` + `/bridge` → `backend/lib/health_route.js`. Two routes,
-no shared state, no auth, zero risk. If this lands cleanly the
-strategy is proven; the rest of the phases follow.
+Spec PR plus one tiny concrete extraction: `/health` + `/bridge` →
+`backend/lib/health_route.js`. Two routes, no shared state, no
+auth, zero risk. Landed cleanly; strategy proven.
 
-### Phase 1 — pure read-only ops endpoints
+### Phase 1 — pure read-only ops endpoints ✅ MERGED #190
 
-Move 5 routes into `lib/ops_observability_routes.js`:
-- `GET /ops/metrics`
-- `GET /ops/alerts`
-- `GET /outbox`
-- `POST /outbox/retry`
-- `GET /state`
+Extracted only the 2 routes that remained inline (the rest had
+already been pulled into their own libs in prior PRs):
+- `/ops/metrics` → `lib/ops_metrics_route.js`
+- `/ops/alerts` → `lib/ops_alerts_route.js`
 
-Lines saved: ~600.
+`/outbox`, `/outbox/retry`, `/state` are deferred — they share
+helpers with other routes and benefit from a later combined
+extraction. Original Phase 1 line-saving estimate (~600) revised
+down to ~22 since the easy 3 routes are already in libs.
 
-### Phase 2 — screenplay project + version routes
+### Phase 2 — screenplay project + version routes (split into 2a + 2b)
 
-Move 9 routes into `lib/screenplay_projects_routes.js`:
+12 routes total. Split into two PRs to keep each reviewable.
+
+**Phase 2a** (merged, PR #192): 5 read-only GET routes.
+→ `lib/screenplay_projects_routes.js`
 - `GET /screenplay/projects` (list)
-- `POST /screenplay/projects` (create)
 - `GET /screenplay/projects/:projectId`
 - `GET /screenplay/projects/:projectId/outline`
+- `GET /screenplay/projects/:projectId/collaborators`
+- `GET /screenplay/projects/:projectId/comments`
+
+Lines saved (Phase 2a only): ~88.
+
+**Phase 2b** (gated on 2a landing): 7 write routes added to the same
+lib file:
+- `POST /screenplay/projects` (create)
 - `POST /screenplay/projects/:projectId/outline`
 - `POST /screenplay/projects/:projectId/scenes`
 - `POST /screenplay/projects/:projectId/beats`
-- `GET /screenplay/projects/:projectId/collaborators`
 - `POST /screenplay/projects/:projectId/collaborators`
-- `GET /screenplay/projects/:projectId/comments`
 - `POST /screenplay/projects/:projectId/comments`
 - `POST /screenplay/projects/:projectId/version`
 
-Lines saved: ~2,500. Touches `screenplay_store.js` deps but doesn't
-change them.
+Phase 2b touches `screenplay_store.js` write helpers
+(`upsertScreenplaySceneRecord`, `upsertScreenplayBeatRecord`,
+`scoreScreenplayDraft`, etc.) — they're already exported, just
+need to be passed as deps.
+
+Combined Phase 2 lines saved: ~600 (lower than the original ~2,500
+estimate because many helpers are shared rather than being duplicated
+inside the handlers).
 
 ### Phase 3 — screenplay companion + assistive routes
 
