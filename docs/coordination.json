@@ -1,8 +1,35 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-13T23:05:31.093Z",
-  "updatedBy": "codex",
+  "updatedAt": "2026-05-13T23:28:18.560Z",
+  "updatedBy": "claude",
   "openPullRequests": [
+    {
+      "number": 192,
+      "title": "T-decompose-phase2a-screenplay-projects-reads",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase2-screenplay-projects",
+      "blocker": null
+    },
+    {
+      "number": 193,
+      "title": "T-route-local-parsers",
+      "owner": "claude",
+      "tier": 1,
+      "status": "review",
+      "branch": "claude/T-route-local-parsers",
+      "blocker": null
+    },
+    {
+      "number": 194,
+      "title": "T-decompose-spec-update",
+      "owner": "claude",
+      "tier": 1,
+      "status": "review",
+      "branch": "claude/T-decompose-spec-update",
+      "blocker": null
+    },
     {
       "number": 148,
       "title": "T-ops-routes-list-route",

@@ -52,6 +52,8 @@ queue is also cleared; the remaining open blockers are human-owned.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
+| [#194](https://github.com/FramehouseStudios/them/pull/194) | T-decompose-spec-update | 1 | review | Docs-only update to `docs/specs/T-decompose-backend-index.md`. Adds progress log (Phases 0-2a), observations from the extraction pattern, Phase 2 split into 2a + 2b. No code change. |
+| [#193](https://github.com/FramehouseStudios/them/pull/193) | T-route-local-parsers | 1 | review | Adds route-local `express.json()` to 4 route libs that previously relied on app-level parsing. Production-style bare-Express tests verify the wiring. Clears all 4 outstanding `route-needs-own-parser` pre-flight findings. Zero behavior change. |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
 | [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | policy-gated | D005 now records the human-approved Codex supervisor authority. Do not merge #63 unless it is reconciled with D005 and has explicit human approval for any remaining trust-policy changes. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
