@@ -34,11 +34,19 @@
 // rather than 401 — matches the existing creative-memory write triggers
 // which silently no-op for unauthenticated turns.
 
+import express from "express";
+
 const MAX_NAME_LENGTH = 64;
 const MAX_SOURCE_LENGTH = 64;
 const MAX_TAGS = 16;
 const MAX_TAG_LENGTH = 64;
 const MAX_METADATA_VALUE_LENGTH = 128;
+// T-route-local-parsers / Codex #90: every backend route that reads
+// req.body mounts its own express.json() so the production-style
+// test path doesn't depend on an upstream app-level parser. iOS
+// sends short JSON payloads; 64kb is plenty and matches the
+// effective limit before.
+const CHARACTER_MENTION_BODY_LIMIT = "64kb";
 
 function pickFirstString(...candidates) {
   for (const c of candidates) {
@@ -130,7 +138,7 @@ function mountMemoryCharacterMentionRoute(app, {
     throw new Error("mountMemoryCharacterMentionRoute requires a creativeMemoryStore");
   }
 
-  app.post("/memory/record-character-mention", async (req, res) => {
+  app.post("/memory/record-character-mention", express.json({ limit: CHARACTER_MENTION_BODY_LIMIT }), async (req, res) => {
     const body = req.body || {};
     const characterName = sanitizeName(
       pickFirstString(body.character_name, body.characterName),

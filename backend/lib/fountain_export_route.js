@@ -11,7 +11,15 @@
 // `craft_invalid_screenplay` otherwise. Empty scenes is fine — title-
 // only screenplays are a valid Fountain document.
 
+import express from "express";
+
 import { exportToFountain } from "./fountain_export.js";
+
+// T-route-local-parsers / Codex #90: every route that reads
+// req.body mounts its own express.json(). A full screenplay
+// document can be large — keep the same generous limit the
+// upstream paths used (2mb).
+const FOUNTAIN_EXPORT_BODY_LIMIT = "2mb";
 
 function sanitizeFilenameBase(raw) {
   const s = typeof raw === "string" ? raw : "";
@@ -24,7 +32,7 @@ function mountFountainExportRoute(app) {
     throw new Error("mountFountainExportRoute requires an Express app");
   }
 
-  app.post("/screenplay/export/fountain", async (req, res) => {
+  app.post("/screenplay/export/fountain", express.json({ limit: FOUNTAIN_EXPORT_BODY_LIMIT }), async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const body = req.body || {};
     if (!body || typeof body !== "object") {
