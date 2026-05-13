@@ -142,7 +142,8 @@
 | T-decompose-phase0-health-route | Extract `/health` + `/bridge` from backend index | claude | merged |
 | T78  | Refresh coordination after PR #183                | codex  | merged            |
 | T79  | Codify second-pass agent efficiency protocol      | codex  | merged            |
-| T80  | Refresh coordination after PR #191/#192           | codex  | review            |
+| T80  | Refresh coordination after PR #191/#192           | codex  | merged            |
+| T81  | Refresh coordination after PR #193/#194           | codex  | review            |
 | T-decompose-phase1-ops-routes | Extract `/ops/metrics` + `/ops/alerts` from backend index | claude | merged |
 | T-decompose-phase2a-screenplay-projects-reads | Extract 5 `/screenplay/projects/*` GET routes from backend index | claude | merged |
 | T-logline-drift-alert | Structured drift alert (level + recommendation)  | claude | review      |
@@ -807,7 +808,8 @@
 | T77                                           | Refresh coordination after PR #180/#181                                     | codex  | merged      |
 | T78                                           | Refresh coordination after PR #183                                          | codex  | merged      |
 | T79                                           | Codify second-pass agent efficiency protocol                                | codex  | merged      |
-| T80                                           | Refresh coordination after PR #191/#192                                     | codex  | review      |
+| T80                                           | Refresh coordination after PR #191/#192                                     | codex  | merged      |
+| T81                                           | Refresh coordination after PR #193/#194                                     | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -3164,7 +3166,7 @@ documented and validated; and coordination/script tests pass.
 - **Owner:** codex
 - **Branch:** codex/T80-refresh-after-pr192
 - **Pillar:** infra (coordination)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -3180,5 +3182,25 @@ and `TASKS.md` agree that #191 is closed, #192 is merged, and the only
 remaining open Claude PRs are human-gated (#33, #63, #94, #99).
 Coordination validation, agent-next, task generation, event tail, and
 diff checks pass.
+
+### T81 — Refresh coordination after PR #193/#194
+- **Owner:** codex
+- **Branch:** codex/T81-refresh-after-pr193-194
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Record that Claude PR #193 merged the route-local parser cleanup,
+Claude PR #194 merged the backend-index decomposition spec update, and
+Claude PR #195 was closed as a stale duplicate coordination refresh.
+
+## Done when
+
+`docs/coordination.json`, `docs/codex-inbox.md`, the agent-event lane,
+and `TASKS.md` agree that #193/#194 are merged, #195 is closed, and
+the only remaining open Claude PRs are human-gated (#33, #63, #94,
+#99). Coordination validation, agent-next, task generation, event tail,
+and diff checks pass.
 
 <!-- END AUTOGEN active-tasks -->

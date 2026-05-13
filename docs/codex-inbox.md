@@ -32,7 +32,7 @@ Merged on main since the last on-main refresh:
 
 #76, #80, #81, #82, #83, #85, #86, #88, #90, #92, #97, #100, #104,
 #105, #107, #110, #111, #112, #115, #124, #127, #159, #161, #163,
-#164, #166, #171, #117, #79, #74, #84, #190, #192.
+#164, #166, #171, #117, #79, #74, #84, #190, #192, #193, #194.
 
 Important round-17 details:
 
@@ -45,6 +45,9 @@ Important round-17 details:
 | [#190](https://github.com/FramehouseStudios/them/pull/190) | T-decompose-phase1-ops-routes | Merged; `/ops/metrics` and `/ops/alerts` extracted from `backend/index.js`. |
 | [#191](https://github.com/FramehouseStudios/them/pull/191) | T-coord-refresh-batch-13 | Closed; superseded by merged PR #189. |
 | [#192](https://github.com/FramehouseStudios/them/pull/192) | T-decompose-phase2a-screenplay-projects-reads | Merged; 5 read-only `/screenplay/projects/*` routes extracted from `backend/index.js`. |
+| [#193](https://github.com/FramehouseStudios/them/pull/193) | T-route-local-parsers | Merged; all `route-needs-own-parser` pre-flight findings cleared. |
+| [#194](https://github.com/FramehouseStudios/them/pull/194) | T-decompose-spec-update | Merged; backend-index decomposition spec records phases 0-2a and parser hardening. |
+| [#195](https://github.com/FramehouseStudios/them/pull/195) | T-coord-refresh-batch-14 | Closed; stale duplicate superseded by Codex refresh. |
 
 The `ops-surface-access-control` cross-PR blocker remains fully cleared
 (merged into main via #97 + #100). The generic Claude do-not-merge

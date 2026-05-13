@@ -2,7 +2,7 @@
 id: T80
 title: Refresh coordination after PR #191/#192
 owner: codex
-status: review
+status: merged
 branch: codex/T80-refresh-after-pr192
 pillar: infra (coordination)
 ---
