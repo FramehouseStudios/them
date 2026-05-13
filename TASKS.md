@@ -98,6 +98,7 @@
 | T-tasks-sync-check | CI script to detect tasks/_active vs TASKS.md drift      | claude | review |
 | T-decisions-queue-route | GET /coordination/decisions-queue as JSON                | claude | review |
 | T-creative-memory-stats-route | GET /memory/stats content-free summary                  | claude | review |
+| T-coordination-state-eval | Schema check on docs/coordination.json                | claude | review |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
