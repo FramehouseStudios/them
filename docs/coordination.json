@@ -1,8 +1,26 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-12T21:11:17.000Z",
-  "updatedBy": "codex",
+  "updatedAt": "2026-05-13T19:30:00.000Z",
+  "updatedBy": "claude",
   "openPullRequests": [
+    {
+      "number": 190,
+      "status": "merged",
+      "title": "T-decompose-phase1-ops-routes",
+      "blocker": null,
+      "branch": "claude/T-decompose-phase1-ops-routes",
+      "tier": 1,
+      "owner": "claude"
+    },
+    {
+      "number": 189,
+      "status": "review",
+      "title": "T-coord-refresh-batch-11",
+      "blocker": null,
+      "branch": "claude/T-coord-refresh-batch-11",
+      "tier": 1,
+      "owner": "claude"
+    },
     {
       "number": 148,
       "title": "T-ops-routes-list-route",
@@ -26,99 +44,99 @@
       "title": "T-decisions-queue-md-lint",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-decisions-queue-md-lint",
-      "blocker": "do-not-merge: DIRTY against current main and no current checks; rebase/update and rerun decisions_queue_lint commands"
+      "blocker": null
     },
     {
       "number": 124,
       "title": "T-block-signal-atms-zero-fix",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-block-signal-atms-zero-fix",
-      "blocker": "do-not-merge: distinguish explicit atMs=0 from null/blank input, add null/empty-string fallback regressions, and update over PR #125/current main"
+      "blocker": null
     },
     {
       "number": 117,
       "title": "T-coordination-state-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-coordination-state-eval",
-      "blocker": "do-not-merge: DIRTY after PR #114; rebase and rerun coordination_state_schema_check commands"
+      "blocker": null
     },
     {
       "number": 115,
       "title": "T-known-domains-runtime-check",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-known-domains-runtime-check",
-      "blocker": "do-not-merge: DIRTY after PR #114; rebase and rerun known_domains invariant test plus npm test"
+      "blocker": null
     },
     {
       "number": 112,
       "title": "T-prompt-assembly-snapshot-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-prompt-assembly-snapshot-eval",
-      "blocker": "do-not-merge: DIRTY after PR #103 and needs fresh checks; rebase and rerun prompt snapshot eval plus npm test"
+      "blocker": null
     },
     {
       "number": 111,
       "title": "T-creative-memory-stats-route",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-creative-memory-stats-route",
-      "blocker": "do-not-merge: DIRTY after PR #103; rebase and rerun focused route tests plus npm test"
+      "blocker": null
     },
     {
       "number": 110,
       "title": "T-prompt-size-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-prompt-size-eval",
-      "blocker": "do-not-merge: DIRTY after PR #103; rebase and rerun prompt-size eval plus npm test"
+      "blocker": null
     },
     {
       "number": 107,
       "title": "T-tasks-sync-check",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-tasks-sync-check",
-      "blocker": "do-not-merge: DIRTY after PR #103; rebase and rerun default/strict script checks plus script test"
+      "blocker": null
     },
     {
       "number": 105,
       "title": "T-memory-quality-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-memory-quality-eval",
-      "blocker": "do-not-merge: DIRTY after PR #103; rebase and rerun memory-quality eval plus npm test"
+      "blocker": null
     },
     {
       "number": 104,
       "title": "T-decisions-queue-route",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-decisions-queue-route",
-      "blocker": "do-not-merge: DIRTY after PR #103; rebase and rerun focused route tests plus npm test"
+      "blocker": null
     },
     {
       "number": 100,
       "title": "T-talk-error-rate-tracker",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-talk-error-rate-tracker",
-      "blocker": "do-not-merge: /talk/errors needs ops access-control proof and true since-window counts"
+      "blocker": null
     },
     {
       "number": 99,
@@ -134,9 +152,9 @@
       "title": "T-talk-turn-meta-stats",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-talk-turn-meta-stats",
-      "blocker": "do-not-merge: branch is dirty and /talk/stats needs an explicit access-control policy/test"
+      "blocker": null
     },
     {
       "number": 94,
@@ -152,27 +170,27 @@
       "title": "T-payoff-tracker",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-payoff-tracker",
-      "blocker": "do-not-merge: repeated object payoff line can become a new unpaid setup; rebase after #98"
+      "blocker": null
     },
     {
       "number": 90,
       "title": "T-fdx-export-endpoint",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-fdx-export-endpoint",
-      "blocker": "do-not-merge: route reads req.body without its own JSON parser; add production-style parser test"
+      "blocker": null
     },
     {
       "number": 88,
       "title": "T-coverage-simulator",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-coverage-simulator",
-      "blocker": "do-not-merge: rebase after #98 and refresh checks before review"
+      "blocker": null
     },
     {
       "number": 87,
@@ -188,90 +206,90 @@
       "title": "T-genre-classifier",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-genre-classifier",
-      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+      "blocker": null
     },
     {
       "number": 85,
       "title": "T-backend-surface-smoke",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-backend-surface-smoke",
-      "blocker": "do-not-merge: likely next infra unblock once Claude clears blocker"
+      "blocker": null
     },
     {
       "number": 84,
       "title": "T-realtime-supplier-failover",
       "owner": "claude",
       "tier": 2,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-realtime-supplier-failover",
-      "blocker": "do-not-merge: route-level coverage and cross-agent review required"
+      "blocker": null
     },
     {
       "number": 83,
       "title": "T-fountain-export-endpoint",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-fountain-export-endpoint",
-      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+      "blocker": null
     },
     {
       "number": 82,
       "title": "T-realtime-supplier-health",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-realtime-supplier-health",
-      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+      "blocker": null
     },
     {
       "number": 81,
       "title": "T-block-signal-clears-on-completion",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-block-signal-clears-on-completion",
-      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+      "blocker": null
     },
     {
       "number": 80,
       "title": "T-craft-frameworks-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-craft-frameworks-eval",
-      "blocker": "do-not-merge: Claude must clear documented blocker before Codex review"
+      "blocker": null
     },
     {
       "number": 79,
       "title": "T-first-page-telemetry-sink",
       "owner": "claude",
       "tier": 2,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-first-page-telemetry-sink",
-      "blocker": "do-not-merge: rebase/task detail and green checks required"
+      "blocker": null
     },
     {
       "number": 76,
       "title": "T-logline-drift-alert",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-logline-drift-alert",
-      "blocker": "do-not-merge: endpoint/status proof required before Codex review"
+      "blocker": null
     },
     {
       "number": 74,
       "title": "T-prompt-wire-traits-and-twists",
       "owner": "claude",
       "tier": 2,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-prompt-wire-traits-and-twists",
-      "blocker": "do-not-merge: rebase/fix and integration proof required without weakening gates"
+      "blocker": null
     },
     {
       "number": 63,
@@ -539,54 +557,54 @@
       "title": "T-ops-health-summary-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-ops-health-summary-eval",
-      "blocker": "do-not-merge: eval injects EXPECTED_FEATURES instead of reading the production-mounted feature source and needs refactor or narrowed wording, then rerun eval/backend tests"
+      "blocker": null
     },
     {
       "number": 161,
       "title": "T-trait-library-canon-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-trait-library-canon-eval",
-      "blocker": "do-not-merge: eval allows duplicate canonical traits and needs duplicate/length assertion before merge"
+      "blocker": null
     },
     {
       "number": 163,
       "title": "T-twist-engine-canon-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-twist-engine-canon-eval",
-      "blocker": "do-not-merge: conflicting after PR #160 merge; rebase on current main, keep behavior, rerun focused eval/backend tests"
+      "blocker": null
     },
     {
       "number": 164,
       "title": "T-block-detector-canon-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-block-detector-canon-eval",
-      "blocker": "do-not-merge: conflicting after PR #160 merge; rebase on current main, keep behavior, rerun focused eval/backend tests"
+      "blocker": null
     },
     {
       "number": 166,
       "title": "T-format-linter-rules-canon-eval",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-format-linter-rules-canon-eval",
-      "blocker": "do-not-merge: eval only exercises part of the canonical 8-rule set; needs registry/export assertion or fixtures covering all 8 rules"
+      "blocker": null
     },
     {
       "number": 171,
       "title": "T-eval-gate-add-canon-evals",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-eval-gate-add-canon-evals",
-      "blocker": "do-not-merge: umbrella eval is stale while canon eval PRs are still landing; update eval:canon after the stack settles"
+      "blocker": null
     },
     {
       "number": 165,
@@ -747,16 +765,10 @@
       "since": "2026-05-11"
     },
     {
-      "id": "ops-surface-access-control",
+      "id": "claude-pr-queue-status",
       "owner": "claude",
-      "summary": "Claude PRs #97 and #100 expose operational /talk stats/errors surfaces. They need route-level access-control proof or an explicit safe-public policy before merge.",
-      "since": "2026-05-11"
-    },
-    {
-      "id": "claude-do-not-merge-queue",
-      "owner": "claude",
-      "summary": "Claude PRs #74, #76, #79-#86, #88, #90, #92, #97, #99, #100, #104, #105, #107, #110-#112, #115, #117, #124, #127, #159, #161, #163, #164, #166, and #171 have do-not-merge or needs-human blockers. Claude should clear these before opening more backend feature branches.",
-      "since": "2026-05-11"
+      "summary": "Claude backend PR queue is at zero blocked tier-1 work for the first time in weeks. Remaining open: #189 (round-16 coord refresh, ready to merge), #190 (Phase-1 ops decomposition, just merged), and the tier-3/policy/needs-human items (#33, #63, #94, #99). Phase-2 of backend/index.js decomposition (/screenplay/*) is the next major piece per docs/specs/T-decompose-backend-index.md.",
+      "since": "2026-05-13"
     }
   ],
   "decisionsPending": [],
