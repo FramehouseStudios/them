@@ -9,12 +9,19 @@
 // across all users. Read-only; no auth gate — the values are
 // aggregate, not per-user.
 
+import express from "express";
+
 import {
   recordFirstPageWritten,
   listFirstPageEvents,
   summarizeFirstPageEvents,
   firstPageTelemetryDeps,
 } from "./first_page_telemetry.js";
+
+// T-route-local-parsers / Codex #90: every route that reads
+// req.body mounts its own express.json(). Telemetry payload is
+// small (~ a few fields); 32kb is plenty.
+const FIRST_PAGE_TELEMETRY_BODY_LIMIT = "32kb";
 
 function pickFirstString(...candidates) {
   for (const c of candidates) {
@@ -40,7 +47,7 @@ function mountFirstPageTelemetryRoute(app, {
     throw new Error("mountFirstPageTelemetryRoute requires an Express app");
   }
 
-  app.post("/telemetry/first-page-written", async (req, res) => {
+  app.post("/telemetry/first-page-written", express.json({ limit: FIRST_PAGE_TELEMETRY_BODY_LIMIT }), async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const body = req.body || {};
     const userId = resolveUserId(req) || pickFirstString(body.userId, body.user_id);
