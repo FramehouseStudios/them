@@ -102,6 +102,8 @@ import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog } from "./lib/accepted_twist_log.js";
+import { configureFirstPageTelemetry } from "./lib/first_page_telemetry.js";
+import { mountFirstPageTelemetryRoute } from "./lib/first_page_telemetry_route.js";
 import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
@@ -32885,6 +32887,11 @@ configureLoglineDistiller({ persistence: sharedPersistence, classifier: defaultL
 // T-accepted-twist-log: route layer reads from the shared adapter so
 // accepted twist cards survive process restarts.
 configureAcceptedTwistLog({ persistence: sharedPersistence });
+// T-first-page-telemetry-sink: server-side sink for the magic-moment
+// SLA event. Per-user idempotent; aggregate stats at /telemetry/
+// first-page-written/stats.
+configureFirstPageTelemetry({ persistence: sharedPersistence });
+mountFirstPageTelemetryRoute(app);
 mountCraftRoutes(app);
 mountPromptRoutes(app, {
   creativeMemoryStore,

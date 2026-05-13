@@ -35,6 +35,8 @@ const KNOWN_DOMAINS = Object.freeze([
   "craft_loglines",
   // T-accepted-twist-log: per-project accepted-twist log (Craft Intelligence Suite, Layer 2 follow-up).
   "accepted_twists",
+  // T-first-page-telemetry-sink: per-user first-page-written events for measuring the T11 magic-moment SLA.
+  "telemetry_first_page_written",
 ]);
 
 function isKnownDomain(domain) {

@@ -142,6 +142,7 @@
 | T78  | Refresh coordination after PR #183                | codex  | merged            |
 | T79  | Codify second-pass agent efficiency protocol      | codex  | merged            |
 | T-logline-drift-alert | Structured drift alert (level + recommendation)  | claude | review      |
+| T-first-page-telemetry-sink | Server-side magic-moment SLA event sink         | claude | review     |
 
 ---
 
