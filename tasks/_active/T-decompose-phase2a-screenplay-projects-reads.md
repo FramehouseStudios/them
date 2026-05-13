@@ -2,7 +2,7 @@
 id: T-decompose-phase2a-screenplay-projects-reads
 title: Decompose backend/index.js — Phase 2a (5 /screenplay/projects/* GET routes)
 owner: claude
-status: review
+status: merged
 branch: claude/T-decompose-phase2-screenplay-projects
 pillar: infra (backend architecture)
 ---

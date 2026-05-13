@@ -15,3 +15,6 @@
 {"at":"2026-05-13T23:15:55.149Z","by":"codex","kind":"pr_merged","pr":190,"comment":"Merged Phase 1 ops route decomposition after focused route tests and backend npm test"}
 {"at":"2026-05-13T23:15:55.152Z","by":"codex","kind":"pr_merged","pr":84,"comment":"Merged realtime supplier failover with route-level fallback tests"}
 {"at":"2026-05-13T23:16:01.344Z","by":"codex","kind":"coord_refresh","comment":"T-coord-refresh-batch-12 records round-17 merge train and parks only human-gated PRs"}
+{"at":"2026-05-13T23:28:07.103Z","by":"codex","kind":"pr_closed","pr":191,"comment":"Closed stale coordination refresh superseded by PR 189"}
+{"at":"2026-05-13T23:28:12.958Z","by":"codex","kind":"pr_merged","pr":192,"comment":"Merged Phase 2a screenplay-projects read-route extraction after rebase and backend tests"}
+{"at":"2026-05-13T23:28:18.757Z","by":"codex","kind":"coord_refresh","comment":"T80 records PR 191 closed and PR 192 merged; only human-gated Claude PRs remain"}

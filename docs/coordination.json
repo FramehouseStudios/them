@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-13T23:05:31.093Z",
+  "updatedAt": "2026-05-13T23:27:59.936Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -740,6 +740,24 @@
       "status": "merged",
       "branch": "claude/T-decompose-phase1-ops-routes",
       "blocker": null
+    },
+    {
+      "number": 192,
+      "title": "T-decompose-phase2a-screenplay-projects-reads",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase2-screenplay-projects",
+      "blocker": null
+    },
+    {
+      "number": 191,
+      "title": "T-coord-refresh-batch-13",
+      "owner": "claude",
+      "tier": 1,
+      "status": "closed",
+      "branch": "claude/T-coord-refresh-batch-13",
+      "blocker": "closed: stale duplicate superseded by merged PR #189"
     }
   ],
   "blockers": [
