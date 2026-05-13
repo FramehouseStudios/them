@@ -188,6 +188,50 @@ function checkEvalDeterminismCoverage() {
   }
 }
 
+function checkMountRequiredDepsGuard() {
+  // Every `function mount<X>Route(app, deps = {})` must validate its
+  // required deps at mount time so a wiring mistake fails LOUD at
+  // startup, not on the first request. The decomposition pattern
+  // established by Phase 0 (#183) and refined through Phase 2b (#197)
+  // makes this a load-bearing contract: dozens of deps per mount,
+  // any missing one would silently break the route otherwise.
+  //
+  // Heuristic: any backend/lib/*.js file that defines a `function
+  // mount<Name>` (or `function mount<Name>Route`) and references
+  // `deps` or destructures from a function parameter must also
+  // contain a guard clause that throws on missing deps. Acceptable
+  // guard patterns:
+  //
+  //   if (typeof <name> !== "function") throw new Error(...)
+  //   if (!<name> || typeof <name>.<method> !== "function") throw ...
+  //   for ([, fn] of Object.entries(requiredFns)) if (typeof fn !== "function") throw ...
+  //
+  // Files that don't define a `mount<X>` function are skipped.
+  const files = walkFiles(
+    path.join(repoRoot, "backend", "lib"),
+    (p) => p.endsWith(".js"),
+  );
+  for (const f of files) {
+    const text = fs.readFileSync(f, "utf8");
+    const mountMatch = text.match(/function\s+(mount[A-Z][A-Za-z0-9_]*)\s*\(/);
+    if (!mountMatch) continue;
+    // The function must accept deps in some form (object destructure
+    // or a `deps` parameter) — otherwise there's nothing to guard.
+    if (!/\bdeps\b/.test(text)) continue;
+    // Acceptable guards inside the file:
+    const hasThrowGuard = /throw\s+new\s+Error\s*\([^)]*requires?\b/i.test(text)
+      || /throw\s+new\s+Error\s*\([^)]*is required\b/i.test(text);
+    if (!hasThrowGuard) {
+      add(
+        "mount-missing-required-deps-guard",
+        path.relative(repoRoot, f),
+        null,
+        `${mountMatch[1]} appears to accept deps but does not throw on a missing required dep; add a guard so wiring mistakes fail loud at startup`,
+      );
+    }
+  }
+}
+
 function checkSchemaVersionedEnvelopes() {
   // App-facing list/report envelopes should carry schemaVersion so iOS can
   // decode defensively. Keep this conservative: only flag route files that
@@ -219,6 +263,7 @@ checkFrozenExportedConstants();
 checkConsoleLogInProductionLib();
 checkEvalDeterminismCoverage();
 checkSchemaVersionedEnvelopes();
+checkMountRequiredDepsGuard();
 
 const strict = process.argv.includes("--strict");
 

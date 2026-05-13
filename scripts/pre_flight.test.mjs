@@ -22,6 +22,7 @@ function tempRepo({
   withConsoleLogFile,
   withEvalFile,
   withEnvelopeRouteFile,
+  withMountFile,
 } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-preflight-"));
   fs.mkdirSync(path.join(tmp, "scripts"));
@@ -45,6 +46,9 @@ function tempRepo({
   }
   if (withEnvelopeRouteFile) {
     fs.writeFileSync(path.join(tmp, "backend", "lib", "envelope_route.js"), withEnvelopeRouteFile);
+  }
+  if (withMountFile) {
+    fs.writeFileSync(path.join(tmp, "backend", "lib", "mountable_lib.js"), withMountFile);
   }
   return tmp;
 }
@@ -313,4 +317,65 @@ test("[pre-flight] real repo run completes without crashing", () => {
   });
   assert.equal(r.status, 0);
   assert.ok(r.stdout.length > 0 || r.stderr.length > 0);
+});
+
+// ---------- mount-missing-required-deps-guard ----------
+
+test("[pre-flight] flags mount<X> functions that lack a required-deps guard", () => {
+  const mountFile = `
+// A mount function that accepts deps but never validates them.
+function mountThingRoute(app, deps = {}) {
+  const { someFn } = deps;
+  app.get("/thing", (_req, res) => res.json(someFn()));
+}
+export { mountThingRoute };
+`;
+  const tmp = tempRepo({ withMountFile: mountFile });
+  const r = runIn(tmp);
+  assert.match(r.stderr, /mount-missing-required-deps-guard/);
+  assert.match(r.stderr, /mountThingRoute/);
+});
+
+test("[pre-flight] accepts mount<X> functions that throw on a missing dep", () => {
+  const mountFile = `
+function mountThingRoute(app, deps = {}) {
+  const { someFn } = deps;
+  if (typeof someFn !== "function") {
+    throw new Error("mountThingRoute requires someFn");
+  }
+  app.get("/thing", (_req, res) => res.json(someFn()));
+}
+export { mountThingRoute };
+`;
+  const tmp = tempRepo({ withMountFile: mountFile });
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /mount-missing-required-deps-guard/);
+});
+
+test("[pre-flight] accepts mount<X> functions with bulk Object.entries guard", () => {
+  const mountFile = `
+function mountThingRoute(app, deps = {}) {
+  const { a, b } = deps;
+  const required = { a, b };
+  for (const [k, fn] of Object.entries(required)) {
+    if (typeof fn !== "function") throw new Error(\`mountThingRoute: \${k} is required\`);
+  }
+  app.get("/thing", (_req, res) => res.json(a(b())));
+}
+export { mountThingRoute };
+`;
+  const tmp = tempRepo({ withMountFile: mountFile });
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /mount-missing-required-deps-guard/);
+});
+
+test("[pre-flight] does not flag lib files without a mount<X> function", () => {
+  const libFile = `
+// Pure helpers; no mount function, no deps to guard.
+function compute(a, b) { return a + b; }
+export { compute };
+`;
+  const tmp = tempRepo({ withMountFile: libFile });
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /mount-missing-required-deps-guard/);
 });
