@@ -69,6 +69,8 @@ import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
+import { mountOpsMetricsRoute } from "./lib/ops_metrics_route.js";
+import { mountOpsAlertsRoute } from "./lib/ops_alerts_route.js";
 import { mountDecisionsQueueRoute } from "./lib/decisions_queue_route.js";
 import { mountCreativeMemoryStatsRoute } from "./lib/creative_memory_stats_route.js";
 import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
@@ -27271,51 +27273,27 @@ mountHealthRoutes(app, {
   BACKEND_BOOT_ID,
 });
 
-app.get("/ops/metrics", (req, res) => {
-  const runtime = deriveBackendRuntimeStatus();
-  const backplaneStatus = scaleBackplane.status();
-  const recent = talkMetricsSamples
-    .slice(-Math.min(32, talkMetricsSamples.length))
-    .map((sample) => ({
-      at: sample.at,
-      status_code: sample.statusCode,
-      total_ms: sample.totalMs,
-      stt_ms: sample.sttMs,
-      llm_ms: sample.chatMs,
-      tts_ms: sample.ttsMs,
-      stream_audio: sample.streamAudio ? 1 : 0,
-      chat_stream_used: sample.chatStreamUsed ? 1 : 0,
-      talk_status: sample.talkStatus,
-      lane: sample.lane,
-      model: sample.model,
-    }));
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("x-backend-status", runtime.status);
-  return res.status(200).json({
-    ok: true,
-    status: runtime.status,
-    reasons: runtime.reasons,
-    talk_in_flight: talkInFlight,
-    talk_max_in_flight: TALK_MAX_IN_FLIGHT,
-    session_locks: talkInFlightBySession.size,
-    idempotency_entries: talkIdempotencyCache.size,
-    scale_backplane: backplaneStatus,
-    metrics_window_ms: runtime.metrics.windowMs,
-    metrics: runtime.metrics,
-    recent,
-  });
+// T-decompose-phase1-ops-routes: /ops/metrics + /ops/alerts moved
+// into lib/ops_metrics_route.js + lib/ops_alerts_route.js. Both
+// extractions are byte-identical with the previous inline handlers
+// (same response shape, same headers, same status codes). Live
+// counters (talkInFlight, session locks, idempotency cache) are
+// passed as accessor functions so the routes read current values
+// at request time, not mount time. Access-control posture matches
+// the rest of the public /ops surface: safe-public, no per-user
+// content. See docs/specs/T-decompose-backend-index.md.
+mountOpsMetricsRoute(app, {
+  deriveBackendRuntimeStatus,
+  scaleBackplaneStatus: () => scaleBackplane.status(),
+  talkMetricsSamples: () => talkMetricsSamples,
+  talkInFlight: () => talkInFlight,
+  talkInFlightBySessionSize: () => talkInFlightBySession.size,
+  talkIdempotencyCacheSize: () => talkIdempotencyCache.size,
+  TALK_MAX_IN_FLIGHT,
 });
-
-app.get("/ops/alerts", (req, res) => {
-  const alerting = buildOpsAlerts();
-  const backplaneStatus = scaleBackplane.status();
-  return res.status(200).json({
-    ok: true,
-    status: alerting.status,
-    alerts: alerting.alerts,
-    runtime: alerting.runtime,
-    scale_backplane: backplaneStatus,
-  });
+mountOpsAlertsRoute(app, {
+  buildOpsAlerts,
+  scaleBackplaneStatus: () => scaleBackplane.status(),
 });
 
 app.get("/outbox", async (req, res) => {
