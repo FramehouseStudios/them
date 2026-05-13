@@ -2,7 +2,7 @@
 id: T-trait-library-canon-eval
 title: Pin canonical TRAIT_KEYWORDS + cap constants
 owner: claude
-status: review
+status: merged
 branch: claude/T-trait-library-canon-eval
 pillar: evals (contract stability)
 ---

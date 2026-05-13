@@ -2,7 +2,7 @@
 id: T-decisions-queue-route
 title: GET /coordination/decisions-queue returns the queue as JSON
 owner: claude
-status: review
+status: merged
 branch: claude/T-decisions-queue-route
 pillar: coordination
 ---

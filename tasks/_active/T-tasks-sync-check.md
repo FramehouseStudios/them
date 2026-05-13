@@ -2,7 +2,7 @@
 id: T-tasks-sync-check
 title: CI script to detect tasks/_active vs TASKS.md drift
 owner: claude
-status: review
+status: merged
 branch: claude/T-tasks-sync-check
 pillar: infra (coordination)
 ---

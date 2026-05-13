@@ -2,7 +2,7 @@
 id: T-eval-gate-add-canon-evals
 title: Umbrella `npm run eval:canon` for canonical-contract evals
 owner: claude
-status: review
+status: merged
 branch: claude/T-eval-gate-add-canon-evals
 pillar: evals (contract stability)
 ---

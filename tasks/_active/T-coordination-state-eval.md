@@ -2,7 +2,7 @@
 id: T-coordination-state-eval
 title: Schema check on docs/coordination.json
 owner: claude
-status: review
+status: merged
 branch: claude/T-coordination-state-eval
 pillar: infra (coordination)
 ---
