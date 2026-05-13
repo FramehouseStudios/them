@@ -27,7 +27,7 @@ function createOpenAIRealtimeSupplier({
   defaultInputTranscriptionModel = process.env.OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL || DEFAULT_INPUT_TRANSCRIPTION_MODEL,
   defaultTtlSeconds = 60,
   fetchImpl = globalThis.fetch,
-  endpoint = "https://api.openai.com/v1/realtime/client_secrets",
+  endpoint = process.env.OPENAI_REALTIME_ENDPOINT || "https://api.openai.com/v1/realtime/client_secrets",
   timeoutMs = 12_000,
 } = {}) {
   function buildSessionConfig({ model, voice, instructions } = {}) {
