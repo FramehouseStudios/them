@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-13T23:27:59.936Z",
+  "updatedAt": "2026-05-13T23:46:58.791Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -758,6 +758,33 @@
       "status": "closed",
       "branch": "claude/T-coord-refresh-batch-13",
       "blocker": "closed: stale duplicate superseded by merged PR #189"
+    },
+    {
+      "number": 193,
+      "title": "T-route-local-parsers",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-route-local-parsers",
+      "blocker": null
+    },
+    {
+      "number": 194,
+      "title": "T-decompose-spec-update",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-spec-update",
+      "blocker": null
+    },
+    {
+      "number": 195,
+      "title": "T-coord-refresh-batch-14",
+      "owner": "claude",
+      "tier": 1,
+      "status": "closed",
+      "branch": "claude/T-coord-refresh-batch-14",
+      "blocker": "closed: stale duplicate superseded by PR #196 and later #193/#194 merges"
     }
   ],
   "blockers": [
