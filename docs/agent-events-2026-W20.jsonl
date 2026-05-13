@@ -9,3 +9,9 @@
 {"at":"2026-05-12T20:19:41.741Z","by":"codex","kind":"pr_merged","pr":183,"comment":"Merged Phase 0 health/bridge extraction after local route/backend verification"}
 {"at":"2026-05-12T20:19:41.743Z","by":"codex","kind":"coord_refresh","comment":"T78 records PR 183 merge state and returns Claude to blocker-first queue"}
 {"at":"2026-05-12T21:11:48.725Z","by":"codex","kind":"coord_refresh","comment":"T79 codifies second-pass efficiency protocol and updates agent_next/pre_flight/coordination blockers"}
+{"at":"2026-05-13T23:15:55.139Z","by":"codex","kind":"pr_merged","pr":117,"comment":"Merged coordination schema check after local schema/check tests"}
+{"at":"2026-05-13T23:15:55.147Z","by":"codex","kind":"pr_merged","pr":74,"comment":"Merged prompt wiring for traits and accepted twists with prompt-order regressions"}
+{"at":"2026-05-13T23:15:55.148Z","by":"codex","kind":"pr_merged","pr":79,"comment":"Merged first-page telemetry sink after focused tests and backend npm test"}
+{"at":"2026-05-13T23:15:55.149Z","by":"codex","kind":"pr_merged","pr":190,"comment":"Merged Phase 1 ops route decomposition after focused route tests and backend npm test"}
+{"at":"2026-05-13T23:15:55.152Z","by":"codex","kind":"pr_merged","pr":84,"comment":"Merged realtime supplier failover with route-level fallback tests"}
+{"at":"2026-05-13T23:16:01.344Z","by":"codex","kind":"coord_refresh","comment":"T-coord-refresh-batch-12 records round-17 merge train and parks only human-gated PRs"}

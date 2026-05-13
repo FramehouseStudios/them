@@ -2,7 +2,7 @@
 id: T-creative-memory-stats-route
 title: GET /memory/stats content-free summary
 owner: claude
-status: review
+status: merged
 branch: claude/T-creative-memory-stats-route
 pillar: layer-3-living (creative-memory surfaces)
 ---

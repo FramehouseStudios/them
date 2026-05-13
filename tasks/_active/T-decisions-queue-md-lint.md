@@ -2,7 +2,7 @@
 id: T-decisions-queue-md-lint
 title: Lint docs/decisions-queue.md format
 owner: claude
-status: review
+status: merged
 branch: claude/T-decisions-queue-md-lint
 pillar: infra (coordination)
 ---

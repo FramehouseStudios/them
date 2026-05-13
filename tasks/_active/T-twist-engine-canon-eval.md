@@ -2,7 +2,7 @@
 id: T-twist-engine-canon-eval
 title: Pin TWIST_LIBRARY framework set + per-twist field shape
 owner: claude
-status: review
+status: merged
 branch: claude/T-twist-engine-canon-eval
 pillar: evals (contract stability)
 ---

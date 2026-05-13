@@ -2,7 +2,7 @@
 id: T-decompose-phase1-ops-routes
 title: Decompose backend/index.js — Phase 1 (/ops/metrics + /ops/alerts)
 owner: claude
-status: review
+status: merged
 branch: claude/T-decompose-phase1-ops-routes
 pillar: infra (backend architecture)
 ---

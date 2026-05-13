@@ -62,19 +62,19 @@
 | T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | claude | merged |
 | T-archetype-engine-canon-eval | Pin canonical archetype set + per-entry shape | claude | merged |
 | T-screenplay-import-fountain | POST /screenplay/import/fountain (parser)        | claude | merged |
-| T-coverage-simulator | What-a-reader-sees coverage report + endpoint           | claude | review |
-| T-fdx-export-endpoint | POST /screenplay/export/fdx (Final Draft XML)   | claude | review |
-| T-payoff-tracker | Setup → payoff detection + endpoint                          | claude | review |
-| T-talk-turn-meta-stats | GET /talk/stats — aggregate /talk health (safe-public)   | claude | review |
-| T-talk-error-rate-tracker | In-memory error counter + GET /talk/errors (safe-public) | claude | review |
-| T-realtime-supplier-health | Supplier shape + live probe + /realtime/health   | claude | review |
-| T-block-signal-clears-on-completion | Behavioral tests lock block-signal recovery | claude | review |
-| T-craft-frameworks-eval | Eval that runs analyzer against all frameworks   | claude | review     |
-| T-fountain-export-endpoint | POST /screenplay/export/fountain (Fountain text) | claude | review |
-| T-backend-surface-smoke | Whole-surface smoke eval for every iOS-facing route | claude | review |
-| T-genre-classifier | Deterministic genre + tone classifier + endpoint | claude | review |
-| T-realtime-supplier-failover | Transparent stub fallback when primary mint fails | claude | review |
-| T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | review     |
+| T-coverage-simulator | What-a-reader-sees coverage report + endpoint           | claude | merged |
+| T-fdx-export-endpoint | POST /screenplay/export/fdx (Final Draft XML)   | claude | merged |
+| T-payoff-tracker | Setup → payoff detection + endpoint                          | claude | merged |
+| T-talk-turn-meta-stats | GET /talk/stats — aggregate /talk health (safe-public)   | claude | merged |
+| T-talk-error-rate-tracker | In-memory error counter + GET /talk/errors (safe-public) | claude | merged |
+| T-realtime-supplier-health | Supplier shape + live probe + /realtime/health   | claude | merged |
+| T-block-signal-clears-on-completion | Behavioral tests lock block-signal recovery | claude | merged |
+| T-craft-frameworks-eval | Eval that runs analyzer against all frameworks   | claude | merged     |
+| T-fountain-export-endpoint | POST /screenplay/export/fountain (Fountain text) | claude | merged |
+| T-backend-surface-smoke | Whole-surface smoke eval for every iOS-facing route | claude | merged |
+| T-genre-classifier | Deterministic genre + tone classifier + endpoint | claude | merged |
+| T-realtime-supplier-failover | Transparent stub fallback when primary mint fails | claude | merged |
+| T-block-signal-system-prompt | Inject coaching block when writer is stuck    | claude | merged     |
 | T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | claude | merged |
 | T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | claude | merged |
 | T-block-signal-history-bounds-eval | Pathological-input guard on the BS history buffer | claude | merged |
@@ -90,16 +90,16 @@
 | T-known-domains-startup-check | Validate KNOWN_DOMAINS at backend startup | claude | merged |
 | T-screenplay-export-pdf-error-clarity | Add helpful PDF rejection payload | claude | merged |
 | T-ops-routes-list-route | GET /ops/routes curated manifest of optional surfaces    | claude | merged |
-| T-decisions-queue-md-lint | Lint docs/decisions-queue.md format                       | claude | review |
-| T-block-signal-atms-zero-fix | Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)    | claude | review |
-| T-known-domains-runtime-check | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip) | claude | review |
-| T-prompt-assembly-snapshot-eval | Pin canonical buildModelPrompt block order            | claude | review |
-| T-prompt-size-eval | Char-budget guard on assembled model prompts             | claude | review |
-| T-memory-quality-eval | Multi-turn creative-memory recall eval                   | claude | review |
-| T-tasks-sync-check | CI script to detect tasks/_active vs TASKS.md drift      | claude | review |
-| T-decisions-queue-route | GET /coordination/decisions-queue as JSON                | claude | review |
-| T-creative-memory-stats-route | GET /memory/stats content-free summary                  | claude | review |
-| T-coordination-state-eval | Schema check on docs/coordination.json                | claude | review |
+| T-decisions-queue-md-lint | Lint docs/decisions-queue.md format                       | claude | merged |
+| T-block-signal-atms-zero-fix | Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)    | claude | merged |
+| T-known-domains-runtime-check | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip) | claude | merged |
+| T-prompt-assembly-snapshot-eval | Pin canonical buildModelPrompt block order            | claude | merged |
+| T-prompt-size-eval | Char-budget guard on assembled model prompts             | claude | merged |
+| T-memory-quality-eval | Multi-turn creative-memory recall eval                   | claude | merged |
+| T-tasks-sync-check | CI script to detect tasks/_active vs TASKS.md drift      | claude | merged |
+| T-decisions-queue-route | GET /coordination/decisions-queue as JSON                | claude | merged |
+| T-creative-memory-stats-route | GET /memory/stats content-free summary                  | claude | merged |
+| T-coordination-state-eval | Schema check on docs/coordination.json                | claude | merged |
 | T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
 | T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
 | T40  | Fix app UserDefaults suite warning                | codex  | merged            |
@@ -142,25 +142,25 @@
 | T-decompose-phase0-health-route | Extract `/health` + `/bridge` from backend index | claude | merged |
 | T78  | Refresh coordination after PR #183                | codex  | merged            |
 | T79  | Codify second-pass agent efficiency protocol      | codex  | merged            |
-| T-decompose-phase1-ops-routes | Extract `/ops/metrics` + `/ops/alerts` from backend index | claude | review |
+| T-decompose-phase1-ops-routes | Extract `/ops/metrics` + `/ops/alerts` from backend index | claude | merged |
 | T-logline-drift-alert | Structured drift alert (level + recommendation)  | claude | review      |
-| T-first-page-telemetry-sink | Server-side magic-moment SLA event sink         | claude | review     |
-| T-prompt-wire-traits-and-twists | Prompt-assembly consumes traits + accepted twists | claude | review |
+| T-first-page-telemetry-sink | Server-side magic-moment SLA event sink         | claude | merged     |
+| T-prompt-wire-traits-and-twists | Prompt-assembly consumes traits + accepted twists | claude | merged |
 
 ---
 
-## Current next-10 checklist (2026-05-12 after T77 post-efficiency refresh)
+## Current next-10 checklist (2026-05-13 after round-17 merge train)
 
-1. Have Claude rebase/fix PR #163 (`T-twist-engine-canon-eval`) after the PR #160 merge conflict.
-2. Have Claude rebase/fix PR #164 (`T-block-detector-canon-eval`) after the PR #160 merge conflict.
-3. Have Claude fix PR #161 (`T-trait-library-canon-eval`) so duplicate canonical trait labels cannot pass.
-4. Have Claude fix PR #166 (`T-format-linter-rules-canon-eval`) so all 8 canonical format-linter rules are actually pinned.
-5. Have Claude fix PR #159 (`T-ops-health-summary-eval`) so the eval reads the production-mounted feature source or narrows its contract.
-6. Have Claude update PR #171 (`T-eval-gate-add-canon-evals`) after the canon-eval stack settles.
-7. Review/merge PR #163 after it is rebased and its focused eval/backend tests are green.
-8. Review/merge PR #164 after it is rebased and its focused eval/backend tests are green.
-9. Review PR #90 after Claude confirms the route-local parser test is current against main.
-10. Use the new `scripts/agent_event.mjs tail --n=20` lane at the start of every Codex/Claude session.
+1. Keep PR #33 parked until the human replaces the malformed GitHub Actions `OPENAI_API_KEY` secret.
+2. Keep PR #63 parked unless the human explicitly approves trust-policy changes beyond D005.
+3. Keep PR #94 parked until the human approves the creative-memory export privacy posture.
+4. Keep PR #99 parked until the human approves the creative-memory delete privacy posture and V1 scope.
+5. Start the iOS consumer for `POST /craft/coverage/simulate`.
+6. Start the iOS consumer for `POST /screenplay/export/fdx`.
+7. Start the iOS payoff-tracker surface for `POST /craft/payoff/track`.
+8. Start the iOS talk stats / health surface for `GET /talk/stats` and the ops route extractions.
+9. Wire first-page telemetry from the app into `POST /telemetry/first-page-written`.
+10. Use PR #84's fallback-aware `/realtime/client_secret` response to show a realtime degraded-mode affordance.
 
 ---
 
@@ -731,23 +731,39 @@
 |-----------------------------------------|----------------------------------------------------------------------|--------|-------------|
 | T-agent-events-jsonl-live-lane          | Append-only event lane (docs/agent-events.jsonl) + CLI               | claude | merged      |
 | T-archetype-engine-canon-eval           | Pin canonical archetype set + per-entry shape                        | claude | merged      |
+| T-block-detector-canon-eval             | Pin block-detector envelope + SIGNAL_WEIGHTS + level thresholds      | claude | merged      |
+| T-block-signal-atms-zero-fix            | Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)           | claude | merged      |
 | T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer          | claude | review      |
 | T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                       | claude | review      |
 | T-block-signal-history-tracking         | Persist block-signal samples to creative memory habits               | claude | review      |
 | T-build-tasks-md-anchors                | Add AUTOGEN anchors to TASKS.md + harden anchor matcher              | claude | merged      |
+| T-coord-refresh-batch-12                | Batched coordination refresh — round 17 (post merge train)           | claude | review      |
 | T-coordination-state-cli-validate       | Add `validate` subcommand to coordination_state.mjs                  | claude | merged      |
+| T-coordination-state-eval               | Schema check on docs/coordination.json                               | claude | merged      |
 | T-coordination-state-mutate-eval        | Round-trip eval over coordination_state.mjs mutate subcommands       | claude | merged      |
+| T-creative-memory-stats-route           | GET /memory/stats content-free summary                               | claude | merged      |
 | T-creative-memory-store-eviction-eval   | Pathological-input guard on creative-memory character roster         | claude | merged      |
 | T-creative-memory-version-check-eval    | Pin the `version` field on creative-memory snapshots                 | claude | merged      |
 | T-decisions-queue-fixture-template      | docs/decisions-queue-template.md (copy-paste entry template)         | claude | merged      |
+| T-decisions-queue-md-lint               | Lint docs/decisions-queue.md format                                  | claude | merged      |
+| T-decisions-queue-route                 | GET /coordination/decisions-queue returns the queue as JSON          | claude | merged      |
 | T-decompose-backend-index               | Decompose 33k-line backend/index.js into per-domain route libs       | claude | merged      |
+| T-decompose-phase0-health-route         | Phase 0 PoC — extract /health + /bridge to lib/health_route.js       | claude | merged      |
+| T-decompose-phase1-ops-routes           | Decompose backend/index.js — Phase 1 (/ops/metrics + /ops/alerts)    | claude | merged      |
+| T-eval-gate-add-canon-evals             | Umbrella `npm run eval:canon` for canonical-contract evals           | claude | merged      |
+| T-format-linter-rules-canon-eval        | Pin canonical rule_id set + envelope for format_linter               | claude | merged      |
+| T-known-domains-runtime-check           | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)             | claude | merged      |
 | T-known-domains-startup-check           | Boot-time invariant check on KNOWN_DOMAINS                           | claude | merged      |
+| T-memory-quality-eval                   | Multi-turn creative-memory recall eval                               | claude | merged      |
+| T-ops-health-summary-eval               | Deployment-level eval pinning /ops/health-summary features map       | claude | merged      |
 | T-ops-health-summary-route              | GET /ops/health-summary cheap uptime-dashboard endpoint              | claude | merged      |
 | T-ops-routes-list-route                 | GET /ops/routes manifest of optional surfaces                        | claude | merged      |
 | T-pre-flight-outbox-console-cleanup     | Convert outbox console.log → console.warn/error (pre-flight class 1) | claude | merged      |
 | T-pre-flight-self-check-script          | scripts/pre_flight.mjs — catch recurring review feedback locally     | claude | merged      |
 | T-prompt-assembly-block-signal-cap-eval | Cap on <block_signal> block size under pathological inputs           | claude | merged      |
 | T-prompt-assembly-readme                | README for backend/lib/prompt_assembly.js                            | claude | merged      |
+| T-prompt-assembly-snapshot-eval         | Pin canonical buildModelPrompt block order                           | claude | merged      |
+| T-prompt-size-eval                      | Char-budget guard on assembled model prompts                         | claude | merged      |
 | T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list                 | claude | review      |
 | T-screenplay-export-markdown            | POST /screenplay/export format=md|markdown                           | claude | review      |
 | T-screenplay-export-pdf-error-clarity   | Add human-readable help payload to PDF export rejection              | claude | merged      |
@@ -758,7 +774,10 @@
 | T-tasks-active-frontmatter-eval         | Validate every tasks/_active/T-*.md front-matter                     | claude | merged      |
 | T-tasks-active-stats                    | At-a-glance counts over tasks/_active/                               | claude | merged      |
 | T-tasks-per-row                         | Per-row task files + TASKS.md regenerator (no canonical flip yet)    | claude | merged      |
+| T-tasks-sync-check                      | CI script to detect tasks/_active vs TASKS.md drift                  | claude | merged      |
+| T-trait-library-canon-eval              | Pin canonical TRAIT_KEYWORDS + cap constants                         | claude | merged      |
 | T-trust-tiers                           | Trust tiers + standing pre-approvals (AGENTS.md)                     | claude | review      |
+| T-twist-engine-canon-eval               | Pin TWIST_LIBRARY framework set + per-twist field shape              | claude | merged      |
 | T42-supervisor-merge-protocol           | Codex self-merge authority + agent handoff fast lane                 | codex  | review      |
 | T43-refresh-claude-queue                | Refresh Claude queue after supervisor protocol merge                 | codex  | review      |
 | T44-creative-memory-export-triage       | Triage creative-memory export privacy gate                           | codex  | review      |
@@ -783,6 +802,8 @@
 | T75                                     | Surface talk-turn rate-limit retry affordance                        | codex  | merged      |
 | T76                                     | Refresh coordination after efficiency merge train                    | codex  | merged      |
 | T77                                     | Refresh coordination after PR #180/#181                              | codex  | merged      |
+| T78                                     | Refresh coordination after PR #183                                   | codex  | merged      |
+| T79                                     | Codify second-pass agent efficiency protocol                         | codex  | merged      |
 
 ## Active work — full detail (auto-generated)
 
@@ -878,6 +899,72 @@ Wired via `npm run eval:archetype-canon`.
 
 `backend/evals/run_archetype_canon_eval.mjs` exits 0 with all
 checks passing; `npm test` still green.
+
+### T-block-detector-canon-eval — Pin block-detector envelope + SIGNAL_WEIGHTS + level thresholds
+- **Owner:** claude
+- **Branch:** claude/T-block-detector-canon-eval
+- **Pillar:** evals (contract stability)
+- **Status:** merged
+
+## Scope
+
+`computeBlockSignal()` is the entry point for the block-signal
+envelope read by iOS T35 (nudge surface) and T53 (sparkline).
+Renaming a level (`medium` → `mid`) or dropping a `SIGNAL_WEIGHTS`
+key would silently regress both surfaces.
+
+This eval pins:
+
+- `BLOCK_SIGNAL_SCHEMA_VERSION === 1`
+- `SIGNAL_WEIGHTS` is `Object.freeze`d, has exactly the 4 canonical
+  keys (`scene_completion_gap`, `attempt_completion_dropoff`,
+  `short_turn_ratio`, `talk_turn_gap`), and the values sum to 1.0.
+- `LEVEL_LOW_MAX` and `LEVEL_MEDIUM_MAX` are in (0, 1) with
+  `LEVEL_LOW_MAX < LEVEL_MEDIUM_MAX`.
+- `computeBlockSignal({ habits: {}, nowMs })` returns the canonical
+  envelope with `schemaVersion`, `score` ∈ [0,1], `level` ∈
+  {low, medium, high}, `signals[]`, `summary`, `habitsObserved`.
+- `buildBlockCoachingBlockForPrompt` returns empty string for
+  null/low input, non-empty with `writer-coaching-note` marker
+  for medium/high.
+
+Wired via `npm run eval:block-detector-canon`.
+
+## Done when
+
+`backend/evals/run_block_detector_canon_eval.mjs` exits 0 with all
+checks passing; `npm test` still green.
+
+### T-block-signal-atms-zero-fix — Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)
+- **Owner:** claude
+- **Branch:** claude/T-block-signal-atms-zero-fix
+- **Pillar:** bugfix (creative-memory)
+- **Status:** merged
+
+## Scope
+
+`recordBlockSignalSample({ atMs: 0 })` silently substituted `nowMs()`
+because the store did `Number(atMs) || nowMs()` — `0` is falsy.
+Surfaced by the side finding in PR #120
+(T-block-signal-history-bounds-eval).
+
+Switch to `Number.isFinite()` so:
+
+- Valid finite timestamps (including 0) are honored verbatim.
+- `NaN`, `"not a number"`, `undefined`, `null` cleanly fall back to
+  `nowMs()`.
+
+Two regression tests added to `tests/block_signal_history.test.mjs`:
+
+- `atMs=0` is honored verbatim
+- non-finite `atMs` (NaN, non-numeric string) falls back to a sane
+  positive timestamp
+
+## Done when
+
+`Number.isFinite()` gate replaces the falsy coercion in
+`recordBlockSignalSample`; both regression tests pass; `npm test`
+green.
 
 ### T-block-signal-history-bounds-eval — Pathological-input guard on the block-signal history buffer
 - **Owner:** claude
@@ -1028,6 +1115,55 @@ This PR:
 between-anchors region; inline mentions in descriptions don't
 match; the autogen block is present at the end of TASKS.md.
 
+### T-coord-refresh-batch-12 — Batched coordination refresh — round 17 (post merge train)
+- **Owner:** claude
+- **Branch:** claude/T-coord-refresh-batch-12
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Round-17 batched coordination refresh. Reflects the massive merge
+train that ran since the last on-main refresh: the original 25
+Claude PRs from round 16, plus the follow-on supervisor merges for
+the coordination schema check, first-page telemetry sink, prompt
+context wiring, realtime failover, format-linter/eval umbrella, and
+ops route extraction.
+
+**Merged on main since last refresh** (status → `merged`,
+blocker → `null`):
+
+  #76, #80, #81, #82, #83, #85, #86, #88, #90, #92, #97, #100,
+  #104, #105, #107, #110, #111, #112, #115, #124, #127, #159,
+  #161, #163, #164, #166, #171, #117, #79, #74, #84, #190.
+
+**Still open after this refresh**:
+
+  #33 — human-owned `OPENAI_API_KEY` secret repair.
+  #63 — trust-policy PR, human-gated and superseded in practice by D005.
+  #94 — creative-memory export, human privacy/data-control gate.
+  #99 — creative-memory delete, human privacy/data-control gate.
+
+Updates `docs/coordination.json`:
+
+- Round-16 and round-17 PRs moved from `blocked`/`review` → `merged`.
+- Cross-PR `ops-surface-access-control` blocker dropped (cleared
+  via #97 + #100 already landed).
+- `claude-do-not-merge-queue` cleared. Remaining blockers are human-owned.
+- `updatedAt` / `updatedBy` refreshed.
+
+Updates `docs/codex-inbox.md`:
+
+- New "Recently cleared" section summarizing the full merged train.
+- "Current Open Claude PRs" table trimmed to actual still-open,
+  human-gated PRs.
+
+## Done when
+
+`node scripts/coordination_state.mjs validate` returns OK; merged
+PRs show `status: merged`; the open-PR table no longer references
+PRs that have merged; remaining blockers are human-owned.
+
 ### T-coordination-state-cli-validate — Add `validate` subcommand to coordination_state.mjs
 - **Owner:** claude
 - **Branch:** claude/T-coordination-state-cli-validate
@@ -1067,6 +1203,37 @@ mode for it).
 current main; smoke test covers happy path + unknown-command path;
 remains additive (no behavior change to existing subcommands).
 
+### T-coordination-state-eval — Schema check on docs/coordination.json
+- **Owner:** claude
+- **Branch:** claude/T-coordination-state-eval
+- **Pillar:** infra (coordination)
+- **Status:** merged
+
+## Scope
+
+`docs/coordination.json` is read by the CLI helper, the inbox files,
+and downstream automation. A typo or shape regression silently
+corrupts every reader. This PR adds `scripts/coordination_state_schema_check.mjs`
+which:
+
+- Confirms the file parses.
+- Asserts the top-level shape (`schemaVersion`, `updatedAt` ISO-8601,
+  `updatedBy`, `openPullRequests`, `blockers`, `decisionsPending`,
+  `endpointsAwaitingIosConsumer`).
+- For each open PR, validates required fields and the `owner ∈
+  {claude, codex, human}` + `tier ∈ {1, 2, 3}` enums.
+- For each blocker, validates `id`, `owner`, `summary`.
+
+A smoke test (`coordination_state_schema_check.test.mjs`) execs the
+script and asserts exit 0 against the current repo state, so a future
+parser refactor can't silently break the gate.
+
+## Done when
+
+`node scripts/coordination_state_schema_check.mjs` exits 0 against
+`main`; `node --test scripts/coordination_state_schema_check.test.mjs`
+green.
+
 ### T-coordination-state-mutate-eval — Round-trip eval over coordination_state.mjs mutate subcommands
 - **Owner:** claude
 - **Branch:** claude/T-coordination-state-mutate-eval
@@ -1103,6 +1270,48 @@ Smoke test execs the eval and asserts exit 0.
 
 `node scripts/coordination_state_mutate_eval.mjs` exits 0 against
 the current CLI; smoke test green.
+
+### T-creative-memory-stats-route — GET /memory/stats content-free summary
+- **Owner:** claude
+- **Branch:** claude/T-creative-memory-stats-route
+- **Pillar:** layer-3-living (creative-memory surfaces)
+- **Status:** merged
+
+## Scope
+
+`GET /memory/stats` returns counts and high-level shape of the
+authenticated user's creative memory — **without** exposing names,
+voice lines, lexical fingerprints, or twist content. iOS uses this
+to badge the "what does the companion remember?" sidebar; the user
+opens the existing per-domain endpoints (character traits, archetypes,
+etc.) for full content.
+
+Response shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "hasMemory": true,
+  "counts": {
+    "characters": 3,
+    "charactersWithVoice": 2,
+    "charactersWithTraits": 1,
+    "toneSignals": 2,
+    "habitSignals": 1
+  },
+  "lastUpdatedMs": 1715000000000
+}
+```
+
+Privacy posture: zero leakage by construction — `summarizeMemory()`
+emits only numeric counts. Unauthenticated requests return the
+zero-state envelope (same conservative pattern as `/memory/block-signal`).
+
+## Done when
+
+`GET /memory/stats` returns the summary; tests cover the summarizer
+(no-leakage assertion), the integration path (cold/seeded/unauth),
+and the mount guards; `npm test` green.
 
 ### T-creative-memory-store-eviction-eval — Pathological-input guard on creative-memory character roster
 - **Owner:** claude
@@ -1202,6 +1411,79 @@ so the cross-reference is one filesystem hop away.
 `docs/decisions-queue-template.md` exists and matches the format
 PR #104's parser + PR #127's lint accept.
 
+### T-decisions-queue-md-lint — Lint docs/decisions-queue.md format
+- **Owner:** claude
+- **Branch:** claude/T-decisions-queue-md-lint
+- **Pillar:** infra (coordination)
+- **Status:** merged
+
+## Scope
+
+`docs/decisions-queue.md` declares its own format in the preamble.
+PR #104 added a parser that reads the file programmatically. The
+format and the parser have to stay in lockstep — a typo or missing
+field in the markdown silently corrupts the read endpoint and any
+downstream consumer.
+
+This PR adds `scripts/decisions_queue_lint.mjs`, which validates:
+
+1. The file parses (has `## Open` and `## Resolved` headers).
+2. Every entry under `## Open` is `### D-<slug> — <question>`.
+3. Each open entry has `Asked by` and `Asked at` (ISO YYYY-MM-DD).
+4. Each open entry has at least one of `Question` / `Why it matters`
+   / `Default if no answer`.
+5. Slug IDs are unique across both sections.
+
+Default mode prints findings and exits 0 (warn-only — safe to wire
+into observability today). `--strict` exits non-zero so the future
+CI flip is a one-line change.
+
+Smoke test (`decisions_queue_lint.test.mjs`) runs the real script
+against the real repo state and verifies the `--strict` exit-code
+contract against a tampered temp fixture.
+
+## Done when
+
+`node scripts/decisions_queue_lint.mjs` runs cleanly against the
+current main; `node --test scripts/decisions_queue_lint.test.mjs`
+green.
+
+### T-decisions-queue-route — GET /coordination/decisions-queue returns the queue as JSON
+- **Owner:** claude
+- **Branch:** claude/T-decisions-queue-route
+- **Pillar:** coordination
+- **Status:** merged
+
+## Scope
+
+`docs/decisions-queue.md` is the single-file queue of items waiting on
+the human's decision (per T-decisions-queue). Today it's markdown-only,
+which means iOS / dashboards / Codex's automation cannot surface
+"unanswered for N days" without re-implementing the parser.
+
+This PR adds a thin read-only projection of the file:
+
+- `backend/lib/decisions_queue_route.js` exports a pure
+  `parseDecisionsQueueMarkdown(text)` plus `mountDecisionsQueueRoute(app)`.
+- The parser reads `### D-<slug> — <title>` entries under `## Open`
+  and `## Resolved` headings, capturing each `- **Field name:**`
+  bullet as a snake_cased key on the entry.
+- The route returns `{ schemaVersion, open[], resolved[], counts }`
+  with `Cache-Control: no-store`.
+- A missing file is treated as an empty queue (200 + empty arrays),
+  matching the conservative-defaults posture of other coordination
+  surfaces.
+
+The route resolves the queue path relative to the module via
+`fileURLToPath(import.meta.url)`, so it's robust to whichever working
+directory the server is launched from.
+
+## Done when
+
+`GET /coordination/decisions-queue` returns the parsed queue;
+`backend/tests/decisions_queue_route.test.mjs` covers parser shape +
+endpoint integration + missing-file fallback; `npm test` green.
+
 ### T-decompose-backend-index — Decompose 33k-line backend/index.js into per-domain route libs
 - **Owner:** claude
 - **Branch:** claude/T-decompose-backend-index
@@ -1235,6 +1517,216 @@ Codex signs off on phasing + opens follow-up tasks for phases 1–7
 in `tasks/_active/` (one per phase). Spec lives on main as the
 canonical reference.
 
+### T-decompose-phase0-health-route — Phase 0 PoC — extract /health + /bridge to lib/health_route.js
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase0-health-route
+- **Pillar:** infra (velocity-at-scale)
+- **Status:** merged
+
+## Scope
+
+Phase 0 proof-of-concept for the `T-decompose-backend-index` spec.
+First concrete extraction from the 33k-line `backend/index.js`.
+
+Moves the (byte-identical) inline `GET /health` and `GET /bridge`
+handlers into `backend/lib/health_route.js` behind a single
+`mountHealthRoutes(app, deps)` function. Both routes share one
+handler now; previously the same 30 lines of inline code lived
+twice in index.js.
+
+**Net effect**:
+- `backend/index.js`: 33,071 → 33,032 lines (–39)
+- New: `backend/lib/health_route.js` (109 lines, isolated, dep-injected)
+- New: `backend/tests/health_route.test.mjs` (9 integration tests)
+- **Behavior change: zero.** Same response, same headers, same status.
+
+## Decisions captured here for the rest of the decomposition
+
+1. **Live state read via accessor functions.** `talkInFlight` and
+   `talkInFlightBySession` are mutable module-scoped state in
+   index.js. Passing them as values would freeze the snapshot at
+   mount time; passing them as accessor functions
+   (`() => talkInFlight`) lets the handler read the current value
+   at request time. This is the pattern future phases will use
+   for any mutable module-scoped dep.
+
+2. **Required-deps guard.** `mountHealthRoutes` throws on missing
+   deps. Future phases follow.
+
+3. **Pure helper + thin mount.** `buildHealthPayload` is exported
+   for direct unit-testing; `mountHealthRoutes` is the Express
+   glue. Future phases follow this two-function pattern.
+
+## Done when
+
+- `node --test tests/health_route.test.mjs` — 9/9 pass
+- `npm test` — green (no regressions)
+- index.js line count drops
+- Behavior diff = zero (same response shape, same headers)
+
+### T-decompose-phase1-ops-routes — Decompose backend/index.js — Phase 1 (/ops/metrics + /ops/alerts)
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase1-ops-routes
+- **Pillar:** infra (backend architecture)
+- **Status:** merged
+
+## Scope
+
+Phase 1 of the `backend/index.js` decomposition plan documented in
+`docs/specs/T-decompose-backend-index.md` and approved in PR #181.
+Phase 0 (`/health` + `/bridge`) landed in PR #183. This PR continues
+the same pattern for the two `/ops/*` routes that remained inline.
+
+Extracts the previously-inline handlers byte-identically:
+
+- `/ops/metrics` → `backend/lib/ops_metrics_route.js`
+- `/ops/alerts`  → `backend/lib/ops_alerts_route.js`
+
+Each file exposes a `mount<X>Route(app, deps)` function. Live state
+(`talkInFlight`, `talkInFlightBySession.size`,
+`talkIdempotencyCache.size`, `talkMetricsSamples`, the scale
+backplane status) is passed as **accessor functions** so the routes
+read the current value at request time, not the value at mount time.
+This is the pattern Phase 0 established with `/health`.
+
+Both routes carry an explicit **safe-public** access-control posture
+in the module header, matching `/ops/health-summary`, `/ops/routes`,
+and the rest of the public ops surface.
+
+## Verification
+
+- `node --test backend/tests/ops_metrics_route.test.mjs`
+  `backend/tests/ops_alerts_route.test.mjs` → **16/16 pass**.
+- Required-deps guard tested: each missing dep throws at mount.
+- Live-state accessor pattern tested: counters mutated between two
+  requests reflect the new values without re-mounting.
+- Safe-public posture tested: no-leakage scan for emails / Bearer /
+  userId / deviceId / sessionId / prompt / completion / transcript
+  / content / ipAddress.
+- `node --check backend/index.js` passes.
+
+`backend/index.js` shrinks by 22 net lines on this PR (44 deletions,
+22 insertions for the two new mount calls). Plus 141 lines added
+across the two new lib files.
+
+## Done when
+
+`/ops/metrics` and `/ops/alerts` are no longer inline in
+`backend/index.js`; both lib files exist with mount + required-deps
+guard + safe-public docs; both test files pass; the new mount calls
+sit next to the other ops mount calls in `backend/index.js`; the
+behavior is byte-identical with the previous inline handlers.
+
+## Next phase
+
+Phase 2 will extract the `/screenplay/*` project route cluster — the
+largest single inline group in `backend/index.js`. Spec text already
+in `docs/specs/T-decompose-backend-index.md`. Per the spec, max 1
+decomposition PR in flight, so Phase 2 is gated on this PR landing.
+
+### T-eval-gate-add-canon-evals — Umbrella `npm run eval:canon` for canonical-contract evals
+- **Owner:** claude
+- **Branch:** claude/T-eval-gate-add-canon-evals
+- **Pillar:** evals (contract stability)
+- **Status:** merged
+
+## Scope
+
+Several canon-pinning evals already ship on main:
+
+- `eval:creative-memory` — single-turn cold-vs-seeded prompt path
+- `eval:creative-memory-version` — envelope `version` field
+- `eval:block-signal-history-bounds` — pathological-input guard
+- `eval:block-signal-block-cap` — `<block_signal>` block size cap
+- `eval:archetype-canon` — archetype bucket stability
+- `eval:backend-surface-smoke` — backend feature route surface
+- `eval:ops-health-summary` — ops summary envelope
+- `eval:trait-library-canon` — trait schema and prompt summary stability
+- `eval:twist-engine-canon` — twist IDs across frameworks
+- `eval:block-detector-canon` — block signal vocabulary and thresholds
+- `eval:format-linter-canon` — screenplay format lint rule IDs
+
+Today running them all requires many separate invocations. This PR
+adds an umbrella `npm run eval:canon` that chains them, so a single
+command exercises every merged canon eval. CI gates can switch from
+listing individual scripts to this one umbrella.
+
+Future canon evals get appended to this script as their PRs land,
+keeping the umbrella in lockstep with the canon-pinning surface area.
+
+No production code change. `eval:gate` is unchanged in this PR;
+a follow-up will wire `eval:canon` into the gate.
+
+## Done when
+
+`npm run eval:canon` exits 0 against current main, running every
+merged canon eval end-to-end.
+
+### T-format-linter-rules-canon-eval — Pin canonical rule_id set + envelope for format_linter
+- **Owner:** claude
+- **Branch:** claude/T-format-linter-rules-canon-eval
+- **Pillar:** evals (contract stability)
+- **Status:** merged
+
+## Scope
+
+`lib/format_linter.js`'s `lintScreenplay()` emits suggestions whose
+`rule` field is a stable string ID. iOS T28 reads each `rule` and
+renders a Studio card with that ID as the dedupe / dismiss key.
+A silent rename would regress every iOS consumer + every analytics
+counter.
+
+This eval pins:
+
+- Empty input → canonical zero envelope (`schemaVersion`,
+  `ruleSetVersion`, `totalSuggestions`, `suggestions[]`,
+  `bySeverity{hard,medium,soft}`).
+- Noisy fixture → ≥ 3 suggestions, all from the canonical 8-rule
+  set: `scene_heading_shape`, `character_cue_caps`,
+  `parenthetical_density`, `parenthetical_count`,
+  `action_voice_present`, `action_adverb_density`,
+  `page_economy_overlong`, `blank_lines_around_headings`.
+- Every suggestion has `rule` (canonical), `severity ∈ {hard,
+  medium, soft}`, positive `line`, non-empty `message`.
+- `bySeverity` totals sum to `totalSuggestions`.
+- Suggestions are sorted by line ascending.
+- Determinism: same input → same output.
+
+Wired via `npm run eval:format-linter-canon`.
+
+## Done when
+
+`backend/evals/run_format_linter_canon_eval.mjs` exits 0 with all
+checks passing; `npm test` still green.
+
+### T-known-domains-runtime-check — KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)
+- **Owner:** claude
+- **Branch:** claude/T-known-domains-runtime-check
+- **Pillar:** infra (persistence)
+- **Status:** merged
+
+## Scope
+
+`KNOWN_DOMAINS` (in `backend/lib/persistence_adapter.js`) is the
+single source of truth for which logical domains the adapter accepts.
+A typo when a new store is added silently crashes the first call in
+production when `assertDomain` runs. This PR adds cheap invariants:
+
+1. `KNOWN_DOMAINS` is frozen — no late mutation.
+2. No duplicate entries.
+3. Every entry is non-empty, trimmed, lowercase, snake_case.
+4. Every entry roundtrips through a fresh JSON persistence adapter
+   (proves the domain is wired through to the on-disk path layout,
+   not just declared).
+
+No production code change. Catches regressions inside the unit-test
+loop instead of at the first production call.
+
+## Done when
+
+`backend/tests/known_domains_invariants.test.mjs` covers all four
+invariants; `npm test` green.
+
 ### T-known-domains-startup-check — Boot-time invariant check on KNOWN_DOMAINS
 - **Owner:** claude
 - **Branch:** claude/T-known-domains-startup-check
@@ -1265,6 +1757,77 @@ time instead of at the first persistence call.
 
 `checkKnownDomainsAtStartup()` runs on server boot; happy path logs
 nothing; tests cover the contract; `npm test` green.
+
+### T-memory-quality-eval — Multi-turn creative-memory recall eval
+- **Owner:** claude
+- **Branch:** claude/T-memory-quality-eval
+- **Pillar:** evals (layer-3-living)
+- **Status:** merged
+
+## Scope
+
+`run_creative_memory_eval.mjs` covers the single-turn cold-vs-seeded
+prompt-construction path. This PR adds a deeper eval —
+`run_memory_quality_eval.mjs` — that simulates a multi-turn session
+and asserts the *recall* loop closes across turns:
+
+- Turn 1 (cold) emits a prompt with no `<creative_memory>` block.
+- Turn 2 (after recording a character) emits a prompt that mentions
+  that character.
+- Turn 3 (after a tone signal) emits a prompt carrying both the
+  character and the tone.
+- Turn 4 updates the character's voice trait; that trait surfaces in
+  the assembled prompt.
+- Turn 5 adds a second character; both are present in the prompt and
+  the new tag flows through.
+- Bonus scenarios: per-user isolation (no leak between userIds) and
+  determinism (same state + input → same prompt string).
+
+Deterministic, no LLM. Exits non-zero on any failure so the existing
+eval-gate hooks can pick it up. Exposed via `npm run eval:memory-quality`.
+
+## Done when
+
+`backend/evals/run_memory_quality_eval.mjs` exits 0 with all checks
+passing; `backend/package.json` exposes `npm run eval:memory-quality`;
+`npm test` still green.
+
+### T-ops-health-summary-eval — Deployment-level eval pinning /ops/health-summary features map
+- **Owner:** claude
+- **Branch:** claude/T-ops-health-summary-eval
+- **Pillar:** evals (contract stability)
+- **Status:** merged
+
+## Scope
+
+PR #134 ships `GET /ops/health-summary` with unit tests over the
+pure helper. This PR adds a deployment-level eval that pins the
+**specific list of features** the production deployment advertises:
+
+- `creative_memory`
+- `block_signal`
+- `block_signal_history`
+- `talk_pipeline`
+- `screenplay_export_markdown`
+- `screenplay_export_formats`
+
+A future refactor that removes one of those keys (or accidentally
+flips one off) would silently regress every uptime dashboard reading
+this endpoint. The eval mounts the route with the exact features
+map from `backend/index.js` and asserts:
+
+- HTTP 200 + `Cache-Control: no-store`
+- `schemaVersion === 1`
+- Envelope keys: `status`, `reasons`, `uptimeMs`, `uptimeHuman`,
+  `node.version`, `node.platform`
+- `features` contains exactly the canonical set; each value is `true`
+
+Wired via `npm run eval:ops-health-summary`.
+
+## Done when
+
+`backend/evals/run_ops_health_summary_eval.mjs` exits 0 with all
+16 checks passing; `npm test` still green.
 
 ### T-ops-health-summary-route — GET /ops/health-summary cheap uptime-dashboard endpoint
 - **Owner:** claude
@@ -1510,6 +2073,63 @@ Docs-only. No code change.
 `backend/lib/prompt_assembly.README.md` exists and accurately
 describes the layout and pinned invariants of the current
 `buildModelPrompt` on main.
+
+### T-prompt-assembly-snapshot-eval — Pin canonical buildModelPrompt block order
+- **Owner:** claude
+- **Branch:** claude/T-prompt-assembly-snapshot-eval
+- **Pillar:** evals (layer-2-craft)
+- **Status:** merged
+
+## Scope
+
+`buildModelPrompt()` concatenates labelled blocks in the canonical
+order: `persona → <creative_memory> → <session> → <block_signal> →
+userInput`. Several downstream concerns depend on that order
+(model attention behavior, the prompt-regression baseline, iOS
+prompt previews), but nothing pins it.
+
+This eval runs `buildModelPrompt()` against a deterministic fixture
+that exercises every block, then asserts the output equals a literal
+expected string. A second check verifies the block tags appear in the
+canonical order (defense in depth — catches structural drift even if
+the literal string assertion is updated). Cold and memory-only
+variants confirm optional blocks drop out cleanly.
+
+Wired via `npm run eval:prompt-snapshot`. No LLM, no I/O.
+
+## Done when
+
+`backend/evals/run_prompt_assembly_snapshot_eval.mjs` exits 0;
+`npm run eval:prompt-snapshot` works; `npm test` still green.
+
+### T-prompt-size-eval — Char-budget guard on assembled model prompts
+- **Owner:** claude
+- **Branch:** claude/T-prompt-size-eval
+- **Pillar:** evals (layer-2-craft)
+- **Status:** merged
+
+## Scope
+
+Pins explicit upper bounds on the character length of prompts
+produced by `buildModelPrompt()`, in three regimes:
+
+- cold user (no memory)               <  2,000 chars
+- light user (1 character + tone)     <  4,000 chars
+- heavy user (50 characters + tone +
+  habits + session ctx + coaching)    < 12,000 chars
+
+Today these budgets are honored implicitly via `serializeCharacters`'s
+top-8 cap. If a future change removes the cap, expands per-character
+serialization, or introduces an unbounded section, this eval fails and
+forces an explicit decision rather than silent token-budget creep.
+
+Includes determinism checks (same store + input → same prompt size).
+No LLM; deterministic and fast.
+
+## Done when
+
+`backend/evals/run_prompt_size_eval.mjs` exits 0 with all checks
+passing; `npm run eval:prompt-size` works; `npm test` still green.
 
 ### T-screenplay-export-formats-list-route — GET /screenplay/export/formats canonical format list
 - **Owner:** claude
@@ -1881,6 +2501,71 @@ populated with at least one example file (this one); the regenerator
 prints a valid quick-view table when run; `TASKS.md` remains the
 source of truth for now (the README explains the migration plan).
 
+### T-tasks-sync-check — CI script to detect tasks/_active vs TASKS.md drift
+- **Owner:** claude
+- **Branch:** claude/T-tasks-sync-check
+- **Pillar:** infra (coordination)
+- **Status:** merged
+
+## Scope
+
+`scripts/tasks_sync_check.mjs` reads every `tasks/_active/T-*.md`
+file and checks that:
+
+1. The filename matches its front-matter `id`.
+2. There's a row in `TASKS.md` with the same `id`.
+3. The row's status and owner columns match the task file's
+   front-matter (when both are present).
+
+Drift surfaces as a list of findings. Default mode prints findings
+and exits 0 (safe to wire into observability without breaking CI
+today). `--strict` exits non-zero when drift exists — flip to that
+once the current drift is cleaned up.
+
+Also adds `scripts/tasks_sync_check.test.mjs` which execs the script
+in both modes and asserts the exit codes match the documented
+contract, so a future refactor of the parser can't silently break
+the gate.
+
+## Done when
+
+`node scripts/tasks_sync_check.mjs` runs cleanly in both modes;
+`node --test scripts/tasks_sync_check.test.mjs` green.
+
+### T-trait-library-canon-eval — Pin canonical TRAIT_KEYWORDS + cap constants
+- **Owner:** claude
+- **Branch:** claude/T-trait-library-canon-eval
+- **Pillar:** evals (contract stability)
+- **Status:** merged
+
+## Scope
+
+`backend/lib/trait_library.js` exports `TRAIT_KEYWORDS` — the
+frozen list of trait labels that `extractTraits` matches against.
+Adding or removing a keyword changes how every character record
+gets re-classified next time their traits merge. iOS surfaces
+these labels directly. A silent change would silently re-classify
+the user's entire character roster.
+
+This eval pins:
+
+- `TRAIT_KEYWORDS` is `Object.freeze`d.
+- The exact canonical 23-keyword set (snapshot of main).
+- Every keyword is lowercase a-z only.
+- The structural caps `TRAIT_SCHEMA_VERSION`, `VOCAB_MAX`,
+  `KEYWORD_MAX`, `GOALS_MAX`, `RELATIONSHIPS_MAX` are positive
+  integers (or `=== 1` for the version).
+- `extractTraits({lines:[]})` returns the canonical envelope shape
+  with `vocabulary`, `keywords`, `goals`, `relationships`,
+  `speech_style` fields.
+
+Wired via `npm run eval:trait-library-canon`.
+
+## Done when
+
+`backend/evals/run_trait_library_canon_eval.mjs` exits 0 with all
+checks passing; `npm test` still green.
+
 ### T-trust-tiers — Trust tiers + standing pre-approvals (AGENTS.md)
 - **Owner:** claude
 - **Branch:** claude/T-trust-tiers
@@ -1903,6 +2588,39 @@ AGENTS.md carries the Trust Tiers section with explicit lists of
 what's Tier 1 / 2 / 3 and the escalation rules; the section names the
 `tier-1` / `tier-2` / `tier-3` labels the auto-merge workflow will
 read.
+
+### T-twist-engine-canon-eval — Pin TWIST_LIBRARY framework set + per-twist field shape
+- **Owner:** claude
+- **Branch:** claude/T-twist-engine-canon-eval
+- **Pillar:** evals (contract stability)
+- **Status:** merged
+
+## Scope
+
+`backend/lib/twist_engine.js` ships `TWIST_LIBRARY`: a frozen map
+of `framework → beat → ordered list of twist seeds`. iOS T37 reads
+these seeds and renders twist cards. Each twist `id` is documented
+as "stable so iOS can dedupe / pin / dismiss" — silently renaming
+or dropping an ID would drop every user's stored "pinned" /
+"dismissed" state.
+
+This eval probes every `(framework, beat)` pair via the public
+`suggestTwists()` API and pins:
+
+- Canonical framework set: `save-the-cat`, `three-act`,
+  `story-circle`, `hero-journey`.
+- Beats per framework match the on-main set.
+- Every twist has `id`, `label`, `hook`, `severity`, `rationale`.
+- `severity ∈ {low, medium, high}`.
+- All 42 twist IDs are unique across the library.
+- Unknown framework throws a typed error.
+
+Wired via `npm run eval:twist-engine-canon`.
+
+## Done when
+
+`backend/evals/run_twist_engine_canon_eval.mjs` exits 0 with all
+checks passing; `npm test` still green.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
@@ -2335,5 +3053,45 @@ Task files and `TASKS.md` mark #180/#181 work merged; the live handoff,
 Codex inbox, Claude inbox, coordination JSON, and agent-events lane record
 the merges; and coordination, agent-next, task-frontmatter, task-stats,
 task-generation, agent-event, and diff checks pass.
+
+### T78 — Refresh coordination after PR #183
+- **Owner:** codex
+- **Branch:** codex/T78-refresh-after-pr183
+- **Pillar:** infra (coordination)
+- **Status:** merged
+
+## Scope
+
+Record the supervised merge of Claude PR #183, the Phase 0 backend-index
+decomposition extraction for `GET /health` and `GET /bridge`.
+
+## Done when
+
+Task files and `TASKS.md` mark PR #183 merged; the live handoff, Codex
+inbox, Claude inbox, coordination JSON, and agent-events lane record the
+merge and the current queue guidance; and coordination, agent-next,
+task-frontmatter, task-stats, task-generation, agent-event, and diff checks
+pass.
+
+### T79 — Codify second-pass agent efficiency protocol
+- **Owner:** codex
+- **Branch:** codex/T79-second-pass-efficiency
+- **Pillar:** infra (coordination)
+- **Status:** merged
+
+## Scope
+
+Turn Claude's second-pass efficiency proposal into durable repo behavior
+without weakening D005, strict auto-merge, human-only policy gates, or the
+no-direct-push-to-main rule.
+
+## Done when
+
+`docs/agent-throughput-protocol.md` records the adopt/modify/decline
+matrix for the ten proposals; the protocol defines fast/heavy lanes,
+spec-first parallel iOS/backend tracks, clearing-mode WIP, merge-train
+cadence, and scratchpad boundaries; `agent_next` surfaces recent live events
+from `docs/agent-events-*.jsonl`; optional structured blocker metadata is
+documented and validated; and coordination/script tests pass.
 
 <!-- END AUTOGEN active-tasks -->
