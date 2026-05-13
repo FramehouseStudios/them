@@ -143,6 +143,7 @@
 | T79  | Codify second-pass agent efficiency protocol      | codex  | merged            |
 | T-logline-drift-alert | Structured drift alert (level + recommendation)  | claude | review      |
 | T-first-page-telemetry-sink | Server-side magic-moment SLA event sink         | claude | review     |
+| T-prompt-wire-traits-and-twists | Prompt-assembly consumes traits + accepted twists | claude | review |
 
 ---
 
@@ -611,6 +612,14 @@
 - **Status:** in-progress
 - **Scope:** the drift score from `computeDrift({ ... })` is currently a number + a sentence summary. iOS surfaces (T-twist-engine consumers, future logline rail) need a structured signal to decide whether to render a nudge card. This PR adds an additive `alert: { level, actionable, recommendation }` field on the response and the underlying `computeDrift` return. `level` maps from score by the same thresholds the summary already uses; `actionable` flips true at `level >= "firm"`; `recommendation` is a one-liner the iOS card can show verbatim. Additive only — existing decoders ignore the new field.
 - **Done when:** `computeDrift(...)` returns an `alert` field on every code path (including the empty-history case); `GET /craft/logline/drift` echoes it; ≥4 unit tests for the threshold bands + a "no history" baseline + an endpoint integration test; full backend suite stays green.
+
+### T-prompt-wire-traits-and-twists — Prompt-assembly consumes traits + accepted twists
+- **Owner:** claude
+- **Branch:** `claude/T-prompt-wire-traits-and-twists`
+- **Pillar:** living companion + longitudinal learning
+- **Status:** review
+- **Scope:** the trait library (T-trait-library) and accepted twist log (T-accepted-twist-log) persist data but `lib/prompt_assembly.js` does not read either. Closes the longitudinal-learning loop. Extends `buildModelPrompt` and `buildMemoryBlock` to render `creative_memory.characters[].traits` inline per character (compact one-line summary from `trait_library.buildTraitsBlockForPrompt`) and to add a new `<accepted_twists>` block when accepted-twist entries are supplied. `wrapSystemPromptWithCreativeMemory` in `backend/index.js` learns to read accepted twists via `getAcceptedTwistsForProject` when a `projectId` is present in `req.body`.
+- **Done when:** `buildModelPrompt` accepts an `acceptedTwists` array and renders it as an `<accepted_twists>...</accepted_twists>` block; character traits surface as inline `traits:` lines under each recurring-character entry; ≥6 prompt-assembly unit tests + ≥2 wrapSystemPromptWithCreativeMemory integration tests; full backend suite stays green; the canonical model-bound prompt path now respects the data Layer 2 stores.
 
 ---
 

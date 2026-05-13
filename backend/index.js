@@ -101,7 +101,7 @@ import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
-import { configureAcceptedTwistLog } from "./lib/accepted_twist_log.js";
+import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
 import { configureFirstPageTelemetry } from "./lib/first_page_telemetry.js";
 import { mountFirstPageTelemetryRoute } from "./lib/first_page_telemetry_route.js";
 import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
@@ -2920,7 +2920,29 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
     } catch (_e) { /* never block the prompt on signal computation */ }
   }
 
-  return buildModelPrompt({ persona: systemPrompt, creativeMemory: memory, blockCoaching });
+  // T-prompt-wire-traits-and-twists: when the request carries a
+  // projectId, also pull accepted twists for that project so the
+  // model sees the writer's chosen reversals. Best-effort — never
+  // fails the request on a storage error.
+  let acceptedTwists = null;
+  const projectId = (typeof req?.body?.projectId === "string" && req.body.projectId)
+    || (typeof req?.body?.screenplay_project_id === "string" && req.body.screenplay_project_id)
+    || null;
+  if (projectId) {
+    try {
+      const { persistence } = acceptedTwistLogDeps();
+      if (persistence) {
+        acceptedTwists = await getAcceptedTwistsForProject({ persistence, projectId });
+      }
+    } catch (_e) { /* never block the prompt on a twist-log read */ }
+  }
+
+  return buildModelPrompt({
+    persona: systemPrompt,
+    creativeMemory: memory,
+    blockCoaching,
+    acceptedTwists,
+  });
 }
 
 configureMemoryStore({

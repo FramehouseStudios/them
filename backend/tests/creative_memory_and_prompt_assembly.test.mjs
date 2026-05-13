@@ -18,6 +18,7 @@ import {
   buildModelPromptParts,
   MEMORY_BLOCK_OPEN,
   MEMORY_BLOCK_CLOSE,
+  BLOCK_SIGNAL_BLOCK_OPEN,
 } from "../lib/prompt_assembly.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 
@@ -200,4 +201,121 @@ test("buildModelPrompt caps recurring-characters at 8 entries", () => {
     assert.ok(out.includes(`Char${i}`), `expected Char${i} in output`);
   }
   assert.ok(!out.includes("Char11"));
+});
+
+// ---------- T-prompt-wire-traits-and-twists ----------
+
+test("[prompt-wire] characters with traits emit an indented `traits:` line", () => {
+  const out = buildModelPrompt({
+    creativeMemory: {
+      userId: "u", version: 1, updatedAt: 0,
+      characters: [{
+        name: "JUNE",
+        last_referenced: 1,
+        tags: ["lead"],
+        traits: {
+          keywords: ["anxious", "tender"],
+          speech_style: { pace: "terse", syntax: "fragmented" },
+          emotional_default: "anxious",
+          goals: ["find Marcus"],
+        },
+      }],
+    },
+    userInput: "x",
+  });
+  assert.ok(out.includes("- JUNE"));
+  assert.ok(/traits: .*emotion: anxious/.test(out));
+  assert.ok(out.includes("speech: terse / fragmented"));
+});
+
+test("[prompt-wire] characters without traits emit no traits line (no regression)", () => {
+  const out = buildModelPrompt({
+    creativeMemory: {
+      userId: "u", version: 1, updatedAt: 0,
+      characters: [{ name: "CAL", last_referenced: 1, tags: [] }],
+    },
+    userInput: "x",
+  });
+  assert.ok(out.includes("- CAL"));
+  assert.ok(!out.includes("traits:"));
+});
+
+test("[prompt-wire] characters with empty traits object emit no traits line", () => {
+  const out = buildModelPrompt({
+    creativeMemory: {
+      userId: "u", version: 1, updatedAt: 0,
+      characters: [{
+        name: "ELLA",
+        last_referenced: 1,
+        traits: { keywords: [], goals: [], relationships: {} },
+      }],
+    },
+    userInput: "x",
+  });
+  assert.ok(!out.includes("traits:"));
+});
+
+test("[prompt-wire] acceptedTwists produces an <accepted_twists> block when present", () => {
+  const out = buildModelPrompt({
+    persona: "you are a writing partner",
+    creativeMemory: null,
+    acceptedTwists: [
+      {
+        twist: { id: "t1", label: "False Victory", hook: "The win was paid for by the wrong person.", severity: "high" },
+        beatId: "midpoint",
+        acceptedAtMs: 1,
+      },
+    ],
+    userInput: "next scene",
+  });
+  assert.ok(out.includes("<accepted_twists>"));
+  assert.ok(out.includes("False Victory"));
+  assert.ok(out.includes("@midpoint"));
+  assert.ok(out.includes("</accepted_twists>"));
+});
+
+test("[prompt-wire] empty/missing acceptedTwists emits no block", () => {
+  const out1 = buildModelPrompt({ persona: "P", userInput: "x" });
+  assert.ok(!out1.includes("accepted_twists"));
+  const out2 = buildModelPrompt({ persona: "P", userInput: "x", acceptedTwists: [] });
+  assert.ok(!out2.includes("accepted_twists"));
+});
+
+test("[prompt-wire] block order: persona → memory → session → accepted_twists → block_signal → user", () => {
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    creativeMemory: {
+      userId: "u", version: 1, updatedAt: 0,
+      characters: [{ name: "JUNE", last_referenced: 1 }],
+    },
+    sessionContext: { projectId: "proj-1" },
+    acceptedTwists: [
+      { twist: { id: "t1", label: "Twist A", hook: "Hook A", severity: "medium" }, beatId: "midpoint", acceptedAtMs: 1 },
+    ],
+    blockCoaching: "Keep the ask small.",
+    userInput: "USER",
+  });
+  const personaIdx = out.indexOf("PERSONA");
+  const memoryIdx = out.indexOf(MEMORY_BLOCK_OPEN);
+  const sessionIdx = out.indexOf("<session>");
+  const twistsIdx = out.indexOf("<accepted_twists>");
+  const blockSignalIdx = out.indexOf(BLOCK_SIGNAL_BLOCK_OPEN);
+  const userIdx = out.indexOf("USER");
+  assert.ok(personaIdx >= 0 && personaIdx < memoryIdx);
+  assert.ok(memoryIdx < sessionIdx);
+  assert.ok(sessionIdx < twistsIdx);
+  assert.ok(twistsIdx < blockSignalIdx);
+  assert.ok(blockSignalIdx < userIdx);
+});
+
+test("[prompt-wire] buildModelPromptParts surfaces acceptedTwistsBlock", () => {
+  const parts = buildModelPromptParts({
+    persona: "P",
+    acceptedTwists: [
+      { twist: { id: "t1", label: "T", hook: "H", severity: "low" }, beatId: "need", acceptedAtMs: 1 },
+    ],
+    userInput: "U",
+  });
+  assert.ok(parts.acceptedTwistsBlock.includes("<accepted_twists>"));
+  assert.ok(parts.acceptedTwistsBlock.includes("T"));
 });
