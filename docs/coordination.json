@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T01:59:02.564Z",
+  "updatedAt": "2026-05-14T02:13:09.297Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -950,6 +950,42 @@
       "reviewer_note": "Design note #221 is merged; #212 is next Codex review target, not mergeable yet.",
       "expected_action": "Codex reviews #212 against #221, keeps do-not-merge until auth guardrails are explicitly cleared",
       "blocker_kind": "policy_gated"
+    },
+    {
+      "number": 223,
+      "title": "T-decompose-phase7-talk-pipeline-design",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase7-talk-pipeline-design",
+      "blocker": null
+    },
+    {
+      "number": 224,
+      "title": "T-v1-voice-to-page-smoke",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-v1-voice-to-page-smoke",
+      "blocker": null
+    },
+    {
+      "number": 226,
+      "title": "T-schema-docs-scaffold",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-schema-docs-scaffold",
+      "blocker": null
+    },
+    {
+      "number": 227,
+      "title": "T-decompose-phase5b-realtime-design",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase5b-realtime-design",
+      "blocker": null
     }
   ],
   "blockers": [

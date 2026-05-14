@@ -827,7 +827,7 @@
 | T83                                            | Define V1 and product-state handoff loop                                            | codex  | review      |
 | T84                                            | Surface talk health and error diagnostics in iOS                                    | codex  | review      |
 | T85                                            | Round 22 coordination refresh after supervisor merge train                          | codex  | review      |
-| T86                                            | Round 22b coordination refresh after design-note mini-train                         | codex  | in-progress |
+| T86                                            | Round 22b coordination refresh after design-note mini-train                         | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -3896,7 +3896,7 @@ Refresh the repo-native coordination lane after the round-22 merge train:
 - **Owner:** codex
 - **Branch:** codex/T86-round22b-coordination-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3914,6 +3914,10 @@ Refresh the repo-native coordination lane after the follow-up mini-train:
 
 ## Verification
 
-Run coordination validation and `agent_next` before merge.
+- `node scripts/build_tasks_md.mjs --write`
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex`
+- `node scripts/agent_event.mjs tail --n=12`
+- `git diff --check`
 
 <!-- END AUTOGEN active-tasks -->
