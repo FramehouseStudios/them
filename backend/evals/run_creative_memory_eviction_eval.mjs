@@ -18,6 +18,12 @@
 //      orders by it)
 //   4. Empty / missing characterName is a no-op
 //   5. Mention of "  June  " (whitespace) matches "June" on de-dup
+//
+// Determinism: this eval is deterministic — it reads only frozen
+// canon constants / pure functions and asserts the same output
+// shape on every run. Same input always produces the same output
+// set; no clocks, no random ids, no network.
+//
 
 import fs from "node:fs";
 import os from "node:os";

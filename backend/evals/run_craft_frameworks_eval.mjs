@@ -23,6 +23,12 @@
 // Exits non-zero on first failure. Designed to be runnable from
 // `npm run eval:craft-frameworks` and bundleable into `eval:gate`
 // as a follow-up.
+//
+// Determinism: this eval is deterministic — it reads only frozen
+// canon constants / pure functions and asserts the same output
+// shape on every run. Same input always produces the same output
+// set; no clocks, no random ids, no network.
+//
 
 import { analyzeScreenplay } from "../lib/craft_analysis.js";
 import { listFrameworkReferences, getFrameworkById } from "../lib/craft_frameworks.js";

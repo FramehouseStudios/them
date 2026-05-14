@@ -11,6 +11,12 @@
 // Distinct from the unit tests (which exercise the helper) because
 // this is the deployment-level contract: which surfaces is this
 // build claiming to mount?
+//
+// Determinism: this eval is deterministic — it reads only frozen
+// canon constants / pure functions and asserts the same output
+// shape on every run. Same input always produces the same output
+// set; no clocks, no random ids, no network.
+//
 
 import process from "node:process";
 import express from "express";

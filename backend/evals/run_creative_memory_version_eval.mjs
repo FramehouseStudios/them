@@ -18,6 +18,12 @@
 //      calls (a hot user doesn't bump it)
 //   4. version is integer-valued and >= 1 (no nullable / string
 //      version)
+//
+// Determinism: this eval is deterministic — it reads only frozen
+// canon constants / pure functions and asserts the same output
+// shape on every run. Same input always produces the same output
+// set; no clocks, no random ids, no network.
+//
 
 import fs from "node:fs";
 import os from "node:os";

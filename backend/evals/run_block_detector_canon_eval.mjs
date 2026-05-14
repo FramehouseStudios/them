@@ -17,6 +17,12 @@
 //     habitsObserved{} }
 //   - level is always one of {"low", "medium", "high"}
 //   - score is in [0, 1]
+//
+// Determinism: this eval is deterministic — it reads only frozen
+// canon constants / pure functions and asserts the same output
+// shape on every run. Same input always produces the same output
+// set; no clocks, no random ids, no network.
+//
 
 import process from "node:process";
 

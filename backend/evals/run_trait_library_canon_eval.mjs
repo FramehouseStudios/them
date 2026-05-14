@@ -16,6 +16,12 @@
 //   - the structural caps (VOCAB_MAX, KEYWORD_MAX, GOALS_MAX,
 //     RELATIONSHIPS_MAX) and SCHEMA_VERSION
 //   - extractTraits returns the canonical envelope shape
+//
+// Determinism: this eval is deterministic — it reads only frozen
+// canon constants / pure functions and asserts the same output
+// shape on every run. Same input always produces the same output
+// set; no clocks, no random ids, no network.
+//
 
 import process from "node:process";
 import {

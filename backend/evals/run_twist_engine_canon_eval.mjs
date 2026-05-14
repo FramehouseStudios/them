@@ -10,6 +10,12 @@
 // an ID would drop every user's stored "pinned" / "dismissed"
 // state. This eval pins the framework set, each beat structure,
 // and the per-twist field shape so the regression is loud.
+//
+// Determinism: this eval is deterministic — it reads only frozen
+// canon constants / pure functions and asserts the same output
+// shape on every run. Same input always produces the same output
+// set; no clocks, no random ids, no network.
+//
 
 import process from "node:process";
 
