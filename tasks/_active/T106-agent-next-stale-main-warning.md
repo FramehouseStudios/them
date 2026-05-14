@@ -2,7 +2,7 @@
 id: T106
 title: Warn agents when agent_next is run from a stale checkout
 owner: codex
-status: in-progress
+status: review
 branch: codex/T106-agent-next-stale-main-warning
 pillar: infra
 v1_pillar: infra
@@ -24,3 +24,12 @@ land on main.
 - Fixture-based tests remain deterministic and are not affected by the real
   repo checkout.
 - A regression test covers the behind-`origin/main` warning.
+
+## Verification
+
+- `node --check scripts/agent_next.mjs`
+- `node --test scripts/agent_next.test.mjs`
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+- `git diff --check`
+
+Not run: iOS build/themTests, because this is coordination tooling only.

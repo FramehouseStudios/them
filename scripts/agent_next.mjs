@@ -12,9 +12,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "..");
+const repoRoot = process.env.AGENT_NEXT_REPO_ROOT
+  ? path.resolve(process.env.AGENT_NEXT_REPO_ROOT)
+  : path.resolve(__dirname, "..");
 const DEFAULT_STATE = path.join(repoRoot, "docs/coordination.json");
 const DEFAULT_EVENTS_DIR = path.join(repoRoot, "docs");
 const DEFAULT_CLAUDE_INBOX = path.join(repoRoot, "docs/claude-inbox.md");
@@ -63,6 +66,8 @@ function parseArgs(argv) {
     eventsLimit: 5,
     eventsSince: null,
     claudeInbox: DEFAULT_CLAUDE_INBOX,
+    staleCheck: true,
+    forceStaleCheck: false,
   };
   for (const arg of argv) {
     if (!arg.startsWith("--")) continue;
@@ -78,12 +83,57 @@ function parseArgs(argv) {
     else if (key === "events-limit") args.eventsLimit = Math.max(0, Number(value) || 0);
     else if (key === "events-since") args.eventsSince = value;
     else if (key === "claude-inbox") args.claudeInbox = path.resolve(value);
+    else if (key === "no-stale-check") args.staleCheck = false;
+    else if (key === "stale-check") args.forceStaleCheck = true;
   }
   return args;
 }
 
 function readState(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function git(args) {
+  return execFileSync("git", ["-C", repoRoot, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+}
+
+function readCheckoutStatus({ state, staleCheck, forceStaleCheck }) {
+  if (!staleCheck) return null;
+  // Avoid making fixture-based tests or ad hoc state-file reads depend on
+  // whatever checkout happens to run the script. The default command path is
+  // the one agents use for real coordination.
+  if (!forceStaleCheck && path.resolve(state) !== DEFAULT_STATE) return null;
+  try {
+    git(["rev-parse", "--is-inside-work-tree"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const upstream = git(["rev-parse", "--verify", "origin/main"]);
+    const mergeBase = git(["merge-base", "HEAD", "origin/main"]);
+    if (head === upstream) {
+      return { state: "fresh", head, upstream, message: "Checkout is at origin/main." };
+    }
+    if (mergeBase === head) {
+      return {
+        state: "behind",
+        head,
+        upstream,
+        message: "Checkout is behind origin/main; fetch/rebase or use a fresh worktree before acting on this queue.",
+      };
+    }
+    if (mergeBase === upstream) {
+      return { state: "ahead", head, upstream, message: "Checkout has local commits ahead of origin/main." };
+    }
+    return {
+      state: "diverged",
+      head,
+      upstream,
+      message: "Checkout has diverged from origin/main; rebase before acting on this queue.",
+    };
+  } catch {
+    return null;
+  }
 }
 
 function readRecentEvents({ eventsDir, eventsLimit, eventsSince }) {
@@ -195,7 +245,7 @@ function eventSummary(event) {
   return `${event.at} ${event.by}:${event.kind} ${pr}${blocker}${note}`.trim();
 }
 
-function buildNext(state, { limit, recentEvents = [], claudeInbox = null }) {
+function buildNext(state, { limit, recentEvents = [], claudeInbox = null, checkout = null }) {
   const prs = state.openPullRequests || [];
   const active = prs.filter((pr) => !isDone(pr));
   const humanGated = active.filter(isHumanGated);
@@ -295,6 +345,7 @@ function buildNext(state, { limit, recentEvents = [], claudeInbox = null }) {
       action: pr.blocker || "Needs explicit human approval.",
     })),
     recentEvents,
+    checkout,
   };
 }
 
@@ -308,6 +359,11 @@ function formatText(next, role) {
   lines.push(`- Claude blockers: ${next.throughput.blockedClaudeCount}`);
   lines.push(`- Reviewable Claude PRs in coordination.json: ${next.throughput.reviewableClaudeCount}`);
   lines.push(`- ${next.throughput.recommendation}`);
+  if (next.checkout && ["behind", "diverged"].includes(next.checkout.state)) {
+    lines.push("");
+    lines.push("Checkout Warning");
+    lines.push(`- ${next.checkout.message}`);
+  }
   if (next.recentEvents.length > 0) {
     lines.push("");
     lines.push(`Recent Events ${next.recentEvents.length}`);
@@ -344,7 +400,8 @@ function formatText(next, role) {
 
 const args = parseArgs(process.argv.slice(2));
 const recentEvents = args.events ? readRecentEvents(args) : [];
-const next = buildNext(readState(args.state), { ...args, recentEvents });
+const checkout = readCheckoutStatus(args);
+const next = buildNext(readState(args.state), { ...args, recentEvents, checkout });
 if (args.format === "json") {
   console.log(JSON.stringify(next, null, 2));
 } else {
