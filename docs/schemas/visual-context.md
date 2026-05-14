@@ -11,9 +11,9 @@ user is looking at.
 | --- | --- | --- |
 | POST | `/visual/context` | 200 visual-context envelope, 4xx/5xx error envelopes |
 
-Body limit: `2mb` (base64-encoded image payload). Mounted with
-`requireClientTokenForTalk` — same auth guard as the talk
-pipeline.
+Body limit: `2mb` (base64-encoded image payload). Mounted behind
+`requireClientTokenForTalk` — the same session/token middleware
+used by the talk pipeline.
 
 ## Schema version
 
@@ -32,11 +32,13 @@ iOS keys off the field set itself.
 
 **TIER-3 SENSITIVE**. The image payload may contain anything on
 the user's screen — including credentials, PII, or other-app
-content. The route is bearer-protected via
-`requireClientTokenForTalk`. The image MUST NOT be stored
-beyond the summarization call; the response only carries the
-summarized prompt-addendum text. If a future change persists
-the image, re-evaluate this posture before merging.
+content. The route uses `requireClientTokenForTalk`, which may
+accept a valid existing session, auto-bootstrap a talk session,
+or pass through when the deployment has client-token enforcement
+disabled. The image MUST NOT be stored beyond the summarization
+call; the response only carries the summarized prompt-addendum
+text. If a future change persists the image, re-evaluate this
+posture before merging.
 
 ## Request shape
 
@@ -103,8 +105,9 @@ Envelope shape: `{ stage, error }`.
   vision-supplier response.
 - `captured_at` is server-stamped to prevent client clock
   drift from affecting downstream cache decisions.
-- `requireClientTokenForTalk` is a hard gate. Unauthenticated
-  requests do NOT reach the handler.
+- `requireClientTokenForTalk` keeps this route aligned with
+  `/talk` session behavior; do not replace it with a separate
+  ad hoc guard without updating this schema.
 
 ## Compatibility rules
 
