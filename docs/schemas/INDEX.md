@@ -19,6 +19,8 @@ invariants, and compatibility rules for one envelope or record.
 | --- | --- | --- |
 | [talk-response.md](talk-response.md) | `POST /talk/turn` response envelope | PER-USER |
 | [talk-turn-meta.md](talk-turn-meta.md) | meta block embedded in talk responses | PER-USER |
+| [talk-errors.md](talk-errors.md) | `GET /talk/errors` ops error-rate envelope | SAFE-PUBLIC |
+| [talk-turn-stats.md](talk-turn-stats.md) | `GET /talk/stats` aggregate talk-turn stats | SAFE-PUBLIC |
 
 ## Screenplay surface
 
@@ -26,6 +28,7 @@ invariants, and compatibility rules for one envelope or record.
 | --- | --- | --- |
 | [screenplay-project.md](screenplay-project.md) | `GET /screenplays` + project list shape | PER-USER |
 | [screenplay-version.md](screenplay-version.md) | per-version record shape | PER-USER |
+| [fountain-export.md](fountain-export.md) | `POST /screenplay/export/fountain` request + response | PER-USER |
 
 ## Memory surface
 
@@ -33,6 +36,7 @@ invariants, and compatibility rules for one envelope or record.
 | --- | --- | --- |
 | [memory-stats.md](memory-stats.md) | `/memory/stats` envelope | PER-USER |
 | [block-signal.md](block-signal.md) | block-signal record shape | PER-USER |
+| [block-signal-history.md](block-signal-history.md) | `GET /memory/block-signal/history` envelope | PER-USER |
 
 ## Realtime surface
 
@@ -54,6 +58,12 @@ invariants, and compatibility rules for one envelope or record.
 | --- | --- | --- |
 | [outbox-event.md](outbox-event.md) | outbox store record shape | PER-USER (internal) |
 | [persona-snapshot.md](persona-snapshot.md) | persona record shape | PER-USER |
+
+## Coordination records
+
+| Doc | Covers | Posture |
+| --- | --- | --- |
+| [agent-events.md](agent-events.md) | `docs/agent-events-*.jsonl` event-lane record shape | SAFE-PUBLIC |
 
 ## Access-control posture key
 

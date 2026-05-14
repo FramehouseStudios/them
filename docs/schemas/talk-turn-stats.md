@@ -34,9 +34,9 @@ PII leakage.
 {
   "schemaVersion": 1,
   "total": 156,
-  "audioDurationMs": { "median": 2400, "p90": 8500, "max": 22_000 },
+  "audioDurationMs": { "median": 2400, "p90": 8500, "max": 22000 },
   "transcriptChars": { "median": 84, "p90": 220, "max": 612 },
-  "replyChars": { "median": 142, "p90": 380, "max": 1_244 },
+  "replyChars": { "median": 142, "p90": 380, "max": 1244 },
   "uniqueUserCount": 12,
   "uniqueSessionCount": 47,
   "replyRoleCounts": { "preview": 33, "final": 123 },

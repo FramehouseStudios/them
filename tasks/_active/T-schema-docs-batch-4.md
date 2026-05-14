@@ -6,7 +6,7 @@ status: review
 branch: claude/T-schema-docs-batch-4
 pillar: infra (schema discipline)
 v1_pillar: infra
-v1_effect: extends schema discipline to the operator ops surfaces (/talk/errors, /talk/turn/stats), the block-signal history route, the fountain export endpoint, and the agent-events JSONL record format
+v1_effect: extends schema discipline to the operator ops surfaces (/talk/errors, /talk/stats), the block-signal history route, the fountain export endpoint, and the agent-events JSONL record format
 ---
 
 ## Scope
@@ -15,11 +15,11 @@ Adds 5 new envelope/record docs under `docs/schemas/`:
 
 - `talk-errors.md` — `GET /talk/errors` (talk_error_counter
   envelope) — SAFE-PUBLIC ops surface.
-- `talk-turn-stats.md` — `GET /talk/turn/stats` (talk_turn_stats
+- `talk-turn-stats.md` — `GET /talk/stats` (talk_turn_stats
   aggregate envelope) — SAFE-PUBLIC ops surface.
-- `block-signal-history.md` — `GET /block-signal/history` — the
+- `block-signal-history.md` — `GET /memory/block-signal/history` — the
   PER-USER bounded history for the V1 line 49 surface.
-- `fountain-export.md` — `GET /screenplays/{id}/export?format=fountain`
+- `fountain-export.md` — `POST /screenplay/export/fountain`
   with ordering invariants pinned by v1_screenplay_smoke (#231).
 - `agent-events.md` — record shape for
   `docs/agent-events-*.jsonl` (the live event lane both agents
@@ -39,9 +39,10 @@ Adds 5 new envelope/record docs under `docs/schemas/`:
 - All 5 docs follow the schema-doc pattern (Endpoint, Schema
   version, Owner, Access-control posture, Fields, Errors,
   Invariants, Compatibility, Changelog).
-- Cross-references match `INDEX.md` placement (will need an
-  INDEX update in a followup; deferred here to keep this PR
-  focused on the new docs).
+- `docs/schemas/INDEX.md` updated for all 5 new docs.
+- `node scripts/pre_flight.mjs` passed.
+- `node scripts/agent_event.mjs stats` passed.
+- `git diff --check` passed.
 - No live route is touched.
 
 ## Done when
@@ -50,8 +51,6 @@ Adds 5 new envelope/record docs under `docs/schemas/`:
 
 ## Followups (not in this PR)
 
-- Update `docs/schemas/INDEX.md` to list the 5 new docs under
-  their surface groups.
 - Wire `talk-errors` and `talk-turn-stats` references into
   `docs/runbook-v1-smoke.md` if/when the ops dashboard becomes
   a V1 surface.
@@ -83,6 +82,8 @@ the routes:
   (`/talk/turn/stats` → `/talk/stats`). Field set otherwise
   matched.
 
-The other two docs in the batch (`talk-errors.md`,
-`agent-events.md`) audited clean against the live code and
-were not modified in this revision.
+The `talk-errors.md` doc audited clean against the live code.
+`agent-events.md` was adjusted during Codex supervisor review to
+match `scripts/agent_event.mjs`: `comment` and `pr` are optional
+at the validator level, and `review_blocker` requires
+`blocker_kind`.

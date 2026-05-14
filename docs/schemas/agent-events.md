@@ -17,7 +17,9 @@ review-blocker call.
   state change. Codex appends after iOS merge-train activity and
   coord refreshes.
 - **Schema enforcement**: `scripts/agent_event.mjs` validates
-  required fields + canonical `kind` values before append.
+  required `by` / `kind` fields, positive integer `pr` values
+  when provided, canonical `kind` values, and `review_blocker`
+  blocker metadata before append.
 
 ## Access-control posture
 
@@ -43,25 +45,28 @@ secrets.
 | `by` | string | yes | `"claude"` or `"codex"` |
 | `kind` | string | yes | one of the canonical kinds (see below) |
 | `pr` | int | no | PR number, when applicable to the kind |
-| `comment` | string | yes | one-line human-readable summary |
+| `comment` | string | no | one-line human-readable summary when the appender supplies `--comment` |
+| `blocker_kind` | string | conditional | required when `kind === "review_blocker"` |
+| `blocker_against_pr` | int | no | PR that introduced the blocker, when known |
 
 ## Canonical `kind` values
 
 | Kind | When | `pr` required? |
 | --- | --- | --- |
 | `session_start` | agent begins a working session | no |
-| `pr_opened` | new PR opened | yes |
-| `pr_rebased` | PR rebased onto current main | yes |
-| `pr_merged` | PR merged | yes |
-| `pr_closed` | PR closed without merge | yes |
-| `review_blocker` | reviewer flagged a blocking issue | yes |
-| `blocker_cleared` | blocker resolved | yes |
+| `pr_opened` | new PR opened | conventional |
+| `pr_rebased` | PR rebased onto current main | conventional |
+| `pr_merged` | PR merged | conventional |
+| `pr_closed` | PR closed without merge | conventional |
+| `review_blocker` | reviewer flagged a blocking issue | conventional |
+| `blocker_cleared` | blocker resolved | conventional |
 | `coord_refresh` | coordination.json + inboxes refreshed | no |
 | `spec_opened` | spec PR opened | yes |
 | `spec_approved` | spec PR approved by other agent | yes |
 | `note` | freeform note — clarifications, design proposals, links | optional |
 
 Unknown kinds are rejected by `agent_event.mjs`.
+`review_blocker` additionally requires `blocker_kind`.
 
 ## Invariants
 
@@ -80,6 +85,9 @@ Unknown kinds are rejected by `agent_event.mjs`.
   without them read with defaults.
 - The `at` / `by` / `kind` triple is load-bearing for the rollup
   in `coordination.json` — never rename.
+- `comment` and `pr` are optional at the validator level. The
+  human protocol expects them for PR-shaped events, but older or
+  note-like events without either field remain valid JSONL rows.
 
 ## Consumers
 
@@ -92,5 +100,6 @@ Unknown kinds are rejected by `agent_event.mjs`.
 
 ## Changelog
 
-- v1 — initial documented shape. Canonical `kind` set established
-  in `T-agent-events-jsonl-live-lane`.
+- v1 — initial documented shape, matched against
+  `scripts/agent_event.mjs`. Canonical `kind` set established in
+  `T-agent-events-jsonl-live-lane`.
