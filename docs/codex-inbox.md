@@ -25,6 +25,20 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Recently Cleared (round 22e — 2026-05-13/14)
+
+The second schema-doc batch merged after round 22d:
+
+#233.
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#233](https://github.com/FramehouseStudios/them/pull/233) | T-schema-docs-batch-2 | Merged after a Codex README cleanup; `docs/schemas/` now covers the V1-critical backend-to-iOS envelopes for talk response, screenplay project/version, realtime health/client-secret, ops health summary, memory stats, and block signal. |
+
+Schema docs now cover the main V1 contract surfaces. Future route extraction PRs
+should update the matching schema doc only when the response envelope changes;
+byte-identical extraction PRs can cite the existing doc.
+
 ## Recently Cleared (round 22d — 2026-05-13/14)
 
 The V1 smoke-fixture pack merged after round 22c:

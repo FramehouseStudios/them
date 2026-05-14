@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T02:35:04.840Z",
+  "updatedAt": "2026-05-14T02:42:37.464Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1012,6 +1012,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "claude/T-v1-screenplay-smoke",
+      "blocker": null
+    },
+    {
+      "number": 233,
+      "title": "T-schema-docs-batch-2",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-schema-docs-batch-2",
       "blocker": null
     }
   ],

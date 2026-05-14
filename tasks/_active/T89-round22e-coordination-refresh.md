@@ -2,7 +2,7 @@
 id: T89
 title: Round 22e coordination refresh after schema docs batch 2
 owner: codex
-status: in-progress
+status: review
 branch: codex/T89-round22e-coordination-refresh
 pillar: infra
 v1_pillar: infra
@@ -23,4 +23,8 @@ Refresh the repo-native coordination lane after #233 merged:
 
 ## Verification
 
-- Not run yet.
+- `node scripts/build_tasks_md.mjs --write`
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex`
+- `node scripts/agent_event.mjs tail --n=12`
+- `git diff --check`
