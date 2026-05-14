@@ -1,0 +1,275 @@
+---
+id: T-decompose-phase7b-handler-design
+title: Phase 7b sub-design (fresh) — handleTalkRequest extraction
+owner: claude
+status: proposed
+target_pr: none yet (sub-design refinement; implementation opens after Codex accepts)
+pillar: infra (backend architecture)
+v1_pillar: talk
+v1_effect: refines the Phase 7b plan now that Phase 7a (#306) is merged. Specifies the exact handler boundary, the dep contract, the byte-identical invariants the move must preserve, and the test plan, so Phase 7b implementation can be reviewed against a written contract rather than ad-hoc.
+---
+
+## Scope
+
+Sub-design refinement of Phase 7b — the SECOND sub-phase of the
+talk-pipeline decomposition (#223 parent design). Phase 7a
+(`backend/lib/talk_state.js`, #306) is merged. Phase 7b moves
+`handleTalkRequest` itself — the largest single function in
+`backend/index.js` — into `backend/lib/talk_handler.js`.
+
+This is a **fresh design note**, not implementation. The closed
+#298 was premature; this refined note incorporates the post-7a
+state (idempotency helpers now flow through
+`talkIdempotencyHelpers`, the four guards already pass through
+`mountTalkPipelineRoutes`, accessors come from `talk_state.js`).
+
+Phase 7b implementation does NOT open until Codex reviews this
+note and posts explicit go-ahead.
+
+## Why a fresh design note
+
+#223 sketched three sub-phases (guards, handler, supplier glue).
+Phase 7a's design refinement note (#293) set the precedent:
+high-risk extractions ship a sub-design before code so reviewers
+can argue contract before mechanics. #298 was closed because it
+arrived before Phase 7a landed; this v2 lands after Phase 7a is
+on `main` and reflects the new lib seam.
+
+## Handler boundary
+
+`handleTalkRequest` lives at `backend/index.js:27673` and runs to
+`backend/index.js:31514`. That's **3,842 lines** in one async
+function. It is the entire voice-to-page pipeline body:
+
+  1. STT (Whisper / Replicate / stub fallback)
+  2. Memory load + read-state snapshot
+  3. Identity / persona resolution
+  4. Prompt assembly (turn meta + creative memory + persona)
+  5. Chat-completion call (OpenAI / Anthropic / streaming)
+  6. Memory write (commit turn meta, persist user memory)
+  7. Block-signal + craft analysis side-effects
+  8. TTS (ElevenLabs / OpenAI TTS / stub)
+  9. Response shape (200 audio body OR 200 JSON envelope)
+ 10. Error envelope on stage failure (stt / chat / tts)
+
+Phase 7b moves the entire function. Internal sub-splits
+(STT / prompt+LLM / TTS / commit / response) are a separate
+post-7b refactor lane — out of scope for 7b.
+
+## Recommended factory shape
+
+```js
+import { mountTalkHandler } from "./lib/talk_handler.js";
+
+const handleTalkRequest = mountTalkHandler({
+  // ---------- config (constants) ----------
+  OPENAI_API_KEY,
+  CHAT_TIMEOUT_MS, STT_TIMEOUT_MS, TTS_TIMEOUT_MS,
+  CHAT_MODEL_FAST, CHAT_MODEL_DEEP,
+  WHISPER_MODEL, REPLICATE_MODEL,
+  ELEVENLABS_VOICE_ID, ELEVENLABS_MODEL,
+  TALK_MAX_IN_FLIGHT, TALK_TURN_META_TTL_MS,
+  TALK_TURN_META_MAX_SIZE,
+  TALK_METRICS_DEGRADED_P95_MS, TALK_METRICS_DEGRADED_ERROR_RATE,
+  CHAT_LOAD_SHED_IN_FLIGHT, CHAT_LOAD_SHED_P95_MS,
+  CHAT_LOAD_SHED_MIN_SAMPLES, CHAT_LOAD_SHED_NONCRITICAL_ONLY,
+
+  // ---------- request helpers ----------
+  clientIp, createRequestId, normalizeClientToken,
+  normalizeClientIp, sanitizeForLog,
+
+  // ---------- talk-state seam (from Phase 7a lib) ----------
+  talkIdempotencyHelpers, // commitSuccess, clearPending, captureResponseHeaders
+  recordTalkMetric,
+  incrementErrorCounter,
+
+  // ---------- identity / memory ----------
+  resolveWritableMemoryContext,
+  persistWritableMemoryContext,
+  setPersistedUserMemoryForIp,
+  selectMemoryRecordForRead,
+  normalizeAssistantSelfName,
+  getAssistantSelfNameForIp,
+  normalizeUserPersonName,
+  buildReadStateMeta,
+  applyReadStateHeaders,
+  ifNoneMatchStateHit,
+
+  // ---------- prompt + LLM ----------
+  buildModelPrompt,
+  buildBlockCoachingBlockForPrompt,
+  buildMemoryCards,
+  buildConversationHistoryThreads,
+  buildMemoryQualitySnapshot,
+  maybeBackfillThemesFromHistory,
+  computeBlockSignal,
+
+  // ---------- turn meta ----------
+  storeTalkTurnMeta, readTalkTurnMeta, canReadTalkTurnMeta,
+
+  // ---------- supplier shape (boxed — will be replaced by 7c) ----------
+  callSttSupplier,    // STT call wrapper (current inline)
+  callChatSupplier,   // chat call wrapper (current inline)
+  callTtsSupplier,    // TTS call wrapper (current inline)
+  isAbortError, fetchWithTimeout, sleepMs,
+
+  // ---------- realtime / scale ----------
+  scaleBackplane,
+
+  // ---------- block + craft ----------
+  shouldRecordTwist,
+  acceptedTwistLog,
+
+  // ---------- logger / clock ----------
+  logger = console,
+  now = () => Date.now(),
+});
+
+// handleTalkRequest is `async (req, res) => Promise<void>`.
+```
+
+**~80 explicit deps** across 11 buckets. The handler closes over
+these via destructuring at mount time; no module-level state
+escapes the lib's scope.
+
+## Why monolithic in 7b, not split
+
+The current handler has tight coupling across stages:
+
+- STT result feeds the prompt assembly.
+- Prompt assembly reads memory state mid-flight.
+- LLM response triggers memory writes BEFORE TTS.
+- TTS errors bypass memory writes via specific control flow.
+- Idempotency / metric calls are scattered across all stages.
+
+Splitting these into per-stage sub-functions inside `talk_handler.js`
+is valuable but RISKY in the same PR as the lib move. The
+byte-identical invariant Codex enforces (response envelopes,
+counter order, log prefixes, side-effect order) is much easier to
+prove for a verbatim move than for a structural rewrite.
+
+**Recommendation**: Phase 7b ships the lib move only. A separate
+follow-up refactor PR (Phase 7b.1) splits the internal stages.
+
+## Byte-identical invariants (8 total)
+
+1. **Response envelopes** under all success + failure paths
+   unchanged. The 200 audio-body shape, the 200 JSON shape, and
+   the `{ stage, error }` envelopes for `stt`/`chat`/`tts` stages
+   stay byte-identical.
+
+2. **`storeTalkTurnMeta` is called exactly once per successful
+   request**, with the same payload fields in the same order
+   (`turnId`, `transcriptText`, `aiText`, `audioDurationMs`,
+   `lane`, etc.). The current order is `storeTalkTurnMeta` →
+   `recordTalkMetric` → `commitTalkIdempotencySuccess`.
+
+3. **Memory write order is preserved**. The handler calls
+   `setPersistedUserMemoryForIp` at four specific points; their
+   relative ordering against `storeTalkTurnMeta` and TTS dispatch
+   must stay the same. Reordering changes the eventual-consistency
+   contract for `/state` / `/memories` reads on the same
+   request lifecycle.
+
+4. **Log prefixes** preserved. Every `console.log` / `logger.log`
+   call inside the handler keeps its `[<requestId>] <stage> ...`
+   prefix. No new log lines, no removed log lines, no relabeled
+   stage names.
+
+5. **Status codes** preserved. The current 200/400/401/403/409/
+   422/429/500/503 routing is exact. No new codes; no narrowing
+   of existing codes.
+
+6. **Headers** preserved. The handler sets `Content-Type`
+   (audio/mpeg / application/json), `Content-Length`,
+   `x-turn-id`, `x-stage`, `x-talk-status`, and several
+   stream-related headers in specific orders. The extracted
+   handler reproduces these exactly.
+
+7. **Side-effect ordering** preserved across stages:
+   `recordTalkMetric` → `commitTalkIdempotencySuccess` →
+   `incrementErrorCounter` (on error) → memory persist → response
+   send. Each call site keeps its current relative position.
+
+8. **No module-level state in the lib**. The handler closes over
+   deps via parameters. No `let`/`const` mutable state at
+   `talk_handler.js` module scope — that's the #238 rule
+   inherited from 7a. The lib's only "state" is the deps passed
+   in at mount time.
+
+## Test plan
+
+Two test files:
+
+### `backend/tests/talk_handler_unit.test.mjs`
+
+Pure-unit tests against `mountTalkHandler({...})` with all deps
+stubbed. ~20 tests covering:
+
+- Factory required-deps guard (throws at mount for each missing dep).
+- Stub STT success → triggers prompt assembly with expected args.
+- Stub chat success → triggers TTS dispatch with expected args.
+- STT timeout → 500 with `{ stage: "stt", error }`.
+- Chat timeout → 500 with `{ stage: "chat", error }`.
+- TTS timeout → 500 with `{ stage: "tts", error }`.
+- Memory write happens BEFORE TTS dispatch in the happy path.
+- Idempotency commit happens AFTER memory write.
+- `storeTalkTurnMeta` called exactly once per success.
+- `setPersistedUserMemoryForIp` ordering across the four call sites.
+
+### `backend/tests/talk_handler.test.mjs`
+
+Integration tests on a bare Express app with the lib mounted via
+`mountTalkPipelineRoutes` against a stubbed `mountTalkHandler`.
+~10 tests covering:
+
+- Happy path: POST /talk with stub multipart audio → 200 JSON envelope.
+- Idempotency: same Idempotency-Key returns cached body on retry.
+- Concurrency cap: N+1 returns 503 via the (already-extracted) guard.
+- Load shed: high `talkInFlight()` shifts model to fast.
+- Block-signal side-effect runs even on TTS error.
+- `/ops/metrics` reflects post-turn sample correctly.
+
+Full backend `npm test` must remain green (currently 1147 tests).
+
+## Risk + rollback
+
+**Risk: highest of the spec.** The handler is the V1 voice-to-page
+backbone. A regression here is user-visible.
+
+**Pre-merge gate** (suggested):
+
+- Human runs a manual smoke against the staging backend BEFORE
+  the PR opens and AFTER pre-flight passes (record + send a turn,
+  verify audio plays back).
+- Same smoke AFTER review feedback is addressed but BEFORE merge.
+
+**Rollback**: revert the PR. The lib is self-contained; no
+external state migration. The handler's closure over deps means
+nothing leaks into module scope.
+
+## What Phase 7b does NOT do
+
+- Move the STT / chat / TTS supplier glue. That's Phase 7c.
+- Split the handler into per-stage sub-functions. That's the
+  post-7b refactor lane (Phase 7b.1, opens only after 7b lands).
+- Add new ops/metrics fields, log prefixes, or status codes.
+- Change the response envelope shape — every byte the iOS app
+  reads today comes back unchanged.
+
+## What Codex needs to sign off
+
+1. The 80-dep boundary list (above) — any dep that should fold
+   out of `mountTalkHandler` and be replaced by lib state?
+2. The monolithic-vs-split decision (recommend monolithic).
+3. The 8 byte-identical invariants — any missing? any too loose?
+4. The two-file test plan — sufficient coverage?
+5. Pre-merge manual smoke gate — accept or relax?
+6. Explicit go-ahead on opening the Phase 7b implementation PR.
+
+## Done when
+
+This note lands on main. Phase 7b extraction does NOT open until:
+
+1. Codex reviews this design + posts go-ahead.
+2. No other decomp PR is in flight (max-1-in-flight rule).
