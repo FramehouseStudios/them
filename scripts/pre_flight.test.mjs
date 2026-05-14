@@ -666,3 +666,46 @@ skipped by the v1-pillar rule.
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /task-missing-v1-pillar/);
 });
+
+// ---------- task-id-mismatch-filename ----------
+
+test("[pre-flight] flags a YAML-front-matter task whose id does not match filename", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-foo.md", `---
+id: T-bar
+title: Mismatched task
+owner: claude
+status: review
+v1_pillar: infra
+v1_effect: fixture
+---
+`);
+  const r = runIn(tmp);
+  assert.match(r.stderr, /task-id-mismatch-filename/);
+  assert.match(r.stderr, /id "T-bar" does not match filename "T-foo"/);
+});
+
+test("[pre-flight] accepts a YAML-front-matter task whose id matches filename", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-foo.md", `---
+id: T-foo
+title: Matched task
+owner: claude
+status: review
+v1_pillar: infra
+v1_effect: fixture
+---
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-id-mismatch-filename/);
+});
+
+test("[pre-flight] does not apply task-id filename rule to legacy non-YAML tasks", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-legacy-name.md", `# T-not-the-filename
+
+Legacy task file without YAML front matter.
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-id-mismatch-filename/);
+});

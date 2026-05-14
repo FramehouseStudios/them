@@ -436,6 +436,33 @@ function checkTaskV1Pillar() {
   }
 }
 
+function checkTaskIdMatchesFilename() {
+  // Every active task file in tasks/_active/T-*.md that uses YAML
+  // front matter and declares an `id:` field must have the id
+  // match the file's basename (without .md). Mismatched ids break
+  // cross-references in coordination.json / claude-inbox /
+  // sibling task files silently.
+  const activeDir = path.join(repoRoot, "tasks", "_active");
+  if (!fs.existsSync(activeDir)) return;
+  const files = walkFiles(activeDir, (p) => p.endsWith(".md") && path.basename(p).startsWith("T-"));
+  for (const f of files) {
+    const text = fs.readFileSync(f, "utf8");
+    if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) continue;
+    const m = text.match(/^id:\s*(\S+)/m);
+    if (!m) continue;
+    const declaredId = (m[1] || "").trim();
+    const filenameId = path.basename(f, ".md");
+    if (declaredId !== filenameId) {
+      add(
+        "task-id-mismatch-filename",
+        path.relative(repoRoot, f),
+        null,
+        `task file id "${declaredId}" does not match filename "${filenameId}". Cross-references in coordination.json or other task files would break silently. Either rename the file or update the id field.`,
+      );
+    }
+  }
+}
+
 // ---------- orchestration ----------
 
 checkRouteJsonParsers();
@@ -448,6 +475,7 @@ checkSchemaDocBackendDrift();
 checkMountRequiredDepsGuard();
 checkLibHasTest();
 checkTaskV1Pillar();
+checkTaskIdMatchesFilename();
 
 const strict = process.argv.includes("--strict");
 
