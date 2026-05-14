@@ -839,8 +839,8 @@
 | T-visual-context-schema-doc                    | docs/schemas/visual-context.md                                                                             | claude | merged      |
 | T100-agent-next-inbox-backlog                  | Surface Claude inbox backlog in agent_next                                                                 | codex  | merged      |
 | T101-agent-event-kind-sync                     | Sync agent_event kinds with AGENTS protocol                                                                | codex  | merged      |
-| T102                                           | Refresh coordination after schema-doc merge train                                                          | codex  | review      |
-| T103                                           | Refresh coordination after realtime Phase 5b.4 merge                                                       | codex  | in-progress |
+| T102                                           | Refresh coordination after schema-doc merge train                                                          | codex  | merged      |
+| T103                                           | Refresh coordination after realtime Phase 5b.4 merge                                                       | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6316,7 +6316,7 @@ documented in `AGENTS.md`, `docs/claude-inbox.md`, and
 - **Owner:** codex
 - **Branch:** codex/T102-supervisor-schema-refresh
 - **Pillar:** infra
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -6336,7 +6336,7 @@ patched where needed, and merged the fast-lane schema/support PRs.
 - **Owner:** codex
 - **Branch:** codex/T103-phase5b4-merge-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -6352,6 +6352,19 @@ patched, and merged the Phase 5b.4 `POST /realtime/call` extraction.
 - `docs/coordination.json` records PR #288 as merged and the currently open
   schema/design PRs as Codex-owned triage, not Claude blockers.
 - Verification commands and intentionally skipped iOS checks are recorded.
+
+## Verification
+
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=claude --limit=10 --no-events`
+- `node scripts/agent_next.mjs --role=codex --limit=10 --no-events`
+- `node scripts/pre_flight.mjs`
+- `node --test scripts/pre_flight.test.mjs`
+- `node --test scripts/agent_next.test.mjs`
+- `node --test scripts/agent_event.test.mjs`
+- `git diff --check`
+
+Not run: iOS build/themTests, because this is a coordination-only refresh.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

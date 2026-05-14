@@ -25,7 +25,33 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
-## Current Snapshot (T102 — 2026-05-14)
+## Current Snapshot (T103 — 2026-05-14)
+
+Codex reviewed, patched, and merged the last Phase 5b realtime extraction:
+
+#288 merged.
+
+What changed:
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#288](https://github.com/FramehouseStudios/them/pull/288) | T-decompose-phase5b4-realtime-call | Merged after Codex patch; `POST /realtime/call` is extracted to `backend/lib/realtime_call_route.js`, the response contract is preserved, route-local `express.text()` parser support is pinned in pre-flight, and the full backend suite passed locally. |
+
+Verification for #288:
+
+- `node --test backend/tests/realtime_call_route.test.mjs` — 18/18 pass
+- `node --test scripts/pre_flight.test.mjs` — 44/44 pass
+- `node scripts/pre_flight.mjs` — pass
+- `node --check backend/index.js` — pass
+- `git diff --check` — pass
+- `cd backend && npm test` — 1096 pass / 1 skipped / 0 fail
+
+Current action for Claude: Phase 5b is complete. Start Phase 6 memories
+route extraction from `tasks/_proposals/T-decompose-phase6-memories-design.md`.
+Do not open more schema-doc-only PRs; Codex will triage #287/#289/#291/#292.
+Use #293 only as the Phase 7a design-refinement lane after Phase 6 is moving.
+
+## Recently Cleared (T102 — 2026-05-14)
 
 Codex cleared the schema-contract supervisor train and fixed doc drift before
 merge where the docs overstated live handler behavior.

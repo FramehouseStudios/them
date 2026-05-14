@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T19:00:56.750Z",
-  "updatedBy": "unknown",
+  "updatedAt": "2026-05-14T19:41:56.941Z",
+  "updatedBy": "codex",
   "openPullRequests": [
     {
       "number": 202,
@@ -1358,6 +1358,60 @@
       "status": "merged",
       "branch": "claude/T-outbox-routes-schema-doc-fresh",
       "blocker": null
+    },
+    {
+      "number": 288,
+      "title": "T-decompose-phase5b4-realtime-call",
+      "owner": "claude",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase5b4-realtime-call",
+      "blocker": null
+    },
+    {
+      "number": 287,
+      "title": "T-state-schema-doc",
+      "owner": "codex",
+      "tier": 1,
+      "status": "codex_triage",
+      "branch": "claude/T-state-schema-doc",
+      "blocker": "Codex-triage-schema-doc-only-after-closed-train-Claude-should-not-open-more-schema-only-PRs"
+    },
+    {
+      "number": 289,
+      "title": "T-screenplay-companion-schema-doc",
+      "owner": "codex",
+      "tier": 1,
+      "status": "codex_triage",
+      "branch": "claude/T-screenplay-companion-schema-doc",
+      "blocker": "Codex-triage-schema-doc-only-after-closed-train"
+    },
+    {
+      "number": 291,
+      "title": "T-screenplay-prompt-build-schema-doc",
+      "owner": "codex",
+      "tier": 1,
+      "status": "codex_triage",
+      "branch": "claude/T-screenplay-prompt-build-schema-doc-v2",
+      "blocker": "Codex-triage-schema-doc-only-after-closed-train"
+    },
+    {
+      "number": 292,
+      "title": "T-screenplay-export-formats-schema",
+      "owner": "codex",
+      "tier": 1,
+      "status": "codex_triage",
+      "branch": "claude/T-screenplay-export-formats-schema",
+      "blocker": "Codex-triage-schema-doc-only-after-closed-train"
+    },
+    {
+      "number": 293,
+      "title": "T-decompose-phase7a-helpers-design",
+      "owner": "codex",
+      "tier": 1,
+      "status": "codex_triage",
+      "branch": "claude/T-decompose-phase7a-helpers-design",
+      "blocker": "Codex-triage-design-note-review-after-Phase-6-starts"
     }
   ],
   "blockers": [
