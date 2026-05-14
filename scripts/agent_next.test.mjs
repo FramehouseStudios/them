@@ -40,6 +40,44 @@ function fixturePath() {
   return file;
 }
 
+function humanGatedOnlyFixturePath() {
+  const dir = mkdtempSync(path.join(tmpdir(), "agent-next-human-gated-"));
+  const file = path.join(dir, "coordination.json");
+  writeFileSync(file, JSON.stringify({
+    schemaVersion: 1,
+    updatedAt: "2026-05-14T17:43:57.933Z",
+    updatedBy: "test",
+    openPullRequests: [
+      { number: 212, title: "Auth routes", owner: "claude", tier: 3, status: "blocked", branch: "auth", blocker: "human auth clearance" },
+      { number: 94, title: "Memory export", owner: "claude", tier: 3, status: "needs-human", branch: "export", blocker: "human privacy approval" },
+      { number: 99, title: "Memory delete", owner: "claude", tier: 3, status: "needs-human", branch: "delete", blocker: "human privacy approval" },
+    ],
+    blockers: [],
+    decisionsPending: [],
+    endpointsAwaitingIosConsumer: [],
+  }, null, 2));
+  return file;
+}
+
+function claudeInboxPath() {
+  const dir = mkdtempSync(path.join(tmpdir(), "agent-next-inbox-"));
+  const file = path.join(dir, "claude-inbox.md");
+  writeFileSync(file, [
+    "# Claude Inbox",
+    "",
+    "## Backend Work Codex Actually Wants Next",
+    "",
+    "| Priority | Request | Why it matters | Expected shape |",
+    "| --- | --- | --- | --- |",
+    "| 1 | Phase 5b.4 realtime call extraction | Clears the last `/realtime/*` route before talk decomposition. | Extract `POST /realtime/call` with byte-identical behavior and tests. |",
+    "| 2 | Phase 6 memories routes | Moves memory reads after realtime is stable. | Follow the accepted design note. |",
+    "",
+    "## Decomposition Rules",
+    "",
+  ].join("\n"));
+  return file;
+}
+
 test("[agent-next] text output prioritizes Claude blockers", () => {
   const r = spawnSync("node", [script, "--role=claude", "--limit=2", "--no-events", `--state=${fixturePath()}`], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
@@ -88,4 +126,22 @@ test("[agent-next] surfaces recent agent events and supports --events-since", ()
   assert.match(r.stdout, /review_blocker/);
   assert.match(r.stdout, /needs_test_fix/);
   assert.match(r.stdout, /pr_merged/);
+});
+
+test("[agent-next] human-gated PRs do not consume Claude WIP and inbox backlog becomes next action", () => {
+  const r = spawnSync("node", [
+    script,
+    "--role=claude",
+    "--limit=2",
+    "--no-events",
+    `--state=${humanGatedOnlyFixturePath()}`,
+    `--claude-inbox=${claudeInboxPath()}`,
+  ], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Active PRs: claude 0, codex 0, human 0/);
+  assert.match(r.stdout, /Human-gated PRs are parked/);
+  assert.match(r.stdout, /Claude Next 2/);
+  assert.match(r.stdout, /Phase 5b\.4 realtime call extraction/);
+  assert.match(r.stdout, /Expected: Extract POST \/realtime\/call with byte-identical behavior and tests\./);
+  assert.doesNotMatch(r.stdout, /Claude should clear existing blockers/);
 });

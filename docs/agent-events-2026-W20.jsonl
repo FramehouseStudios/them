@@ -71,3 +71,4 @@
 {"at":"2026-05-14T07:39:54.682Z","by":"codex","kind":"coord_refresh","comment":"T97 refresh records support merge train: #262 #264 #265 #266 #267 merged; Claude next backend lane is Phase 5b.3 /realtime/turn_commit; human-gated PRs remain #212 #94 #99 #33."}
 {"at":"2026-05-14T17:18:51.969Z","by":"codex","kind":"coord_refresh","comment":"T98 refresh records #268 #269 #270 #271 #273 merged; Claude next backend lane is Phase 5b.4 /realtime/call; human-gated PRs remain #212 #94 #99 #33."}
 {"at":"2026-05-14T17:44:06.848Z","by":"codex","kind":"coord_refresh","comment":"T99 fixes truncated #212 expected_action in coordination.json; auth route remains human-gated and do-not-merge."}
+{"at":"2026-05-14T17:56:09.106Z","by":"codex","kind":"note","comment":"T100 teaches agent_next to treat human-gated PRs as parked and surface docs/claude-inbox.md backlog; Claude should now see Phase 5b.4 from the CLI."}

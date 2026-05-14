@@ -17,6 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const DEFAULT_STATE = path.join(repoRoot, "docs/coordination.json");
 const DEFAULT_EVENTS_DIR = path.join(repoRoot, "docs");
+const DEFAULT_CLAUDE_INBOX = path.join(repoRoot, "docs/claude-inbox.md");
 
 const DONE_STATUSES = new Set(["merged", "closed"]);
 const HUMAN_STATUSES = new Set(["needs-human", "policy-gated"]);
@@ -61,6 +62,7 @@ function parseArgs(argv) {
     eventsDir: DEFAULT_EVENTS_DIR,
     eventsLimit: 5,
     eventsSince: null,
+    claudeInbox: DEFAULT_CLAUDE_INBOX,
   };
   for (const arg of argv) {
     if (!arg.startsWith("--")) continue;
@@ -75,6 +77,7 @@ function parseArgs(argv) {
     else if (key === "events-dir") args.eventsDir = path.resolve(value);
     else if (key === "events-limit") args.eventsLimit = Math.max(0, Number(value) || 0);
     else if (key === "events-since") args.eventsSince = value;
+    else if (key === "claude-inbox") args.claudeInbox = path.resolve(value);
   }
   return args;
 }
@@ -111,6 +114,42 @@ function readRecentEvents({ eventsDir, eventsLimit, eventsSince }) {
     if (events.length >= eventsLimit) break;
   }
   return events.reverse();
+}
+
+function stripMarkdownInline(text) {
+  return String(text || "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .trim();
+}
+
+function readClaudeInboxBacklog(file, limit) {
+  if (!file || !fs.existsSync(file)) return [];
+  const lines = fs.readFileSync(file, "utf8").split("\n");
+  const out = [];
+  let inSection = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (/^##\s+Backend Work Codex Actually Wants Next\b/i.test(line)) {
+      inSection = true;
+      continue;
+    }
+    if (inSection && /^##\s+/.test(line)) break;
+    if (!inSection || !line.startsWith("|")) continue;
+    const cols = line.split("|").slice(1, -1).map((c) => c.trim());
+    if (cols.length < 4) continue;
+    if (/^-+$/.test(cols[0].replace(/\s/g, "")) || /^priority$/i.test(cols[0])) continue;
+    const priority = Number(cols[0]);
+    if (!Number.isInteger(priority)) continue;
+    out.push({
+      priority,
+      request: stripMarkdownInline(cols[1]),
+      why: stripMarkdownInline(cols[2]),
+      expectedShape: stripMarkdownInline(cols[3]),
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 function isDone(pr) {
@@ -156,18 +195,20 @@ function eventSummary(event) {
   return `${event.at} ${event.by}:${event.kind} ${pr}${blocker}${note}`.trim();
 }
 
-function buildNext(state, { limit, recentEvents = [] }) {
+function buildNext(state, { limit, recentEvents = [], claudeInbox = null }) {
   const prs = state.openPullRequests || [];
   const active = prs.filter((pr) => !isDone(pr));
+  const humanGated = active.filter(isHumanGated);
+  const actionableActive = active.filter((pr) => !isHumanGated(pr));
   const activeByOwner = {
-    claude: active.filter((pr) => pr.owner === "claude").length,
-    codex: active.filter((pr) => pr.owner === "codex").length,
-    human: active.filter((pr) => pr.owner === "human").length,
+    claude: actionableActive.filter((pr) => pr.owner === "claude").length,
+    codex: actionableActive.filter((pr) => pr.owner === "codex").length,
+    human: actionableActive.filter((pr) => pr.owner === "human").length,
   };
   const blockedClaude = active.filter((pr) => pr.owner === "claude" && isBlocked(pr) && !isHumanGated(pr));
-  const humanGated = active.filter(isHumanGated);
   const reviewableClaude = active.filter(isReviewable);
   const codexOwn = active.filter((pr) => pr.owner === "codex" && !isBlocked(pr));
+  const claudeInboxBacklog = readClaudeInboxBacklog(claudeInbox, limit);
   const claudeBlockedRatio = activeByOwner.claude === 0
     ? 0
     : blockedClaude.length / activeByOwner.claude;
@@ -181,6 +222,16 @@ function buildNext(state, { limit, recentEvents = [] }) {
       reason: "clear-blocker",
       action: pr.blocker || "Clear blocker and request Codex review.",
     }));
+  if (claude.length === 0 && claudeInboxBacklog.length > 0) {
+    for (const item of claudeInboxBacklog.slice(0, limit)) {
+      claude.push({
+        pr: null,
+        title: item.request,
+        reason: "claude-inbox-backlog",
+        action: `${item.why} Expected: ${item.expectedShape}`,
+      });
+    }
+  }
 
   const codex = [];
   for (const pr of reviewableClaude.slice(0, limit)) {
@@ -232,6 +283,8 @@ function buildNext(state, { limit, recentEvents = [] }) {
       reviewableClaudeCount: reviewableClaude.length,
       recommendation: activeByOwner.claude > wipLimit || blockedClaude.length > 0
         ? "Claude should clear existing blockers before opening net-new backend work."
+        : humanGated.length > 0
+          ? "Human-gated PRs are parked; Claude can work from docs/claude-inbox.md."
         : "Claude has room for one scoped backend/support task.",
     },
     claude,
@@ -266,7 +319,7 @@ function formatText(next, role) {
     lines.push("");
     lines.push(`Claude Next ${next.claude.length || "(none)"}`);
     for (const [i, item] of next.claude.entries()) {
-      lines.push(`${i + 1}. #${item.pr} ${item.title}`);
+      lines.push(`${i + 1}. ${item.pr ? `#${item.pr} ` : ""}${item.title}`);
       lines.push(`   ${item.action}`);
     }
   }
