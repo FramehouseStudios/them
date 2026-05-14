@@ -778,6 +778,7 @@
 | T-prompt-assembly-snapshot-eval                | Pin canonical buildModelPrompt block order                                          | claude | merged      |
 | T-prompt-size-eval                             | Char-budget guard on assembled model prompts                                        | claude | merged      |
 | T-protocol-infra-batch                         | Tighten backend extraction protocol helpers                                         | claude | review      |
+| T-schema-docs-batch-2                          | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal      | claude | review      |
 | T-schema-docs-scaffold                         | Bootstrap docs/schemas/ with README + 3 first envelope docs                         | claude | review      |
 | T-screenplay-export-formats-list-route         | GET /screenplay/export/formats canonical format list                                | claude | review      |
 | T-screenplay-export-markdown                   | POST /screenplay/export format=md|markdown                                          | claude | review      |
@@ -831,6 +832,7 @@
 | T86                                            | Round 22b coordination refresh after design-note mini-train                         | codex  | review      |
 | T87                                            | Round 22c coordination refresh after memory and long-tail design notes              | codex  | review      |
 | T88                                            | Round 22d coordination refresh after V1 smoke fixture pack                          | codex  | review      |
+| T89                                            | Round 22e coordination refresh after schema docs batch 2                            | codex  | in-progress |
 
 ## Active work — full detail (auto-generated)
 
@@ -2586,6 +2588,62 @@ Run:
 - `node scripts/audit_inline_routes.mjs --json`
 - `git diff --check`
 
+### T-schema-docs-batch-2 — Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal
+- **Owner:** claude
+- **Branch:** claude/T-schema-docs-batch-2
+- **Pillar:** infra (cross-agent contracts)
+- **Status:** review
+
+## Scope
+
+Extends `docs/schemas/` per the round-22 protocol. The first batch
+(#226) shipped 3 docs (auth, talk-turn-meta, ops-metrics). This
+batch adds 8 more, covering every V1-critical envelope:
+
+| File | Endpoint(s) | V1 pillar |
+| --- | --- | --- |
+| `talk-response.md` | `POST /talk` | talk |
+| `screenplay-project.md` | `GET /screenplay/projects[/:id]` | screenplay |
+| `screenplay-version.md` | `POST .../version` (+ 409 conflict) | screenplay |
+| `realtime-health.md` | `GET /realtime/health` | realtime |
+| `realtime-client-secret.md` | `POST /realtime/client_secret` | realtime |
+| `ops-health-summary.md` | `GET /ops/health-summary` | infra/ops |
+| `memory-stats.md` | `GET /memory/stats` | memory |
+| `block-signal.md` | `/memory/block-signal*` | memory |
+
+Each carries the full field table, sample response, compatibility
+rules, and changelog. README catalog updated.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: infrastructure for every iOS-consumer V1 checklist
+  item. After this PR + #226, every V1-critical response envelope
+  has a canonical doc; backend lib headers + iOS decoders both
+  read from the same source of truth.`
+
+## Compatibility rules pinned in each doc
+
+- Additive new optional keys are fine within a schemaVersion.
+- Type narrowing (e.g. `string | null` → `string`) is a version
+  bump.
+- Removing keys is a version bump.
+- iOS decoders MUST tolerate unknown keys (drop them, don't fail).
+
+## Done when
+
+The 8 docs exist with accurate field tables matching the current
+backend behavior; the README catalog lists them all.
+
+## Followups
+
+Future docs (not in this batch): per-decomp-phase envelope docs
+that ship alongside their extraction PR. E.g. when Phase 5b.1
+extracts `/realtime/client_secret`, the doc here is amended (or
+referenced) to reflect any changes — though the design rule says
+extraction PRs are byte-identical, so the doc shouldn't need to
+change.
+
 ### T-schema-docs-scaffold — Bootstrap docs/schemas/ with README + 3 first envelope docs
 - **Owner:** claude
 - **Branch:** claude/T-schema-docs-scaffold
@@ -4072,5 +4130,27 @@ Refresh the repo-native coordination lane after #231 merged:
 - `node scripts/agent_next.mjs --role=codex`
 - `node scripts/agent_event.mjs tail --n=12`
 - `git diff --check`
+
+### T89 — Round 22e coordination refresh after schema docs batch 2
+- **Owner:** codex
+- **Branch:** codex/T89-round22e-coordination-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh the repo-native coordination lane after #233 merged:
+
+- #233 schema docs batch 2 for talk, screenplay, realtime, ops, memory, and
+  block-signal envelopes.
+
+## Done when
+
+`docs/coordination.json`, `docs/codex-inbox.md`, the weekly event lane, and
+`TASKS.md` reflect the current queue and schema coverage.
+
+## Verification
+
+- Not run yet.
 
 <!-- END AUTOGEN active-tasks -->
