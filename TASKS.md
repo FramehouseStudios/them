@@ -827,6 +827,7 @@
 | T-v1-status-reporter                           | V1 status reporter script                                                                                  | claude | merged      |
 | T-v1-three-smoke-fixtures                      | V1 smoke fixtures — screenplay export + memory recall + realtime failover                                  | claude | review      |
 | T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                                          | claude | review      |
+| T100-agent-next-inbox-backlog                  | Surface Claude inbox backlog in agent_next                                                                 | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -5631,6 +5632,26 @@ caught for free.
   one block-signal turn so the smoke covers more prompt paths.
 - Wire into `quality_gate.sh` once the canon umbrella's
   composition is settled.
+
+### T100-agent-next-inbox-backlog — Surface Claude inbox backlog in agent_next
+- **Owner:** codex
+- **Branch:** codex/T100-agent-next-inbox-backlog
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Teach `scripts/agent_next.mjs` that human-gated PRs are parked and should not
+consume Claude's active WIP. When no actionable Claude PR exists, surface the
+ordered backend backlog from `docs/claude-inbox.md`.
+
+## Done when
+
+- `agent_next --role=claude` shows the top Claude inbox request when only
+  human-gated PRs remain.
+- The output no longer tells Claude to clear blockers that only the human can
+  clear.
+- Regression tests cover both behaviors.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
