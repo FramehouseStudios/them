@@ -104,6 +104,7 @@ import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.js";
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
+import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
@@ -28148,35 +28149,18 @@ app.patch("/session/evolution", express.json({ limit: "256kb" }), (req, res) => 
 // with a short timeout. Deep results are cached for 30s so a polling
 // dashboard doesn't fire a fresh mint each tick.
 const _realtimeHealthCache = createSupplierHealthCache();
-app.get("/realtime/health", async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  const supplier = realtimeSupplier;
-  const deep = String(req.query?.deep || "").trim() === "1";
-  const recordedAt = new Date().toISOString();
-  if (!deep) {
-    const shape = probeSupplierShape(supplier);
-    return res.status(200).json({
-      schemaVersion: 1,
-      mode: "shape",
-      kind: shape.kind || (supplier && supplier.kind) || null,
-      healthy: Boolean(shape.healthy),
-      error: shape.error,
-      recordedAt,
-    });
-  }
-  const cached = _realtimeHealthCache.get(supplier);
-  if (cached) {
-    return res.status(200).json({
-      schemaVersion: 1,
-      mode: "live",
-      cached: true,
-      ...cached,
-    });
-  }
-  const live = await probeSupplierLive(supplier, { timeoutMs: 5000 });
-  const result = { kind: live.kind, healthy: Boolean(live.healthy), error: live.error, latencyMs: live.latencyMs, recordedAt };
-  _realtimeHealthCache.set(supplier, result);
-  return res.status(200).json({ schemaVersion: 1, mode: "live", cached: false, ...result });
+// T-decompose-phase5a-realtime-reads: /realtime/health + /realtime/bridge
+// moved to lib/realtime_routes.js. Behavior is byte-identical with
+// the previous inline handlers. The supplier is passed as an
+// accessor function so the route reads the current value at
+// request time (the supplier can change via failover during the
+// process lifetime). See docs/specs/T-decompose-backend-index.md.
+mountRealtimeRoutes(app, {
+  getRealtimeSupplier: () => realtimeSupplier,
+  probeSupplierShape,
+  probeSupplierLive,
+  realtimeHealthCache: _realtimeHealthCache,
+  renderRealtimeBridgeHtml,
 });
 
 app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req, res) => {
@@ -28557,16 +28541,6 @@ app.post(
     }
   }
 );
-
-app.get("/realtime/bridge", (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self' https://api.openai.com blob: data:; connect-src 'self' https://api.openai.com; media-src blob: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
-  );
-  res.type("html");
-  return res.status(200).send(renderRealtimeBridgeHtml());
-});
 
 app.post("/realtime/turn_commit", express.json({ limit: "256kb" }), (req, res) => {
   const rid = req.requestId || createRequestId();
