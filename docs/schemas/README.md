@@ -60,18 +60,26 @@ Every PR that touches a response envelope must:
 If a PR ships an envelope change without touching the doc, the
 review should request the doc update before merge.
 
-## Starter set
+## Catalog
 
-- [`auth.md`](./auth.md) — `/auth/*` envelopes (success + error
-  shapes).
+- [`auth.md`](./auth.md) — `/auth/*` envelopes (success + error).
+- [`talk-response.md`](./talk-response.md) — `POST /talk` (V1 magic
+  moment).
 - [`talk-turn-meta.md`](./talk-turn-meta.md) — `GET /talk/turn/:turnId`.
+- [`screenplay-project.md`](./screenplay-project.md) — list +
+  detail.
+- [`screenplay-version.md`](./screenplay-version.md) — version
+  save + 409 conflict shape.
+- [`realtime-health.md`](./realtime-health.md) — `GET /realtime/health`.
+- [`realtime-client-secret.md`](./realtime-client-secret.md) —
+  `POST /realtime/client_secret` (mint + failover envelope).
 - [`ops-metrics.md`](./ops-metrics.md) — `GET /ops/metrics`.
+- [`ops-health-summary.md`](./ops-health-summary.md) —
+  `GET /ops/health-summary`.
+- [`memory-stats.md`](./memory-stats.md) — `GET /memory/stats`.
+- [`block-signal.md`](./block-signal.md) — `/memory/block-signal*`.
 
 Future scaffolding to fill in:
-
-- `talk-response.md` — `POST /talk` response shape.
-- `screenplay-project.md` — `GET /screenplay/projects/:id`.
-- `screenplay-version.md` — `POST /screenplay/projects/:id/version`.
 - `ops-health-summary.md` — `GET /ops/health-summary`.
 - `realtime-health.md` — `GET /realtime/health`.
 - `realtime-client-secret.md` — `POST /realtime/client_secret`.
