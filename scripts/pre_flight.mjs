@@ -298,6 +298,66 @@ function checkSchemaVersionedEnvelopes() {
   }
 }
 
+function checkTaskV1Pillar() {
+  // Every active task file in tasks/_active/T-*.md that uses YAML
+  // front matter should carry a v1_pillar + v1_effect declaration
+  // per docs/v1-definition.md's "PR Rule".
+  //
+  // Grandfather rules (skip the check):
+  //   - Files without YAML front matter (pre-V1-doc style).
+  //   - Coord-refresh task files (predate the V1 rule).
+  //
+  // Acceptable forms:
+  //   - YAML front matter: `v1_pillar: <talk|screenplay|memory|realtime|ios|infra>`
+  //     plus `v1_effect: <one-liner>`
+  //   - Body line `V1 pillar: <pillar>` plus `V1 effect: ...`
+  //
+  // Warn-only by default. --strict makes the rule fail the run.
+  const activeDir = path.join(repoRoot, "tasks", "_active");
+  if (!fs.existsSync(activeDir)) return;
+  const files = walkFiles(activeDir, (p) => p.endsWith(".md") && path.basename(p).startsWith("T-"));
+  const validPillars = new Set(["talk", "screenplay", "memory", "realtime", "ios", "infra"]);
+  for (const f of files) {
+    const text = fs.readFileSync(f, "utf8");
+    // Grandfather: only flag files with YAML front matter (new
+    // task-file shape established after the V1 rule).
+    if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) continue;
+    // Grandfather coord-refresh tasks even if they have front matter.
+    if (/Refresh coordination after PR/i.test(text)) continue;
+    // Grandfather already-merged tasks: the V1 rule landed
+    // 2026-05-13 (docs/v1-definition.md). Anything `status: merged`
+    // shipped before the rule could apply.
+    if (/^status:\s*merged\s*$/im.test(text)) continue;
+    const hasYamlPillar = /^v1_pillar:\s*(\S+)/m.test(text);
+    const hasYamlEffect = /^v1_effect:\s*\S/m.test(text);
+    const hasBodyPillar = /V1\s+pillar:\s*(\S+)/i.test(text);
+    const hasBodyEffect = /V1\s+effect:\s*\S/i.test(text);
+    const hasPillar = hasYamlPillar || hasBodyPillar;
+    const hasEffect = hasYamlEffect || hasBodyEffect;
+    if (!hasPillar && !hasEffect) {
+      add(
+        "task-missing-v1-pillar",
+        path.relative(repoRoot, f),
+        null,
+        `task file is missing both v1_pillar and v1_effect declarations. Add ${"`"}V1 pillar: <talk|screenplay|memory|realtime|ios|infra>${"`"} and ${"`"}V1 effect: <effect>${"`"} per docs/v1-definition.md.`,
+      );
+      continue;
+    }
+    if (hasPillar) {
+      const m = text.match(/^v1_pillar:\s*(\S+)/m) || text.match(/V1\s+pillar:\s*(\S+)/i);
+      const pillar = (m?.[1] || "").trim().toLowerCase();
+      if (pillar && !validPillars.has(pillar)) {
+        add(
+          "task-invalid-v1-pillar",
+          path.relative(repoRoot, f),
+          null,
+          `v1_pillar "${pillar}" is not one of: ${[...validPillars].join(", ")}.`,
+        );
+      }
+    }
+  }
+}
+
 // ---------- orchestration ----------
 
 checkRouteJsonParsers();
@@ -308,6 +368,7 @@ checkEvalDeterminismCoverage();
 checkSchemaVersionedEnvelopes();
 checkMountRequiredDepsGuard();
 checkLibHasTest();
+checkTaskV1Pillar();
 
 const strict = process.argv.includes("--strict");
 

@@ -54,6 +54,11 @@ function tempRepo({
   return tmp;
 }
 
+function writeTaskFile(tmp, name, body) {
+  fs.mkdirSync(path.join(tmp, "tasks", "_active"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "tasks", "_active", name), body);
+}
+
 function runIn(tmp, extraArgs = []) {
   return spawnSync("node", [path.join(tmp, "scripts", "pre_flight.mjs"), ...extraArgs], { encoding: "utf8" });
 }
@@ -435,4 +440,120 @@ export const KEYS = ["a", "b", "c"];
   const tmp = tempRepo({ withMountFile: libFile });
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /lib-missing-test/);
+});
+
+// ---------- task-missing-v1-pillar ----------
+
+test("[pre-flight] flags a YAML-front-matter task without v1_pillar/v1_effect", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-foo.md", `---
+id: T-foo
+title: Some new task
+owner: claude
+status: review
+---
+
+## Scope
+
+Body without any V1 declarations.
+`);
+  const r = runIn(tmp);
+  assert.match(r.stderr, /task-missing-v1-pillar/);
+  assert.match(r.stderr, /T-foo\.md/);
+});
+
+test("[pre-flight] accepts YAML v1_pillar + v1_effect", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-bar.md", `---
+id: T-bar
+title: V1-tagged task
+owner: claude
+status: review
+v1_pillar: talk
+v1_effect: closes "Manual smoke" line N
+---
+
+## Scope
+
+ok
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-missing-v1-pillar/);
+});
+
+test("[pre-flight] accepts body-line V1 pillar/effect", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-baz.md", `---
+id: T-baz
+title: Body-declaration task
+owner: claude
+status: review
+---
+
+V1 pillar: infra
+V1 effect: infrastructure for V1 doc line 12
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-missing-v1-pillar/);
+});
+
+test("[pre-flight] grandfathers merged tasks even when v1 declarations are missing", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-old-merged.md", `---
+id: T-old-merged
+title: A task that shipped before the V1 rule
+owner: claude
+status: merged
+---
+
+## Scope
+
+no V1 fields here.
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-missing-v1-pillar/);
+});
+
+test("[pre-flight] grandfathers coord-refresh tasks", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T82-refresh-after-pr204.md", `---
+id: T82-refresh-after-pr204
+title: Refresh coordination after PR #204
+owner: codex
+status: review
+---
+
+## Scope
+
+Refresh coordination after PR #204 merged.
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-missing-v1-pillar/);
+});
+
+test("[pre-flight] flags an invalid v1_pillar value", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-bad-pillar.md", `---
+id: T-bad-pillar
+title: Wrong pillar value
+owner: claude
+status: review
+v1_pillar: marketing
+v1_effect: closes something
+---
+`);
+  const r = runIn(tmp);
+  assert.match(r.stderr, /task-invalid-v1-pillar/);
+  assert.match(r.stderr, /marketing/);
+});
+
+test("[pre-flight] grandfathers files without YAML front matter", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-legacy.md", `# T-legacy
+
+This is an old task file without YAML front matter. Should be
+skipped by the v1-pillar rule.
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-missing-v1-pillar/);
 });
