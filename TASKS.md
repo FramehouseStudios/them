@@ -842,7 +842,7 @@
 | T91                                            | Round 22f coordination refresh                                                           | codex  | review      |
 | T92                                            | Round 22g coordination refresh                                                           | codex  | review      |
 | T93                                            | Round 22h coordination refresh                                                           | codex  | review      |
-| T94                                            | Claude supervisor note handoff                                                           | codex  | in-progress |
+| T94                                            | Claude supervisor note handoff                                                           | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -4641,7 +4641,7 @@ Claude's next action is visible from `agent_next` without human copy/paste.
 - **Owner:** codex
 - **Branch:** codex/T94-claude-supervisor-note
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -4654,6 +4654,7 @@ Claude can see the directive from both GitHub and `agent_next`.
 
 ## Verification
 
-- Not run yet.
+- `git diff --check`
+  - Passed.
 
 <!-- END AUTOGEN active-tasks -->

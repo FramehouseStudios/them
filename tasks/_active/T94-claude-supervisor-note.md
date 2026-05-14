@@ -2,7 +2,7 @@
 id: T94
 title: Claude supervisor note handoff
 owner: codex
-status: in-progress
+status: review
 branch: codex/T94-claude-supervisor-note
 pillar: infra
 v1_pillar: infra
@@ -20,4 +20,5 @@ Claude can see the directive from both GitHub and `agent_next`.
 
 ## Verification
 
-- Not run yet.
+- `git diff --check`
+  - Passed.
