@@ -794,6 +794,7 @@
 | T-trust-tiers                                  | Trust tiers + standing pre-approvals (AGENTS.md)                                    | claude | review      |
 | T-twist-engine-canon-eval                      | Pin TWIST_LIBRARY framework set + per-twist field shape                             | claude | merged      |
 | T-untested-libs-followups                      | Add tests for remaining untested infrastructure libs                                | claude | planned     |
+| T-v1-three-smoke-fixtures                      | V1 smoke fixtures — screenplay export + memory recall + realtime failover           | claude | review      |
 | T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                   | claude | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                | codex  | review      |
@@ -829,6 +830,7 @@
 | T85                                            | Round 22 coordination refresh after supervisor merge train                          | codex  | review      |
 | T86                                            | Round 22b coordination refresh after design-note mini-train                         | codex  | review      |
 | T87                                            | Round 22c coordination refresh after memory and long-tail design notes              | codex  | review      |
+| T88                                            | Round 22d coordination refresh after V1 smoke fixture pack                          | codex  | in-progress |
 
 ## Active work — full detail (auto-generated)
 
@@ -3187,6 +3189,103 @@ test, a behavior regression in the store is invisible until it
 hits a downstream route's integration test. Direct tests on the
 stores catch regressions at the source.
 
+### T-v1-three-smoke-fixtures — V1 smoke fixtures — screenplay export + memory recall + realtime failover
+- **Owner:** claude
+- **Branch:** claude/T-v1-screenplay-smoke
+- **Pillar:** infra (V1 smoke)
+- **Status:** review
+
+## Scope
+
+Three V1 smoke fixtures shipped together because they share the
+same deterministic-no-external-API pattern set by #224 (the V1
+voice-to-page smoke):
+
+| V1 line | Manual smoke item | Smoke script |
+| --- | --- | --- |
+| 39 | Create project → write scene → save → export → reopen | `scripts/v1_screenplay_smoke.mjs` |
+| 55 | Mention character → later suggestion recalls them | `scripts/v1_memory_recall_smoke.mjs` |
+| 67 | Primary mint works; forced primary failure shows fallback | `scripts/v1_realtime_failover_smoke.mjs` |
+
+Each is the **automatable cheap subset** of the matching manual
+smoke. The manual smoke still needs the human to drive an actual
+TestFlight build; these scripts catch the upstream regressions
+that would make the manual smoke fail before a human even gets to
+it.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: closes the automatable subset of 3 V1 manual-smoke
+  checklist items at once (lines 39, 55, 67). Each script is the
+  cheap tripwire; the full manual smoke still gates V1 sign-off.`
+
+## What each script catches
+
+### v1_screenplay_smoke (line 39)
+
+- Fountain emitter regressions (scene heading format, character
+  cue casing, dialogue indentation, title-page order).
+- Non-determinism in `exportToFountain(...)`.
+
+Fixture: `backend/fixtures/v1_screenplay_export.json` — a 2-scene
+screenplay with title page, action, character cue, dialogue.
+8 substring checks + 5 ordering checks + 1 determinism check.
+
+### v1_memory_recall (line 55)
+
+- Creative-memory write regressions (character not persisted).
+- Creative-memory read regressions (character missing from prompt
+  payload).
+- Sanitize-on-read regressions that drop voice/tags iOS depends on.
+- Non-determinism across reads.
+- Cross-user isolation (other user's memory must not leak).
+
+Runs `recordCharacterMention` → `getCreativeMemoryForPrompt` on
+an in-memory JSON persistence and verifies JUNE round-trips with
+voice + tags.
+
+### v1_realtime_failover (line 67)
+
+- Failover state-machine regressions on all 4 paths:
+  1. `primary_ok` (no fallback attempted)
+  2. `primary_fail_fallback_ok` (unpinned primary fail → stub mints)
+  3. `primary_fail_fallback_fail` (`supplier_fallback_failed` wrap)
+  4. `pinned_provider_fail` (no fallback ever, re-throw as-is)
+
+Uses fake suppliers + stubbed loader. No network. No OpenAI key.
+
+## What none of these catch
+
+- Real iOS-side rendering / playback.
+- Real LLM / STT / TTS / WebRTC behavior.
+- End-to-end TestFlight smoke (still required for V1 sign-off).
+
+## Verification
+
+- `node scripts/v1_screenplay_smoke.mjs` → PASS
+- `node scripts/v1_memory_recall_smoke.mjs` → PASS (recalled
+  JUNE with `voice="wry"`, `tags=["protagonist"]`).
+- `node scripts/v1_realtime_failover_smoke.mjs` → PASS (4/4
+  cases).
+- `node --test scripts/v1_screenplay_smoke.test.mjs
+     scripts/v1_memory_recall_smoke.test.mjs
+     scripts/v1_realtime_failover_smoke.test.mjs` → 7/7 pass.
+
+## Done when
+
+The 3 scripts + their test wrappers ship and pass in CI. The V1
+doc's 3 manual-smoke checklist items now have automatable
+tripwires above the human-driven smoke.
+
+## Followups
+
+- Wire the 3 scripts into the `eval:canon` umbrella so a single
+  command runs them all (separate PR, listed as item 15 in the
+  current 15-move queue).
+- Add a 4th smoke once Phase 7 talk-pipeline lands — end-to-end
+  through the extracted handler, byte-comparable.
+
 ### T-v1-voice-to-page-smoke — V1 voice-to-page smoke fixture + automated subset
 - **Owner:** claude
 - **Branch:** claude/T-v1-voice-to-page-smoke
@@ -3947,5 +4046,27 @@ merges:
 - `node scripts/agent_next.mjs --role=codex`
 - `node scripts/agent_event.mjs tail --n=12`
 - `git diff --check`
+
+### T88 — Round 22d coordination refresh after V1 smoke fixture pack
+- **Owner:** codex
+- **Branch:** codex/T88-round22d-coordination-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh the repo-native coordination lane after #231 merged:
+
+- #231 V1 smoke fixture pack for screenplay export, memory recall, and
+  realtime failover.
+
+## Done when
+
+`docs/coordination.json`, `docs/codex-inbox.md`, the weekly event lane, and
+`TASKS.md` reflect the current queue and smoke coverage.
+
+## Verification
+
+- Not run yet.
 
 <!-- END AUTOGEN active-tasks -->
