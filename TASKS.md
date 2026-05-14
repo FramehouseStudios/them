@@ -851,6 +851,7 @@
 | T109                                           | Refresh V1 checklist after Phase 7 design and realtime decomposition                                       | codex  | review      |
 | T110                                           | Prove realtime fallback status is user-visible                                                             | codex  | merged      |
 | T111                                           | Refresh coordination after Phase 7a and realtime fallback proof                                            | codex  | review      |
+| T112                                           | Mark existing talk diagnostics and memory summary V1 surfaces complete                                     | codex  | in-progress |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6898,6 +6899,45 @@ implementation.
 
 Not run: iOS build/themTests or backend tests, because this is coordination
 metadata only.
+
+### T112 — Mark existing talk diagnostics and memory summary V1 surfaces complete
+- **Owner:** codex
+- **Branch:** codex/T112-v1-diagnostics-memory-status-refresh
+- **Pillar:** living companion
+- **Status:** in-progress
+
+## Scope
+
+Refresh `docs/v1-definition.md` for two already-shipped app surfaces:
+
+- Talk diagnostics are visible from Report a Problem via `TalkDiagnosticsSheet`
+  in `RootExperienceView`, backed by `/talk/stats` and `/talk/errors`.
+- Memory shape summary + refresh state are visible in `DataControlsScreen`,
+  backed by `/memory/stats`.
+
+## Done When
+
+- The V1 talk diagnostics checklist item is marked complete.
+- The V1 memory summary/refresh checklist item is marked complete.
+- `npm run v1:status` reflects the updated count.
+
+## Verification
+
+- `npm run v1:status`
+- `node scripts/build_tasks_md.mjs --write`
+- `git diff --check`
+
+Existing code evidence:
+
+- `them/RootExperienceView.swift` presents `TalkDiagnosticsSheet`.
+- `them/TalkDiagnosticsSheet.swift` renders stats, errors, refresh state, and
+  safe-public posture.
+- `them/DataControlsScreen.swift` renders memory shape summary and refresh time.
+- `themTests/BackendTalkDiagnosticsTests.swift` covers `/talk/stats`,
+  `/talk/errors`, and `/memory/stats` decoding.
+
+Not run: iOS build/themTests, because this only updates V1 status for already
+merged and tested surfaces.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
