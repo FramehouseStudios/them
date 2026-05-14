@@ -2,7 +2,7 @@
 id: T101-agent-event-kind-sync
 title: Sync agent_event kinds with AGENTS protocol
 owner: codex
-status: in-progress
+status: review
 branch: codex/T101-agent-event-kind-sync
 pillar: infra (coordination)
 v1_pillar: infra

@@ -828,6 +828,7 @@
 | T-v1-three-smoke-fixtures                      | V1 smoke fixtures — screenplay export + memory recall + realtime failover                                  | claude | review      |
 | T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                                          | claude | review      |
 | T100-agent-next-inbox-backlog                  | Surface Claude inbox backlog in agent_next                                                                 | codex  | review      |
+| T101-agent-event-kind-sync                     | Sync agent_event kinds with AGENTS protocol                                                                | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -5652,6 +5653,24 @@ ordered backend backlog from `docs/claude-inbox.md`.
 - The output no longer tells Claude to clear blockers that only the human can
   clear.
 - Regression tests cover both behaviors.
+
+### T101-agent-event-kind-sync — Sync agent_event kinds with AGENTS protocol
+- **Owner:** codex
+- **Branch:** codex/T101-agent-event-kind-sync
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Bring `scripts/agent_event.mjs` in line with the canonical live-event kinds
+documented in `AGENTS.md`, `docs/claude-inbox.md`, and
+`docs/agent-throughput-protocol.md`.
+
+## Done when
+
+- `pattern_codified`, `product_state`, `code_review`, `design_proposal`,
+  `event_protocol_change`, `spec_amend`, and `review_ready` are accepted.
+- Tests prove the documented kinds round-trip through `append`.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

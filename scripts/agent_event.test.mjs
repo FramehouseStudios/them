@@ -59,6 +59,25 @@ test("[agent-event] append rejects unknown --kind", () => {
   assert.match(r.stderr, /--kind must be one of/);
 });
 
+test("[agent-event] append accepts documented coordination event kinds", () => {
+  const tmp = tempRepoWithScript();
+  const kinds = [
+    "event_protocol_change",
+    "spec_amend",
+    "review_ready",
+    "product_state",
+    "pattern_codified",
+    "code_review",
+    "design_proposal",
+  ];
+  for (const kind of kinds) {
+    const r = runIn(tmp, ["append", "--by=codex", `--kind=${kind}`, `--comment=${kind} roundtrip`]);
+    assert.equal(r.status, 0, `${kind}: ${r.stderr}`);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.kind, kind);
+  }
+});
+
 test("[agent-event] review_blocker requires blocker_kind", () => {
   const tmp = tempRepoWithScript();
   const r = runIn(tmp, ["append", "--by=codex", "--kind=review_blocker", "--pr=92"]);
