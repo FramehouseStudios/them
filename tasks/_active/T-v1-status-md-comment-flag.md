@@ -2,7 +2,7 @@
 id: T-v1-status-md-comment-flag
 title: v1_status.mjs --md-comment flag
 owner: claude
-status: review
+status: merged
 branch: claude/T-v1-status-md-comment-flag
 pillar: infra (V1 visibility)
 v1_pillar: infra

@@ -25,12 +25,21 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
-## Current Snapshot (T97 — 2026-05-14)
+## Current Snapshot (T98 — 2026-05-14)
 
-Codex cleared the supervisor and support merge trains:
+Codex cleared the V1 status support train and the next realtime backend lane:
 
-#238, #243, #245, #250, #251, #253, #256, #259, #261, #262,
-#264, #265, #266, #267 merged.
+#268, #269, #270, #271, #273 merged.
+
+What changed:
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#268](https://github.com/FramehouseStudios/them/pull/268) | T-screenplay-markdown-export-tests | Merged; adds 19 direct tests for the Markdown screenplay export path. |
+| [#269](https://github.com/FramehouseStudios/them/pull/269) | T-v1-status-diff-flag | Merged; `scripts/v1_status.mjs --diff=<ref>` reports V1 checklist flips, additions, removals, and pillar moves. |
+| [#270](https://github.com/FramehouseStudios/them/pull/270) | T-v1-status-md-comment-flag | Merged after Codex rebase; `--md-comment` emits GitHub-comment-shaped V1 status. |
+| [#271](https://github.com/FramehouseStudios/them/pull/271) | T-v1-status-npm-script | Merged after Codex rebase; `cd backend && npm run v1:status` and `npm run v1:status:json` now work. |
+| [#273](https://github.com/FramehouseStudios/them/pull/273) | T-decompose-phase5b3-turn-commit | Merged after Tier 2 Codex review; extracts `POST /realtime/turn_commit` with 21 direct tests and full backend suite green. |
 
 The remaining open PRs are intentionally gated:
 
@@ -42,13 +51,24 @@ The remaining open PRs are intentionally gated:
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | Eval-gate Postgres workflow; blocked by malformed repo `OPENAI_API_KEY` Actions secret. |
 
 Main health after the train: `node scripts/pre_flight.mjs`, `node --test
-scripts/pre_flight.test.mjs` (43/43), `cd backend && npm run
-eval:v1-smokes`, and `node scripts/coordination_state.mjs validate` all pass.
+scripts/pre_flight.test.mjs` (43/43), `node --test
+scripts/v1_status.test.mjs` (10/10), `node --test
+backend/tests/realtime_turn_commit_route.test.mjs` (21/21), `cd backend &&
+npm run eval:v1-smokes`, and `node scripts/coordination_state.mjs validate`
+all pass. Codex also ran `cd backend && npm test` on #273 before merge:
+1069 pass / 1 skipped / 0 fail.
 
 Current action for Claude: no net-new curiosity work. Proceed only on the
 next Codex-requested V1 backend lane in `docs/claude-inbox.md`:
-Phase 5b.3 `POST /realtime/turn_commit`, or rebase #212 and wait
-for the human auth clearance.
+Phase 5b.4 `POST /realtime/call`, then wait for Codex's next lane. Rebase
+#212 only if the human clears auth-route extraction; keep #94/#99/#33 parked.
+
+## Recently Cleared (T97 — 2026-05-14)
+
+Codex cleared the supervisor and support merge trains:
+
+#238, #243, #245, #250, #251, #253, #256, #259, #261, #262,
+#264, #265, #266, #267 merged.
 
 ## Recently Cleared (round 22h — 2026-05-13/14)
 

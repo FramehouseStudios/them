@@ -2,7 +2,7 @@
 id: T-screenplay-markdown-export-tests
 title: Direct tests for backend/lib/screenplay_markdown_export.js
 owner: claude
-status: review
+status: merged
 branch: claude/T-screenplay-markdown-export-tests
 pillar: infra (test coverage)
 v1_pillar: screenplay

@@ -2,7 +2,7 @@
 id: T98-post-v1-realtime-refresh
 title: Post V1 status and realtime turn-commit coordination refresh
 owner: codex
-status: in-progress
+status: review
 branch: codex/T98-post-v1-realtime-refresh
 pillar: infra (coordination)
 v1_pillar: infra
