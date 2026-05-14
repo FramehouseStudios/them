@@ -847,7 +847,7 @@
 | T106                                           | Warn agents when agent_next is run from a stale checkout                                                   | codex  | review      |
 | T107                                           | Block standalone schema-doc branches when the Claude inbox says they are out of lane                       | codex  | merged      |
 | T108                                           | Refresh coordination after T107 schema lane guard merge                                                    | codex  | review      |
-| T109                                           | Refresh V1 checklist after Phase 7 design and realtime decomposition                                       | codex  | in-progress |
+| T109                                           | Refresh V1 checklist after Phase 7 design and realtime decomposition                                       | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6684,7 +6684,7 @@ Not run: iOS build/themTests or backend tests, because this is metadata only.
 - **Owner:** codex
 - **Branch:** codex/T109-v1-status-refresh-after-decomp
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 

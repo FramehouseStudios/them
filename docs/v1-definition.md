@@ -22,7 +22,7 @@ Checklist:
 - [x] Backend `/talk` path exists and prompt assembly is centralized.
 - [x] iOS preserves saved talk replies across rate-limited metadata reads.
 - [ ] iOS shows talk health, stats, and error state without log spelunking.
-- [ ] Talk pipeline route decomposition has a design note before Phase 7 code.
+- [x] Talk pipeline route decomposition has a design note before Phase 7 code.
 - [ ] Manual smoke: record voice -> get reply -> hear reply -> saved turn.
 
 ## Screenplay Studio
@@ -65,7 +65,7 @@ Checklist:
 - [x] iOS supplier selection is merged.
 - [ ] iOS shows degraded-mode/fallback state when stub failover is used.
 - [ ] Manual smoke: primary mint works; forced primary failure shows fallback.
-- [ ] Realtime route decomposition lands before talk-pipeline Phase 7.
+- [x] Realtime route decomposition lands before talk-pipeline Phase 7.
 
 ## iOS Release Readiness
 
