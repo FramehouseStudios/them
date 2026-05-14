@@ -1,0 +1,95 @@
+# io.them V1 Definition
+
+This is the operative V1 target until the human product lead changes it.
+Every PR must either close a V1 checklist item, unblock one, or clearly say
+that it is infrastructure for one. Work that does none of those is not next.
+
+## V1 Promise
+
+A writer can open io.them on a phone, speak or type a messy creative impulse,
+and get a properly formatted screenplay page within 60 seconds. The page can
+be edited, saved, exported, and improved with a companion that remembers the
+writer's characters, tone, recent themes, and current creative friction.
+
+## Talk Pipeline
+
+The user can record or type a turn, receive a companion reply, hear audio when
+voice is available, and save the turn. The app keeps the turn useful when the
+backend is slow, rate-limited, or temporarily offline. Metadata, errors, and
+retry states are visible enough for support without exposing creative content.
+
+Checklist:
+- [x] Backend `/talk` path exists and prompt assembly is centralized.
+- [x] iOS preserves saved talk replies across rate-limited metadata reads.
+- [ ] iOS shows talk health, stats, and error state without log spelunking.
+- [ ] Talk pipeline route decomposition has a design note before Phase 7 code.
+- [ ] Manual smoke: record voice -> get reply -> hear reply -> saved turn.
+
+## Screenplay Studio
+
+The user can create or open a screenplay project, write scenes, keep a live
+paper surface, and export or import common screenplay formats. Draft analysis
+can explain structure, drift, and craft opportunities at page-level anchors.
+
+Checklist:
+- [x] Magic-moment onboarding and Studio polish are merged.
+- [x] Fountain import and Markdown/export-format discovery are consumed.
+- [x] Backend screenplay project read/write routes are extracted and tested.
+- [ ] iOS consumes FDX export and backend PDF rejection alternatives cleanly.
+- [ ] Manual smoke: create project -> write scene -> save -> export -> reopen.
+
+## Creative Memory
+
+The companion remembers only useful creative context: character names, voice
+traits, accepted twists, recent themes, and block patterns. Memory improves
+suggestions without surprising the user or leaking private content in support
+routes.
+
+Checklist:
+- [x] Character mentions, traits, archetypes, accepted twists, and block
+      history have backend/iOS surfaces.
+- [x] Prompt assembly consumes persona, memory, session, accepted twists, and
+      block signal in a pinned order.
+- [ ] iOS exposes a plain-language memory summary and refresh state.
+- [ ] Human privacy decision is made for full memory export/delete.
+- [ ] Manual smoke: mention character -> later suggestion recalls them.
+
+## Realtime
+
+The app can mint a realtime supplier session and degrades gracefully when the
+primary supplier fails. Supplier selection is configurable, testable, and
+observable without blocking the writer.
+
+Checklist:
+- [x] Backend supplier interface and failover are merged.
+- [x] iOS supplier selection is merged.
+- [ ] iOS shows degraded-mode/fallback state when stub failover is used.
+- [ ] Manual smoke: primary mint works; forced primary failure shows fallback.
+- [ ] Realtime route decomposition lands before talk-pipeline Phase 7.
+
+## iOS Release Readiness
+
+V1 is not a pile of endpoints. It is a TestFlight-ready app path that a human
+can run end-to-end without developer narration. Build, tests, smoke notes, and
+known human-gated privacy decisions must be visible before external review.
+
+Checklist:
+- [x] macOS app builds and focused Swift tests have been passing in the merge
+      train.
+- [ ] Current iOS build and `themTests` are green after the next app-visible
+      feature.
+- [ ] `smoke.sh` or an equivalent manual QA script covers the V1 path.
+- [ ] TestFlight preflight artifact names what is verified and what is parked.
+- [ ] Human signs off on the V1 manual smoke before external review.
+
+## PR Rule
+
+Every PR description should include:
+
+```text
+V1 pillar: talk | screenplay | memory | realtime | ios | infra
+V1 effect: closes <checklist item> | unblocks <item> | infrastructure for <item>
+```
+
+If the V1 effect is "none", the PR should not open without explicit Codex
+assignment.

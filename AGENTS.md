@@ -14,11 +14,11 @@ Codex owns the iOS app, product implementation, architecture, integration, and s
 
 The team maintains three coordination files: **`AGENTS.md`** for rules, **`TASKS.md`** for active work, and **`DECISIONS.md`** for product and architecture decisions. These files are the operating system of the project.
 
-For day-to-day handoffs, agents also maintain **`docs/coordination.json`** as the fast machine-readable queue, with **`docs/claude-inbox.md`** and **`docs/codex-inbox.md`** as human-readable prompts. Agents update the coordination state and leave PR comments when their work unblocks or blocks the other agent.
+For day-to-day handoffs, agents also maintain **`docs/coordination.json`** as the fast machine-readable queue, with **`docs/claude-inbox.md`** and **`docs/codex-inbox.md`** as human-readable prompts. Codex owns the coordination state and the iOS-driven Claude inbox; Claude owns backend implementation updates and emits live events through `docs/agent-events-*.jsonl`.
 
 The purpose of this protocol is to protect the product's central magic: a mobile-first creative companion that helps the user write a scene quickly, emotionally, and beautifully. Any process that does not help that goal should be removed.
 
-The team uses the **Agent Throughput Protocol** in `docs/agent-throughput-protocol.md` to keep velocity high: Claude works under a three-PR normal WIP limit or six-PR blocker-clearing cap, blockers outrank net-new features, Codex merges routine tier-1 work in batches, multi-PR features start with a spec PR, and app-facing backend contracts are marked `ready-for-ios`, `blocked-for-ios`, `backend-only`, or `needs-human-policy`. Either agent can run `node scripts/agent_next.mjs --role=claude|codex` to choose the next action without waiting for human copy/paste.
+The team uses the **Agent Throughput Protocol** in `docs/agent-throughput-protocol.md` to keep velocity high: Claude works under a three-PR normal WIP limit or six-PR blocker-clearing cap, blockers outrank net-new features, Codex merges routine tier-1 work in batches, multi-PR features start with a spec PR, and app-facing backend contracts are marked `ready-for-ios`, `blocked-for-ios`, `backend-only`, or `needs-human-policy`. `docs/v1-definition.md` defines the current product target; every PR must name the V1 pillar and concrete V1 effect it serves. Either agent can run `node scripts/agent_next.mjs --role=claude|codex` to choose the next action without waiting for human copy/paste.
 
 ---
 

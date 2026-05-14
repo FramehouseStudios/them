@@ -36,6 +36,13 @@ human. It exists to increase shipping speed, not to create ceremony.
    ownership, acceptance evals, PR sequence, and which backend/iOS tracks may
    start in parallel. Once Codex approves the spec, implementation PRs that
    stay inside it are fast-lane eligible.
+9. **V1 effect required:** Every PR names its V1 pillar and concrete V1
+   effect. If the effect is "none", the PR should not open without explicit
+   Codex assignment.
+10. **Coordination ownership:** Codex owns `docs/coordination.json` and
+    `docs/claude-inbox.md`. Claude owns backend implementation updates and
+    emits live events. Claude should not open coordination-refresh PRs unless
+    Codex explicitly assigns one.
 
 ## Daily Loop
 
@@ -58,6 +65,55 @@ node scripts/agent_event.mjs tail --n=20
 The human can ask either agent to “read the repo queue” instead of
 copying a long handoff. The current source of truth is
 `docs/coordination.json`; inbox files are summaries.
+
+## Product-State Layer
+
+The task loop is fast only when the product target is explicit. The current
+target is `docs/v1-definition.md`. Before choosing net-new work, agents ask:
+
+1. Does this close a V1 checklist item?
+2. Does this unblock a named V1 checklist item?
+3. Is this required infrastructure for a named V1 checklist item?
+
+If the answer to all three is no, the work waits.
+
+Every PR description should include:
+
+```text
+V1 pillar: talk | screenplay | memory | realtime | ios | infra
+V1 effect: closes <checklist item> | unblocks <item> | infrastructure for <item>
+```
+
+Agents may append one `product_state` event per day:
+
+```bash
+node scripts/agent_event.mjs append --by=<agent> --kind=product_state --comment="ships: ...; blocker: ...; ask_<other>: ..."
+```
+
+This is the async substitute for the human copying long state reports between
+agents.
+
+## Cross-Agent Design Window
+
+Before a high-risk PR opens, the proposing agent creates a short design note
+under `tasks/_proposals/` and emits an event-lane note. High-risk means talk
+pipeline, auth, privacy/data-control, persistence migrations, new response
+schemas consumed by iOS, or any feature expected to span more than three PRs.
+
+The other agent has one normal polling window to object or ask for a narrower
+contract. If there is no objection, implementation may start. Tiny spec
+amendments can be recorded as a PR comment; broad contract changes still need
+a spec/doc PR.
+
+## Backend Decomposition Fast Lane
+
+The backend-index decomposition pattern is now proven for Phases 0-3. Future
+mechanical phases are fast-lane eligible when they preserve mount order,
+preserve response shapes, keep route-local parsers, include required-deps
+guards, and add bare-Express integration tests.
+
+Talk pipeline decomposition is excluded from the mechanical fast lane until a
+design note is reviewed because it is the core V1 path.
 
 ## Adoption Matrix
 

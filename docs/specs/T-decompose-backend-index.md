@@ -1,6 +1,6 @@
 # Spec: T-decompose-backend-index
 
-**Status**: in flight. Phases 0, 1, and 2a merged.
+**Status**: in flight. Phases 0, 1, 2a, 2b, and 3 merged.
 **Owner**: claude
 **Scope**: backend
 **Acceptance**: human signed off on the problem framing; Codex
@@ -16,6 +16,8 @@ proved the pattern.
 | 0 | `/health` + `/bridge` → `lib/health_route.js` | #183 | merged | ~39 |
 | 1 | `/ops/metrics` + `/ops/alerts` → `lib/ops_metrics_route.js` + `lib/ops_alerts_route.js` | #190 | merged | ~22 |
 | 2a | 5 GET `/screenplay/projects/*` → `lib/screenplay_projects_routes.js` | #192 | merged | ~88 |
+| 2b | 7 write `/screenplay/projects/*` → `lib/screenplay_projects_routes.js` | #197 | merged | ~173 |
+| 3 | screenplay companion/paginate/revision colors → `lib/screenplay_companion_routes.js` | #204 | merged | ~79 |
 | parser hardening | route-local parsers for every route that reads `req.body` | #193 | merged | n/a |
 
 Observations after Phase 0–2a:
@@ -147,17 +149,17 @@ Combined Phase 2 lines saved: ~600 (lower than the original ~2,500
 estimate because many helpers are shared rather than being duplicated
 inside the handlers).
 
-### Phase 3 — screenplay companion + assistive routes
+### Phase 3 — screenplay companion + assistive routes ✅ MERGED #204
 
-Move 5 routes into `lib/screenplay_companion_routes.js`:
+Moved 4 routes into `lib/screenplay_companion_routes.js`:
 - `GET /screenplay/companion/state`
 - `POST /screenplay/companion/state`
 - `POST /screenplay/paginate`
 - `POST /screenplay/revision-colors`
-- `POST /screenplay/export` (already partly in lib; finish it)
-- `POST /screenplay/prompt/build`
 
-Lines saved: ~1,200.
+`POST /screenplay/export` and `POST /screenplay/prompt/build` were left in
+their existing mounted paths instead of forcing unrelated churn into Phase 3.
+Lines saved: ~79.
 
 ### Phase 4 — auth routes
 
@@ -206,6 +208,11 @@ Sub-phases:
 Each sub-phase is its own PR. Tested via the existing
 `run_studio_*_smoke.mjs` evals + the `talk.integration.test.mjs`
 suite.
+
+Phase 7 is V1-critical and not a mechanical fast-lane extraction. Before 7a
+opens, Claude writes a design note under `tasks/_proposals/` covering state
+ownership, response-shape invariants, smoke commands, and what Codex should
+verify on iOS.
 
 Lines saved: ~10,000.
 
