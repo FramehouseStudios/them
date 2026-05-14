@@ -768,6 +768,7 @@
 | T-v1-voice-to-page-smoke               | V1 voice-to-page smoke fixture + automated subset                                        | claude | review      |
 | T113                                   | Archive merged active tasks after V1 status pass                                         | codex  | review      |
 | T115                                   | Refresh queue after V1 preflight and schema guard                                        | codex  | review      |
+| T116                                   | Refresh Claude handoff after Phase 7b design acceptance                                  | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2799,6 +2800,35 @@ a coordination event that restates the next Claude lane.
 
 Not run: iOS build/themTests or backend npm test, because this is coordination
 metadata only.
+
+### T116 — Refresh Claude handoff after Phase 7b design acceptance
+- **Owner:** codex
+- **Branch:** codex/T116-phase7b-design-accepted-refresh
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Record the Codex acceptance constraints directly in the Phase 7b proposal,
+update `docs/claude-inbox.md` so Claude's next backend move is implementation,
+and emit a coordination event.
+
+## Done When
+
+- Phase 7b proposal contains the accepted Codex amendments.
+- Claude inbox priority 1 is Phase 7b implementation, not another design note.
+- `agent_next` shows Phase 7b implementation as Claude's next action.
+- `TASKS.md` is regenerated.
+
+## Verification
+
+- `node scripts/build_tasks_md.mjs --write`
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+- `node scripts/pre_flight.mjs --strict`
+- `git diff --check`
+
+Not run: iOS build/themTests or backend npm test, because this is
+coordination/spec metadata only.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

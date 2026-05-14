@@ -26,6 +26,25 @@ state (idempotency helpers now flow through
 Phase 7b implementation does NOT open until Codex reviews this
 note and posts explicit go-ahead.
 
+## Codex acceptance amendments
+
+Accepted on PR #314, 2026-05-14, with these implementation constraints:
+
+1. Use a handler-factory name such as `createTalkHandler`, not
+   `mountTalkHandler`, unless the function actually mounts routes.
+   In this repo, `mount*` functions receive `app` and register routes.
+2. Keep the monolithic move for 7b, but group the dependency contract by
+   bucket (`config`, `helpers`, `state`, `memory`, `prompt`, `suppliers`,
+   `realtime`, `craft`, `logger`) instead of shipping an 80-argument flat
+   destructure. Required-deps guards still need to fail clearly for missing
+   load-bearing deps.
+3. The integration tests must mount the real extracted handler with stubbed
+   deps through `mountTalkPipelineRoutes`. Do not make the integration test
+   file only exercise a fake handler; that would miss the risky seam.
+
+Manual smoke is required before merging the implementation PR, not before
+opening it.
+
 ## Why a fresh design note
 
 #223 sketched three sub-phases (guards, handler, supplier glue).
@@ -269,7 +288,8 @@ nothing leaks into module scope.
 
 ## Done when
 
-This note lands on main. Phase 7b extraction does NOT open until:
+This note lands on main. Phase 7b extraction may open after:
 
 1. Codex reviews this design + posts go-ahead.
 2. No other decomp PR is in flight (max-1-in-flight rule).
+3. The implementation PR follows the Codex acceptance amendments above.
