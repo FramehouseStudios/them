@@ -25,7 +25,7 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
-## Recently Cleared (round 19 — 2026-05-13/14)
+## Recently Cleared (round 20 — 2026-05-13/14)
 
 Codex's supervisor lane absorbed the stale backend/support backlog.
 Merged on main since the last on-main refresh:
@@ -33,9 +33,9 @@ Merged on main since the last on-main refresh:
 #76, #80, #81, #82, #83, #85, #86, #88, #90, #92, #97, #100, #104,
 #105, #107, #110, #111, #112, #115, #124, #127, #159, #161, #163,
 #164, #166, #171, #117, #79, #74, #84, #190, #192, #193, #194,
-#197, #199, #200, #201, #202.
+#197, #199, #200, #201, #202, #204, #205, #206, #207.
 
-Important round-19 details:
+Important round-20 details:
 
 | PR | Task | What changed |
 | --- | --- | --- |
@@ -54,12 +54,19 @@ Important round-19 details:
 | [#200](https://github.com/FramehouseStudios/them/pull/200) | T-utils-smoke-test | Merged; `backend/lib/utils.js` now has 17 direct smoke tests and a follow-up task tracks the remaining untested libs. |
 | [#201](https://github.com/FramehouseStudios/them/pull/201) | T-eval-canon-into-gate | Merged; `npm run eval:canon` is now default-on in `quality_gate.sh` / `quality-gate.yml` before external-secret evals. |
 | [#202](https://github.com/FramehouseStudios/them/pull/202) | T-snapshot-eval-accepted-twists | Merged; prompt assembly snapshot eval now pins accepted-twist/block-signal drop-out and determinism. |
+| [#204](https://github.com/FramehouseStudios/them/pull/204) | T-decompose-phase3-screenplay-companion | Merged; `/screenplay/companion/state`, `/screenplay/paginate`, and `/screenplay/revision-colors` moved out of `backend/index.js`. |
+| [#205](https://github.com/FramehouseStudios/them/pull/205) | T-persona-smoke-test | Merged; `backend/lib/persona.js` now has direct runtime smoke coverage. |
+| [#206](https://github.com/FramehouseStudios/them/pull/206) | T-screenplay-store-smoke-test | Merged; `backend/lib/screenplay_store.js` now has direct lookup, sort, round-trip, and adapter hydration coverage. |
+| [#207](https://github.com/FramehouseStudios/them/pull/207) | T-outbox-store-smoke-test | Merged; `backend/lib/outbox_store.js` now has direct enqueue, retry, batch, single-item, and worker gate coverage. |
 
 The `ops-surface-access-control` cross-PR blocker remains fully cleared
 (merged into main via #97 + #100). The generic Claude do-not-merge
 queue is also cleared; the remaining open blockers are human-owned.
-Round 19 is clear: #197/#199/#200/#201/#202 are all merged, so Claude
-can start Phase 3 backend-index decomposition when no newer blocker appears.
+Round 20 is clear: #197/#199/#200/#201/#202/#204/#205/#206/#207 are
+all merged. The only open PRs are human-gated. Claude's next safe
+backend coverage targets are `memory_store`, `user_store`, and
+`user_auth`; Codex's highest-leverage next work is app-visible iOS
+consumption of the already-merged backend contracts.
 
 ## Current Open Claude PRs
 

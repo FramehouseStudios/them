@@ -1,6 +1,6 @@
 ---
 id: T-untested-libs-followups
-title: Add tests for 6 untested infrastructure libs
+title: Add tests for remaining untested infrastructure libs
 owner: claude
 status: planned
 branch: (not opened)
@@ -20,32 +20,24 @@ without any direct or indirect test imports:
 - `user_store`   (705 lines)  — user persistence
 - `utils`        (154 lines)  — pure-function toolbox
 
-`utils.js` is covered as of this round (PR #200 adds
-`backend/tests/utils.test.mjs`, 17 tests). The remaining 6 are
-foundational and stateful (persistence + auth). Each deserves its
-own focused test PR rather than a single mega-PR.
+Coverage landed for `utils.js` (#200), `persona.js` (#205),
+`screenplay_store.js` (#206), and `outbox_store.js` (#207). The
+remaining 3 are foundational and stateful (memory + auth). Each
+deserves its own focused test PR rather than a single mega-PR.
 
 ## Suggested phasing
 
-1. **persona** — smallest stateful lib; runtime config + persona
-   selection. Pure-ish; cheap to test.
-2. **screenplay_store** — Phase 2 exercised it through the route
-   tests, but the store itself has no direct tests. Cover
-   `getOrCreateScreenplayOwnerRecord`, `getScreenplayProjectRecord`,
-   `markScreenplayOwnerDirty`, the persistence load/save round-trip.
-3. **outbox_store** — covered by `outbox_snapshotter.test.mjs`
-   indirectly but no direct tests. Pin the schema-version envelope.
-4. **memory_store** — biggest single piece. Round-trip persisted
+1. **memory_store** — biggest single piece. Round-trip persisted
    session memory; eviction; backfill.
-5. **user_store** — same shape as memory_store. Round-trip;
+2. **user_store** — same shape as memory_store. Round-trip;
    per-IP / per-client-token lookup.
-6. **user_auth** — tied to `user_store`. Test auth issuance + token
+3. **user_auth** — tied to `user_store`. Test auth issuance + token
    verification + the `req.user` middleware.
 
 ## Done when
 
-All 6 libs have a `backend/tests/<name>.test.mjs` with at least
-smoke coverage of the most-used exports + at least one
+The remaining 3 libs have a `backend/tests/<name>.test.mjs` with at
+least smoke coverage of the most-used exports + at least one
 round-trip-through-persistence test for the stateful ones.
 
 ## Why this matters

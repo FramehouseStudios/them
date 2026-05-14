@@ -2,8 +2,8 @@
 id: T-decompose-phase3-ready
 title: Phase 3 readiness — /screenplay/companion + /paginate + /revision-colors
 owner: claude
-status: planned
-branch: (not opened — gated on round-19 PR train landing)
+status: merged
+branch: claude/T-decompose-phase3-screenplay-companion
 pillar: infra (backend architecture)
 ---
 
@@ -47,14 +47,8 @@ Phase 3 PR opens when:
 3. Phase 2b (#197 — already merged on main today) is reflected in
    the coord state.
 
-## Next action
+## Outcome
 
-When the round-19 train lands, open the Phase 3 PR following the
-pattern proven by Phase 0 / 1 / 2a / 2b:
-
-1. Create `backend/lib/screenplay_companion_routes.js` with
-   `mountScreenplayCompanionRoutes(app, deps)`.
-2. Required-deps guard fails loud at mount.
-3. Add integration tests with bare-Express fixtures.
-4. Replace inline handlers in `backend/index.js` with one mount call.
-5. Update `docs/specs/T-decompose-backend-index.md` progress log.
+Completed by PR #204 / `claude/T-decompose-phase3-screenplay-companion`.
+The route module exists, required-deps guard is covered, and focused +
+full backend tests passed before merge.
