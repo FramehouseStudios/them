@@ -66,7 +66,13 @@ if [[ "${RUN_CANON}" == "1" ]]; then
   # deterministic — no external API, no network. If a canon eval
   # regresses, this fails fast before we spend time on the slower
   # external-API gates below.
-  echo "[quality-gate] running canon umbrella (npm run eval:canon) ..."
+  #
+  # This is already STRICT MODE: `set -euo pipefail` at the top of
+  # this script means a non-zero exit from `npm run eval:canon`
+  # aborts the gate, which in turn blocks the auto-merge-tier1
+  # workflow_run trigger. No additional wiring needed — canon
+  # regressions block merge today.
+  echo "[quality-gate] running canon umbrella (npm run eval:canon) [strict — exits 1 on regression] ..."
   npm run eval:canon
 else
   echo "[quality-gate] skipping canon umbrella (RUN_CANON=${RUN_CANON})"

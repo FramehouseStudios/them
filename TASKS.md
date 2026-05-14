@@ -774,6 +774,7 @@
 | T-prompt-assembly-readme                       | README for backend/lib/prompt_assembly.js                                     | claude | merged      |
 | T-prompt-assembly-snapshot-eval                | Pin canonical buildModelPrompt block order                                    | claude | merged      |
 | T-prompt-size-eval                             | Char-budget guard on assembled model prompts                                  | claude | merged      |
+| T-protocol-infra-batch                         | Tighten backend extraction protocol helpers                                   | claude | review      |
 | T-screenplay-export-formats-list-route         | GET /screenplay/export/formats canonical format list                          | claude | review      |
 | T-screenplay-export-markdown                   | POST /screenplay/export format=md|markdown                                    | claude | review      |
 | T-screenplay-export-pdf-error-clarity          | Add human-readable help payload to PDF export rejection                       | claude | merged      |
@@ -2418,6 +2419,44 @@ No LLM; deterministic and fast.
 
 `backend/evals/run_prompt_size_eval.mjs` exits 0 with all checks
 passing; `npm run eval:prompt-size` works; `npm test` still green.
+
+### T-protocol-infra-batch — Tighten backend extraction protocol helpers
+- **Owner:** claude
+- **Branch:** claude/T-protocol-infra-batch
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Add small support artifacts that make future backend extraction work cheaper:
+
+- `backend/lib/README.md` documents the route extraction pattern.
+- `scripts/audit_inline_routes.mjs` lists remaining inline live routes and
+  separates method-not-allowed guards from priority counts.
+- `scripts/quality_gate.sh` clarifies that canon eval failures already stop
+  the gate through shell strict mode.
+- `AGENTS.md` points agents at the event lane.
+
+## V1 effect
+
+Infrastructure for the V1 talk/realtime/screenplay checklist items: backend
+route work should become easier to audit without distracting Codex from iOS
+product work.
+
+## Done when
+
+The audit script runs in text and JSON mode, method guards are not counted as
+live routes by default, and the docs avoid citing blocked auth work as accepted
+precedent.
+
+## Verification
+
+Run:
+
+- `node --check scripts/audit_inline_routes.mjs`
+- `node scripts/audit_inline_routes.mjs`
+- `node scripts/audit_inline_routes.mjs --json`
+- `git diff --check`
 
 ### T-screenplay-export-formats-list-route — GET /screenplay/export/formats canonical format list
 - **Owner:** claude
