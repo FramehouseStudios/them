@@ -28165,14 +28165,15 @@ mountRealtimeRoutes(app, {
 });
 
 // T-decompose-phase5b1-realtime-client-secret: POST /realtime/client_secret
-// moved to lib/realtime_client_secret_route.js. Byte-identical with
-// the previous inline handler. Supplier is read live via accessor
-// and rotated back when failover replaces it. See
+// moved to lib/realtime_client_secret_route.js. Byte-identical
+// with the previous inline handler. Supplier is read live via
+// the accessor at request start; per-request failover rotation
+// stays request-local and does NOT persist back to module-level
+// state — same as the original inline handler. See
 // docs/specs/T-decompose-backend-index.md and
 // docs/schemas/realtime-client-secret.md.
 mountRealtimeClientSecretRoute(app, {
   getRealtimeSupplier: () => realtimeSupplier,
-  setRealtimeSupplier: (s) => { realtimeSupplier = s; },
   createRealtimeSupplier,
   mintWithFailover,
   loadStubSupplier: async () => {

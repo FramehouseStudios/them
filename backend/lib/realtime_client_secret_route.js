@@ -12,11 +12,25 @@
 // lands before talk-pipeline Phase 7" (docs/v1-definition.md line 68)
 // by extracting the heaviest realtime route into its own lib.
 //
-// Behavior is byte-identical with the previous inline handler. Same
-// 201 response envelope (per docs/schemas/realtime-client-secret.md),
-// same error codes, same fallback semantics. The supplier reference
-// can rotate during the process lifetime (failover), so it is
-// passed as an accessor function and a setter, not a frozen value.
+// Behavior is byte-identical with the previous inline handler.
+// Same 201 response envelope (per
+// docs/schemas/realtime-client-secret.md), same error codes,
+// same fallback semantics, **same supplier-rotation scope**: the
+// supplier is read from the module-level accessor at request
+// start, and any per-request supplier creation OR failover
+// rotation stays local to the request — it is NOT written back
+// to the module-level supplier. This mirrors the original inline
+// handler exactly.
+//
+// Per Codex review (#238 review_blocker): an earlier version of
+// this lib persisted the failover rotation via
+// `setRealtimeSupplier(supplier)` at the end of the handler. The
+// original inline handler did not do that — its `supplier`
+// variable was a request-local `let`. The write-back changed
+// behavior in a way that was not byte-identical, so it has been
+// removed. Supplier rotation across requests still happens
+// through `/realtime/health` or future explicit rotation paths,
+// not through this route's silent side-effect.
 //
 // Access-control posture: TIER-3 SENSITIVE. The client secret value
 // MUST NOT leak to logs. The lib mirrors the inline handler's log
@@ -31,9 +45,10 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
     throw new Error("mountRealtimeClientSecretRoute requires an Express app");
   }
   const {
-    // Live state — supplier can rotate via failover
+    // Live state — supplier is read per request via this accessor.
+    // No setter: the original inline handler did not write rotation
+    // back to module-level state, and neither does this lib.
     getRealtimeSupplier,
-    setRealtimeSupplier,
     // Factories
     createRealtimeSupplier,
     mintWithFailover,
@@ -58,7 +73,6 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
 
   const required = {
     getRealtimeSupplier,
-    setRealtimeSupplier,
     createRealtimeSupplier,
     mintWithFailover,
     loadStubSupplier,
@@ -162,9 +176,10 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
       });
     }
 
-    // Persist supplier rotation back to the index.js module so
-    // /realtime/health and subsequent mints see the new value.
-    setRealtimeSupplier(supplier);
+    // NOTE: do NOT write back to module-level state here. The
+    // original inline handler used a request-local `supplier`
+    // variable; rotation stays scoped to this request. See the
+    // module header for the #238 review-blocker history.
 
     const sessionConfig = minted?.sessionConfig || supplier.buildSessionConfig({
       instructions: requestedPrompt,

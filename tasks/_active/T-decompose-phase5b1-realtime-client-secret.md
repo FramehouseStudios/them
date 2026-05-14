@@ -21,17 +21,20 @@ fallback_reason, primary_supplier), and the canonical error codes
 `realtime_supplier_response_invalid`, `supplier_fallback_failed`,
 `realtime_supplier_unknown_provider`) all match the inline source.
 
-Supplier reference is now passed through accessor + setter so
-failover can rotate the live supplier without freezing it at
-mount time:
+Supplier reference is passed through an accessor function so the
+route reads the current value at request start (and not a frozen
+mount-time binding):
 
 ```js
 mountRealtimeClientSecretRoute(app, {
   getRealtimeSupplier: () => realtimeSupplier,
-  setRealtimeSupplier: (s) => { realtimeSupplier = s; },
   ...
 });
 ```
+
+Per-request failover rotation stays request-local. The route does
+NOT call back into a setter to persist the rotated supplier — see
+the "Review-blocker history" section below.
 
 The stub-supplier lazy-loader stays in index.js (passed in as
 `loadStubSupplier`) to avoid creating a circular import.
@@ -46,21 +49,46 @@ The stub-supplier lazy-loader stays in index.js (passed in as
 ## Verification
 
 - `node --test backend/tests/realtime_client_secret_route.test.mjs`
-  → **11/11 pass** (CLIENT_SECRET_BODY_LIMIT, mount guards × 11
-  deps, primary_ok, primary_fail_fallback_ok with supplier
-  rotation pushback, primary_fail_fallback_fail, pinned_provider_fail,
-  supplier_load_fail unknown_provider, invalid mint payload,
-  live-supplier accessor pattern, Cache-Control: no-store).
+  → **12/12 pass**. The 4 happy/error mint paths, mount guards
+  for 10 required deps (setRealtimeSupplier dropped), live-
+  supplier accessor pattern, Cache-Control: no-store, **plus a
+  new #238-regression test** that asserts the module-level
+  supplier is NOT mutated by a fallback rotation.
 - `node --check backend/index.js` passes.
-- `backend/index.js` shrinks by 117 net lines (149 inline →
-  32 mount call). index.js is now 32,460 lines.
 
 ## Done when
 
 Inline `POST /realtime/client_secret` no longer in index.js; lib
-file exists with tier-3 posture documented; 11/11 tests pass;
-4-path failover behavior preserved; supplier rotation propagates
-via `setRealtimeSupplier` accessor.
+file exists with tier-3 posture documented; 12/12 tests pass;
+4-path failover behavior preserved request-locally; no module-
+level supplier mutation from the extracted route.
+
+## Review-blocker history (#238)
+
+Codex blocked the initial extraction because the lib called
+`setRealtimeSupplier(supplier)` at the end of the handler,
+persisting failover rotation back to module-level state. The
+original inline handler's `supplier` variable was a request-
+local `let` — it never wrote rotation back. The setter call was
+a real behavior change, not a byte-identical extraction.
+
+**Fix in this revision:**
+- Removed the `setRealtimeSupplier` dep + write-back from
+  `backend/lib/realtime_client_secret_route.js`.
+- Removed the corresponding dep from
+  `backend/index.js`'s mount call.
+- Updated the module header to document the constraint and
+  reference this blocker.
+- Removed the stale `setRealtimeSupplier` mock + assertion from
+  the existing tests.
+- Added a new regression test `#238 regression: failover rotation
+  does not persist across requests` that closes over the live
+  supplier in the test scope and asserts it is NOT replaced after
+  a fallback. If a future change re-introduces a setter call,
+  this test fails.
+
+The route now matches the inline source line-by-line in supplier-
+rotation scope.
 
 ## Next phase
 
