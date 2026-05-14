@@ -109,9 +109,14 @@ function getErrorCounts({ since = null, now = Date.now() } = {}) {
     filteredLastOccurrence = Object.fromEntries(lastOccurrence.entries());
     total = [...counts.values()].reduce((a, b) => a + b, 0);
   }
+  // Use ?? not ||: earliestStampedAt can legitimately be 0 (the
+  // first event in the process lifetime arrived at epoch 0 or via
+  // test fixtures). `||` treats 0 as falsy and falls back to `now`,
+  // which collapses (now - observationStartMs) to 0 and breaks
+  // the errorRatePerHour math.
   const observationStartMs = since !== null && Number.isFinite(since)
     ? since
-    : (earliestStampedAt || now);
+    : (earliestStampedAt ?? now);
   const hours = Math.max(1 / 3600, (now - observationStartMs) / (60 * 60 * 1000));
   const errorRatePerHour = total > 0
     ? Math.round((total / hours) * 100) / 100
@@ -121,7 +126,7 @@ function getErrorCounts({ since = null, now = Date.now() } = {}) {
     total,
     counts: filteredCounts,
     lastOccurrence: filteredLastOccurrence,
-    sinceMs: since !== null && Number.isFinite(since) ? since : (earliestStampedAt || 0),
+    sinceMs: since !== null && Number.isFinite(since) ? since : (earliestStampedAt ?? 0),
     observedAtMs: now,
     errorRatePerHour,
   };
