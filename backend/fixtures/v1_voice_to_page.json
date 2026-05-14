@@ -1,0 +1,49 @@
+{
+  "_meta": {
+    "id": "v1-voice-to-page-canonical",
+    "schemaVersion": 1,
+    "purpose": "Canonical deterministic input for the V1 voice-to-page smoke. Used by scripts/v1_voice_to_page_smoke.mjs to verify the prompt-assembly + memory-write + turn-storage path produces a stable response envelope without hitting any external API.",
+    "v1_pillar": "talk",
+    "v1_effect": "infrastructure for 'Manual smoke: record voice -> get reply -> hear reply -> saved turn' (docs/v1-definition.md line 26)"
+  },
+  "stt_simulated_transcript": "It's a rainy night. June stands on the rooftop, staring at the city.",
+  "persona": "You are CLEMENTINE. Warm, brief, helpful.",
+  "creativeMemory": {
+    "characters": [
+      {
+        "name": "June",
+        "voice": "wry",
+        "tags": ["protagonist"],
+        "last_referenced": 1700000000000
+      }
+    ],
+    "tone": {
+      "emotional_default": "wry"
+    }
+  },
+  "sessionContext": {
+    "projectId": "p1",
+    "versionId": "v1",
+    "scene": "ext. rooftop"
+  },
+  "acceptedTwists": [],
+  "blockCoaching": "",
+  "userInput": "It's a rainy night. June stands on the rooftop, staring at the city.",
+  "expected_prompt_contains": [
+    "You are CLEMENTINE",
+    "<creative_memory>",
+    "June",
+    "wry",
+    "<session>",
+    "ext. rooftop",
+    "It's a rainy night."
+  ],
+  "expected_prompt_ordering": [
+    "You are CLEMENTINE",
+    "<creative_memory>",
+    "</creative_memory>",
+    "<session>",
+    "</session>",
+    "It's a rainy night."
+  ]
+}
