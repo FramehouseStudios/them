@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T17:43:57.933Z",
-  "updatedBy": "codex",
+  "updatedAt": "2026-05-14T19:00:56.750Z",
+  "updatedBy": "unknown",
   "openPullRequests": [
     {
       "number": 202,
@@ -1258,6 +1258,105 @@
       "tier": 2,
       "status": "merged",
       "branch": "claude/T-decompose-phase5b3-turn-commit",
+      "blocker": null
+    },
+    {
+      "number": 276,
+      "title": "T-memories-list-schema-doc",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-memories-list-schema-doc",
+      "blocker": null
+    },
+    {
+      "number": 277,
+      "title": "T100-agent-next-inbox-backlog",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T100-agent-next-inbox-backlog",
+      "blocker": null
+    },
+    {
+      "number": 278,
+      "title": "T-visual-context-schema-doc",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-visual-context-schema-doc",
+      "blocker": null
+    },
+    {
+      "number": 279,
+      "title": "T101-agent-event-kind-sync",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T101-agent-event-kind-sync",
+      "blocker": null
+    },
+    {
+      "number": 280,
+      "title": "T-realtime-routes-deeper",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-realtime-routes-deeper",
+      "blocker": null
+    },
+    {
+      "number": 281,
+      "title": "T-memories-mutate-schema-doc",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-memories-mutate-schema-doc",
+      "blocker": null
+    },
+    {
+      "number": 282,
+      "title": "T-memories-export-schema-doc",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-memories-export-schema-doc",
+      "blocker": null
+    },
+    {
+      "number": 283,
+      "title": "T-recap-schema-doc",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-recap-schema-doc",
+      "blocker": null
+    },
+    {
+      "number": 284,
+      "title": "T-tasks-schema-doc",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-tasks-schema-doc2",
+      "blocker": null
+    },
+    {
+      "number": 285,
+      "title": "T-history-schema-doc",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-history-schema-doc",
+      "blocker": null
+    },
+    {
+      "number": 286,
+      "title": "T-outbox-routes-schema-doc",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-outbox-routes-schema-doc-fresh",
       "blocker": null
     }
   ],

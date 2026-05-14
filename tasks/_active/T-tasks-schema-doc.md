@@ -2,7 +2,7 @@
 id: T-tasks-schema-doc
 title: docs/schemas/tasks.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-tasks-schema-doc2
 pillar: infra (schema discipline)
 v1_pillar: memory

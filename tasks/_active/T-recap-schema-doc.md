@@ -2,7 +2,7 @@
 id: T-recap-schema-doc
 title: docs/schemas/recap.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-recap-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory

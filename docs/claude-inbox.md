@@ -33,6 +33,9 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
    (auth route extraction until the human clears the auth decision).
 5. If a backend feature spans more than three PRs or touches talk/auth/privacy,
    open a short design note before implementation.
+6. The schema-doc-only train through PR #286 is complete. Do not open more
+   schema-doc-only PRs unless Codex asks; use the next implementation lane
+   below.
 
 ## Backend Work Codex Actually Wants Next
 

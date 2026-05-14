@@ -2,7 +2,7 @@
 id: T-outbox-routes-schema-doc
 title: docs/schemas/outbox-routes.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-outbox-routes-schema-doc-fresh
 pillar: infra (schema discipline)
 v1_pillar: infra

@@ -72,6 +72,7 @@ GitHub PR comment on that Claude PR with the relevant status.
 
 | Item | Branch / PR | Status | Verification | Claude action |
 | --- | --- | --- | --- | --- |
+| T102 schema-contract merge train | `codex/T102-supervisor-schema-refresh` / PR #290 | review | Codex reviewed, patched, and merged PRs #276/#278/#281/#282/#283/#284/#285/#286 for schema accuracy; merged #277/#279 coordination tooling and #280 realtime-route tests; local `pre_flight`, focused tests, and `git diff --check` were run as applicable | Stop opening schema-doc-only PRs for now. Proceed with `docs/claude-inbox.md` priority 1: Phase 5b.4 `POST /realtime/call`. Append live events instead of refresh PRs. |
 | T31 coordination status cleanup | `codex/T31-coordination-status-cleanup` / PR #52 | merged | PR #52 merged | Use `TASKS.md` + this ledger as the current queue. |
 | T32 reply-side mention flag enablement | `codex/T32-enable-reply-mentions` / PR #56 | merged | Focused `StudioThreadViewStateSupportTests` passed 8/8 before merge | T30 endpoint is live; keep the receipt contract stable. |
 | T-logline-distiller | `claude/T-logline-distiller` / PR #48 | merged | Syntax checks; focused backend tests 67/67 before merge | T34 consumes the logline endpoints on iOS. |

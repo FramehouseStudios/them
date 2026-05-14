@@ -2,7 +2,7 @@
 id: T-memories-export-schema-doc
 title: docs/schemas/memories-export.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-memories-export-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory

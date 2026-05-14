@@ -2,7 +2,7 @@
 id: T-history-schema-doc
 title: docs/schemas/history.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-history-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory
