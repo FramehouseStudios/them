@@ -733,119 +733,133 @@
 
 ## Active work — quick view (auto-generated from tasks/_active/)
 
-| ID                                             | Title                                                                                    | Owner  | Status      |
-|------------------------------------------------|------------------------------------------------------------------------------------------|--------|-------------|
-| T-agent-events-jsonl-live-lane                 | Append-only event lane (docs/agent-events.jsonl) + CLI                                   | claude | merged      |
-| T-archetype-engine-canon-eval                  | Pin canonical archetype set + per-entry shape                                            | claude | merged      |
-| T-backfill-v1-pillar-legacy                    | Backfill V1 pillar/effect on 13 legacy non-merged task files                             | claude | review      |
-| T-block-detector-canon-eval                    | Pin block-detector envelope + SIGNAL_WEIGHTS + level thresholds                          | claude | merged      |
-| T-block-signal-atms-zero-fix                   | Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)                               | claude | merged      |
-| T-block-signal-history-bounds-eval             | Pathological-input guard on the block-signal history buffer                              | claude | review      |
-| T-block-signal-history-route                   | GET /memory/block-signal/history read endpoint                                           | claude | review      |
-| T-block-signal-history-tracking                | Persist block-signal samples to creative memory habits                                   | claude | review      |
-| T-build-tasks-md-anchors                       | Add AUTOGEN anchors to TASKS.md + harden anchor matcher                                  | claude | merged      |
-| T-coord-refresh-batch-12                       | Batched coordination refresh — round 17 (post merge train)                               | claude | review      |
-| T-coord-refresh-batch-15                       | Coord refresh round 19 — mark #197/#199/#200/#201/#202 merged                            | claude | review      |
-| T-coordination-state-cli-validate              | Add `validate` subcommand to coordination_state.mjs                                      | claude | merged      |
-| T-coordination-state-eval                      | Schema check on docs/coordination.json                                                   | claude | merged      |
-| T-coordination-state-mutate-eval               | Round-trip eval over coordination_state.mjs mutate subcommands                           | claude | merged      |
-| T-creative-memory-stats-route                  | GET /memory/stats content-free summary                                                   | claude | merged      |
-| T-creative-memory-store-eviction-eval          | Pathological-input guard on creative-memory character roster                             | claude | merged      |
-| T-creative-memory-version-check-eval           | Pin the `version` field on creative-memory snapshots                                     | claude | merged      |
-| T-decisions-queue-fixture-template             | docs/decisions-queue-template.md (copy-paste entry template)                             | claude | merged      |
-| T-decisions-queue-md-lint                      | Lint docs/decisions-queue.md format                                                      | claude | merged      |
-| T-decisions-queue-route                        | GET /coordination/decisions-queue returns the queue as JSON                              | claude | merged      |
-| T-decompose-backend-index                      | Decompose 33k-line backend/index.js into per-domain route libs                           | claude | merged      |
-| T-decompose-phase0-health-route                | Phase 0 PoC — extract /health + /bridge to lib/health_route.js                           | claude | merged      |
-| T-decompose-phase1-ops-routes                  | Decompose backend/index.js — Phase 1 (/ops/metrics + /ops/alerts)                        | claude | merged      |
-| T-decompose-phase2a-screenplay-projects-reads  | Decompose backend/index.js — Phase 2a (5 /screenplay/projects/* GET routes)              | claude | merged      |
-| T-decompose-phase2b-screenplay-projects-writes | Decompose backend/index.js — Phase 2b (7 /screenplay/projects/* write routes)            | claude | merged      |
-| T-decompose-phase3-ready                       | Phase 3 readiness — /screenplay/companion + /paginate + /revision-colors                 | claude | merged      |
-| T-decompose-phase3-screenplay-companion        | Decompose backend/index.js — Phase 3 (companion + paginate + revision-colors)            | claude | merged      |
-| T-decompose-phase5a-realtime-reads             | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | claude | review      |
-| T-deeper-lib-tests-batch-2                     | Deeper tests for persona + utils + screenplay_store + outbox_store                       | claude | review      |
-| T-deeper-lib-tests-batch                       | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | claude | review      |
-| T-deeper-memstore-and-user-auth-tests          | Deeper tests for memory_store + user_auth                                                | claude | review      |
-| T-eval-determinism-doc-pass                    | Document determinism stance across 10 canon evals                                        | claude | review      |
-| T-eval-gate-add-canon-evals                    | Umbrella `npm run eval:canon` for canonical-contract evals                               | claude | merged      |
-| T-fix-214-audit-and-readme                     | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | claude | review      |
-| T-format-linter-rules-canon-eval               | Pin canonical rule_id set + envelope for format_linter                                   | claude | merged      |
-| T-known-domains-runtime-check                  | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)                                 | claude | merged      |
-| T-known-domains-startup-check                  | Boot-time invariant check on KNOWN_DOMAINS                                               | claude | merged      |
-| T-memory-quality-eval                          | Multi-turn creative-memory recall eval                                                   | claude | merged      |
-| T-ops-health-summary-eval                      | Deployment-level eval pinning /ops/health-summary features map                           | claude | merged      |
-| T-ops-health-summary-route                     | GET /ops/health-summary cheap uptime-dashboard endpoint                                  | claude | merged      |
-| T-ops-routes-list-route                        | GET /ops/routes manifest of optional surfaces                                            | claude | merged      |
-| T-pre-flight-outbox-console-cleanup            | Convert outbox console.log → console.warn/error (pre-flight class 1)                     | claude | merged      |
-| T-pre-flight-self-check-script                 | scripts/pre_flight.mjs — catch recurring review feedback locally                         | claude | merged      |
-| T-prompt-assembly-block-signal-cap-eval        | Cap on <block_signal> block size under pathological inputs                               | claude | merged      |
-| T-prompt-assembly-readme                       | README for backend/lib/prompt_assembly.js                                                | claude | merged      |
-| T-prompt-assembly-snapshot-eval                | Pin canonical buildModelPrompt block order                                               | claude | merged      |
-| T-prompt-size-eval                             | Char-budget guard on assembled model prompts                                             | claude | merged      |
-| T-protocol-infra-batch                         | Tighten backend extraction protocol helpers                                              | claude | review      |
-| T-schema-docs-batch-2                          | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | claude | review      |
-| T-schema-docs-scaffold                         | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | claude | review      |
-| T-screenplay-export-formats-list-route         | GET /screenplay/export/formats canonical format list                                     | claude | review      |
-| T-screenplay-export-markdown                   | POST /screenplay/export format=md|markdown                                               | claude | review      |
-| T-screenplay-export-pdf-error-clarity          | Add human-readable help payload to PDF export rejection                                  | claude | merged      |
-| T-talk-turn-meta-contract-snapshot             | Pin /talk/turn/:turnId response key set + error codes                                    | claude | review      |
-| T-talk-turn-rate-limit-helper                  | Pure token-bucket rate limiter for talk-turn reads                                       | claude | merged      |
-| T-talk-turn-rate-limit-route                   | Optional rate-limit middleware on GET /talk/turn/:turnId                                 | claude | merged      |
-| T-task-files-cleanup                           | Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)                         | claude | review      |
-| T-tasks-active-frontmatter-eval                | Validate every tasks/_active/T-*.md front-matter                                         | claude | merged      |
-| T-tasks-active-stats                           | At-a-glance counts over tasks/_active/                                                   | claude | merged      |
-| T-tasks-per-row                                | Per-row task files + TASKS.md regenerator (no canonical flip yet)                        | claude | merged      |
-| T-tasks-sync-check                             | CI script to detect tasks/_active vs TASKS.md drift                                      | claude | merged      |
-| T-trait-library-canon-eval                     | Pin canonical TRAIT_KEYWORDS + cap constants                                             | claude | merged      |
-| T-trust-tiers                                  | Trust tiers + standing pre-approvals (AGENTS.md)                                         | claude | review      |
-| T-twist-engine-canon-eval                      | Pin TWIST_LIBRARY framework set + per-twist field shape                                  | claude | merged      |
-| T-untested-libs-followups                      | Add tests for remaining untested infrastructure libs                                     | claude | planned     |
-| T-user-auth-roundtrip-tests                    | Full handler round-trip tests for backend/lib/user_auth.js                               | claude | review      |
-| T-v1-pillar-rule-and-canon-wire                | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                             | claude | review      |
-| T-v1-three-smoke-fixtures                      | V1 smoke fixtures — screenplay export + memory recall + realtime failover                | claude | review      |
-| T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                        | claude | review      |
-| T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
-| T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
-| T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                               | codex  | review      |
-| T46-post-review-queue-refresh                  | Refresh queue after Codex PR reviews                                                     | codex  | review      |
-| T47-refresh-after-new-claude-prs               | Refresh queue after new Claude PR triage                                                 | codex  | review      |
-| T48-ios-archetype-traits                       | Surface character archetypes in the Studio traits rail                                   | codex  | in-progress |
-| T60                                            | Consume screenplay export formats in Studio                                              | codex  | merged      |
-| T61                                            | Refresh coordination after T60 merge                                                     | codex  | merged      |
-| T62                                            | Quiet offline Studio export-format refresh                                               | codex  | merged      |
-| T63                                            | Refresh coordination after T62 merge                                                     | codex  | merged      |
-| T64                                            | Quiet offline session-evolution launch probe                                             | codex  | merged      |
-| T65                                            | Refresh coordination after T64 merge                                                     | codex  | merged      |
-| T66                                            | Refresh queue after Claude PR triage                                                     | codex  | merged      |
-| T67                                            | Refresh queue after PR #148 triage                                                       | codex  | merged      |
-| T68                                            | Refresh queue after PR #150/#151 merges                                                  | codex  | merged      |
-| T69                                            | Refresh queue after PR #134 merge                                                        | codex  | merged      |
-| T70                                            | Refresh queue after PR #154/#155/#156/#158 merges                                        | codex  | merged      |
-| T71                                            | Add agent throughput protocol and next-action CLI                                        | codex  | merged      |
-| T72                                            | Refresh queue after supervisor merge train                                               | codex  | merged      |
-| T73                                            | Build iOS Fountain import surface                                                        | codex  | merged      |
-| T74                                            | Surface ops route manifest in diagnostics                                                | codex  | merged      |
-| T75                                            | Surface talk-turn rate-limit retry affordance                                            | codex  | merged      |
-| T76                                            | Refresh coordination after efficiency merge train                                        | codex  | merged      |
-| T77                                            | Refresh coordination after PR #180/#181                                                  | codex  | merged      |
-| T78                                            | Refresh coordination after PR #183                                                       | codex  | merged      |
-| T79                                            | Codify second-pass agent efficiency protocol                                             | codex  | merged      |
-| T80                                            | Refresh coordination after PR #191/#192                                                  | codex  | merged      |
-| T81                                            | Refresh coordination after PR #193/#194                                                  | codex  | review      |
-| T82                                            | Refresh coordination after PR #204/#205/#206/#207                                        | codex  | review      |
-| T83                                            | Define V1 and product-state handoff loop                                                 | codex  | review      |
-| T84                                            | Surface talk health and error diagnostics in iOS                                         | codex  | review      |
-| T85                                            | Round 22 coordination refresh after supervisor merge train                               | codex  | review      |
-| T86                                            | Round 22b coordination refresh after design-note mini-train                              | codex  | review      |
-| T87                                            | Round 22c coordination refresh after memory and long-tail design notes                   | codex  | review      |
-| T88                                            | Round 22d coordination refresh after V1 smoke fixture pack                               | codex  | review      |
-| T89                                            | Round 22e coordination refresh after schema docs batch 2                                 | codex  | review      |
-| T90                                            | V1 memory and realtime diagnostics in iOS                                                | codex  | review      |
-| T91                                            | Round 22f coordination refresh                                                           | codex  | review      |
-| T92                                            | Round 22g coordination refresh                                                           | codex  | review      |
-| T93                                            | Round 22h coordination refresh                                                           | codex  | review      |
-| T94                                            | Claude supervisor note handoff                                                           | codex  | review      |
-| T95-schema-doc-drift-gate                      | Gate schema docs against backend field drift                                             | codex  | review      |
+| ID                                             | Title                                                                                                      | Owner  | Status      |
+|------------------------------------------------|------------------------------------------------------------------------------------------------------------|--------|-------------|
+| T-agent-events-jsonl-live-lane                 | Append-only event lane (docs/agent-events.jsonl) + CLI                                                     | claude | merged      |
+| T-archetype-engine-canon-eval                  | Pin canonical archetype set + per-entry shape                                                              | claude | merged      |
+| T-backfill-v1-pillar-legacy                    | Backfill V1 pillar/effect on 13 legacy non-merged task files                                               | claude | review      |
+| T-block-detector-canon-eval                    | Pin block-detector envelope + SIGNAL_WEIGHTS + level thresholds                                            | claude | merged      |
+| T-block-signal-atms-zero-fix                   | Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)                                                 | claude | merged      |
+| T-block-signal-history-bounds-eval             | Pathological-input guard on the block-signal history buffer                                                | claude | review      |
+| T-block-signal-history-route                   | GET /memory/block-signal/history read endpoint                                                             | claude | review      |
+| T-block-signal-history-tracking                | Persist block-signal samples to creative memory habits                                                     | claude | review      |
+| T-build-tasks-md-anchors                       | Add AUTOGEN anchors to TASKS.md + harden anchor matcher                                                    | claude | merged      |
+| T-coord-refresh-batch-12                       | Batched coordination refresh — round 17 (post merge train)                                                 | claude | review      |
+| T-coord-refresh-batch-15                       | Coord refresh round 19 — mark #197/#199/#200/#201/#202 merged                                              | claude | review      |
+| T-coordination-state-cli-validate              | Add `validate` subcommand to coordination_state.mjs                                                        | claude | merged      |
+| T-coordination-state-eval                      | Schema check on docs/coordination.json                                                                     | claude | merged      |
+| T-coordination-state-mutate-eval               | Round-trip eval over coordination_state.mjs mutate subcommands                                             | claude | merged      |
+| T-creative-memory-stats-route                  | GET /memory/stats content-free summary                                                                     | claude | merged      |
+| T-creative-memory-store-eviction-eval          | Pathological-input guard on creative-memory character roster                                               | claude | merged      |
+| T-creative-memory-version-check-eval           | Pin the `version` field on creative-memory snapshots                                                       | claude | merged      |
+| T-decisions-queue-fixture-template             | docs/decisions-queue-template.md (copy-paste entry template)                                               | claude | merged      |
+| T-decisions-queue-md-lint                      | Lint docs/decisions-queue.md format                                                                        | claude | merged      |
+| T-decisions-queue-route                        | GET /coordination/decisions-queue returns the queue as JSON                                                | claude | merged      |
+| T-decompose-backend-index                      | Decompose 33k-line backend/index.js into per-domain route libs                                             | claude | merged      |
+| T-decompose-phase0-health-route                | Phase 0 PoC — extract /health + /bridge to lib/health_route.js                                             | claude | merged      |
+| T-decompose-phase1-ops-routes                  | Decompose backend/index.js — Phase 1 (/ops/metrics + /ops/alerts)                                          | claude | merged      |
+| T-decompose-phase2a-screenplay-projects-reads  | Decompose backend/index.js — Phase 2a (5 /screenplay/projects/* GET routes)                                | claude | merged      |
+| T-decompose-phase2b-screenplay-projects-writes | Decompose backend/index.js — Phase 2b (7 /screenplay/projects/* write routes)                              | claude | merged      |
+| T-decompose-phase3-ready                       | Phase 3 readiness — /screenplay/companion + /paginate + /revision-colors                                   | claude | merged      |
+| T-decompose-phase3-screenplay-companion        | Decompose backend/index.js — Phase 3 (companion + paginate + revision-colors)                              | claude | merged      |
+| T-decompose-phase5a-realtime-reads             | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                                     | claude | review      |
+| T-decompose-phase5b1-realtime-client-secret    | Decompose backend/index.js — Phase 5b.1 (POST /realtime/client_secret)                                     | claude | merged      |
+| T-deeper-lib-tests-batch-2                     | Deeper tests for persona + utils + screenplay_store + outbox_store                                         | claude | review      |
+| T-deeper-lib-tests-batch-3                     | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats                             | claude | review      |
+| T-deeper-lib-tests-batch                       | Deeper direct tests for user_store (with planned followups for memory_store + user_auth)                   | claude | review      |
+| T-deeper-memstore-and-user-auth-tests          | Deeper tests for memory_store + user_auth                                                                  | claude | review      |
+| T-eval-determinism-doc-pass                    | Document determinism stance across 10 canon evals                                                          | claude | review      |
+| T-eval-gate-add-canon-evals                    | Umbrella `npm run eval:canon` for canonical-contract evals                                                 | claude | merged      |
+| T-fix-214-audit-and-readme                     | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar                        | claude | review      |
+| T-format-linter-rules-canon-eval               | Pin canonical rule_id set + envelope for format_linter                                                     | claude | merged      |
+| T-fountain-export-deeper                       | Deeper tests for fountain_export                                                                           | claude | review      |
+| T-known-domains-runtime-check                  | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)                                                   | claude | merged      |
+| T-known-domains-startup-check                  | Boot-time invariant check on KNOWN_DOMAINS                                                                 | claude | merged      |
+| T-memory-quality-eval                          | Multi-turn creative-memory recall eval                                                                     | claude | merged      |
+| T-operating-protocol-narrative                 | docs/operating-protocol.md — narrative complement to AGENTS.md                                             | claude | merged      |
+| T-ops-health-summary-eval                      | Deployment-level eval pinning /ops/health-summary features map                                             | claude | merged      |
+| T-ops-health-summary-route                     | GET /ops/health-summary cheap uptime-dashboard endpoint                                                    | claude | merged      |
+| T-ops-routes-list-route                        | GET /ops/routes manifest of optional surfaces                                                              | claude | merged      |
+| T-pre-flight-outbox-console-cleanup            | Convert outbox console.log → console.warn/error (pre-flight class 1)                                       | claude | merged      |
+| T-pre-flight-self-check-script                 | scripts/pre_flight.mjs — catch recurring review feedback locally                                           | claude | merged      |
+| T-preflight-task-id-matches-filename           | Pre-flight rule task-id-mismatch-filename                                                                  | claude | merged      |
+| T-preflight-task-status-vocab                  | Pre-flight rule task-status-vocabulary                                                                     | claude | merged      |
+| T-prompt-assembly-block-signal-cap-eval        | Cap on <block_signal> block size under pathological inputs                                                 | claude | merged      |
+| T-prompt-assembly-readme                       | README for backend/lib/prompt_assembly.js                                                                  | claude | merged      |
+| T-prompt-assembly-snapshot-eval                | Pin canonical buildModelPrompt block order                                                                 | claude | merged      |
+| T-prompt-size-eval                             | Char-budget guard on assembled model prompts                                                               | claude | merged      |
+| T-protocol-infra-batch                         | Tighten backend extraction protocol helpers                                                                | claude | review      |
+| T-runbook-v1-smoke                             | Operator runbook for the V1 smoke suite                                                                    | claude | merged      |
+| T-schema-docs-batch-2                          | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal                             | claude | review      |
+| T-schema-docs-batch-3                          | Schema doc batch 3 + docs/schemas/INDEX.md                                                                 | claude | merged      |
+| T-schema-docs-batch-4                          | Schema doc batch 4 — talk-errors + talk-turn-stats + block-signal-history + fountain-export + agent-events | claude | merged      |
+| T-schema-docs-scaffold                         | Bootstrap docs/schemas/ with README + 3 first envelope docs                                                | claude | review      |
+| T-screenplay-export-formats-list-route         | GET /screenplay/export/formats canonical format list                                                       | claude | review      |
+| T-screenplay-export-markdown                   | POST /screenplay/export format=md|markdown                                                                 | claude | review      |
+| T-screenplay-export-pdf-error-clarity          | Add human-readable help payload to PDF export rejection                                                    | claude | merged      |
+| T-talk-error-counter-zero-fix                  | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                                             | claude | review      |
+| T-talk-response-doc-drift-fix                  | Remove non-emitted fields from talk-response.md                                                            | claude | merged      |
+| T-talk-turn-meta-contract-snapshot             | Pin /talk/turn/:turnId response key set + error codes                                                      | claude | review      |
+| T-talk-turn-rate-limit-deeper                  | Deeper tests for talk_turn_rate_limit                                                                      | claude | review      |
+| T-talk-turn-rate-limit-helper                  | Pure token-bucket rate limiter for talk-turn reads                                                         | claude | merged      |
+| T-talk-turn-rate-limit-route                   | Optional rate-limit middleware on GET /talk/turn/:turnId                                                   | claude | merged      |
+| T-task-files-cleanup                           | Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)                                           | claude | review      |
+| T-tasks-active-frontmatter-eval                | Validate every tasks/_active/T-*.md front-matter                                                           | claude | merged      |
+| T-tasks-active-stats                           | At-a-glance counts over tasks/_active/                                                                     | claude | merged      |
+| T-tasks-per-row                                | Per-row task files + TASKS.md regenerator (no canonical flip yet)                                          | claude | merged      |
+| T-tasks-sync-check                             | CI script to detect tasks/_active vs TASKS.md drift                                                        | claude | merged      |
+| T-trait-library-canon-eval                     | Pin canonical TRAIT_KEYWORDS + cap constants                                                               | claude | merged      |
+| T-trust-tiers                                  | Trust tiers + standing pre-approvals (AGENTS.md)                                                           | claude | review      |
+| T-twist-engine-canon-eval                      | Pin TWIST_LIBRARY framework set + per-twist field shape                                                    | claude | merged      |
+| T-untested-libs-followups                      | Add tests for remaining untested infrastructure libs                                                       | claude | planned     |
+| T-user-auth-roundtrip-tests                    | Full handler round-trip tests for backend/lib/user_auth.js                                                 | claude | review      |
+| T-v1-pillar-rule-and-canon-wire                | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                                               | claude | review      |
+| T-v1-status-reporter                           | V1 status reporter script                                                                                  | claude | merged      |
+| T-v1-three-smoke-fixtures                      | V1 smoke fixtures — screenplay export + memory recall + realtime failover                                  | claude | review      |
+| T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                                          | claude | review      |
+| T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
+| T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
+| T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
+| T46-post-review-queue-refresh                  | Refresh queue after Codex PR reviews                                                                       | codex  | review      |
+| T47-refresh-after-new-claude-prs               | Refresh queue after new Claude PR triage                                                                   | codex  | review      |
+| T48-ios-archetype-traits                       | Surface character archetypes in the Studio traits rail                                                     | codex  | in-progress |
+| T60                                            | Consume screenplay export formats in Studio                                                                | codex  | merged      |
+| T61                                            | Refresh coordination after T60 merge                                                                       | codex  | merged      |
+| T62                                            | Quiet offline Studio export-format refresh                                                                 | codex  | merged      |
+| T63                                            | Refresh coordination after T62 merge                                                                       | codex  | merged      |
+| T64                                            | Quiet offline session-evolution launch probe                                                               | codex  | merged      |
+| T65                                            | Refresh coordination after T64 merge                                                                       | codex  | merged      |
+| T66                                            | Refresh queue after Claude PR triage                                                                       | codex  | merged      |
+| T67                                            | Refresh queue after PR #148 triage                                                                         | codex  | merged      |
+| T68                                            | Refresh queue after PR #150/#151 merges                                                                    | codex  | merged      |
+| T69                                            | Refresh queue after PR #134 merge                                                                          | codex  | merged      |
+| T70                                            | Refresh queue after PR #154/#155/#156/#158 merges                                                          | codex  | merged      |
+| T71                                            | Add agent throughput protocol and next-action CLI                                                          | codex  | merged      |
+| T72                                            | Refresh queue after supervisor merge train                                                                 | codex  | merged      |
+| T73                                            | Build iOS Fountain import surface                                                                          | codex  | merged      |
+| T74                                            | Surface ops route manifest in diagnostics                                                                  | codex  | merged      |
+| T75                                            | Surface talk-turn rate-limit retry affordance                                                              | codex  | merged      |
+| T76                                            | Refresh coordination after efficiency merge train                                                          | codex  | merged      |
+| T77                                            | Refresh coordination after PR #180/#181                                                                    | codex  | merged      |
+| T78                                            | Refresh coordination after PR #183                                                                         | codex  | merged      |
+| T79                                            | Codify second-pass agent efficiency protocol                                                               | codex  | merged      |
+| T80                                            | Refresh coordination after PR #191/#192                                                                    | codex  | merged      |
+| T81                                            | Refresh coordination after PR #193/#194                                                                    | codex  | review      |
+| T82                                            | Refresh coordination after PR #204/#205/#206/#207                                                          | codex  | review      |
+| T83                                            | Define V1 and product-state handoff loop                                                                   | codex  | review      |
+| T84                                            | Surface talk health and error diagnostics in iOS                                                           | codex  | review      |
+| T85                                            | Round 22 coordination refresh after supervisor merge train                                                 | codex  | review      |
+| T86                                            | Round 22b coordination refresh after design-note mini-train                                                | codex  | review      |
+| T87                                            | Round 22c coordination refresh after memory and long-tail design notes                                     | codex  | review      |
+| T88                                            | Round 22d coordination refresh after V1 smoke fixture pack                                                 | codex  | review      |
+| T89                                            | Round 22e coordination refresh after schema docs batch 2                                                   | codex  | review      |
+| T90                                            | V1 memory and realtime diagnostics in iOS                                                                  | codex  | review      |
+| T91                                            | Round 22f coordination refresh                                                                             | codex  | review      |
+| T92                                            | Round 22g coordination refresh                                                                             | codex  | review      |
+| T93                                            | Round 22h coordination refresh                                                                             | codex  | review      |
+| T94                                            | Claude supervisor note handoff                                                                             | codex  | review      |
+| T95-schema-doc-drift-gate                      | Gate schema docs against backend field drift                                                               | codex  | review      |
+| T96-batch-coordination-refresh                 | Refresh coordination after supervisor merge train                                                          | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -2032,6 +2046,102 @@ Access-control posture: **SAFE-PUBLIC**.
 
 Phase 5a is merged. Phase 5b opens after.
 
+### T-decompose-phase5b1-realtime-client-secret — Decompose backend/index.js — Phase 5b.1 (POST /realtime/client_secret)
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase5b1-realtime-client-secret
+- **Pillar:** infra (backend architecture)
+- **Status:** merged
+
+## Scope
+
+First sub-phase of Phase 5b per #227's design note. Extracts the
+supplier mint + failover state machine into `backend/lib/realtime_client_secret_route.js`.
+
+Behavior is byte-identical with the inline handler. The 201
+envelope, the 4 error paths, the fallback semantics (fallback,
+fallback_reason, primary_supplier), and the canonical error codes
+(`realtime_supplier_unavailable`, `realtime_supplier_request_failed`,
+`realtime_supplier_response_invalid`, `supplier_fallback_failed`,
+`realtime_supplier_unknown_provider`) all match the inline source.
+
+Supplier reference is passed through an accessor function so the
+route reads the current value at request start (and not a frozen
+mount-time binding):
+
+```js
+mountRealtimeClientSecretRoute(app, {
+  getRealtimeSupplier: () => realtimeSupplier,
+  ...
+});
+```
+
+Per-request failover rotation stays request-local. The route does
+NOT call back into a setter to persist the rotated supplier — see
+the "Review-blocker history" section below.
+
+The stub-supplier lazy-loader stays in index.js (passed in as
+`loadStubSupplier`) to avoid creating a circular import.
+
+## V1 pillar / effect
+
+- `V1 pillar: realtime`
+- `V1 effect: closes prerequisite for "Realtime route
+  decomposition lands before talk-pipeline Phase 7" — the heaviest
+  realtime route now lives in its own testable lib.`
+
+## Verification
+
+- `node --test backend/tests/realtime_client_secret_route.test.mjs`
+  → **12/12 pass**. The 4 happy/error mint paths, mount guards
+  for 10 required deps (setRealtimeSupplier dropped), live-
+  supplier accessor pattern, Cache-Control: no-store, **plus a
+  new #238-regression test** that asserts the module-level
+  supplier is NOT mutated by a fallback rotation.
+- `node scripts/pre_flight.mjs`
+  → clean after keeping diagnostics on `console.warn` instead of
+  `console.log` in the extracted lib.
+- `node --check backend/index.js` passes.
+
+## Done when
+
+Inline `POST /realtime/client_secret` no longer in index.js; lib
+file exists with tier-3 posture documented; 12/12 tests pass;
+4-path failover behavior preserved request-locally; no module-
+level supplier mutation from the extracted route.
+
+## Review-blocker history (#238)
+
+Codex blocked the initial extraction because the lib called
+`setRealtimeSupplier(supplier)` at the end of the handler,
+persisting failover rotation back to module-level state. The
+original inline handler's `supplier` variable was a request-
+local `let` — it never wrote rotation back. The setter call was
+a real behavior change, not a byte-identical extraction.
+
+**Fix in this revision:**
+- Removed the `setRealtimeSupplier` dep + write-back from
+  `backend/lib/realtime_client_secret_route.js`.
+- Removed the corresponding dep from
+  `backend/index.js`'s mount call.
+- Updated the module header to document the constraint and
+  reference this blocker.
+- Removed the stale `setRealtimeSupplier` mock + assertion from
+  the existing tests.
+- Added a new regression test `#238 regression: failover rotation
+  does not persist across requests` that closes over the live
+  supplier in the test scope and asserts it is NOT replaced after
+  a fallback. If a future change re-introduces a setter call,
+  this test fails.
+
+The route now matches the inline source line-by-line in supplier-
+rotation scope.
+
+## Next phase
+
+Phase 5b.2: extract `/realtime/studio_render` +
+`/realtime/studio_render_stream`. Gated on this PR merging per
+spec.
+
 ### T-deeper-lib-tests-batch-2 — Deeper tests for persona + utils + screenplay_store + outbox_store
 - **Owner:** claude
 - **Branch:** claude/T-deeper-lib-tests-batch-2
@@ -2125,6 +2235,98 @@ mark the deeper tier complete for these 4 libs.
 - memory_store (smoke #216, deeper #241)
 - user_store (smoke #218, deeper #237)
 - user_auth (smoke #218, deeper #241, round-trip #242)
+
+### T-deeper-lib-tests-batch-3 — Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats
+- **Owner:** claude
+- **Branch:** claude/T-deeper-batch-3
+- **Pillar:** infra (test coverage)
+- **Status:** review
+
+## Scope
+
+Ships **33 tests** across 3 libs.
+
+### realtime_supplier_stub.test.mjs (14 tests) — NEW FILE
+
+`backend/lib/realtime_supplier_stub.js` had no test file. This
+closes the gap. The stub is wired into the realtime failover
+ladder (#231 `v1_realtime_failover_smoke` exercises it
+indirectly).
+
+- Factory shape (kind="stub", buildSessionConfig +
+  mintClientSecret functions).
+- `buildSessionConfig` defaults + per-call overrides + instructions
+  presence.
+- `mintClientSecret` happy path envelope shape + unique values +
+  constructor defaults.
+- TTL clamping at min (30s), max (300s), null fallback (default).
+- `simulateError` path with custom + default code/status.
+
+### talk_error_counter_deeper.test.mjs (10 tests)
+
+Extends `talk_error_counter.test.mjs` smoke:
+- `since`-window filtering excludes pre-window events.
+- `since`-window omits classes with zero in-window events.
+- No-`since` returns lifetime totals.
+- `errorRatePerHour` math (0 on empty + across observed window).
+- `lastOccurrence` stamping is whatever the latest .set() wrote.
+- Empty/null class normalizes to `"unknown"`.
+- Class names are trimmed.
+- `occurrences` ring honors `OCCURRENCE_RING_CAP_PER_CLASS`.
+- Snapshot envelope includes schemaVersion + observedAtMs + sinceMs.
+
+### talk_turn_stats_deeper.test.mjs (9 tests)
+
+Extends `talk_turn_stats.test.mjs` smoke:
+- `ageBuckets` partition turns across last5min / last1h /
+  last24h / older boundaries.
+- `newestCreatedAtMs` / `oldestCreatedAtMs` reflect extremes.
+- `authoritativePageTextRate` + `syncReadyRate` math.
+- Both rates are 0 on empty input.
+- `audioDurationMs` defensively handles missing + negative.
+- `uniqueUserCount` + `uniqueSessionCount` dedupe.
+- `replyRoleCounts` split preview vs final.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: closes the test gap on 3 realtime + talk libs that
+  gate V1 surfaces. realtime_supplier_stub backs the failover
+  ladder (#231 smoke). talk_error_counter feeds the /talk/errors
+  ops surface. talk_turn_stats feeds the /talk/turn/stats ops
+  surface.`
+
+## Verification
+
+```
+node --test backend/tests/realtime_supplier_stub.test.mjs \
+              backend/tests/talk_error_counter_deeper.test.mjs \
+              backend/tests/talk_turn_stats_deeper.test.mjs
+```
+
+→ **33/33 pass** (14 + 10 + 9).
+
+## Bug found (filed as followup)
+
+While writing `talk_error_counter_deeper`, I discovered an actual
+bug in `talk_error_counter.js`: `earliestStampedAt || now`
+evaluates 0 as falsy and falls back to `now`, so when the first
+event happens at time 0 the `errorRatePerHour` math collapses to
+`1/3600 hour` and rate explodes. **Not fixed here** (this PR is
+test-only); test uses nonzero baseline. Filed as `T-talk-error-
+counter-zero-timestamp-bug` followup.
+
+## Done when
+
+3 test files ship + pass. 7/7 stateful libs + realtime stub now
+covered.
+
+## Followups (not in this PR)
+
+- Fix the `earliestStampedAt || now` bug in
+  `backend/lib/talk_error_counter.js`. Should use `??`, not `||`.
+- Deeper tier for `fountain_export` + `talk_pipeline` (next
+  batch).
 
 ### T-deeper-lib-tests-batch — Deeper direct tests for user_store (with planned followups for memory_store + user_auth)
 - **Owner:** claude
@@ -2497,6 +2699,58 @@ Wired via `npm run eval:format-linter-canon`.
 `backend/evals/run_format_linter_canon_eval.mjs` exits 0 with all
 checks passing; `npm test` still green.
 
+### T-fountain-export-deeper — Deeper tests for fountain_export
+- **Owner:** claude
+- **Branch:** claude/T-fountain-export-deeper
+- **Pillar:** infra (test coverage)
+- **Status:** review
+
+## Scope
+
+Ships `backend/tests/fountain_export_deeper.test.mjs` — 14
+deeper tests beyond the existing smoke (17 tests).
+
+### Targets
+
+- Dialogue shapes (string vs array of lines).
+- Character cue with parenthetical but empty dialogue is dropped.
+- Section level prefixes (1/2/3 → #/##/###; missing level → #).
+- Synopsis emits `=` prefix.
+- Blank kind emits a blank line.
+- Unknown line kind is silently dropped (defensive).
+- Title page with only some fields skips empty entries.
+- Title page treats whitespace-only fields as empty.
+- Multi-scene output preserves scene order.
+- exportToFountain tolerates missing scenes / null / empty input.
+
+## V1 pillar / effect
+
+- `V1 pillar: screenplay`
+- `V1 effect: closes the deeper coverage gap for fountain_export.
+  V1 line 27 ("Screenplay export: Fountain + FDX") depends on this
+  serializer; v1_screenplay_smoke (#231) pins ordering invariants
+  at a high level — this PR pins the per-line-kind serialization
+  rules.`
+
+## Verification
+
+```
+node --test backend/tests/fountain_export.test.mjs backend/tests/fountain_export_deeper.test.mjs
+```
+
+→ existing 17 smoke + 14 deeper = 31/31 pass.
+
+## Done when
+
+`fountain_export_deeper.test.mjs` ships and passes alongside the
+existing smoke.
+
+## Followups (not in this PR)
+
+- Schema doc `docs/schemas/fountain-export.md` lands separately
+  (#256 schema batch 4).
+- FDX export deeper coverage when its smoke lands.
+
 ### T-known-domains-runtime-check — KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)
 - **Owner:** claude
 - **Branch:** claude/T-known-domains-runtime-check
@@ -2589,6 +2843,99 @@ eval-gate hooks can pick it up. Exposed via `npm run eval:memory-quality`.
 `backend/evals/run_memory_quality_eval.mjs` exits 0 with all checks
 passing; `backend/package.json` exposes `npm run eval:memory-quality`;
 `npm test` still green.
+
+### T-operating-protocol-narrative — docs/operating-protocol.md — narrative complement to AGENTS.md
+- **Owner:** claude
+- **Branch:** claude/T-operating-protocol-narrative
+- **Pillar:** infra (operator docs)
+- **Status:** merged
+
+## Scope
+
+Ships `docs/operating-protocol.md` — narrative complement to
+`AGENTS.md` that walks through:
+- The product (north star, V1 target).
+- The three roles (Codex / Claude / human) with scope.
+- The four coordination files (AGENTS.md, TASKS.md,
+  DECISIONS.md, coordination.json + inboxes + event lane).
+- How a PR ships (8 numbered steps).
+- The V1 status reporter (#243).
+- The pre-flight rules catalog (10+ rules).
+- The V1 smoke chain (4 smokes + runbook reference).
+- The decomposition spec discipline.
+- The schema discipline.
+- Things this protocol explicitly avoids.
+- How this doc gets updated.
+
+## Why this matters
+
+`AGENTS.md` is the rules of record — dense, load-bearing, no
+slack. New readers (or a future agent) face a steep ramp:
+combine AGENTS.md + TASKS.md + DECISIONS.md + claude-inbox +
+v1-definition.md to build context.
+
+This narrative doc is the on-ramp. It does not replace any of
+those — it points at them with context.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: lowers the onboarding cost for new readers (or
+  future agents). One narrative doc explains the AGENTS.md rules
+  in context instead of requiring four coordination files
+  cross-read. Doesn't replace any load-bearing doc — points at
+  them with context.`
+
+## Verification
+
+- No load-bearing claim in the narrative contradicts AGENTS.md
+  (the doc says so explicitly: "anything load-bearing → update
+  AGENTS.md, not this file").
+- Pre-flight rule list matches the current rules in
+  `scripts/pre_flight.mjs`.
+- V1 smoke list matches `scripts/v1_*_smoke.mjs` (4 smokes).
+- Merge authority language matches AGENTS.md/D005: Claude-owned
+  PRs wait for Codex review and Claude never self-merges.
+
+## Done when
+
+`docs/operating-protocol.md` lands. AGENTS.md is unchanged.
+
+## Followups (not in this PR)
+
+- Add a "common gotchas" section if patterns emerge from
+  post-mortems (e.g. coordination drift incidents).
+- Cross-link this doc from `README.md` once Codex confirms the
+  pointer is wanted there.
+
+## Self-audit revision
+
+Claude's first self-audit, written before #250 and #259 merged,
+caught that the initial draft listed `task-missing-status` /
+`task-invalid-status` as live too early. The draft also omitted
+`schema-doc-backend-drift` (added by Codex #257 to main).
+
+Rewrote the "pre-flight rules" section to:
+- List only the rules that were live on main at that moment.
+- Separate then-in-flight #250/#259 rules into their own subsection.
+- Add a note about the older `startsWith("T-")` file filter and
+  planned filter expansion.
+
+## Supervisor revision
+
+Codex rebased this branch after #250 and #259 merged, then made
+the narrative match the current rules of record:
+
+- Removed the stale "rules in flight" section and listed
+  `task-id-mismatch-filename`, `task-missing-status`, and
+  `task-invalid-status` as live pre-flight rules.
+- Updated the accepted task-status set to include AGENTS/TASKS
+  workflow values plus grandfathered coordination statuses.
+- Replaced the incorrect "self-review-and-merge for backend-only
+  PRs" sentence with the AGENTS/D005 rule: Claude-owned PRs wait
+  for Codex review and Claude never self-merges.
+- Replaced the non-canonical `note` event reference with canonical
+  event-lane kinds.
 
 ### T-ops-health-summary-eval — Deployment-level eval pinning /ops/health-summary features map
 - **Owner:** claude
@@ -2806,6 +3153,140 @@ mode; `scripts/pre_flight.test.mjs` green.
 - Wire into a pre-push git hook (opt-in).
 - Once existing findings are cleaned, flip CI to `--strict`.
 
+### T-preflight-task-id-matches-filename — Pre-flight rule task-id-mismatch-filename
+- **Owner:** claude
+- **Branch:** claude/T-preflight-task-id-matches-filename
+- **Pillar:** infra (pre-flight rule)
+- **Status:** merged
+
+## Scope
+
+Adds a new pre-flight check under `scripts/pre_flight.mjs`:
+
+- `task-id-mismatch-filename` — task file declares `id: <X>` in
+  YAML front matter but the filename basename is `<Y>.md`.
+
+Grandfather: files without YAML front matter; files without an
+`id:` field (separate concern).
+
+## Why
+
+`coordination.json`, `claude-inbox.md`, and sibling task files
+all cross-reference each other by task id. A typo where the
+file is named `T-foo-fix.md` but the front matter says
+`id: T-foo-fixed` silently breaks every cross-reference and
+status rollup.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: closes the silent cross-reference-break gap. Every
+  task id in YAML front matter must match the filename basename.
+  Mismatches were previously undetected and would break
+  coordination rollups in surprising ways.`
+
+## Verification
+
+- `node scripts/pre_flight.mjs` → 0 new findings on current main
+  (all active tasks have matching id + filename).
+- `node --test scripts/pre_flight.test.mjs` → fixture coverage for
+  mismatch, match, and legacy non-YAML grandfathering.
+- Rule compares `id:` field value vs `path.basename(file, ".md")`.
+
+## Done when
+
+Rule lands; pre-flight clean on current main.
+
+## Followups (not in this PR)
+
+- Companion `task-missing-id` rule that flags tasks with YAML
+  front matter but no `id:` field at all. (Most task files do
+  declare an id today, but the rule would harden the discipline.)
+
+### T-preflight-task-status-vocab — Pre-flight rule task-status-vocabulary
+- **Owner:** claude
+- **Branch:** claude/T-preflight-task-status-vocab
+- **Pillar:** infra (pre-flight rule)
+- **Status:** merged
+
+## Scope
+
+Adds two new pre-flight checks under `scripts/pre_flight.mjs`:
+
+- `task-missing-status` — task file has YAML front matter but no
+  `status:` field.
+- `task-invalid-status` — task file has a `status:` value that
+  isn't one of the canonical workflow statuses or grandfathered
+  coordination values:
+  `ready | ready-for-claude | in-progress | review | merged |
+   planned | open | blocked | parked | closed | draft`.
+
+Same grandfathering rules as `checkTaskV1Pillar`:
+- Files without YAML front matter are skipped.
+- Coord-refresh task files are skipped.
+
+## Why this matters
+
+`v1_status.mjs` (PR #243), the coord-refresh rollups, and
+`docs/v1-definition.md` reporting all key on `status:` to decide
+which tasks are still in flight vs already-shipped vs blocked. A
+typo like `status: shipped` (instead of `merged`) silently drops
+the task from rollups — and silent drops are the worst class of
+status-reporting bug.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: closes the silent-status-typo gap. The V1 status
+  reporter and weekly coord-refresh both key on status; a typo
+  would silently drop a task from rollups. The rule is warn-only
+  by default, --strict to fail.`
+
+## Verification
+
+- `node --test scripts/pre_flight.test.mjs` → fixture coverage for
+  missing status, invalid status, AGENTS statuses, grandfathered
+  statuses, and legacy/coord-refresh skips.
+- `node scripts/pre_flight.mjs` → 0 findings on current branch.
+- Rule body: validates against the set
+  `{ready, ready-for-claude, in-progress, review, merged, planned,
+  open, blocked, parked, closed, draft}`.
+- Skip behavior matches `checkTaskV1Pillar` precedent for legacy
+  non-YAML files and coord-refresh files.
+
+## Self-audit revisions
+
+Two issues caught during cross-PR audit and addressed in the
+same branch before re-review:
+
+1. **File filter was too narrow.** Initial draft used
+   `startsWith("T-")` which silently skipped 50 Codex-numbered
+   task files (T48, T85, …). Expanded to also accept
+   `^T\d` (Codex-style numeric ids) so both lanes are audited.
+
+2. **Canonical set was too narrow.** Once the filter widened,
+   Codex-owned tasks surfaced `in-progress` and `planned`; AGENTS.md
+   also documents `ready` and `ready-for-claude`. Shipping the
+   narrow set would force noisy unrelated cleanup and incorrectly
+   reject real workflow states. Widened the accepted set to:
+   `ready | ready-for-claude | in-progress | review | merged |
+    planned | open | blocked | parked | closed | draft`.
+
+3. **No fixture coverage.** Added regression tests for missing
+   status, invalid status, AGENTS workflow statuses, grandfathered
+   statuses, and skip behavior so this rule does not drift silently.
+
+After revisions: pre-flight and fixture tests are clean on this
+branch.
+
+## Followups (not in this PR)
+
+- Wire `task-invalid-status` and `task-missing-status` into the
+  `--strict` failure set once the followup test lands.
+- Consider collapsing `planned` into `open` and `in-progress`
+  into `review` in a future cross-agent task-file pass. Out of
+  scope here — coordinate via DECISIONS.md first.
+
 ### T-prompt-assembly-block-signal-cap-eval — Cap on <block_signal> block size under pathological inputs
 - **Owner:** claude
 - **Branch:** claude/T-prompt-assembly-block-signal-cap-eval
@@ -2967,6 +3448,61 @@ Run:
 - `node scripts/audit_inline_routes.mjs --json`
 - `git diff --check`
 
+### T-runbook-v1-smoke — Operator runbook for the V1 smoke suite
+- **Owner:** claude
+- **Branch:** claude/T-runbook-v1-smoke
+- **Pillar:** infra (operator docs)
+- **Status:** merged
+
+## Scope
+
+Ships `docs/runbook-v1-smoke.md` — operator-facing reference that
+maps each of the 4 V1 smokes to:
+- What it verifies (invariants).
+- How to run it (commands).
+- What failure means (which backend lib to look at).
+
+Plus a TL;DR (run `npm run eval:canon`) and pointers to the V1
+status reporter (#243) and ops health summary schema.
+
+## Why this matters
+
+The 4 V1 smokes (#231, #235) are deterministic tripwires — they
+catch regressions but don't explain themselves to an operator.
+This runbook closes the gap between "the smoke failed" and "here's
+which file probably broke it."
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: operator-facing reference for the V1 smoke suite.
+  Closes the gap between "smoke failed" and "here's which file
+  probably broke it." Both Claude and a human-on-call can use
+  this without reading 4 separate scripts.`
+
+## Verification
+
+- All 4 smokes referenced by name match
+  `scripts/v1_*_smoke.mjs`.
+- TL;DR command (`npm run eval:canon`) matches
+  `backend/package.json`.
+- Schema doc references match `docs/schemas/INDEX.md`.
+- `cd backend && npm run eval:v1-smokes` passed.
+- `cd backend && node --test ../scripts/v1_voice_to_page_smoke.test.mjs`
+  passed.
+- No code change — pure documentation.
+
+## Done when
+
+Runbook lands; operators have one entry point for V1 smoke
+failures.
+
+## Followups (not in this PR)
+
+- Optional: wire a CI failure annotation that links to the
+  matching section in this runbook when a V1 smoke fails. Out
+  of scope here — needs a CI-comment surface.
+
 ### T-schema-docs-batch-2 — Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal
 - **Owner:** claude
 - **Branch:** claude/T-schema-docs-batch-2
@@ -3022,6 +3558,166 @@ extracts `/realtime/client_secret`, the doc here is amended (or
 referenced) to reflect any changes — though the design rule says
 extraction PRs are byte-identical, so the doc shouldn't need to
 change.
+
+### T-schema-docs-batch-3 — Schema doc batch 3 + docs/schemas/INDEX.md
+- **Owner:** claude
+- **Branch:** claude/T-schema-docs-batch-3
+- **Pillar:** infra (schema discipline)
+- **Status:** merged
+
+## Scope
+
+Adds 5 new envelope docs under `docs/schemas/` and a top-level
+`INDEX.md` that lists every schema doc with its surface, posture,
+and a one-line summary.
+
+### New docs
+
+- `apple-auth.md` — `POST /auth/apple` request + response.
+- `password-reset.md` — `request_password_reset` + `reset_password`.
+- `email-verification.md` — `request_email_verification` + `verify_email`.
+- `outbox-event.md` — outbox store record shape (internal).
+- `persona-snapshot.md` — persona record shape.
+
+### INDEX
+
+Groups all 16 schema docs by surface (auth / talk / screenplay /
+memory / realtime / ops / internal) with posture column.
+Includes the schema-versioning rule + the "how to add a new
+schema doc" recipe.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: closes the remaining auth + internal-record schema
+  gaps. Every documented envelope iOS depends on now has a
+  canonical doc, and the INDEX gives Codex one entry point to
+  audit envelope drift instead of grepping the docs tree.`
+
+## Verification
+
+- All 5 new docs follow the existing schema-doc pattern
+  (Endpoints, Schema version, Owner, Access-control posture,
+  Fields, Errors, Invariants, Compatibility, Changelog).
+- INDEX.md cross-references every doc in `docs/schemas/`.
+- No live route is touched; pure documentation.
+
+## Done when
+
+5 new schema docs + INDEX land. Codex can audit envelope drift
+from one file.
+
+## Review-blocker history
+
+Initial draft of `outbox-event.md` used snake_case field names
+(`created_at`, `next_attempt_at`, `last_error`, `completed_at`)
+and invented status values that did not exist in
+`backend/lib/outbox_store.js`. The live code emits camelCase
+fields (`createdAt`, `nextAttemptAt`, `lastError`, `updatedAt` —
+no separate completion stamp) and exactly three status values
+(`pending | completed | failed`).
+
+**Fix in this PR** — `docs/schemas/outbox-event.md` rewritten
+line-by-line against the canonical record built by
+`enqueueActionOutbox` in `backend/lib/outbox_store.js`. Status
+set, field set, and per-type payload/result shapes match the
+live drainers (`note_capture`, `email_compose`,
+`calendar_compose`).
+
+**Gating** — `schema-doc-backend-drift` pre-flight rule (#257)
+is now clean for `outbox-event.md`.
+
+## Followups (not in this PR)
+
+- Pre-flight rule that flags `backend/lib/*.js` exporting a route
+  whose envelope is not referenced in any `docs/schemas/*.md`.
+- Optional `--check` mode for `scripts/v1_status.mjs` that fails
+  CI when an envelope changes without a schema-doc update.
+
+### T-schema-docs-batch-4 — Schema doc batch 4 — talk-errors + talk-turn-stats + block-signal-history + fountain-export + agent-events
+- **Owner:** claude
+- **Branch:** claude/T-schema-docs-batch-4
+- **Pillar:** infra (schema discipline)
+- **Status:** merged
+
+## Scope
+
+Adds 5 new envelope/record docs under `docs/schemas/`:
+
+- `talk-errors.md` — `GET /talk/errors` (talk_error_counter
+  envelope) — SAFE-PUBLIC ops surface.
+- `talk-turn-stats.md` — `GET /talk/stats` (talk_turn_stats
+  aggregate envelope) — SAFE-PUBLIC ops surface.
+- `block-signal-history.md` — `GET /memory/block-signal/history` — the
+  PER-USER bounded history for the V1 line 49 surface.
+- `fountain-export.md` — `POST /screenplay/export/fountain`
+  with ordering invariants pinned by v1_screenplay_smoke (#231).
+- `agent-events.md` — record shape for
+  `docs/agent-events-*.jsonl` (the live event lane both agents
+  emit on every PR state change).
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: extends schema discipline to the operator ops
+  surfaces and to the agent-events JSONL record format. iOS
+  doesn't consume the ops envelopes, but Codex's coord refresh
+  reads agent-events — having that record format canonicalized
+  prevents kind-name drift.`
+
+## Verification
+
+- All 5 docs follow the schema-doc pattern (Endpoint, Schema
+  version, Owner, Access-control posture, Fields, Errors,
+  Invariants, Compatibility, Changelog).
+- `docs/schemas/INDEX.md` updated for all 5 new docs.
+- `node scripts/pre_flight.mjs` passed.
+- `node scripts/agent_event.mjs stats` passed.
+- `git diff --check` passed.
+- No live route is touched.
+
+## Done when
+
+5 new schema docs land.
+
+## Followups (not in this PR)
+
+- Wire `talk-errors` and `talk-turn-stats` references into
+  `docs/runbook-v1-smoke.md` if/when the ops dashboard becomes
+  a V1 surface.
+
+## Self-audit / docs-vs-code revision
+
+Initial drafts of three docs in this batch were drifted from the
+live code — same class as Codex's #245 blocker. Self-audited
+before re-requesting review and rewrote line-by-line against
+the routes:
+
+- **`block-signal-history.md`** — wrong endpoint
+  (`/block-signal/history` → `/memory/block-signal/history`),
+  wrong field set (`items[]` / `atMs` / `confidence` / `turn_id`
+  / `history_cap` / `observed_at` → `entries[]` / `at` / `score`
+  / `level` plus `counts.byLevel` / `newestAt` / `oldestAt`),
+  wrong level set (`low|flow|pending|block` → `low|medium|high`).
+  Rewritten against `summarizeHistory()` in
+  `backend/lib/block_signal_history_route.js`.
+- **`fountain-export.md`** — wrong method+path
+  (`GET /screenplays/{id}/export?format=fountain` →
+  `POST /screenplay/export/fountain`), wrong response shape
+  (invented `project_id`/`version_id`/`fountain_text`/`scene_count`/etc.
+  → live `{ schemaVersion: 1, fountain: "..." }` with an
+  alternate raw-text mode via `Accept: text/plain`). Rewritten
+  against `mountFountainExportRoute` in
+  `backend/lib/fountain_export_route.js`.
+- **`talk-turn-stats.md`** — wrong endpoint path
+  (`/talk/turn/stats` → `/talk/stats`). Field set otherwise
+  matched.
+
+The `talk-errors.md` doc audited clean against the live code.
+`agent-events.md` was adjusted during Codex supervisor review to
+match `scripts/agent_event.mjs`: `comment` and `pr` are optional
+at the validator level, and `review_blocker` requires
+`blocker_kind`.
 
 ### T-schema-docs-scaffold — Bootstrap docs/schemas/ with README + 3 first envelope docs
 - **Owner:** claude
@@ -3195,6 +3891,133 @@ production branch through a small fixture.
 payload; existing clients reading `error` still work; `npm test`
 green.
 
+### T-talk-error-counter-zero-fix — Fix talk_error_counter falsy-zero bug in errorRatePerHour math
+- **Owner:** claude
+- **Branch:** claude/T-talk-error-counter-zero-fix
+- **Pillar:** infra (bug fix)
+- **Status:** review
+
+## Scope
+
+Two-character fix in `backend/lib/talk_error_counter.js`: change
+`earliestStampedAt || now` to `earliestStampedAt ?? now` (and the
+same for `earliestStampedAt || 0` in the `sinceMs` field).
+
+Plus a regression test under
+`backend/tests/talk_error_counter_zero_timestamp.test.mjs` that
+verifies the rate-per-hour math is sane for an event series
+starting at `now=0`.
+
+## Bug found via
+
+Writing `T-deeper-lib-tests-batch-3` (#254) — the
+`errorRatePerHour` test with events starting at time=0 produced
+21600 instead of ~6. Root cause traced to:
+
+```js
+const observationStartMs = since !== null && Number.isFinite(since)
+  ? since
+  : (earliestStampedAt || now);
+```
+
+`earliestStampedAt = 0` (legitimate first event at epoch 0 or via
+test fixture). `0 || now` evaluates to `now` because 0 is falsy.
+Then `(now - observationStartMs) = 0`, the `Math.max(1/3600, …)`
+floor kicks in, and the rate is `total / (1/3600) = total × 3600`.
+
+## Fix
+
+Use nullish-coalescing (`??`) so `0` is preserved:
+
+```js
+const observationStartMs = since !== null && Number.isFinite(since)
+  ? since
+  : (earliestStampedAt ?? now);
+```
+
+Same change for `sinceMs: ... (earliestStampedAt ?? 0)` for
+consistency (the existing `|| 0` happened to be correct by
+accident there).
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: corrects errorRatePerHour when the first event
+  arrives at time=0. The ops dashboard for /talk/errors keys on
+  this rate; a 3600× overstatement on the first event would have
+  triggered a false alarm.`
+
+## Verification
+
+- New test: `backend/tests/talk_error_counter_zero_timestamp.test.mjs`
+  pins the rate at ~6/hour for 6 events over 1 hour starting at
+  t=0. Before fix: rate=21600. After fix: rate=6.
+- Existing 16 smoke tests in
+  `backend/tests/talk_error_counter.test.mjs` still pass.
+- Total: 18/18 pass.
+
+## Done when
+
+Fix + regression test ship together. The 10 deeper tests in #254
+remain green (test was written against the pre-fix behavior using
+a nonzero baseline, so it stays passing after the fix).
+
+### T-talk-response-doc-drift-fix — Remove non-emitted fields from talk-response.md
+- **Owner:** claude
+- **Branch:** claude/T-talk-response-doc-drift-fix
+- **Pillar:** infra (schema discipline)
+- **Status:** merged
+
+## Scope
+
+Self-audit caught two fields in `docs/schemas/talk-response.md`
+that are not emitted by the live `handleTalkRequest` in
+`backend/index.js`:
+
+- `talk_status` — claimed as `yes` (required) with enumerated
+  values `"ok" | "recovered" | "degraded" | "streaming"`. Not
+  in the response body. The string `talk_status` does appear in
+  `backend/lib/ops_metrics_route.js` where the ops metrics
+  aggregator computes a status across saved turns, but it is
+  NOT a per-turn field in the `/talk` response.
+- `recovery_applied` — claimed as `optional`. Not present
+  anywhere in the codebase.
+
+## Fix
+
+- Removed both rows from the response-fields table.
+- Removed the `talk_status` entry from the sample JSON.
+- Removed the `talk_status` line from the compatibility rules.
+- Added a changelog entry documenting the drift fix and pointing
+  at where the names came from (ops metrics aggregation, not the
+  per-turn response).
+
+## V1 pillar / effect
+
+- `V1 pillar: talk`
+- `V1 effect: corrects the canonical envelope doc for the V1
+  talk surface. Strict-decode iOS clients keying on these names
+  would have crashed on missing-key. Closes a latent blocker
+  before iOS bumps into it.`
+
+## Verification
+
+- `grep "talk_status\|recovery_applied" backend/index.js` →
+  no matches in the /talk response builder.
+- `grep "talk_status" backend/lib/ops_metrics_route.js` →
+  matches; this is where the name lives, in a different surface.
+- Pre-flight clean.
+
+## Done when
+
+Doc shipped, no claimed field that isn't emitted.
+
+## Followups (not in this PR)
+
+- If a future Phase 7b extraction adds `talk_status` /
+  `recovery_applied` to the response, the doc + the schema-
+  doc-backend-drift rule should land in the same PR.
+
 ### T-talk-turn-meta-contract-snapshot — Pin /talk/turn/:turnId response key set + error codes
 - **Owner:** claude
 - **Branch:** claude/T-talk-pipeline-error-class-snapshot
@@ -3226,6 +4049,51 @@ runs fast and deterministic; no real talk pipeline state required.
 
 `backend/tests/talk_turn_meta_contract.test.mjs` covers the four
 contract surfaces; `npm test` green.
+
+### T-talk-turn-rate-limit-deeper — Deeper tests for talk_turn_rate_limit
+- **Owner:** claude
+- **Branch:** claude/T-talk-turn-rate-limit-deeper
+- **Pillar:** infra (test coverage)
+- **Status:** review
+
+## Scope
+
+Ships `backend/tests/talk_turn_rate_limit_deeper.test.mjs` — 11
+deeper tests beyond the existing 11 smoke tests.
+
+### Targets
+
+- LRU eviction triggers exactly at `capCacheEntries`.
+- Per-key isolation (one exhausted key doesn't deny another).
+- `retryAfterMs` math (positive when denied; ≈ 1/refillPerSec
+  when fully exhausted).
+- Refill continuity (accumulates between attempts).
+- Refill clamps at `capacity`.
+- `reset()` clears all buckets.
+- `inspect()` returns null for unknown keys.
+- Empty/null/undefined key returns `missing_key` reason.
+- Factory rejects invalid `refillPerSec` + `capacity`.
+
+## V1 pillar / effect
+
+- `V1 pillar: talk`
+- `V1 effect: closes deeper coverage gap for the token-bucket
+  rate limiter. The GET /talk/turn/:turnId contract (PR #125) is
+  permissive on reads — this limiter is the planned burst guard.
+  Deterministic tests prevent silent regression of the bucket
+  semantics.`
+
+## Verification
+
+```
+node --test backend/tests/talk_turn_rate_limit.test.mjs backend/tests/talk_turn_rate_limit_deeper.test.mjs
+```
+
+→ 11 smoke + 11 deeper = 22/22 pass.
+
+## Done when
+
+deeper test file ships and passes alongside the existing smoke.
 
 ### T-talk-turn-rate-limit-helper — Pure token-bucket rate limiter for talk-turn reads
 - **Owner:** claude
@@ -3784,6 +4652,89 @@ the V1 smoke chain on every gate run.
   files (each PR can include the line as it ships).
 - Once the V1 doc has more checklist items closed, audit the smoke
   fixtures and add new ones to the canon chain.
+
+### T-v1-status-reporter — V1 status reporter script
+- **Owner:** claude
+- **Branch:** claude/T-v1-status-reporter
+- **Pillar:** infra (V1 checklist visibility)
+- **Status:** merged
+
+## Scope
+
+Ships `scripts/v1_status.mjs` — a tiny zero-dep Node script that
+parses `docs/v1-definition.md` and emits a single-screen status
+report of the V1 checklist:
+
+- Overall completion: `N/M (P%)`.
+- Per-pillar table: Done / Total / % / next remaining item.
+- Full "remaining work by pillar" listing under the table.
+- `--json` for machine-readable output (used by future tooling).
+- `--pillar=<slug-or-substring>` filter for focusing on one pillar
+  (e.g. `--pillar=talk`, `--pillar=ios`, `--pillar=memory`).
+
+## Why this is parallel-safe
+
+Pure read of `docs/v1-definition.md` + stdout. Does not touch
+`coordination.json`, `claude-inbox/`, `backend/`, or any live
+route. Cannot conflict with any decomp PR in flight.
+
+## Usage
+
+```
+node scripts/v1_status.mjs            # markdown table + remaining
+node scripts/v1_status.mjs --json     # machine-readable
+node scripts/v1_status.mjs --pillar=talk
+```
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: infrastructure for every V1 checklist item — gives
+  both agents (and the human) a single command that reports V1
+  status without scrolling the doc. Closes the "where do we stand
+  on V1?" question that currently requires reading docs/v1-
+  definition.md top to bottom.`
+
+## Verification
+
+- `node scripts/v1_status.mjs` runs from repo root and emits the
+  overall total, per-pillar table, and remaining-work listing.
+- `node scripts/v1_status.mjs --json` emits valid JSON with
+  `overall`, `pillars[]`, and `sourcePath`.
+- `node scripts/v1_status.mjs --pillar=talk` narrows to one pillar.
+- Manual: counts cross-check against the `- [x]` / `- [ ]` lines
+  in `docs/v1-definition.md`.
+
+## Done when
+
+Script ships, three invocations work, task file lands.
+
+## Followups (not in this PR)
+
+- Optional CI hook that emits the V1 status as a PR comment when
+  `docs/v1-definition.md` changes. Out of scope here — Codex owns
+  PR-comment surfaces.
+- Optional `--diff <ref>` flag that shows which checkboxes flipped
+  between two refs. Nice to have, not load-bearing.
+
+## Review-blocker history
+
+Initial v1 of this script truncated checklist items whose text
+wrapped onto a continuation line (e.g.
+`- [x] Character mentions, ... twists, and block` /
+`      history have backend/iOS surfaces.`). The parser stopped
+at the first line and dropped the tail silently.
+
+**Fix in this PR** — `scripts/v1_status.mjs` now collects
+indented (≥ 2 spaces) non-checkbox / non-heading lines that
+follow a checkbox into the same item, finalizing on the next
+checkbox, heading, blank, or EOF.
+
+**Regression test in this PR** — `scripts/v1_status.test.mjs`
+includes a `wrapped checkbox text is joined into a single item`
+assertion that pins the full text of an actual wrapped item
+from `docs/v1-definition.md` (the iOS-release-readiness "Current
+iOS build ... after the next app-visible feature." line).
 
 ### T-v1-three-smoke-fixtures — V1 smoke fixtures — screenplay export + memory recall + realtime failover
 - **Owner:** claude
@@ -4844,5 +5795,35 @@ Claude can see the directive from both GitHub and `agent_next`.
   - Passed, no findings.
 - `git diff --check`
   - Passed.
+
+### T96-batch-coordination-refresh — Refresh coordination after supervisor merge train
+- **Owner:** codex
+- **Branch:** codex/T96-batch-coordination-refresh
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Refresh the coordination state after the supervisor merge train
+that landed PRs #238, #243, #245, #250, #251, #253, #256,
+#259, and #261.
+
+## Done when
+
+- `docs/coordination.json` records merged state for the landed
+  PRs.
+- Stale Claude-owned blockers for #238, #243, and #245 are
+  cleared.
+- `docs/codex-inbox.md` tells Claude the only remaining blockers
+  are human/policy gates unless Codex opens a new review blocker.
+- Coordination validation and main health checks are green.
+
+## Verification
+
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex`
+- `node scripts/pre_flight.mjs`
+- `node --test scripts/pre_flight.test.mjs`
+- `cd backend && npm run eval:v1-smokes`
 
 <!-- END AUTOGEN active-tasks -->

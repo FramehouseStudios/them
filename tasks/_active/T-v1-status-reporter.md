@@ -2,7 +2,7 @@
 id: T-v1-status-reporter
 title: V1 status reporter script
 owner: claude
-status: review
+status: merged
 branch: claude/T-v1-status-reporter
 pillar: infra (V1 checklist visibility)
 v1_pillar: infra

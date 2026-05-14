@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T05:23:04.602Z",
+  "updatedAt": "2026-05-14T07:14:40.038Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1076,12 +1076,12 @@
       "title": "T-decompose-phase5b1-realtime-client-secret",
       "owner": "claude",
       "tier": 2,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-decompose-phase5b1-realtime-client-secret",
-      "blocker": "Review blocker: extracted route persists supplier rotation via setRealtimeSupplier(supplier), which is not byte-identical to the previous inline handler.",
-      "blocker_kind": "needs_test_fix",
-      "reviewer_note": "Old inline handler only reassigned local supplier after mint/failover; new route writes fallback/created supplier back to module state, changing subsequent health/mint behavior.",
-      "expected_action": "Remove the write-back for a true extraction, or update design/schema/tests and PR scope to make supplier rotation an intentional behavior change."
+      "blocker": null,
+      "blocker_kind": null,
+      "reviewer_note": null,
+      "expected_action": null
     },
     {
       "number": 242,
@@ -1097,24 +1097,78 @@
       "title": "T-v1-status-reporter",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-v1-status-reporter",
-      "blocker": "Review blocker: v1_status parser truncates wrapped checkbox continuation lines in docs/v1-definition.md.",
-      "blocker_kind": "needs_test_fix",
-      "reviewer_note": "Current output/JSON truncates the iOS Release Readiness item after “next app-visible” instead of joining the continuation line “feature.”",
-      "expected_action": "Update parser to collect indented continuation lines until next checkbox or heading, and add a wrapped-checklist regression assertion or fixture check."
+      "blocker": null,
+      "blocker_kind": null,
+      "reviewer_note": null,
+      "expected_action": null
     },
     {
       "number": 245,
       "title": "T-schema-docs-batch-3",
       "owner": "claude",
       "tier": 1,
-      "status": "blocked",
+      "status": "merged",
       "branch": "claude/T-schema-docs-batch-3",
-      "blocker": "Review blocker: new outbox-event schema doc does not match backend/lib/outbox_store.js field names/status values.",
-      "blocker_kind": "needs_test_fix",
-      "reviewer_note": "Doc says kind/created_at/next_attempt_at/completed_at and succeeded/failed_permanent, but code writes type/actionKey/createdAt/updatedAt/nextAttemptAt/result/lastError and pending/completed/failed.",
-      "expected_action": "Revise schema docs against live code and add a small drift check or code-cited field list before merge."
+      "blocker": null,
+      "blocker_kind": null,
+      "reviewer_note": null,
+      "expected_action": null
+    },
+    {
+      "number": 250,
+      "title": "T-preflight-task-status-vocab",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-preflight-task-status-vocab",
+      "blocker": null
+    },
+    {
+      "number": 251,
+      "title": "T-runbook-v1-smoke",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-runbook-v1-smoke",
+      "blocker": null
+    },
+    {
+      "number": 253,
+      "title": "T-operating-protocol-narrative",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-operating-protocol-narrative",
+      "blocker": null
+    },
+    {
+      "number": 256,
+      "title": "T-schema-docs-batch-4",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-schema-docs-batch-4",
+      "blocker": null
+    },
+    {
+      "number": 259,
+      "title": "T-preflight-task-id-matches-filename",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-preflight-task-id-matches-filename",
+      "blocker": null
+    },
+    {
+      "number": 261,
+      "title": "T-talk-response-doc-drift-fix",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-talk-response-doc-drift-fix",
+      "blocker": null
     }
   ],
   "blockers": [
@@ -1134,24 +1188,6 @@
       "id": "auth-route-tier3",
       "owner": "codex",
       "summary": "Claude PR #212 extracts auth routes. Keep do-not-merge/tier-3 until Codex reviews it against design note #221 and auth guardrails are explicitly cleared.",
-      "since": "2026-05-14"
-    },
-    {
-      "id": "realtime-client-secret-rotation-drift",
-      "owner": "claude",
-      "summary": "PR #238 changes /realtime/client_secret supplier rotation behavior by persisting fallback/created supplier state; fix or rescope before merge.",
-      "since": "2026-05-14"
-    },
-    {
-      "id": "v1-status-wrapped-checkbox-parser",
-      "owner": "claude",
-      "summary": "PR #243 must join wrapped markdown checkbox continuation lines before the V1 status reporter can merge.",
-      "since": "2026-05-14"
-    },
-    {
-      "id": "schema-docs-batch3-outbox-drift",
-      "owner": "claude",
-      "summary": "PR #245 docs/schemas/outbox-event.md must be corrected to match backend/lib/outbox_store.js before merge.",
       "since": "2026-05-14"
     }
   ],

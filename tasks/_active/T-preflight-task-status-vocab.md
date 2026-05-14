@@ -2,7 +2,7 @@
 id: T-preflight-task-status-vocab
 title: Pre-flight rule task-status-vocabulary
 owner: claude
-status: review
+status: merged
 branch: claude/T-preflight-task-status-vocab
 pillar: infra (pre-flight rule)
 v1_pillar: infra

@@ -2,7 +2,7 @@
 id: T-operating-protocol-narrative
 title: docs/operating-protocol.md — narrative complement to AGENTS.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-operating-protocol-narrative
 pillar: infra (operator docs)
 v1_pillar: infra

@@ -2,7 +2,7 @@
 id: T-runbook-v1-smoke
 title: Operator runbook for the V1 smoke suite
 owner: claude
-status: review
+status: merged
 branch: claude/T-runbook-v1-smoke
 pillar: infra (operator docs)
 v1_pillar: infra

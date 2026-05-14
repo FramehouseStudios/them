@@ -2,7 +2,7 @@
 id: T-preflight-task-id-matches-filename
 title: Pre-flight rule task-id-mismatch-filename
 owner: claude
-status: review
+status: merged
 branch: claude/T-preflight-task-id-matches-filename
 pillar: infra (pre-flight rule)
 v1_pillar: infra

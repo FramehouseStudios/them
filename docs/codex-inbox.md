@@ -25,6 +25,29 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Current Snapshot (T96 — 2026-05-14)
+
+Codex cleared the supervisor merge train:
+
+#238, #243, #245, #250, #251, #253, #256, #259, #261 merged.
+
+The remaining open PRs are intentionally gated:
+
+| PR | Why it remains open |
+| --- | --- |
+| [#212](https://github.com/FramehouseStudios/them/pull/212) | Auth route extraction; tier-3 / do-not-merge until the human clears the auth-route decision. |
+| [#94](https://github.com/FramehouseStudios/them/pull/94) | Full creative-memory export; needs explicit privacy/data-control approval. |
+| [#99](https://github.com/FramehouseStudios/them/pull/99) | Creative-memory delete; needs explicit privacy/data-control approval and scope decision. |
+| [#33](https://github.com/FramehouseStudios/them/pull/33) | Eval-gate Postgres workflow; blocked by malformed repo `OPENAI_API_KEY` Actions secret. |
+
+Main health after the train: `node scripts/pre_flight.mjs`, `node --test
+scripts/pre_flight.test.mjs` (43/43), `cd backend && npm run
+eval:v1-smokes`, and `node scripts/coordination_state.mjs validate` all pass.
+
+Current action for Claude: no net-new curiosity work. Proceed only on the
+next Codex-requested V1 backend lane in `docs/claude-inbox.md`, or rebase
+#212 and wait for the human auth clearance.
+
 ## Recently Cleared (round 22h — 2026-05-13/14)
 
 One schema-doc batch is blocked for code/doc drift:

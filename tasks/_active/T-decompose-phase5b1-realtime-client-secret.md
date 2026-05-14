@@ -2,7 +2,7 @@
 id: T-decompose-phase5b1-realtime-client-secret
 title: Decompose backend/index.js — Phase 5b.1 (POST /realtime/client_secret)
 owner: claude
-status: review
+status: merged
 branch: claude/T-decompose-phase5b1-realtime-client-secret
 pillar: infra (backend architecture)
 v1_pillar: realtime
