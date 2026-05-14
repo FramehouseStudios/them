@@ -1463,6 +1463,71 @@ nonisolated struct BackendTurnReliabilitySnapshot {
     )
 }
 
+nonisolated struct BackendTalkMetricBucket: Codable, Hashable {
+    let median: Double
+    let p90: Double
+    let max: Double
+}
+
+nonisolated struct BackendTalkReplyRoleCounts: Codable, Hashable {
+    let preview: Int
+    let final: Int
+}
+
+nonisolated struct BackendTalkAgeBuckets: Codable, Hashable {
+    let last5min: Int
+    let last1h: Int
+    let last24h: Int
+    let older: Int
+}
+
+nonisolated struct BackendTalkStatsResponse: Codable, Hashable {
+    let schemaVersion: Int
+    let total: Int
+    let audioDurationMs: BackendTalkMetricBucket
+    let transcriptChars: BackendTalkMetricBucket
+    let replyChars: BackendTalkMetricBucket
+    let uniqueUserCount: Int
+    let uniqueSessionCount: Int
+    let replyRoleCounts: BackendTalkReplyRoleCounts
+    let authoritativePageTextRate: Double
+    let syncReadyRate: Double
+    let ageBuckets: BackendTalkAgeBuckets
+    let newestCreatedAtMs: Double
+    let oldestCreatedAtMs: Double
+
+    var diagnosticsSummary: String {
+        guard total > 0 else { return "0 turns recorded" }
+        let pageRate = Int((max(0, min(1, authoritativePageTextRate)) * 100).rounded())
+        let syncRate = Int((max(0, min(1, syncReadyRate)) * 100).rounded())
+        return "\(total) turns, \(pageRate)% page text, \(syncRate)% sync ready, p90 audio \(Int(audioDurationMs.p90)) ms"
+    }
+}
+
+nonisolated struct BackendTalkErrorsResponse: Codable, Hashable {
+    let schemaVersion: Int
+    let total: Int
+    let counts: [String: Int]
+    let lastOccurrence: [String: Double]
+    let sinceMs: Double
+    let observedAtMs: Double
+    let errorRatePerHour: Double
+
+    var diagnosticsSummary: String {
+        guard total > 0 else { return "0 talk errors" }
+        let top = counts
+            .sorted { lhs, rhs in
+                if lhs.value == rhs.value { return lhs.key < rhs.key }
+                return lhs.value > rhs.value
+            }
+            .prefix(3)
+            .map { "\($0.key) \($0.value)" }
+            .joined(separator: ", ")
+        let rate = String(format: "%.1f", errorRatePerHour)
+        return "\(total) errors, \(rate)/hr\(top.isEmpty ? "" : " · \(top)")"
+    }
+}
+
 nonisolated enum BackendMemoryAPIError: LocalizedError {
     case invalidBaseURL
     case invalidResponse
@@ -2336,6 +2401,36 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(BackendOpsRouteManifestResponse.self, from: data)
+    }
+
+    func fetchTalkStats() async throws -> BackendTalkStatsResponse {
+        let request = try makeRequest(path: "/talk/stats")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        return try JSONDecoder().decode(BackendTalkStatsResponse.self, from: data)
+    }
+
+    func fetchTalkErrors(sinceMs: Double? = nil) async throws -> BackendTalkErrorsResponse {
+        var queryItems: [URLQueryItem] = []
+        if let sinceMs, sinceMs > 0 {
+            queryItems.append(URLQueryItem(name: "sinceMs", value: String(Int(sinceMs.rounded()))))
+        }
+        let request = try makeRequest(path: "/talk/errors", extraQueryItems: queryItems)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        return try JSONDecoder().decode(BackendTalkErrorsResponse.self, from: data)
     }
 
     private func fetchHealth(path: String) async throws -> BackendHealthStatus {

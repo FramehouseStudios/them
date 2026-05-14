@@ -2,7 +2,7 @@
 id: T84
 title: Surface talk health and error diagnostics in iOS
 owner: codex
-status: in-progress
+status: review
 branch: codex/T84-talk-health-diagnostics
 pillar: talk + ios
 ---
@@ -26,5 +26,8 @@ and diagnostic summaries, and the app has a Talk Diagnostics support sheet.
 
 ## Verification
 
-Run focused `themTests` for `BackendTalkDiagnosticsTests`, then run the
-available Swift/Xcode checks.
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO -only-testing:themTests/BackendTalkDiagnosticsTests`
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO -only-testing:themTests/DesignSystemGuardTests/testNewSwiftFilesDoNotBypassDesignSystemTokens -only-testing:themTests/BackendTalkDiagnosticsTests`
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
+- `xcodebuild build -project them.xcodeproj -scheme them -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO`
+- `git diff --check`
