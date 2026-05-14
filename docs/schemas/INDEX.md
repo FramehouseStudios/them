@@ -30,6 +30,7 @@ invariants, and compatibility rules for one envelope or record.
 | [screenplay-version.md](screenplay-version.md) | per-version record shape | PER-USER |
 | [fountain-export.md](fountain-export.md) | `POST /screenplay/export/fountain` request + response | PER-USER |
 | [fdx-export.md](fdx-export.md) | `POST /screenplay/export/fdx` request + response | PER-USER |
+| [screenplay-prompt-build.md](screenplay-prompt-build.md) | `POST /screenplay/prompt/build` preview envelope | PER-USER |
 
 ## Memory surface
 
