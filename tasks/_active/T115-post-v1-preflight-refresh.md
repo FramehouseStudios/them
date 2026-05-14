@@ -2,7 +2,7 @@
 id: T115
 title: Refresh queue after V1 preflight and schema guard
 owner: codex
-status: in-progress
+status: review
 branch: codex/T115-post-v1-preflight-refresh
 pillar: infra
 v1_pillar: infra
