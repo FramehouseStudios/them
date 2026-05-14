@@ -2,7 +2,7 @@
 id: T108
 title: Refresh coordination after T107 schema lane guard merge
 owner: codex
-status: review
+status: merged
 branch: codex/T108-post-t107-refresh
 pillar: infra
 v1_pillar: infra

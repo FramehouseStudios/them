@@ -2,7 +2,7 @@
 id: T106
 title: Warn agents when agent_next is run from a stale checkout
 owner: codex
-status: review
+status: merged
 branch: codex/T106-agent-next-stale-main-warning
 pillar: infra
 v1_pillar: infra

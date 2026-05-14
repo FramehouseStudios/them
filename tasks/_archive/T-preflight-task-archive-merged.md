@@ -2,7 +2,7 @@
 id: T-preflight-task-archive-merged
 title: pre-flight rule: warn when status:merged tasks linger in tasks/_active/
 owner: claude
-status: review
+status: merged
 branch: claude/T-preflight-task-archive-merged
 pillar: infra
 v1_pillar: infra

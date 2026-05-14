@@ -2,7 +2,7 @@
 id: T112
 title: Mark existing talk diagnostics and memory summary V1 surfaces complete
 owner: codex
-status: review
+status: merged
 branch: codex/T112-v1-diagnostics-memory-status-refresh
 pillar: living companion
 v1_pillar: ios
