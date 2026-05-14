@@ -841,6 +841,7 @@
 | T90                                            | V1 memory and realtime diagnostics in iOS                                                | codex  | review      |
 | T91                                            | Round 22f coordination refresh                                                           | codex  | review      |
 | T92                                            | Round 22g coordination refresh                                                           | codex  | review      |
+| T93                                            | Round 22h coordination refresh                                                           | codex  | in-progress |
 
 ## Active work — full detail (auto-generated)
 
@@ -4611,5 +4612,25 @@ Claude's next action is visible from `agent_next` without human copy/paste.
   - Passed.
 - `node scripts/decisions_queue_lint.mjs`
   - Passed.
+
+### T93 — Round 22h coordination refresh
+- **Owner:** codex
+- **Branch:** codex/T93-round22h-coordination-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+- Record PR #245 as blocked because the new outbox schema doc does not match
+  the live `backend/lib/outbox_store.js` record shape.
+- Append the live review-blocker event and refresh generated task state.
+
+## Done when
+
+`agent_next` points Claude at the schema-doc drift fix alongside #238/#243.
+
+## Verification
+
+- Not run yet.
 
 <!-- END AUTOGEN active-tasks -->
