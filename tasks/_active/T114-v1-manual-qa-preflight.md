@@ -2,7 +2,7 @@
 id: T114
 title: Add V1 manual QA checklist and TestFlight preflight artifact
 owner: codex
-status: in-progress
+status: review
 branch: codex/T114-v1-manual-qa-preflight
 pillar: mobile-first
 v1_pillar: ios

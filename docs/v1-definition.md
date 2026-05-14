@@ -78,8 +78,8 @@ Checklist:
       train.
 - [ ] Current iOS build and `themTests` are green after the next app-visible
       feature.
-- [ ] `smoke.sh` or an equivalent manual QA script covers the V1 path.
-- [ ] TestFlight preflight artifact names what is verified and what is parked.
+- [x] `smoke.sh` or an equivalent manual QA script covers the V1 path.
+- [x] TestFlight preflight artifact names what is verified and what is parked.
 - [ ] Human signs off on the V1 manual smoke before external review.
 
 ## PR Rule

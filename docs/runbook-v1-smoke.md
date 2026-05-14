@@ -162,6 +162,21 @@ node --test ../scripts/v1_voice_to_page_smoke.test.mjs
 The `.test.mjs` wrapper spawns the smoke and asserts exit 0 +
 expected output markers.
 
+## Human V1 QA Checklist
+
+The deterministic smokes do not replace the human pass through the app. Before
+TestFlight or external review, generate the manual QA checklist and preflight
+artifact:
+
+```
+node scripts/v1_manual_qa_checklist.mjs
+node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md
+```
+
+The checklist covers the four manual V1 paths that still require a person:
+voice-to-reply persistence, Studio save/export/reopen, creative-memory recall,
+and realtime primary/fallback behavior.
+
 ## How to interpret a failure
 
 1. **Run the failing smoke standalone** to see its full output:
