@@ -851,7 +851,7 @@
 | T109                                           | Refresh V1 checklist after Phase 7 design and realtime decomposition                                       | codex  | review      |
 | T110                                           | Prove realtime fallback status is user-visible                                                             | codex  | merged      |
 | T111                                           | Refresh coordination after Phase 7a and realtime fallback proof                                            | codex  | review      |
-| T112                                           | Mark existing talk diagnostics and memory summary V1 surfaces complete                                     | codex  | in-progress |
+| T112                                           | Mark existing talk diagnostics and memory summary V1 surfaces complete                                     | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6904,7 +6904,7 @@ metadata only.
 - **Owner:** codex
 - **Branch:** codex/T112-v1-diagnostics-memory-status-refresh
 - **Pillar:** living companion
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 

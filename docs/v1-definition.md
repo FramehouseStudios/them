@@ -21,7 +21,7 @@ retry states are visible enough for support without exposing creative content.
 Checklist:
 - [x] Backend `/talk` path exists and prompt assembly is centralized.
 - [x] iOS preserves saved talk replies across rate-limited metadata reads.
-- [ ] iOS shows talk health, stats, and error state without log spelunking.
+- [x] iOS shows talk health, stats, and error state without log spelunking.
 - [x] Talk pipeline route decomposition has a design note before Phase 7 code.
 - [ ] Manual smoke: record voice -> get reply -> hear reply -> saved turn.
 
@@ -50,7 +50,7 @@ Checklist:
       history have backend/iOS surfaces.
 - [x] Prompt assembly consumes persona, memory, session, accepted twists, and
       block signal in a pinned order.
-- [ ] iOS exposes a plain-language memory summary and refresh state.
+- [x] iOS exposes a plain-language memory summary and refresh state.
 - [ ] Human privacy decision is made for full memory export/delete.
 - [ ] Manual smoke: mention character -> later suggestion recalls them.
 
