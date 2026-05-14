@@ -165,5 +165,20 @@ mountExampleRoutes(app, {
 
 - [Decomposition spec](../../docs/specs/T-decompose-backend-index.md)
 - [Pre-flight checks](../../scripts/pre_flight.mjs)
-- [Phase 0 PR #183](https://github.com/FramehouseStudios/them/pull/183) — first extraction (`/health` + `/bridge`)
-- [Phase 3 PR #204](https://github.com/FramehouseStudios/them/pull/204) — screenplay companion routes
+- [V1 definition](../../docs/v1-definition.md) — every extraction PR must
+  declare a `V1 pillar` and `V1 effect`.
+
+### Accepted precedents
+
+Only phases that have **merged on `main`** count as accepted
+precedent for the pattern in this README:
+
+- [Phase 0 PR #183](https://github.com/FramehouseStudios/them/pull/183) — `/health` + `/bridge` (zero deps + accessor functions)
+- [Phase 1 PR #190](https://github.com/FramehouseStudios/them/pull/190) — `/ops/metrics` + `/ops/alerts` (safe-public posture)
+- [Phase 2a PR #192](https://github.com/FramehouseStudios/them/pull/192) — 5 read-only `/screenplay/projects/*` (per-user posture, 15 deps)
+- [Phase 2b PR #197](https://github.com/FramehouseStudios/them/pull/197) — 7 write `/screenplay/projects/*` (32 deps, full required-deps guard)
+- [Phase 3 PR #204](https://github.com/FramehouseStudios/them/pull/204) — `/screenplay/companion/state` + `/paginate` + `/revision-colors`
+
+Open / in-review PRs are NOT precedent. The lib pattern is set by
+what `main` actually carries. Once a phase merges, it becomes a
+reference for the next.
