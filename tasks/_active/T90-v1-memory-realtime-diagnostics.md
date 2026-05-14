@@ -2,7 +2,7 @@
 id: T90
 title: V1 memory and realtime diagnostics in iOS
 owner: codex
-status: in-progress
+status: review
 branch: codex/T90-v1-memory-realtime-diagnostics
 pillar: ios
 v1_pillar: ios
@@ -25,4 +25,9 @@ focused tests cover the new contracts.
 
 ## Verification
 
-- Not run yet.
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
+  - Passed, 98 tests.
+- `xcodebuild build -project them.xcodeproj -scheme them -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO`
+  - Passed.
+- `git diff --check`
+  - Passed.

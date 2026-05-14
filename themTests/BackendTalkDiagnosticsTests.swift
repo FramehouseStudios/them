@@ -85,6 +85,46 @@ final class BackendTalkDiagnosticsTests: XCTestCase {
         XCTAssertEqual(request.queryItems["sinceMs"], "1714838300000")
     }
 
+    func testFetchMemoryStatsDecodesContentFreeCounts() async throws {
+        let recorder = TalkDiagnosticsRequestRecorder()
+        TalkDiagnosticsURLProtocolStub.handler = { request in
+            recorder.record(request)
+            return TalkDiagnosticsHTTPStub(
+                status: 200,
+                headers: ["Content-Type": "application/json"],
+                body: Data(
+                    #"""
+                    {
+                      "schemaVersion": 1,
+                      "hasMemory": true,
+                      "counts": {
+                        "characters": 3,
+                        "charactersWithVoice": 2,
+                        "charactersWithTraits": 1,
+                        "toneSignals": 4,
+                        "habitSignals": 2
+                      },
+                      "lastUpdatedMs": 1714838400000
+                    }
+                    """#.utf8
+                )
+            )
+        }
+
+        let api = makeTalkDiagnosticsAPI()
+        let response = try await api.fetchMemoryStats()
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertTrue(response.hasMemory)
+        XCTAssertEqual(response.counts.characters, 3)
+        XCTAssertEqual(response.counts.charactersWithVoice, 2)
+        XCTAssertEqual(response.counts.charactersWithTraits, 1)
+        XCTAssertEqual(response.counts.toneSignals, 4)
+        XCTAssertEqual(response.counts.habitSignals, 2)
+        XCTAssertEqual(response.diagnosticsSummary, "3 characters · 2 voices · 1 trait sets · 4 tone signals · 2 habit signals")
+        XCTAssertEqual(recorder.requests.map(\.path), ["/memory/stats"])
+    }
+
     private func makeTalkDiagnosticsAPI() -> BackendMemoryAPI {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TalkDiagnosticsURLProtocolStub.self]

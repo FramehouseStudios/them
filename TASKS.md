@@ -834,7 +834,7 @@
 | T87                                            | Round 22c coordination refresh after memory and long-tail design notes              | codex  | review      |
 | T88                                            | Round 22d coordination refresh after V1 smoke fixture pack                          | codex  | review      |
 | T89                                            | Round 22e coordination refresh after schema docs batch 2                            | codex  | review      |
-| T90                                            | V1 memory and realtime diagnostics in iOS                                           | codex  | in-progress |
+| T90                                            | V1 memory and realtime diagnostics in iOS                                           | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -4240,7 +4240,7 @@ Refresh the repo-native coordination lane after #233 merged:
 - **Owner:** codex
 - **Branch:** codex/T90-v1-memory-realtime-diagnostics
 - **Pillar:** ios
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -4258,6 +4258,11 @@ focused tests cover the new contracts.
 
 ## Verification
 
-- Not run yet.
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
+  - Passed, 98 tests.
+- `xcodebuild build -project them.xcodeproj -scheme them -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO`
+  - Passed.
+- `git diff --check`
+  - Passed.
 
 <!-- END AUTOGEN active-tasks -->
