@@ -708,6 +708,97 @@ function checkTaskArchiveMerged() {
   }
 }
 
+function checkSchemaDocMissingEndpoint() {
+  // Schema docs in docs/schemas/*.md that declare an `## Endpoints`
+  // table must reference routes that actually exist in the backend
+  // code (backend/index.js or backend/lib/**/*.js). Otherwise the
+  // doc is documenting a removed / renamed / never-shipped route
+  // and will silently lie to iOS decoders.
+  //
+  // This is the reverse direction of checkSchemaDocBackendDrift —
+  // that check ensures the doc body matches canonical field names
+  // in the source; this check ensures the route itself exists.
+  //
+  // Detection strategy:
+  //   1. Walk docs/schemas/*.md (skip INDEX.md and README.md).
+  //   2. Find `## Endpoints` or `## Endpoint` section.
+  //   3. Parse the markdown table rows that follow.
+  //   4. Extract each (METHOD, /path) pair.
+  //   5. Search backend code for `app.<method>("/path"` or
+  //      `app.<method>('/path'`. Convert `:param` in the doc path
+  //      to a `:[a-zA-Z_]+` regex so param-name divergence between
+  //      the doc and the code doesn't trip the check.
+  //   6. If no matching registration exists, fire the warning.
+  //
+  // Skipped:
+  //   - Docs without an `## Endpoints` section (record-shape docs
+  //     like outbox-event.md, persona-snapshot.md).
+  //   - Header rows ("Method/Path/Returns") and the table
+  //     separator row.
+  //
+  // Warn-only by default; --strict makes the rule fail the run.
+  const schemasDir = path.join(repoRoot, "docs", "schemas");
+  if (!fs.existsSync(schemasDir)) return;
+  const docFiles = walkFiles(
+    schemasDir,
+    (p) => p.endsWith(".md") && !p.endsWith("INDEX.md") && !p.endsWith("README.md"),
+  );
+  // Build the haystack ONCE per pre-flight run (backend code).
+  const backendIndex = path.join(repoRoot, "backend", "index.js");
+  const backendLibDir = path.join(repoRoot, "backend", "lib");
+  const haystackFiles = [];
+  if (fs.existsSync(backendIndex)) haystackFiles.push(backendIndex);
+  if (fs.existsSync(backendLibDir)) {
+    haystackFiles.push(...walkFiles(backendLibDir, (p) => p.endsWith(".js")));
+  }
+  const haystack = haystackFiles
+    .map((p) => fs.readFileSync(p, "utf8"))
+    .join("\n");
+  const validMethods = new Set(["GET", "POST", "PUT", "DELETE", "PATCH"]);
+  for (const doc of docFiles) {
+    const text = fs.readFileSync(doc, "utf8");
+    const endpointsIdx = text.search(/^## Endpoints?\s*$/m);
+    if (endpointsIdx === -1) continue;
+    // Section ends at the next `## ` header.
+    const after = text.slice(endpointsIdx);
+    const sectionEnd = after.search(/\n## /);
+    const section = sectionEnd === -1 ? after : after.slice(0, sectionEnd);
+    const lines = section.split("\n");
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line.startsWith("|")) continue;
+      // Skip header + separator rows.
+      if (/^\|\s*Method\s*\|/i.test(line)) continue;
+      if (/^\|\s*-+\s*\|/.test(line)) continue;
+      const cells = line.split("|").map((c) => c.trim()).filter((c) => c !== "");
+      if (cells.length < 2) continue;
+      const method = cells[0].toUpperCase();
+      if (!validMethods.has(method)) continue;
+      // Path cell is markdown — strip backticks.
+      const pathCell = cells[1].replace(/`/g, "").trim();
+      if (!pathCell.startsWith("/")) continue;
+      // Convert :paramName to a regex that allows any param name.
+      const literal = pathCell.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = literal.replace(/:[a-zA-Z_][a-zA-Z0-9_]*/g, ":[a-zA-Z_][a-zA-Z0-9_]*");
+      const methodLower = method.toLowerCase();
+      // Allow whitespace / newlines between `app.method(` and the
+      // string literal — many routes split their args across lines
+      // (express.json after a newline, multi-line handler, etc.).
+      const search = new RegExp(
+        `app\\.${methodLower}\\(\\s*["'\`]${pattern}["'\`]`,
+      );
+      if (!search.test(haystack)) {
+        add(
+          "schema-doc-missing-endpoint",
+          path.relative(repoRoot, doc),
+          null,
+          `schema doc references ${method} ${pathCell}, but no app.${methodLower}("...") for that path exists in backend/index.js or backend/lib/*.js. Either the route was removed/renamed (update the doc) or it never shipped.`,
+        );
+      }
+    }
+  }
+}
+
 // ---------- orchestration ----------
 
 checkRouteJsonParsers();
@@ -717,6 +808,7 @@ checkConsoleLogInProductionLib();
 checkEvalDeterminismCoverage();
 checkSchemaVersionedEnvelopes();
 checkSchemaDocBackendDrift();
+checkSchemaDocMissingEndpoint();
 checkSchemaDocOnlyLane();
 checkMountRequiredDepsGuard();
 checkLibHasTest();

@@ -1015,3 +1015,158 @@ Body.
   // exits 0 (warn-only default).
   assert.equal(r.status, 0);
 });
+
+// ---------- schema-doc-missing-endpoint ----------
+
+function writeSchemaDoc(tmp, name, body) {
+  fs.mkdirSync(path.join(tmp, "docs", "schemas"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "docs", "schemas", name), body);
+}
+
+function writeBackendIndex(tmp, body) {
+  fs.mkdirSync(path.join(tmp, "backend"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "backend", "index.js"), body);
+}
+
+function writeBackendLibFile(tmp, name, body) {
+  fs.mkdirSync(path.join(tmp, "backend", "lib"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "backend", "lib", name), body);
+}
+
+test("[pre-flight] schema-doc-missing-endpoint: fires when documented route is not in backend", () => {
+  const tmp = tempRepo();
+  writeSchemaDoc(tmp, "ghost.md", `# ghost
+
+## Endpoints
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| POST | \`/ghost/route\` | 200 envelope |
+`);
+  writeBackendIndex(tmp, `app.get("/something-else", () => {});\n`);
+  const r = runIn(tmp);
+  assert.match(r.stderr, /schema-doc-missing-endpoint/);
+  assert.match(r.stderr, /POST \/ghost\/route/);
+  assert.match(r.stderr, /ghost\.md/);
+});
+
+test("[pre-flight] schema-doc-missing-endpoint: accepts a route registered in backend/lib/", () => {
+  const tmp = tempRepo();
+  writeSchemaDoc(tmp, "real.md", `# real
+
+## Endpoints
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| POST | \`/real/route\` | 200 envelope |
+`);
+  writeBackendLibFile(tmp, "real_route.js", `function mountRealRoute(app) {
+  app.post("/real/route", (req, res) => res.status(200).json({}));
+}
+export { mountRealRoute };
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /schema-doc-missing-endpoint/);
+});
+
+test("[pre-flight] schema-doc-missing-endpoint: matches multi-line app.method() registrations", () => {
+  const tmp = tempRepo();
+  writeSchemaDoc(tmp, "split.md", `# split
+
+## Endpoints
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| POST | \`/split/route\` | 200 envelope |
+`);
+  writeBackendLibFile(tmp, "split_route.js", `function mountSplitRoute(app) {
+  app.post(
+    "/split/route",
+    express.json({ limit: "2mb" }),
+    (req, res) => res.status(200).json({}),
+  );
+}
+export { mountSplitRoute };
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /schema-doc-missing-endpoint/);
+});
+
+test("[pre-flight] schema-doc-missing-endpoint: handles :param divergence between doc and code", () => {
+  const tmp = tempRepo();
+  writeSchemaDoc(tmp, "param-divergence.md", `# param-divergence
+
+## Endpoints
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| GET | \`/talk/turn/:turnId\` | meta envelope |
+`);
+  writeBackendLibFile(tmp, "talk_turn_meta_route.js", `function mountTalkTurnMeta(app) {
+  app.get("/talk/turn/:id", (req, res) => res.status(200).json({}));
+}
+export { mountTalkTurnMeta };
+`);
+  const r = runIn(tmp);
+  // Doc uses :turnId, code uses :id — rule treats both as wildcard
+  // params and matches.
+  assert.doesNotMatch(r.stderr, /schema-doc-missing-endpoint/);
+});
+
+test("[pre-flight] schema-doc-missing-endpoint: skips docs without an Endpoints section", () => {
+  const tmp = tempRepo();
+  writeSchemaDoc(tmp, "record-shape.md", `# record-shape
+
+## Field set
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| id | string | yes | record id |
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /schema-doc-missing-endpoint/);
+});
+
+test("[pre-flight] schema-doc-missing-endpoint: skips INDEX.md and README.md", () => {
+  const tmp = tempRepo();
+  writeSchemaDoc(tmp, "INDEX.md", `# INDEX
+
+## Endpoints
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| POST | \`/nonexistent\` | 200 |
+`);
+  writeSchemaDoc(tmp, "README.md", `# README
+
+## Endpoints
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| GET | \`/also-nonexistent\` | 200 |
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /schema-doc-missing-endpoint/);
+});
+
+test("[pre-flight] schema-doc-missing-endpoint: handles multiple endpoints per doc", () => {
+  const tmp = tempRepo();
+  writeSchemaDoc(tmp, "multi.md", `# multi
+
+## Endpoints
+
+| Method | Path | Verb | Returns |
+| --- | --- | --- | --- |
+| POST | \`/multi/exists\` | mutate | 200 |
+| POST | \`/multi/missing\` | mutate | 200 |
+`);
+  writeBackendLibFile(tmp, "multi_route.js", `function mountMulti(app) {
+  app.post("/multi/exists", (req, res) => res.status(200).json({}));
+}
+export { mountMulti };
+`);
+  const r = runIn(tmp);
+  // Should fire ONLY on /multi/missing.
+  assert.match(r.stderr, /\/multi\/missing/);
+  assert.doesNotMatch(r.stderr, /\/multi\/exists/);
+});
