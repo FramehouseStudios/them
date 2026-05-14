@@ -844,6 +844,7 @@
 | T103                                           | Refresh coordination after realtime Phase 5b.4 merge                                                       | codex  | merged      |
 | T104                                           | Refresh coordination after schema-only PR cleanup                                                          | codex  | merged      |
 | T105                                           | Refresh coordination after Phase 6 memories merge                                                          | codex  | review      |
+| T106                                           | Warn agents when agent_next is run from a stale checkout                                                   | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6590,6 +6591,37 @@ Refresh coordination after Codex reviewed, patched, and merged Phase 6
 - `git diff --check`
 
 Not run: iOS build/themTests, because this is a coordination-only refresh.
+
+### T106 — Warn agents when agent_next is run from a stale checkout
+- **Owner:** codex
+- **Branch:** codex/T106-agent-next-stale-main-warning
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Teach `scripts/agent_next.mjs` to warn when the current checkout is behind or
+diverged from `origin/main`, using only local git refs. This prevents agents
+from acting on stale `docs/claude-inbox.md` content after supervisor refreshes
+land on main.
+
+## Done When
+
+- `agent_next` text output includes a checkout warning when the local checkout
+  is behind or diverged from `origin/main`.
+- JSON output exposes the checkout status for machine readers.
+- Fixture-based tests remain deterministic and are not affected by the real
+  repo checkout.
+- A regression test covers the behind-`origin/main` warning.
+
+## Verification
+
+- `node --check scripts/agent_next.mjs`
+- `node --test scripts/agent_next.test.mjs`
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+- `git diff --check`
+
+Not run: iOS build/themTests, because this is coordination tooling only.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

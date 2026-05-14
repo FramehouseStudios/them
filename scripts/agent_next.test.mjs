@@ -78,6 +78,58 @@ function claudeInboxPath() {
   return file;
 }
 
+function runGit(cwd, args) {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  return r.stdout.trim();
+}
+
+function staleRepoPath() {
+  const dir = mkdtempSync(path.join(tmpdir(), "agent-next-stale-repo-"));
+  const docs = path.join(dir, "docs");
+  mkdirSync(docs);
+  writeFileSync(path.join(docs, "coordination.json"), JSON.stringify({
+    schemaVersion: 1,
+    updatedAt: "2026-05-14T20:00:00.000Z",
+    updatedBy: "test",
+    openPullRequests: [],
+    blockers: [],
+    decisionsPending: [],
+    endpointsAwaitingIosConsumer: [],
+  }, null, 2));
+  writeFileSync(path.join(docs, "claude-inbox.md"), [
+    "# Claude Inbox",
+    "",
+    "## Backend Work Codex Actually Wants Next",
+    "",
+    "| Priority | Request | Why it matters | Expected shape |",
+    "| --- | --- | --- | --- |",
+    "| 1 | Phase 7a talk pipeline guards/state extraction | Talk is the critical path. | Extract talk guards. |",
+    "",
+  ].join("\n"));
+  runGit(dir, ["init"]);
+  runGit(dir, ["config", "user.email", "agent-next-test@example.test"]);
+  runGit(dir, ["config", "user.name", "Agent Next Test"]);
+  runGit(dir, ["add", "docs"]);
+  runGit(dir, ["commit", "-m", "base"]);
+  const base = runGit(dir, ["rev-parse", "HEAD"]);
+  writeFileSync(path.join(docs, "coordination.json"), JSON.stringify({
+    schemaVersion: 1,
+    updatedAt: "2026-05-14T20:05:00.000Z",
+    updatedBy: "test",
+    openPullRequests: [],
+    blockers: [],
+    decisionsPending: [],
+    endpointsAwaitingIosConsumer: [],
+  }, null, 2));
+  runGit(dir, ["add", "docs/coordination.json"]);
+  runGit(dir, ["commit", "-m", "origin-main-ahead"]);
+  const ahead = runGit(dir, ["rev-parse", "HEAD"]);
+  runGit(dir, ["update-ref", "refs/remotes/origin/main", ahead]);
+  runGit(dir, ["reset", "--hard", base]);
+  return dir;
+}
+
 test("[agent-next] text output prioritizes Claude blockers", () => {
   const r = spawnSync("node", [script, "--role=claude", "--limit=2", "--no-events", `--state=${fixturePath()}`], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
@@ -144,4 +196,21 @@ test("[agent-next] human-gated PRs do not consume Claude WIP and inbox backlog b
   assert.match(r.stdout, /Phase 5b\.4 realtime call extraction/);
   assert.match(r.stdout, /Expected: Extract POST \/realtime\/call with byte-identical behavior and tests\./);
   assert.doesNotMatch(r.stdout, /Claude should clear existing blockers/);
+});
+
+test("[agent-next] warns when the checkout is behind origin/main", () => {
+  const repo = staleRepoPath();
+  const r = spawnSync("node", [
+    script,
+    "--role=claude",
+    "--limit=1",
+    "--no-events",
+  ], {
+    encoding: "utf8",
+    env: { ...process.env, AGENT_NEXT_REPO_ROOT: repo },
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Checkout Warning/);
+  assert.match(r.stdout, /behind origin\/main/);
+  assert.match(r.stdout, /Phase 7a talk pipeline guards\/state extraction/);
 });
