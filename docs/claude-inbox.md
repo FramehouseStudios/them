@@ -37,7 +37,8 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
    schema-doc-only PRs unless Codex asks; PRs #287/#289/#291/#292/#294 were
    closed as out-of-lane, and #293 merged only as a corrected Phase 7a design
    note. PR #299 was also closed as out-of-lane schema-only. PR #298 was
-   closed as premature until Phase 7a implementation lands.
+   closed as premature; Phase 7a has now landed, so reopen that idea only as a
+   fresh Phase 7b design note before implementation.
 
 ## Backend Work Codex Actually Wants Next
 
@@ -45,9 +46,9 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Phase 7a talk pipeline guards/state extraction | Talk is now the highest-risk V1 path after Phase 6 memories merged. | Use the merged, Codex-corrected #293 design note; extract only talk-state guards/helpers into `backend/lib/talk_state.js`, preserve response shapes/log prefixes/counter order, add focused guard tests, update `/ops/metrics` accessors, run `node scripts/pre_flight.mjs` plus backend tests. |
-| 2 | Phase 6.1 long-tail routes after Phase 7a | Long-tail cleanup is useful, but it should not outrank the talk guard seam. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
-| 3 | Phase 7b handler design only after Phase 7a lands | Handler extraction is valuable, but opening it before the guard seam creates queue noise. | Reopen the #298 idea only after Phase 7a implementation merges and Codex asks for the next talk sub-design. |
+| 1 | Phase 7b talk handler design note | Talk is the highest-risk V1 path, and Phase 7a guard extraction is now merged. Do not jump straight to code. | Reopen the #298 idea as a fresh design note only: exact handler boundary, state/deps passed into the handler, response-shape invariants, tests/evals, and rollback. No implementation in the design PR. |
+| 2 | Phase 7b talk handler implementation after Codex accepts the design | This is the next V1 voice-to-page backend seam after guards. | Implement only the accepted design. Preserve response envelopes/log prefixes/counter order, keep supplier glue out unless the design explicitly says otherwise, run `node scripts/pre_flight.mjs`, `node --test backend/tests/talk_*.test.mjs`, and backend `npm test`. |
+| 3 | Phase 6.1 long-tail routes after the Phase 7b design is accepted or parked | Long-tail cleanup is useful, but it should not outrank the talk handler decision. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
 | 4 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if a code PR changes an envelope, update its schema doc in the same PR. |
 | 5 | Rebase #212 only if the human clears the auth route decision | Auth extraction is still tier-3 and human-gated. | Keep `do-not-merge` until explicit auth clearance; if cleared, rebase on current main and rerun backend auth tests. |
 

@@ -768,7 +768,7 @@
 | T-decompose-phase5b3-turn-commit               | Decompose backend/index.js — Phase 5b.3 (/realtime/turn_commit)                                            | claude | merged      |
 | T-decompose-phase5b4-realtime-call             | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                                   | claude | review      |
 | T-decompose-phase6-memories                    | Decompose backend/index.js — Phase 6 (/memories/* cluster)                                                 | claude | review      |
-| T-decompose-phase7a-talk-state                 | Phase 7a — extract talk-state guards into backend/lib/talk_state.js                                        | claude | review      |
+| T-decompose-phase7a-talk-state                 | Phase 7a — extract talk-state guards into backend/lib/talk_state.js                                        | claude | merged      |
 | T-deeper-lib-tests-batch-2                     | Deeper tests for persona + utils + screenplay_store + outbox_store                                         | claude | review      |
 | T-deeper-lib-tests-batch-3                     | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats                             | claude | review      |
 | T-deeper-lib-tests-batch                       | Deeper direct tests for user_store (with planned followups for memory_store + user_auth)                   | claude | review      |
@@ -849,8 +849,8 @@
 | T107                                           | Block standalone schema-doc branches when the Claude inbox says they are out of lane                       | codex  | merged      |
 | T108                                           | Refresh coordination after T107 schema lane guard merge                                                    | codex  | review      |
 | T109                                           | Refresh V1 checklist after Phase 7 design and realtime decomposition                                       | codex  | review      |
-| T110                                           | Prove realtime fallback status is user-visible                                                             | codex  | review      |
-| T111                                           | Refresh coordination after Phase 7a and realtime fallback proof                                            | codex  | in-progress |
+| T110                                           | Prove realtime fallback status is user-visible                                                             | codex  | merged      |
+| T111                                           | Refresh coordination after Phase 7a and realtime fallback proof                                            | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -2698,7 +2698,7 @@ open until Phase 6 merges.
 - **Owner:** claude
 - **Branch:** claude/T-decompose-phase7a-talk-state
 - **Pillar:** infra (backend architecture)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -6845,7 +6845,7 @@ documentation only.
 - **Owner:** codex
 - **Branch:** codex/T110-realtime-fallback-v1-proof
 - **Pillar:** mobile-first
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -6874,7 +6874,7 @@ realtime UI contract.
 - **Owner:** codex
 - **Branch:** codex/T111-post-phase7a-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
