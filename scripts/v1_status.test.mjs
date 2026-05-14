@@ -99,3 +99,39 @@ test("[v1-status] --json output has the canonical envelope", () => {
   assert.equal(typeof out.overall.total, "number");
   assert.equal(typeof out.overall.pct, "number");
 });
+
+// ---------- --diff flag ----------
+
+test("[v1-status] --diff=HEAD against itself shows no changes", () => {
+  const r = spawnSync("node", [script, "--json", "--diff=HEAD"], {
+    encoding: "utf8",
+    cwd: repoRoot,
+  });
+  assert.equal(r.status, 0, `expected exit 0; got ${r.status}\n${r.stderr}`);
+  const out = JSON.parse(r.stdout);
+  assert.ok(out.diff, "expected diff block");
+  assert.equal(out.diff.ref, "HEAD");
+  assert.deepEqual(out.diff.flippedDone, []);
+  assert.deepEqual(out.diff.flippedUndone, []);
+  assert.deepEqual(out.diff.movedPillar, []);
+  assert.deepEqual(out.diff.added, []);
+  assert.deepEqual(out.diff.removed, []);
+});
+
+test("[v1-status] --diff with invalid ref exits non-zero with descriptive error", () => {
+  const r = spawnSync("node", [script, "--diff=__nonexistent_ref_xyz"], {
+    encoding: "utf8",
+    cwd: repoRoot,
+  });
+  assert.notEqual(r.status, 0, "expected non-zero exit on bad ref");
+  assert.match(r.stderr, /diff=__nonexistent_ref_xyz/);
+});
+
+test("[v1-status] text-mode --diff includes Diff vs <ref> header", () => {
+  const r = spawnSync("node", [script, "--diff=HEAD"], {
+    encoding: "utf8",
+    cwd: repoRoot,
+  });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /Diff vs HEAD:/);
+});
