@@ -109,6 +109,7 @@ import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_rou
 import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_routes.js";
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
+import { mountMemoriesRoutes } from "./lib/memories_route.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
@@ -27039,408 +27040,46 @@ app.post("/history/annotate_turn", express.json({ limit: "256kb" }), (req, res) 
   });
 });
 
-app.get("/memories", (req, res) => {
-  const limit = parseQueryLimit(req.query?.limit, 24, 120);
-  const sinceVersion = String(req.query?.sinceVersion || "").trim();
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const historyThreads = buildConversationHistoryThreads(
-    memory,
-    Math.max(12, Math.min(limit * 2, 140))
-  );
-  const backfillResult = maybeBackfillThemesFromHistory(
-    memory,
-    historyThreads,
-    Date.now(),
-    { trigger: "memories_read" }
-  );
-  if (backfillResult.applied && selected.ip && selected.ip !== "unknown") {
-    setPersistedUserMemoryForIp(selected.ip, memory, Date.now(), {
-      clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
-    });
-    console.log(
-      `[memories_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`
-    );
-  }
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const memories = buildMemoryCards(memory, historyThreads, limit);
-  const memoryQuality = buildMemoryQualitySnapshot(memory, memories, Date.now());
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  if (sinceVersion && sinceVersion === readMeta.stateVersion) {
-    return res.status(200).json({
-      source: selected.source,
-      source_ip: selected.ip,
-      assistant_name:
-        normalizeAssistantSelfName(memory?.assistantSelfName) || getAssistantSelfNameForIp(selected.ip),
-      user_name: normalizeUserPersonName(memory?.userPrimaryName),
-      relationship_depth_score: Number(memory?.relationshipDepthScore || 0),
-      behavior_mode: String(memory?.behaviorMode || "surface"),
-      cycle_index: Math.max(0, Number(memory?.cycleIndex || 0)),
-      season: Math.max(1, Number(memory?.season || 1)),
-      season_progress: clampUnit(memory?.seasonProgress, 0),
-      session_id: readMeta.sessionId,
-      state_version: readMeta.stateVersion,
-      last_updated_at: readMeta.lastUpdatedAt || null,
-      history_updated_at: readMeta.historyUpdatedAt || null,
-      memory_updated_at: readMeta.memoryUpdatedAt || null,
-      last_turn_id: readMeta.lastTurnId || null,
-      schema_version: readMeta.schemaVersion,
-      backend_build: readMeta.backendBuild,
-      backend_boot_id: readMeta.backendBootId,
-      is_delta: true,
-      delta_no_change: true,
-      memory_quality: memoryQuality,
-      memories: [],
-      conversation_samples: [],
-    });
-  }
-  if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
-    return res.status(304).end();
-  }
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    assistant_name:
-      normalizeAssistantSelfName(memory?.assistantSelfName) || getAssistantSelfNameForIp(selected.ip),
-    user_name: normalizeUserPersonName(memory?.userPrimaryName),
-    relationship_depth_score: Number(memory?.relationshipDepthScore || 0),
-    behavior_mode: String(memory?.behaviorMode || "surface"),
-    cycle_index: Math.max(0, Number(memory?.cycleIndex || 0)),
-    season: Math.max(1, Number(memory?.season || 1)),
-    season_progress: clampUnit(memory?.seasonProgress, 0),
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    is_delta: Boolean(sinceVersion),
-    delta_no_change: false,
-    memory_quality: memoryQuality,
-    memories,
-    conversation_samples: historyThreads.slice(0, Math.max(3, Math.min(12, limit))),
-  });
-});
-
-app.get("/memories/export", (req, res) => {
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const historyThreads = buildConversationHistoryThreads(memory, 280);
-  const memoryCards = buildMemoryCards(memory, historyThreads, 180);
-  const memoryQuality = buildMemoryQualitySnapshot(memory, memoryCards, Date.now());
-  const tasks = buildTaskSnapshot(memory, {
-    status: "all",
-    limit: TASKS_MAX_STORED,
-  });
-  const themes = sanitizeActiveThemes(
-    Array.isArray(memory.sessionThreads) && memory.sessionThreads.length
-      ? memory.sessionThreads
-      : memory.activeThemes,
-    Number(memory.turns || 0)
-  );
-  const exportedAt = Date.now();
-  const stamp = formatLocalDateStamp(exportedAt).replace(/-/g, "");
-  const filename = `clementine_memory_export_${stamp}_${Math.max(0, Number(memory.turns || 0))}.json`;
-  const exportPayload = {
-    exported_at: exportedAt,
-    source: selected.source,
-    source_ip: selected.ip,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    assistant_name:
-      normalizeAssistantSelfName(memory?.assistantSelfName) || getAssistantSelfNameForIp(selected.ip),
-    user_name: normalizeUserPersonName(memory?.userPrimaryName),
-    remembered_names: sanitizeRememberedPeople(
-      memory?.rememberedPeople,
-      USER_MEMORY_REMEMBERED_PEOPLE_MAX
-    ),
-    behavior_mode: String(memory?.behaviorMode || "surface"),
-    relationship_depth_score: Number(memory?.relationshipDepthScore || 0),
-    memory_quality: memoryQuality,
-    cycle_index: Math.max(0, Number(memory?.cycleIndex || 0)),
-    season: Math.max(1, Number(memory?.season || 1)),
-    season_progress: clampUnit(memory?.seasonProgress, 0),
-    themes,
-    memory_cards: memoryCards,
-    tasks: tasks.tasks,
-    history_threads: historyThreads,
-  };
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    memory_quality: memoryQuality,
-    filename,
-    exported_at: exportedAt,
-    export_json: `${JSON.stringify(exportPayload, null, 2)}\n`,
-  });
-});
-
-app.post("/memories/update", express.json({ limit: "256kb" }), (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const memory = sanitizePersistedSessionMemory(context.memory);
-  const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
-  const key = String(req.body?.key || "").trim();
-  const title = normalizeSnippet(req.body?.title ?? "", 84);
-  const summary = normalizeSnippet(req.body?.summary ?? "", 260);
-  const reason = normalizeSnippet(req.body?.reason ?? "", 220);
-  const mutation = updateMemoryCardInMemory(
-    memory,
-    {
-      cardId,
-      key,
-      title,
-      summary,
-      reason,
-    },
-    nowTs
-  );
-  const persisted = persistWritableMemoryContext(context, memory, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-  const historyThreads = buildConversationHistoryThreads(persisted, 160);
-  const cards = buildMemoryCards(persisted, historyThreads, 160);
-  const memoryQuality = buildMemoryQualitySnapshot(persisted, cards, nowTs);
-  const resolvedThemeKey = resolveThemeKeyFromMemoryCard(cardId, key);
-  const updatedCard = cards.find((card) => (
-    normalizeMemoryCardId(card.id) === normalizeMemoryCardId(mutation.cardId || cardId) ||
-    (resolvedThemeKey && String(card.key || "").trim().toLowerCase() === resolvedThemeKey)
-  )) || null;
-  const statusCode = mutation.ok ? 200 : 400;
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  console.log(
-    `[${rid}] memories_update status=${mutation.status} card=${normalizeMemoryCardId(cardId) || "none"} key=${resolvedThemeKey || "none"}`
-  );
-
-  return res.status(statusCode).json({
-    ok: Boolean(mutation.ok),
-    action: "update",
-    status: String(mutation.status || (mutation.ok ? "updated" : "failed")),
-    message: mutation.message || null,
-    memory_card: updatedCard,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    backend_boot_id: readMeta.backendBootId,
-    memory_quality: memoryQuality,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
-});
-
-app.post("/memories/forget", express.json({ limit: "256kb" }), (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const memory = sanitizePersistedSessionMemory(context.memory);
-  const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
-  const key = String(req.body?.key || "").trim();
-  const mutation = forgetMemoryCardInMemory(
-    memory,
-    { cardId, key },
-    nowTs
-  );
-  const persisted = persistWritableMemoryContext(context, memory, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-  const cards = buildMemoryCards(
-    persisted,
-    buildConversationHistoryThreads(persisted, 160),
-    160
-  );
-  const memoryQuality = buildMemoryQualitySnapshot(persisted, cards, nowTs);
-  const statusCode = mutation.ok ? 200 : 400;
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  console.log(
-    `[${rid}] memories_forget status=${mutation.status} forgotten=${String(mutation.forgottenId || cardId || "none")}`
-  );
-
-  return res.status(statusCode).json({
-    ok: Boolean(mutation.ok),
-    action: "forget",
-    status: String(mutation.status || (mutation.ok ? "forgotten" : "failed")),
-    message: mutation.message || null,
-    forgotten_id: String(mutation.forgottenId || cardId || ""),
-    theme_key: String(mutation.themeKey || ""),
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    backend_boot_id: readMeta.backendBootId,
-    memory_quality: memoryQuality,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
-});
-
-app.post("/memories/promote", express.json({ limit: "256kb" }), (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const memory = sanitizePersistedSessionMemory(context.memory);
-  const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
-  const key = String(req.body?.key || "").trim();
-  const title = normalizeSnippet(req.body?.title ?? "", 84);
-  const summary = normalizeSnippet(req.body?.summary ?? "", 260);
-  const reason = normalizeSnippet(req.body?.reason ?? "", 220);
-  const mutation = promoteMemoryCardToThemeInMemory(
-    memory,
-    { cardId, key, title, summary, reason },
-    nowTs
-  );
-  const persisted = persistWritableMemoryContext(context, memory, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-  const historyThreads = buildConversationHistoryThreads(persisted, 160);
-  const cards = buildMemoryCards(persisted, historyThreads, 160);
-  const memoryQuality = buildMemoryQualitySnapshot(persisted, cards, nowTs);
-  const resolvedThemeKey = resolveThemeKeyFromMemoryCard(mutation.cardId || "", mutation.themeKey || key);
-  const updatedCard = cards.find((card) => (
-    normalizeMemoryCardId(card.id) === normalizeMemoryCardId(mutation.cardId || "") ||
-    (resolvedThemeKey && String(card.key || "").trim().toLowerCase() === resolvedThemeKey)
-  )) || null;
-  const statusCode = mutation.ok ? 200 : 400;
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  console.log(
-    `[${rid}] memories_promote status=${mutation.status} card=${cardId || "none"} key=${resolvedThemeKey || "none"} created=${mutation.created ? "1" : "0"}`
-  );
-
-  return res.status(statusCode).json({
-    ok: Boolean(mutation.ok),
-    action: "promote",
-    status: String(mutation.status || (mutation.ok ? "promoted" : "failed")),
-    message: mutation.message || null,
-    memory_card: updatedCard,
-    theme_key: String(mutation.themeKey || resolvedThemeKey || ""),
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    backend_boot_id: readMeta.backendBootId,
-    memory_quality: memoryQuality,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
-});
-
-app.post("/memories/feedback", express.json({ limit: "256kb" }), (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const memory = sanitizePersistedSessionMemory(context.memory);
-  const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
-  const key = String(req.body?.key || "").trim();
-  const signal = normalizeMemoryQualitySignal(req.body?.signal ?? req.body?.feedback ?? "");
-  const note = normalizeSnippet(req.body?.note ?? req.body?.reason ?? "", 96);
-  const themeKey = resolveThemeKeyFromMemoryCard(cardId, key);
-  let mutation;
-  if (!themeKey) {
-    mutation = {
-      ok: false,
-      status: "not_editable",
-      message: "Only theme memories support quality feedback.",
-      themeKey: "",
-    };
-  } else if (signal === "none") {
-    mutation = {
-      ok: false,
-      status: "invalid_signal",
-      message: "Feedback signal must be hit or correction.",
-      themeKey,
-    };
-  } else {
-    const feedback = incrementThemeQualitySignal(
-      memory,
-      themeKey,
-      {
-        signal,
-        reason: note || "user_feedback",
-        amount: 1,
-        nowTs,
-        trigger: "feedback",
-        runUsefulnessLoop: true,
-      }
-    );
-    mutation = feedback.ok
-      ? {
-        ok: true,
-        status: signal,
-        message: null,
-        themeKey,
-      }
-      : {
-        ok: false,
-        status: feedback.status || "not_found",
-        message: "Memory card not found.",
-        themeKey,
-      };
-  }
-
-  const persisted = persistWritableMemoryContext(context, memory, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-  const historyThreads = buildConversationHistoryThreads(persisted, 160);
-  const cards = buildMemoryCards(persisted, historyThreads, 160);
-  const memoryQuality = buildMemoryQualitySnapshot(persisted, cards, nowTs);
-  const updatedCard = cards.find((card) => (
-    normalizeMemoryCardId(card.id) === normalizeMemoryCardId(cardId) ||
-    (themeKey && String(card.key || "").trim().toLowerCase() === themeKey)
-  )) || null;
-  const statusCode = mutation.ok ? 200 : 400;
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  console.log(
-    `[${rid}] memories_feedback status=${mutation.status} signal=${signal || "none"} card=${normalizeMemoryCardId(cardId) || "none"} key=${themeKey || "none"}`
-  );
-
-  return res.status(statusCode).json({
-    ok: Boolean(mutation.ok),
-    action: "feedback",
-    status: String(mutation.status || (mutation.ok ? "feedback" : "failed")),
-    message: mutation.message || null,
-    memory_card: updatedCard,
-    theme_key: String(mutation.themeKey || themeKey || ""),
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    backend_boot_id: readMeta.backendBootId,
-    memory_quality: memoryQuality,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
+// T-decompose-phase6-memories: 6 /memories/* routes moved to
+// lib/memories_route.js. Byte-identical with the previous
+// inline handlers. See docs/specs/T-decompose-backend-index.md
+// and the #228 design note. Schema docs: memories-list.md,
+// memories-mutate.md, memories-export.md (all already on main).
+mountMemoriesRoutes(app, {
+  parseQueryLimit,
+  createRequestId,
+  normalizeSnippet,
+  clampUnit,
+  selectMemoryRecordForRead,
+  resolveWritableMemoryContext,
+  sanitizePersistedSessionMemory,
+  persistWritableMemoryContext,
+  setPersistedUserMemoryForIp,
+  normalizeClientToken,
+  buildReadStateMeta,
+  applyReadStateHeaders,
+  ifNoneMatchStateHit,
+  buildConversationHistoryThreads,
+  buildMemoryCards,
+  buildMemoryQualitySnapshot,
+  maybeBackfillThemesFromHistory,
+  buildTaskSnapshot,
+  sanitizeActiveThemes,
+  sanitizeRememberedPeople,
+  formatLocalDateStamp,
+  normalizeAssistantSelfName,
+  getAssistantSelfNameForIp,
+  normalizeUserPersonName,
+  normalizeMemoryCardId,
+  updateMemoryCardInMemory,
+  forgetMemoryCardInMemory,
+  promoteMemoryCardToThemeInMemory,
+  resolveThemeKeyFromMemoryCard,
+  normalizeMemoryQualitySignal,
+  incrementThemeQualitySignal,
+  logger: console,
+  TASKS_MAX_STORED,
+  USER_MEMORY_REMEMBERED_PEOPLE_MAX,
 });
 
 app.get("/tasks", (req, res) => {
