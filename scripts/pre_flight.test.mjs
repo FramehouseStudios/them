@@ -118,6 +118,23 @@ export { mountFoo };
   assert.doesNotMatch(r.stderr, /route-needs-own-parser/);
 });
 
+test("[pre-flight] route with route-local express.text is NOT flagged", () => {
+  const route = `
+import express from "express";
+function mountFoo(app) {
+  app.post("/foo", express.text({ type: "text/plain" }), (req, res) => {
+    const x = String(req.body || "");
+    return res.send(x);
+  });
+}
+export { mountFoo };
+`;
+  const tmp = tempRepo({ withRouteFile: route });
+  const r = runIn(tmp);
+  assert.equal(r.status, 0);
+  assert.doesNotMatch(r.stderr, /route-needs-own-parser/);
+});
+
 test("[pre-flight] route with raw body reader (req.on data) is NOT flagged", () => {
   const route = `
 function mountFoo(app) {

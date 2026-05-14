@@ -48,8 +48,15 @@ function walkFiles(dir, predicate, out = []) {
 
 function checkRouteJsonParsers() {
   // For every backend/lib/*_route.js that references req.body, the
-  // same file must mount its own express.json() middleware on the
+  // same file must mount its OWN body parser middleware on the
   // route. Surfaced by Codex review on #90.
+  //
+  // Acceptable parsers (any one of):
+  //   - express.json({...})       — JSON bodies (most routes)
+  //   - express.urlencoded({...}) — form bodies
+  //   - express.text({...})       — text/SDP bodies (/realtime/call)
+  //   - express.raw({...})        — raw binary bodies
+  //   - req.on('data', ...)       — manual body reader
   const files = walkFiles(
     path.join(repoRoot, "backend", "lib"),
     (p) => p.endsWith("_route.js"),
@@ -59,6 +66,8 @@ function checkRouteJsonParsers() {
     if (!/\breq\.body\b/.test(text)) continue;
     const mountsJson = /express\.json\s*\(/.test(text)
       || /express\.urlencoded\s*\(/.test(text)
+      || /express\.text\s*\(/.test(text)
+      || /express\.raw\s*\(/.test(text)
       // Some routes intentionally read the raw body via req.on('data').
       // If they do AND don't reference req.body for parsed JSON access,
       // they're fine. Heuristic: the route is OK if every req.body
