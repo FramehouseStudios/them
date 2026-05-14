@@ -42,6 +42,12 @@ invariants, and compatibility rules for one envelope or record.
 | [memories-mutate.md](memories-mutate.md) | `POST /memories/{update,forget,promote,feedback}` mutation envelopes | PER-USER |
 | [memories-export.md](memories-export.md) | `GET /memories/export` full memory dump | PER-USER |
 
+## Tasks surface
+
+| Doc | Covers | Posture |
+| --- | --- | --- |
+| [tasks.md](tasks.md) | `GET /tasks` + `POST /tasks/update` envelopes | PER-USER |
+
 ## Realtime surface
 
 | Doc | Covers | Posture |
