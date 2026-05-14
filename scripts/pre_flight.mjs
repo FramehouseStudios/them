@@ -463,6 +463,77 @@ function checkTaskIdMatchesFilename() {
   }
 }
 
+function checkTaskStatusVocabulary() {
+  // Every active task file in tasks/_active/ that uses YAML
+  // front matter must declare a `status:` field, and that field
+  // must be one of the canonical or grandfathered values:
+  //   ready | ready-for-claude | in-progress | review | merged |
+  //   planned | open | blocked | parked | closed | draft
+  //
+  // File scope: any task file matching T<-or-digit>...
+  //   - T- prefix (Claude-style): T-foo, T-bar
+  //   - T<digit> prefix (Codex-style): T48, T85
+  // Both lanes are audited so the canonical status vocabulary
+  // is enforced across the whole repo. The original draft of
+  // this rule used startsWith("T-") which silently skipped 50
+  // Codex-numbered task files; the audit caught the gap.
+  //
+  // Grandfather: files without YAML front matter are pre-V1-rule.
+  // Same exception list as checkTaskV1Pillar (coord-refresh, etc.).
+  //
+  // This is determinism for status reporting — coord-refresh and the
+  // v1_status reporter both key on status to decide what to show.
+  // A typo (e.g. "shipped" instead of "merged") silently drops the
+  // task from rollups.
+  const activeDir = path.join(repoRoot, "tasks", "_active");
+  if (!fs.existsSync(activeDir)) return;
+  // Canonical set follows AGENTS.md/TASKS.md for the live workflow
+  // and keeps a few grandfathered coordination statuses so the rule
+  // catches typos without forcing an unrelated task-file migration.
+  const validStatuses = new Set([
+    "ready",
+    "ready-for-claude",
+    "in-progress",
+    "review",
+    "merged",
+    "planned",
+    "open",
+    "blocked",
+    "parked",
+    "closed",
+    "draft",
+  ]);
+  const files = walkFiles(activeDir, (p) => {
+    if (!p.endsWith(".md")) return false;
+    const base = path.basename(p);
+    return base.startsWith("T-") || /^T\d/.test(base);
+  });
+  for (const f of files) {
+    const text = fs.readFileSync(f, "utf8");
+    if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) continue;
+    if (/Refresh coordination after PR/i.test(text)) continue;
+    const m = text.match(/^status:\s*(\S+)/m);
+    if (!m) {
+      add(
+        "task-missing-status",
+        path.relative(repoRoot, f),
+        null,
+        `task file YAML front matter is missing a ${"`"}status:${"`"} field. Add one of: ${[...validStatuses].join(", ")}.`,
+      );
+      continue;
+    }
+    const status = (m[1] || "").trim().toLowerCase();
+    if (!validStatuses.has(status)) {
+      add(
+        "task-invalid-status",
+        path.relative(repoRoot, f),
+        null,
+        `status "${status}" is not one of: ${[...validStatuses].join(", ")}. Typos silently drop the task from status rollups.`,
+      );
+    }
+  }
+}
+
 // ---------- orchestration ----------
 
 checkRouteJsonParsers();
@@ -476,6 +547,7 @@ checkMountRequiredDepsGuard();
 checkLibHasTest();
 checkTaskV1Pillar();
 checkTaskIdMatchesFilename();
+checkTaskStatusVocabulary();
 
 const strict = process.argv.includes("--strict");
 
