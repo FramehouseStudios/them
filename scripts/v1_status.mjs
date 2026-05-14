@@ -22,6 +22,8 @@
 //   node scripts/v1_status.mjs --pillar=talk
 //   node scripts/v1_status.mjs --diff=<ref>      # diff vs git ref
 //                                                # e.g. main, HEAD~10, a SHA
+//   node scripts/v1_status.mjs --md-comment      # output suitable
+//                                                # for a PR comment
 //
 // --diff mode reads docs/v1-definition.md at the given git ref,
 // parses it the same way, and shows which checkboxes flipped
@@ -44,6 +46,7 @@ function arg(name, fallback) {
 }
 
 const wantJson = process.argv.includes("--json");
+const wantMdComment = process.argv.includes("--md-comment");
 const pillarFilter = (arg("pillar", "") || "").toLowerCase().trim();
 const diffRef = (arg("diff", "") || "").trim();
 
@@ -214,6 +217,42 @@ if (wantJson) {
   };
   if (diff) envelope.diff = diff;
   console.log(JSON.stringify(envelope, null, 2));
+  process.exit(0);
+}
+
+if (wantMdComment) {
+  // PR-comment-shaped output: a `## V1 status` heading, the
+  // headline (overall N/M P%), the per-pillar table, and an
+  // optional collapsed details block for the per-pillar
+  // remaining items. Designed to paste cleanly into a GitHub PR
+  // comment.
+  console.log(`## V1 status`);
+  console.log("");
+  console.log(`**Overall:** ${doneItems}/${totalItems} (${overallPct}%)`);
+  console.log("");
+  console.log("| Pillar | Done | Total | % | Next remaining |");
+  console.log("| --- | --- | --- | --- | --- |");
+  for (const p of filtered) {
+    const next = p.remaining[0] ? p.remaining[0].slice(0, 50) + (p.remaining[0].length > 50 ? "…" : "") : "—";
+    console.log(`| ${p.pillar} | ${p.done} | ${p.total} | ${p.pct}% | ${next} |`);
+  }
+  const anyRemaining = filtered.some((p) => p.remaining.length > 0);
+  if (anyRemaining) {
+    console.log("");
+    console.log("<details>");
+    console.log("<summary>Remaining work by pillar</summary>");
+    console.log("");
+    for (const p of filtered) {
+      if (p.remaining.length === 0) continue;
+      console.log(`**${p.pillar}** (${p.remaining.length} remaining):`);
+      console.log("");
+      for (const r of p.remaining) console.log(`- ${r}`);
+      console.log("");
+    }
+    console.log("</details>");
+  }
+  console.log("");
+  console.log(`<sub>Source: \`${path.relative(repoRoot, docPath)}\` — regenerate with \`node scripts/v1_status.mjs --md-comment\`</sub>`);
   process.exit(0);
 }
 
