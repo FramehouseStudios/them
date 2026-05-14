@@ -64,14 +64,14 @@ review should request the doc update before merge.
 
 - [`auth.md`](./auth.md) — `/auth/*` envelopes (success + error
   shapes).
+- [`talk-turn-meta.md`](./talk-turn-meta.md) — `GET /talk/turn/:turnId`.
+- [`ops-metrics.md`](./ops-metrics.md) — `GET /ops/metrics`.
 
 Future scaffolding to fill in:
 
-- `talk-turn-meta.md` — `GET /talk/turn/:turnId`.
 - `talk-response.md` — `POST /talk` response shape.
 - `screenplay-project.md` — `GET /screenplay/projects/:id`.
 - `screenplay-version.md` — `POST /screenplay/projects/:id/version`.
-- `ops-metrics.md` — `GET /ops/metrics`.
 - `ops-health-summary.md` — `GET /ops/health-summary`.
 - `realtime-health.md` — `GET /realtime/health`.
 - `realtime-client-secret.md` — `POST /realtime/client_secret`.
