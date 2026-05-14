@@ -46,17 +46,26 @@ Reads from a module-scope `Map`. Used as Express middleware on
 `POST /talk`.
 
 **Deps the factory needs**:
-- `getTalkRateLimiter()` — accessor to the live limiter (already
-  decomposed in `backend/lib/talk_turn_rate_limit.js`; the lib
-  already exports `createTalkTurnRateLimiter`)
-- `clientIp(req)` — IP resolution helper
-- `incrementErrorCounter(code)` — for the `rate_limited` count
-- `createRequestId()` — for log lines on denied requests
+- `clientIp(req)` — IP resolution helper.
+- `cleanupRateBuckets(now)` — preserves the current bucket-pruning
+  behavior and lets tests pin the call order.
+- `talkRateBuckets` — module-scope `Map` owned by the new lib.
+- `talkRateLimitWindowMs` / `talkRateLimitMax` — current
+  `TALK_RATE_LIMIT_WINDOW_MS` and `TALK_RATE_LIMIT_MAX` values.
+- `now: () => Date.now()` — testable clock.
+
+It does **not** use `incrementErrorCounter`, `createRequestId`, or
+`backend/lib/talk_turn_rate_limit.js` today. Do not introduce those
+deps in the extraction PR.
 
 **Factory shape**:
 ```js
 const guard = createTalkRateLimitGuard({
-  getTalkRateLimiter, clientIp, incrementErrorCounter, createRequestId,
+  clientIp,
+  cleanupRateBuckets,
+  talkRateLimitWindowMs: TALK_RATE_LIMIT_WINDOW_MS,
+  talkRateLimitMax: TALK_RATE_LIMIT_MAX,
+  now: () => Date.now(),
 });
 // guard is `(req, res, next) => ...`
 ```
@@ -70,8 +79,20 @@ exposed to `/ops/metrics` via `talkIdempotencyCacheSize()`.
 
 **Deps**:
 - Module-internal cache (lives in the lib's module scope).
-- `incrementErrorCounter(code)` — for the dedup count.
+- `isSpeculativePrepareRequest(req)`
+- `talkIdempotencyEnabled`
+- `normalizeIdempotencyKey(value)`
+- `resolveTalkSessionKey(req)`
+- `pruneTalkIdempotencyCache(now)`
+- `scaleBackplane`
+- `sendCachedTalkIdempotencyResponse(res, record)`
+- `recordTalkMetric(metric)`
+- `talkIdempotencyTtlMs`
 - `now: () => Date.now()` — testable clock.
+- `logger` with `log()` for the existing replay log line.
+
+Current duplicate-pending behavior is **409 with Retry-After: 1**.
+It does not wait for the first request to finish. Keep that behavior.
 
 **Accessor to ops/metrics**: `talkIdempotencyCacheSize()` —
 exported from the lib so the existing `/ops/metrics` route can
@@ -84,12 +105,22 @@ POSTs with the same session id either wait or 429 (configurable).
 Uses module-scope `Map<sessionId, Promise>` for the wait queue.
 
 **Deps**:
-- `getTalkSessionSerialPolicy()` — config accessor (wait vs 429)
-- `incrementErrorCounter(code)`
 - Module-internal `Map`
+- `isSpeculativePrepareRequest(req)`
+- `talkSessionSerialEnabled`
+- `resolveTalkSessionKey(req)`
+- `scaleBackplane`
+- `recordTalkMetric(metric)`
+- `createRequestId()`
+- timeout constants needed to preserve the distributed lock TTL:
+  `sttTimeoutMs`, `chatTimeoutMs`, `ttsTimeoutMs`
 
 **Accessor**: `talkInFlightBySessionSize()` — already used by
 `/ops/metrics`.
+
+Current same-session behavior is **409 with Retry-After: 1** for
+both local and distributed lock contention. There is no wait-vs-429
+policy today; do not add one in Phase 7a.
 
 ### 4. `talkConcurrencyGuard`
 
@@ -97,16 +128,19 @@ Uses module-scope `Map<sessionId, Promise>` for the wait queue.
 concurrent POST is rejected (503 or 429 per current code).
 
 **Deps**:
-- `getTalkConcurrencyLimit()` — config accessor
 - Module-internal counter
-- `incrementErrorCounter(code)`
+- `isSpeculativePrepareRequest(req)`
+- `talkMaxInFlight`
+- `recordTalkMetric(metric)`
 
 ## Mount pattern (post-extraction)
 
 The `mountTalkPipelineRoutes` factory in
-`backend/lib/talk_pipeline.js` today directly imports the four
-guards from `backend/index.js`. After Phase 7a, it imports them
-from `backend/lib/talk_state.js`:
+`backend/lib/talk_pipeline.js` already receives the guards through
+dependency injection. It must stay route-only. After Phase 7a,
+`backend/index.js` imports the guard factories/accessors from
+`backend/lib/talk_state.js`, creates the guards with live deps, and
+passes them into `mountTalkPipelineRoutes(app, { ... })`.
 
 ```js
 import {
@@ -131,9 +165,9 @@ Each guard is created with its deps at startup (in
 - **Counter increment order** stays identical. If
   `talkRateLimitGuard` increments before responding, the
   extracted guard does too.
-- **Log lines** preserve the same prefixes (`[talk_rate_limit]`,
-  `[talk_idempotency]`, etc.) so ops dashboards keying on those
-  prefixes keep working.
+- **Log lines** preserve the same prefixes where log lines exist
+  today. Do not invent new guard logs in Phase 7a; the idempotency
+  replay log stays `talk_idempotency replay=1 ...`.
 - **Ops/metrics accessors** (`talkIdempotencyCacheSize`,
   `talkInFlightBySessionSize`) keep their names. The
   `/ops/metrics` route imports from `talk_state.js` after the
@@ -145,10 +179,10 @@ Under `backend/tests/talk_state.test.mjs`:
 
 | Guard | Tests |
 | --- | --- |
-| `talkRateLimitGuard` | (1) bucket fairness across 5 keys; (2) burst within limit allowed; (3) over-limit → 429; (4) `incrementErrorCounter` called on deny; (5) limiter accessor called per request (no stale binding) |
-| `talkIdempotencyGuard` | (1) cache hit returns cached response; (2) cache miss → next(); (3) cache key from `Idempotency-Key` header; (4) cache size accessor matches; (5) concurrent same-key → one execution, others wait |
-| `talkSessionSerialGuard` | (1) two concurrent same-session → second waits OR 429s per config; (2) different sessions don't block each other; (3) `talkInFlightBySessionSize` accessor matches |
-| `talkConcurrencyGuard` | (1) N concurrent allowed; (2) N+1 → 503/429; (3) counter decrements on response end; (4) decrement even on error |
+| `talkRateLimitGuard` | (1) bucket fairness across 5 keys; (2) burst within limit allowed; (3) over-limit -> 429 with `Retry-After`; (4) cleanup runs before bucket read/write; (5) uses supplied `clientIp` and clock |
+| `talkIdempotencyGuard` | (1) cache hit returns cached response; (2) cache miss -> next(); (3) cache key from `X-Idempotency-Key` or `Idempotency-Key`; (4) cache size accessor matches; (5) pending duplicate -> 409 with `Retry-After: 1`; (6) finish handler removes unresolved pending record |
+| `talkSessionSerialGuard` | (1) same-session local lock -> 409; (2) same-session distributed lock denial -> 409; (3) different sessions don't block each other; (4) `talkInFlightBySessionSize` accessor matches; (5) release runs on `finish` and `close` |
+| `talkConcurrencyGuard` | (1) N concurrent allowed; (2) N+1 -> 503 with `Retry-After: 1`; (3) counter decrements on `finish`; (4) counter decrements on `close`; (5) speculative prepare bypasses the counter |
 
 Plus a cross-cutting test:
 
@@ -166,7 +200,9 @@ in the lib's module scope.
 
 Same byte-identical-rotation rule that Codex flagged in 5b.1:
 no `setTalkRateLimiter`, no `setTalkIdempotencyCache`, etc.
-Regression tests pin this rule.
+Regression tests pin this rule. Factory deps may include helpers,
+config values, metrics/logging hooks, and `scaleBackplane`, but not
+external setters for the guard-owned mutable state.
 
 ## What Phase 7a does NOT do
 
