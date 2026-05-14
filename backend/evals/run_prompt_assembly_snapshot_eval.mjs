@@ -126,6 +126,50 @@ check(
     !memoryOnly.includes("<block_signal>"),
 );
 
+// Drop-out: empty acceptedTwists array → no <accepted_twists> block.
+const twistsEmpty = buildModelPrompt({
+  persona: "P",
+  acceptedTwists: [],
+  userInput: "U",
+});
+check(
+  "drop-out: empty acceptedTwists array does not emit a block",
+  !twistsEmpty.includes("<accepted_twists>"),
+);
+
+// Drop-out: acceptedTwists present but blockCoaching empty → accepted_twists
+// appears, block_signal does not. Confirms the two new blocks are
+// independent.
+const twistsOnly = buildModelPrompt({
+  persona: "P",
+  acceptedTwists: [{ twist: { id: "tw-x", label: "Reversal", severity: "medium", hook: "He chooses to leave." } }],
+  userInput: "U",
+});
+check(
+  "drop-out: acceptedTwists alone emits <accepted_twists> but not <block_signal>",
+  twistsOnly.includes("<accepted_twists>") && !twistsOnly.includes("<block_signal>"),
+);
+
+// Drop-out: blockCoaching present but acceptedTwists null → block_signal
+// appears, accepted_twists does not. Symmetric of above.
+const coachingOnly = buildModelPrompt({
+  persona: "P",
+  blockCoaching: "Try a quick switch-perspective prompt.",
+  userInput: "U",
+});
+check(
+  "drop-out: blockCoaching alone emits <block_signal> but not <accepted_twists>",
+  coachingOnly.includes("<block_signal>") && !coachingOnly.includes("<accepted_twists>"),
+);
+
+// Determinism: same fixture → same prompt, twice.
+const a = buildModelPrompt(fixture);
+const b = buildModelPrompt(fixture);
+check(
+  "determinism: same fixture → same prompt across calls",
+  a === b,
+);
+
 if (!allOK) {
   console.error("prompt assembly snapshot eval: FAILED");
   process.exit(1);
