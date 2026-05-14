@@ -35,8 +35,10 @@ verbs, and per-route fields.
 
 **PER-USER**. Each mutation resolves the writable context via
 `resolveWritableMemoryContext(req, nowTs)` and persists via
-`persistWritableMemoryContext`. Same scope rules as
-`memories-list.md`.
+`persistWritableMemoryContext`. Scope matches `memories-list.md`:
+`X-Client-Token` session or token alias when present, otherwise
+the normalized requester IP. The inline handlers do not enforce
+an auth-only mutation gate today.
 
 ## Shared request fields
 
@@ -105,20 +107,29 @@ Extra response fields:
 
 Statuses: `forgotten` on success, `failed` on 400.
 
+This forgets one memory card/theme reference; it is not the
+full-data memory deletion endpoint.
+
 ### `POST /memories/promote`
 
 Extra response fields:
 - `memory_card`: the promoted card object (or null).
 - `theme_key`: theme-key the card was promoted under.
 
-Statuses: `promoted` on success (the lib also returns
-`created: 1` when the theme was new — surfaces in the
-`message` field), `failed` on 400.
+Statuses: `promoted_created` or `promoted_updated` on success,
+`failed` on 400.
 
 ### `POST /memories/feedback`
 
-Same shared envelope; no extra fields. Statuses: `recorded` on
-success, `failed` on 400.
+Extra response fields:
+- `memory_card`: the feedback target card object when it can be
+  rebuilt from the post-mutation state; otherwise `null`.
+- `theme_key`: theme key the feedback was recorded against, or
+  empty string on failure.
+
+Statuses: `hit` or `correction` on success, `not_editable`,
+`invalid_signal`, `not_found`, or another mutation failure verb
+on 400.
 
 ## Invariants
 
@@ -130,8 +141,9 @@ success, `failed` on 400.
   the pre-mutation state.
 - Read-state headers (`state_version`, etc.) update with the
   new persisted memory state version.
-- `update` + `promote` echo the updated card; `forget` does
-  not (the card is gone) — `forgotten_id` is the only echo.
+- `update`, `promote`, and `feedback` echo the rebuilt target
+  card when available; `forget` does not (the card is gone) —
+  `forgotten_id` is the only card echo.
 
 ## Compatibility rules
 
@@ -145,12 +157,11 @@ success, `failed` on 400.
 
 ## V1 alignment
 
-V1 line 54 ("Human privacy decision is made for full memory
-export/delete") gates the `forget` route's full-data-deletion
-semantics on a human policy call. The route ships now; the
-policy call is iOS-driven. The schema doc canonicalizes the
-backend response so the policy decision doesn't reshape the
-contract afterwards.
+V1 line 53 ("iOS exposes a plain-language memory summary and
+refresh state") needs edit/delete/promote/feedback controls for
+individual cards. Full memory export/delete remains a separate
+human-gated privacy surface; this schema only covers card-level
+mutations.
 
 ## Changelog
 
