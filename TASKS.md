@@ -841,6 +841,7 @@
 | T101-agent-event-kind-sync                     | Sync agent_event kinds with AGENTS protocol                                                                | codex  | merged      |
 | T102                                           | Refresh coordination after schema-doc merge train                                                          | codex  | merged      |
 | T103                                           | Refresh coordination after realtime Phase 5b.4 merge                                                       | codex  | review      |
+| T104                                           | Refresh coordination after schema-only PR cleanup                                                          | codex  | in-progress |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6365,6 +6366,27 @@ patched, and merged the Phase 5b.4 `POST /realtime/call` extraction.
 - `git diff --check`
 
 Not run: iOS build/themTests, because this is a coordination-only refresh.
+
+### T104 — Refresh coordination after schema-only PR cleanup
+- **Owner:** codex
+- **Branch:** codex/T104-schema-pr-cleanup-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh coordination after Codex closed out-of-lane schema-doc-only PRs and
+merged the corrected Phase 7a talk-guard design note.
+
+## Done When
+
+- `docs/coordination.json` marks #287/#289/#291/#292/#294 closed and #293
+  merged.
+- `docs/codex-inbox.md` and `docs/codex-claude-live-handoff.md` record the
+  cleanup.
+- `docs/claude-inbox.md` still points Claude at Phase 6 memories as the next
+  implementation task.
+- Verification commands and intentionally skipped iOS checks are recorded.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
