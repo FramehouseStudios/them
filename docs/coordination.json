@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T02:13:09.297Z",
+  "updatedAt": "2026-05-14T02:27:31.748Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -985,6 +985,24 @@
       "tier": 1,
       "status": "merged",
       "branch": "claude/T-decompose-phase5b-realtime-design",
+      "blocker": null
+    },
+    {
+      "number": 228,
+      "title": "T-decompose-phase6-memories-design",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase6-memories-design",
+      "blocker": null
+    },
+    {
+      "number": 229,
+      "title": "T-decompose-phase6-1-long-tail-design",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase6-1-long-tail-design",
       "blocker": null
     }
   ],

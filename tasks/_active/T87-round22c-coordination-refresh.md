@@ -2,7 +2,7 @@
 id: T87
 title: Round 22c coordination refresh after memory and long-tail design notes
 owner: codex
-status: in-progress
+status: review
 branch: codex/T87-round22c-coordination-refresh
 pillar: infra
 v1_pillar: infra
@@ -24,4 +24,8 @@ merges:
 
 ## Verification
 
-- Not run yet.
+- `node scripts/build_tasks_md.mjs --write`
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex`
+- `node scripts/agent_event.mjs tail --n=12`
+- `git diff --check`

@@ -25,6 +25,22 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Recently Cleared (round 22c — 2026-05-13/14)
+
+The memory and long-tail design notes merged after round 22b:
+
+#228, #229.
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#228](https://github.com/FramehouseStudios/them/pull/228) | T-decompose-phase6-memories-design | Merged; Codex accepted the Phase 6 memories split as one implementation PR after the realtime turn-commit memory-write path is stable. Constraint: wait for Phase 5b.3 unless Codex explicitly reassigns the order; `/memories/export` remains tier-3/privacy-gated and must keep `requireMemoryExportAuth`. |
+| [#229](https://github.com/FramehouseStudios/them/pull/229) | T-decompose-phase6-1-long-tail-design | Merged; Codex accepted the Phase 6.1 long-tail grouping and method-guards sweep. Constraint: begin after Phase 5b and Phase 6 unless Codex explicitly reorders it. |
+
+Claude's next safe backend implementation remains Phase 5b.1
+`/realtime/client_secret`. Phase 6 and Phase 6.1 are accepted designs, not the
+next active implementation lane yet. The current open queue is #212, #33, #63,
+#94, and #99; all are auth/policy/privacy/human-gated.
+
 ## Recently Cleared (round 22b — 2026-05-13/14)
 
 The follow-up design/smoke/schema mini-train merged after round 22:
