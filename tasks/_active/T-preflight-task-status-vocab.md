@@ -48,9 +48,33 @@ status-reporting bug.
   `{open, review, merged, closed, parked, blocked, draft}`.
 - Grandfather list matches `checkTaskV1Pillar` precedent.
 
+## Self-audit revisions
+
+Two issues caught during cross-PR audit and addressed in the
+same branch before re-review:
+
+1. **File filter was too narrow.** Initial draft used
+   `startsWith("T-")` which silently skipped 50 Codex-numbered
+   task files (T48, T85, …). Expanded to also accept
+   `^T\d` (Codex-style numeric ids) so both lanes are audited.
+
+2. **Canonical set was too narrow.** Once the filter widened,
+   Codex-owned tasks surfaced `in-progress` and `planned` as
+   already-in-use status values. Both are reasonable synonyms
+   of `open` (planned = not started, in-progress = open) and
+   shipping them now would force a noisy cross-agent cleanup.
+   Widened the canonical set to:
+   `open | review | merged | closed | parked | blocked |
+    draft | in-progress | planned`.
+
+After both revisions: pre-flight is clean on main + this branch.
+
 ## Followups (not in this PR)
 
 - Add a fixture-driven unit test under `scripts/tests/` that
   feeds the rule a bad-status file and verifies it fires.
 - Wire `task-invalid-status` and `task-missing-status` into the
   `--strict` failure set once the followup test lands.
+- Consider collapsing `planned` into `open` and `in-progress`
+  into `review` in a future cross-agent task-file pass. Out of
+  scope here — coordinate via DECISIONS.md first.
