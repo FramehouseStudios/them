@@ -62,6 +62,12 @@ invariants, and compatibility rules for one envelope or record.
 | --- | --- | --- |
 | [visual-context.md](visual-context.md) | `POST /visual/context` request + response | TIER-3 SENSITIVE |
 
+## Career / profile surfaces
+
+| Doc | Covers | Posture |
+| --- | --- | --- |
+| [linkedin-analyze.md](linkedin-analyze.md) | `POST /linkedin/analyze` (feature-flag gated) | TIER-3 SENSITIVE |
+
 ## Ops surface
 
 | Doc | Covers | Posture |
