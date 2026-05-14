@@ -110,6 +110,9 @@ struct BackendRealtimeSessionDescriptor: Decodable, Equatable {
 struct BackendRealtimeBootstrap: Decodable, Equatable {
     let transport: String
     let realtimeProvider: String?
+    let fallback: Bool?
+    let fallbackReason: String?
+    let primarySupplier: String?
     let assistantName: String
     let model: String
     let voice: String
@@ -120,6 +123,9 @@ struct BackendRealtimeBootstrap: Decodable, Equatable {
     enum CodingKeys: String, CodingKey {
         case transport
         case realtimeProvider = "realtime_provider"
+        case fallback
+        case fallbackReason = "fallback_reason"
+        case primarySupplier = "primary_supplier"
         case assistantName = "assistant_name"
         case model
         case voice
@@ -134,6 +140,18 @@ struct BackendRealtimeBootstrap: Decodable, Equatable {
 
     var isExpiringSoon: Bool {
         expiresAtDate.timeIntervalSinceNow <= 20
+    }
+
+    var fallbackSummary: String {
+        guard fallback == true else { return "" }
+        let used = realtimeProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let primary = primarySupplier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let reason = fallbackReason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var parts: [String] = []
+        if !primary.isEmpty { parts.append("from \(primary)") }
+        if !used.isEmpty { parts.append("to \(used)") }
+        if !reason.isEmpty { parts.append(reason) }
+        return parts.isEmpty ? "Fallback active" : "Fallback \(parts.joined(separator: " · "))"
     }
 }
 
@@ -160,7 +178,7 @@ final class ClementineRealtimeCoordinator: ObservableObject {
         case let .ready(bootstrap):
             let provider = bootstrap.realtimeProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let voice = bootstrap.voice.trimmingCharacters(in: .whitespacesAndNewlines)
-            let details = [provider, voice].filter { !$0.isEmpty }
+            let details = [provider, bootstrap.fallbackSummary, voice].filter { !$0.isEmpty }
             return details.isEmpty ? "Realtime session ready" : "Realtime session ready · \(details.joined(separator: " · "))"
         case let .failed(message):
             return message.isEmpty ? "Realtime session unavailable" : "Realtime unavailable · \(message)"

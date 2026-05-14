@@ -613,6 +613,9 @@ final class BackendClientCraftAPITests: XCTestCase {
         {
           "transport": "webrtc_ephemeral",
           "realtime_provider": "stub",
+          "fallback": true,
+          "fallback_reason": "realtime_supplier_request_failed",
+          "primary_supplier": "openai",
           "assistant_name": "io.them",
           "model": "stub-realtime-1",
           "voice": "stub-voice",
@@ -634,6 +637,9 @@ final class BackendClientCraftAPITests: XCTestCase {
 
         let payload = try JSONDecoder().decode(BackendRealtimeBootstrapPayload.self, from: data)
         XCTAssertEqual(payload.realtimeProvider, "stub")
+        XCTAssertEqual(payload.fallback, true)
+        XCTAssertEqual(payload.fallbackReason, "realtime_supplier_request_failed")
+        XCTAssertEqual(payload.primarySupplier, "openai")
         XCTAssertEqual(payload.clientSecret.value, "stub_secret_abc")
         XCTAssertEqual(payload.session.outputModalities, ["audio"])
     }

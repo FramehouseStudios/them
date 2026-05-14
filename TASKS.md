@@ -795,6 +795,7 @@
 | T-trust-tiers                                  | Trust tiers + standing pre-approvals (AGENTS.md)                                    | claude | review      |
 | T-twist-engine-canon-eval                      | Pin TWIST_LIBRARY framework set + per-twist field shape                             | claude | merged      |
 | T-untested-libs-followups                      | Add tests for remaining untested infrastructure libs                                | claude | planned     |
+| T-v1-pillar-rule-and-canon-wire                | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                        | claude | review      |
 | T-v1-three-smoke-fixtures                      | V1 smoke fixtures — screenplay export + memory recall + realtime failover           | claude | review      |
 | T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                   | claude | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                | codex  | review      |
@@ -833,6 +834,7 @@
 | T87                                            | Round 22c coordination refresh after memory and long-tail design notes              | codex  | review      |
 | T88                                            | Round 22d coordination refresh after V1 smoke fixture pack                          | codex  | review      |
 | T89                                            | Round 22e coordination refresh after schema docs batch 2                            | codex  | review      |
+| T90                                            | V1 memory and realtime diagnostics in iOS                                           | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -3247,6 +3249,83 @@ test, a behavior regression in the store is invisible until it
 hits a downstream route's integration test. Direct tests on the
 stores catch regressions at the source.
 
+### T-v1-pillar-rule-and-canon-wire — Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon
+- **Owner:** claude
+- **Branch:** claude/T-v1-pillar-rule-and-canon-wire
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Two infra wins bundled together:
+
+### 1. Pre-flight `task-missing-v1-pillar` rule
+
+Every active task file in `tasks/_active/T-*.md` that uses YAML
+front matter must carry a `v1_pillar` + `v1_effect` declaration
+(YAML or body-line) per `docs/v1-definition.md`'s PR Rule.
+
+**Grandfather rules** (skipped by the check):
+- Files without YAML front matter (pre-V1-doc style).
+- Files with `status: merged` (shipped before the V1 rule could
+  apply).
+- Coord-refresh tasks (matched by "Refresh coordination after PR").
+
+**Invalid-pillar check**: if `v1_pillar` is present but not one of
+`talk`, `screenplay`, `memory`, `realtime`, `ios`, `infra`, the
+rule flags it.
+
+Current main produces 13 `task-missing-v1-pillar` findings against
+non-merged, non-grandfathered task files. They are warn-only;
+they should be backfilled as those PRs cycle through.
+
+### 2. `eval:canon` wired with V1 smokes
+
+The 4 V1 deterministic smokes (voice-to-page #224, screenplay +
+memory recall + realtime failover #231) are now part of the
+umbrella. New `npm` scripts:
+
+- `npm run eval:v1-voice-to-page-smoke`
+- `npm run eval:v1-screenplay-smoke`
+- `npm run eval:v1-memory-recall-smoke`
+- `npm run eval:v1-realtime-failover-smoke`
+- `npm run eval:v1-smokes` (chains all 4)
+
+The `eval:canon` umbrella appends `&& npm run eval:v1-smokes` so
+the canon gate fails on any V1 smoke regression. `quality_gate.sh`
+runs `eval:canon` in strict mode already (`set -euo pipefail`), so
+this lands as an actual merge-blocking gate for V1 regressions.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: infrastructure for every V1 checklist item.
+  Pre-flight enforces V1 pillar declarations on new tasks (so the
+  V1 rule actually applies); canon umbrella now runs all 4 V1
+  smoke fixtures (so V1 regressions block merge).`
+
+## Verification
+
+- `node scripts/pre_flight.mjs` → 23 findings: 10 pre-existing
+  eval-determinism warnings + 13 task-missing-v1-pillar warnings
+  against legacy non-merged tasks.
+- `node --test scripts/pre_flight.test.mjs` → 33/33 pass
+  (includes 7 new tests for the V1 pillar rule).
+- `cd backend && npm run eval:v1-smokes` → all 4 V1 smokes PASS.
+- The 4 new individual scripts run independently.
+
+## Done when
+
+The pre-flight rule is wired + tested; the canon umbrella runs
+the V1 smoke chain on every gate run.
+
+## Followups
+
+- Backfill V1 pillar/effect lines on the 13 legacy non-merged task
+  files (each PR can include the line as it ships).
+- Once the V1 doc has more checklist items closed, audit the smoke
+  fixtures and add new ones to the canon chain.
+
 ### T-v1-three-smoke-fixtures — V1 smoke fixtures — screenplay export + memory recall + realtime failover
 - **Owner:** claude
 - **Branch:** claude/T-v1-screenplay-smoke
@@ -4156,5 +4235,34 @@ Refresh the repo-native coordination lane after #233 merged:
 - `node scripts/agent_next.mjs --role=codex`
 - `node scripts/agent_event.mjs tail --n=12`
 - `git diff --check`
+
+### T90 — V1 memory and realtime diagnostics in iOS
+- **Owner:** codex
+- **Branch:** codex/T90-v1-memory-realtime-diagnostics
+- **Pillar:** ios
+- **Status:** review
+
+## Scope
+
+- Correct the `/memory/stats` schema doc to match the live backend envelope.
+- Decode `/memory/stats` in iOS.
+- Surface a compact memory-shape summary and realtime supplier controls in Data
+  Controls.
+- Preserve realtime fallback metadata from `/realtime/client_secret` in the
+  app model and tests.
+
+## Done when
+
+Data Controls can refresh memory stats, realtime fallback metadata decodes, and
+focused tests cover the new contracts.
+
+## Verification
+
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO`
+  - Passed, 98 tests.
+- `xcodebuild build -project them.xcodeproj -scheme them -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO`
+  - Passed.
+- `git diff --check`
+  - Passed.
 
 <!-- END AUTOGEN active-tasks -->

@@ -19,41 +19,55 @@ Canonical shape for `GET /memory/stats`.
 
 ## Access-control posture
 
-**SAFE-PUBLIC**. Aggregate counts only; no per-user content keys
-or content text are included.
+**PER-USER, CONTENT-FREE**. The endpoint resolves the caller's
+memory record but returns counts only: no character names, no
+traits, no phrases, no themes, and no per-project content.
 
 ## Fields
 
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `schemaVersion` | int | yes (`1`) | |
-| `userCount` | int | yes | distinct users with creative memory |
-| `characterCount` | int | yes | total character mentions across all users |
-| `themeCount` | int | yes | total active themes across all users |
-| `historyDepth` | object | yes | `{ p50, p95, max }` of turns recorded per user |
-| `lastUpdatedAt` | int \| null | yes | most recent memory write |
+| `hasMemory` | boolean | yes | false for cold or unauthenticated users |
+| `counts` | object | yes | content-free memory shape counts |
+| `lastUpdatedMs` | int \| null | yes | epoch ms of the memory record's update time |
+| `error` | string | optional | present only when summarization fails; zero envelope still returned |
+
+### counts object
+
+| Key | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `characters` | int | yes | number of character records |
+| `charactersWithVoice` | int | yes | character records carrying a voice summary |
+| `charactersWithTraits` | int | yes | character records carrying trait inventory |
+| `toneSignals` | int | yes | number of tone signal buckets |
+| `habitSignals` | int | yes | number of habit signal buckets |
 
 ## Sample response
 
 ```json
 {
   "schemaVersion": 1,
-  "userCount": 142,
-  "characterCount": 318,
-  "themeCount": 540,
-  "historyDepth": { "p50": 18, "p95": 92, "max": 360 },
-  "lastUpdatedAt": 1700000000000
+  "hasMemory": true,
+  "counts": {
+    "characters": 3,
+    "charactersWithVoice": 2,
+    "charactersWithTraits": 1,
+    "toneSignals": 4,
+    "habitSignals": 2
+  },
+  "lastUpdatedMs": 1700000000000
 }
 ```
 
 ## Compatibility rules
 
-- Additive fine.
-- No per-user keys must EVER appear in this envelope (safe-public
-  posture). Adding any key that could carry user-derived data
-  flips the posture to per-user + tier-3, which would need a new
-  endpoint.
+- Additive optional fields are fine within v1.
+- Adding user-derived content text or names is not additive. It
+  changes the access-control posture and requires a new review.
+- iOS treats missing `counts` values as zero for display.
 
 ## Changelog
 
-- 2026-05-14 — Doc created.
+- 2026-05-14 — Corrected to match
+  `backend/lib/creative_memory_stats_route.js`.

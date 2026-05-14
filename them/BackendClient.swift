@@ -858,6 +858,9 @@ struct BackendRealtimeSessionPayload: Decodable {
 struct BackendRealtimeBootstrapPayload: Decodable {
     let transport: String
     let realtimeProvider: String?
+    let fallback: Bool?
+    let fallbackReason: String?
+    let primarySupplier: String?
     let assistantName: String?
     let model: String
     let voice: String
@@ -868,6 +871,9 @@ struct BackendRealtimeBootstrapPayload: Decodable {
     enum CodingKeys: String, CodingKey {
         case transport
         case realtimeProvider = "realtime_provider"
+        case fallback
+        case fallbackReason = "fallback_reason"
+        case primarySupplier = "primary_supplier"
         case assistantName = "assistant_name"
         case model
         case voice
@@ -1974,6 +1980,9 @@ final class BackendClient {
         return BackendRealtimeBootstrap(
             transport: payload.transport,
             realtimeProvider: payload.realtimeProvider,
+            fallback: payload.fallback,
+            fallbackReason: payload.fallbackReason,
+            primarySupplier: payload.primarySupplier,
             assistantName: payload.assistantName ?? "CLEMENTINE",
             model: payload.model,
             voice: payload.voice,
