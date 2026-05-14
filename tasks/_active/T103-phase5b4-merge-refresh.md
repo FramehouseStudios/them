@@ -2,7 +2,7 @@
 id: T103
 title: Refresh coordination after realtime Phase 5b.4 merge
 owner: codex
-status: review
+status: merged
 branch: codex/T103-phase5b4-merge-refresh
 pillar: infra
 v1_pillar: infra

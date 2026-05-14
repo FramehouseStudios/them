@@ -2,7 +2,7 @@
 id: T104
 title: Refresh coordination after schema-only PR cleanup
 owner: codex
-status: in-progress
+status: review
 branch: codex/T104-schema-pr-cleanup-refresh
 pillar: infra
 v1_pillar: infra
@@ -23,3 +23,14 @@ merged the corrected Phase 7a talk-guard design note.
 - `docs/claude-inbox.md` still points Claude at Phase 6 memories as the next
   implementation task.
 - Verification commands and intentionally skipped iOS checks are recorded.
+
+## Verification
+
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=claude --limit=10 --no-events`
+- `node scripts/pre_flight.mjs`
+- `node --test scripts/agent_next.test.mjs`
+- `node --test scripts/agent_event.test.mjs`
+- `git diff --check`
+
+Not run: iOS build/themTests, because this is a coordination-only refresh.
