@@ -28,8 +28,10 @@ Body limit on `/history/annotate_turn`: `256kb`.
 ## Access-control posture
 
 **PER-USER**. List reads via `selectMemoryRecordForRead`;
-annotate writes via `resolveWritableMemoryContext`. Same scope
-rules as the rest of the read+write surface.
+annotate writes via `resolveWritableMemoryContext`.
+`X-Client-Token` session or token alias is used when present,
+otherwise the normalized requester IP. The inline handlers do
+not enforce an auth-only history gate today.
 
 ## `GET /history` request
 
@@ -39,7 +41,9 @@ rules as the rest of the read+write surface.
 | `sinceTurnId` | string | no | when supplied (parsed via `parseTurnIdToNumber`), response is filtered to `turn > sinceTurnNumber` |
 | `screenplayProjectId` | string | no | clamped to 96 chars; filters threads to a specific screenplay project |
 
-`If-None-Match`: standard etag → 304.
+`If-None-Match`: when it matches the current state-version etag,
+server returns HTTP 304 with no body. `Cache-Control: no-store`
+and read-state headers are set before the 304 is emitted.
 
 ## `GET /history` response (200)
 
@@ -134,7 +138,7 @@ rules as the rest of the read+write surface.
 
 ## Read-state headers
 
-200 responses set:
+GET 200/304 and POST 200 responses set:
 - `Cache-Control: no-store`
 - All headers from `applyReadStateHeaders(res, readMeta)`.
 
@@ -142,13 +146,17 @@ rules as the rest of the read+write surface.
 - `x-turn-id: turn-<N>`
 - `x-turn-meta-available: 1`
 
+POST 400/404 validation and missing-turn responses do not build
+read-state metadata today, so they only carry the `{ stage, error }`
+body.
+
 ## Invariants
 
 - Annotations MERGE studio metadata onto the matching history
   item — they don't replace the prior studio object outright.
-- `touched` (the count of matching history items) is always
-  exactly 1 on success — turn ids are unique within a user's
-  history.
+- Success requires at least one matching history item. In the
+  normal data model turn ids are unique, but if duplicate rows
+  exist the handler annotates every row with the matching turn.
 - `is_delta` in the list response is true iff `sinceTurnId`
   was supplied AND parsed to a positive number.
 - `screenplayProjectId` filter on the list narrows threads
