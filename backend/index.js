@@ -106,6 +106,7 @@ import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
 import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
+import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_routes.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
@@ -28198,164 +28199,17 @@ mountRealtimeClientSecretRoute(app, {
   getRealtimeProviderEnv: () => process.env.REALTIME_PROVIDER,
 });
 
-app.post("/realtime/studio_render", express.json({ limit: "512kb" }), async (req, res) => {
-  const rid = req.requestId || createRequestId();
-  if (!OPENAI_API_KEY) {
-    return res.status(503).json({
-      stage: "studio_render",
-      error: "OpenAI API key is missing for Studio render.",
-    });
-  }
-
-  const transcript = normalizeSnippet(
-    req.body?.transcript ?? req.body?.user_message ?? "",
-    8_000
-  );
-  if (!transcript) {
-    return res.status(400).json({
-      stage: "studio_render",
-      error: "Studio render transcript was empty.",
-    });
-  }
-
-  const systemPrompt = normalizeSnippet(
-    req.body?.system_prompt ?? req.body?.instructions ?? "",
-    16_000
-  );
-
-  try {
-    const reply = await renderStudioRealtimeText({
-      systemPrompt,
-      transcript,
-    });
-    console.log(
-      `[${rid}] studio_render chars_u=${transcript.length} chars_a=${reply.length}`
-    );
-    return res.status(200).json({
-      ok: true,
-      action: "studio_render",
-      reply,
-    });
-  } catch (error) {
-    return res.status(Number(error?.status || 502)).json({
-      stage: String(error?.stage || "studio_render"),
-      error: String(error?.message || error || "Studio render failed."),
-    });
-  }
-});
-
-app.post("/realtime/studio_render_stream", express.json({ limit: "512kb" }), async (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const requestStartedAt = Date.now();
-  const requestStartedAtISO8601 = new Date(requestStartedAt).toISOString();
-  let firstDeltaMs = null;
-  let deltaChunks = 0;
-  if (!OPENAI_API_KEY) {
-    return res.status(503).json({
-      stage: "studio_render",
-      error: "OpenAI API key is missing for Studio render.",
-    });
-  }
-
-  const transcript = normalizeSnippet(
-    req.body?.transcript ?? req.body?.user_message ?? "",
-    8_000
-  );
-  if (!transcript) {
-    return res.status(400).json({
-      stage: "studio_render",
-      error: "Studio render transcript was empty.",
-    });
-  }
-
-  const systemPrompt = normalizeSnippet(
-    req.body?.system_prompt ?? req.body?.instructions ?? "",
-    16_000
-  );
-
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Studio-Render-Request-Id", rid);
-  if (typeof res.flushHeaders === "function") {
-    res.flushHeaders();
-  }
-
-  let closed = false;
-  req.on("aborted", () => {
-    closed = true;
-  });
-  res.on("close", () => {
-    closed = true;
-  });
-
-  const pushEvent = (event, payload) => {
-    if (closed || res.writableEnded) return;
-    res.write(`event: ${event}\n`);
-    res.write(`data: ${JSON.stringify(payload || {})}\n\n`);
-  };
-
-  try {
-    pushEvent("meta", {
-      ok: true,
-      action: "studio_render_stream",
-      request_id: rid,
-      started_at: requestStartedAtISO8601,
-    });
-    const reply = await streamStudioRealtimeText({
-      systemPrompt,
-      transcript,
-      onDelta: async (delta, fullReply) => {
-        deltaChunks += 1;
-        if (firstDeltaMs === null) {
-          firstDeltaMs = Math.max(0, Date.now() - requestStartedAt);
-          console.log(
-            `[${rid}] studio_render_stream first_delta_ms=${firstDeltaMs} delta_chars=${delta.length} full_chars=${fullReply.length}`
-          );
-          pushEvent("trace", {
-            ok: true,
-            action: "studio_render_stream",
-            kind: "first_delta",
-            request_id: rid,
-            started_at: requestStartedAtISO8601,
-            first_delta_ms: firstDeltaMs,
-            delta_chunks: deltaChunks,
-            delta_chars: delta.length,
-            full_chars: fullReply.length,
-          });
-        }
-        pushEvent("delta", { delta });
-      },
-    });
-    const totalMs = Math.max(0, Date.now() - requestStartedAt);
-    console.log(
-      `[${rid}] studio_render_stream chars_u=${transcript.length} chars_a=${reply.length} delta_chunks=${deltaChunks} first_delta_ms=${firstDeltaMs ?? -1} total_ms=${totalMs}`
-    );
-    pushEvent("done", {
-      ok: true,
-      action: "studio_render_stream",
-      kind: "done",
-      request_id: rid,
-      started_at: requestStartedAtISO8601,
-      first_delta_ms: firstDeltaMs,
-      total_ms: totalMs,
-      delta_chunks: deltaChunks,
-      reply,
-    });
-  } catch (error) {
-    console.error(
-      `[${rid}] studio_render_stream error stage=${String(error?.stage || "studio_render")} message=${String(error?.message || error || "Studio render stream failed.")}`
-    );
-    pushEvent("error", {
-      request_id: rid,
-      stage: String(error?.stage || "studio_render"),
-      error: String(error?.message || error || "Studio render stream failed."),
-    });
-  } finally {
-    if (!res.writableEnded) {
-      res.end();
-    }
-  }
+// T-decompose-phase5b2-studio-render: two routes moved to
+// lib/realtime_studio_render_routes.js. Byte-identical with
+// the previous inline handlers. See
+// docs/specs/T-decompose-backend-index.md and design note
+// in tasks/_proposals/T-decompose-phase5b-realtime-design.md.
+mountRealtimeStudioRenderRoutes(app, {
+  renderStudioRealtimeText,
+  streamStudioRealtimeText,
+  createRequestId,
+  normalizeSnippet,
+  getOpenAIApiKey: () => OPENAI_API_KEY,
 });
 
 app.post(
