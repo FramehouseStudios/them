@@ -72,6 +72,11 @@ consumption of the already-merged backend contracts.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
+| [#218](https://github.com/FramehouseStudios/them/pull/218) | T-user-auth-smoke-test | 1 | review | Smoke test for the 780-line tier-3 user_auth lib. 5 tests including a no-leakage check on `buildPublicUser`. Closes the last untested-lib gap; pre-flight `lib-missing-test` should be zero on main after merge. |
+| [#217](https://github.com/FramehouseStudios/them/pull/217) | T-user-store-smoke-test | 1 | review | Minimal smoke test for the 705-line user_store. 3 tests covering exported Maps + configure entry. Deeper crypto/persistence behavior tests deferred to follow-ups. |
+| [#216](https://github.com/FramehouseStudios/them/pull/216) | T-memory-store-smoke-test | 1 | review | 13 tests for memory_store (626 lines). ~25 sanitize deps stubbed as pass-throughs. Round-trip on temp file; client-token aliasing. |
+| [#215](https://github.com/FramehouseStudios/them/pull/215) | T-decompose-phase5a-realtime-reads | 1 | review | Phase 5a: `/realtime/health` + `/realtime/bridge` extracted. 8 tests including live-supplier accessor pattern. Phase 5b (5 heavy write routes — client_secret, studio_render×2, turn_commit, /realtime/call) follows. |
+| [#212](https://github.com/FramehouseStudios/them/pull/212) | T-decompose-phase4-auth-routes | 1 | review | Phase 4: 11 thin-delegate `/auth/*` routes extracted to `lib/auth_routes.js`. 10 tests including bare-Express production-style. Tier-3 sensitive posture preserved. |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
 | [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | policy-gated | D005 now records the human-approved Codex supervisor authority. Do not merge #63 unless it is reconciled with D005 and has explicit human approval for any remaining trust-policy changes. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
