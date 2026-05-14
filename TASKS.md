@@ -146,7 +146,8 @@
 | T81  | Refresh coordination after PR #193/#194           | codex  | review            |
 | T-decompose-phase1-ops-routes | Extract `/ops/metrics` + `/ops/alerts` from backend index | claude | merged |
 | T-decompose-phase2a-screenplay-projects-reads | Extract 5 `/screenplay/projects/*` GET routes from backend index | claude | merged |
-| T-decompose-phase2b-screenplay-projects-writes | Extract 7 `/screenplay/projects/*` write routes from backend index | claude | review |
+| T-decompose-phase2b-screenplay-projects-writes | Extract 7 `/screenplay/projects/*` write routes from backend index | claude | merged |
+| T-decompose-phase3-screenplay-companion | Extract `/screenplay/companion/state` + `/paginate` + `/revision-colors` from backend index | claude | review |
 | T-logline-drift-alert | Structured drift alert (level + recommendation)  | claude | review      |
 | T-first-page-telemetry-sink | Server-side magic-moment SLA event sink         | claude | merged     |
 | T-prompt-wire-traits-and-twists | Prompt-assembly consumes traits + accepted twists | claude | merged |
