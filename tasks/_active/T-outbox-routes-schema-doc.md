@@ -1,5 +1,5 @@
 ---
-id: T-outbox-routes-schema-doc-fresh
+id: T-outbox-routes-schema-doc
 title: docs/schemas/outbox-routes.md
 owner: claude
 status: review

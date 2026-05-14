@@ -52,7 +52,7 @@ state. Production gating is the operator-network ingress.
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `ok` | bool | yes | constant `true` |
-| `status_filter` | string | yes | echo of the resolved status filter |
+| `status_filter` | string | yes | echo of the normalized raw query string. Unknown values still query as `all`, but this field remains the submitted value. |
 | `limit` | int | yes | echo of the resolved limit |
 | `count` | int | yes | `items.length` for the returned page |
 | `items` | array | yes | outbox rows matching `outbox-event.md` |
@@ -117,8 +117,10 @@ Fields beyond `ok` come from `processOutboxBatch` (see
 ## Compatibility rules
 
 - Ops dashboards key on `items[]` shape + `count`.
-- Adding new status filter values is additive; consumers
-  tolerate unknowns (server falls back to `all`).
+- Adding new status filter values is additive. Consumers must
+  tolerate unknown `status_filter` echoes because the current
+  handler falls back to querying `all` while echoing the raw
+  submitted filter.
 - Adding new fields to the retry envelope is additive.
 - Removing `ok`, `id` (single-item), or `claimed`/`completed`/
   `failed`/`retried` (batch) requires a schema bump.
