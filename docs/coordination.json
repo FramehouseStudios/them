@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T19:57:49.812Z",
+  "updatedAt": "2026-05-14T20:28:41.861Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1421,6 +1421,33 @@
       "status": "closed",
       "branch": "claude/T-linkedin-analyze-schema-doc-v2",
       "blocker": "closed-out-of-lane-schema-doc-only-and-not-current-V1-critical-path"
+    },
+    {
+      "number": 296,
+      "title": "T-decompose-phase6-memories",
+      "owner": "claude",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase6-memories",
+      "blocker": null
+    },
+    {
+      "number": 298,
+      "title": "T-decompose-phase7b-handler-design",
+      "owner": "codex",
+      "tier": 1,
+      "status": "closed",
+      "branch": "claude/T-decompose-phase7b-handler-design",
+      "blocker": "closed-premature-until-Phase-7a-guard-extraction-lands"
+    },
+    {
+      "number": 299,
+      "title": "T-session-schema-doc",
+      "owner": "codex",
+      "tier": 1,
+      "status": "closed",
+      "branch": "claude/T-session-schema-doc",
+      "blocker": "closed-out-of-lane-schema-doc-only-pr"
     }
   ],
   "blockers": [

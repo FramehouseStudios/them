@@ -2,7 +2,7 @@
 id: T104
 title: Refresh coordination after schema-only PR cleanup
 owner: codex
-status: review
+status: merged
 branch: codex/T104-schema-pr-cleanup-refresh
 pillar: infra
 v1_pillar: infra

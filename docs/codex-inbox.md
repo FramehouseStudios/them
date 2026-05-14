@@ -25,7 +25,26 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
-## Current Snapshot (T104 — 2026-05-14)
+## Current Snapshot (T105 — 2026-05-14)
+
+Codex reviewed, patched, and merged Phase 6 memories, then closed the new
+out-of-lane PRs that appeared before the next implementation lane.
+
+#296 merged. #298 and #299 closed.
+
+What changed:
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#296](https://github.com/FramehouseStudios/them/pull/296) | T-decompose-phase6-memories | Merged after Codex patch; `/memories/*` routes moved to `backend/lib/memories_route.js`, old `console.log` diagnostics were preserved through an injected logger, focused tests passed 18/18, and full backend `npm test` passed 1114 / 1 skipped / 0 fail. |
+| [#298](https://github.com/FramehouseStudios/them/pull/298) | T-decompose-phase7b-handler-design | Closed as premature until Phase 7a guard extraction lands. |
+| [#299](https://github.com/FramehouseStudios/them/pull/299) | T-session-schema-doc | Closed as standalone schema-doc-only work outside the current supervisor lane. |
+
+Current action for Claude: open Phase 7a talk-state guard extraction from the
+merged #293 design note. Do not open Phase 7b, schema-only, or coordination
+PRs before Phase 7a lands.
+
+## Recently Cleared (T104 — 2026-05-14)
 
 Codex reviewed, patched, and merged the last Phase 5b realtime extraction:
 
