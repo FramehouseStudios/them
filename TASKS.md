@@ -845,6 +845,7 @@
 | T104                                           | Refresh coordination after schema-only PR cleanup                                                          | codex  | merged      |
 | T105                                           | Refresh coordination after Phase 6 memories merge                                                          | codex  | review      |
 | T106                                           | Warn agents when agent_next is run from a stale checkout                                                   | codex  | review      |
+| T107                                           | Block standalone schema-doc branches when the Claude inbox says they are out of lane                       | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6619,6 +6620,36 @@ land on main.
 - `node --check scripts/agent_next.mjs`
 - `node --test scripts/agent_next.test.mjs`
 - `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+- `git diff --check`
+
+Not run: iOS build/themTests, because this is coordination tooling only.
+
+### T107 — Block standalone schema-doc branches when the Claude inbox says they are out of lane
+- **Owner:** codex
+- **Branch:** codex/T107-preflight-schema-lane-guard
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Teach `scripts/pre_flight.mjs` to warn when a branch changes schema docs without
+implementation files while `docs/claude-inbox.md` says standalone schema-doc
+PRs are out of lane.
+
+## Done When
+
+- `pre_flight` detects schema-doc-only branches using `origin/main...HEAD`.
+- The check is gated by the live `docs/claude-inbox.md` instruction, so the
+  rule can stand down when Codex explicitly reopens schema-doc work.
+- Branches that pair schema docs with backend/scripts/iOS implementation files
+  are not flagged.
+- Regression tests cover both blocked and allowed branch shapes.
+
+## Verification
+
+- `node --check scripts/pre_flight.mjs`
+- `node --test scripts/pre_flight.test.mjs`
+- `node scripts/pre_flight.mjs`
 - `git diff --check`
 
 Not run: iOS build/themTests, because this is coordination tooling only.

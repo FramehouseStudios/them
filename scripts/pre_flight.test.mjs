@@ -72,6 +72,27 @@ function runIn(tmp, extraArgs = []) {
   return spawnSync("node", [path.join(tmp, "scripts", "pre_flight.mjs"), ...extraArgs], { encoding: "utf8" });
 }
 
+function runGit(tmp, args) {
+  const r = spawnSync("git", args, { cwd: tmp, encoding: "utf8" });
+  assert.equal(r.status, 0, `git ${args.join(" ")} failed\nstdout:\n${r.stdout}\nstderr:\n${r.stderr}`);
+  return r.stdout.trim();
+}
+
+function initGitWithOriginMain(tmp) {
+  runGit(tmp, ["init"]);
+  runGit(tmp, ["config", "user.email", "codex@example.invalid"]);
+  runGit(tmp, ["config", "user.name", "Codex Test"]);
+  runGit(tmp, ["add", "."]);
+  runGit(tmp, ["commit", "-m", "base"]);
+  const base = runGit(tmp, ["rev-parse", "HEAD"]);
+  runGit(tmp, ["update-ref", "refs/remotes/origin/main", base]);
+}
+
+function commitAll(tmp, message) {
+  runGit(tmp, ["add", "."]);
+  runGit(tmp, ["commit", "-m", message]);
+}
+
 // ---------- empty repo path ----------
 
 test("[pre-flight] clean repo with no lib/ → exit 0, no findings", () => {
@@ -416,6 +437,64 @@ test("[pre-flight] accepts outbox schema docs matching the canonical store shape
   });
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /schema-doc-backend-drift/);
+});
+
+// ---------- schema-doc-only-out-of-lane ----------
+
+const claudeInboxSchemaOnlyParked = `
+# Claude Inbox
+
+## Current Command
+
+Do not open more schema-doc-only PRs unless Codex asks. Schema docs only when
+paired with code or requested by Codex.
+`;
+
+test("[pre-flight] flags schema-doc-only branches when Claude inbox parks them", () => {
+  const tmp = tempRepo();
+  fs.writeFileSync(path.join(tmp, "docs", "claude-inbox.md"), claudeInboxSchemaOnlyParked);
+  initGitWithOriginMain(tmp);
+  fs.writeFileSync(path.join(tmp, "docs", "schemas", "talk-response.md"), "# talk response\n");
+  writeTaskFile(tmp, "T-schema-doc-only.md", `---
+id: T-schema-doc-only
+title: Schema doc only
+owner: claude
+status: review
+v1_pillar: infra
+v1_effect: documents an existing schema
+---
+`);
+  commitAll(tmp, "schema doc only");
+  const r = runIn(tmp);
+  assert.match(r.stderr, /schema-doc-only-out-of-lane/);
+  assert.match(r.stderr, /paired with code/);
+});
+
+test("[pre-flight] allows schema docs paired with implementation files", () => {
+  const tmp = tempRepo();
+  fs.writeFileSync(path.join(tmp, "docs", "claude-inbox.md"), claudeInboxSchemaOnlyParked);
+  initGitWithOriginMain(tmp);
+  fs.writeFileSync(path.join(tmp, "docs", "schemas", "talk-response.md"), "# talk response\n");
+  fs.writeFileSync(
+    path.join(tmp, "backend", "lib", "talk_response_shape.js"),
+    `// pre-flight: no-test-needed
+export function talkResponseShape() {
+  return { schemaVersion: 1 };
+}
+`,
+  );
+  writeTaskFile(tmp, "T-schema-with-code.md", `---
+id: T-schema-with-code
+title: Schema doc paired with code
+owner: claude
+status: review
+v1_pillar: infra
+v1_effect: keeps schema docs with implementation changes
+---
+`);
+  commitAll(tmp, "schema doc with code");
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /schema-doc-only-out-of-lane/);
 });
 
 // ---------- strict mode ----------

@@ -23,6 +23,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,83 @@ function walkFiles(dir, predicate, out = []) {
     else if (entry.isFile() && predicate(p)) out.push(p);
   }
   return out;
+}
+
+function gitOutput(args) {
+  try {
+    return execFileSync("git", ["-C", repoRoot, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function changedFilesAgainstOriginMain() {
+  if (!gitOutput(["rev-parse", "--verify", "origin/main"])) return [];
+  const files = new Set();
+  for (const args of [
+    ["diff", "--name-only", "origin/main...HEAD"],
+    ["diff", "--name-only", "--cached"],
+    ["diff", "--name-only"],
+  ]) {
+    for (const file of gitOutput(args).split("\n")) {
+      if (file.trim()) files.add(file.trim());
+    }
+  }
+  return [...files].sort();
+}
+
+function claudeInboxBlocksSchemaDocOnly() {
+  const inboxPath = path.join(repoRoot, "docs", "claude-inbox.md");
+  if (!fs.existsSync(inboxPath)) return false;
+  const text = fs.readFileSync(inboxPath, "utf8");
+  return /Do not open (?:new )?schema-doc-only PRs/i.test(text)
+    || /Do not open more\s+schema-doc-only PRs/i.test(text)
+    || /Schema docs only when paired with code/i.test(text)
+    || /standalone schema-doc(?:s|-only)? PRs? (?:are )?out of lane/i.test(text);
+}
+
+function isImplementationFile(file) {
+  return file.startsWith("backend/")
+    || file.startsWith("Packages/")
+    || file.startsWith("Sources/")
+    || file.startsWith("Tests/")
+    || file.startsWith("them/")
+    || file.startsWith("io.them/")
+    || file.startsWith("scripts/")
+    || file.endsWith(".swift")
+    || file.endsWith(".xcodeproj/project.pbxproj");
+}
+
+function checkSchemaDocOnlyLane() {
+  // Codex currently owns the iOS/product request channel. When
+  // docs/claude-inbox.md explicitly parks standalone schema-doc PRs,
+  // Claude should pair schema docs with implementation changes or wait
+  // for a direct request. This prevents repeated review/close cycles for
+  // docs-only branches while the V1 talk pipeline is the critical path.
+  if (!claudeInboxBlocksSchemaDocOnly()) return;
+  const changed = changedFilesAgainstOriginMain();
+  if (changed.length === 0) return;
+  const hasSchemaDoc = changed.some((file) => (
+    file.startsWith("docs/schemas/") && file.endsWith(".md")
+  ));
+  if (!hasSchemaDoc) return;
+  const hasImplementation = changed.some(isImplementationFile);
+  if (hasImplementation) return;
+  const onlyDocsTasksOrCoord = changed.every((file) => (
+    file === "TASKS.md"
+    || file.startsWith("tasks/")
+    || file.startsWith("docs/")
+  ));
+  if (!onlyDocsTasksOrCoord) return;
+  add(
+    "schema-doc-only-out-of-lane",
+    "docs/claude-inbox.md",
+    null,
+    "current Claude inbox says schema docs should be paired with code or explicitly requested; this branch changes schema docs without implementation files",
+  );
 }
 
 // ---------- code-pattern checks ----------
@@ -552,6 +630,7 @@ checkConsoleLogInProductionLib();
 checkEvalDeterminismCoverage();
 checkSchemaVersionedEnvelopes();
 checkSchemaDocBackendDrift();
+checkSchemaDocOnlyLane();
 checkMountRequiredDepsGuard();
 checkLibHasTest();
 checkTaskV1Pillar();
