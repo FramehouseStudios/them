@@ -8,6 +8,12 @@
 // rename (`hero` → `protagonist`) or drop of any archetype would
 // regress every iOS consumer at once. This eval pins the canonical
 // list + the shape of each entry.
+//
+// Determinism: this eval is deterministic — it reads only frozen
+// canon constants / pure functions and asserts the same output
+// shape on every run. Same input always produces the same output
+// set; no clocks, no random ids, no network.
+//
 
 import process from "node:process";
 import { ARCHETYPES } from "../lib/archetype_engine.js";

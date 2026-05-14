@@ -21,6 +21,12 @@
 //   - assembled prompts with a block_signal stay under the
 //     prompt-size eval's 12k heavy-user budget when paired with a
 //     populated creative memory
+//
+// Determinism: this eval is deterministic — it reads only frozen
+// canon constants / pure functions and asserts the same output
+// shape on every run. Same input always produces the same output
+// set; no clocks, no random ids, no network.
+//
 
 import process from "node:process";
 
