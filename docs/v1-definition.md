@@ -63,7 +63,7 @@ observable without blocking the writer.
 Checklist:
 - [x] Backend supplier interface and failover are merged.
 - [x] iOS supplier selection is merged.
-- [ ] iOS shows degraded-mode/fallback state when stub failover is used.
+- [x] iOS shows degraded-mode/fallback state when stub failover is used.
 - [ ] Manual smoke: primary mint works; forced primary failure shows fallback.
 - [x] Realtime route decomposition lands before talk-pipeline Phase 7.
 
