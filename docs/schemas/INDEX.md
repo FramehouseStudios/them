@@ -48,6 +48,12 @@ invariants, and compatibility rules for one envelope or record.
 | --- | --- | --- |
 | [tasks.md](tasks.md) | `GET /tasks` + `POST /tasks/update` envelopes | PER-USER |
 
+## Combined state surface
+
+| Doc | Covers | Posture |
+| --- | --- | --- |
+| [state.md](state.md) | `GET /state` combined-delta envelope (history + memories) | PER-USER |
+
 ## Realtime surface
 
 | Doc | Covers | Posture |
