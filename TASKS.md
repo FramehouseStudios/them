@@ -767,7 +767,7 @@
 | T-v1-three-smoke-fixtures              | V1 smoke fixtures — screenplay export + memory recall + realtime failover                | claude | review      |
 | T-v1-voice-to-page-smoke               | V1 voice-to-page smoke fixture + automated subset                                        | claude | review      |
 | T113                                   | Archive merged active tasks after V1 status pass                                         | codex  | review      |
-| T114                                   | Add V1 manual QA checklist and TestFlight preflight artifact                             | codex  | review      |
+| T115                                   | Refresh queue after V1 preflight and schema guard                                        | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2768,38 +2768,37 @@ the current state.
 Not run: iOS build/themTests or backend tests, because this is coordination
 metadata only.
 
-### T114 — Add V1 manual QA checklist and TestFlight preflight artifact
+### T115 — Refresh queue after V1 preflight and schema guard
 - **Owner:** codex
-- **Branch:** codex/T114-v1-manual-qa-preflight
-- **Pillar:** mobile-first
+- **Branch:** codex/T115-post-v1-preflight-refresh
+- **Pillar:** infra
 - **Status:** review
 
 ## Scope
 
-Add a small, deterministic script that prints or writes the V1 human QA
-checklist, plus a TestFlight preflight artifact that names what is verified,
-what is parked, and which manual flows remain to be signed off.
+Archive the merged T114 V1 preflight task and Claude's
+T-preflight-schema-doc-missing-endpoint task, regenerate `TASKS.md`, and emit
+a coordination event that restates the next Claude lane.
 
 ## Done When
 
-- `scripts/v1_manual_qa_checklist.mjs` emits Markdown and JSON.
-- `docs/testflight-v1-preflight.md` records the current V1 verified/parked
-  state for external-review prep.
-- `docs/runbook-v1-smoke.md` links the human QA checklist command.
-- `docs/v1-definition.md` marks the manual QA script and TestFlight artifact
-  checklist items complete without claiming human signoff.
+- T114 is marked `merged` and moved to `tasks/_archive/`.
+- T-preflight-schema-doc-missing-endpoint is marked `merged` and moved to
+  `tasks/_archive/`.
+- `TASKS.md` is regenerated.
+- `agent_next` still points Claude to Phase 7b talk-handler design before
+  implementation.
 
 ## Verification
 
-- `node --test scripts/v1_manual_qa_checklist.test.mjs`
-- `node scripts/v1_manual_qa_checklist.mjs --json`
-- `npm run v1:status`
-- `node scripts/pre_flight.mjs --strict`
 - `node scripts/build_tasks_md.mjs --write`
+- `node scripts/pre_flight.mjs --strict`
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+- `npm run v1:status`
 - `git diff --check`
 
-Not run: iOS build/themTests, because this adds release-readiness docs and a
-Node checklist generator only.
+Not run: iOS build/themTests or backend npm test, because this is coordination
+metadata only.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

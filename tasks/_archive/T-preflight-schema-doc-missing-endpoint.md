@@ -2,7 +2,7 @@
 id: T-preflight-schema-doc-missing-endpoint
 title: pre-flight rule: warn when schema doc references a missing backend route
 owner: claude
-status: review
+status: merged
 branch: claude/T-preflight-schema-doc-missing-endpoint
 pillar: infra
 v1_pillar: infra
