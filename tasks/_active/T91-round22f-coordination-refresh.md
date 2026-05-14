@@ -2,7 +2,7 @@
 id: T91
 title: Round 22f coordination refresh
 owner: codex
-status: in-progress
+status: review
 branch: codex/T91-round22f-coordination-refresh
 pillar: infra
 v1_pillar: infra
@@ -23,4 +23,7 @@ settled policy, and the generated task index is current.
 
 ## Verification
 
-- Not run yet.
+- `node scripts/coordination_state.mjs validate`
+  - Passed.
+- `node scripts/decisions_queue_lint.mjs`
+  - Passed.

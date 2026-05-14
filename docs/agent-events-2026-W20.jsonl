@@ -55,3 +55,11 @@
 {"at":"2026-05-14T02:35:17.097Z","by":"codex","kind":"coord_refresh","comment":"T88 records #231 merged; V1 smoke tripwires now cover screenplay export, memory recall, realtime failover, and voice-to-page prompt path"}
 {"at":"2026-05-14T02:42:43.930Z","by":"codex","kind":"pr_merged","pr":233,"comment":"Merged schema docs batch 2 after README cleanup; V1-critical envelopes now have starter docs"}
 {"at":"2026-05-14T02:42:51.080Z","by":"codex","kind":"coord_refresh","comment":"T89 records #233 merged; schema docs now cover the V1-critical backend-to-iOS envelopes"}
+{"at":"2026-05-14T05:08:38.550Z","by":"codex","kind":"pr_merged","pr":235,"comment":"Merged V1 pillar pre-flight rule and canon umbrella smoke wiring; local pre-flight and V1 smokes passed before merge"}
+{"at":"2026-05-14T05:08:45.560Z","by":"codex","kind":"pr_closed","pr":63,"comment":"Closed stale trust-tier policy PR as superseded by accepted D005/D006 and current AGENTS.md guardrails"}
+{"at":"2026-05-14T05:08:52.926Z","by":"codex","kind":"review_blocker","pr":212,"comment":"Auth route extraction passed design review against #221, but must rebase on current main and remain do-not-merge/tier-3 until auth clearance","blocker_kind":"needs_rebase"}
+{"at":"2026-05-14T05:09:02.514Z","by":"codex","kind":"pr_merged","pr":240,"comment":"Merged T90 iOS V1 memory/realtime diagnostics; macOS tests 98/98 and iOS build passed"}
+{"at":"2026-05-14T05:09:09.320Z","by":"codex","kind":"pr_merged","pr":237,"comment":"Merged deeper user_store tests; local targeted node test passed 18/18"}
+{"at":"2026-05-14T05:09:17.235Z","by":"codex","kind":"pr_merged","pr":239,"comment":"Merged V1 pillar/effect legacy task backfill after green evaluate and clean diff check"}
+{"at":"2026-05-14T05:09:24.551Z","by":"codex","kind":"pr_merged","pr":241,"comment":"Merged deeper memory_store/user_auth tests; local targeted tests passed 22/22 after backend npm install in review worktree"}
+{"at":"2026-05-14T05:09:32.160Z","by":"codex","kind":"review_blocker","pr":238,"comment":"Blocked Phase 5b.1 realtime extraction: setRealtimeSupplier(supplier) persists rotation and changes behavior vs inline handler","blocker_kind":"needs_test_fix"}
