@@ -62,6 +62,12 @@ invariants, and compatibility rules for one envelope or record.
 | [ops-metrics.md](ops-metrics.md) | `/ops/metrics` | SAFE-PUBLIC |
 | [ops-health-summary.md](ops-health-summary.md) | `/ops/health/summary` | SAFE-PUBLIC |
 
+## Daily / weekly surfaces
+
+| Doc | Covers | Posture |
+| --- | --- | --- |
+| [recap.md](recap.md) | `GET /recap` + `GET /recap/today` daily-recap envelope | PER-USER |
+
 ## Internal records
 
 | Doc | Covers | Posture |
