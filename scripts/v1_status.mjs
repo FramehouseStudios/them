@@ -47,12 +47,33 @@ const lines = text.split("\n");
 
 // Parse: H2 headings are pillar names. Each `- [x] ...` / `- [ ] ...`
 // under a heading is a checklist item belonging to that pillar.
+//
+// Wrapped checkbox items: a checkbox line may continue on subsequent
+// indented (2+ space) non-checkbox, non-heading lines. The parser
+// collects those continuations into the item's text so we don't drop
+// the tail of multi-line checklist entries.
+//
+// Example:
+//   - [x] Character mentions, traits, archetypes, accepted twists, and block
+//         history have backend/iOS surfaces.
+// → one item: "Character mentions, ... and block history have backend/iOS surfaces."
 const pillars = [];
 let current = null;
+let activeItem = null;
+function finalizeActiveItem() {
+  if (!activeItem) return;
+  const text = activeItem.parts.join(" ").trim()
+    .replace(/\s+/g, " ")
+    .replace(/\s+\([^)]*\)\s*$/, "")
+    .trim();
+  activeItem.target.push({ done: activeItem.done, text });
+  activeItem = null;
+}
 for (const raw of lines) {
   const line = raw.replace(/\r$/, "");
   const h2 = line.match(/^## (.+)$/);
   if (h2) {
+    finalizeActiveItem();
     const title = h2[1].trim();
     // Skip non-pillar headings.
     if (/v1 promise|pr rule/i.test(title)) {
@@ -66,12 +87,27 @@ for (const raw of lines) {
   if (!current) continue;
   const checkbox = line.match(/^- \[([ x])\] (.+)$/i);
   if (checkbox) {
-    current.items.push({
+    finalizeActiveItem();
+    activeItem = {
+      target: current.items,
       done: checkbox[1].toLowerCase() === "x",
-      text: checkbox[2].trim().replace(/\s+\([^)]*\)\s*$/, "").trim(),
-    });
+      parts: [checkbox[2].trim()],
+    };
+    continue;
+  }
+  // Continuation line: indented (>= 2 spaces) and non-empty and not
+  // a new structural element. Collect into the active checkbox.
+  if (activeItem && /^\s{2,}\S/.test(line)) {
+    activeItem.parts.push(line.trim());
+    continue;
+  }
+  // Any other line ends the current item (blank, heading, non-indented).
+  if (line.trim() === "" || /^- /.test(line) || /^#/.test(line)) {
+    finalizeActiveItem();
   }
 }
+// EOF — flush any item still being collected.
+finalizeActiveItem();
 
 function pct(done, total) {
   if (total === 0) return 0;

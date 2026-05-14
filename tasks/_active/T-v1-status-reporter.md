@@ -66,3 +66,22 @@ Script ships, three invocations work, task file lands.
   PR-comment surfaces.
 - Optional `--diff <ref>` flag that shows which checkboxes flipped
   between two refs. Nice to have, not load-bearing.
+
+## Review-blocker history
+
+Initial v1 of this script truncated checklist items whose text
+wrapped onto a continuation line (e.g.
+`- [x] Character mentions, ... twists, and block` /
+`      history have backend/iOS surfaces.`). The parser stopped
+at the first line and dropped the tail silently.
+
+**Fix in this PR** — `scripts/v1_status.mjs` now collects
+indented (≥ 2 spaces) non-checkbox / non-heading lines that
+follow a checkbox into the same item, finalizing on the next
+checkbox, heading, blank, or EOF.
+
+**Regression test in this PR** — `scripts/v1_status.test.mjs`
+includes a `wrapped checkbox text is joined into a single item`
+assertion that pins the full text of an actual wrapped item
+from `docs/v1-definition.md` (the iOS-release-readiness "Current
+iOS build ... after the next app-visible feature." line).
