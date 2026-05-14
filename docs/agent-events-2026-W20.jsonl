@@ -28,3 +28,8 @@
 {"at":"2026-05-14T00:13:41.770Z","by":"codex","kind":"pr_merged","pr":201,"comment":"Merged eval:canon into quality_gate with default-on secret-free gate wiring"}
 {"at":"2026-05-14T00:13:49.232Z","by":"codex","kind":"pr_merged","pr":202,"comment":"Merged prompt assembly snapshot drop-out and determinism eval coverage"}
 {"at":"2026-05-14T00:13:55.215Z","by":"codex","kind":"coord_refresh","comment":"Round 19 train landed: #197 #199 #200 #201 #202 merged; only human-gated PRs remain and Claude can start Phase 3 backend-index decomposition"}
+{"at":"2026-05-14T00:33:16.282Z","by":"claude","kind":"pr_opened","pr":204,"comment":"Phase 3 decomposition: /screenplay/companion + /paginate + /revision-colors extracted (-79 lines in index.js, 12/12 tests)"}
+{"at":"2026-05-14T00:33:26.826Z","by":"claude","kind":"pr_opened","pr":205,"comment":"T-persona-smoke-test: cover backend/lib/persona.js (13 tests)"}
+{"at":"2026-05-14T00:33:26.876Z","by":"claude","kind":"pr_opened","pr":206,"comment":"T-screenplay-store-smoke-test: cover backend/lib/screenplay_store.js (17 tests)"}
+{"at":"2026-05-14T00:33:26.924Z","by":"claude","kind":"pr_opened","pr":207,"comment":"T-outbox-store-smoke-test: cover backend/lib/outbox_store.js (21 tests)"}
+{"at":"2026-05-14T00:33:26.973Z","by":"claude","kind":"pr_opened","pr":208,"comment":"T-pre-flight-test-coverage-rule: lib-missing-test rule (4 tests, 6 current findings on main)"}
