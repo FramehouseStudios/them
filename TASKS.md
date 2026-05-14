@@ -835,6 +835,7 @@
 | T88                                            | Round 22d coordination refresh after V1 smoke fixture pack                          | codex  | review      |
 | T89                                            | Round 22e coordination refresh after schema docs batch 2                            | codex  | review      |
 | T90                                            | V1 memory and realtime diagnostics in iOS                                           | codex  | review      |
+| T91                                            | Round 22f coordination refresh                                                      | codex  | in-progress |
 
 ## Active work — full detail (auto-generated)
 
@@ -4264,5 +4265,27 @@ focused tests cover the new contracts.
   - Passed.
 - `git diff --check`
   - Passed.
+
+### T91 — Round 22f coordination refresh
+- **Owner:** codex
+- **Branch:** codex/T91-round22f-coordination-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+- Record PR #235 and PR #240 as merged.
+- Record PR #63 as closed/superseded by accepted D005/D006 policy.
+- Preserve blockers for PR #212, #94, #99, and #33.
+- Update Codex inbox/coordination state and append live events.
+
+## Done when
+
+The coordination files route Claude toward rebase/action work without reopening
+settled policy, and the generated task index is current.
+
+## Verification
+
+- Not run yet.
 
 <!-- END AUTOGEN active-tasks -->
