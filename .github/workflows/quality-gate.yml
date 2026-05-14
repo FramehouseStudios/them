@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: true
+      run_canon:
+        description: Run canon umbrella (npm run eval:canon)
+        required: false
+        type: boolean
+        default: true
       run_speculative_reuse_gate:
         description: Run speculative /talk prepare-reuse smoke
         required: false
@@ -36,6 +41,10 @@ on:
   workflow_call:
     inputs:
       run_eval:
+        required: false
+        type: boolean
+        default: true
+      run_canon:
         required: false
         type: boolean
         default: true
@@ -79,6 +88,7 @@ jobs:
     env:
       RUN_SERVER: 1
       RUN_EVAL: ${{ inputs.run_eval && '1' || '0' }}
+      RUN_CANON: ${{ inputs.run_canon && '1' || '0' }}
       RUN_SPECULATIVE_REUSE_GATE: ${{ inputs.run_speculative_reuse_gate && '1' || '0' }}
       RUN_SMOKE: ${{ inputs.run_smoke && '1' || '0' }}
       RUN_TALK_RECOVERY_GATE: ${{ inputs.run_talk_recovery_gate && '1' || '0' }}
@@ -143,6 +153,7 @@ jobs:
             echo "## Quality Gate Summary"
             echo
             echo "- Trigger: ${{ github.event_name }}"
+            echo "- Canon umbrella: $(gate_status "${RUN_CANON}")"
             echo "- Prompt regression: $(gate_status "${RUN_EVAL}")"
             echo "- Speculative reuse smoke: $(gate_status "${RUN_SPECULATIVE_REUSE_GATE}")"
             echo "- Smoke suite: $(gate_status "${RUN_SMOKE}")"
