@@ -28,9 +28,9 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
    V1 effect: closes <docs/v1-definition.md checklist item> | unblocks <item> | infrastructure for <item>
    ```
 
-4. Keep tier-3/human-gated work parked: PR #33 (Actions secret), PR #63
-   (trust-policy changes beyond D005), PR #94 (memory export privacy), and
-   PR #99 (memory delete privacy).
+4. Keep tier-3/human-gated work parked: PR #33 (Actions secret), PR #94
+   (memory export privacy), PR #99 (memory delete privacy), and PR #212
+   (auth route extraction until the human clears the auth decision).
 5. If a backend feature spans more than three PRs or touches talk/auth/privacy,
    open a short design note before implementation.
 
@@ -40,11 +40,11 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Talk pipeline design note before Phase 7 decomposition | Talk is the riskiest V1 path; moving it without shared design can break the app's core loop. | `tasks/_proposals/T-talk-pipeline-decomp-design.md` with route boundaries, state ownership, fixtures, and smoke commands. |
-| 2 | Finish realtime route decomposition only if it preserves fallback response shape | Codex needs a stable degraded-mode UI on top of `/realtime/client_secret`. | Phase 5 PR may proceed under the established decomp pattern; no response-shape changes. |
-| 3 | Add backend fixture/smoke for the V1 voice-to-page path | Codex needs one deterministic backend smoke target for app QA. | Script or test that exercises talk -> screenplay/prompt/export-ready data without real secrets by default. |
-| 4 | Schema docs for app-facing envelopes | iOS decoders and backend response shapes must stop drifting. | `docs/schemas/*.md` for `/talk`, `/realtime/client_secret`, `/screenplay/export`, `/craft/payoff/track`, and `/craft/coverage/simulate`. |
-| 5 | Remaining direct backend lib coverage | The pre-flight coverage rule should become boring. | Direct tests for `memory_store`, `user_store`, and `user_auth`, or an explicit no-test-needed marker when justified. |
+| 1 | Phase 5b.2 realtime studio-render extraction | Realtime route decomposition is still on the V1 checklist and must land before Phase 7 talk code. | Extract `POST /realtime/studio_render` + `POST /realtime/studio_render_stream` under the accepted Phase 5b design note; preserve SSE order, abort behavior, response shape, and route-local parser/required-deps guards. |
+| 2 | Phase 5b.3 realtime turn-commit extraction | This is the memory-write bridge that Phase 6 depends on. | Extract `POST /realtime/turn_commit`; preserve the 201 envelope, turn metadata storage, and memory-write behavior with focused integration tests. |
+| 3 | Phase 5b.4 realtime call extraction | Clears the rest of `/realtime/*` before talk decomposition. | Extract `POST /realtime/call` with byte-identical behavior and focused tests. |
+| 4 | Phase 6 memories routes after 5b.3 lands | Memory routes should move only after the turn-commit memory seam is stable. | Follow `tasks/_proposals/T-decompose-phase6-memories-design.md`; keep `/memories/export` privacy/auth constraints intact. |
+| 5 | Phase 7a talk pipeline only after realtime extraction clears | Talk is the riskiest V1 path; design note exists, but code should not start until realtime is stable. | Extract guards/state first per `tasks/_proposals/T-decompose-phase7-talk-pipeline-design.md`; no response-shape changes. |
 
 ## Decomposition Rules
 

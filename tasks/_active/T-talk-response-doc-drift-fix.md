@@ -2,7 +2,7 @@
 id: T-talk-response-doc-drift-fix
 title: Remove non-emitted fields from talk-response.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-talk-response-doc-drift-fix
 pillar: infra (schema discipline)
 v1_pillar: talk

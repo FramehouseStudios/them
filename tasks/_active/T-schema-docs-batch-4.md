@@ -2,7 +2,7 @@
 id: T-schema-docs-batch-4
 title: Schema doc batch 4 — talk-errors + talk-turn-stats + block-signal-history + fountain-export + agent-events
 owner: claude
-status: review
+status: merged
 branch: claude/T-schema-docs-batch-4
 pillar: infra (schema discipline)
 v1_pillar: infra
