@@ -33,8 +33,8 @@
 // not through this route's silent side-effect.
 //
 // Access-control posture: TIER-3 SENSITIVE. The client secret value
-// MUST NOT leak to logs. The lib mirrors the inline handler's log
-// behavior exactly (logs supplier kind + model + voice only).
+// MUST NOT leak to logs. Diagnostics log only supplier kind + model
+// + voice, never the client secret value.
 
 import express from "express";
 
@@ -200,7 +200,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
 
     const sessionVoice = sessionConfig.audio?.output?.voice || requestedVoice || OPENAI_REALTIME_VOICE;
     const sessionModel = sessionConfig.model || requestedModel || OPENAI_REALTIME_MODEL;
-    console.log(`[${rid}] realtime_client_secret supplier=${supplier.kind} model=${sessionModel} voice=${sessionVoice}`);
+    console.warn(`[${rid}] realtime_client_secret supplier=${supplier.kind} model=${sessionModel} voice=${sessionVoice}`);
 
     res.setHeader("Cache-Control", "no-store");
     return res.status(201).json({

@@ -54,6 +54,9 @@ The stub-supplier lazy-loader stays in index.js (passed in as
   supplier accessor pattern, Cache-Control: no-store, **plus a
   new #238-regression test** that asserts the module-level
   supplier is NOT mutated by a fallback rotation.
+- `node scripts/pre_flight.mjs`
+  → clean after keeping diagnostics on `console.warn` instead of
+  `console.log` in the extracted lib.
 - `node --check backend/index.js` passes.
 
 ## Done when
