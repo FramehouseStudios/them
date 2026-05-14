@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T05:06:54.104Z",
+  "updatedAt": "2026-05-14T05:16:29.797Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1082,6 +1082,27 @@
       "blocker_kind": "needs_test_fix",
       "reviewer_note": "Old inline handler only reassigned local supplier after mint/failover; new route writes fallback/created supplier back to module state, changing subsequent health/mint behavior.",
       "expected_action": "Remove the write-back for a true extraction, or update design/schema/tests and PR scope to make supplier rotation an intentional behavior change."
+    },
+    {
+      "number": 242,
+      "title": "T-user-auth-roundtrip-tests",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-user-auth-roundtrip-tests",
+      "blocker": null
+    },
+    {
+      "number": 243,
+      "title": "T-v1-status-reporter",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-v1-status-reporter",
+      "blocker": "Review blocker: v1_status parser truncates wrapped checkbox continuation lines in docs/v1-definition.md.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Current output/JSON truncates the iOS Release Readiness item after “next app-visible” instead of joining the continuation line “feature.”",
+      "expected_action": "Update parser to collect indented continuation lines until next checkbox or heading, and add a wrapped-checklist regression assertion or fixture check."
     }
   ],
   "blockers": [
@@ -1107,6 +1128,12 @@
       "id": "realtime-client-secret-rotation-drift",
       "owner": "claude",
       "summary": "PR #238 changes /realtime/client_secret supplier rotation behavior by persisting fallback/created supplier state; fix or rescope before merge.",
+      "since": "2026-05-14"
+    },
+    {
+      "id": "v1-status-wrapped-checkbox-parser",
+      "owner": "claude",
+      "summary": "PR #243 must join wrapped markdown checkbox continuation lines before the V1 status reporter can merge.",
       "since": "2026-05-14"
     }
   ],

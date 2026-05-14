@@ -840,7 +840,7 @@
 | T89                                            | Round 22e coordination refresh after schema docs batch 2                                 | codex  | review      |
 | T90                                            | V1 memory and realtime diagnostics in iOS                                                | codex  | review      |
 | T91                                            | Round 22f coordination refresh                                                           | codex  | review      |
-| T92                                            | Round 22g coordination refresh                                                           | codex  | in-progress |
+| T92                                            | Round 22g coordination refresh                                                           | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -4592,7 +4592,7 @@ settled policy, and the generated task index is current.
 - **Owner:** codex
 - **Branch:** codex/T92-round22g-coordination-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -4607,6 +4607,9 @@ Claude's next action is visible from `agent_next` without human copy/paste.
 
 ## Verification
 
-- Not run yet.
+- `node scripts/coordination_state.mjs validate`
+  - Passed.
+- `node scripts/decisions_queue_lint.mjs`
+  - Passed.
 
 <!-- END AUTOGEN active-tasks -->
