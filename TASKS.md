@@ -850,6 +850,7 @@
 | T108                                           | Refresh coordination after T107 schema lane guard merge                                                    | codex  | review      |
 | T109                                           | Refresh V1 checklist after Phase 7 design and realtime decomposition                                       | codex  | review      |
 | T110                                           | Prove realtime fallback status is user-visible                                                             | codex  | review      |
+| T111                                           | Refresh coordination after Phase 7a and realtime fallback proof                                            | codex  | in-progress |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6868,6 +6869,35 @@ complete.
 
 Not run: full iOS build/themTests, because this pins a narrow already-wired
 realtime UI contract.
+
+### T111 — Refresh coordination after Phase 7a and realtime fallback proof
+- **Owner:** codex
+- **Branch:** codex/T111-post-phase7a-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Mark Phase 7a and T110 merged, regenerate `TASKS.md`, and update
+`docs/claude-inbox.md` so Claude's next backend move is Phase 7b design before
+implementation.
+
+## Done When
+
+- `T-decompose-phase7a-talk-state` is marked `merged`.
+- `T110` is marked `merged`.
+- Claude inbox priority 1 is Phase 7b handler design, not already-merged Phase
+  7a.
+- `TASKS.md` is regenerated.
+
+## Verification
+
+- `node scripts/build_tasks_md.mjs --write`
+- `git diff --check`
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+
+Not run: iOS build/themTests or backend tests, because this is coordination
+metadata only.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
