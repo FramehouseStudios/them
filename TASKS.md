@@ -824,7 +824,7 @@
 | T82                                            | Refresh coordination after PR #204/#205/#206/#207                                   | codex  | review      |
 | T83                                            | Define V1 and product-state handoff loop                                            | codex  | review      |
 | T84                                            | Surface talk health and error diagnostics in iOS                                    | codex  | review      |
-| T85                                            | Round 22 coordination refresh after supervisor merge train                          | codex  | in-progress |
+| T85                                            | Round 22 coordination refresh after supervisor merge train                          | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -3726,7 +3726,7 @@ and diagnostic summaries, and the app has a Talk Diagnostics support sheet.
 - **Owner:** codex
 - **Branch:** codex/T85-round22-coordination-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3744,6 +3744,9 @@ Refresh the repo-native coordination lane after the round-22 merge train:
 
 ## Verification
 
-Run coordination validation and task index generation before merge.
+- `node scripts/build_tasks_md.mjs --write`
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex`
+- `node scripts/agent_event.mjs tail --n=12`
 
 <!-- END AUTOGEN active-tasks -->

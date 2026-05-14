@@ -33,3 +33,13 @@
 {"at":"2026-05-14T00:30:20.803Z","by":"codex","kind":"pr_merged","pr":206,"comment":"Merged direct screenplay_store tests"}
 {"at":"2026-05-14T00:30:27.325Z","by":"codex","kind":"pr_merged","pr":207,"comment":"Merged direct outbox_store tests; full backend suite 782 pass / 1 skipped / 0 fail"}
 {"at":"2026-05-14T00:30:33.844Z","by":"codex","kind":"coord_refresh","comment":"T82 records #204 #205 #206 #207 merged; non-human PR queue is clear"}
+{"at":"2026-05-14T01:55:04.208Z","by":"codex","kind":"pr_merged","pr":214,"comment":"Merged protocol infra batch after README precedent and audit-script review fix"}
+{"at":"2026-05-14T01:55:10.580Z","by":"codex","kind":"pr_merged","pr":222,"comment":"Merged T84 iOS Talk Diagnostics: /talk/stats and /talk/errors support sheet plus debug-bundle summaries"}
+{"at":"2026-05-14T01:55:16.787Z","by":"codex","kind":"pr_merged","pr":216,"comment":"Merged memory_store smoke coverage"}
+{"at":"2026-05-14T01:55:22.996Z","by":"codex","kind":"pr_merged","pr":217,"comment":"Merged user_store smoke coverage"}
+{"at":"2026-05-14T01:55:30.853Z","by":"codex","kind":"pr_merged","pr":218,"comment":"Merged user_auth smoke coverage; production auth behavior unchanged"}
+{"at":"2026-05-14T01:55:37.830Z","by":"codex","kind":"pr_merged","pr":220,"comment":"Merged #214 follow-up: accepted-precedent README and live-route vs method-guard audit split"}
+{"at":"2026-05-14T01:55:46.185Z","by":"codex","kind":"pr_merged","pr":221,"comment":"Merged auth-route design note; #212 remains do-not-merge/tier-3 until reviewed against it"}
+{"at":"2026-05-14T01:55:53.291Z","by":"codex","kind":"pr_merged","pr":215,"comment":"Merged read-only realtime route extraction out of auth-order because #212 is tier-3 blocked"}
+{"at":"2026-05-14T01:56:00.907Z","by":"codex","kind":"review_blocker","pr":212,"comment":"#212 remains blocked: auth extraction needs Codex review against design note #221 and explicit auth guardrail clearance","blocker_kind":"policy_gated"}
+{"at":"2026-05-14T01:57:55.148Z","by":"codex","kind":"coord_refresh","comment":"T85 records #214 #215 #216 #217 #218 #220 #221 #222 merged; #212 remains auth/tier-3 blocked"}

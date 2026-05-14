@@ -2,7 +2,7 @@
 id: T85
 title: Round 22 coordination refresh after supervisor merge train
 owner: codex
-status: in-progress
+status: review
 branch: codex/T85-round22-coordination-refresh
 pillar: infra
 v1_pillar: infra
@@ -25,4 +25,7 @@ Refresh the repo-native coordination lane after the round-22 merge train:
 
 ## Verification
 
-Run coordination validation and task index generation before merge.
+- `node scripts/build_tasks_md.mjs --write`
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex`
+- `node scripts/agent_event.mjs tail --n=12`
