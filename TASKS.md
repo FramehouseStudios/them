@@ -765,6 +765,7 @@
 | T-decompose-phase5a-realtime-reads             | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                                     | claude | review      |
 | T-decompose-phase5b1-realtime-client-secret    | Decompose backend/index.js — Phase 5b.1 (POST /realtime/client_secret)                                     | claude | merged      |
 | T-decompose-phase5b2-studio-render             | Decompose backend/index.js — Phase 5b.2 (studio_render + studio_render_stream)                             | claude | merged      |
+| T-decompose-phase5b3-turn-commit               | Decompose backend/index.js — Phase 5b.3 (/realtime/turn_commit)                                            | claude | merged      |
 | T-deeper-lib-tests-batch-2                     | Deeper tests for persona + utils + screenplay_store + outbox_store                                         | claude | review      |
 | T-deeper-lib-tests-batch-3                     | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats                             | claude | review      |
 | T-deeper-lib-tests-batch                       | Deeper direct tests for user_store (with planned followups for memory_store + user_auth)                   | claude | review      |
@@ -802,6 +803,7 @@
 | T-screenplay-export-formats-list-route         | GET /screenplay/export/formats canonical format list                                                       | claude | review      |
 | T-screenplay-export-markdown                   | POST /screenplay/export format=md|markdown                                                                 | claude | review      |
 | T-screenplay-export-pdf-error-clarity          | Add human-readable help payload to PDF export rejection                                                    | claude | merged      |
+| T-screenplay-markdown-export-tests             | Direct tests for backend/lib/screenplay_markdown_export.js                                                 | claude | merged      |
 | T-talk-error-counter-zero-fix                  | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                                             | claude | review      |
 | T-talk-response-doc-drift-fix                  | Remove non-emitted fields from talk-response.md                                                            | claude | merged      |
 | T-talk-turn-meta-contract-snapshot             | Pin /talk/turn/:turnId response key set + error codes                                                      | claude | review      |
@@ -819,6 +821,9 @@
 | T-untested-libs-followups                      | Add tests for remaining untested infrastructure libs                                                       | claude | planned     |
 | T-user-auth-roundtrip-tests                    | Full handler round-trip tests for backend/lib/user_auth.js                                                 | claude | review      |
 | T-v1-pillar-rule-and-canon-wire                | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                                               | claude | review      |
+| T-v1-status-diff-flag                          | v1_status.mjs --diff=<ref> flag                                                                            | claude | merged      |
+| T-v1-status-md-comment-flag                    | v1_status.mjs --md-comment flag                                                                            | claude | merged      |
+| T-v1-status-npm-script                         | backend/package.json — npm run v1:status                                                                   | claude | merged      |
 | T-v1-status-reporter                           | V1 status reporter script                                                                                  | claude | merged      |
 | T-v1-three-smoke-fixtures                      | V1 smoke fixtures — screenplay export + memory recall + realtime failover                                  | claude | review      |
 | T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                                          | claude | review      |
@@ -866,6 +871,7 @@
 | T95-schema-doc-drift-gate                      | Gate schema docs against backend field drift                                                               | codex  | review      |
 | T96-batch-coordination-refresh                 | Refresh coordination after supervisor merge train                                                          | codex  | review      |
 | T97-post-support-merge-refresh                 | Refresh coordination after support merge train                                                             | codex  | review      |
+| T98-post-v1-realtime-refresh                   | Post V1 status and realtime turn-commit coordination refresh                                               | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -2223,6 +2229,145 @@ tests pass; SSE event shapes preserved byte-identically.
 
 Phase 5b.3: extract `POST /realtime/turn_commit`. Gated on this
 PR merging per spec (max 1 decomp PR in flight).
+
+### T-decompose-phase5b3-turn-commit — Decompose backend/index.js — Phase 5b.3 (/realtime/turn_commit)
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase5b3-turn-commit
+- **Pillar:** infra (backend architecture)
+- **Status:** merged
+
+## Scope
+
+Phase 5b.3 of the decomposition (spec:
+`docs/specs/T-decompose-backend-index.md`, design note #227).
+This sub-phase is the heaviest by dep count: ~20 functions
+spanning the memory-write pipeline.
+
+Extracts `POST /realtime/turn_commit` to
+`backend/lib/realtime_turn_commit_route.js`.
+
+## Dependencies (20 functions + 1 constant)
+
+### Helpers (3)
+- `createRequestId`, `normalizeSnippet`, `sanitizeStudioTurnMetadata`
+
+### Memory context (3)
+- `resolveWritableMemoryContext`
+- `sanitizePersistedSessionMemory`
+- `persistWritableMemoryContext`
+
+### Request / IP (2)
+- `normalizeClientIp`, `clientIp`
+
+### Director / metric / emotion-memory pipeline (8)
+- `directorFlagsFromTranscript`
+- `getUserMetricState`
+- `countSessionStartsForDay`
+- `formatLocalDateStamp`
+- `updateSessionEmotionMemory`
+- `updateSessionAfterReply`
+- `recordUserTalkMetrics`
+- `maybeRefineActiveThemesWithLLM`
+
+### Turn meta + read state (3)
+- `storeTalkTurnMeta`
+- `buildReadStateMeta`
+- `applyReadStateHeaders`
+
+### Constant (1)
+- `DEEP_TURN_SCORE_THRESHOLD`
+
+## Byte-identical invariants
+
+All preserved per the #227 design note:
+
+- **201 envelope** keys exactly match the inline source:
+  `ok, action: "realtime_turn_commit", status: "committed",
+  source: "realtime", turn_id, request_id, session_id,
+  state_version, last_turn_id, last_updated_at,
+  history_updated_at, memory_updated_at, schema_version,
+  backend_build, backend_boot_id`.
+- **400 missing-fields envelope** unchanged:
+  `{ stage: "realtime_turn_commit", error: "..." }`.
+- **`storeTalkTurnMeta` called exactly once per successful
+  commit** with the canonical render contract
+  `{ reply_role: "final", authoritative_page_text_available:
+  false, sync_ready: false }`. Not called when `lastTurnId`
+  is null.
+- **Read-state headers** preserved: `Cache-Control: no-store`,
+  `x-turn-id`, `x-turn-meta-available` (1 when turn id present,
+  0 otherwise), plus whatever `applyReadStateHeaders` sets.
+- **Memory write pipeline**:
+  `resolveWritableMemoryContext → sanitizePersistedSessionMemory
+   → updateSessionEmotionMemory → updateSessionAfterReply
+   → persistWritableMemoryContext`. Same call order, same args.
+- **Diagnostic line** preserved as `console.warn` (lib
+  precedent established in 5b.1 / 5b.2) with the same string
+  template.
+- **Body limit** unchanged at `256kb`.
+- **Field-name fallbacks** preserved:
+  - transcript: `transcript | user_message | userMessage`
+  - reply: `reply | assistant_message | assistantMessage`
+  - request_id: `request_id | requestId | <auto rid>`
+  - studio meta: `studio | body | null`
+- **No module-level state mutation.** The lib does NOT call
+  any setter back into index.js — same byte-identical-rotation
+  rule that Codex flagged in 5b.1 (#238 review). A regression
+  test pins this invariant.
+
+## V1 pillar / effect
+
+- `V1 pillar: realtime`
+- `V1 effect: continues the realtime route decomposition. After
+  5b.3, only 5b.4 (/realtime/call) remains in the 5b chain.
+  V1 line 68 ("Realtime route decomposition lands before talk-
+  pipeline Phase 7") moves one item closer.`
+
+## Verification
+
+```
+node --test backend/tests/realtime_turn_commit_route.test.mjs
+```
+
+→ **21/21 pass**:
+
+- Factory + mount guards (4 tests): body limit constant, mount
+  rejects null app, mount rejects each of the 20 missing-fn
+  deps, mount rejects non-number DEEP_TURN_SCORE_THRESHOLD.
+- 400 missing-fields envelope (3 tests): missing transcript,
+  missing reply, missing both.
+- 201 canonical envelope (2 tests): full field set, request_id
+  rid-fallback.
+- Field-name fallbacks (3 tests): user_message, userMessage,
+  assistant_message + assistantMessage.
+- storeTalkTurnMeta invariant (3 tests): exactly-once on
+  success, canonical render contract, NOT called without
+  lastTurnId.
+- Read-state headers (3 tests): Cache-Control + x-turn-id +
+  x-turn-meta-available; x-turn-meta-available=0 when no
+  lastTurnId; applyReadStateHeaders called once.
+- Memory-write side-effect (2 tests): persistWritableMemoryContext
+  invoked with (ctx, nextMemory, nowTs); pipeline call order.
+- #238 invariant inheritance (1 test): no setter-shaped dep
+  accepted.
+
+Plus:
+- `node --check backend/index.js` passes.
+- `backend/index.js` shrinks by **92 net lines** (121 inline →
+  29 mount call).
+- Pre-flight clean.
+
+## Done when
+
+Inline `POST /realtime/turn_commit` no longer in `index.js`;
+lib file exists with the SAFE-PUBLIC + PER-USER-via-deps
+posture documented; 21/21 tests pass; all invariants preserved.
+
+## Next phase
+
+Phase 5b.4: extract `POST /realtime/call` (the WebRTC SDP
+proxy). Last sub-phase of 5b per #227. Gated on this PR merging
+per spec (max 1 decomp PR in flight).
 
 ### T-deeper-lib-tests-batch-2 — Deeper tests for persona + utils + screenplay_store + outbox_store
 - **Owner:** claude
@@ -4213,6 +4358,71 @@ production branch through a small fixture.
 payload; existing clients reading `error` still work; `npm test`
 green.
 
+### T-screenplay-markdown-export-tests — Direct tests for backend/lib/screenplay_markdown_export.js
+- **Owner:** claude
+- **Branch:** claude/T-screenplay-markdown-export-tests
+- **Pillar:** infra (test coverage)
+- **Status:** merged
+
+## Scope
+
+Ships `backend/tests/screenplay_markdown_export.test.mjs` — 19
+direct tests for `exportScreenplayToMarkdown` +
+`paragraphTypeForLine` + `respondScreenplayMarkdown`.
+
+### Coverage
+
+#### `paragraphTypeForLine` (line-typing rules)
+
+- Scene heading: `INT./EXT./EST./INT\/EXT./I\/E.` prefixes
+- Transition: `CUT TO: / DISSOLVE TO: / FADE OUT. / THE END`
+- Parenthetical: `(softly)` style
+- Character: short all-caps without `:` or `.`; length cap 32
+- Character rejected when too long (>32 chars)
+- Dialogue: line after `Character | Parenthetical | Dialogue`
+- Action: default for anything that doesn't match
+- Empty line returns null type
+
+#### `exportScreenplayToMarkdown` (full export)
+
+- Non-string input → empty string (defensive)
+- Empty draft → just `\n`
+- Scene heading + action renders correctly (`## ...` + plain)
+- Character + dialogue (bold cue + plain dialogue)
+- Parenthetical → italic
+- Transition → blockquote `> ...`
+- CRLF line endings normalize to LF
+- 3+ blank lines collapse to 1
+- Output ends with exactly one trailing newline
+- Determinism (same input → same output)
+
+#### `respondScreenplayMarkdown` (route helper)
+
+- Sets `Content-Type: text/markdown; charset=utf-8`
+- Sets `Content-Disposition: attachment; filename="<base>.md"`
+- Sends 200 + body
+
+## V1 pillar / effect
+
+- `V1 pillar: screenplay`
+- `V1 effect: closes the zero-coverage gap on the markdown
+  export branch. V1 line 39 ("Manual smoke: create project →
+  write scene → save → export → reopen") covers Fountain + FDX;
+  the markdown branch is the third export format and now has
+  its rules pinned.`
+
+## Verification
+
+```
+node --test backend/tests/screenplay_markdown_export.test.mjs
+```
+
+→ **19/19 pass**.
+
+## Done when
+
+`screenplay_markdown_export.test.mjs` ships and passes.
+
 ### T-talk-error-counter-zero-fix — Fix talk_error_counter falsy-zero bug in errorRatePerHour math
 - **Owner:** claude
 - **Branch:** claude/T-talk-error-counter-zero-fix
@@ -4974,6 +5184,196 @@ the V1 smoke chain on every gate run.
   files (each PR can include the line as it ships).
 - Once the V1 doc has more checklist items closed, audit the smoke
   fixtures and add new ones to the canon chain.
+
+### T-v1-status-diff-flag — v1_status.mjs --diff=<ref> flag
+- **Owner:** claude
+- **Branch:** claude/T-v1-status-diff-flag
+- **Pillar:** infra (V1 visibility)
+- **Status:** merged
+
+## Scope
+
+Adds a `--diff=<ref>` flag to `scripts/v1_status.mjs`. The flag
+reads `docs/v1-definition.md` at the given git ref, parses it
+through the same parser, and surfaces:
+
+- **✓ newly done** — items that flipped `[ ]` → `[x]`.
+- **✗ flipped back to undone** — items that flipped `[x]` → `[ ]`.
+- **→ moved pillar** — items whose H2 section changed.
+- **+ added** — items only in the current doc.
+- **- removed** — items only in the historical doc.
+
+Item identity is the trimmed text after the checkbox. Two items
+with the same text in different pillars are tracked as
+`movedPillar` rather than `removed + added`.
+
+## Output modes
+
+- **Default** — appends a `Diff vs <ref>:` section under the
+  remaining-work listing, with sub-sections for each diff
+  category. Empty diff prints `(no changes)`.
+- **`--json`** — adds a `diff: { ref, flippedDone[],
+  flippedUndone[], movedPillar[], added[], removed[] }` block
+  to the JSON envelope.
+
+## Use cases
+
+- **Weekly status** — `node scripts/v1_status.mjs --diff=HEAD~50`
+  to see "what flipped this week."
+- **Pre-release sanity** — diff against the tag of the last
+  successful smoke run to confirm no V1 items regressed.
+- **PR review** — surface checkbox flips a PR introduces (useful
+  when a PR docs-change touches v1-definition.md).
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: lets either agent + the human see which V1
+  checkboxes flipped between two refs. Closes the "what changed
+  since last week?" question that previously required diffing
+  two raw status outputs by hand.`
+
+## Verification
+
+`node --test scripts/v1_status.test.mjs` → **8/8 pass**:
+- 5 existing tests (envelope shape, wrapped-line parsing,
+  grandfathered headings, single-line items, full-text recall)
+- 3 new tests:
+  - `--diff=HEAD` against itself shows no changes (each list
+    empty, ref echoed)
+  - `--diff=<bad-ref>` exits non-zero with descriptive error
+  - Text mode includes `Diff vs <ref>:` header
+
+## Done when
+
+`--diff=<ref>` flag ships, both output modes render the diff,
+regression tests pass.
+
+## Followups (not in this PR)
+
+- Optional `--diff-only` flag to suppress the current-state
+  output and emit only the diff block. Useful for CI comments.
+- Optional `--diff-from=<ref> --diff-to=<ref>` for comparing two
+  arbitrary refs (not just current vs ref). Nice to have.
+
+### T-v1-status-md-comment-flag — v1_status.mjs --md-comment flag
+- **Owner:** claude
+- **Branch:** claude/T-v1-status-md-comment-flag
+- **Pillar:** infra (V1 visibility)
+- **Status:** merged
+
+## Scope
+
+Adds a `--md-comment` flag to `scripts/v1_status.mjs`. Output is
+PR-comment-shaped:
+
+- `## V1 status` heading.
+- `**Overall:** N/M (P%)` headline.
+- The same Pillar / Done / Total / % / Next-remaining markdown
+  table the default mode emits.
+- A `<details><summary>Remaining work by pillar</summary>` block
+  with the per-pillar remaining items (collapsed by default in
+  GitHub's renderer).
+- Sub-footer with the regenerate command.
+
+When `--pillar=<filter>` matches nothing, the details block is
+omitted (empty content).
+
+## Use cases
+
+- Paste current V1 status into a coordination PR or weekly issue.
+- Use as the body of an automatic CI comment when
+  `docs/v1-definition.md` changes (Codex owns that wire-up;
+  this PR just provides the formatter).
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: lets either agent share V1 progress in a PR
+  comment without copy-paste-and-reformat. Pairs with the
+  --diff flag (#269) for "what changed this week" PR comments.`
+
+## Verification
+
+`node --test scripts/v1_status.test.mjs` → **7/7 pass**:
+- 5 existing tests (envelope shape, wrapped-line parsing,
+  grandfathered headings, single-line items, full-text recall).
+- 2 new tests:
+  - `--md-comment` emits the canonical PR-comment shape
+    (`## V1 status`, headline, table, details block, footer).
+  - `--md-comment` + non-matching `--pillar` filter omits the
+    details block.
+
+## Done when
+
+`--md-comment` ships; output pastes cleanly into a GitHub PR
+comment.
+
+## Followups (not in this PR)
+
+- Combine `--md-comment` with `--diff` so PR comments can
+  include "since this branch's base" diff. Each flag works
+  independently today; merging them is a small followup.
+- Optional: a GitHub-action wrapper that runs
+  `v1_status.mjs --md-comment` and posts the result on PRs
+  that touch `docs/v1-definition.md`. Codex's call.
+
+### T-v1-status-npm-script — backend/package.json — npm run v1:status
+- **Owner:** claude
+- **Branch:** claude/T-v1-status-npm-script
+- **Pillar:** infra (V1 visibility)
+- **Status:** merged
+
+## Scope
+
+Adds two npm scripts to `backend/package.json`:
+
+```json
+"v1:status": "node ../scripts/v1_status.mjs",
+"v1:status:json": "node ../scripts/v1_status.mjs --json",
+```
+
+Wires the v1_status.mjs script (#243, merged) into the backend
+package script index so it's discoverable next to the existing
+`eval:canon` and `eval:v1-smokes` scripts. Same script, same
+behavior — just a shorter command for ops.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: one-command V1 status check from the backend dir.
+  Pairs with the existing eval:canon to give "run all V1
+  tripwires" and "show V1 checklist progress" as two adjacent
+  npm scripts.`
+
+## Verification
+
+```
+cd backend
+npm run v1:status
+```
+
+→ Emits the V1 status report.
+
+```
+cd backend
+npm run v1:status:json | head -5
+```
+
+→ Emits the JSON envelope.
+
+Pure additive change to `package.json` scripts; no code,
+no test, no dependency change.
+
+## Done when
+
+Two npm scripts ship; `npm run v1:status` works from the backend
+dir.
+
+## Followups (not in this PR)
+
+- Optional: a `npm run v1:status:diff -- --diff=HEAD~50` once
+  the #269 `--diff` flag merges. Trivial follow-up.
 
 ### T-v1-status-reporter — V1 status reporter script
 - **Owner:** claude
@@ -6174,5 +6574,24 @@ PRs #262, #264, #265, #266, and #267.
 - `node scripts/pre_flight.mjs`
 - `node --test scripts/pre_flight.test.mjs`
 - `cd backend && npm run eval:v1-smokes`
+
+### T98-post-v1-realtime-refresh — Post V1 status and realtime turn-commit coordination refresh
+- **Owner:** codex
+- **Branch:** codex/T98-post-v1-realtime-refresh
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Refresh the coordination lane after Codex merged the V1 status support
+PRs and Phase 5b.3 realtime turn-commit extraction.
+
+## Done when
+
+- `docs/coordination.json` marks #268, #269, #270, #271, and #273 merged.
+- `docs/codex-inbox.md` names Phase 5b.4 `/realtime/call` as Claude's next
+  backend lane.
+- The active task index is rebuilt.
+- Coordination validation and current health checks pass.
 
 <!-- END AUTOGEN active-tasks -->

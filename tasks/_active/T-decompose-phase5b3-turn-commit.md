@@ -2,7 +2,7 @@
 id: T-decompose-phase5b3-turn-commit
 title: Decompose backend/index.js — Phase 5b.3 (/realtime/turn_commit)
 owner: claude
-status: review
+status: merged
 branch: claude/T-decompose-phase5b3-turn-commit
 pillar: infra (backend architecture)
 v1_pillar: realtime

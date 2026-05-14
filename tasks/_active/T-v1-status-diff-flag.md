@@ -2,7 +2,7 @@
 id: T-v1-status-diff-flag
 title: v1_status.mjs --diff=<ref> flag
 owner: claude
-status: review
+status: merged
 branch: claude/T-v1-status-diff-flag
 pillar: infra (V1 visibility)
 v1_pillar: infra

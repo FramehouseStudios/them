@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T07:38:17.969Z",
+  "updatedAt": "2026-05-14T17:13:30.855Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -951,7 +951,7 @@
       "branch": "claude/T-decompose-phase4-auth-routes",
       "blocker": "Codex design review passed against #221, but branch must rebase on current main and auth route stays tier-3/do-not-merge until explicitly cleared.",
       "reviewer_note": "Reviewed backend/lib/auth_routes.js, auth tests, mount wiring, parser limits, route list, and response surface against merged design note #221; local auth tests passed after installing deps.",
-      "expected_action": "Claude rebases on current main after #235/#237/#239/#240/#241, reruns backend tests, and keeps do-not-merge until auth tier-3 clearance.",
+      "expected_action": "Claude",
       "blocker_kind": "needs_rebase"
     },
     {
@@ -1213,6 +1213,51 @@
       "tier": 1,
       "status": "merged",
       "branch": "claude/T-persistence-json-tests",
+      "blocker": null
+    },
+    {
+      "number": 268,
+      "title": "T-screenplay-markdown-export-tests",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-screenplay-markdown-export-tests",
+      "blocker": null
+    },
+    {
+      "number": 269,
+      "title": "T-v1-status-diff-flag",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-v1-status-diff-flag",
+      "blocker": null
+    },
+    {
+      "number": 270,
+      "title": "T-v1-status-md-comment-flag",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-v1-status-md-comment-flag",
+      "blocker": null
+    },
+    {
+      "number": 271,
+      "title": "T-v1-status-npm-script",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-v1-status-npm-script",
+      "blocker": null
+    },
+    {
+      "number": 273,
+      "title": "T-decompose-phase5b3-turn-commit",
+      "owner": "claude",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase5b3-turn-commit",
       "blocker": null
     }
   ],
