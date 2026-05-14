@@ -29,8 +29,15 @@
 //   - review_blocker          reviewer flagged a blocker (kind required)
 //   - blocker_cleared         a previously-flagged blocker was cleared
 //   - coord_refresh           docs/coordination.json was updated
+//   - event_protocol_change   event-lane protocol/tooling changed
+//   - spec_amend              small spec amendment approved without a new spec PR
 //   - spec_opened             a spec PR was opened (multi-PR feature)
 //   - spec_approved           spec PR was approved; impl PRs can start
+//   - review_ready            PR is ready for Codex review after update/rebase
+//   - product_state           daily product-state snapshot
+//   - pattern_codified        repeated review pattern was turned into automation
+//   - code_review             review pass completed or review intent recorded
+//   - design_proposal         short design note/proposal emitted
 //   - note                    free-form note (use sparingly; prefer typed kinds)
 //
 // File rotates weekly. Filename:
@@ -60,8 +67,15 @@ const ALLOWED_KINDS = new Set([
   "review_blocker",
   "blocker_cleared",
   "coord_refresh",
+  "event_protocol_change",
+  "spec_amend",
   "spec_opened",
   "spec_approved",
+  "review_ready",
+  "product_state",
+  "pattern_codified",
+  "code_review",
+  "design_proposal",
   "note",
 ]);
 
