@@ -30,8 +30,9 @@ common case.
 ## Access-control posture
 
 **PER-USER**. Memory record resolved via
-`selectMemoryRecordForRead`. Same posture as `memories-list.md`
-and `memories-export.md`.
+`selectMemoryRecordForRead`: `X-Client-Token` session or token
+alias when present, otherwise the normalized requester IP. The
+inline handler does not enforce an auth-only recap gate today.
 
 ## Query parameters
 
@@ -104,12 +105,12 @@ cycle as `/memories`).
 ## Response shape (304)
 
 When `If-None-Match` matches the current etag, server returns
-HTTP 304 with no body and no Cache-Control header (the empty
-304 IS the cache hit).
+HTTP 304 with no body. `Cache-Control: no-store` and the
+read-state headers are already set before the 304 is emitted.
 
 ## Read-state headers
 
-All 200 responses set:
+All responses (200 and 304) set:
 - `Cache-Control: no-store`
 - Headers from `applyReadStateHeaders(res, readMeta)` (same as
   the rest of the read surface).
