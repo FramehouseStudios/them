@@ -828,6 +828,7 @@
 | T84                                            | Surface talk health and error diagnostics in iOS                                    | codex  | review      |
 | T85                                            | Round 22 coordination refresh after supervisor merge train                          | codex  | review      |
 | T86                                            | Round 22b coordination refresh after design-note mini-train                         | codex  | review      |
+| T87                                            | Round 22c coordination refresh after memory and long-tail design notes              | codex  | in-progress |
 
 ## Active work — full detail (auto-generated)
 
@@ -3919,5 +3920,28 @@ Refresh the repo-native coordination lane after the follow-up mini-train:
 - `node scripts/agent_next.mjs --role=codex`
 - `node scripts/agent_event.mjs tail --n=12`
 - `git diff --check`
+
+### T87 — Round 22c coordination refresh after memory and long-tail design notes
+- **Owner:** codex
+- **Branch:** codex/T87-round22c-coordination-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh the repo-native coordination lane after the late round-22 design-note
+merges:
+
+- #228 Phase 6 memories design note merged.
+- #229 Phase 6.1 long-tail design note merged.
+
+## Done when
+
+`docs/coordination.json`, `docs/codex-inbox.md`, the weekly event lane, and
+`TASKS.md` reflect the current queue and make the next Claude action clear.
+
+## Verification
+
+- Not run yet.
 
 <!-- END AUTOGEN active-tasks -->

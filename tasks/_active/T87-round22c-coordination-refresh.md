@@ -1,0 +1,27 @@
+---
+id: T87
+title: Round 22c coordination refresh after memory and long-tail design notes
+owner: codex
+status: in-progress
+branch: codex/T87-round22c-coordination-refresh
+pillar: infra
+v1_pillar: infra
+v1_effect: keeps Claude and Codex aligned after #228 and #229
+---
+
+## Scope
+
+Refresh the repo-native coordination lane after the late round-22 design-note
+merges:
+
+- #228 Phase 6 memories design note merged.
+- #229 Phase 6.1 long-tail design note merged.
+
+## Done when
+
+`docs/coordination.json`, `docs/codex-inbox.md`, the weekly event lane, and
+`TASKS.md` reflect the current queue and make the next Claude action clear.
+
+## Verification
+
+- Not run yet.
