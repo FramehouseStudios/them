@@ -39,6 +39,8 @@ status rollup.
 
 - `node scripts/pre_flight.mjs` → 0 new findings on current main
   (all active tasks have matching id + filename).
+- `node --test scripts/pre_flight.test.mjs` → fixture coverage for
+  mismatch, match, and legacy non-YAML grandfathering.
 - Rule compares `id:` field value vs `path.basename(file, ".md")`.
 
 ## Done when
