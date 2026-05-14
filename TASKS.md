@@ -777,13 +777,18 @@
 | T-fix-214-audit-and-readme                     | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar                        | claude | review      |
 | T-format-linter-rules-canon-eval               | Pin canonical rule_id set + envelope for format_linter                                                     | claude | merged      |
 | T-fountain-export-deeper                       | Deeper tests for fountain_export                                                                           | claude | review      |
+| T-history-schema-doc                           | docs/schemas/history.md                                                                                    | claude | review      |
 | T-known-domains-runtime-check                  | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)                                                   | claude | merged      |
 | T-known-domains-startup-check                  | Boot-time invariant check on KNOWN_DOMAINS                                                                 | claude | merged      |
+| T-memories-export-schema-doc                   | docs/schemas/memories-export.md                                                                            | claude | review      |
+| T-memories-list-schema-doc                     | docs/schemas/memories-list.md                                                                              | claude | review      |
+| T-memories-mutate-schema-doc                   | docs/schemas/memories-mutate.md                                                                            | claude | review      |
 | T-memory-quality-eval                          | Multi-turn creative-memory recall eval                                                                     | claude | merged      |
 | T-operating-protocol-narrative                 | docs/operating-protocol.md — narrative complement to AGENTS.md                                             | claude | merged      |
 | T-ops-health-summary-eval                      | Deployment-level eval pinning /ops/health-summary features map                                             | claude | merged      |
 | T-ops-health-summary-route                     | GET /ops/health-summary cheap uptime-dashboard endpoint                                                    | claude | merged      |
 | T-ops-routes-list-route                        | GET /ops/routes manifest of optional surfaces                                                              | claude | merged      |
+| T-outbox-routes-schema-doc                     | docs/schemas/outbox-routes.md                                                                              | claude | review      |
 | T-persistence-json-tests                       | Direct tests for backend/lib/persistence_json.js                                                           | claude | merged      |
 | T-pre-flight-outbox-console-cleanup            | Convert outbox console.log → console.warn/error (pre-flight class 1)                                       | claude | merged      |
 | T-pre-flight-self-check-script                 | scripts/pre_flight.mjs — catch recurring review feedback locally                                           | claude | merged      |
@@ -794,6 +799,8 @@
 | T-prompt-assembly-snapshot-eval                | Pin canonical buildModelPrompt block order                                                                 | claude | merged      |
 | T-prompt-size-eval                             | Char-budget guard on assembled model prompts                                                               | claude | merged      |
 | T-protocol-infra-batch                         | Tighten backend extraction protocol helpers                                                                | claude | review      |
+| T-realtime-routes-deeper                       | Deeper integration tests for mountRealtimeRoutes                                                           | claude | review      |
+| T-recap-schema-doc                             | docs/schemas/recap.md                                                                                      | claude | review      |
 | T-runbook-smoke-section-drift-fix              | Correct v1_voice_to_page and v1_screenplay smoke sections in runbook                                       | claude | merged      |
 | T-runbook-v1-smoke                             | Operator runbook for the V1 smoke suite                                                                    | claude | merged      |
 | T-schema-docs-batch-2                          | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal                             | claude | review      |
@@ -814,6 +821,7 @@
 | T-tasks-active-frontmatter-eval                | Validate every tasks/_active/T-*.md front-matter                                                           | claude | merged      |
 | T-tasks-active-stats                           | At-a-glance counts over tasks/_active/                                                                     | claude | merged      |
 | T-tasks-per-row                                | Per-row task files + TASKS.md regenerator (no canonical flip yet)                                          | claude | merged      |
+| T-tasks-schema-doc                             | docs/schemas/tasks.md                                                                                      | claude | review      |
 | T-tasks-sync-check                             | CI script to detect tasks/_active vs TASKS.md drift                                                        | claude | merged      |
 | T-trait-library-canon-eval                     | Pin canonical TRAIT_KEYWORDS + cap constants                                                               | claude | merged      |
 | T-trust-tiers                                  | Trust tiers + standing pre-approvals (AGENTS.md)                                                           | claude | review      |
@@ -827,8 +835,10 @@
 | T-v1-status-reporter                           | V1 status reporter script                                                                                  | claude | merged      |
 | T-v1-three-smoke-fixtures                      | V1 smoke fixtures — screenplay export + memory recall + realtime failover                                  | claude | review      |
 | T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                                          | claude | review      |
+| T-visual-context-schema-doc                    | docs/schemas/visual-context.md                                                                             | claude | review      |
 | T100-agent-next-inbox-backlog                  | Surface Claude inbox backlog in agent_next                                                                 | codex  | review      |
 | T101-agent-event-kind-sync                     | Sync agent_event kinds with AGENTS protocol                                                                | codex  | review      |
+| T102                                           | Refresh coordination after schema-doc merge train                                                          | codex  | in-progress |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -3093,6 +3103,51 @@ existing smoke.
   (#256 schema batch 4).
 - FDX export deeper coverage when its smoke lands.
 
+### T-history-schema-doc — docs/schemas/history.md
+- **Owner:** claude
+- **Branch:** claude/T-history-schema-doc
+- **Pillar:** infra (schema discipline)
+- **Status:** review
+
+## Scope
+
+Ships `docs/schemas/history.md` — canonical request +
+response shapes for the two `/history/*` routes:
+
+- `GET /history` — paginated history with `limit`,
+  `sinceTurnId` (delta filter), `screenplayProjectId` filter;
+  standard If-None-Match → 304.
+- `POST /history/annotate_turn` — merge studio metadata onto a
+  specific turn; 200 on success, 400/404 on validation/missing.
+
+Covers: endpoints + body limits, schema version (`1`),
+PER-USER posture, request shapes per route, response envelopes
+(200 list + 200 annotate + 304 + 400 + 404), invariants
+(annotate MERGES, doesn't replace; turn ids are unique).
+
+Plus an INDEX.md row under the Memory surface section.
+
+## V1 pillar / effect
+
+- `V1 pillar: memory`
+- `V1 effect: documents the conversation-history list + the
+  studio-annotation loop iOS uses to enrich past turns with
+  Studio metadata. iOS decoders + future Phase 6 extraction
+  both benefit from a fixed contract.`
+
+## Verification
+
+- Doc matches the two inline handlers in `backend/index.js`
+  line-by-line for request fields, response shapes, error
+  envelopes, and read-state headers.
+- INDEX entry placed under Memory surface alongside the rest
+  of the memory-cluster schema docs.
+- Pre-flight clean.
+
+## Done when
+
+`docs/schemas/history.md` lands + INDEX entry added.
+
 ### T-known-domains-runtime-check — KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)
 - **Owner:** claude
 - **Branch:** claude/T-known-domains-runtime-check
@@ -3151,6 +3206,193 @@ time instead of at the first persistence call.
 
 `checkKnownDomainsAtStartup()` runs on server boot; happy path logs
 nothing; tests cover the contract; `npm test` green.
+
+### T-memories-export-schema-doc — docs/schemas/memories-export.md
+- **Owner:** claude
+- **Branch:** claude/T-memories-export-schema-doc
+- **Pillar:** infra (schema discipline)
+- **Status:** review
+
+## Scope
+
+Ships `docs/schemas/memories-export.md` — last of the
+`/memories/*` cluster of schema docs. Sibling to
+`memories-list.md` (read) and `memories-mutate.md` (write).
+
+Covers:
+- Endpoint + method + no query parameters.
+- Schema version (`1`) — outer envelope + inner `export_json` payload.
+- PER-USER posture (same as the rest of the cluster).
+- Full 200 response envelope (15 fields).
+- The inner `export_json` payload shape (14 fields, including
+  the full `memory_cards`, `themes`, `tasks`, `history_threads`).
+- Server-generated `filename` pattern.
+- Read-state headers (Cache-Control + applyReadStateHeaders).
+- Invariants (export is read-only; caps on cards/threads;
+  tasks include status="all").
+- V1 alignment (line 54 privacy decision).
+- Compatibility rules + changelog.
+
+Plus an INDEX.md row under the Memory surface section.
+
+## V1 pillar / effect
+
+- `V1 pillar: memory`
+- `V1 effect: documents the GET /memories/export full-dump
+  endpoint that V1 line 54 ("Human privacy decision is made
+  for full memory export/delete") gates. The schema doc
+  canonicalizes the current shape so a future redaction layer
+  can be added additively.`
+
+## Verification
+
+- Doc matches the inline `app.get("/memories/export", ...)`
+  handler in `backend/index.js` line-by-line for the outer
+  envelope, the inner export_json payload structure, the
+  filename pattern, and the read-state headers.
+- INDEX entry placed under Memory surface alongside the other
+  `/memories/*` schema docs (memories-list, memories-mutate).
+- Pre-flight clean.
+
+## Done when
+
+`docs/schemas/memories-export.md` lands + INDEX entry added.
+This completes the schema-doc coverage for the entire
+`/memories/*` cluster (5 routes documented across 3 docs).
+
+## Followups (not in this PR)
+
+- Phase 6 extraction of the cluster to
+  `backend/lib/memories_route.js` per #228 design note. All
+  three memories-* schema docs will need a small amendment to
+  reference the lib once the extraction lands.
+- V1 line 54 privacy decision (Codex / human-gated) may add
+  redaction fields to the inner export_json payload. The
+  current doc explicitly notes that additive-only changes are
+  tolerated.
+
+### T-memories-list-schema-doc — docs/schemas/memories-list.md
+- **Owner:** claude
+- **Branch:** claude/T-memories-list-schema-doc
+- **Pillar:** infra (schema discipline)
+- **Status:** review
+
+## Scope
+
+Ships `docs/schemas/memories-list.md` — canonical response shape
+for `GET /memories`. Covers:
+
+- Endpoint + method.
+- Schema version (`1`).
+- PER-USER access-control posture.
+- Query parameters: `limit` (default 24, max 120) and
+  `sinceVersion` (delta-no-change short-circuit).
+- `If-None-Match` etag handling (304).
+- Full 200 envelope with 25+ field types documented.
+- Delta-no-change response shape (when `sinceVersion` matches
+  current `state_version`).
+- 304 response details.
+- Read-state headers set by `applyReadStateHeaders`.
+- Invariants (limit caps, delta vs full body, etc.).
+- Side effects (background `maybeBackfillThemesFromHistory`).
+- Compatibility rules + V1 alignment + changelog.
+
+Plus an INDEX.md row under the Memory surface section.
+
+## V1 pillar / effect
+
+- `V1 pillar: memory`
+- `V1 effect: closes the schema-doc gap for the GET /memories
+  envelope. V1 line 53 ("iOS exposes a plain-language memory
+  summary and refresh state") depends on this surface; iOS
+  decoders now have a fixed contract.`
+
+## Verification
+
+- Doc matches the inline `app.get("/memories", ...)` handler in
+  `backend/index.js` line-by-line for the response field set,
+  the headers, the delta-no-change short-circuit, and the etag
+  cycle.
+- INDEX entry sits under Memory surface alongside
+  `memory-stats.md` and `block-signal*.md`.
+- Pre-flight clean.
+
+## Done when
+
+`docs/schemas/memories-list.md` lands + INDEX entry added.
+
+## Followups (not in this PR)
+
+- Schema docs for the other four `/memories/*` routes
+  (`/memories/export`, `/memories/update`, `/memories/forget`,
+  `/memories/promote`, `/memories/feedback`) — each can ship
+  in its own PR or a batch.
+- This doc will need an amendment when Phase 6 extracts
+  `app.get("/memories", ...)` to `backend/lib/memories_route.js`
+  per the #228 design note.
+
+### T-memories-mutate-schema-doc — docs/schemas/memories-mutate.md
+- **Owner:** claude
+- **Branch:** claude/T-memories-mutate-schema-doc
+- **Pillar:** infra (schema discipline)
+- **Status:** review
+
+## Scope
+
+Ships `docs/schemas/memories-mutate.md` — canonical request +
+response shapes for four sibling endpoints:
+
+- `POST /memories/update` — mutate a memory card.
+- `POST /memories/forget` — delete a memory card.
+- `POST /memories/promote` — promote a card to a theme.
+- `POST /memories/feedback` — record human feedback on a card.
+
+All four share:
+- 256kb body limit.
+- Same `card_id` / `key` addressing.
+- Same read-state response metadata (matches `memories-list.md`).
+- Same `memory_quality` refresh on the post-mutation state.
+- Same `Cache-Control: no-store` + `applyReadStateHeaders` cycle.
+- 200 on success / 400 on failure with `ok: bool` + `message`.
+
+Per-route differences:
+- `update` + `promote` echo the updated `memory_card`.
+- `forget` echoes `forgotten_id` + `theme_key`.
+- `promote` echoes `theme_key`.
+
+Plus an INDEX.md row under the Memory surface section.
+
+## V1 pillar / effect
+
+- `V1 pillar: memory`
+- `V1 effect: documents the four mutation endpoints iOS needs
+  for the memory-card UI (edit / delete / promote / feedback).
+  V1 line 54 ("Human privacy decision is made for full memory
+  export/delete") gates the forget endpoint's policy semantics —
+  the schema doc canonicalizes the backend response now so the
+  policy call doesn't reshape the contract.`
+
+## Verification
+
+- Doc matches the four inline handlers in `backend/index.js`
+  line-by-line for request fields, response fields, status
+  verbs, and 200/400 cycles.
+- INDEX entry placed under Memory surface alongside the
+  existing memory schema docs.
+- Pre-flight clean.
+
+## Done when
+
+`docs/schemas/memories-mutate.md` lands + INDEX entry added.
+
+## Followups (not in this PR)
+
+- `docs/schemas/memories-export.md` for `GET /memories/export`
+  (full memory dump; the last endpoint in the cluster).
+- Phase 6 extraction of the four routes to
+  `backend/lib/memories_route.js` per #228 design note. This
+  doc will need a small amendment to reference the lib once
+  the extraction lands.
 
 ### T-memory-quality-eval — Multi-turn creative-memory recall eval
 - **Owner:** claude
@@ -3389,6 +3631,51 @@ Returns `{ schemaVersion, total, routes[] }` with
 
 `GET /ops/routes` returns the frozen manifest; tests cover snapshot
 properties + integration; `npm test` green.
+
+### T-outbox-routes-schema-doc — docs/schemas/outbox-routes.md
+- **Owner:** claude
+- **Branch:** claude/T-outbox-routes-schema-doc-fresh
+- **Pillar:** infra (schema discipline)
+- **Status:** review
+
+## Scope
+
+Ships `docs/schemas/outbox-routes.md` — canonical request +
+response shapes for the two `/outbox/*` HTTP routes:
+
+- `GET /outbox` — list with `status` + `limit` filters
+- `POST /outbox/retry` — single-item retry (`id`) OR batch
+  retry (`limit`); 200/404/409
+
+Covers: endpoints + body limits, schema version (`1`),
+PER-USER (internal) posture, request shapes, response
+envelopes per route + status, invariants (single-item path
+gating; spread fields from `processOutboxBatch`).
+
+Sibling to `outbox-event.md` (record shape). The two together
+fully document the outbox surface.
+
+Plus an INDEX.md row under the Ops surface section.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: documents the operator-facing /outbox HTTP
+  envelopes. Pairs with outbox-event.md (record shape) so ops
+  dashboards have a fixed contract.`
+
+## Verification
+
+- Doc matches the two inline handlers in `backend/index.js`
+  line-by-line for request fields, status routing (200/404/409),
+  single-item vs batch path selection.
+- INDEX entry placed under Ops surface alongside ops-metrics
+  and ops-health-summary.
+- Pre-flight clean.
+
+## Done when
+
+`docs/schemas/outbox-routes.md` lands + INDEX entry added.
 
 ### T-persistence-json-tests — Direct tests for backend/lib/persistence_json.js
 - **Owner:** claude
@@ -3845,6 +4132,116 @@ Run:
 - `node scripts/audit_inline_routes.mjs`
 - `node scripts/audit_inline_routes.mjs --json`
 - `git diff --check`
+
+### T-realtime-routes-deeper — Deeper integration tests for mountRealtimeRoutes
+- **Owner:** claude
+- **Branch:** claude/T-realtime-routes-deeper
+- **Pillar:** infra (test coverage)
+- **Status:** review
+
+## Scope
+
+Ships `backend/tests/realtime_routes_deeper.test.mjs` — 9
+deeper tests beyond the existing 8 smoke tests.
+
+### Targets
+
+- **Shape mode edge cases**:
+  - `healthy: false` propagation when probe says so.
+  - Null supplier (none configured) still returns 200 with the
+    canonical shape.
+  - `recordedAt` is always present and ISO-8601-with-ms.
+- **Deep mode edge cases**:
+  - Unhealthy live probe + error envelope.
+  - `probeSupplierLive` receives a positive `timeoutMs` option.
+- **Cache rotation**:
+  - Cache is keyed on supplier identity; rotating to a new
+    supplier MISSES the cache; rotating back HITS.
+- **Bridge HTML**:
+  - `Content-Type: text/html` returned.
+  - Body is exactly what `renderRealtimeBridgeHtml` returns
+    (test injects a marker string).
+- **Safe-public posture invariant**:
+  - Even when the supplier carries extra fields (token, email)
+    none leak into the response body.
+
+## V1 pillar / effect
+
+- `V1 pillar: realtime`
+- `V1 effect: extends realtime_routes coverage with edge cases
+  the smoke skipped. V1 line 68 ("Realtime route decomposition
+  lands before talk-pipeline Phase 7") needs the read-only
+  /realtime/health and /bridge surfaces to stay stable through
+  the Phase 5b decomp chain.`
+
+## Verification
+
+```
+node --test backend/tests/realtime_routes.test.mjs backend/tests/realtime_routes_deeper.test.mjs
+```
+
+→ 8 smoke + 9 deeper = 17/17 pass.
+
+## Done when
+
+`realtime_routes_deeper.test.mjs` ships and passes alongside the
+existing smoke.
+
+### T-recap-schema-doc — docs/schemas/recap.md
+- **Owner:** claude
+- **Branch:** claude/T-recap-schema-doc
+- **Pillar:** infra (schema discipline)
+- **Status:** review
+
+## Scope
+
+Ships `docs/schemas/recap.md` — canonical response shape for
+the daily-recap endpoints:
+
+- `GET /recap?window=<key>` (default `today`)
+- `GET /recap/today` (hardcoded shorthand)
+
+Both share the same response shape. Covers:
+- Endpoint + query params + If-None-Match → 304 cycle.
+- Schema version (`1`).
+- PER-USER posture.
+- Full 200 envelope (24+ fields documented).
+- Read-state header cycle.
+- Invariants (`/recap/today` ignores `window` query; local_day
+  uses server TZ; generated_at is server-stamped).
+- Compatibility rules + V1 alignment + changelog.
+
+Plus an INDEX.md entry under a new "Daily / weekly surfaces"
+section.
+
+## V1 pillar / effect
+
+- `V1 pillar: memory`
+- `V1 effect: documents the daily-recap surface that feeds the
+  broader living-companion experience. Read-only and side-
+  effect-free — safe for frequent iOS polling.`
+
+## Verification
+
+- Doc matches `sendRecapResponse` in `backend/index.js`
+  line-by-line for the response field set, read-state cycle,
+  and `If-None-Match` behavior.
+- INDEX entry placed under new "Daily / weekly surfaces"
+  section (no existing section for recap-style endpoints).
+- Pre-flight clean.
+
+## Done when
+
+`docs/schemas/recap.md` lands + INDEX entry added.
+
+## Followups (not in this PR)
+
+- Document `highlights` / `outcomes` / `next_actions` /
+  `stats` sub-shapes once `buildDailyRecapPayload` stabilizes.
+  Today they're treated as opaque arrays/objects iOS reads
+  via convention.
+- Cross-link from `memories-list.md` if iOS uses the same
+  read-state cycle to share cache state with /recap.
 
 ### T-runbook-smoke-section-drift-fix — Correct v1_voice_to_page and v1_screenplay smoke sections in runbook
 - **Owner:** claude
@@ -4860,6 +5257,49 @@ populated with at least one example file (this one); the regenerator
 prints a valid quick-view table when run; `TASKS.md` remains the
 source of truth for now (the README explains the migration plan).
 
+### T-tasks-schema-doc — docs/schemas/tasks.md
+- **Owner:** claude
+- **Branch:** claude/T-tasks-schema-doc2
+- **Pillar:** infra (schema discipline)
+- **Status:** review
+
+## Scope
+
+Ships `docs/schemas/tasks.md` — canonical request + response
+shapes for the two `/tasks/*` routes:
+
+- `GET /tasks` — list with `limit` + `status` filter; standard
+  If-None-Match → 304 cycle.
+- `POST /tasks/update` — multi-action mutation
+  (`add | complete | reopen | delete | clear_completed`).
+
+Covers: endpoints + body limits, schema version (`1`),
+PER-USER posture, request shapes per route, response envelopes
+(200 + 304 + 400), status-verbs-per-action matrix, invariants
+(`total_count` is full set; `tasks[]` is clipped; `task` field
+is post-mutation state).
+
+Plus an INDEX.md row under a new "Tasks surface" section.
+
+## V1 pillar / effect
+
+- `V1 pillar: memory`
+- `V1 effect: documents the task list + mutation endpoints iOS
+  uses for the secretary-style action-item surface. Closes a
+  schema-doc gap; iOS decoders now have a fixed contract.`
+
+## Verification
+
+- Doc matches the two inline handlers in `backend/index.js`
+  line-by-line for request fields, response fields, status
+  verbs, and 200/304/400 cycles.
+- INDEX entry placed under a new "Tasks surface" section.
+- Pre-flight clean.
+
+## Done when
+
+`docs/schemas/tasks.md` lands + INDEX entry added.
+
 ### T-tasks-sync-check — CI script to detect tasks/_active vs TASKS.md drift
 - **Owner:** claude
 - **Branch:** claude/T-tasks-sync-check
@@ -5634,6 +6074,63 @@ caught for free.
 - Wire into `quality_gate.sh` once the canon umbrella's
   composition is settled.
 
+### T-visual-context-schema-doc — docs/schemas/visual-context.md
+- **Owner:** claude
+- **Branch:** claude/T-visual-context-schema-doc
+- **Pillar:** infra (schema discipline)
+- **Status:** review
+
+## Scope
+
+Ships `docs/schemas/visual-context.md` — canonical request +
+response shape for `POST /visual/context`. Covers:
+
+- Endpoint + 2mb body limit + `requireClientTokenForTalk` guard.
+- Schema version (`1`).
+- TIER-3 SENSITIVE posture (image payload may carry PII).
+- Request shape: `image_data_url`, `transcript` + camelCase
+  fallbacks, `is_screenplay_mode`, `app_name`, `window_title`.
+- Success envelope: `summary`, `prompt_addendum`, `app_name`,
+  `window_title`, `source`, `captured_at`.
+- Error envelopes: 400 missing image, 503 missing API key,
+  502 (or err.status) from the vision supplier.
+- Privacy invariant: image never persisted by this route.
+- Compatibility rules + V1 alignment + changelog.
+
+Plus an INDEX.md row under a new "Visual surface" section.
+
+## V1 pillar / effect
+
+- `V1 pillar: talk`
+- `V1 effect: documents the visual-context surface iOS uses to
+  ground talk replies in what the user is looking at. TIER-3
+  SENSITIVE — the image payload may carry credentials / PII so
+  the canonical contract is load-bearing for the
+  "image-never-persisted" invariant.`
+
+## Verification
+
+- Doc matches the inline `app.post("/visual/context", ...)`
+  handler in `backend/index.js` line-by-line for request +
+  response field set, error envelopes, and headers.
+- INDEX entry placed under a new "Visual surface" section
+  (no existing surface for image routes).
+- Pre-flight clean.
+
+## Done when
+
+`docs/schemas/visual-context.md` lands + INDEX entry added.
+
+## Followups (not in this PR)
+
+- Extract `app.post("/visual/context", ...)` into
+  `backend/lib/visual_context_route.js` per the established
+  `mount<X>Route` pattern. Not on the 5b chain — would be its
+  own decomp PR after Phase 6.
+- A deterministic V1-style smoke for the visual-context shape
+  (stub `summarizeVisualContextFromImage`, assert envelope).
+  Out of scope here; would need a separate fixture + smoke.
+
 ### T100-agent-next-inbox-backlog — Surface Claude inbox backlog in agent_next
 - **Owner:** codex
 - **Branch:** codex/T100-agent-next-inbox-backlog
@@ -5671,6 +6168,26 @@ documented in `AGENTS.md`, `docs/claude-inbox.md`, and
 - `pattern_codified`, `product_state`, `code_review`, `design_proposal`,
   `event_protocol_change`, `spec_amend`, and `review_ready` are accepted.
 - Tests prove the documented kinds round-trip through `append`.
+
+### T102 — Refresh coordination after schema-doc merge train
+- **Owner:** codex
+- **Branch:** codex/T102-supervisor-schema-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh the Codex/Claude coordination lane after Codex reviewed,
+patched where needed, and merged the fast-lane schema/support PRs.
+
+## Done When
+
+- `docs/codex-claude-live-handoff.md` records the merged PR batch.
+- `docs/codex-inbox.md` records the current Claude-facing status.
+- `docs/coordination.json` is refreshed and validates.
+- `docs/claude-inbox.md` still points Claude at Phase 5b.4 realtime call
+  extraction as the next app-visible backend lane.
+- Verification commands and intentionally skipped iOS checks are recorded.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
