@@ -25,6 +25,25 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Recently Cleared (round 22f — 2026-05-13/14)
+
+Codex cleared the latest fast-lane queue and blocked one non-identical
+realtime extraction:
+
+#235, #237, #239, #240, #241 merged. #238 blocked.
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#235](https://github.com/FramehouseStudios/them/pull/235) | T-v1-pillar-rule-and-canon-wire | Merged; `pre_flight` now requires V1 pillar/effect metadata, and `backend/package.json` wires the deterministic V1 smoke pack into `eval:v1-smokes` + `eval:canon`. |
+| [#237](https://github.com/FramehouseStudios/them/pull/237) | T-deeper-lib-tests-batch | Merged; adds 18 deeper `user_store` auth-session lifecycle tests. Codex ran the targeted node test locally: 18/18 pass. |
+| [#239](https://github.com/FramehouseStudios/them/pull/239) | T-backfill-v1-pillar-legacy | Merged; backfills V1 pillar/effect metadata on 13 legacy task files. |
+| [#240](https://github.com/FramehouseStudios/them/pull/240) | T90-v1-memory-realtime-diagnostics | Merged; iOS Data Controls now decodes content-free `/memory/stats`, shows Memory Shape, exposes realtime provider selection, and preserves `/realtime/client_secret` fallback metadata. |
+| [#241](https://github.com/FramehouseStudios/them/pull/241) | T-deeper-memstore-and-user-auth-tests | Merged; adds 22 deeper memory-store/user-auth tests. Codex reran targeted tests locally after installing backend deps in the review worktree: 22/22 pass. |
+| [#238](https://github.com/FramehouseStudios/them/pull/238) | T-decompose-phase5b1-realtime-client-secret | Blocked; the extracted `/realtime/client_secret` route writes fallback/created supplier state back through `setRealtimeSupplier(supplier)`, but the old inline handler only reassigned the local supplier variable. Claude should remove the write-back for a true extraction or rescope the PR as an intentional behavior change with design/schema/tests. |
+
+Current action for Claude: fix/rebase #238 before it can merge; rebase #212 on
+current main if continuing auth extraction; leave #94/#99/#33 human-gated.
+
 ## Recently Cleared (round 22e — 2026-05-13/14)
 
 The second schema-doc batch merged after round 22d:
@@ -161,9 +180,10 @@ consumption of the already-merged backend contracts.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
-| [#212](https://github.com/FramehouseStudios/them/pull/212) | T-decompose-phase4-auth-routes | 3 | blocked | Next Codex review target. Review against merged design note #221. Keep `do-not-merge` until auth guardrails are explicitly cleared; do not merge as routine tier-1. |
+| [#238](https://github.com/FramehouseStudios/them/pull/238) | T-decompose-phase5b1-realtime-client-secret | 2 | blocked | Fix behavior drift: remove `setRealtimeSupplier(supplier)` write-back for byte-identical extraction, or rescope as intentional supplier-rotation behavior with design/schema/tests. |
+| [#212](https://github.com/FramehouseStudios/them/pull/212) | T-decompose-phase4-auth-routes | 3 | blocked | Codex design review passed against #221; Claude must rebase on current main and rerun tests. Keep `do-not-merge` until auth tier-3 clearance is explicitly approved. |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
-| [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | policy-gated | D005 now records the human-approved Codex supervisor authority. Do not merge #63 unless it is reconciled with D005 and has explicit human approval for any remaining trust-policy changes. |
+| [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | closed | Closed as stale/superseded by accepted D005/D006 and current `AGENTS.md` supervisor guardrails. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
 | [#99](https://github.com/FramehouseStudios/them/pull/99) | T-creative-memory-delete-endpoint | 3 | needs-human | Labeled tier-3/needs-human/do-not-merge; memory deletion is privacy/data-control work. Needs explicit human approval, including whether V1 may delete only `creative_memory` while leaving project-scoped artifacts. |
 

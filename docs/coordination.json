@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T02:42:37.464Z",
+  "updatedAt": "2026-05-14T05:06:54.104Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -323,9 +323,12 @@
       "title": "T-trust-tiers",
       "owner": "claude",
       "tier": 3,
-      "status": "policy-gated",
+      "status": "closed",
       "branch": "claude/T-trust-tiers",
-      "blocker": "human: D005 records current supervisor authority; do not merge remaining trust-policy changes without explicit approval"
+      "blocker": "closed: superseded by accepted D005/D006 and current AGENTS.md supervisor guardrails",
+      "blocker_kind": "policy_gated",
+      "reviewer_note": "Codex closed PR #63 as stale policy after confirming D005/D006 already record the current supervisor authority.",
+      "expected_action": "Do not reopen or merge stale trust-tier policy unless the human asks for a fresh policy change."
     },
     {
       "number": 33,
@@ -946,10 +949,10 @@
       "tier": 3,
       "status": "blocked",
       "branch": "claude/T-decompose-phase4-auth-routes",
-      "blocker": "auth-route extraction is tier-3 and remains do-not-merge until Codex reviews it against merged design note #221",
-      "reviewer_note": "Design note #221 is merged; #212 is next Codex review target, not mergeable yet.",
-      "expected_action": "Codex reviews #212 against #221, keeps do-not-merge until auth guardrails are explicitly cleared",
-      "blocker_kind": "policy_gated"
+      "blocker": "Codex design review passed against #221, but branch must rebase on current main and auth route stays tier-3/do-not-merge until explicitly cleared.",
+      "reviewer_note": "Reviewed backend/lib/auth_routes.js, auth tests, mount wiring, parser limits, route list, and response surface against merged design note #221; local auth tests passed after installing deps.",
+      "expected_action": "Claude rebases on current main after #235/#237/#239/#240/#241, reruns backend tests, and keeps do-not-merge until auth tier-3 clearance.",
+      "blocker_kind": "needs_rebase"
     },
     {
       "number": 223,
@@ -1022,6 +1025,63 @@
       "status": "merged",
       "branch": "claude/T-schema-docs-batch-2",
       "blocker": null
+    },
+    {
+      "number": 235,
+      "title": "T-v1-pillar-rule-and-canon-wire",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-v1-pillar-rule-and-canon-wire",
+      "blocker": null
+    },
+    {
+      "number": 237,
+      "title": "T-deeper-lib-tests-batch",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-deeper-lib-tests-batch",
+      "blocker": null
+    },
+    {
+      "number": 239,
+      "title": "T-backfill-v1-pillar-legacy",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-backfill-v1-pillar-legacy",
+      "blocker": null
+    },
+    {
+      "number": 240,
+      "title": "T90: V1 memory and realtime diagnostics",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T90-v1-memory-realtime-diagnostics",
+      "blocker": null
+    },
+    {
+      "number": 241,
+      "title": "T-deeper-memstore-and-user-auth-tests",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-deeper-memory-store-tests",
+      "blocker": null
+    },
+    {
+      "number": 238,
+      "title": "T-decompose-phase5b1-realtime-client-secret",
+      "owner": "claude",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/T-decompose-phase5b1-realtime-client-secret",
+      "blocker": "Review blocker: extracted route persists supplier rotation via setRealtimeSupplier(supplier), which is not byte-identical to the previous inline handler.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Old inline handler only reassigned local supplier after mint/failover; new route writes fallback/created supplier back to module state, changing subsequent health/mint behavior.",
+      "expected_action": "Remove the write-back for a true extraction, or update design/schema/tests and PR scope to make supplier rotation an intentional behavior change."
     }
   ],
   "blockers": [
@@ -1042,8 +1102,33 @@
       "owner": "codex",
       "summary": "Claude PR #212 extracts auth routes. Keep do-not-merge/tier-3 until Codex reviews it against design note #221 and auth guardrails are explicitly cleared.",
       "since": "2026-05-14"
+    },
+    {
+      "id": "realtime-client-secret-rotation-drift",
+      "owner": "claude",
+      "summary": "PR #238 changes /realtime/client_secret supplier rotation behavior by persisting fallback/created supplier state; fix or rescope before merge.",
+      "since": "2026-05-14"
     }
   ],
-  "decisionsPending": [],
+  "decisionsPending": [
+    {
+      "id": "creative-memory-export-approval",
+      "question": "May Claude merge PR #94 to expose full creative-memory export, assuming the route remains authenticated and documented as privacy/data-control work?",
+      "ownerNeeds": "human",
+      "since": "2026-05-14"
+    },
+    {
+      "id": "creative-memory-delete-scope",
+      "question": "For PR #99, should V1 allow DELETE /memory/forget to delete only creative_memory, or should it also delete project-scoped screenplay artifacts and derived memories?",
+      "ownerNeeds": "human",
+      "since": "2026-05-14"
+    },
+    {
+      "id": "auth-route-extraction-clearance",
+      "question": "After Claude rebases PR #212 and tests are green, may Codex clear the tier-3 auth gate and merge the byte-identical /auth route extraction under D005?",
+      "ownerNeeds": "human",
+      "since": "2026-05-14"
+    }
+  ],
   "endpointsAwaitingIosConsumer": []
 }
