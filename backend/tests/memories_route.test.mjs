@@ -27,6 +27,7 @@ function defaultDeps(overrides = {}) {
     forgetMemoryCardInMemory: [],
     promoteMemoryCardToThemeInMemory: [],
     incrementThemeQualitySignal: [],
+    logs: [],
   };
   const baseMemory = {
     assistantSelfName: "Clementine",
@@ -129,6 +130,9 @@ function defaultDeps(overrides = {}) {
     incrementThemeQualitySignal: (mem, themeKey, args) => {
       calls.incrementThemeQualitySignal.push({ themeKey, args });
       return { ok: true, status: args.signal };
+    },
+    logger: {
+      log: (line) => calls.logs.push(String(line || "")),
     },
     TASKS_MAX_STORED: 200,
     USER_MEMORY_REMEMBERED_PEOPLE_MAX: 24,
@@ -262,7 +266,8 @@ test("[memories] GET /memories/export: export envelope with embedded JSON string
 // ============== POST /memories/update ==============
 
 test("[memories] POST /memories/update: 200 with updated card on success", async () => {
-  await withTestServer(defaultDeps(), async (baseURL) => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/memories/update", {
       card_id: "card_1",
       title: "New title",
@@ -272,6 +277,7 @@ test("[memories] POST /memories/update: 200 with updated card on success", async
     assert.equal(r.body.action, "update");
     assert.equal(r.body.status, "updated");
     assert.ok(r.body.memory_card);
+    assert.ok(deps._calls.logs.some((line) => line.includes("memories_update status=updated")));
   });
 });
 

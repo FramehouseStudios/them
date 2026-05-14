@@ -31,7 +31,7 @@
 //   - same response envelopes (matching memories-*.md schema docs)
 //   - same 200/400/304 status routing
 //   - same Cache-Control: no-store + applyReadStateHeaders cycle
-//   - same per-route console.log lines
+//   - same per-route logger.log diagnostic lines
 //   - same body limits (256kb) for POSTs
 //   - same backfill side-effect on GET /memories
 //   - same persist-before-respond order on mutations
@@ -95,6 +95,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     resolveThemeKeyFromMemoryCard,
     normalizeMemoryQualitySignal,
     incrementThemeQualitySignal,
+    logger = console,
     // ---------- constants ----------
     TASKS_MAX_STORED,
     USER_MEMORY_REMEMBERED_PEOPLE_MAX,
@@ -151,7 +152,7 @@ function mountMemoriesRoutes(app, deps = {}) {
       setPersistedUserMemoryForIp(selected.ip, memory, Date.now(), {
         clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
       });
-      console.warn(
+      logger.log(
         `[memories_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`,
       );
     }
@@ -318,7 +319,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
-    console.warn(
+    logger.log(
       `[${rid}] memories_update status=${mutation.status} card=${normalizeMemoryCardId(cardId) || "none"} key=${resolvedThemeKey || "none"}`,
     );
 
@@ -362,7 +363,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
-    console.warn(
+    logger.log(
       `[${rid}] memories_forget status=${mutation.status} forgotten=${String(mutation.forgottenId || cardId || "none")}`,
     );
 
@@ -416,7 +417,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
-    console.warn(
+    logger.log(
       `[${rid}] memories_promote status=${mutation.status} card=${cardId || "none"} key=${resolvedThemeKey || "none"} created=${mutation.created ? "1" : "0"}`,
     );
 
@@ -507,7 +508,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
-    console.warn(
+    logger.log(
       `[${rid}] memories_feedback status=${mutation.status} signal=${signal || "none"} card=${normalizeMemoryCardId(cardId) || "none"} key=${themeKey || "none"}`,
     );
 

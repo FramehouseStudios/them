@@ -27077,6 +27077,7 @@ mountMemoriesRoutes(app, {
   resolveThemeKeyFromMemoryCard,
   normalizeMemoryQualitySignal,
   incrementThemeQualitySignal,
+  logger: console,
   TASKS_MAX_STORED,
   USER_MEMORY_REMEMBERED_PEOPLE_MAX,
 });
