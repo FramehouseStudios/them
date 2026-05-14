@@ -34,8 +34,9 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
 5. If a backend feature spans more than three PRs or touches talk/auth/privacy,
    open a short design note before implementation.
 6. The schema-doc-only train through PR #286 is complete. Do not open more
-   schema-doc-only PRs unless Codex asks; PRs #287/#289/#291/#292 are now
-   Codex triage items, not a signal to continue that lane.
+   schema-doc-only PRs unless Codex asks; PRs #287/#289/#291/#292/#294 were
+   closed as out-of-lane, and #293 merged only as a corrected Phase 7a design
+   note.
 
 ## Backend Work Codex Actually Wants Next
 
@@ -44,7 +45,7 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
 | 1 | Phase 6 memories routes | Memory routes are now the highest-leverage V1 backend lane after Phase 5b completed. | Follow `tasks/_proposals/T-decompose-phase6-memories-design.md`; extract the non-privacy-gated memory route cluster, keep `/memories/export` privacy/auth constraints intact, add focused route tests, and run `node scripts/pre_flight.mjs` plus backend tests. |
-| 2 | Phase 7a talk pipeline design refinement, then guards/state extraction | Talk is the riskiest V1 path and should be queued after the memory seam is stable. | Use PR #293 as the design refinement lane if Codex accepts it; first implementation should extract guards/state only, with no response-shape changes. |
+| 2 | Phase 7a talk pipeline guards/state extraction after Phase 6 | Talk is the riskiest V1 path and should be queued after the memory seam is stable. | Use the merged, Codex-corrected #293 design note; first implementation should extract guards/state only, with no response-shape changes. |
 | 3 | Phase 6.1 long-tail routes after Phase 6 | Long-tail cleanup is useful, but it should not outrank the V1 memory seam. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
 | 4 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if a code PR changes an envelope, update its schema doc in the same PR. |
 | 5 | Rebase #212 only if the human clears the auth route decision | Auth extraction is still tier-3 and human-gated. | Keep `do-not-merge` until explicit auth clearance; if cleared, rebase on current main and rerun backend auth tests. |

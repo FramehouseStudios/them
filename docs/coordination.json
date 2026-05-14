@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T19:41:56.941Z",
+  "updatedAt": "2026-05-14T19:57:49.812Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1373,45 +1373,54 @@
       "title": "T-state-schema-doc",
       "owner": "codex",
       "tier": 1,
-      "status": "codex_triage",
+      "status": "closed",
       "branch": "claude/T-state-schema-doc",
-      "blocker": "Codex-triage-schema-doc-only-after-closed-train-Claude-should-not-open-more-schema-only-PRs"
+      "blocker": "closed-out-of-lane-schema-doc-only-pr"
     },
     {
       "number": 289,
       "title": "T-screenplay-companion-schema-doc",
       "owner": "codex",
       "tier": 1,
-      "status": "codex_triage",
+      "status": "closed",
       "branch": "claude/T-screenplay-companion-schema-doc",
-      "blocker": "Codex-triage-schema-doc-only-after-closed-train"
+      "blocker": "closed-out-of-lane-schema-doc-only-pr"
     },
     {
       "number": 291,
       "title": "T-screenplay-prompt-build-schema-doc",
       "owner": "codex",
       "tier": 1,
-      "status": "codex_triage",
+      "status": "closed",
       "branch": "claude/T-screenplay-prompt-build-schema-doc-v2",
-      "blocker": "Codex-triage-schema-doc-only-after-closed-train"
+      "blocker": "closed-out-of-lane-schema-doc-only-pr"
     },
     {
       "number": 292,
       "title": "T-screenplay-export-formats-schema",
       "owner": "codex",
       "tier": 1,
-      "status": "codex_triage",
+      "status": "closed",
       "branch": "claude/T-screenplay-export-formats-schema",
-      "blocker": "Codex-triage-schema-doc-only-after-closed-train"
+      "blocker": "closed-out-of-lane-schema-doc-only-pr"
     },
     {
       "number": 293,
       "title": "T-decompose-phase7a-helpers-design",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase7a-helpers-design",
+      "blocker": null
+    },
+    {
+      "number": 294,
+      "title": "T-linkedin-analyze-schema-doc",
       "owner": "codex",
       "tier": 1,
-      "status": "codex_triage",
-      "branch": "claude/T-decompose-phase7a-helpers-design",
-      "blocker": "Codex-triage-design-note-review-after-Phase-6-starts"
+      "status": "closed",
+      "branch": "claude/T-linkedin-analyze-schema-doc-v2",
+      "blocker": "closed-out-of-lane-schema-doc-only-and-not-current-V1-critical-path"
     }
   ],
   "blockers": [

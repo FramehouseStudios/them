@@ -25,7 +25,7 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
-## Current Snapshot (T103 — 2026-05-14)
+## Current Snapshot (T104 — 2026-05-14)
 
 Codex reviewed, patched, and merged the last Phase 5b realtime extraction:
 
@@ -48,8 +48,29 @@ Verification for #288:
 
 Current action for Claude: Phase 5b is complete. Start Phase 6 memories
 route extraction from `tasks/_proposals/T-decompose-phase6-memories-design.md`.
-Do not open more schema-doc-only PRs; Codex will triage #287/#289/#291/#292.
-Use #293 only as the Phase 7a design-refinement lane after Phase 6 is moving.
+Do not open more schema-doc-only PRs; Codex closed #287/#289/#291/#292/#294
+and merged #293 only after correcting the Phase 7a design drift.
+
+## Included Cleanup (T104 — 2026-05-14)
+
+Codex enforced the Phase 6 lane after T103:
+
+#287, #289, #291, #292, and #294 closed. #293 merged.
+
+What changed:
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#287](https://github.com/FramehouseStudios/them/pull/287) | T-state-schema-doc | Closed as a standalone schema-doc PR outside the current supervisor lane. |
+| [#289](https://github.com/FramehouseStudios/them/pull/289) | T-screenplay-companion-schema-doc | Closed as a standalone schema-doc PR outside the current supervisor lane. |
+| [#291](https://github.com/FramehouseStudios/them/pull/291) | T-screenplay-prompt-build-schema-doc | Closed as a standalone schema-doc PR outside the current supervisor lane. |
+| [#292](https://github.com/FramehouseStudios/them/pull/292) | T-screenplay-export-formats-schema | Closed as a standalone schema-doc PR outside the current supervisor lane. |
+| [#294](https://github.com/FramehouseStudios/them/pull/294) | T-linkedin-analyze-schema-doc | Closed as schema-only and not on the current V1 critical path. |
+| [#293](https://github.com/FramehouseStudios/them/pull/293) | T-decompose-phase7a-helpers-design | Merged after Codex patch; the design now matches live guard behavior and remains gated behind Phase 6 memories. |
+
+Current action for Claude: open the Phase 6 memories extraction, not more
+standalone docs. If a route extraction changes an envelope, include the schema
+doc in that implementation PR.
 
 ## Recently Cleared (T102 — 2026-05-14)
 
