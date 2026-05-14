@@ -777,18 +777,18 @@
 | T-fix-214-audit-and-readme                     | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar                        | claude | review      |
 | T-format-linter-rules-canon-eval               | Pin canonical rule_id set + envelope for format_linter                                                     | claude | merged      |
 | T-fountain-export-deeper                       | Deeper tests for fountain_export                                                                           | claude | review      |
-| T-history-schema-doc                           | docs/schemas/history.md                                                                                    | claude | review      |
+| T-history-schema-doc                           | docs/schemas/history.md                                                                                    | claude | merged      |
 | T-known-domains-runtime-check                  | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)                                                   | claude | merged      |
 | T-known-domains-startup-check                  | Boot-time invariant check on KNOWN_DOMAINS                                                                 | claude | merged      |
-| T-memories-export-schema-doc                   | docs/schemas/memories-export.md                                                                            | claude | review      |
-| T-memories-list-schema-doc                     | docs/schemas/memories-list.md                                                                              | claude | review      |
-| T-memories-mutate-schema-doc                   | docs/schemas/memories-mutate.md                                                                            | claude | review      |
+| T-memories-export-schema-doc                   | docs/schemas/memories-export.md                                                                            | claude | merged      |
+| T-memories-list-schema-doc                     | docs/schemas/memories-list.md                                                                              | claude | merged      |
+| T-memories-mutate-schema-doc                   | docs/schemas/memories-mutate.md                                                                            | claude | merged      |
 | T-memory-quality-eval                          | Multi-turn creative-memory recall eval                                                                     | claude | merged      |
 | T-operating-protocol-narrative                 | docs/operating-protocol.md — narrative complement to AGENTS.md                                             | claude | merged      |
 | T-ops-health-summary-eval                      | Deployment-level eval pinning /ops/health-summary features map                                             | claude | merged      |
 | T-ops-health-summary-route                     | GET /ops/health-summary cheap uptime-dashboard endpoint                                                    | claude | merged      |
 | T-ops-routes-list-route                        | GET /ops/routes manifest of optional surfaces                                                              | claude | merged      |
-| T-outbox-routes-schema-doc                     | docs/schemas/outbox-routes.md                                                                              | claude | review      |
+| T-outbox-routes-schema-doc                     | docs/schemas/outbox-routes.md                                                                              | claude | merged      |
 | T-persistence-json-tests                       | Direct tests for backend/lib/persistence_json.js                                                           | claude | merged      |
 | T-pre-flight-outbox-console-cleanup            | Convert outbox console.log → console.warn/error (pre-flight class 1)                                       | claude | merged      |
 | T-pre-flight-self-check-script                 | scripts/pre_flight.mjs — catch recurring review feedback locally                                           | claude | merged      |
@@ -799,8 +799,8 @@
 | T-prompt-assembly-snapshot-eval                | Pin canonical buildModelPrompt block order                                                                 | claude | merged      |
 | T-prompt-size-eval                             | Char-budget guard on assembled model prompts                                                               | claude | merged      |
 | T-protocol-infra-batch                         | Tighten backend extraction protocol helpers                                                                | claude | review      |
-| T-realtime-routes-deeper                       | Deeper integration tests for mountRealtimeRoutes                                                           | claude | review      |
-| T-recap-schema-doc                             | docs/schemas/recap.md                                                                                      | claude | review      |
+| T-realtime-routes-deeper                       | Deeper integration tests for mountRealtimeRoutes                                                           | claude | merged      |
+| T-recap-schema-doc                             | docs/schemas/recap.md                                                                                      | claude | merged      |
 | T-runbook-smoke-section-drift-fix              | Correct v1_voice_to_page and v1_screenplay smoke sections in runbook                                       | claude | merged      |
 | T-runbook-v1-smoke                             | Operator runbook for the V1 smoke suite                                                                    | claude | merged      |
 | T-schema-docs-batch-2                          | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal                             | claude | review      |
@@ -821,7 +821,7 @@
 | T-tasks-active-frontmatter-eval                | Validate every tasks/_active/T-*.md front-matter                                                           | claude | merged      |
 | T-tasks-active-stats                           | At-a-glance counts over tasks/_active/                                                                     | claude | merged      |
 | T-tasks-per-row                                | Per-row task files + TASKS.md regenerator (no canonical flip yet)                                          | claude | merged      |
-| T-tasks-schema-doc                             | docs/schemas/tasks.md                                                                                      | claude | review      |
+| T-tasks-schema-doc                             | docs/schemas/tasks.md                                                                                      | claude | merged      |
 | T-tasks-sync-check                             | CI script to detect tasks/_active vs TASKS.md drift                                                        | claude | merged      |
 | T-trait-library-canon-eval                     | Pin canonical TRAIT_KEYWORDS + cap constants                                                               | claude | merged      |
 | T-trust-tiers                                  | Trust tiers + standing pre-approvals (AGENTS.md)                                                           | claude | review      |
@@ -835,10 +835,10 @@
 | T-v1-status-reporter                           | V1 status reporter script                                                                                  | claude | merged      |
 | T-v1-three-smoke-fixtures                      | V1 smoke fixtures — screenplay export + memory recall + realtime failover                                  | claude | review      |
 | T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                                          | claude | review      |
-| T-visual-context-schema-doc                    | docs/schemas/visual-context.md                                                                             | claude | review      |
-| T100-agent-next-inbox-backlog                  | Surface Claude inbox backlog in agent_next                                                                 | codex  | review      |
-| T101-agent-event-kind-sync                     | Sync agent_event kinds with AGENTS protocol                                                                | codex  | review      |
-| T102                                           | Refresh coordination after schema-doc merge train                                                          | codex  | in-progress |
+| T-visual-context-schema-doc                    | docs/schemas/visual-context.md                                                                             | claude | merged      |
+| T100-agent-next-inbox-backlog                  | Surface Claude inbox backlog in agent_next                                                                 | codex  | merged      |
+| T101-agent-event-kind-sync                     | Sync agent_event kinds with AGENTS protocol                                                                | codex  | merged      |
+| T102                                           | Refresh coordination after schema-doc merge train                                                          | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -3107,7 +3107,7 @@ existing smoke.
 - **Owner:** claude
 - **Branch:** claude/T-history-schema-doc
 - **Pillar:** infra (schema discipline)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -3211,7 +3211,7 @@ nothing; tests cover the contract; `npm test` green.
 - **Owner:** claude
 - **Branch:** claude/T-memories-export-schema-doc
 - **Pillar:** infra (schema discipline)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -3275,7 +3275,7 @@ This completes the schema-doc coverage for the entire
 - **Owner:** claude
 - **Branch:** claude/T-memories-list-schema-doc
 - **Pillar:** infra (schema discipline)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -3335,7 +3335,7 @@ Plus an INDEX.md row under the Memory surface section.
 - **Owner:** claude
 - **Branch:** claude/T-memories-mutate-schema-doc
 - **Pillar:** infra (schema discipline)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -3636,7 +3636,7 @@ properties + integration; `npm test` green.
 - **Owner:** claude
 - **Branch:** claude/T-outbox-routes-schema-doc-fresh
 - **Pillar:** infra (schema discipline)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -4137,7 +4137,7 @@ Run:
 - **Owner:** claude
 - **Branch:** claude/T-realtime-routes-deeper
 - **Pillar:** infra (test coverage)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -4191,7 +4191,7 @@ existing smoke.
 - **Owner:** claude
 - **Branch:** claude/T-recap-schema-doc
 - **Pillar:** infra (schema discipline)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -5261,7 +5261,7 @@ source of truth for now (the README explains the migration plan).
 - **Owner:** claude
 - **Branch:** claude/T-tasks-schema-doc2
 - **Pillar:** infra (schema discipline)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -6078,7 +6078,7 @@ caught for free.
 - **Owner:** claude
 - **Branch:** claude/T-visual-context-schema-doc
 - **Pillar:** infra (schema discipline)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -6135,7 +6135,7 @@ Plus an INDEX.md row under a new "Visual surface" section.
 - **Owner:** codex
 - **Branch:** codex/T100-agent-next-inbox-backlog
 - **Pillar:** infra (coordination)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -6155,7 +6155,7 @@ ordered backend backlog from `docs/claude-inbox.md`.
 - **Owner:** codex
 - **Branch:** codex/T101-agent-event-kind-sync
 - **Pillar:** infra (coordination)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -6173,7 +6173,7 @@ documented in `AGENTS.md`, `docs/claude-inbox.md`, and
 - **Owner:** codex
 - **Branch:** codex/T102-supervisor-schema-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 

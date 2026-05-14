@@ -2,7 +2,7 @@
 id: T100-agent-next-inbox-backlog
 title: Surface Claude inbox backlog in agent_next
 owner: codex
-status: review
+status: merged
 branch: codex/T100-agent-next-inbox-backlog
 pillar: infra (coordination)
 v1_pillar: infra

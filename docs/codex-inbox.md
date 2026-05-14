@@ -25,7 +25,34 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
-## Current Snapshot (T98 — 2026-05-14)
+## Current Snapshot (T102 — 2026-05-14)
+
+Codex cleared the schema-contract supervisor train and fixed doc drift before
+merge where the docs overstated live handler behavior.
+
+#276, #277, #278, #279, #280, #281, #282, #283, #284, #285, #286 merged.
+
+What changed:
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#276](https://github.com/FramehouseStudios/them/pull/276) | T-memories-list-schema-doc | Merged after Codex patch; `GET /memories` schema now states token/session/IP scope and 304 read-state headers accurately. |
+| [#277](https://github.com/FramehouseStudios/them/pull/277) | T100-agent-next-inbox-backlog | Merged; `agent_next` now parks human-gated PRs and surfaces `docs/claude-inbox.md` backlog items when no reviewable Claude PR exists. |
+| [#278](https://github.com/FramehouseStudios/them/pull/278) | T-visual-context-schema-doc | Merged after Codex patch; visual-context schema now reflects `requireClientTokenForTalk` bootstrap/pass-through behavior without overstating bearer auth. |
+| [#279](https://github.com/FramehouseStudios/them/pull/279) | T101-agent-event-kind-sync | Merged; `agent_event` now accepts the documented event kinds used by AGENTS and the throughput protocol. |
+| [#280](https://github.com/FramehouseStudios/them/pull/280) | T-realtime-routes-deeper | Merged; adds 9 deeper tests for `mountRealtimeRoutes`. |
+| [#281](https://github.com/FramehouseStudios/them/pull/281) | T-memories-mutate-schema-doc | Merged after Codex patch; mutation schemas now match promote/feedback statuses and card-level forget semantics. |
+| [#282](https://github.com/FramehouseStudios/them/pull/282) | T-memories-export-schema-doc | Merged after Codex patch; export schema now reflects token/session/IP scope and no inner `schemaVersion`. |
+| [#283](https://github.com/FramehouseStudios/them/pull/283) | T-recap-schema-doc | Merged after Codex patch; recap schema now reflects token/session/IP scope and 304 read-state headers. |
+| [#284](https://github.com/FramehouseStudios/them/pull/284) | T-tasks-schema-doc | Merged after Codex patch; task schema now includes full mutation read-meta fields and GET 304 headers. |
+| [#285](https://github.com/FramehouseStudios/them/pull/285) | T-history-schema-doc | Merged after Codex patch; history schema now reflects duplicate-turn annotation behavior and validation-response headers. |
+| [#286](https://github.com/FramehouseStudios/them/pull/286) | T-outbox-routes-schema-doc | Merged after Codex patch; outbox schema now matches raw `status_filter` echo behavior and the task id matches its filename. |
+
+Current action for Claude: stop opening schema-doc-only PRs for now. The next
+backend implementation lane is still `docs/claude-inbox.md` priority 1:
+Phase 5b.4 `POST /realtime/call`. Append live events instead of refresh PRs.
+
+## Recently Cleared (T98 — 2026-05-14)
 
 Codex cleared the V1 status support train and the next realtime backend lane:
 
@@ -253,14 +280,14 @@ consumption of the already-merged backend contracts.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
-| [#245](https://github.com/FramehouseStudios/them/pull/245) | T-schema-docs-batch-3 | 1 | blocked | Fix schema-doc drift: `outbox-event.md` must match `backend/lib/outbox_store.js` actual field names and statuses. |
-| [#243](https://github.com/FramehouseStudios/them/pull/243) | T-v1-status-reporter | 1 | blocked | Fix wrapped checklist continuation parsing in `scripts/v1_status.mjs`; current JSON/output truncates the iOS Release Readiness item after "next app-visible". |
-| [#238](https://github.com/FramehouseStudios/them/pull/238) | T-decompose-phase5b1-realtime-client-secret | 2 | blocked | Fix behavior drift: remove `setRealtimeSupplier(supplier)` write-back for byte-identical extraction, or rescope as intentional supplier-rotation behavior with design/schema/tests. |
 | [#212](https://github.com/FramehouseStudios/them/pull/212) | T-decompose-phase4-auth-routes | 3 | blocked | Codex design review passed against #221; Claude must rebase on current main and rerun tests. Keep `do-not-merge` until auth tier-3 clearance is explicitly approved. |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
-| [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | closed | Closed as stale/superseded by accepted D005/D006 and current `AGENTS.md` supervisor guardrails. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
 | [#99](https://github.com/FramehouseStudios/them/pull/99) | T-creative-memory-delete-endpoint | 3 | needs-human | Labeled tier-3/needs-human/do-not-merge; memory deletion is privacy/data-control work. Needs explicit human approval, including whether V1 may delete only `creative_memory` while leaving project-scoped artifacts. |
+
+All other Claude PRs from the schema/support merge train through #286 are
+merged. Codex's next review target should be the next non-human-gated PR
+Claude opens for Phase 5b.4 realtime call extraction.
 
 ## Endpoint Contracts Ready to Consume
 

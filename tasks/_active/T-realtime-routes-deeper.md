@@ -2,7 +2,7 @@
 id: T-realtime-routes-deeper
 title: Deeper integration tests for mountRealtimeRoutes
 owner: claude
-status: review
+status: merged
 branch: claude/T-realtime-routes-deeper
 pillar: infra (test coverage)
 v1_pillar: realtime

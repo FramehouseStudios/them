@@ -2,7 +2,7 @@
 id: T-memories-list-schema-doc
 title: docs/schemas/memories-list.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-memories-list-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory

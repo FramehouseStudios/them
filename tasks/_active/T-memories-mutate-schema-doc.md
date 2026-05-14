@@ -2,7 +2,7 @@
 id: T-memories-mutate-schema-doc
 title: docs/schemas/memories-mutate.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-memories-mutate-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: memory

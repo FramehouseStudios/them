@@ -2,7 +2,7 @@
 id: T-visual-context-schema-doc
 title: docs/schemas/visual-context.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-visual-context-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: talk
