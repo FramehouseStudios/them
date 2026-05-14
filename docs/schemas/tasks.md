@@ -27,9 +27,11 @@ Body limit on `/tasks/update`: `256kb`.
 ## Access-control posture
 
 **PER-USER**. Both routes resolve the memory record from the
-request — list via `selectMemoryRecordForRead`, mutate via
-`resolveWritableMemoryContext`. Same posture as the rest of
-the per-user read+write surface.
+request: list via `selectMemoryRecordForRead`, mutate via
+`resolveWritableMemoryContext`. `X-Client-Token` session or token
+alias is used when present, otherwise the normalized requester
+IP. The inline handlers do not enforce an auth-only task gate
+today.
 
 ## `GET /tasks` request
 
@@ -38,7 +40,9 @@ the per-user read+write surface.
 | `limit` | int | no | clamps via `parseQueryLimit(.., TASKS_LIST_DEFAULT_LIMIT, TASKS_MAX_STORED)` |
 | `status` | string | no | one of `TASK_STATUS_FILTERS` (`"all" \| "open" \| "completed"`). Default `"all"`. |
 
-`If-None-Match`: standard etag-driven 304.
+`If-None-Match`: when it matches the current state-version etag,
+server returns HTTP 304 with no body. `Cache-Control: no-store`
+and read-state headers are set before the 304 is emitted.
 
 ## `GET /tasks` response (200)
 
@@ -109,6 +113,10 @@ the per-user read+write surface.
   "session_id": "sess_abc",
   "state_version": "v9",
   "last_turn_id": "turn_xyz",
+  "last_updated_at": 1715620920000,
+  "history_updated_at": 1715620920000,
+  "memory_updated_at": 1715620920000,
+  "backend_boot_id": "boot-id",
   "task_last_updated_at": 1715620920000,
   "total_count": 14,
   "open_count": 7,
@@ -128,6 +136,13 @@ the per-user read+write surface.
 | `removed_count` | int | yes | only non-zero on `clear_completed` |
 | read-meta fields | various | yes | post-mutation state |
 | `task_last_updated_at` / `total_count` / `open_count` / `completed_count` | int | yes | refreshed snapshot |
+
+## Read-state headers
+
+Both routes set:
+- `Cache-Control: no-store`
+- Headers from `applyReadStateHeaders(res, readMeta)` on 200,
+  400, and GET 304 responses.
 
 ### Status verbs per action
 
