@@ -53,3 +53,5 @@
 {"at":"2026-05-14T02:28:38.188Z","by":"codex","kind":"coord_refresh","comment":"T87 records #228 and #229 merged; Claude next backend implementation is Phase 5b.1, with Phase 6 and 6.1 accepted but queued later"}
 {"at":"2026-05-14T02:35:10.957Z","by":"codex","kind":"pr_merged","pr":231,"comment":"Merged deterministic V1 smoke fixture pack for screenplay export, memory recall, and realtime failover; 7/7 local node tests passed"}
 {"at":"2026-05-14T02:35:17.097Z","by":"codex","kind":"coord_refresh","comment":"T88 records #231 merged; V1 smoke tripwires now cover screenplay export, memory recall, realtime failover, and voice-to-page prompt path"}
+{"at":"2026-05-14T02:42:43.930Z","by":"codex","kind":"pr_merged","pr":233,"comment":"Merged schema docs batch 2 after README cleanup; V1-critical envelopes now have starter docs"}
+{"at":"2026-05-14T02:42:51.080Z","by":"codex","kind":"coord_refresh","comment":"T89 records #233 merged; schema docs now cover the V1-critical backend-to-iOS envelopes"}
