@@ -778,6 +778,7 @@
 | T-prompt-assembly-snapshot-eval                | Pin canonical buildModelPrompt block order                                          | claude | merged      |
 | T-prompt-size-eval                             | Char-budget guard on assembled model prompts                                        | claude | merged      |
 | T-protocol-infra-batch                         | Tighten backend extraction protocol helpers                                         | claude | review      |
+| T-schema-docs-scaffold                         | Bootstrap docs/schemas/ with README + 3 first envelope docs                         | claude | review      |
 | T-screenplay-export-formats-list-route         | GET /screenplay/export/formats canonical format list                                | claude | review      |
 | T-screenplay-export-markdown                   | POST /screenplay/export format=md|markdown                                          | claude | review      |
 | T-screenplay-export-pdf-error-clarity          | Add human-readable help payload to PDF export rejection                             | claude | merged      |
@@ -793,6 +794,7 @@
 | T-trust-tiers                                  | Trust tiers + standing pre-approvals (AGENTS.md)                                    | claude | review      |
 | T-twist-engine-canon-eval                      | Pin TWIST_LIBRARY framework set + per-twist field shape                             | claude | merged      |
 | T-untested-libs-followups                      | Add tests for remaining untested infrastructure libs                                | claude | planned     |
+| T-v1-voice-to-page-smoke                       | V1 voice-to-page smoke fixture + automated subset                                   | claude | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                          | codex  | review      |
@@ -825,6 +827,7 @@
 | T83                                            | Define V1 and product-state handoff loop                                            | codex  | review      |
 | T84                                            | Surface talk health and error diagnostics in iOS                                    | codex  | review      |
 | T85                                            | Round 22 coordination refresh after supervisor merge train                          | codex  | review      |
+| T86                                            | Round 22b coordination refresh after design-note mini-train                         | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -2580,6 +2583,70 @@ Run:
 - `node scripts/audit_inline_routes.mjs --json`
 - `git diff --check`
 
+### T-schema-docs-scaffold — Bootstrap docs/schemas/ with README + 3 first envelope docs
+- **Owner:** claude
+- **Branch:** claude/T-schema-docs-scaffold
+- **Pillar:** infra (cross-agent contracts)
+- **Status:** review
+
+## Scope
+
+Bootstrap `docs/schemas/` per the round-22 protocol: one canonical
+source of truth per response envelope. Each schema doc carries the
+field set, the schema version, the access-control posture, the
+owner agent, sample response, and compatibility rules.
+
+This PR ships:
+
+- `docs/schemas/README.md` — directory contract, naming, update rule.
+- `docs/schemas/auth.md` — `/auth/*` family (success + error
+  envelopes, 11 routes).
+- `docs/schemas/talk-turn-meta.md` — `GET /talk/turn/:turnId`.
+- `docs/schemas/ops-metrics.md` — `GET /ops/metrics`.
+
+Plus stubs / followup list for the rest of the V1 surface (talk
+response, screenplay project / version, ops health summary, realtime
+health / client_secret, memory stats, block signal).
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: infrastructure for every iOS-consumer V1 checklist
+  item. Prevents backend ↔ iOS envelope drift, which today produces
+  the same envelope description in three places (backend lib header,
+  iOS decoder, human reconciliation).`
+
+## Update rule (codified in README)
+
+Every PR that touches a response envelope must:
+
+1. Edit the corresponding `docs/schemas/<name>.md`.
+2. If the change is non-additive, bump the schema version in the
+   doc and in the response payload.
+3. Mention the doc by path in the PR body / commit message.
+4. Add a row to the doc's changelog.
+
+If a PR ships an envelope change without touching the doc, review
+should request the update before merge.
+
+## Done when
+
+The 3 starter docs reflect the shapes currently emitted by:
+- `backend/lib/user_auth.js` `buildAuthEnvelope`
+- `backend/lib/talk_pipeline.js` `GET /talk/turn/:turnId`
+- `backend/lib/ops_metrics_route.js` `mountOpsMetricsRoute`
+
+If Codex spots a field mismatch with the iOS decoder, the doc is
+the source of truth; the doc amends and the decoder follows. If
+the doc is wrong about backend behavior, the doc amends.
+
+## Followups
+
+Both agents can add docs for envelopes they own without
+coordination. Adding is always safe. Renames/deletes need both
+agents' sign-off. Suggested next-to-write list lives in the
+README's "Future scaffolding to fill in" section.
+
 ### T-screenplay-export-formats-list-route — GET /screenplay/export/formats canonical format list
 - **Owner:** claude
 - **Branch:** claude/T-screenplay-export-formats-list-route
@@ -3118,6 +3185,82 @@ extract a route into a lib and the store it depends on has no
 test, a behavior regression in the store is invisible until it
 hits a downstream route's integration test. Direct tests on the
 stores catch regressions at the source.
+
+### T-v1-voice-to-page-smoke — V1 voice-to-page smoke fixture + automated subset
+- **Owner:** claude
+- **Branch:** claude/T-v1-voice-to-page-smoke
+- **Pillar:** infra (V1 smoke)
+- **Status:** review
+
+## Scope
+
+Ships the deterministic, network-free subset of the V1 voice-to-page
+manual smoke. The full manual smoke (real audio → STT → LLM → TTS)
+requires `OPENAI_API_KEY` and a recorded audio file; that path stays
+in `backend/smoke.sh`. This PR adds the **automatable tripwire**
+that catches prompt-path regressions every time tests run.
+
+Three deliverables:
+
+1. **`backend/fixtures/v1_voice_to_page.json`** — canonical fixture:
+   simulated STT transcript, persona, creative-memory shape,
+   session context, expected prompt substring set + ordering.
+
+2. **`scripts/v1_voice_to_page_smoke.mjs`** — runs `buildModelPrompt`
+   on the fixture, verifies:
+   - Every `expected_prompt_contains` substring appears.
+   - `expected_prompt_ordering` substrings appear in order.
+   - Determinism: two consecutive runs produce byte-identical
+     prompts.
+
+3. **`scripts/v1_voice_to_page_smoke.test.mjs`** — node:test wrapper
+   so the smoke runs as part of `npm test`.
+
+## What this catches
+
+- Re-ordered prompt blocks (e.g. session before memory).
+- Missing creative-memory rendering (character name + voice drop).
+- Persona leaking into a memory block.
+- Non-deterministic prompt assembly (same input → different output).
+
+## What this does NOT catch
+
+- Real STT errors (no audio).
+- Real LLM behavior or quality (no API call).
+- Real TTS regressions (no audio out).
+- End-to-end turn metadata storage / retrieval.
+
+Pair with `backend/smoke.sh` for full end-to-end coverage. This
+script is the cheap fast tripwire that fails fast when the prompt
+path drifts. Catching prompt-path drift in CI saves the manual
+smoke from regressing on something a determinism check could have
+caught for free.
+
+## V1 pillar / effect
+
+- `V1 pillar: talk`
+- `V1 effect: infrastructure for "Manual smoke: record voice ->
+  get reply -> hear reply -> saved turn" (docs/v1-definition.md
+  line 26).`
+
+## Verification
+
+- `node scripts/v1_voice_to_page_smoke.mjs` exits 0 against the
+  canonical fixture; 7 contains + 6 ordering checks pass;
+  determinism check passes.
+- `node --test scripts/v1_voice_to_page_smoke.test.mjs` → 3/3
+  pass (canonical fixture, --json output, failing-fixture
+  regression).
+- The failing-fixture test asserts a non-existent substring and
+  expects exit 1 — proves the script actually fails when it
+  should.
+
+## Followups
+
+- Extend the fixture set with one cold-state turn (no memory) and
+  one block-signal turn so the smoke covers more prompt paths.
+- Wire into `quality_gate.sh` once the canon umbrella's
+  composition is settled.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
@@ -3748,5 +3891,33 @@ Refresh the repo-native coordination lane after the round-22 merge train:
 - `node scripts/coordination_state.mjs validate`
 - `node scripts/agent_next.mjs --role=codex`
 - `node scripts/agent_event.mjs tail --n=12`
+
+### T86 — Round 22b coordination refresh after design-note mini-train
+- **Owner:** codex
+- **Branch:** codex/T86-round22b-coordination-refresh
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Refresh the repo-native coordination lane after the follow-up mini-train:
+
+- #223 talk-pipeline Phase 7 design note merged.
+- #224 deterministic V1 voice-to-page smoke merged.
+- #226 schema docs scaffold merged after a Codex README correction.
+- #227 realtime Phase 5b design note merged.
+
+## Done when
+
+`docs/coordination.json`, `docs/codex-inbox.md`, the weekly event lane, and
+`TASKS.md` reflect the current queue.
+
+## Verification
+
+- `node scripts/build_tasks_md.mjs --write`
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex`
+- `node scripts/agent_event.mjs tail --n=12`
+- `git diff --check`
 
 <!-- END AUTOGEN active-tasks -->

@@ -25,6 +25,24 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Recently Cleared (round 22b — 2026-05-13/14)
+
+The follow-up design/smoke/schema mini-train merged after round 22:
+
+#223, #224, #226, #227.
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#223](https://github.com/FramehouseStudios/them/pull/223) | T-decompose-phase7-talk-pipeline-design | Merged; Codex accepted the Phase 7 talk-pipeline split: 7a guards/state, 7b handler, 7c supplier glue. Full audio fixture remains a follow-up; #224 covers the deterministic prompt subset. |
+| [#224](https://github.com/FramehouseStudios/them/pull/224) | T-v1-voice-to-page-smoke | Merged; deterministic, network-free V1 voice-to-page prompt-path smoke is now available. |
+| [#226](https://github.com/FramehouseStudios/them/pull/226) | T-schema-docs-scaffold | Merged after a Codex README correction; `docs/schemas/` now has canonical starter docs for auth, talk-turn-meta, and ops-metrics envelopes. |
+| [#227](https://github.com/FramehouseStudios/them/pull/227) | T-decompose-phase5b-realtime-design | Merged; Codex accepted serial 5b.1 client_secret, 5b.2 studio render/stream, 5b.3 turn_commit, 5b.4 realtime/call. Constraint: 5b.3 needs explicit memory-write round-trip tests and must not race Phase 6 memory work. |
+
+Claude may proceed with Phase 5b.1 as the next safe backend decomp
+implementation when no other decomp PR is in flight. Talk-pipeline Phase 7
+implementation remains gated behind the accepted design note plus the realtime
+Phase 5b work. #212 remains separately blocked/tier-3.
+
 ## Recently Cleared (round 22 — 2026-05-13/14)
 
 Codex's supervisor merge train cleared the non-human Tier 1 queue again.
