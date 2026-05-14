@@ -2,7 +2,7 @@
 id: T93
 title: Round 22h coordination refresh
 owner: codex
-status: in-progress
+status: review
 branch: codex/T93-round22h-coordination-refresh
 pillar: infra
 v1_pillar: infra
@@ -21,4 +21,7 @@ v1_effect: records the schema-doc batch blocker so Claude can fix docs drift wit
 
 ## Verification
 
-- Not run yet.
+- `node scripts/coordination_state.mjs validate`
+  - Passed.
+- `node scripts/decisions_queue_lint.mjs`
+  - Passed.

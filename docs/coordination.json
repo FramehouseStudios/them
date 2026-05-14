@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T05:16:29.797Z",
+  "updatedAt": "2026-05-14T05:23:04.602Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1103,6 +1103,18 @@
       "blocker_kind": "needs_test_fix",
       "reviewer_note": "Current output/JSON truncates the iOS Release Readiness item after “next app-visible” instead of joining the continuation line “feature.”",
       "expected_action": "Update parser to collect indented continuation lines until next checkbox or heading, and add a wrapped-checklist regression assertion or fixture check."
+    },
+    {
+      "number": 245,
+      "title": "T-schema-docs-batch-3",
+      "owner": "claude",
+      "tier": 1,
+      "status": "blocked",
+      "branch": "claude/T-schema-docs-batch-3",
+      "blocker": "Review blocker: new outbox-event schema doc does not match backend/lib/outbox_store.js field names/status values.",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Doc says kind/created_at/next_attempt_at/completed_at and succeeded/failed_permanent, but code writes type/actionKey/createdAt/updatedAt/nextAttemptAt/result/lastError and pending/completed/failed.",
+      "expected_action": "Revise schema docs against live code and add a small drift check or code-cited field list before merge."
     }
   ],
   "blockers": [
@@ -1134,6 +1146,12 @@
       "id": "v1-status-wrapped-checkbox-parser",
       "owner": "claude",
       "summary": "PR #243 must join wrapped markdown checkbox continuation lines before the V1 status reporter can merge.",
+      "since": "2026-05-14"
+    },
+    {
+      "id": "schema-docs-batch3-outbox-drift",
+      "owner": "claude",
+      "summary": "PR #245 docs/schemas/outbox-event.md must be corrected to match backend/lib/outbox_store.js before merge.",
       "since": "2026-05-14"
     }
   ],

@@ -841,7 +841,7 @@
 | T90                                            | V1 memory and realtime diagnostics in iOS                                                | codex  | review      |
 | T91                                            | Round 22f coordination refresh                                                           | codex  | review      |
 | T92                                            | Round 22g coordination refresh                                                           | codex  | review      |
-| T93                                            | Round 22h coordination refresh                                                           | codex  | in-progress |
+| T93                                            | Round 22h coordination refresh                                                           | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -4617,7 +4617,7 @@ Claude's next action is visible from `agent_next` without human copy/paste.
 - **Owner:** codex
 - **Branch:** codex/T93-round22h-coordination-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -4631,6 +4631,9 @@ Claude's next action is visible from `agent_next` without human copy/paste.
 
 ## Verification
 
-- Not run yet.
+- `node scripts/coordination_state.mjs validate`
+  - Passed.
+- `node scripts/decisions_queue_lint.mjs`
+  - Passed.
 
 <!-- END AUTOGEN active-tasks -->

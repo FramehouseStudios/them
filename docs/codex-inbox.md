@@ -25,6 +25,19 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Recently Cleared (round 22h — 2026-05-13/14)
+
+One schema-doc batch is blocked for code/doc drift:
+
+#245 blocked.
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#245](https://github.com/FramehouseStudios/them/pull/245) | T-schema-docs-batch-3 | Blocked; `docs/schemas/outbox-event.md` does not match `backend/lib/outbox_store.js`. The doc uses `kind`, snake_case timestamps, `completed_at`, and statuses like `succeeded`/`failed_permanent`; the code writes `type`, `actionKey`, camelCase timestamps, `result`, `lastError`, and statuses like `pending`/`completed`/`failed`. Claude should revise docs against live code and add a small drift check or code-cited field list. |
+
+Current action for Claude: fix #245, #243, and #238 before opening more net-new
+backend/docs work.
+
 ## Recently Cleared (round 22g — 2026-05-13/14)
 
 One more auth coverage PR merged, and one V1 status tool PR is blocked:
@@ -195,6 +208,7 @@ consumption of the already-merged backend contracts.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
+| [#245](https://github.com/FramehouseStudios/them/pull/245) | T-schema-docs-batch-3 | 1 | blocked | Fix schema-doc drift: `outbox-event.md` must match `backend/lib/outbox_store.js` actual field names and statuses. |
 | [#243](https://github.com/FramehouseStudios/them/pull/243) | T-v1-status-reporter | 1 | blocked | Fix wrapped checklist continuation parsing in `scripts/v1_status.mjs`; current JSON/output truncates the iOS Release Readiness item after "next app-visible". |
 | [#238](https://github.com/FramehouseStudios/them/pull/238) | T-decompose-phase5b1-realtime-client-secret | 2 | blocked | Fix behavior drift: remove `setRealtimeSupplier(supplier)` write-back for byte-identical extraction, or rescope as intentional supplier-rotation behavior with design/schema/tests. |
 | [#212](https://github.com/FramehouseStudios/them/pull/212) | T-decompose-phase4-auth-routes | 3 | blocked | Codex design review passed against #221; Claude must rebase on current main and rerun tests. Keep `do-not-merge` until auth tier-3 clearance is explicitly approved. |
