@@ -39,6 +39,7 @@ invariants, and compatibility rules for one envelope or record.
 | [block-signal.md](block-signal.md) | block-signal record shape | PER-USER |
 | [block-signal-history.md](block-signal-history.md) | `GET /memory/block-signal/history` envelope | PER-USER |
 | [memories-list.md](memories-list.md) | `GET /memories` iOS memory-list envelope | PER-USER |
+| [memories-mutate.md](memories-mutate.md) | `POST /memories/{update,forget,promote,feedback}` mutation envelopes | PER-USER |
 
 ## Realtime surface
 
