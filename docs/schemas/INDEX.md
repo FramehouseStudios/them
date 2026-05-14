@@ -47,6 +47,12 @@ invariants, and compatibility rules for one envelope or record.
 | [realtime-client-secret.md](realtime-client-secret.md) | `POST /realtime/client_secret` | TIER-3 SENSITIVE |
 | [realtime-health.md](realtime-health.md) | `GET /realtime/health` | SAFE-PUBLIC |
 
+## Visual surface
+
+| Doc | Covers | Posture |
+| --- | --- | --- |
+| [visual-context.md](visual-context.md) | `POST /visual/context` request + response | TIER-3 SENSITIVE |
+
 ## Ops surface
 
 | Doc | Covers | Posture |
