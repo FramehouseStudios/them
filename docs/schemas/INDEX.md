@@ -12,6 +12,7 @@ invariants, and compatibility rules for one envelope or record.
 | [apple-auth.md](apple-auth.md) | `POST /auth/apple` request + response | TIER-3 SENSITIVE |
 | [password-reset.md](password-reset.md) | `request_password_reset` + `reset_password` | TIER-3 SENSITIVE |
 | [email-verification.md](email-verification.md) | `request_email_verification` + `verify_email` | TIER-3 SENSITIVE |
+| [session.md](session.md) | `POST /session` lifecycle envelope (client token + bootstrap) | TIER-3 SENSITIVE |
 
 ## Talk surface
 
