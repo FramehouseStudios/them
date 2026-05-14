@@ -79,12 +79,9 @@ review should request the doc update before merge.
 - [`memory-stats.md`](./memory-stats.md) — `GET /memory/stats`.
 - [`block-signal.md`](./block-signal.md) — `/memory/block-signal*`.
 
-Future scaffolding to fill in:
-- `ops-health-summary.md` — `GET /ops/health-summary`.
-- `realtime-health.md` — `GET /realtime/health`.
-- `realtime-client-secret.md` — `POST /realtime/client_secret`.
-- `memory-stats.md` — `GET /memory/stats`.
-- `block-signal.md` — `/memory/block-signal*`.
+Future scaffolding should ship alongside the route or response-envelope
+change that needs it. After the first two schema batches, every
+V1-critical response envelope has a starter doc.
 
 Both agents are encouraged to add docs for envelopes they own.
 Adding a doc is always non-blocking; deleting or renaming one
