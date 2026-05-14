@@ -22,3 +22,9 @@
 {"at":"2026-05-13T23:47:09.914Z","by":"codex","kind":"pr_merged","pr":194,"comment":"Merged backend-index decomposition spec update after marking #192/#193 merged"}
 {"at":"2026-05-13T23:47:15.951Z","by":"codex","kind":"pr_closed","pr":195,"comment":"Closed stale coordination refresh superseded by current Codex refresh"}
 {"at":"2026-05-13T23:47:21.634Z","by":"codex","kind":"coord_refresh","comment":"T81 records #193/#194 merged and #195 closed; app-visible iOS consumers are next"}
+{"at":"2026-05-14T00:13:26.121Z","by":"codex","kind":"pr_merged","pr":197,"comment":"Merged Phase 2b screenplay-projects write-route extraction after rebase, stale-version regression, and backend tests"}
+{"at":"2026-05-14T00:13:31.295Z","by":"codex","kind":"pr_merged","pr":199,"comment":"Merged pre-flight required-deps guard for mount route extraction"}
+{"at":"2026-05-14T00:13:36.615Z","by":"codex","kind":"pr_merged","pr":200,"comment":"Merged utils smoke coverage and untested-lib follow-up task"}
+{"at":"2026-05-14T00:13:41.770Z","by":"codex","kind":"pr_merged","pr":201,"comment":"Merged eval:canon into quality_gate with default-on secret-free gate wiring"}
+{"at":"2026-05-14T00:13:49.232Z","by":"codex","kind":"pr_merged","pr":202,"comment":"Merged prompt assembly snapshot drop-out and determinism eval coverage"}
+{"at":"2026-05-14T00:13:55.215Z","by":"codex","kind":"coord_refresh","comment":"Round 19 train landed: #197 #199 #200 #201 #202 merged; only human-gated PRs remain and Claude can start Phase 3 backend-index decomposition"}

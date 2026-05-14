@@ -2,7 +2,7 @@
 id: T-decompose-phase2b-screenplay-projects-writes
 title: Decompose backend/index.js — Phase 2b (7 /screenplay/projects/* write routes)
 owner: claude
-status: review
+status: merged
 branch: claude/T-decompose-phase2b-screenplay-projects-writes
 pillar: infra (backend architecture)
 ---
@@ -49,8 +49,9 @@ Access-control posture unchanged: **PER-USER**. Same as Phase 2a.
 ## Verification
 
 - `node --test backend/tests/screenplay_projects_routes.test.mjs`
-  → **28/28 pass** (was 13 after Phase 2a; +15 for the 7 new POSTs
-  exercising create/update/404/400/version-conflict paths).
+  → **29/29 pass** (was 13 after Phase 2a; +16 for the 7 new POSTs
+  exercising create/update/404/400/version-conflict paths plus a
+  stale `base_version_id` 409 regression added during Codex review).
 - Required-deps guard tested for **all 32 deps** (was 15 after 2a).
 - `node --check backend/index.js` passes.
 - `backend/index.js`: **-410 net lines** (~32,680 down from
