@@ -42,6 +42,9 @@ which file probably broke it."
 - TL;DR command (`npm run eval:canon`) matches
   `backend/package.json`.
 - Schema doc references match `docs/schemas/INDEX.md`.
+- `cd backend && npm run eval:v1-smokes` passed.
+- `cd backend && node --test ../scripts/v1_voice_to_page_smoke.test.mjs`
+  passed.
 - No code change — pure documentation.
 
 ## Done when

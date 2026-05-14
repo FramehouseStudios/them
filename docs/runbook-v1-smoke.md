@@ -116,10 +116,10 @@ npm run eval:v1-smokes
 Or one at a time:
 
 ```
-node scripts/v1_voice_to_page_smoke.mjs
-node scripts/v1_screenplay_smoke.mjs
-node scripts/v1_memory_recall_smoke.mjs
-node scripts/v1_realtime_failover_smoke.mjs
+node ../scripts/v1_voice_to_page_smoke.mjs
+node ../scripts/v1_screenplay_smoke.mjs
+node ../scripts/v1_memory_recall_smoke.mjs
+node ../scripts/v1_realtime_failover_smoke.mjs
 ```
 
 All four accept `--json` for machine-readable output.
@@ -127,7 +127,7 @@ All four accept `--json` for machine-readable output.
 ### Just one smoke's test wrapper
 
 ```
-node --test scripts/v1_voice_to_page_smoke.test.mjs
+node --test ../scripts/v1_voice_to_page_smoke.test.mjs
 ```
 
 The `.test.mjs` wrapper spawns the smoke and asserts exit 0 +
@@ -137,7 +137,7 @@ expected output markers.
 
 1. **Run the failing smoke standalone** to see its full output:
    ```
-   node scripts/v1_<which>_smoke.mjs
+   node ../scripts/v1_<which>_smoke.mjs
    ```
 2. **The smoke prints a structured findings list** under
    `--json`. Each finding has a `kind` field naming the
