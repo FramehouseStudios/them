@@ -14,9 +14,8 @@ of the `/memories/*` cluster; siblings: `memories-list.md`
 ## Schema version
 
 `1`. The envelope carries `schema_version` derived from
-`buildReadStateMeta`. The embedded `export_json` payload also
-carries its own `schemaVersion` field set within
-`export_payload`.
+`buildReadStateMeta`. The embedded `export_json` payload does
+not carry a separate schema-version field today.
 
 ## Owner
 
@@ -28,11 +27,15 @@ carries its own `schemaVersion` field set within
 ## Access-control posture
 
 **PER-USER**. Memory record resolved via
-`selectMemoryRecordForRead`. Same posture as `memories-list.md`.
+`selectMemoryRecordForRead`. Scope matches `memories-list.md`:
+`X-Client-Token` session or token alias when present, otherwise
+the normalized requester IP. The inline handler does not enforce
+an auth-only export gate today.
 
 ## Query parameters
 
-None today. The export is unconditional once authenticated.
+None today. The export is unconditional for the resolved
+session/token/IP memory context.
 
 ## Response shape
 
