@@ -16,7 +16,16 @@ proved the pattern.
 | 0 | `/health` + `/bridge` → `lib/health_route.js` | #183 | merged | ~39 |
 | 1 | `/ops/metrics` + `/ops/alerts` → `lib/ops_metrics_route.js` + `lib/ops_alerts_route.js` | #190 | merged | ~22 |
 | 2a | 5 GET `/screenplay/projects/*` → `lib/screenplay_projects_routes.js` | #192 | merged | ~88 |
+| 2b | 7 write `/screenplay/projects/*` → same lib | #197 | merged | ~410 |
+| 3 | `/screenplay/companion/state` + `/paginate` + `/revision-colors` → `lib/screenplay_companion_routes.js` | #204 | merged | ~79 |
 | parser hardening | route-local parsers for every route that reads `req.body` | #193 | merged | n/a |
+| mount-guard rule | pre-flight `mount-missing-required-deps-guard` | #199 | merged | n/a |
+| lib-coverage rule | pre-flight `lib-missing-test` | #208 | review | n/a |
+
+**Cumulative**: ~638 net lines removed from `backend/index.js`
+across Phases 0–3. Lib test-coverage gap going from 7 untested
+libs at round 19 audit → 3 (memory_store, user_auth, user_store)
+once PRs #205/#206/#207 land.
 
 Observations after Phase 0–2a:
 

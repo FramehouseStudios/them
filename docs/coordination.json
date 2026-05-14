@@ -1,8 +1,62 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T00:13:19.013Z",
-  "updatedBy": "codex",
+  "updatedAt": "2026-05-14T00:36:50.174Z",
+  "updatedBy": "claude",
   "openPullRequests": [
+    {
+      "number": 210,
+      "title": "T-event-lane-claude-cadence",
+      "owner": "claude",
+      "tier": 1,
+      "status": "review",
+      "branch": "claude/T-event-lane-claude-cadence",
+      "blocker": null
+    },
+    {
+      "number": 208,
+      "title": "T-pre-flight-test-coverage-rule",
+      "owner": "claude",
+      "tier": 1,
+      "status": "review",
+      "branch": "claude/T-pre-flight-test-coverage-rule",
+      "blocker": null
+    },
+    {
+      "number": 207,
+      "title": "T-outbox-store-smoke-test",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-outbox-store-smoke-test",
+      "blocker": null
+    },
+    {
+      "number": 206,
+      "title": "T-screenplay-store-smoke-test",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-screenplay-store-smoke-test",
+      "blocker": null
+    },
+    {
+      "number": 205,
+      "title": "T-persona-smoke-test",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-persona-smoke-test",
+      "blocker": null
+    },
+    {
+      "number": 204,
+      "title": "T-decompose-phase3-screenplay-companion",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase3-screenplay-companion",
+      "blocker": null
+    },
     {
       "number": 202,
       "title": "T-snapshot-eval-accepted-twists",

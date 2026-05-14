@@ -65,6 +65,8 @@ can start Phase 3 backend-index decomposition when no newer blocker appears.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
+| [#210](https://github.com/FramehouseStudios/them/pull/210) | T-event-lane-claude-cadence | 1 | review | Round-20 audit found Claude had never used the live event lane (`docs/agent-events-*.jsonl`) — 30/30 events were from Codex. PR appends 5 catch-up events for #204–#208 plus a tracking task to add an explicit reminder to AGENTS.md. Tiny diff, pure docs. |
+| [#208](https://github.com/FramehouseStudios/them/pull/208) | T-pre-flight-test-coverage-rule | 1 | review | Adds `lib-missing-test` pre-flight check. Every `backend/lib/*.js` needs a direct test, an indirect test import, or `// pre-flight: no-test-needed` opt-out. 4 new rule tests; 6 current findings on main (memory_store, user_auth, user_store + persona/screenplay_store/outbox_store while #205/#206/#207 are in review). |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
 | [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | policy-gated | D005 now records the human-approved Codex supervisor authority. Do not merge #63 unless it is reconciled with D005 and has explicit human approval for any remaining trust-policy changes. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
