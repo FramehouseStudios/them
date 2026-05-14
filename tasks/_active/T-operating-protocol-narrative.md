@@ -64,3 +64,17 @@ those — it points at them with context.
   post-mortems (e.g. coordination drift incidents).
 - Cross-link this doc from `README.md` once Codex confirms the
   pointer is wanted there.
+
+## Self-audit revision
+
+Initial draft listed `task-missing-status` / `task-invalid-status`
+as part of the live pre-flight rule set, but those rules are
+still in claude/#250 — not yet on main. The draft also omitted
+`schema-doc-backend-drift` (added by Codex #257 to main).
+
+Rewrote the "pre-flight rules" section to:
+- List only the 10 rules currently live on main.
+- Separate "rules in flight" (#250's status-vocab + #259's
+  id-mismatch-filename) into their own subsection.
+- Add a note about the `startsWith("T-")` file filter today and
+  the planned filter expansion.

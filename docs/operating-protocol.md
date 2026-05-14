@@ -80,30 +80,45 @@ one surface.
 ## The pre-flight rules
 
 `scripts/pre_flight.mjs` runs a set of static checks before a PR
-opens:
+opens. The currently-live rule set (on main) is:
 
 - `route-needs-own-parser` — every live route must own its
   `express.json({ limit: ... })` parser (no shared global parser).
+- `middleware-error-escapes` — `next(new Error(...))` in route
+  middleware escapes Express's default handler; respond directly
+  with `res.status(...).json(...)`.
+- `exported-const-not-frozen` — exported canon constants must be
+  `Object.freeze`d.
+- `console-log-in-lib` — no `console.log` in production lib code.
+- `eval-missing-determinism-check` — every eval must document or
+  assert determinism.
+- `schema-envelope-missing-version` — every schema doc must name
+  its schema version.
+- `schema-doc-backend-drift` — schema docs that describe a
+  canonical store/route shape must match the field names + status
+  values in the live code (added by Codex #257 to catch the
+  exact class of drift that blocked #245).
 - `mount-missing-required-deps-guard` — every `mount<X>Route`
   factory must validate its required deps at registration time.
 - `lib-missing-test` — every `backend/lib/*.js` should have a
   matching `backend/tests/*.test.mjs`.
 - `task-missing-v1-pillar` / `task-invalid-v1-pillar` — every
-  active task file must name a V1 pillar from the canonical set.
-- `task-missing-status` / `task-invalid-status` — every active
-  task file must use a canonical status (`open | review |
-  merged | closed | parked | blocked | draft`).
-- `eval-missing-determinism-check` — every eval must document or
-  assert determinism.
-- `schema-envelope-missing-version` — every schema doc must name
-  its schema version.
-- `console-log-in-lib` — no `console.log` in production lib code.
-- `middleware-error-escapes` — error handlers must not let an
-  error escape past the response.
-- `exported-const-not-frozen` — exported canon constants must be
-  `Object.freeze`d.
+  active task file must name a V1 pillar from the canonical set
+  (`talk | screenplay | memory | realtime | ios | infra`).
 
 Warn-only by default; `--strict` fails the run.
+
+Rules in flight (open PRs that propose additions):
+
+- `task-missing-status` / `task-invalid-status` (claude/#250):
+  canonical status vocabulary
+  (`open | review | merged | closed | parked | blocked | draft`).
+- `task-id-mismatch-filename` (claude/#259): task file's
+  declared `id:` must match the filename basename.
+
+Both default to warn-only and apply only to files starting with
+`T-` today; a future filter expansion will cover
+Codex-numbered (`T<digits>`) task files too.
 
 ## The V1 smoke chain
 
