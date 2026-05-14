@@ -108,6 +108,7 @@ import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
 import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_routes.js";
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
+import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
@@ -28313,71 +28314,20 @@ mountRealtimeTurnCommitRoute(app, {
   DEEP_TURN_SCORE_THRESHOLD,
 });
 
-app.post("/realtime/call", express.text({ type: ["application/sdp", "text/plain"], limit: "512kb" }), async (req, res) => {
-  const rid = req.requestId || createRequestId();
-  if (!OPENAI_API_KEY) {
-    return res.status(503).json({
-      stage: "realtime_call",
-      error: "OpenAI API key is missing for Realtime call setup.",
-    });
-  }
-
-  const offerSdp = String(req.body || "").trim();
-  if (!offerSdp) {
-    return res.status(400).json({
-      stage: "realtime_call",
-      error: "Missing SDP offer body.",
-    });
-  }
-
-  const sessionConfig = buildRealtimeSessionConfig({
-    model: String(req.query?.model || "").trim() || OPENAI_REALTIME_MODEL,
-    voice: String(req.query?.voice || "").trim().toLowerCase() || OPENAI_REALTIME_VOICE,
-  });
-  const form = new FormData();
-  form.set("sdp", offerSdp);
-  form.set("session", JSON.stringify(sessionConfig));
-
-  let openaiResp;
-  try {
-    openaiResp = await fetchWithTimeout(
-      "https://api.openai.com/v1/realtime/calls",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "OpenAI-Beta": "realtime=v1",
-        },
-        body: form,
-      },
-      15_000
-    );
-  } catch (err) {
-    const message = isAbortError(err)
-      ? "Realtime SDP negotiation timed out."
-      : String(err?.message || err || "Realtime SDP negotiation failed.");
-    return res.status(isAbortError(err) ? 504 : 502).json({
-      stage: "realtime_call",
-      error: message,
-    });
-  }
-
-  const answerSdp = await openaiResp.text();
-  if (!openaiResp.ok) {
-    return res.status(openaiResp.status).json({
-      stage: "realtime_call",
-      error: answerSdp || "OpenAI Realtime call setup failed.",
-    });
-  }
-
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Content-Type", "application/sdp");
-  res.setHeader("x-realtime-model", sessionConfig.model);
-  res.setHeader("x-realtime-voice", sessionConfig.audio?.output?.voice || OPENAI_REALTIME_VOICE);
-  console.log(
-    `[${rid}] realtime_call established model=${sessionConfig.model} voice=${sessionConfig.audio?.output?.voice || OPENAI_REALTIME_VOICE}`
-  );
-  return res.status(200).send(answerSdp);
+// T-decompose-phase5b4-realtime-call: route moved to
+// lib/realtime_call_route.js. Byte-identical with the
+// previous inline handler — same 503/400/504/502/upstream-
+// passthrough/200 envelopes, same SDP body passthrough, same
+// response headers, same form encoding, same 15s timeout.
+// Closes the 5b decomp chain per #227 design note.
+mountRealtimeCallRoute(app, {
+  createRequestId,
+  buildRealtimeSessionConfig,
+  fetchWithTimeout,
+  isAbortError,
+  OPENAI_API_KEY,
+  OPENAI_REALTIME_MODEL,
+  OPENAI_REALTIME_VOICE,
 });
 
 async function handleTalkRequest(req, res) {
