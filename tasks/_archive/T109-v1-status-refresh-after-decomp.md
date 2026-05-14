@@ -2,7 +2,7 @@
 id: T109
 title: Refresh V1 checklist after Phase 7 design and realtime decomposition
 owner: codex
-status: review
+status: merged
 branch: codex/T109-v1-status-refresh-after-decomp
 pillar: infra
 v1_pillar: infra

@@ -2,7 +2,7 @@
 id: T105
 title: Refresh coordination after Phase 6 memories merge
 owner: codex
-status: review
+status: merged
 branch: codex/T105-phase6-merge-refresh
 pillar: infra
 v1_pillar: infra

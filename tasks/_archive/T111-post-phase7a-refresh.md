@@ -2,7 +2,7 @@
 id: T111
 title: Refresh coordination after Phase 7a and realtime fallback proof
 owner: codex
-status: review
+status: merged
 branch: codex/T111-post-phase7a-refresh
 pillar: infra
 v1_pillar: infra
