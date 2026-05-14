@@ -5,6 +5,8 @@ owner: claude
 status: planned
 branch: (not opened)
 pillar: infra (test coverage)
+v1_pillar: infra
+v1_effect: infrastructure for backend stability across all V1 pillars (closes lib-test gap)
 ---
 
 ## Scope

@@ -5,6 +5,8 @@ owner: claude
 status: review
 branch: claude/T-trust-tiers
 pillar: infra (enables all)
+v1_pillar: infra
+v1_effect: operating-model trust tiers + standing pre-approvals (AGENTS.md)
 ---
 
 ## Scope

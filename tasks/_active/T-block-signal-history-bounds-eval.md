@@ -5,6 +5,8 @@ owner: claude
 status: review
 branch: claude/T-block-signal-history-bounds-eval
 pillar: evals (layer-3-living)
+v1_pillar: memory
+v1_effect: infrastructure for V1 line 49 'Character mentions, traits, archetypes, accepted twists, and block history have backend/iOS surfaces' (guards block-signal history buffer)
 ---
 
 ## Scope

@@ -5,6 +5,8 @@ owner: claude
 status: review
 branch: claude/T-coord-refresh-batch-12
 pillar: infra (coordination)
+v1_pillar: infra
+v1_effect: coordination refresh for round 17 merge train
 ---
 
 ## Scope

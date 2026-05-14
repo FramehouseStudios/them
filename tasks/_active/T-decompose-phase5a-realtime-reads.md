@@ -5,6 +5,8 @@ owner: claude
 status: review
 branch: claude/T-decompose-phase5-realtime-routes
 pillar: infra (backend architecture)
+v1_pillar: realtime
+v1_effect: closes prerequisite for V1 line 68 'Realtime route decomposition lands before talk-pipeline Phase 7' (read-only /realtime/* routes)
 ---
 
 ## Scope

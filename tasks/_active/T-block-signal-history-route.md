@@ -5,6 +5,8 @@ owner: claude
 status: review
 branch: claude/T-block-signal-history-route
 pillar: layer-3-living (creative-memory surfaces)
+v1_pillar: memory
+v1_effect: infrastructure for V1 line 49 (GET /memory/block-signal/history backs iOS sparkline UI)
 ---
 
 ## Scope

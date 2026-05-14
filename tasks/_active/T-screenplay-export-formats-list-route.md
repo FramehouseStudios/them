@@ -5,6 +5,8 @@ owner: claude
 status: review
 branch: claude/T-screenplay-export-formats-list-route
 pillar: layer-1-craft (export discovery)
+v1_pillar: screenplay
+v1_effect: infrastructure for V1 line 37 'Fountain import and Markdown/export-format discovery are consumed'
 ---
 
 ## Scope

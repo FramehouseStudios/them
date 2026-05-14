@@ -5,6 +5,8 @@ owner: claude
 status: review
 branch: claude/T-task-files-cleanup
 pillar: infra (coordination)
+v1_pillar: infra
+v1_effect: TASKS.md vs tasks/_active/ drift cleanup
 ---
 
 ## Scope
