@@ -2,7 +2,7 @@
 id: T-fdx-export-schema-doc
 title: docs/schemas/fdx-export.md
 owner: claude
-status: review
+status: merged
 branch: claude/T-fdx-export-schema-doc
 pillar: infra (schema discipline)
 v1_pillar: screenplay

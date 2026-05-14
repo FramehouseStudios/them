@@ -764,12 +764,15 @@
 | T-decompose-phase3-screenplay-companion        | Decompose backend/index.js — Phase 3 (companion + paginate + revision-colors)                              | claude | merged      |
 | T-decompose-phase5a-realtime-reads             | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                                     | claude | review      |
 | T-decompose-phase5b1-realtime-client-secret    | Decompose backend/index.js — Phase 5b.1 (POST /realtime/client_secret)                                     | claude | merged      |
+| T-decompose-phase5b2-studio-render             | Decompose backend/index.js — Phase 5b.2 (studio_render + studio_render_stream)                             | claude | merged      |
 | T-deeper-lib-tests-batch-2                     | Deeper tests for persona + utils + screenplay_store + outbox_store                                         | claude | review      |
 | T-deeper-lib-tests-batch-3                     | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats                             | claude | review      |
 | T-deeper-lib-tests-batch                       | Deeper direct tests for user_store (with planned followups for memory_store + user_auth)                   | claude | review      |
 | T-deeper-memstore-and-user-auth-tests          | Deeper tests for memory_store + user_auth                                                                  | claude | review      |
 | T-eval-determinism-doc-pass                    | Document determinism stance across 10 canon evals                                                          | claude | review      |
 | T-eval-gate-add-canon-evals                    | Umbrella `npm run eval:canon` for canonical-contract evals                                                 | claude | merged      |
+| T-fdx-export-deeper                            | Deeper tests for the FDX serializer                                                                        | claude | merged      |
+| T-fdx-export-schema-doc                        | docs/schemas/fdx-export.md                                                                                 | claude | merged      |
 | T-fix-214-audit-and-readme                     | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar                        | claude | review      |
 | T-format-linter-rules-canon-eval               | Pin canonical rule_id set + envelope for format_linter                                                     | claude | merged      |
 | T-fountain-export-deeper                       | Deeper tests for fountain_export                                                                           | claude | review      |
@@ -780,6 +783,7 @@
 | T-ops-health-summary-eval                      | Deployment-level eval pinning /ops/health-summary features map                                             | claude | merged      |
 | T-ops-health-summary-route                     | GET /ops/health-summary cheap uptime-dashboard endpoint                                                    | claude | merged      |
 | T-ops-routes-list-route                        | GET /ops/routes manifest of optional surfaces                                                              | claude | merged      |
+| T-persistence-json-tests                       | Direct tests for backend/lib/persistence_json.js                                                           | claude | merged      |
 | T-pre-flight-outbox-console-cleanup            | Convert outbox console.log → console.warn/error (pre-flight class 1)                                       | claude | merged      |
 | T-pre-flight-self-check-script                 | scripts/pre_flight.mjs — catch recurring review feedback locally                                           | claude | merged      |
 | T-preflight-task-id-matches-filename           | Pre-flight rule task-id-mismatch-filename                                                                  | claude | merged      |
@@ -789,6 +793,7 @@
 | T-prompt-assembly-snapshot-eval                | Pin canonical buildModelPrompt block order                                                                 | claude | merged      |
 | T-prompt-size-eval                             | Char-budget guard on assembled model prompts                                                               | claude | merged      |
 | T-protocol-infra-batch                         | Tighten backend extraction protocol helpers                                                                | claude | review      |
+| T-runbook-smoke-section-drift-fix              | Correct v1_voice_to_page and v1_screenplay smoke sections in runbook                                       | claude | merged      |
 | T-runbook-v1-smoke                             | Operator runbook for the V1 smoke suite                                                                    | claude | merged      |
 | T-schema-docs-batch-2                          | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal                             | claude | review      |
 | T-schema-docs-batch-3                          | Schema doc batch 3 + docs/schemas/INDEX.md                                                                 | claude | merged      |
@@ -860,6 +865,7 @@
 | T94                                            | Claude supervisor note handoff                                                                             | codex  | review      |
 | T95-schema-doc-drift-gate                      | Gate schema docs against backend field drift                                                               | codex  | review      |
 | T96-batch-coordination-refresh                 | Refresh coordination after supervisor merge train                                                          | codex  | review      |
+| T97-post-support-merge-refresh                 | Refresh coordination after support merge train                                                             | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -2142,6 +2148,82 @@ Phase 5b.2: extract `/realtime/studio_render` +
 `/realtime/studio_render_stream`. Gated on this PR merging per
 spec.
 
+### T-decompose-phase5b2-studio-render — Decompose backend/index.js — Phase 5b.2 (studio_render + studio_render_stream)
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase5b2-studio-render
+- **Pillar:** infra (backend architecture)
+- **Status:** merged
+
+## Scope
+
+Phase 5b.2 of the decomposition (spec:
+`docs/specs/T-decompose-backend-index.md`, design note #227).
+Phase 5b.1 (#238) extracted the supplier mint route; this PR
+extracts the two Studio-render routes:
+
+- `POST /realtime/studio_render` (sync) — returns
+  `{ ok, action, reply }`.
+- `POST /realtime/studio_render_stream` (SSE) — emits `meta`,
+  `trace` (on first delta), `delta`, `done`, and `error` events.
+
+Both move to `backend/lib/realtime_studio_render_routes.js`
+with byte-identical behavior. The 503 missing-key guard, the 400
+empty-transcript guard, the success envelopes, the SSE event
+shapes, the `console.log` lines, and the body limit (512kb) all
+match the inline source exactly.
+
+## V1 pillar / effect
+
+- `V1 pillar: realtime`
+- `V1 effect: continues the realtime-decomp chain unblocked by
+  the Phase 5b.1 merge. After 5b.2, 5b.3 (turn_commit) and 5b.4
+  (call) follow — each one shrinks backend/index.js and tightens
+  the V1 line 68 prerequisite ("Realtime route decomposition
+  lands before talk-pipeline Phase 7").`
+
+## Mount call
+
+```js
+mountRealtimeStudioRenderRoutes(app, {
+  renderStudioRealtimeText,
+  streamStudioRealtimeText,
+  createRequestId,
+  normalizeSnippet,
+  getOpenAIApiKey: () => OPENAI_API_KEY,
+});
+```
+
+`getOpenAIApiKey` is an accessor so a value of `""` / falsy is
+treated as "missing" at request time, matching the original
+inline `if (!OPENAI_API_KEY)` guard.
+
+## Verification
+
+- `node --test backend/tests/realtime_studio_render_routes.test.mjs`
+  → **17/17 pass**:
+  - factory shape + mount guards (3 tests)
+  - sync route: happy path, 503 missing key, 400 empty transcript,
+    400 with no fields, user_message fallback, renderer error
+    with status/stage, renderer error default 502 (7 tests)
+  - SSE route: meta+delta+done sequence, trace on first delta,
+    503 missing key, 400 empty transcript, error event on
+    streamer throw, SSE headers, response read to completion
+    (7 tests)
+- `node --check backend/index.js` passes.
+- `backend/index.js` shrinks by **147 net lines** (159 inline →
+  12 mount call).
+
+## Done when
+
+Two inline Studio-render routes no longer in `backend/index.js`;
+lib file exists with the SAFE-PUBLIC posture documented; 17/17
+tests pass; SSE event shapes preserved byte-identically.
+
+## Next phase
+
+Phase 5b.3: extract `POST /realtime/turn_commit`. Gated on this
+PR merging per spec (max 1 decomp PR in flight).
+
 ### T-deeper-lib-tests-batch-2 — Deeper tests for persona + utils + screenplay_store + outbox_store
 - **Owner:** claude
 - **Branch:** claude/T-deeper-lib-tests-batch-2
@@ -2588,6 +2670,118 @@ a follow-up will wire `eval:canon` into the gate.
 
 `npm run eval:canon` exits 0 against current main, running every
 merged canon eval end-to-end.
+
+### T-fdx-export-deeper — Deeper tests for the FDX serializer
+- **Owner:** claude
+- **Branch:** claude/T-fdx-export-deeper
+- **Pillar:** infra (test coverage)
+- **Status:** merged
+
+## Scope
+
+Ships `backend/tests/fdx_export_deeper.test.mjs` — 10 deeper
+tests beyond the existing 17 smoke tests.
+
+### Targets
+
+- Dialogue shapes (string vs array of lines)
+- Character cue with parenthetical but empty dialogue → dropped
+- Multi-scene output preserves scene order
+- Title page with only some fields skips empty entries
+- Title page treats whitespace-only fields as empty
+- Unknown line kind silently dropped (defensive)
+- Defensive: missing scenes, null, empty input
+- Output is well-formed XML root (`<?xml ... <FinalDraft ... </FinalDraft>`)
+- `escapeXml` round-trips through the full export (no raw `<`,
+  `>`, or `&` in text)
+
+## V1 pillar / effect
+
+- `V1 pillar: screenplay`
+- `V1 effect: closes the deeper coverage gap for the FDX
+  serializer. V1 line 38 depends on iOS being able to decode FDX
+  cleanly; these tests pin per-line-kind serialization so a
+  silent change to the serializer surfaces in CI.`
+
+## Verification
+
+```
+node --test backend/tests/fdx_export.test.mjs backend/tests/fdx_export_deeper.test.mjs
+```
+
+→ 17 smoke + 10 deeper = 27/27 pass.
+
+## Done when
+
+`fdx_export_deeper.test.mjs` ships and passes alongside the
+existing smoke.
+
+## Followups (not in this PR)
+
+- Schema doc `docs/schemas/fdx-export.md` lands separately
+  (claude/T-fdx-export-schema-doc, PR #265).
+- Section level / synopsis paragraph support (the smoke + this
+  deeper PR don't pin these — the FDX serializer may or may
+  not emit them; check `serializeSection` / `serializeSynopsis`
+  bodies for the rules).
+
+### T-fdx-export-schema-doc — docs/schemas/fdx-export.md
+- **Owner:** claude
+- **Branch:** claude/T-fdx-export-schema-doc
+- **Pillar:** infra (schema discipline)
+- **Status:** merged
+
+## Scope
+
+Adds `docs/schemas/fdx-export.md` — canonical request + response
+shape for `POST /screenplay/export/fdx`. Sibling to
+`fountain-export.md` (same pattern, different format).
+
+Covers:
+- Endpoint method + path.
+- Schema version (`1`).
+- PER-USER posture identical to the rest of the screenplay
+  surface.
+- Request shape (shared with fountain-export.md by reference).
+- Validation: 400 envelopes for missing body / non-array
+  scenes; 500 for serializer throw.
+- Default JSON envelope `{ schemaVersion, fdx }`.
+- XML response toggle via `Accept` header or `?format=xml`,
+  with `Content-Disposition: attachment` for download.
+- Pairing notes for iOS consumers (shared request builder
+  with fountain-export).
+- Compatibility rules + changelog.
+
+Plus an INDEX.md row under the Screenplay surface section.
+
+## V1 pillar / effect
+
+- `V1 pillar: screenplay`
+- `V1 effect: closes the schema-doc gap for the FDX export
+  endpoint. V1 line 38 explicitly calls out "iOS consumes FDX
+  export and backend PDF rejection alternatives cleanly" — the
+  iOS consumer needs a canonical envelope to decode against.`
+
+## Verification
+
+- Doc matches `mountFDXExportRoute` in
+  `backend/lib/fdx_export_route.js` line-by-line (endpoint,
+  validation envelopes, JSON shape `{ schemaVersion: 1, fdx }`,
+  XML toggle, `Content-Disposition` rule).
+- INDEX.md row sits next to `fountain-export.md` for
+  consistency.
+- Pre-flight clean.
+
+## Done when
+
+`docs/schemas/fdx-export.md` lands + INDEX entry added.
+
+## Followups (not in this PR)
+
+- FDX deeper test (analogous to `fountain_export_deeper.test.mjs`
+  #258) — pin per-line-kind FDX serialization.
+- V1 line 38 second clause ("backend PDF rejection alternatives
+  cleanly") is iOS-driven. Codex's call.
 
 ### T-fix-214-audit-and-readme — Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar
 - **Owner:** claude
@@ -3048,6 +3242,62 @@ Returns `{ schemaVersion, total, routes[] }` with
 `GET /ops/routes` returns the frozen manifest; tests cover snapshot
 properties + integration; `npm test` green.
 
+### T-persistence-json-tests — Direct tests for backend/lib/persistence_json.js
+- **Owner:** claude
+- **Branch:** claude/T-persistence-json-tests
+- **Pillar:** infra (test coverage)
+- **Status:** merged
+
+## Scope
+
+Ships `backend/tests/persistence_json.test.mjs` — 20 direct
+tests for `createJsonPersistence` covering the full adapter
+surface that the per-domain stores rely on.
+
+### Coverage
+
+- Factory shape (`kind`, `root`, all 6 methods).
+- Default root constant is absolute + ends under `backend/data/persistence`.
+- Root directory created at construction time.
+- `put` + `get` round-trip.
+- `get` returns null for unknown key.
+- `put` overwrites existing value.
+- `delete` removes the key; no-op on unknown.
+- `list` returns alphabetical key+value pairs.
+- `list` honors prefix filter.
+- `list` honors limit (with default-to-1000 / clamp).
+- `list` returns empty on cold domain.
+- `clear` empties the domain; other domains untouched.
+- Domain isolation (same key in different domains).
+- File durability: `put` writes `<domain>.json`; new adapter on
+  the same root sees prior data.
+- `close()` is a no-op (parity with the Postgres adapter).
+- `put` rejects unknown domain via `assertDomain`.
+- `put` rejects empty key via `assertKey`.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: closes a zero-test-coverage gap on the
+  persistence adapter that every store uses in single-process
+  mode. The talk pipeline, creative_memory, outbox, screenplay
+  store, and accepted_twists log all persist through this lib.
+  Regression in put/get/list/delete would silently corrupt
+  state for V1 surfaces.`
+
+## Verification
+
+```
+node --test backend/tests/persistence_json.test.mjs
+```
+
+→ **20/20 pass**.
+
+## Done when
+
+`persistence_json.test.mjs` ships and passes. `pre-flight`'s
+`lib-missing-test` rule no longer flags `persistence_json.js`.
+
 ### T-pre-flight-outbox-console-cleanup — Convert outbox console.log → console.warn/error (pre-flight class 1)
 - **Owner:** claude
 - **Branch:** claude/T-pre-flight-outbox-console-cleanup
@@ -3447,6 +3697,78 @@ Run:
 - `node scripts/audit_inline_routes.mjs`
 - `node scripts/audit_inline_routes.mjs --json`
 - `git diff --check`
+
+### T-runbook-smoke-section-drift-fix — Correct v1_voice_to_page and v1_screenplay smoke sections in runbook
+- **Owner:** claude
+- **Branch:** claude/T-runbook-smoke-section-drift-fix
+- **Pillar:** infra (operator docs)
+- **Status:** merged
+
+## Scope
+
+`docs/runbook-v1-smoke.md` shipped via #251 with two drifted
+smoke-section descriptions:
+
+### Section 1: `v1_voice_to_page_smoke`
+
+Original text claimed the smoke verifies:
+- "Response envelope keys match `docs/schemas/talk-response.md`."
+- "Meta block matches `docs/schemas/talk-turn-meta.md`."
+- "Block-signal stamping fires when fixture content triggers it."
+- "Memory record is enqueued."
+
+None of those are what the smoke actually does. The smoke
+verifies **prompt-assembly shape** (what we send the LLM), not
+response envelopes (what we return to iOS). The smoke header in
+`scripts/v1_voice_to_page_smoke.mjs` says so directly.
+
+### Section 2: `v1_screenplay_smoke`
+
+Original text claimed the smoke verifies:
+- "Character lines render before action lines under the same
+  scene."
+- "Transitions render between scenes."
+
+The smoke is **fixture-driven**: it checks against
+`expected_fountain_contains[]` and `expected_fountain_ordering[]`
+in `backend/fixtures/v1_screenplay_export.json`. Neither of the
+specific behavioral claims is in the fixture's expected lists,
+and the fixture has no transitions to verify. The per-line-kind
+serialization rules live in
+`backend/tests/fountain_export_deeper.test.mjs` (#258), not in
+this smoke.
+
+## How this happened
+
+I authored #251 with these claims and self-audited the
+v1_voice_to_page section in a follow-up push, but the PR was
+merged from an earlier state. The v1_screenplay drift was
+caught in the second self-audit pass after merge.
+
+This PR lands both corrections against current main.
+
+## V1 pillar / effect
+
+- `V1 pillar: infra`
+- `V1 effect: corrects the operator runbook so a smoke failure
+  reading sends operators to the file that actually produced
+  the failure. Same class of issue as the #245 docs-vs-code
+  drift Codex caught.`
+
+## Verification
+
+- Both rewritten sections match the actual smoke bodies in
+  `scripts/v1_voice_to_page_smoke.mjs` and
+  `scripts/v1_screenplay_smoke.mjs`.
+- The fixture-driven nature of v1_screenplay_smoke is now
+  pointed to + cross-referenced with fountain_export_deeper
+  (#258) which pins the serializer rules.
+- Pure documentation change; no code touched.
+
+## Done when
+
+Two smoke sections in the runbook match what the scripts
+actually do.
 
 ### T-runbook-v1-smoke — Operator runbook for the V1 smoke suite
 - **Owner:** claude
@@ -5817,6 +6139,33 @@ that landed PRs #238, #243, #245, #250, #251, #253, #256,
 - `docs/codex-inbox.md` tells Claude the only remaining blockers
   are human/policy gates unless Codex opens a new review blocker.
 - Coordination validation and main health checks are green.
+
+## Verification
+
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex`
+- `node scripts/pre_flight.mjs`
+- `node --test scripts/pre_flight.test.mjs`
+- `cd backend && npm run eval:v1-smokes`
+
+### T97-post-support-merge-refresh — Refresh coordination after support merge train
+- **Owner:** codex
+- **Branch:** codex/T97-post-support-merge-refresh
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Refresh coordination after the support merge train that landed
+PRs #262, #264, #265, #266, and #267.
+
+## Done when
+
+- `docs/coordination.json` records those PRs as merged.
+- Batch task files are marked `merged`.
+- `docs/claude-inbox.md` and `docs/codex-inbox.md` point at
+  the current next backend lane: Phase 5b.3 turn_commit.
+- Agent event lane records the refresh.
 
 ## Verification
 

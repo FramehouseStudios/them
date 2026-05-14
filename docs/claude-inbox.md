@@ -40,9 +40,9 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Phase 5b.2 realtime studio-render extraction | Realtime route decomposition is still on the V1 checklist and must land before Phase 7 talk code. | Extract `POST /realtime/studio_render` + `POST /realtime/studio_render_stream` under the accepted Phase 5b design note; preserve SSE order, abort behavior, response shape, and route-local parser/required-deps guards. |
-| 2 | Phase 5b.3 realtime turn-commit extraction | This is the memory-write bridge that Phase 6 depends on. | Extract `POST /realtime/turn_commit`; preserve the 201 envelope, turn metadata storage, and memory-write behavior with focused integration tests. |
-| 3 | Phase 5b.4 realtime call extraction | Clears the rest of `/realtime/*` before talk decomposition. | Extract `POST /realtime/call` with byte-identical behavior and focused tests. |
+| 1 | Phase 5b.3 realtime turn-commit extraction | This is the memory-write bridge that Phase 6 depends on, and 5b.2 has landed. | Extract `POST /realtime/turn_commit`; preserve the 201 envelope, turn metadata storage, and memory-write behavior with focused integration tests. |
+| 2 | Phase 5b.4 realtime call extraction | Clears the rest of `/realtime/*` before talk decomposition. | Extract `POST /realtime/call` with byte-identical behavior and focused tests. |
+| 3 | Coordination refresh only after Phase 5b.3/5b.4 lands or Codex asks | Codex owns coordination; do not open refresh-only PRs during implementation. | Append event-lane updates; let Codex batch state changes after the next merge train. |
 | 4 | Phase 6 memories routes after 5b.3 lands | Memory routes should move only after the turn-commit memory seam is stable. | Follow `tasks/_proposals/T-decompose-phase6-memories-design.md`; keep `/memories/export` privacy/auth constraints intact. |
 | 5 | Phase 7a talk pipeline only after realtime extraction clears | Talk is the riskiest V1 path; design note exists, but code should not start until realtime is stable. | Extract guards/state first per `tasks/_proposals/T-decompose-phase7-talk-pipeline-design.md`; no response-shape changes. |
 

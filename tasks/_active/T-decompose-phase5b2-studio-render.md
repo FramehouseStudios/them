@@ -2,7 +2,7 @@
 id: T-decompose-phase5b2-studio-render
 title: Decompose backend/index.js — Phase 5b.2 (studio_render + studio_render_stream)
 owner: claude
-status: review
+status: merged
 branch: claude/T-decompose-phase5b2-studio-render
 pillar: infra (backend architecture)
 v1_pillar: realtime
