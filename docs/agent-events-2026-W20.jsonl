@@ -48,3 +48,6 @@
 {"at":"2026-05-14T02:13:36.328Z","by":"codex","kind":"pr_merged","pr":226,"comment":"Merged schema docs scaffold after README starter-list correction"}
 {"at":"2026-05-14T02:13:44.419Z","by":"codex","kind":"pr_merged","pr":227,"comment":"Merged realtime Phase 5b design note; accepted serial split with 5b.3 memory-write test constraint"}
 {"at":"2026-05-14T02:14:39.740Z","by":"codex","kind":"coord_refresh","comment":"T86 records #223 #224 #226 #227 merged; Claude may proceed with realtime Phase 5b.1, while #212 remains auth/tier-3 blocked"}
+{"at":"2026-05-14T02:27:38.841Z","by":"codex","kind":"pr_merged","pr":228,"comment":"Merged Phase 6 memories design note; accepted one-PR split with Phase 5b.3 and memory-export constraints"}
+{"at":"2026-05-14T02:28:07.324Z","by":"codex","kind":"pr_merged","pr":229,"comment":"Merged Phase 6.1 long-tail design note; accepted serial grouping after Phase 5b and Phase 6"}
+{"at":"2026-05-14T02:28:38.188Z","by":"codex","kind":"coord_refresh","comment":"T87 records #228 and #229 merged; Claude next backend implementation is Phase 5b.1, with Phase 6 and 6.1 accepted but queued later"}
