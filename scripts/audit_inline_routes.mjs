@@ -2,17 +2,23 @@
 //
 // scripts/audit_inline_routes.mjs
 //
-// Lists every non-guard `app.get/post/put/delete(...)` still inline
-// in `backend/index.js` so the next decomposition phase can be chosen
-// by call frequency, not by guessing.
+// Lists every `app.get/post/put/delete/patch/all(...)` still inline
+// in `backend/index.js` so the next decomposition phase can be
+// chosen by call frequency, not by guessing.
+//
+// Two categories are kept SEPARATE: live route handlers vs.
+// `app.all(..., methodNotAllowed(...))` 405-handler catches. A
+// `/auth/login` row with 1 live POST + 1 method-guard catch is
+// reported as 1 live, not 2 inline routes. Method-guards belong in
+// the decomposition target's lib but they are not inline route
+// handlers; conflating them inflates the remaining-work estimate
+// and misdirects the next phase.
 //
 // Output: a markdown table grouped by route prefix, sorted by
-// inline count descending. Useful for prioritizing Phases 5–8.
+// live-route count descending. Method-guard counts appear in their
+// own column and are excluded from the live total.
 //
-// Default: prints to stdout. Pass `--json` to emit a machine-readable
-// summary. `app.all(...)` method-not-allowed guards are counted in a
-// separate section; pass `--include-method-guards` to include them in
-// the main priority table. Run from repo root.
+// Pass `--json` for a machine-readable summary. Run from repo root.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -29,31 +35,28 @@ if (!fs.existsSync(indexPath)) {
 
 const text = fs.readFileSync(indexPath, "utf8");
 const lines = text.split("\n");
-const includeMethodGuards = process.argv.includes("--include-method-guards");
 
-// Match every `app.get("/...` / `app.post("/..."` etc at line start.
+// Match every `app.<method>("/...` at line start.
 const ROUTE_RE = /^app\.(get|post|put|delete|patch|all)\s*\(\s*["']([^"']+)["']/;
 
-const routes = [];
+const liveRoutes = [];
 const methodGuards = [];
 for (let i = 0; i < lines.length; i += 1) {
   const m = lines[i].match(ROUTE_RE);
   if (!m) continue;
-  const route = {
-    line: i + 1,
-    method: m[1].toUpperCase(),
-    path: m[2],
-  };
-  if (route.method === "ALL") {
-    methodGuards.push(route);
-    if (!includeMethodGuards) continue;
-  }
-  routes.push(route);
+  const method = m[1].toUpperCase();
+  const routePath = m[2];
+  const line = lines[i];
+  // Distinguish methodNotAllowed catches from real handlers.
+  // The pattern is `app.all("/...", methodNotAllowed("..."))` —
+  // app.all + the methodNotAllowed handler in the same statement.
+  const isMethodGuard = method === "ALL" && /methodNotAllowed\s*\(/.test(line);
+  const entry = { line: i + 1, method, path: routePath };
+  if (isMethodGuard) methodGuards.push(entry);
+  else liveRoutes.push(entry);
 }
 
-// Group by top-level path prefix (e.g. /talk, /screenplay, /auth).
 function prefixOf(p) {
-  // Strip leading slash, take first segment.
   const trimmed = p.replace(/^\//, "");
   const slash = trimmed.indexOf("/");
   if (slash === -1) return `/${trimmed}` || "/";
@@ -61,52 +64,70 @@ function prefixOf(p) {
 }
 
 const byPrefix = new Map();
-for (const r of routes) {
+for (const r of liveRoutes) {
   const pfx = prefixOf(r.path);
-  if (!byPrefix.has(pfx)) byPrefix.set(pfx, []);
-  byPrefix.get(pfx).push(r);
+  if (!byPrefix.has(pfx)) byPrefix.set(pfx, { live: [], guards: [] });
+  byPrefix.get(pfx).live.push(r);
+}
+for (const r of methodGuards) {
+  const pfx = prefixOf(r.path);
+  if (!byPrefix.has(pfx)) byPrefix.set(pfx, { live: [], guards: [] });
+  byPrefix.get(pfx).guards.push(r);
 }
 
 const summary = [...byPrefix.entries()]
-  .map(([prefix, list]) => ({ prefix, count: list.length, routes: list }))
-  .sort((a, b) => b.count - a.count);
+  .map(([prefix, group]) => ({
+    prefix,
+    liveCount: group.live.length,
+    guardCount: group.guards.length,
+    live: group.live,
+    guards: group.guards,
+  }))
+  .sort((a, b) => {
+    // Live count desc; ties broken by guard count desc.
+    if (b.liveCount !== a.liveCount) return b.liveCount - a.liveCount;
+    return b.guardCount - a.guardCount;
+  });
 
 if (process.argv.includes("--json")) {
   console.log(JSON.stringify({
     indexLineCount: lines.length,
-    totalInlineRoutes: routes.length,
-    totalMethodGuards: methodGuards.length,
-    includeMethodGuards,
+    liveInlineRoutes: liveRoutes.length,
+    methodGuards: methodGuards.length,
     byPrefix: summary,
-    methodGuards,
   }, null, 2));
   process.exit(0);
 }
 
-const guardNote = includeMethodGuards
-  ? `including ${methodGuards.length} app.all method guards`
-  : `excluding ${methodGuards.length} app.all method guards`;
-console.log(`backend/index.js: ${lines.length.toLocaleString()} lines, ${routes.length} inline live routes (${guardNote})\n`);
-console.log("Inline-route counts by prefix (descending):\n");
-console.log("| Prefix | Inline count | Example route |");
-console.log("| --- | --- | --- |");
+console.log(`backend/index.js: ${lines.length.toLocaleString()} lines`);
+console.log(`  Live inline route handlers: ${liveRoutes.length}`);
+console.log(`  Method-guard (app.all + methodNotAllowed) catches: ${methodGuards.length}`);
+console.log("");
+console.log("Live inline route handlers by prefix (descending):\n");
+console.log("| Prefix | Live | Method-guards | Example |");
+console.log("| --- | --- | --- | --- |");
 for (const group of summary) {
-  const example = group.routes[0];
-  console.log(`| \`${group.prefix}\` | ${group.count} | \`${example.method} ${example.path}\` (line ${example.line}) |`);
+  const example = group.live[0] || group.guards[0];
+  const tag = example ? `\`${example.method} ${example.path}\` (L${example.line})` : "—";
+  console.log(`| \`${group.prefix}\` | ${group.liveCount} | ${group.guardCount} | ${tag} |`);
 }
-console.log("\nFull listing:\n");
+console.log("\nFull listing (live routes only; method-guards listed separately at bottom):\n");
 for (const group of summary) {
-  console.log(`### ${group.prefix} (${group.count})`);
-  for (const r of group.routes) {
+  if (group.live.length === 0) continue;
+  console.log(`### ${group.prefix} (${group.liveCount} live)`);
+  for (const r of group.live) {
     console.log(`  - L${r.line}: ${r.method} ${r.path}`);
   }
   console.log("");
 }
-
-if (!includeMethodGuards && methodGuards.length > 0) {
-  console.log("Method guards excluded from priority table:\n");
-  for (const r of methodGuards) {
-    console.log(`  - L${r.line}: ${r.method} ${r.path}`);
+if (methodGuards.length > 0) {
+  console.log("Method-guards (405-handler catches):\n");
+  for (const group of summary) {
+    if (group.guards.length === 0) continue;
+    console.log(`### ${group.prefix} method-guards (${group.guardCount})`);
+    for (const r of group.guards) {
+      console.log(`  - L${r.line}: ${r.method} ${r.path} (methodNotAllowed)`);
+    }
+    console.log("");
   }
-  console.log("");
 }
