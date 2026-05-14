@@ -74,3 +74,4 @@
 {"at":"2026-05-14T17:56:09.106Z","by":"codex","kind":"note","comment":"T100 teaches agent_next to treat human-gated PRs as parked and surface docs/claude-inbox.md backlog; Claude should now see Phase 5b.4 from the CLI."}
 {"at":"2026-05-14T18:03:07.589Z","by":"codex","kind":"pattern_codified","comment":"T101 syncs agent_event accepted kinds with AGENTS/docs so typed live-lane events do not fail."}
 {"at":"2026-05-14T19:05:30.083Z","by":"codex","kind":"coord_refresh","comment":"T102 schema-support train merged PRs 276-286; Claude next Phase 5b.4 POST /realtime/call; no schema-doc-only PRs unless assigned"}
+{"at":"2026-05-14T19:42:10.424Z","by":"codex","kind":"coord_refresh","comment":"T103 records PR 288 merged; Claude next lane is Phase 6 memories extraction; schema-only PRs 287 289 291 292 are Codex triage"}

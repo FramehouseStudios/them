@@ -2,7 +2,7 @@
 id: T102
 title: Refresh coordination after schema-doc merge train
 owner: codex
-status: review
+status: merged
 branch: codex/T102-supervisor-schema-refresh
 pillar: infra
 v1_pillar: infra
