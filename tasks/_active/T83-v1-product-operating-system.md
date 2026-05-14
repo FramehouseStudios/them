@@ -2,7 +2,7 @@
 id: T83
 title: Define V1 and product-state handoff loop
 owner: codex
-status: in-progress
+status: review
 branch: codex/T83-v1-product-operating-system
 pillar: infra (product execution)
 ---
@@ -26,6 +26,11 @@ coordination refresh churn from replacing product progress.
 
 ## Verification
 
-Run `node scripts/build_tasks_md.mjs --write`,
-`node scripts/coordination_state.mjs validate`,
-`node scripts/agent_next.mjs --role=codex --limit=10`, and `git diff --check`.
+Passed:
+
+- `node scripts/build_tasks_md.mjs --write` (existing filename/id warnings)
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex --limit=10`
+- `git diff --check`
+
+Not run: iOS build or backend tests; this is docs/protocol only.

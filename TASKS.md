@@ -818,7 +818,7 @@
 | T80                                            | Refresh coordination after PR #191/#192                                       | codex  | merged      |
 | T81                                            | Refresh coordination after PR #193/#194                                       | codex  | review      |
 | T82                                            | Refresh coordination after PR #204/#205/#206/#207                             | codex  | review      |
-| T83                                            | Define V1 and product-state handoff loop                                      | codex  | in-progress |
+| T83                                            | Define V1 and product-state handoff loop                                      | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -3500,7 +3500,7 @@ remain and names the next safe backend coverage targets.
 - **Owner:** codex
 - **Branch:** codex/T83-v1-product-operating-system
 - **Pillar:** infra (product execution)
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3521,8 +3521,13 @@ coordination refresh churn from replacing product progress.
 
 ## Verification
 
-Run `node scripts/build_tasks_md.mjs --write`,
-`node scripts/coordination_state.mjs validate`,
-`node scripts/agent_next.mjs --role=codex --limit=10`, and `git diff --check`.
+Passed:
+
+- `node scripts/build_tasks_md.mjs --write` (existing filename/id warnings)
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex --limit=10`
+- `git diff --check`
+
+Not run: iOS build or backend tests; this is docs/protocol only.
 
 <!-- END AUTOGEN active-tasks -->
