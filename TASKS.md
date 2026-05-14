@@ -845,7 +845,8 @@
 | T104                                           | Refresh coordination after schema-only PR cleanup                                                          | codex  | merged      |
 | T105                                           | Refresh coordination after Phase 6 memories merge                                                          | codex  | review      |
 | T106                                           | Warn agents when agent_next is run from a stale checkout                                                   | codex  | review      |
-| T107                                           | Block standalone schema-doc branches when the Claude inbox says they are out of lane                       | codex  | review      |
+| T107                                           | Block standalone schema-doc branches when the Claude inbox says they are out of lane                       | codex  | merged      |
+| T108                                           | Refresh coordination after T107 schema lane guard merge                                                    | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6628,7 +6629,7 @@ Not run: iOS build/themTests, because this is coordination tooling only.
 - **Owner:** codex
 - **Branch:** codex/T107-preflight-schema-lane-guard
 - **Pillar:** infra
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -6653,6 +6654,30 @@ PRs are out of lane.
 - `git diff --check`
 
 Not run: iOS build/themTests, because this is coordination tooling only.
+
+### T108 — Refresh coordination after T107 schema lane guard merge
+- **Owner:** codex
+- **Branch:** codex/T108-post-t107-refresh
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Mark T107 merged after PR #303 landed and leave Claude's next command unchanged:
+Phase 7a talk guard extraction remains the active backend priority.
+
+## Done When
+
+- T107 task status is `merged`.
+- `TASKS.md` is regenerated from task files.
+- No backend, iOS, schema, or app behavior files change.
+
+## Verification
+
+- `node scripts/build_tasks_md.mjs --write`
+- `git diff --check`
+
+Not run: iOS build/themTests or backend tests, because this is metadata only.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
