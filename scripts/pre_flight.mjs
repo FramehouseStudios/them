@@ -621,6 +621,93 @@ function checkTaskStatusVocabulary() {
   }
 }
 
+function checkTaskArchiveMerged() {
+  // Active task files with `status: merged` should be archived to
+  // tasks/_archive/ — leaving them in _active/ inflates the active
+  // queue and confuses agent_next / coordination rollups.
+  //
+  // Grandfather window: the rule starts firing on tasks first
+  // committed on or after 2026-05-14 (when this rule lands). Earlier
+  // merged-in-active tasks are pre-rule noise; flagging all of them
+  // would drown out new findings and force an unrelated cleanup
+  // migration. We use the file's first-commit timestamp on main as
+  // the grandfather signal because mtime is unreliable (git checkout
+  // stomps it).
+  //
+  // File scope: any T-/T<digit> task file with YAML front matter
+  // declaring `status: merged`. Going forward, marking a task merged
+  // requires either an immediate archive move OR a `merged_at:`
+  // declaration in the front matter so the rule can verify the merge
+  // post-dates the rule.
+  //
+  // Behavior:
+  //   - merged_at YAML field, if present, is parsed as ISO date
+  //   - body line `Merged-At: <ISO>` is accepted as an alternative
+  //   - if neither is present, the file's git "first commit" date
+  //     on main is the de-facto timestamp
+  //   - if git is unavailable, the rule silently skips (warn-only
+  //     check shouldn't break offline runs)
+  //
+  // Warn-only by default; --strict makes the rule fail the run.
+  const activeDir = path.join(repoRoot, "tasks", "_active");
+  if (!fs.existsSync(activeDir)) return;
+  const cutoff = new Date("2026-05-14T00:00:00Z").getTime();
+  const files = walkFiles(
+    activeDir,
+    (p) => p.endsWith(".md") && /^T[-0-9]/.test(path.basename(p)),
+  );
+  for (const f of files) {
+    const text = fs.readFileSync(f, "utf8");
+    if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) continue;
+    if (!/^status:\s*merged\s*$/im.test(text)) continue;
+    // Parse an explicit merged_at (YAML) or Merged-At (body) timestamp.
+    let mergedAtIso = null;
+    const yamlMerged = text.match(/^merged_at:\s*(\S+)/im);
+    if (yamlMerged) mergedAtIso = yamlMerged[1].trim();
+    if (!mergedAtIso) {
+      const bodyMerged = text.match(/Merged-At:\s*(\S+)/i);
+      if (bodyMerged) mergedAtIso = bodyMerged[1].trim();
+    }
+    let timestampMs = null;
+    if (mergedAtIso) {
+      const parsed = Date.parse(mergedAtIso);
+      if (Number.isFinite(parsed)) timestampMs = parsed;
+    }
+    // Fall back to git "first commit on this file" for the timestamp.
+    // This grandfathers all pre-rule files because their first commit
+    // pre-dates the cutoff.
+    if (timestampMs === null) {
+      try {
+        const stdout = execFileSync(
+          "git",
+          ["log", "--reverse", "--format=%cI", "--", f],
+          { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+        );
+        const firstLine = String(stdout || "").split("\n")[0].trim();
+        if (firstLine) {
+          const parsed = Date.parse(firstLine);
+          if (Number.isFinite(parsed)) timestampMs = parsed;
+        }
+      } catch {
+        // Git unavailable or file not yet committed → silently skip.
+        // The next run with git available will re-evaluate.
+        continue;
+      }
+    }
+    // If we still couldn't establish a timestamp, skip (don't fire
+    // a warning we can't justify).
+    if (timestampMs === null) continue;
+    // Grandfather: anything timestamped before the cutoff is pre-rule.
+    if (timestampMs < cutoff) continue;
+    add(
+      "task-archive-merged",
+      path.relative(repoRoot, f),
+      null,
+      `task is marked ${"`"}status: merged${"`"} but still in tasks/_active/. Move to tasks/_archive/ — leaving merged tasks in _active/ inflates the live queue and the agent_next rollup.`,
+    );
+  }
+}
+
 // ---------- orchestration ----------
 
 checkRouteJsonParsers();
@@ -636,6 +723,7 @@ checkLibHasTest();
 checkTaskV1Pillar();
 checkTaskIdMatchesFilename();
 checkTaskStatusVocabulary();
+checkTaskArchiveMerged();
 
 const strict = process.argv.includes("--strict");
 

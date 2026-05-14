@@ -902,3 +902,116 @@ Refresh coordination after PR #250 merged.
   assert.doesNotMatch(r.stderr, /task-missing-status/);
   assert.doesNotMatch(r.stderr, /task-invalid-status/);
 });
+
+// ---------- task-archive-merged ----------
+
+test("[pre-flight] task-archive-merged: flags status:merged in _active/ with post-cutoff first commit", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-new-merged-task.md", `---
+id: T-new-merged-task
+title: New merged task
+owner: claude
+status: merged
+v1_pillar: infra
+v1_effect: testing
+---
+
+Body.
+`);
+  initGitWithOriginMain(tmp);
+  const r = runIn(tmp);
+  assert.match(r.stderr, /task-archive-merged/);
+  assert.match(r.stderr, /T-new-merged-task\.md/);
+});
+
+test("[pre-flight] task-archive-merged: grandfathers explicit pre-cutoff merged_at", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-old-merged.md", `---
+id: T-old-merged
+title: Pre-rule merged task
+owner: claude
+status: merged
+merged_at: 2026-05-10T00:00:00Z
+v1_pillar: infra
+v1_effect: testing
+---
+
+Body.
+`);
+  initGitWithOriginMain(tmp);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-archive-merged/);
+});
+
+test("[pre-flight] task-archive-merged: grandfathers body-line Merged-At pre-cutoff", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-body-merged-at.md", `---
+id: T-body-merged-at
+title: Body-line merged-at
+owner: claude
+status: merged
+v1_pillar: infra
+v1_effect: testing
+---
+
+Merged-At: 2026-05-12T00:00:00Z
+
+Body.
+`);
+  initGitWithOriginMain(tmp);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-archive-merged/);
+});
+
+test("[pre-flight] task-archive-merged: skips status:review", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-still-in-review.md", `---
+id: T-still-in-review
+title: Still in review
+owner: claude
+status: review
+v1_pillar: infra
+v1_effect: testing
+---
+
+Body.
+`);
+  initGitWithOriginMain(tmp);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-archive-merged/);
+});
+
+test("[pre-flight] task-archive-merged: skips files without YAML front matter", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-legacy-no-yaml.md", `# Legacy task
+
+No YAML, no front matter. Body says "status: merged" but the
+rule should not parse plain prose.
+
+status: merged
+`);
+  initGitWithOriginMain(tmp);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-archive-merged/);
+});
+
+test("[pre-flight] task-archive-merged: handles missing git silently", () => {
+  // No git init — no .git directory. Rule should NOT throw, just skip.
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-no-git.md", `---
+id: T-no-git
+title: No git available
+owner: claude
+status: merged
+v1_pillar: infra
+v1_effect: testing
+---
+
+Body.
+`);
+  const r = runIn(tmp);
+  // No git means the rule can't compute a timestamp → skips.
+  // Other unrelated findings may still fire; verify the script
+  // exits 0 (warn-only default).
+  assert.equal(r.status, 0);
+});
