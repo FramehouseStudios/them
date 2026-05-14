@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T00:29:54.680Z",
+  "updatedAt": "2026-05-14T01:59:02.564Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -866,6 +866,90 @@
       "status": "merged",
       "branch": "claude/T-outbox-store-smoke-test",
       "blocker": null
+    },
+    {
+      "number": 214,
+      "title": "T-protocol-infra-batch",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-protocol-infra-batch",
+      "blocker": null
+    },
+    {
+      "number": 215,
+      "title": "T-decompose-phase5a-realtime-reads",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase5-realtime-routes",
+      "blocker": null
+    },
+    {
+      "number": 216,
+      "title": "T-memory-store-smoke-test",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-memory-store-smoke-test",
+      "blocker": null
+    },
+    {
+      "number": 217,
+      "title": "T-user-store-smoke-test",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-user-store-smoke-test",
+      "blocker": null
+    },
+    {
+      "number": 218,
+      "title": "T-user-auth-smoke-test",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-user-auth-smoke-test",
+      "blocker": null
+    },
+    {
+      "number": 220,
+      "title": "T-fix-214-audit-and-readme",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-fix-214-audit-and-readme",
+      "blocker": null
+    },
+    {
+      "number": 221,
+      "title": "T-decompose-phase4-auth-design",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase4-auth-design-note",
+      "blocker": null
+    },
+    {
+      "number": 222,
+      "title": "T84-talk-health-diagnostics",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T84-talk-health-diagnostics",
+      "blocker": null
+    },
+    {
+      "number": 212,
+      "title": "T-decompose-phase4-auth-routes",
+      "owner": "claude",
+      "tier": 3,
+      "status": "blocked",
+      "branch": "claude/T-decompose-phase4-auth-routes",
+      "blocker": "auth-route extraction is tier-3 and remains do-not-merge until Codex reviews it against merged design note #221",
+      "reviewer_note": "Design note #221 is merged; #212 is next Codex review target, not mergeable yet.",
+      "expected_action": "Codex reviews #212 against #221, keeps do-not-merge until auth guardrails are explicitly cleared",
+      "blocker_kind": "policy_gated"
     }
   ],
   "blockers": [
@@ -880,6 +964,12 @@
       "owner": "human",
       "summary": "Claude PR #94 exposes full creative-memory export and PR #99 deletes creative memory. Memory export/delete surfaces need explicit privacy/data-control approval before merge.",
       "since": "2026-05-11"
+    },
+    {
+      "id": "auth-route-tier3",
+      "owner": "codex",
+      "summary": "Claude PR #212 extracts auth routes. Keep do-not-merge/tier-3 until Codex reviews it against design note #221 and auth guardrails are explicitly cleared.",
+      "since": "2026-05-14"
     }
   ],
   "decisionsPending": [],

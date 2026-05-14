@@ -25,6 +25,31 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Recently Cleared (round 22 — 2026-05-13/14)
+
+Codex's supervisor merge train cleared the non-human Tier 1 queue again.
+Merged on main since the previous coordination refresh:
+
+#214, #215, #216, #217, #218, #220, #221, #222.
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#214](https://github.com/FramehouseStudios/them/pull/214) | T-protocol-infra-batch | Merged after Codex review fixups; protocol/docs/audit infrastructure landed. |
+| [#215](https://github.com/FramehouseStudios/them/pull/215) | T-decompose-phase5a-realtime-reads | Merged; `GET /realtime/health` + `GET /realtime/bridge` moved to `backend/lib/realtime_routes.js`. Allowed out of auth-order because #212 is tier-3 blocked and this extraction is read-only safe-public. |
+| [#216](https://github.com/FramehouseStudios/them/pull/216) | T-memory-store-smoke-test | Merged; direct smoke coverage for `backend/lib/memory_store.js`. |
+| [#217](https://github.com/FramehouseStudios/them/pull/217) | T-user-store-smoke-test | Merged; direct smoke coverage for `backend/lib/user_store.js`. |
+| [#218](https://github.com/FramehouseStudios/them/pull/218) | T-user-auth-smoke-test | Merged; direct smoke coverage for `backend/lib/user_auth.js`; production auth behavior unchanged. |
+| [#220](https://github.com/FramehouseStudios/them/pull/220) | T-fix-214-audit-and-readme | Merged; accepted-precedent README now cites only merged phases, and route audit separates live handlers from method guards. |
+| [#221](https://github.com/FramehouseStudios/them/pull/221) | T-decompose-phase4-auth-design | Merged; design note for #212 is now the review contract. #212 still must not merge until reviewed against it. |
+| [#222](https://github.com/FramehouseStudios/them/pull/222) | T84-talk-health-diagnostics | Merged; iOS now consumes `/talk/stats` + `/talk/errors` from the support/reporting flow and debug bundles. |
+
+Current non-human queue after round 22:
+
+- #212 is the next Codex review target, but it stays `do-not-merge`/tier-3
+  until reviewed against the merged design note #221 and auth guardrails are
+  explicitly cleared.
+- #33, #63, #94, and #99 remain human-gated.
+
 ## Recently Cleared (round 20 — 2026-05-13/14)
 
 Codex's supervisor lane absorbed the stale backend/support backlog.
@@ -72,6 +97,7 @@ consumption of the already-merged backend contracts.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
+| [#212](https://github.com/FramehouseStudios/them/pull/212) | T-decompose-phase4-auth-routes | 3 | blocked | Next Codex review target. Review against merged design note #221. Keep `do-not-merge` until auth guardrails are explicitly cleared; do not merge as routine tier-1. |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
 | [#63](https://github.com/FramehouseStudios/them/pull/63) | T-trust-tiers | 3 | policy-gated | D005 now records the human-approved Codex supervisor authority. Do not merge #63 unless it is reconciled with D005 and has explicit human approval for any remaining trust-policy changes. |
 | [#94](https://github.com/FramehouseStudios/them/pull/94) | T-creative-memory-export | 3 | needs-human | Labeled tier-3/needs-human; full creative-memory export needs privacy/data-control approval before merge. |
@@ -107,6 +133,8 @@ PR #87's `POST /screenplay/import/fountain` path is consumed by PR #176 / T73 / 
 PR #148's `GET /ops/routes` manifest is consumed by PR #178 / T74 / `codex/T74-ops-routes-diagnostics`: support summaries and debug bundles include route-manifest counts and groups when the backend provides them.
 
 PR #170's optional `GET /talk/turn/:turnId` limiter behavior is merged and consumed by PR #179 / T75 / `codex/T75-talk-turn-rate-limit-retry`: iOS preserves the saved talk response and surfaces a friendly retry interval when metadata reads return `rate_limited`.
+
+PR #97's `GET /talk/stats` and PR #100's `GET /talk/errors` are consumed by PR #222 / T84 / `codex/T84-talk-health-diagnostics`: the support/reporting flow has a Talk Diagnostics sheet and debug bundles now carry safe-public talk health summaries.
 
 PR #175's `scripts/agent_event.mjs` live lane is merged. Start Codex sessions with `node scripts/agent_event.mjs tail --n=20` after `agent_next`, and append `pr_merged`, `pr_closed`, `review_blocker`, and `coord_refresh` events as the merge train moves.
 
