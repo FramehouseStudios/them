@@ -41,6 +41,7 @@ invariants, and compatibility rules for one envelope or record.
 | [memories-list.md](memories-list.md) | `GET /memories` iOS memory-list envelope | PER-USER |
 | [memories-mutate.md](memories-mutate.md) | `POST /memories/{update,forget,promote,feedback}` mutation envelopes | PER-USER |
 | [memories-export.md](memories-export.md) | `GET /memories/export` full memory dump | PER-USER |
+| [history.md](history.md) | `GET /history` + `POST /history/annotate_turn` envelopes | PER-USER |
 
 ## Tasks surface
 
