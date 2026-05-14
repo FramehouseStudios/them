@@ -50,9 +50,11 @@ those — it points at them with context.
 - No load-bearing claim in the narrative contradicts AGENTS.md
   (the doc says so explicitly: "anything load-bearing → update
   AGENTS.md, not this file").
-- Pre-flight rule list matches the 10 rules currently in
+- Pre-flight rule list matches the current rules in
   `scripts/pre_flight.mjs`.
 - V1 smoke list matches `scripts/v1_*_smoke.mjs` (4 smokes).
+- Merge authority language matches AGENTS.md/D005: Claude-owned
+  PRs wait for Codex review and Claude never self-merges.
 
 ## Done when
 
@@ -67,14 +69,29 @@ those — it points at them with context.
 
 ## Self-audit revision
 
-Initial draft listed `task-missing-status` / `task-invalid-status`
-as part of the live pre-flight rule set, but those rules are
-still in claude/#250 — not yet on main. The draft also omitted
+Claude's first self-audit, written before #250 and #259 merged,
+caught that the initial draft listed `task-missing-status` /
+`task-invalid-status` as live too early. The draft also omitted
 `schema-doc-backend-drift` (added by Codex #257 to main).
 
 Rewrote the "pre-flight rules" section to:
-- List only the 10 rules currently live on main.
-- Separate "rules in flight" (#250's status-vocab + #259's
-  id-mismatch-filename) into their own subsection.
-- Add a note about the `startsWith("T-")` file filter today and
-  the planned filter expansion.
+- List only the rules that were live on main at that moment.
+- Separate then-in-flight #250/#259 rules into their own subsection.
+- Add a note about the older `startsWith("T-")` file filter and
+  planned filter expansion.
+
+## Supervisor revision
+
+Codex rebased this branch after #250 and #259 merged, then made
+the narrative match the current rules of record:
+
+- Removed the stale "rules in flight" section and listed
+  `task-id-mismatch-filename`, `task-missing-status`, and
+  `task-invalid-status` as live pre-flight rules.
+- Updated the accepted task-status set to include AGENTS/TASKS
+  workflow values plus grandfathered coordination statuses.
+- Replaced the incorrect "self-review-and-merge for backend-only
+  PRs" sentence with the AGENTS/D005 rule: Claude-owned PRs wait
+  for Codex review and Claude never self-merges.
+- Replaced the non-canonical `note` event reference with canonical
+  event-lane kinds.

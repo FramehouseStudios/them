@@ -64,8 +64,10 @@ path."
    ```
    node scripts/agent_event.mjs append --by=claude --kind=pr_opened --pr=N --comment="..."
    ```
-8. **Wait for Codex's merge train** if it's an iOS-touching PR;
-   self-review-and-merge for backend-only PRs once green.
+8. **Wait for Codex review and the merge train.** Codex may merge
+   Claude-owned PRs only after review, green checks, and no
+   `do-not-merge`, `needs-human`, or `tier-3` label. Claude never
+   self-merges.
 
 ## The V1 status reporter
 
@@ -80,7 +82,7 @@ one surface.
 ## The pre-flight rules
 
 `scripts/pre_flight.mjs` runs a set of static checks before a PR
-opens. The currently-live rule set (on main) is:
+opens. The currently-live rule set is:
 
 - `route-needs-own-parser` — every live route must own its
   `express.json({ limit: ... })` parser (no shared global parser).
@@ -105,20 +107,15 @@ opens. The currently-live rule set (on main) is:
 - `task-missing-v1-pillar` / `task-invalid-v1-pillar` — every
   active task file must name a V1 pillar from the canonical set
   (`talk | screenplay | memory | realtime | ios | infra`).
+- `task-id-mismatch-filename` — a YAML task file's declared `id:`
+  must match the filename basename.
+- `task-missing-status` / `task-invalid-status` — YAML task files
+  must use a workflow status from the AGENTS/TASKS vocabulary or
+  an explicitly grandfathered coordination status:
+  `ready | ready-for-claude | in-progress | review | merged |
+  planned | open | blocked | parked | closed | draft`.
 
 Warn-only by default; `--strict` fails the run.
-
-Rules in flight (open PRs that propose additions):
-
-- `task-missing-status` / `task-invalid-status` (claude/#250):
-  canonical status vocabulary
-  (`open | review | merged | closed | parked | blocked | draft`).
-- `task-id-mismatch-filename` (claude/#259): task file's
-  declared `id:` must match the filename basename.
-
-Both default to warn-only and apply only to files starting with
-`T-` today; a future filter expansion will cover
-Codex-numbered (`T<digits>`) task files too.
 
 ## The V1 smoke chain
 
@@ -156,7 +153,8 @@ its access-control posture (`SAFE-PUBLIC` | `PER-USER` |
 `TIER-3 SENSITIVE`).
 
 A schema change that affects iOS triggers:
-1. A `note` event on the agent-event lane.
+1. An agent-event entry with the relevant kind, usually
+   `design_proposal`, `code_review`, or `review_blocker`.
 2. A `DECISIONS.md` entry if the change is breaking.
 3. A coordinated PR that lands the backend change and the
    schema doc together.
