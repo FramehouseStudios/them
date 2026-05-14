@@ -65,3 +65,4 @@
 {"at":"2026-05-14T05:09:32.160Z","by":"codex","kind":"review_blocker","pr":238,"comment":"Blocked Phase 5b.1 realtime extraction: setRealtimeSupplier(supplier) persists rotation and changes behavior vs inline handler","blocker_kind":"needs_test_fix"}
 {"at":"2026-05-14T05:16:36.347Z","by":"codex","kind":"pr_merged","pr":242,"comment":"Merged auth handler round-trip tests; local targeted test passed 13/13 after backend npm install in review worktree"}
 {"at":"2026-05-14T05:16:43.594Z","by":"codex","kind":"review_blocker","pr":243,"comment":"Blocked V1 status reporter because parser truncates wrapped checkbox continuation lines in docs/v1-definition.md","blocker_kind":"needs_test_fix"}
+{"at":"2026-05-14T05:21:35.563Z","by":"codex","kind":"review_blocker","pr":245,"comment":"Blocked schema docs batch 3 because outbox-event schema does not match backend/lib/outbox_store.js live field names/statuses","blocker_kind":"needs_test_fix"}
