@@ -50,8 +50,6 @@ key.
 | `render_contract` | object | yes | `{ reply_role, authoritative_page_text_available, sync_ready }` |
 | `mode` | string | yes | one of `"text"`, `"voice"`, `"voice_text"` |
 | `model` | string \| null | optional | LLM model used |
-| `talk_status` | string | yes | one of `"ok"`, `"recovered"`, `"degraded"`, `"streaming"` |
-| `recovery_applied` | boolean | optional | true when recovery prompt was injected |
 | `fallback` | boolean | optional | true when realtime supplier fallback was used |
 | `fallback_reason` | string \| null | optional | reason code when `fallback` true |
 | `lane` | string | optional | `"live"` / `"speculative_reuse"` / `"recovery"` |
@@ -91,8 +89,7 @@ key.
     "sync_ready": false
   },
   "mode": "text",
-  "model": "gpt-4o-mini",
-  "talk_status": "ok"
+  "model": "gpt-4o-mini"
 }
 ```
 
@@ -113,11 +110,17 @@ Common stages: `talk_stt`, `talk_chat`, `talk_tts`,
   (iOS treats unknowns as `"final"`); removing a value bumps to v2.
 - `screenplay_cues` cue shape: adding fields is additive; removing
   is v2.
-- `talk_status` adding new values is additive; removing breaks
-  ops dashboards.
 
 ## Changelog
 
 - 2026-05-14 — Doc created. Reflects shape produced by
   `handleTalkRequest` at this date. Will be amended when Phase 7b
   extracts the handler.
+- 2026-05-14 (later) — Drift fix: removed `talk_status` and
+  `recovery_applied` field entries plus the `talk_status` value
+  in the sample envelope. Neither field is emitted by
+  `handleTalkRequest` in `backend/index.js` today. `talk_status`
+  appears in `backend/lib/ops_metrics_route.js` (aggregating
+  over saved turns) but is NOT part of the per-turn `/talk`
+  response. If these fields are added in a future Phase 7b
+  extraction, update this doc in the same PR.
