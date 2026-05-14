@@ -2,7 +2,7 @@
 id: T-runbook-smoke-section-drift-fix
 title: Correct v1_voice_to_page and v1_screenplay smoke sections in runbook
 owner: claude
-status: review
+status: merged
 branch: claude/T-runbook-smoke-section-drift-fix
 pillar: infra (operator docs)
 v1_pillar: infra

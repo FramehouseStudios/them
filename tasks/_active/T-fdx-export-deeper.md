@@ -2,7 +2,7 @@
 id: T-fdx-export-deeper
 title: Deeper tests for the FDX serializer
 owner: claude
-status: review
+status: merged
 branch: claude/T-fdx-export-deeper
 pillar: infra (test coverage)
 v1_pillar: screenplay

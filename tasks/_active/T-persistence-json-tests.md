@@ -2,7 +2,7 @@
 id: T-persistence-json-tests
 title: Direct tests for backend/lib/persistence_json.js
 owner: claude
-status: review
+status: merged
 branch: claude/T-persistence-json-tests
 pillar: infra (test coverage)
 v1_pillar: infra

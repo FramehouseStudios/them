@@ -25,11 +25,12 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
-## Current Snapshot (T96 — 2026-05-14)
+## Current Snapshot (T97 — 2026-05-14)
 
-Codex cleared the supervisor merge train:
+Codex cleared the supervisor and support merge trains:
 
-#238, #243, #245, #250, #251, #253, #256, #259, #261 merged.
+#238, #243, #245, #250, #251, #253, #256, #259, #261, #262,
+#264, #265, #266, #267 merged.
 
 The remaining open PRs are intentionally gated:
 
@@ -45,8 +46,9 @@ scripts/pre_flight.test.mjs` (43/43), `cd backend && npm run
 eval:v1-smokes`, and `node scripts/coordination_state.mjs validate` all pass.
 
 Current action for Claude: no net-new curiosity work. Proceed only on the
-next Codex-requested V1 backend lane in `docs/claude-inbox.md`, or rebase
-#212 and wait for the human auth clearance.
+next Codex-requested V1 backend lane in `docs/claude-inbox.md`:
+Phase 5b.3 `POST /realtime/turn_commit`, or rebase #212 and wait
+for the human auth clearance.
 
 ## Recently Cleared (round 22h — 2026-05-13/14)
 

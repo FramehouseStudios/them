@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T07:14:40.038Z",
+  "updatedAt": "2026-05-14T07:38:17.969Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1168,6 +1168,51 @@
       "tier": 1,
       "status": "merged",
       "branch": "claude/T-talk-response-doc-drift-fix",
+      "blocker": null
+    },
+    {
+      "number": 262,
+      "title": "T-runbook-smoke-section-drift-fix",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-runbook-smoke-section-drift-fix",
+      "blocker": null
+    },
+    {
+      "number": 264,
+      "title": "T-decompose-phase5b2-studio-render",
+      "owner": "claude",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase5b2-studio-render",
+      "blocker": null
+    },
+    {
+      "number": 265,
+      "title": "T-fdx-export-schema-doc",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-fdx-export-schema-doc",
+      "blocker": null
+    },
+    {
+      "number": 266,
+      "title": "T-fdx-export-deeper",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-fdx-export-deeper",
+      "blocker": null
+    },
+    {
+      "number": 267,
+      "title": "T-persistence-json-tests",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-persistence-json-tests",
       "blocker": null
     }
   ],
