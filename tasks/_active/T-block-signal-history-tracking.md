@@ -5,6 +5,8 @@ owner: claude
 status: review
 branch: claude/T-block-signal-history-tracking
 pillar: layer-3-living (creative-memory longitudinal)
+v1_pillar: memory
+v1_effect: infrastructure for V1 line 49 (persists block-signal samples to creative memory)
 ---
 
 ## Scope

@@ -5,6 +5,8 @@ owner: claude
 status: review
 branch: claude/T-protocol-infra-batch
 pillar: infra
+v1_pillar: infra
+v1_effect: AGENTS.md live-event lane reminder + backend/lib/README.md onboarding + audit script + canon-strict comment
 ---
 
 ## Scope
