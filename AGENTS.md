@@ -52,6 +52,16 @@ The team uses the **Agent Throughput Protocol** in `docs/agent-throughput-protoc
 - Features expected to span more than three PRs start with a spec PR that defines backend/iOS contracts and parallel tracks before implementation begins.
 - `node scripts/agent_next.mjs --role=claude|codex` is the first stop for next-action selection.
 
+### Live event lane
+
+- After every PR open/merge/close, every coord refresh, and every review-blocker call, append an entry to `docs/agent-events-<YYYY>-W<WW>.jsonl` via:
+  ```
+  node scripts/agent_event.mjs append --by=claude|codex --kind=<kind> [--pr=N] --comment="..."
+  ```
+  Canonical kinds: `pr_opened`, `pr_merged`, `pr_closed`, `review_blocker`, `coord_refresh`, `event_protocol_change`, `spec_amend`, `product_state`, `pattern_codified`, `code_review`, `design_proposal`.
+- Both agents read recent lane entries with `node scripts/agent_event.mjs tail --n=20` as part of their session warm-up (after `agent_next`).
+- The lane is the canonical async chatroom between Claude and Codex. PR comments are for code-specific review; the event lane is for state changes and intent signals.
+
 ### Status vocabulary (in `TASKS.md`)
 
 `ready` → `ready-for-claude` → `in-progress` → `review` → `merged`
