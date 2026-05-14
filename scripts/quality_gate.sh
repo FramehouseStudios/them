@@ -28,6 +28,7 @@ RUN_ALERT="${RUN_ALERT:-1}"
 RUN_LOAD="${RUN_LOAD:-0}"
 RUN_TALK_RECOVERY_GATE="${RUN_TALK_RECOVERY_GATE:-1}"
 RUN_CRAFT_COMPLETENESS_GATE="${RUN_CRAFT_COMPLETENESS_GATE:-1}"
+RUN_CANON="${RUN_CANON:-1}"
 CRAFT_GATE_FIXTURE="${CRAFT_GATE_FIXTURE:-${BACKEND_DIR}/fixtures/craft/report_complete.json}"
 
 cd "${BACKEND_DIR}"
@@ -55,6 +56,20 @@ if [[ "${RUN_SERVER:-0}" == "1" ]]; then
   fi
   SERVER_PID="$!"
   sleep 2
+fi
+
+if [[ "${RUN_CANON}" == "1" ]]; then
+  # Umbrella canon-pinning eval (PR #171). Chains every merged
+  # canon eval (creative-memory shape, block-signal-history-bounds,
+  # archetype-canon, trait-library-canon, twist-engine-canon,
+  # block-detector-canon, format-linter-canon, etc.). Pure
+  # deterministic — no external API, no network. If a canon eval
+  # regresses, this fails fast before we spend time on the slower
+  # external-API gates below.
+  echo "[quality-gate] running canon umbrella (npm run eval:canon) ..."
+  npm run eval:canon
+else
+  echo "[quality-gate] skipping canon umbrella (RUN_CANON=${RUN_CANON})"
 fi
 
 if [[ "${RUN_EVAL}" == "1" ]]; then
