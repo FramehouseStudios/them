@@ -110,6 +110,16 @@ import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_ro
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
+import {
+  createTalkRateLimitGuard,
+  createTalkIdempotencyGuard,
+  createTalkSessionSerialGuard,
+  createTalkConcurrencyGuard,
+  createTalkIdempotencyHelpers,
+  talkInFlight as readTalkInFlight,
+  talkInFlightBySessionSize,
+  talkIdempotencyCacheSize,
+} from "./lib/talk_state.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
@@ -2812,14 +2822,16 @@ const RESPONSE_FOCUS_STOPWORDS = new Set([
   "want", "need", "like", "know", "dont", "don't", "cant", "can't", "im", "i'm", "youre", "you're",
 ]);
 
-const talkRateBuckets = new Map();
+// talkRateBuckets, talkInFlightBySession, talkIdempotencyCache are
+// owned by backend/lib/talk_state.js (Phase 7a). Reads go through
+// the accessors talkInFlightBySessionSize() / talkIdempotencyCacheSize()
+// imported above; per-entry idempotency mutation goes through
+// talkIdempotencyHelpers below.
 const sessionRateBuckets = new Map();
 const clientSessions = new Map();
 const userMetricsByIp = new Map();
 const checkInCooldownByIp = new Map();
 const assistantIdentityByIp = loadAssistantIdentityStore();
-const talkInFlightBySession = new Map();
-const talkIdempotencyCache = new Map();
 const talkSpeculativeCache = new Map();
 const talkMetricsSamples = [];
 const talkTurnMetaById = new Map();
@@ -3094,7 +3106,8 @@ console.log(
 setTimeout(() => {
   void hydrateUserMemoryStoreFromBackplane();
 }, Math.max(0, SCALE_BACKPLANE_SYNC_BOOT_MS));
-let talkInFlight = 0;
+// talkInFlight is owned by backend/lib/talk_state.js (Phase 7a).
+// Local readers use readTalkInFlight() (the imported accessor).
 let didLogMp3Signature = false;
 let elevenLabsBlockedUntilMs = 0;
 let elevenLabsBlockedReason = "";
@@ -3241,104 +3254,11 @@ function resolveTalkSessionKey(req) {
   return `ip:${requesterIp || "unknown"}`;
 }
 
-function pruneTalkIdempotencyCache(now = Date.now()) {
-  const current = Math.max(0, Number(now || Date.now()));
-  for (const [key, record] of talkIdempotencyCache.entries()) {
-    const expiresAt = Math.max(0, Number(record?.expiresAt || 0));
-    const status = String(record?.status || "");
-    const isPendingStale = status === "pending" && (current - Math.max(0, Number(record?.createdAt || 0))) > TALK_IDEMPOTENCY_TTL_MS;
-    if ((expiresAt > 0 && expiresAt <= current) || isPendingStale) {
-      talkIdempotencyCache.delete(key);
-    }
-  }
-  if (talkIdempotencyCache.size <= TALK_IDEMPOTENCY_MAX_ENTRIES) return;
-  const entries = [...talkIdempotencyCache.entries()]
-    .map(([key, record]) => ({
-      key,
-      createdAt: Math.max(0, Number(record?.createdAt || 0)),
-      priority: String(record?.status || "") === "completed" ? 1 : 0,
-    }))
-    .sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      return a.createdAt - b.createdAt;
-    });
-  const removeCount = Math.max(0, entries.length - TALK_IDEMPOTENCY_MAX_ENTRIES);
-  for (let i = 0; i < removeCount; i += 1) {
-    talkIdempotencyCache.delete(entries[i].key);
-  }
-}
-
-function sanitizeTalkHeadersForIdempotency(headers) {
-  const source = headers && typeof headers === "object" ? headers : {};
-  const out = {};
-  for (const [rawKey, rawValue] of Object.entries(source)) {
-    const key = String(rawKey || "").trim().toLowerCase();
-    if (!key) continue;
-    if (key !== "content-type" && key !== "cache-control" && !key.startsWith("x-")) continue;
-    if (Array.isArray(rawValue)) {
-      out[key] = rawValue.map((value) => String(value)).join(", ");
-    } else if (rawValue != null) {
-      out[key] = String(rawValue);
-    }
-  }
-  return out;
-}
-
-function captureTalkResponseHeaders(res) {
-  if (!res || typeof res.getHeaders !== "function") return {};
-  return sanitizeTalkHeadersForIdempotency(res.getHeaders());
-}
-
-function commitTalkIdempotencySuccess(req, { statusCode = 200, headers = {}, body = Buffer.alloc(0) } = {}) {
-  if (!TALK_IDEMPOTENCY_ENABLED) return;
-  const ctx = req?.talkIdempotency;
-  if (!ctx?.cacheKey) return;
-  const existing = talkIdempotencyCache.get(ctx.cacheKey);
-  if (!existing) return;
-  const now = Date.now();
-  const payloadBuffer = Buffer.isBuffer(body) ? Buffer.from(body) : Buffer.alloc(0);
-  const normalizedHeaders = sanitizeTalkHeadersForIdempotency(headers);
-  if (payloadBuffer.length && !normalizedHeaders["content-length"]) {
-    normalizedHeaders["content-length"] = String(payloadBuffer.length);
-  }
-  const updated = {
-    ...existing,
-    status: "completed",
-    statusCode: Math.max(200, Math.min(299, Number(statusCode || 200))),
-    headers: normalizedHeaders,
-    body: payloadBuffer,
-    completedAt: now,
-    expiresAt: now + TALK_IDEMPOTENCY_TTL_MS,
-  };
-  talkIdempotencyCache.set(ctx.cacheKey, updated);
-  void scaleBackplane.setIdempotency(ctx.cacheKey, updated, TALK_IDEMPOTENCY_TTL_MS);
-  pruneTalkIdempotencyCache(now);
-}
-
-function clearTalkIdempotencyPending(req, { keepCompleted = true } = {}) {
-  const ctx = req?.talkIdempotency;
-  if (!ctx?.cacheKey) return;
-  const existing = talkIdempotencyCache.get(ctx.cacheKey);
-  if (!existing) return;
-  if (keepCompleted && String(existing.status || "") === "completed") return;
-  talkIdempotencyCache.delete(ctx.cacheKey);
-  void scaleBackplane.deleteIdempotency(ctx.cacheKey);
-}
-
-function sendCachedTalkIdempotencyResponse(res, record) {
-  const statusCode = Math.max(200, Math.min(299, Number(record?.statusCode || 200)));
-  const headers = sanitizeTalkHeadersForIdempotency(record?.headers || {});
-  for (const [name, value] of Object.entries(headers)) {
-    if (!name) continue;
-    res.setHeader(name, value);
-  }
-  res.setHeader("x-idempotency-replay", "1");
-  const body = Buffer.isBuffer(record?.body) ? record.body : Buffer.alloc(0);
-  if (body.length && !res.getHeader("Content-Length")) {
-    res.setHeader("Content-Length", String(body.length));
-  }
-  return res.status(statusCode).send(body);
-}
+// pruneTalkIdempotencyCache / sanitizeTalkHeadersForIdempotency /
+// captureTalkResponseHeaders / commitTalkIdempotencySuccess /
+// clearTalkIdempotencyPending / sendCachedTalkIdempotencyResponse
+// moved into backend/lib/talk_state.js (Phase 7a). The talk handler
+// uses the bound helpers built below by createTalkIdempotencyHelpers.
 
 function percentileFromSorted(sortedValues, percentile) {
   const values = Array.isArray(sortedValues) ? sortedValues : [];
@@ -4822,7 +4742,7 @@ function deriveBackendRuntimeStatus() {
   const metrics = summarizeTalkMetrics();
   let status = "up";
   const reasons = [];
-  if (talkInFlight >= TALK_MAX_IN_FLIGHT) {
+  if (readTalkInFlight() >= TALK_MAX_IN_FLIGHT) {
     status = "degraded";
     reasons.push("at_capacity");
   }
@@ -4865,11 +4785,11 @@ function buildOpsAlerts() {
       message: `p95 latency ${runtime.metrics.p95TotalMs}ms exceeded ${TALK_METRICS_DEGRADED_P95_MS}ms.`,
     });
   }
-  if (talkInFlightBySession.size > Math.max(12, TALK_MAX_IN_FLIGHT * 8)) {
+  if (talkInFlightBySessionSize() > Math.max(12, TALK_MAX_IN_FLIGHT * 8)) {
     alerts.push({
       code: "session_lock_pressure",
       severity: "warning",
-      message: `Session lock pressure detected (${talkInFlightBySession.size} locks).`,
+      message: `Session lock pressure detected (${talkInFlightBySessionSize()} locks).`,
     });
   }
   return {
@@ -14118,14 +14038,8 @@ ${remember.shouldPrompt && remember.line ? `- optional_memory_callback_line=${re
 `.trim();
 }
 
-function cleanupRateBuckets(now) {
-  if (talkRateBuckets.size < 512) return;
-  for (const [key, bucket] of talkRateBuckets) {
-    if (bucket.resetAt <= now) {
-      talkRateBuckets.delete(key);
-    }
-  }
-}
+// cleanupRateBuckets moved into backend/lib/talk_state.js (Phase 7a).
+// The lib's rate-limit guard prunes its own bucket Map internally.
 
 function cleanupSessionRateBuckets(now) {
   if (sessionRateBuckets.size < 512) return;
@@ -14226,30 +14140,8 @@ function getValidSession(token) {
   return session;
 }
 
-function talkRateLimitGuard(req, res, next) {
-  const now = Date.now();
-  cleanupRateBuckets(now);
-
-  const key = `ip:${clientIp(req)}`;
-  const bucket = talkRateBuckets.get(key);
-
-  if (!bucket || bucket.resetAt <= now) {
-    talkRateBuckets.set(key, { count: 1, resetAt: now + TALK_RATE_LIMIT_WINDOW_MS });
-    return next();
-  }
-
-  if (bucket.count >= TALK_RATE_LIMIT_MAX) {
-    const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
-    res.setHeader("Retry-After", String(retryAfterSeconds));
-    return res.status(429).json({
-      stage: "rate_limit",
-      error: "Too many requests. Please retry shortly.",
-    });
-  }
-
-  bucket.count += 1;
-  return next();
-}
+// talkRateLimitGuard moved into backend/lib/talk_state.js (Phase 7a).
+// Created via createTalkRateLimitGuard(...) below.
 
 function sessionRateLimitGuard(req, res, next) {
   const now = Date.now();
@@ -14310,206 +14202,10 @@ function requireClientTokenForTalk(req, res, next) {
   return next();
 }
 
-async function talkIdempotencyGuard(req, res, next) {
-  if (isSpeculativePrepareRequest(req)) return next();
-  if (!TALK_IDEMPOTENCY_ENABLED) return next();
-  try {
-    const headerKey = normalizeIdempotencyKey(
-      req.get("X-Idempotency-Key") ||
-        req.get("Idempotency-Key")
-    );
-    if (!headerKey) return next();
-    const sessionKey = resolveTalkSessionKey(req);
-    const cacheKey = `${sessionKey}|${headerKey}`;
-    const now = Date.now();
-    pruneTalkIdempotencyCache(now);
-    let existing = talkIdempotencyCache.get(cacheKey);
-    if (!existing) {
-      const distributed = await scaleBackplane.getIdempotency(cacheKey);
-      if (distributed && typeof distributed === "object") {
-        existing = {
-          ...distributed,
-          body: Buffer.isBuffer(distributed.body)
-            ? distributed.body
-            : (distributed.body ? Buffer.from(distributed.body?.data || []) : Buffer.alloc(0)),
-        };
-        talkIdempotencyCache.set(cacheKey, existing);
-      }
-    }
-    if (existing) {
-      const status = String(existing.status || "");
-      if (status === "completed" && Buffer.isBuffer(existing.body)) {
-        recordTalkMetric({
-          statusCode: 208,
-          totalMs: 0,
-          sttMs: 0,
-          chatMs: 0,
-          ttsMs: 0,
-          streamAudio: false,
-          chatStreamUsed: false,
-          talkStatus: "idempotency_replay",
-          lane: "guard",
-          model: "none",
-        });
-        console.log(
-          `[${req.requestId || "unknown"}] talk_idempotency replay=1 session=${sessionKey} key=${headerKey}`
-        );
-        return sendCachedTalkIdempotencyResponse(res, existing);
-      }
-      if (status === "pending") {
-        recordTalkMetric({
-          statusCode: 409,
-          totalMs: 0,
-          sttMs: 0,
-          chatMs: 0,
-          ttsMs: 0,
-          streamAudio: false,
-          chatStreamUsed: false,
-          talkStatus: "idempotency_pending",
-          lane: "guard",
-          model: "none",
-        });
-        res.setHeader("Retry-After", "1");
-        return res.status(409).json({
-          stage: "idempotency",
-          error: "Duplicate turn in progress for this key.",
-          key: headerKey,
-        });
-      }
-    }
-
-    const pendingRecord = {
-      key: headerKey,
-      sessionKey,
-      status: "pending",
-      createdAt: now,
-      expiresAt: now + TALK_IDEMPOTENCY_TTL_MS,
-    };
-    talkIdempotencyCache.set(cacheKey, pendingRecord);
-    void scaleBackplane.setIdempotency(cacheKey, pendingRecord, TALK_IDEMPOTENCY_TTL_MS);
-    req.talkIdempotency = {
-      cacheKey,
-      key: headerKey,
-      sessionKey,
-    };
-    res.on("finish", () => {
-      const record = talkIdempotencyCache.get(cacheKey);
-      if (!record || String(record.status || "") !== "pending") return;
-      talkIdempotencyCache.delete(cacheKey);
-      void scaleBackplane.deleteIdempotency(cacheKey);
-    });
-    next();
-  } catch (err) {
-    next(err);
-  }
-}
-
-async function talkSessionSerialGuard(req, res, next) {
-  if (isSpeculativePrepareRequest(req)) return next();
-  if (!TALK_SESSION_SERIAL_ENABLED) return next();
-  try {
-    const sessionKey = resolveTalkSessionKey(req);
-    const existing = talkInFlightBySession.get(sessionKey);
-    if (existing) {
-      recordTalkMetric({
-        statusCode: 409,
-        totalMs: 0,
-        sttMs: 0,
-        chatMs: 0,
-        ttsMs: 0,
-        streamAudio: false,
-        chatStreamUsed: false,
-        talkStatus: "session_busy",
-        lane: "guard",
-        model: "none",
-      });
-      res.setHeader("Retry-After", "1");
-      return res.status(409).json({
-        stage: "busy_session",
-        error: "Previous turn is still processing for this session.",
-      });
-    }
-    const marker = {
-      startedAt: Date.now(),
-      requestId: req.requestId || createRequestId(),
-    };
-    const distributed = await scaleBackplane.acquireSessionLock(
-      sessionKey,
-      marker.requestId,
-      Math.max(10_000, STT_TIMEOUT_MS + CHAT_TIMEOUT_MS + TTS_TIMEOUT_MS + 15_000)
-    );
-    if (!distributed?.ok) {
-      recordTalkMetric({
-        statusCode: 409,
-        totalMs: 0,
-        sttMs: 0,
-        chatMs: 0,
-        ttsMs: 0,
-        streamAudio: false,
-        chatStreamUsed: false,
-        talkStatus: "session_busy_distributed",
-        lane: "guard",
-        model: "none",
-      });
-      res.setHeader("Retry-After", "1");
-      return res.status(409).json({
-        stage: "busy_session",
-        error: "Previous turn is still processing for this session.",
-      });
-    }
-    talkInFlightBySession.set(sessionKey, marker);
-    let released = false;
-    const release = () => {
-      if (released) return;
-      released = true;
-      const active = talkInFlightBySession.get(sessionKey);
-      if (active === marker) {
-        talkInFlightBySession.delete(sessionKey);
-      }
-      void scaleBackplane.releaseSessionLock(sessionKey, marker.requestId);
-    };
-    res.on("finish", release);
-    res.on("close", release);
-    next();
-  } catch (err) {
-    next(err);
-  }
-}
-
-function talkConcurrencyGuard(req, res, next) {
-  if (isSpeculativePrepareRequest(req)) return next();
-  if (talkInFlight >= TALK_MAX_IN_FLIGHT) {
-    recordTalkMetric({
-      statusCode: 503,
-      totalMs: 0,
-      sttMs: 0,
-      chatMs: 0,
-      ttsMs: 0,
-      streamAudio: false,
-      chatStreamUsed: false,
-      talkStatus: "global_busy",
-      lane: "guard",
-      model: "none",
-    });
-    res.setHeader("Retry-After", "1");
-    return res.status(503).json({
-      stage: "busy",
-      error: "Server busy. Please retry shortly.",
-    });
-  }
-
-  talkInFlight += 1;
-  let released = false;
-  const release = () => {
-    if (released) return;
-    released = true;
-    talkInFlight = Math.max(0, talkInFlight - 1);
-  };
-
-  res.on("finish", release);
-  res.on("close", release);
-  next();
-}
+// talkIdempotencyGuard / talkSessionSerialGuard / talkConcurrencyGuard
+// moved into backend/lib/talk_state.js (Phase 7a). Created via the
+// matching factories below; the lib owns talkIdempotencyCache,
+// talkInFlightBySession, and the global talkInFlight counter.
 
 function isAbortError(err) {
   return !!err && (err.name === "AbortError" || err.code === "ABORT_ERR");
@@ -20513,7 +20209,7 @@ function selectChatModelForTurn({
     ? runtime.metrics
     : summarizeTalkMetrics();
   const loadPressure =
-    talkInFlight >= CHAT_LOAD_SHED_IN_FLIGHT ||
+    readTalkInFlight() >= CHAT_LOAD_SHED_IN_FLIGHT ||
     (
       Number(metrics.sampleCount || 0) >= CHAT_LOAD_SHED_MIN_SAMPLES &&
       Number(metrics.p95TotalMs || 0) >= CHAT_LOAD_SHED_P95_MS
@@ -20529,7 +20225,7 @@ function selectChatModelForTurn({
   const shouldShed = loadPressure && (!CHAT_LOAD_SHED_NONCRITICAL_ONLY || !criticalTurn);
 
   if (shouldShed) {
-    const shedCause = talkInFlight >= CHAT_LOAD_SHED_IN_FLIGHT
+    const shedCause = readTalkInFlight() >= CHAT_LOAD_SHED_IN_FLIGHT
       ? "inflight"
       : (Number(metrics.p95TotalMs || 0) >= CHAT_LOAD_SHED_P95_MS ? "latency" : "runtime");
     model = CHAT_MODEL_FAST;
@@ -26694,11 +26390,12 @@ mountHealthRoutes(app, {
   deriveBackendRuntimeStatus,
   scaleBackplane,
   applyReadStateHeaders,
-  // talkInFlight / talkInFlightBySession are mutable module-scoped
-  // state; pass them as accessor functions so the handler reads the
-  // current value at request time, not the value at mount time.
-  talkInFlight: () => talkInFlight,
-  talkInFlightBySession: () => talkInFlightBySession,
+  // Phase 7a: live counters are read at request time through the
+  // accessors exported from backend/lib/talk_state.js. The route
+  // mount keeps the same accessor-function shape; only the source
+  // of truth moved from this file to the lib module-scope.
+  talkInFlight: () => readTalkInFlight(),
+  talkInFlightBySession: () => ({ size: talkInFlightBySessionSize() }),
   API_SCHEMA_VERSION,
   BACKEND_BUILD,
   BACKEND_BOOT_ID,
@@ -26717,9 +26414,13 @@ mountOpsMetricsRoute(app, {
   deriveBackendRuntimeStatus,
   scaleBackplaneStatus: () => scaleBackplane.status(),
   talkMetricsSamples: () => talkMetricsSamples,
-  talkInFlight: () => talkInFlight,
-  talkInFlightBySessionSize: () => talkInFlightBySession.size,
-  talkIdempotencyCacheSize: () => talkIdempotencyCache.size,
+  // Phase 7a: accessors imported from backend/lib/talk_state.js.
+  // Each is a live, zero-arg function that reads module-scope state
+  // at request time. Same accessor-function contract as before — only
+  // the source moved from this file's lets/Maps to the lib's scope.
+  talkInFlight: () => readTalkInFlight(),
+  talkInFlightBySessionSize: () => talkInFlightBySessionSize(),
+  talkIdempotencyCacheSize: () => talkIdempotencyCacheSize(),
   TALK_MAX_IN_FLIGHT,
 });
 mountOpsAlertsRoute(app, {
@@ -31547,6 +31248,53 @@ app.post("/auth/request_password_reset", authJson, userAuth.handleAuthRequestPas
 app.post("/auth/reset_password", authJson, userAuth.handleAuthResetPassword);
 app.post("/auth/request_email_verification", authJson, userAuth.handleAuthRequestEmailVerification);
 app.post("/auth/verify_email", authJson, userAuth.handleAuthVerifyEmail);
+
+// Phase 7a: guards are built from backend/lib/talk_state.js factories
+// using live config + helpers. State (rate buckets, idempotency cache,
+// session locks, in-flight counter) lives inside the lib's module scope.
+const talkRateLimitGuard = createTalkRateLimitGuard({
+  clientIp,
+  talkRateLimitWindowMs: TALK_RATE_LIMIT_WINDOW_MS,
+  talkRateLimitMax: TALK_RATE_LIMIT_MAX,
+});
+const talkIdempotencyGuard = createTalkIdempotencyGuard({
+  isSpeculativePrepareRequest,
+  talkIdempotencyEnabled: TALK_IDEMPOTENCY_ENABLED,
+  normalizeIdempotencyKey,
+  resolveTalkSessionKey,
+  scaleBackplane,
+  recordTalkMetric,
+  talkIdempotencyTtlMs: TALK_IDEMPOTENCY_TTL_MS,
+  talkIdempotencyMaxEntries: TALK_IDEMPOTENCY_MAX_ENTRIES,
+});
+const talkSessionSerialGuard = createTalkSessionSerialGuard({
+  isSpeculativePrepareRequest,
+  talkSessionSerialEnabled: TALK_SESSION_SERIAL_ENABLED,
+  resolveTalkSessionKey,
+  scaleBackplane,
+  recordTalkMetric,
+  createRequestId,
+  sttTimeoutMs: STT_TIMEOUT_MS,
+  chatTimeoutMs: CHAT_TIMEOUT_MS,
+  ttsTimeoutMs: TTS_TIMEOUT_MS,
+});
+const talkConcurrencyGuard = createTalkConcurrencyGuard({
+  isSpeculativePrepareRequest,
+  talkMaxInFlight: TALK_MAX_IN_FLIGHT,
+  recordTalkMetric,
+});
+const talkIdempotencyHelpers = createTalkIdempotencyHelpers({
+  scaleBackplane,
+  talkIdempotencyEnabled: TALK_IDEMPOTENCY_ENABLED,
+  talkIdempotencyTtlMs: TALK_IDEMPOTENCY_TTL_MS,
+  talkIdempotencyMaxEntries: TALK_IDEMPOTENCY_MAX_ENTRIES,
+});
+const commitTalkIdempotencySuccess = (req, opts) =>
+  talkIdempotencyHelpers.commitSuccess(req, opts);
+const clearTalkIdempotencyPending = (req, opts) =>
+  talkIdempotencyHelpers.clearPending(req, opts);
+const captureTalkResponseHeaders = (res) =>
+  talkIdempotencyHelpers.captureResponseHeaders(res);
 
 mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,
