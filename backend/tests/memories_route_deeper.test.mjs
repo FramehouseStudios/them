@@ -388,7 +388,7 @@ test("[memories-deeper] GET /memories: sanitizePersistedSessionMemory called whe
     await getJson(baseURL, "/memories");
     // Sanitize is called at least once during the read path when the
     // route normalizes memory before envelope assembly.
-    assert.ok(d._calls.sanitizeCalls >= 0);
+    assert.ok(d._calls.sanitizeCalls >= 1);
   });
 });
 
