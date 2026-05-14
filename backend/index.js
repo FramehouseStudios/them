@@ -28315,8 +28315,8 @@ mountRealtimeTurnCommitRoute(app, {
 });
 
 // T-decompose-phase5b4-realtime-call: route moved to
-// lib/realtime_call_route.js. Byte-identical with the
-// previous inline handler — same 503/400/504/502/upstream-
+// lib/realtime_call_route.js. Response-contract-identical with
+// the previous inline handler — same 503/400/504/502/upstream-
 // passthrough/200 envelopes, same SDP body passthrough, same
 // response headers, same form encoding, same 15s timeout.
 // Closes the 5b decomp chain per #227 design note.

@@ -19,7 +19,10 @@ v1_effect: closes the realtime route decomposition required by docs/v1-definitio
 realtime session with OpenAI's `/v1/realtime/calls` endpoint.
 
 The route moves to `backend/lib/realtime_call_route.js` with
-byte-identical behavior.
+the same response contract. The only intentional non-response
+change is that the diagnostic line uses `console.warn` in the
+lib, matching the earlier realtime route extraction precedent
+and the pre-flight console-log rule.
 
 ## Dependencies (4 functions + 3 constants)
 
@@ -34,7 +37,7 @@ byte-identical behavior.
 - `OPENAI_REALTIME_MODEL` — default model
 - `OPENAI_REALTIME_VOICE` — default voice
 
-## Byte-identical invariants
+## Response-contract invariants
 
 - **503 envelope** when `OPENAI_API_KEY` is empty:
   `{ stage: "realtime_call", error: "OpenAI API key is missing
@@ -56,8 +59,9 @@ byte-identical behavior.
   - `Content-Type: application/sdp`
   - `x-realtime-model: <resolved model>`
   - `x-realtime-voice: <resolved voice>`
-- **Diagnostic line** preserved as `console.warn` (lib precedent
-  established in 5b.1 / 5b.2 / 5b.3).
+- **Diagnostic line** preserved in content but emitted through
+  `console.warn` (lib precedent established in 5b.1 / 5b.2 /
+  5b.3) instead of the prior inline `console.log`.
 - **Body limit** unchanged at `512kb` on both
   `application/sdp` and `text/plain` content types.
 - **Fetch timeout** unchanged at 15 seconds.
@@ -105,6 +109,8 @@ node --test backend/tests/realtime_call_route.test.mjs
 
 Plus:
 - `node --check backend/index.js` passes.
+- `node --test scripts/pre_flight.test.mjs` passes 44/44,
+  including the new `express.text()` parser regression.
 - `backend/index.js` shrinks by **51 net lines** (66 inline →
   15 mount call).
 - Pre-flight clean (after a small additive update to the

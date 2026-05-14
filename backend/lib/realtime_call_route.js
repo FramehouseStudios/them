@@ -16,19 +16,20 @@
 // realtime sub-chain is complete and Phase 7 (talk-pipeline)
 // is unblocked per the spec.
 //
-// Behavior is byte-identical with the previous inline handler:
+// Response behavior is identical with the previous inline handler:
 //   - same 503 envelope when OPENAI_API_KEY is missing,
 //   - same 400 envelope on empty SDP body,
 //   - same 504 envelope on timeout (via isAbortError),
 //   - same 502 envelope on generic fetch failure,
 //   - same OpenAI-status passthrough on upstream non-2xx
-//     (body forwarded verbatim, no JSON wrapping),
+//     (`{ stage, error }` JSON body carries upstream text),
 //   - same `Content-Type: application/sdp` on 200,
 //   - same `x-realtime-model` + `x-realtime-voice` headers,
 //   - same `Cache-Control: no-store`,
-//   - same `console.warn` diagnostic line (was console.log
-//     inline; matches the 5b.1 / 5b.2 / 5b.3 lib precedent
-//     for the pre-flight console-log-in-lib rule),
+//   - diagnostic line moved from inline `console.log` to
+//     lib-local `console.warn`, matching the 5b.1 / 5b.2 /
+//     5b.3 lib precedent for the pre-flight console-log-in-lib
+//     rule,
 //   - same body limit (512kb) on `text/plain` and
 //     `application/sdp` content types,
 //   - same 15-second fetch timeout.
