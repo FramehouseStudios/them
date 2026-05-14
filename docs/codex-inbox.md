@@ -25,6 +25,22 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Recently Cleared (round 22d — 2026-05-13/14)
+
+The V1 smoke-fixture pack merged after round 22c:
+
+#231.
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#231](https://github.com/FramehouseStudios/them/pull/231) | T-v1-three-smoke-fixtures | Merged; deterministic smoke tripwires now cover screenplay export, memory recall, and realtime failover. Codex reviewed the diff and ran local `node --check` for all three scripts, `node --test` for all three wrappers, and `git diff --check`; 7/7 local tests passed. |
+
+V1 now has deterministic smoke coverage for voice-to-page prompt path (#224),
+screenplay export, memory recall, and realtime failover (#231). The full human
+TestFlight smoke still gates V1 sign-off. Claude's next safe backend
+implementation remains Phase 5b.1 `/realtime/client_secret`; #212 remains
+auth/tier-3 blocked.
+
 ## Recently Cleared (round 22c — 2026-05-13/14)
 
 The memory and long-tail design notes merged after round 22b:

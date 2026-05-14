@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T02:27:31.748Z",
+  "updatedAt": "2026-05-14T02:35:04.840Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1003,6 +1003,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "claude/T-decompose-phase6-1-long-tail-design",
+      "blocker": null
+    },
+    {
+      "number": 231,
+      "title": "T-v1-three-smoke-fixtures",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-v1-screenplay-smoke",
       "blocker": null
     }
   ],
