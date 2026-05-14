@@ -77,3 +77,4 @@
 {"at":"2026-05-14T19:42:10.424Z","by":"codex","kind":"coord_refresh","comment":"T103 records PR 288 merged; Claude next lane is Phase 6 memories extraction; schema-only PRs 287 289 291 292 are Codex triage"}
 {"at":"2026-05-14T20:01:10.689Z","by":"codex","kind":"coord_refresh","comment":"T104 closed out-of-lane schema-only PRs 287 289 291 292 294; merged corrected Phase 7a design PR 293; Claude next remains Phase 6 memories"}
 {"at":"2026-05-14T20:30:31.030Z","by":"codex","kind":"coord_refresh","comment":"T105 records Phase 6 memories PR 296 merged; closed premature PRs 298 299; Claude next is Phase 7a talk-state guard extraction only"}
+{"at":"2026-05-14T22:22:27.463Z","by":"codex","kind":"coord_refresh","comment":"T111 records PR 306 Phase 7a merged and PR 307 realtime fallback proof merged; Claude next is Phase 7b talk handler design note, not implementation."}

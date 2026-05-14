@@ -2,7 +2,7 @@
 id: T-decompose-phase7a-talk-state
 title: Phase 7a — extract talk-state guards into backend/lib/talk_state.js
 owner: claude
-status: review
+status: merged
 branch: claude/T-decompose-phase7a-talk-state
 pillar: infra (backend architecture)
 v1_pillar: talk
