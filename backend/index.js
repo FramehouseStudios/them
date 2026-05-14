@@ -105,6 +105,7 @@ import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.js";
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
 import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
+import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
 import { configureCraftAnalysis } from "./lib/craft_analysis.js";
 import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifier } from "./lib/logline_distiller.js";
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
@@ -28163,153 +28164,38 @@ mountRealtimeRoutes(app, {
   renderRealtimeBridgeHtml,
 });
 
-app.post("/realtime/client_secret", express.json({ limit: "512kb" }), async (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const requesterIp = clientIp(req);
-  const assistantSelfName = getAssistantSelfNameForIp(requesterIp);
-  const requestedPrompt = normalizeSnippet(
-    req.body?.system_prompt ?? req.body?.instructions ?? "",
-    16_000
-  );
-  const requestedVoice = String(req.body?.voice || "").trim().toLowerCase();
-  const requestedModel = String(req.body?.model || "").trim();
-  const rawProvider = String(req.body?.realtime_provider ?? req.body?.provider ?? "").trim().toLowerCase();
-  const requestedProvider = ["", "default", "server_default"].includes(rawProvider) ? "" : rawProvider;
-
-  let supplier = realtimeSupplier;
-  if (!supplier || (requestedProvider && requestedProvider !== String(supplier.kind || "").toLowerCase())) {
-    try {
-      supplier = await createRealtimeSupplier({
-        provider: requestedProvider || process.env.REALTIME_PROVIDER || "openai",
-        apiKey: OPENAI_API_KEY,
-        defaultModel: OPENAI_REALTIME_MODEL,
-        defaultVoice: OPENAI_REALTIME_VOICE,
-        defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
-        defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
-      });
-    } catch (err) {
-      const status = err?.code === "realtime_supplier_unknown_provider"
-        ? 400
-        : Number(err?.status || 503);
-      // T-talk-error-rate-tracker: record the supplier-load failure.
-      incrementErrorCounter(err?.code || "realtime_supplier_unavailable");
-      return res.status(status).json({
-        stage: "realtime_auth",
-        code: err?.code || "realtime_supplier_unavailable",
-        realtime_provider: requestedProvider || String(supplier?.kind || "unknown"),
-        error: String(err?.message || err || "Realtime supplier unavailable."),
-      });
-    }
-  }
-
-  // T-realtime-supplier-failover: when the caller didn't pin a
-  // specific provider and the primary mint fails, transparently fall
-  // back to the stub supplier so /talk never returns a hard 502. The
-  // response includes `fallback: true` + `fallback_reason` so iOS can
-  // surface a banner / log the degradation. Logic lives in
-  // `lib/realtime_supplier_failover.js` so it's testable in isolation.
-  const allowFallback = !requestedProvider
-    && String(supplier?.kind || "").toLowerCase() !== "stub";
-  const mintParams = {
-    instructions: requestedPrompt,
-    voice: requestedVoice || OPENAI_REALTIME_VOICE,
-    model: requestedModel || OPENAI_REALTIME_MODEL,
-    ttlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
-  };
-  let minted;
-  let fallbackReason = null;
-  let primarySupplierKind = String(supplier?.kind || "unknown");
-  try {
-    const result = await mintWithFailover({
-      primarySupplier: supplier,
-      mintParams,
-      allowFallback,
-      loadStubSupplier: async () => {
-        const stubMod = await import("./lib/realtime_supplier_stub.js");
-        return stubMod.createStubRealtimeSupplier({
-          defaultModel: OPENAI_REALTIME_MODEL,
-          defaultVoice: OPENAI_REALTIME_VOICE,
-          defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
-          defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
-        });
-      },
+// T-decompose-phase5b1-realtime-client-secret: POST /realtime/client_secret
+// moved to lib/realtime_client_secret_route.js. Byte-identical
+// with the previous inline handler. Supplier is read live via
+// the accessor at request start; per-request failover rotation
+// stays request-local and does NOT persist back to module-level
+// state — same as the original inline handler. See
+// docs/specs/T-decompose-backend-index.md and
+// docs/schemas/realtime-client-secret.md.
+mountRealtimeClientSecretRoute(app, {
+  getRealtimeSupplier: () => realtimeSupplier,
+  createRealtimeSupplier,
+  mintWithFailover,
+  loadStubSupplier: async () => {
+    const stubMod = await import("./lib/realtime_supplier_stub.js");
+    return stubMod.createStubRealtimeSupplier({
+      defaultModel: OPENAI_REALTIME_MODEL,
+      defaultVoice: OPENAI_REALTIME_VOICE,
+      defaultInputTranscriptionModel: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+      defaultTtlSeconds: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
     });
-    minted = result.minted;
-    supplier = result.supplierUsed;
-    fallbackReason = result.fallbackReason;
-    if (fallbackReason) {
-      console.warn(`[${rid}] realtime_supplier_fallback from=${primarySupplierKind} reason=${fallbackReason}`);
-    }
-  } catch (err) {
-    // T-talk-error-rate-tracker: record the mint failure.
-    incrementErrorCounter(err?.code || "realtime_supplier_request_failed");
-    if (err?.code === "supplier_fallback_failed") {
-      const cause = err.cause || err;
-      return res.status(Number(cause?.status || 502)).json({
-        stage: "realtime_auth",
-        code: cause?.code || "realtime_supplier_request_failed",
-        realtime_provider: primarySupplierKind,
-        fallback: false,
-        fallback_attempted: true,
-        fallback_error: err.message,
-        error: String(cause?.message || cause || "Realtime supplier request failed."),
-      });
-    }
-    return res.status(Number(err?.status || 502)).json({
-      stage: "realtime_auth",
-      code: err?.code || "realtime_supplier_request_failed",
-      realtime_provider: primarySupplierKind,
-      error: String(err?.message || err || "Realtime supplier request failed."),
-    });
-  }
-
-  const sessionConfig = minted?.sessionConfig || supplier.buildSessionConfig({
-    instructions: requestedPrompt,
-    model: requestedModel || OPENAI_REALTIME_MODEL,
-    voice: requestedVoice || OPENAI_REALTIME_VOICE,
-  });
-  const clientSecretValue = String(minted?.value || "").trim();
-  const expiresAt = Math.max(0, Number(minted?.expiresAt || 0));
-  if (!clientSecretValue || !expiresAt) {
-    // T-talk-error-rate-tracker: record the invalid-response case.
-    incrementErrorCounter("realtime_supplier_response_invalid");
-    return res.status(502).json({
-      stage: "realtime_auth",
-      code: "realtime_supplier_response_invalid",
-      realtime_provider: String(supplier?.kind || requestedProvider || "unknown"),
-      error: "Realtime supplier returned an incomplete client secret payload.",
-    });
-  }
-
-  const sessionVoice = sessionConfig.audio?.output?.voice || requestedVoice || OPENAI_REALTIME_VOICE;
-  const sessionModel = sessionConfig.model || requestedModel || OPENAI_REALTIME_MODEL;
-  console.log(`[${rid}] realtime_client_secret supplier=${supplier.kind} model=${sessionModel} voice=${sessionVoice}`);
-
-  res.setHeader("Cache-Control", "no-store");
-  return res.status(201).json({
-    transport: "webrtc_ephemeral",
-    assistant_name: assistantSelfName,
-    realtime_provider: String(supplier.kind || "unknown"),
-    // T-realtime-supplier-failover: fallback flag + reason. Present
-    // only when the primary supplier failed and we transparently fell
-    // back to the stub. iOS can surface a small degraded-mode banner.
-    ...(fallbackReason ? { fallback: true, fallback_reason: fallbackReason, primary_supplier: primarySupplierKind } : {}),
-    model: sessionModel,
-    voice: sessionVoice,
-    session: {
-      type: sessionConfig.type || "realtime",
-      model: sessionModel,
-      voice: sessionVoice,
-      instructions: sessionConfig.instructions || requestedPrompt,
-      output_modalities: Array.isArray(sessionConfig.output_modalities) ? sessionConfig.output_modalities : ["audio"],
-    },
-    client_secret: {
-      value: clientSecretValue,
-      expires_at: expiresAt,
-      session_expires_at: expiresAt,
-    },
-    issued_at: Math.floor(Date.now() / 1000),
-  });
+  },
+  incrementErrorCounter,
+  createRequestId,
+  clientIp,
+  getAssistantSelfNameForIp,
+  normalizeSnippet,
+  OPENAI_API_KEY,
+  OPENAI_REALTIME_MODEL,
+  OPENAI_REALTIME_VOICE,
+  OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
+  OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+  getRealtimeProviderEnv: () => process.env.REALTIME_PROVIDER,
 });
 
 app.post("/realtime/studio_render", express.json({ limit: "512kb" }), async (req, res) => {
