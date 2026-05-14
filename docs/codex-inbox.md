@@ -25,16 +25,17 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
-## Recently Cleared (round 17 — 2026-05-13)
+## Recently Cleared (round 19 — 2026-05-13/14)
 
 Codex's supervisor lane absorbed the stale backend/support backlog.
 Merged on main since the last on-main refresh:
 
 #76, #80, #81, #82, #83, #85, #86, #88, #90, #92, #97, #100, #104,
 #105, #107, #110, #111, #112, #115, #124, #127, #159, #161, #163,
-#164, #166, #171, #117, #79, #74, #84, #190, #192, #193, #194.
+#164, #166, #171, #117, #79, #74, #84, #190, #192, #193, #194,
+#197, #199, #200, #201, #202.
 
-Important round-17 details:
+Important round-19 details:
 
 | PR | Task | What changed |
 | --- | --- | --- |
@@ -48,10 +49,17 @@ Important round-17 details:
 | [#193](https://github.com/FramehouseStudios/them/pull/193) | T-route-local-parsers | Merged; all `route-needs-own-parser` pre-flight findings cleared. |
 | [#194](https://github.com/FramehouseStudios/them/pull/194) | T-decompose-spec-update | Merged; backend-index decomposition spec records phases 0-2a and parser hardening. |
 | [#195](https://github.com/FramehouseStudios/them/pull/195) | T-coord-refresh-batch-14 | Closed; stale duplicate superseded by Codex refresh. |
+| [#197](https://github.com/FramehouseStudios/them/pull/197) | T-decompose-phase2b-screenplay-projects-writes | Merged; 7 write `/screenplay/projects/*` routes extracted, with a stale `base_version_id` 409 regression added before merge. |
+| [#199](https://github.com/FramehouseStudios/them/pull/199) | T-pre-flight-required-deps-rule | Merged; `pre_flight` now warns when `mount<X>` route modules accept deps without a required-deps guard. |
+| [#200](https://github.com/FramehouseStudios/them/pull/200) | T-utils-smoke-test | Merged; `backend/lib/utils.js` now has 17 direct smoke tests and a follow-up task tracks the remaining untested libs. |
+| [#201](https://github.com/FramehouseStudios/them/pull/201) | T-eval-canon-into-gate | Merged; `npm run eval:canon` is now default-on in `quality_gate.sh` / `quality-gate.yml` before external-secret evals. |
+| [#202](https://github.com/FramehouseStudios/them/pull/202) | T-snapshot-eval-accepted-twists | Merged; prompt assembly snapshot eval now pins accepted-twist/block-signal drop-out and determinism. |
 
 The `ops-surface-access-control` cross-PR blocker remains fully cleared
 (merged into main via #97 + #100). The generic Claude do-not-merge
 queue is also cleared; the remaining open blockers are human-owned.
+Round 19 is clear: #197/#199/#200/#201/#202 are all merged, so Claude
+can start Phase 3 backend-index decomposition when no newer blocker appears.
 
 ## Current Open Claude PRs
 

@@ -1,8 +1,53 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-13T23:46:58.791Z",
+  "updatedAt": "2026-05-14T00:13:19.013Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 202,
+      "title": "T-snapshot-eval-accepted-twists",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-snapshot-eval-accepted-twists",
+      "blocker": null
+    },
+    {
+      "number": 201,
+      "title": "T-eval-canon-into-gate",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-eval-canon-into-gate",
+      "blocker": null
+    },
+    {
+      "number": 200,
+      "title": "T-utils-smoke-test",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-utils-smoke-test",
+      "blocker": null
+    },
+    {
+      "number": 199,
+      "title": "T-pre-flight-required-deps-rule",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-pre-flight-required-deps-rule",
+      "blocker": null
+    },
+    {
+      "number": 197,
+      "title": "T-decompose-phase2b-screenplay-projects-writes",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase2b-screenplay-projects-writes",
+      "blocker": null
+    },
     {
       "number": 148,
       "title": "T-ops-routes-list-route",
