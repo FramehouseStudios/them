@@ -55,3 +55,34 @@ Adds 5 new envelope/record docs under `docs/schemas/`:
 - Wire `talk-errors` and `talk-turn-stats` references into
   `docs/runbook-v1-smoke.md` if/when the ops dashboard becomes
   a V1 surface.
+
+## Self-audit / docs-vs-code revision
+
+Initial drafts of three docs in this batch were drifted from the
+live code — same class as Codex's #245 blocker. Self-audited
+before re-requesting review and rewrote line-by-line against
+the routes:
+
+- **`block-signal-history.md`** — wrong endpoint
+  (`/block-signal/history` → `/memory/block-signal/history`),
+  wrong field set (`items[]` / `atMs` / `confidence` / `turn_id`
+  / `history_cap` / `observed_at` → `entries[]` / `at` / `score`
+  / `level` plus `counts.byLevel` / `newestAt` / `oldestAt`),
+  wrong level set (`low|flow|pending|block` → `low|medium|high`).
+  Rewritten against `summarizeHistory()` in
+  `backend/lib/block_signal_history_route.js`.
+- **`fountain-export.md`** — wrong method+path
+  (`GET /screenplays/{id}/export?format=fountain` →
+  `POST /screenplay/export/fountain`), wrong response shape
+  (invented `project_id`/`version_id`/`fountain_text`/`scene_count`/etc.
+  → live `{ schemaVersion: 1, fountain: "..." }` with an
+  alternate raw-text mode via `Accept: text/plain`). Rewritten
+  against `mountFountainExportRoute` in
+  `backend/lib/fountain_export_route.js`.
+- **`talk-turn-stats.md`** — wrong endpoint path
+  (`/talk/turn/stats` → `/talk/stats`). Field set otherwise
+  matched.
+
+The other two docs in the batch (`talk-errors.md`,
+`agent-events.md`) audited clean against the live code and
+were not modified in this revision.

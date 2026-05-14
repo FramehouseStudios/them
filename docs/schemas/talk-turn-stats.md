@@ -1,6 +1,6 @@
 # talk-turn-stats envelope schema
 
-Canonical response shape for `GET /talk/turn/stats` — the
+Canonical response shape for `GET /talk/stats` — the
 operator-facing aggregate over talk-turn metadata fed by
 `backend/lib/talk_turn_stats.js`.
 
@@ -8,7 +8,7 @@ operator-facing aggregate over talk-turn metadata fed by
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| GET | `/talk/turn/stats` | aggregate snapshot (see below) |
+| GET | `/talk/stats` | aggregate snapshot (see below) |
 
 ## Schema version
 
@@ -84,5 +84,9 @@ PII leakage.
 
 ## Changelog
 
-- v1 — initial documented shape. `authoritativePageTextRate` and
-  `syncReadyRate` reflect screenplay-render-contract usage.
+- v1 — initial documented shape, matched against the envelope
+  built by `summarizeTalkTurns` in
+  `backend/lib/talk_turn_stats.js`. `authoritativePageTextRate`
+  and `syncReadyRate` reflect screenplay-render-contract usage.
+  Earlier draft listed the endpoint as `GET /talk/turn/stats`;
+  the live route is `GET /talk/stats` (corrected here).

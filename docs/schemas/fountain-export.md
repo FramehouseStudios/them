@@ -1,98 +1,142 @@
 # fountain-export envelope schema
 
-Canonical response shape for the screenplay Fountain export
-endpoint and the underlying `exportToFountain` library function.
+Canonical request + response shape for `POST /screenplay/export/fountain` —
+the screenplay-to-Fountain serializer endpoint.
 
 ## Endpoint
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| GET | `/screenplays/{id}/export?format=fountain` | Fountain envelope (see below) |
+| POST | `/screenplay/export/fountain` | JSON envelope OR raw text (see below) |
+
+Two response modes:
+- **Default** (no `Accept` magic): JSON envelope
+  `{ schemaVersion: 1, fountain: "<text>" }`.
+- **`Accept: text/plain` OR `?format=text`**: raw Fountain body
+  with `Content-Disposition: attachment; filename="<base>.fountain"`.
 
 ## Schema version
 
-`1`. Envelope carries an explicit `schema_version` field.
+`1`. JSON envelope carries an explicit `schemaVersion` field.
 
 ## Owner
 
-- **Backend**: Claude. `exportToFountain` in
-  `backend/lib/fountain_export.js`; route in
-  `fountain_export_route.js`.
-- **iOS**: Codex. Consumes the Fountain text for share / save UI.
+- **Backend**: Claude. Route in
+  `backend/lib/fountain_export_route.js`; serializer in
+  `backend/lib/fountain_export.js` (`exportToFountain`).
+- **iOS**: Codex. Consumes the Fountain text for share / save
+  UI.
 
 ## Access-control posture
 
-**PER-USER**. Screenplay content is user-authored; never expose
-across users. Same posture as `screenplay-project.md` /
-`screenplay-version.md`.
+**PER-USER**. Screenplay body is user-authored content. The
+posture matches the rest of the screenplay surface
+(`screenplay-project.md`, `screenplay-version.md`); the route
+operates on the body passed in the request, not on a stored
+project, so authentication scope is whatever the mount caller
+applies.
 
-## Response shape
+## Request shape
 
 ```json
 {
-  "schema_version": 1,
-  "format": "fountain",
-  "project_id": "p_...",
-  "version_id": "v_...",
-  "title": "My Screenplay",
-  "fountain_text": "Title: My Screenplay\n\nFADE IN:\n\nINT. ROOM - DAY\n\n...",
-  "scene_count": 12,
-  "character_count": 4,
-  "line_count": 248,
-  "exported_at": 1715620920000
+  "title": {
+    "title": "My Screenplay",
+    "author": "Ada Lovelace"
+  },
+  "scenes": [
+    {
+      "heading": "INT. ROOM - DAY",
+      "lines": [
+        { "kind": "action", "text": "Alice enters." },
+        { "kind": "character", "name": "ALICE", "dialogue": "Hello." }
+      ]
+    }
+  ]
+}
+```
+
+Full input shape (the same shape `exportToFountain` consumes) is
+documented in the module header of
+`backend/lib/fountain_export.js`. `scenes` may be omitted (the
+output is then a title-only Fountain document).
+
+## Validation
+
+| HTTP | `error` | When |
+| --- | --- | --- |
+| 400 | `craft_invalid_screenplay` (`message: "body required"`) | request body missing / not an object |
+| 400 | `craft_invalid_screenplay` (`message: "scenes must be an array"`) | `body.scenes` is present but not an array |
+| 500 | `fountain_export_failed` (with `message`) | `exportToFountain` throws |
+
+Empty `scenes` is **valid** — title-only Fountain documents are
+allowed.
+
+## Default (JSON) response shape
+
+```json
+{
+  "schemaVersion": 1,
+  "fountain": "Title: My Screenplay\nAuthor: Ada Lovelace\n\nINT. ROOM - DAY\n\nAlice enters.\n\nALICE\nHello.\n"
 }
 ```
 
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `schema_version` | int | yes | constant `1` |
-| `format` | string | yes | constant `"fountain"` |
-| `project_id` | string | yes | id of the source project |
-| `version_id` | string | yes | id of the source version |
-| `title` | string | yes | project title (may be empty for untitled) |
-| `fountain_text` | string | yes | the full Fountain-formatted screenplay text |
-| `scene_count` | int | yes | scenes in the export |
-| `character_count` | int | yes | distinct character names |
-| `line_count` | int | yes | output line count (informational) |
-| `exported_at` | int | yes | epoch ms |
+| `schemaVersion` | int | yes | constant `1` |
+| `fountain` | string | yes | full Fountain-formatted screenplay text |
 
-## Ordering invariants
+HTTP 200. `Cache-Control: no-store`.
 
-These are pinned by `v1_screenplay_smoke` (#231) and must not
-regress:
+## Text response (Accept-driven)
 
-- **Scenes render in document order** (sorted by scene index).
-- **Within a scene**: scene heading → action lines → character →
-  parentheticals → dialogue → transitions.
-- **Character lines render before action lines** under the same
-  scene block.
-- **Transitions render between scenes**, not within.
-- **Determinism**: two consecutive runs on the same input produce
-  byte-identical `fountain_text`.
+When the request carries `Accept: text/plain` OR the query string
+includes `?format=text`, the response is the raw Fountain string
+(no JSON wrapper) with:
 
-## Errors
+- `Content-Type: text/plain; charset=utf-8`
+- `Content-Disposition: attachment; filename="<base>.fountain"`
+  where `<base>` is `body.title.title` sanitized via
+  `sanitizeFilenameBase()` (alnum / space / `._-` only,
+  truncated to 80 chars, falls back to `screenplay` when empty).
 
-| HTTP | `error` | When |
-| --- | --- | --- |
-| 404 | `project_not_found` | unknown project id |
-| 404 | `version_not_found` | unknown version id |
-| 400 | `format_unsupported` | format param != "fountain" (other formats route to their own envelopes) |
-| 403 | `forbidden_owner_mismatch` | requester is not the project owner |
+The Fountain body itself is identical between the two response
+modes — only the wrapper differs.
+
+## Ordering invariants (pinned by v1_screenplay_smoke #231)
+
+These are not enforced by this route but by the serializer in
+`fountain_export.js`. They must not regress:
+
+- Scenes render in document order.
+- Within a scene: scene heading → lines (in order) → blanks.
+- Character cues with empty dialogue are dropped.
+- Two consecutive calls on the same input produce byte-identical
+  output.
+
+See `docs/runbook-v1-smoke.md` § 2 for the smoke that pins
+these.
 
 ## Compatibility rules
 
-- iOS keys on `fountain_text` as the primary payload; metadata
-  fields are presented when available.
-- Adding optional metadata fields (e.g. `compile_status`) is
+- iOS keys on `fountain` (string) as the primary payload.
+- Adding optional metadata fields to the JSON envelope is
   tolerated.
-- Changing the Fountain text generation rules requires:
+- Changing the Fountain text-generation rules requires:
   1. A note on the agent-event lane.
-  2. A bump of the relevant invariant in the v1_screenplay_smoke
-     fixture if behavior changes.
-- Removing `fountain_text`, `format`, `schema_version`, or any
-  count field requires a schema bump.
+  2. A bump of the relevant invariant in the
+     `v1_screenplay_smoke` fixture if behavior changes.
+- Removing `fountain` or `schemaVersion` from the JSON envelope
+  requires a schema bump.
 
 ## Changelog
 
-- v1 — initial documented shape. Ordering invariants pinned by
-  `v1_screenplay_smoke`.
+- v1 — initial documented shape, matched line-by-line against
+  `mountFountainExportRoute` in
+  `backend/lib/fountain_export_route.js`. Earlier draft invented
+  a GET endpoint with a different path and invented response
+  fields (`project_id`, `version_id`, `title`, `fountain_text`,
+  `scene_count`, `character_count`, `line_count`, `exported_at`)
+  that the live route does not emit; this version corrects to
+  the actual `POST /screenplay/export/fountain` route and its
+  `{ schemaVersion, fountain }` envelope.
