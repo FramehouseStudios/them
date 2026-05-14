@@ -18,7 +18,7 @@ shape for `POST /screenplay/export/fdx`. Sibling to
 Covers:
 - Endpoint method + path.
 - Schema version (`1`).
-- SAFE-PUBLIC posture identical to the rest of the screenplay
+- PER-USER posture identical to the rest of the screenplay
   surface.
 - Request shape (shared with fountain-export.md by reference).
 - Validation: 400 envelopes for missing body / non-array
