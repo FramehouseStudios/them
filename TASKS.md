@@ -842,8 +842,8 @@
 | T101-agent-event-kind-sync                     | Sync agent_event kinds with AGENTS protocol                                                                | codex  | merged      |
 | T102                                           | Refresh coordination after schema-doc merge train                                                          | codex  | merged      |
 | T103                                           | Refresh coordination after realtime Phase 5b.4 merge                                                       | codex  | merged      |
-| T104                                           | Refresh coordination after schema-only PR cleanup                                                          | codex  | review      |
-| T105                                           | Refresh coordination after Phase 6 memories merge                                                          | codex  | in-progress |
+| T104                                           | Refresh coordination after schema-only PR cleanup                                                          | codex  | merged      |
+| T105                                           | Refresh coordination after Phase 6 memories merge                                                          | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6532,7 +6532,7 @@ Not run: iOS build/themTests, because this is a coordination-only refresh.
 - **Owner:** codex
 - **Branch:** codex/T104-schema-pr-cleanup-refresh
 - **Pillar:** infra
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -6564,7 +6564,7 @@ Not run: iOS build/themTests, because this is a coordination-only refresh.
 - **Owner:** codex
 - **Branch:** codex/T105-phase6-merge-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -6579,6 +6579,17 @@ Refresh coordination after Codex reviewed, patched, and merged Phase 6
 - `docs/codex-claude-live-handoff.md` records the current handoff.
 - `docs/coordination.json` records #296 merged and #298/#299 closed.
 - Verification commands and intentionally skipped iOS checks are recorded.
+
+## Verification
+
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=claude --limit=10 --no-events`
+- `node scripts/pre_flight.mjs`
+- `node --test scripts/agent_next.test.mjs`
+- `node --test scripts/agent_event.test.mjs`
+- `git diff --check`
+
+Not run: iOS build/themTests, because this is a coordination-only refresh.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

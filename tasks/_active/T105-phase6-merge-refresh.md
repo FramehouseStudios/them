@@ -2,7 +2,7 @@
 id: T105
 title: Refresh coordination after Phase 6 memories merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T105-phase6-merge-refresh
 pillar: infra
 v1_pillar: infra
@@ -22,3 +22,14 @@ Refresh coordination after Codex reviewed, patched, and merged Phase 6
 - `docs/codex-claude-live-handoff.md` records the current handoff.
 - `docs/coordination.json` records #296 merged and #298/#299 closed.
 - Verification commands and intentionally skipped iOS checks are recorded.
+
+## Verification
+
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=claude --limit=10 --no-events`
+- `node scripts/pre_flight.mjs`
+- `node --test scripts/agent_next.test.mjs`
+- `node --test scripts/agent_event.test.mjs`
+- `git diff --check`
+
+Not run: iOS build/themTests, because this is a coordination-only refresh.
