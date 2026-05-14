@@ -758,7 +758,8 @@
 | T-decompose-phase1-ops-routes                  | Decompose backend/index.js — Phase 1 (/ops/metrics + /ops/alerts)             | claude | merged      |
 | T-decompose-phase2a-screenplay-projects-reads  | Decompose backend/index.js — Phase 2a (5 /screenplay/projects/* GET routes)   | claude | merged      |
 | T-decompose-phase2b-screenplay-projects-writes | Decompose backend/index.js — Phase 2b (7 /screenplay/projects/* write routes) | claude | merged      |
-| T-decompose-phase3-ready                       | Phase 3 readiness — /screenplay/companion + /paginate + /revision-colors      | claude | planned     |
+| T-decompose-phase3-ready                       | Phase 3 readiness — /screenplay/companion + /paginate + /revision-colors      | claude | merged      |
+| T-decompose-phase3-screenplay-companion        | Decompose backend/index.js — Phase 3 (companion + paginate + revision-colors) | claude | merged      |
 | T-eval-gate-add-canon-evals                    | Umbrella `npm run eval:canon` for canonical-contract evals                    | claude | merged      |
 | T-format-linter-rules-canon-eval               | Pin canonical rule_id set + envelope for format_linter                        | claude | merged      |
 | T-known-domains-runtime-check                  | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip)                      | claude | merged      |
@@ -787,7 +788,7 @@
 | T-trait-library-canon-eval                     | Pin canonical TRAIT_KEYWORDS + cap constants                                  | claude | merged      |
 | T-trust-tiers                                  | Trust tiers + standing pre-approvals (AGENTS.md)                              | claude | review      |
 | T-twist-engine-canon-eval                      | Pin TWIST_LIBRARY framework set + per-twist field shape                       | claude | merged      |
-| T-untested-libs-followups                      | Add tests for 6 untested infrastructure libs                                  | claude | planned     |
+| T-untested-libs-followups                      | Add tests for remaining untested infrastructure libs                          | claude | planned     |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                          | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                          | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                    | codex  | review      |
@@ -816,6 +817,7 @@
 | T79                                            | Codify second-pass agent efficiency protocol                                  | codex  | merged      |
 | T80                                            | Refresh coordination after PR #191/#192                                       | codex  | merged      |
 | T81                                            | Refresh coordination after PR #193/#194                                       | codex  | review      |
+| T82                                            | Refresh coordination after PR #204/#205/#206/#207                             | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -1806,9 +1808,9 @@ on this landing.
 
 ### T-decompose-phase3-ready — Phase 3 readiness — /screenplay/companion + /paginate + /revision-colors
 - **Owner:** claude
-- **Branch:** (not opened — gated on round-19 PR train landing)
+- **Branch:** claude/T-decompose-phase3-screenplay-companion
 - **Pillar:** infra (backend architecture)
-- **Status:** planned
+- **Status:** merged
 
 ## Scope
 
@@ -1850,17 +1852,64 @@ Phase 3 PR opens when:
 3. Phase 2b (#197 — already merged on main today) is reflected in
    the coord state.
 
-## Next action
+## Outcome
 
-When the round-19 train lands, open the Phase 3 PR following the
-pattern proven by Phase 0 / 1 / 2a / 2b:
+Completed by PR #204 / `claude/T-decompose-phase3-screenplay-companion`.
+The route module exists, required-deps guard is covered, and focused +
+full backend tests passed before merge.
 
-1. Create `backend/lib/screenplay_companion_routes.js` with
-   `mountScreenplayCompanionRoutes(app, deps)`.
-2. Required-deps guard fails loud at mount.
-3. Add integration tests with bare-Express fixtures.
-4. Replace inline handlers in `backend/index.js` with one mount call.
-5. Update `docs/specs/T-decompose-backend-index.md` progress log.
+### T-decompose-phase3-screenplay-companion — Decompose backend/index.js — Phase 3 (companion + paginate + revision-colors)
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase3-screenplay-companion
+- **Pillar:** infra (backend architecture)
+- **Status:** merged
+
+## Scope
+
+Phase 3 of the `backend/index.js` decomposition (spec:
+`docs/specs/T-decompose-backend-index.md`). Phases 0–2b all merged
+on main. Per spec, max 1 decomp PR in flight.
+
+Routes extracted byte-identically to
+`backend/lib/screenplay_companion_routes.js`:
+
+- `GET /screenplay/companion/state` (PER-USER)
+- `POST /screenplay/companion/state` (PER-USER)
+- `POST /screenplay/paginate` (STATELESS)
+- `POST /screenplay/revision-colors` (STATELESS)
+
+15 deps passed by reference: owner helpers, envelope/header helpers,
+companion-state normalizer + payload serializer, screenplay
+revision payload builder, line splitter, draft excerpt builder, plus
+the standard parsing utilities. Required-deps guard fails loud at
+mount for every dep.
+
+Each POST handler mounts its own `express.json()` with the same
+limit the inline handler used.
+
+## Verification
+
+- `node --test backend/tests/screenplay_companion_routes.test.mjs`
+  → **12/12 pass** (cold companion state, save + firstPageWrittenAt
+  preserve, paginate line/page math + clamping + length-profile,
+  revision-colors color default + 400 paths).
+- Required-deps guard tested for all 15 deps.
+- `node --check backend/index.js` passes.
+- `backend/index.js`: **-79 net lines** (102 deletions, 23 insertions
+  for the mount call). index.js now at 32,601 lines.
+
+## Done when
+
+The 4 routes are no longer inline; the lib file exists with the
+documented per-route access-control posture; tests pass; behavior
+is byte-identical with the previous inline handlers.
+
+## Next phase
+
+Phase 4 (per spec): extract auth routes (~11 routes). Auth is
+tier-3 sensitive but the inline block is already well-isolated.
+Per spec, max 1 decomp PR in flight, so Phase 4 is gated on this
+landing.
 
 ### T-eval-gate-add-canon-evals — Umbrella `npm run eval:canon` for canonical-contract evals
 - **Owner:** claude
@@ -2860,7 +2909,7 @@ Wired via `npm run eval:twist-engine-canon`.
 `backend/evals/run_twist_engine_canon_eval.mjs` exits 0 with all
 checks passing; `npm test` still green.
 
-### T-untested-libs-followups — Add tests for 6 untested infrastructure libs
+### T-untested-libs-followups — Add tests for remaining untested infrastructure libs
 - **Owner:** claude
 - **Branch:** (not opened)
 - **Pillar:** infra (test coverage)
@@ -2879,32 +2928,24 @@ without any direct or indirect test imports:
 - `user_store`   (705 lines)  — user persistence
 - `utils`        (154 lines)  — pure-function toolbox
 
-`utils.js` is covered as of this round (PR #200 adds
-`backend/tests/utils.test.mjs`, 17 tests). The remaining 6 are
-foundational and stateful (persistence + auth). Each deserves its
-own focused test PR rather than a single mega-PR.
+Coverage landed for `utils.js` (#200), `persona.js` (#205),
+`screenplay_store.js` (#206), and `outbox_store.js` (#207). The
+remaining 3 are foundational and stateful (memory + auth). Each
+deserves its own focused test PR rather than a single mega-PR.
 
 ## Suggested phasing
 
-1. **persona** — smallest stateful lib; runtime config + persona
-   selection. Pure-ish; cheap to test.
-2. **screenplay_store** — Phase 2 exercised it through the route
-   tests, but the store itself has no direct tests. Cover
-   `getOrCreateScreenplayOwnerRecord`, `getScreenplayProjectRecord`,
-   `markScreenplayOwnerDirty`, the persistence load/save round-trip.
-3. **outbox_store** — covered by `outbox_snapshotter.test.mjs`
-   indirectly but no direct tests. Pin the schema-version envelope.
-4. **memory_store** — biggest single piece. Round-trip persisted
+1. **memory_store** — biggest single piece. Round-trip persisted
    session memory; eviction; backfill.
-5. **user_store** — same shape as memory_store. Round-trip;
+2. **user_store** — same shape as memory_store. Round-trip;
    per-IP / per-client-token lookup.
-6. **user_auth** — tied to `user_store`. Test auth issuance + token
+3. **user_auth** — tied to `user_store`. Test auth issuance + token
    verification + the `req.user` middleware.
 
 ## Done when
 
-All 6 libs have a `backend/tests/<name>.test.mjs` with at least
-smoke coverage of the most-used exports + at least one
+The remaining 3 libs have a `backend/tests/<name>.test.mjs` with at
+least smoke coverage of the most-used exports + at least one
 round-trip-through-persistence test for the stateful ones.
 
 ## Why this matters
@@ -3428,5 +3469,30 @@ and `TASKS.md` agree that #193/#194 are merged, #195 is closed, and
 the only remaining open Claude PRs are human-gated (#33, #63, #94,
 #99). Coordination validation, agent-next, task generation, event tail,
 and diff checks pass.
+
+### T82 — Refresh coordination after PR #204/#205/#206/#207
+- **Owner:** codex
+- **Branch:** codex/T82-refresh-after-pr204-207
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Record the post-round-20 merge train:
+
+- #204 `T-decompose-phase3-screenplay-companion`
+- #205 `T-persona-smoke-test`
+- #206 `T-screenplay-store-smoke-test`
+- #207 `T-outbox-store-smoke-test`
+
+Refresh `docs/coordination.json`, `docs/codex-inbox.md`,
+`docs/agent-events-2026-W20.jsonl`, and generated `TASKS.md` so Claude
+can continue from repo state without human copy/paste.
+
+## Done when
+
+`node scripts/coordination_state.mjs validate` passes; `agent_next`
+shows no reviewable Claude PRs; the inbox says only human-gated PRs
+remain and names the next safe backend coverage targets.
 
 <!-- END AUTOGEN active-tasks -->

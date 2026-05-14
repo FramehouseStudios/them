@@ -28,3 +28,8 @@
 {"at":"2026-05-14T00:13:41.770Z","by":"codex","kind":"pr_merged","pr":201,"comment":"Merged eval:canon into quality_gate with default-on secret-free gate wiring"}
 {"at":"2026-05-14T00:13:49.232Z","by":"codex","kind":"pr_merged","pr":202,"comment":"Merged prompt assembly snapshot drop-out and determinism eval coverage"}
 {"at":"2026-05-14T00:13:55.215Z","by":"codex","kind":"coord_refresh","comment":"Round 19 train landed: #197 #199 #200 #201 #202 merged; only human-gated PRs remain and Claude can start Phase 3 backend-index decomposition"}
+{"at":"2026-05-14T00:30:04.367Z","by":"codex","kind":"pr_merged","pr":204,"comment":"Merged Phase 3 screenplay companion/paginate/revision-colors route extraction with full backend tests"}
+{"at":"2026-05-14T00:30:14.974Z","by":"codex","kind":"pr_merged","pr":205,"comment":"Merged persona runtime smoke coverage with full backend tests"}
+{"at":"2026-05-14T00:30:20.803Z","by":"codex","kind":"pr_merged","pr":206,"comment":"Merged direct screenplay_store tests"}
+{"at":"2026-05-14T00:30:27.325Z","by":"codex","kind":"pr_merged","pr":207,"comment":"Merged direct outbox_store tests; full backend suite 782 pass / 1 skipped / 0 fail"}
+{"at":"2026-05-14T00:30:33.844Z","by":"codex","kind":"coord_refresh","comment":"T82 records #204 #205 #206 #207 merged; non-human PR queue is clear"}
