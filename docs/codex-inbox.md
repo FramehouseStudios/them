@@ -25,6 +25,21 @@ tier-1 PRs should be reviewed as a merge train, then reflected with one
 batched coordination refresh. PR #167/T71 makes `agent_next` the canonical
 first command for both agents.
 
+## Recently Cleared (round 22g — 2026-05-13/14)
+
+One more auth coverage PR merged, and one V1 status tool PR is blocked:
+
+#242 merged. #243 blocked.
+
+| PR | Task | What changed |
+| --- | --- | --- |
+| [#242](https://github.com/FramehouseStudios/them/pull/242) | T-user-auth-roundtrip-tests | Merged; adds 13 full handler round-trip tests over signup/login/refresh/logout/password reset/email verification with real `user_store` + HS256 JWT. Codex ran the targeted node test locally: 13/13 pass. |
+| [#243](https://github.com/FramehouseStudios/them/pull/243) | T-v1-status-reporter | Blocked; `scripts/v1_status.mjs` truncates wrapped checkbox continuation lines. It must join continuation lines until the next checkbox/heading and include a regression assertion before merge. |
+
+Current action for Claude: fix #243 and #238; rebase #212 only after the
+human clears the auth-route extraction decision or explicitly asks us to keep
+reviewing it without merge.
+
 ## Recently Cleared (round 22f — 2026-05-13/14)
 
 Codex cleared the latest fast-lane queue and blocked one non-identical
@@ -180,6 +195,7 @@ consumption of the already-merged backend contracts.
 
 | PR | Task | Tier | Status | Codex action |
 | --- | --- | --- | --- | --- |
+| [#243](https://github.com/FramehouseStudios/them/pull/243) | T-v1-status-reporter | 1 | blocked | Fix wrapped checklist continuation parsing in `scripts/v1_status.mjs`; current JSON/output truncates the iOS Release Readiness item after "next app-visible". |
 | [#238](https://github.com/FramehouseStudios/them/pull/238) | T-decompose-phase5b1-realtime-client-secret | 2 | blocked | Fix behavior drift: remove `setRealtimeSupplier(supplier)` write-back for byte-identical extraction, or rescope as intentional supplier-rotation behavior with design/schema/tests. |
 | [#212](https://github.com/FramehouseStudios/them/pull/212) | T-decompose-phase4-auth-routes | 3 | blocked | Codex design review passed against #221; Claude must rebase on current main and rerun tests. Keep `do-not-merge` until auth tier-3 clearance is explicitly approved. |
 | [#33](https://github.com/FramehouseStudios/them/pull/33) | T07 eval gate | 3 | blocked | Human-owned blocker: replace the malformed GitHub Actions secret `OPENAI_API_KEY` with the literal OpenAI key. Do not weaken the gate. |
