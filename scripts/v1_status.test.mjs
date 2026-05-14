@@ -135,3 +135,32 @@ test("[v1-status] text-mode --diff includes Diff vs <ref> header", () => {
   assert.equal(r.status, 0);
   assert.match(r.stdout, /Diff vs HEAD:/);
 });
+
+// ---------- --md-comment flag ----------
+
+test("[v1-status] --md-comment emits PR-comment-shaped output", () => {
+  const r = spawnSync("node", [script, "--md-comment"], {
+    encoding: "utf8",
+    cwd: repoRoot,
+  });
+  assert.equal(r.status, 0, `exit ${r.status}: ${r.stderr}`);
+  // Canonical heading + headline + markdown table + details block.
+  assert.match(r.stdout, /^## V1 status$/m);
+  assert.match(r.stdout, /\*\*Overall:\*\* \d+\/\d+ \(\d+%\)/);
+  assert.match(r.stdout, /^\| Pillar \| Done \| Total \| % \| Next remaining \|$/m);
+  // Details block uses HTML <details> / <summary>.
+  assert.match(r.stdout, /<details>/);
+  assert.match(r.stdout, /<summary>Remaining work by pillar<\/summary>/);
+  assert.match(r.stdout, /<\/details>/);
+  // Sub footer with regenerate command.
+  assert.match(r.stdout, /node scripts\/v1_status\.mjs --md-comment/);
+});
+
+test("[v1-status] --md-comment + non-matching --pillar filter omits details block", () => {
+  const r = spawnSync("node", [script, "--md-comment", "--pillar=__nonexistent__"], {
+    encoding: "utf8",
+    cwd: repoRoot,
+  });
+  assert.equal(r.status, 0);
+  assert.ok(!r.stdout.includes("<details>"));
+});
