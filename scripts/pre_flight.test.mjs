@@ -27,6 +27,7 @@ function tempRepo({
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-preflight-"));
   fs.mkdirSync(path.join(tmp, "scripts"));
   fs.mkdirSync(path.join(tmp, "backend", "lib"), { recursive: true });
+  fs.mkdirSync(path.join(tmp, "backend", "tests"), { recursive: true });
   fs.mkdirSync(path.join(tmp, "backend", "evals"), { recursive: true });
   fs.copyFileSync(script, path.join(tmp, "scripts", "pre_flight.mjs"));
   if (withRouteFile) {
@@ -378,4 +379,60 @@ export { compute };
   const tmp = tempRepo({ withMountFile: libFile });
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /mount-missing-required-deps-guard/);
+});
+
+// ---------- lib-missing-test ----------
+
+test("[pre-flight] flags a lib that has no direct test and is not imported", () => {
+  const libFile = `function compute(a, b) { return a + b; }
+export { compute };
+`;
+  // tempRepo writes the mount file under backend/lib/mountable_lib.js.
+  // No corresponding mountable_lib.test.mjs is written, so the rule
+  // should flag it.
+  const tmp = tempRepo({ withMountFile: libFile });
+  const r = runIn(tmp);
+  assert.match(r.stderr, /lib-missing-test/);
+  assert.match(r.stderr, /mountable_lib\.js/);
+});
+
+test("[pre-flight] does not flag a lib with a direct test file", () => {
+  const tmp = tempRepo({
+    withMountFile: `function compute(a, b) { return a + b; }
+export { compute };
+`,
+  });
+  fs.writeFileSync(
+    path.join(tmp, "backend", "tests", "mountable_lib.test.mjs"),
+    `import { test } from "node:test"; test("smoke", () => {});`,
+  );
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /lib-missing-test/);
+});
+
+test("[pre-flight] does not flag a lib that is imported by some other test", () => {
+  const tmp = tempRepo({
+    withMountFile: `function compute(a, b) { return a + b; }
+export { compute };
+`,
+  });
+  fs.writeFileSync(
+    path.join(tmp, "backend", "tests", "other.test.mjs"),
+    `import { compute } from "../lib/mountable_lib.js";
+import { test } from "node:test";
+test("smoke", () => { compute(1, 2); });
+`,
+  );
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /lib-missing-test/);
+});
+
+test("[pre-flight] does not flag a lib with the no-test-needed opt-out marker", () => {
+  const libFile = `// pre-flight: no-test-needed
+// pure constants
+export const KEYS = ["a", "b", "c"];
+`;
+  const tmp = tempRepo({ withMountFile: libFile });
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /lib-missing-test/);
 });

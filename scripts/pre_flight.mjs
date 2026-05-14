@@ -232,6 +232,49 @@ function checkMountRequiredDepsGuard() {
   }
 }
 
+function checkLibHasTest() {
+  // Every backend/lib/*.js should have a corresponding test. A test
+  // can be:
+  //
+  //   1. A direct `backend/tests/<name>.test.mjs` file.
+  //   2. Some other test file that imports `lib/<name>.js`.
+  //
+  // Files can explicitly opt out by including the marker comment
+  // `// pre-flight: no-test-needed` at the top of the file (for
+  // pure-config or pure-constants modules).
+  //
+  // This rule is the static-analysis cousin of the round-19
+  // test-coverage audit. The audit found 7 untested libs;
+  // T-untested-libs-followups tracked the gap. Once that follow-up
+  // closes, this rule should produce zero findings on main.
+  const libDir = path.join(repoRoot, "backend", "lib");
+  const testDir = path.join(repoRoot, "backend", "tests");
+  if (!fs.existsSync(libDir) || !fs.existsSync(testDir)) return;
+  const libFiles = walkFiles(libDir, (p) => p.endsWith(".js"));
+  const testFiles = walkFiles(testDir, (p) => p.endsWith(".test.mjs"));
+  // Build an import index once: map each lib path → bool seen in tests.
+  const testTexts = testFiles.map((f) => ({ path: f, text: fs.readFileSync(f, "utf8") }));
+  for (const libFile of libFiles) {
+    const libBase = path.basename(libFile, ".js");
+    const libText = fs.readFileSync(libFile, "utf8");
+    // Opt-out marker.
+    if (/\/\/\s*pre-flight\s*:\s*no-test-needed/i.test(libText)) continue;
+    // Direct test file?
+    const directTest = path.join(testDir, `${libBase}.test.mjs`);
+    if (fs.existsSync(directTest)) continue;
+    // Indirect coverage via any test that imports `lib/<base>.js`?
+    const importPattern = new RegExp(`from\\s+["'][^"']*lib/${libBase}\\.js["']`);
+    const importedSomewhere = testTexts.some((t) => importPattern.test(t.text));
+    if (importedSomewhere) continue;
+    add(
+      "lib-missing-test",
+      path.relative(repoRoot, libFile),
+      null,
+      `backend/lib/${libBase}.js has no direct test (${libBase}.test.mjs) and is not imported by any test file. Add a test or mark "// pre-flight: no-test-needed" if the file is pure config.`,
+    );
+  }
+}
+
 function checkSchemaVersionedEnvelopes() {
   // App-facing list/report envelopes should carry schemaVersion so iOS can
   // decode defensively. Keep this conservative: only flag route files that
@@ -264,6 +307,7 @@ checkConsoleLogInProductionLib();
 checkEvalDeterminismCoverage();
 checkSchemaVersionedEnvelopes();
 checkMountRequiredDepsGuard();
+checkLibHasTest();
 
 const strict = process.argv.includes("--strict");
 
