@@ -47,6 +47,7 @@ private struct DebugBundleSnapshot: Codable {
     let speculative: DebugBundleSpeculativeSnapshot
     let backendHealth: DebugBundleHealthSnapshot?
     let backendRoutes: DebugBundleRoutesSnapshot?
+    let backendTalkDiagnostics: DebugBundleTalkDiagnosticsSnapshot?
     let backendSync: DebugBundleSyncSnapshot
 }
 
@@ -82,6 +83,13 @@ private struct DebugBundleRoutesSnapshot: Codable {
     let diagnosticsSummary: String
     let groups: [String]
     let routes: [BackendOpsRoute]
+    let refreshedAtISO8601: String
+    let lastError: String
+}
+
+private struct DebugBundleTalkDiagnosticsSnapshot: Codable {
+    let statsSummary: String
+    let errorSummary: String
     let refreshedAtISO8601: String
     let lastError: String
 }
@@ -643,6 +651,11 @@ struct RootExperienceView: View {
     @State private var lastOpsRoutesManifest: BackendOpsRouteManifestResponse?
     @State private var lastOpsRoutesManifestRefreshedAt: Date?
     @State private var lastOpsRoutesManifestError = ""
+    @State private var lastTalkStats: BackendTalkStatsResponse?
+    @State private var lastTalkErrors: BackendTalkErrorsResponse?
+    @State private var lastTalkDiagnosticsRefreshedAt: Date?
+    @State private var lastTalkDiagnosticsError = ""
+    @State private var isRefreshingTalkDiagnostics = false
     @State private var lastSubmittedFingerprint = ""
     @State private var lastSubmittedAt: Date = .distantPast
     @State private var lastOpenedEmailTurnID = ""
@@ -736,6 +749,7 @@ struct RootExperienceView: View {
     @State private var replyEchoOpacity: Double = 0
     @State private var replyEchoClearTask: Task<Void, Never>?
     @State private var showingReportOptions = false
+    @State private var showingTalkDiagnostics = false
     @State private var showingDebugBundleNotice = false
     @State private var debugBundleNoticeMessage = ""
     #if os(iOS)
@@ -2353,6 +2367,16 @@ struct RootExperienceView: View {
                     }
                     NumberedChoiceActionButton(
                         number: "2",
+                        title: "Talk Diagnostics",
+                        prominence: .prominent
+                    ) {
+                        showingTalkDiagnostics = true
+                        Task { @MainActor in
+                            await refreshTalkDiagnostics(force: true)
+                        }
+                    }
+                    NumberedChoiceActionButton(
+                        number: "3",
                         title: "Send Debug Bundle",
                         prominence: .prominent
                     ) {
@@ -2362,7 +2386,25 @@ struct RootExperienceView: View {
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("Choose what to send to support. Press 1 for an email summary or 2 for a debug bundle.")
+                    Text("Choose what to send to support. Press 1 for an email summary, 2 for talk diagnostics, or 3 for a debug bundle.")
+                }
+                .sheet(isPresented: $showingTalkDiagnostics) {
+                    TalkDiagnosticsSheet(
+                        stats: lastTalkStats,
+                        errors: lastTalkErrors,
+                        refreshedAt: lastTalkDiagnosticsRefreshedAt,
+                        lastError: lastTalkDiagnosticsError,
+                        isRefreshing: isRefreshingTalkDiagnostics,
+                        onRefresh: {
+                            Task { @MainActor in
+                                await refreshTalkDiagnostics(force: true)
+                            }
+                        },
+                        onDone: {
+                            showingTalkDiagnostics = false
+                        }
+                    )
+                    .frame(minWidth: 520, minHeight: 520)
                 }
                 .alert("Debug Bundle", isPresented: $showingDebugBundleNotice) {
                     Button("OK", role: .cancel) {}
@@ -6693,6 +6735,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 backendConnectionState = .up
                 backendFailureCount = 0
                 await refreshOpsRouteManifestIfNeeded(force: false)
+                await refreshTalkDiagnostics(force: false)
                 return
             }
 
@@ -6726,6 +6769,30 @@ Write this approved story direction directly into screenplay pages now. Maintain
             lastOpsRoutesManifestError = ""
         } catch {
             lastOpsRoutesManifestError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func refreshTalkDiagnostics(force: Bool) async {
+        guard !IOThemRuntime.isRunningTests else { return }
+        let now = Date()
+        if !force,
+           let lastRefresh = lastTalkDiagnosticsRefreshedAt,
+           now.timeIntervalSince(lastRefresh) < 120 {
+            return
+        }
+        isRefreshingTalkDiagnostics = true
+        defer { isRefreshingTalkDiagnostics = false }
+        do {
+            async let stats = BackendMemoryAPI.shared.fetchTalkStats()
+            async let errors = BackendMemoryAPI.shared.fetchTalkErrors()
+            lastTalkStats = try await stats
+            lastTalkErrors = try await errors
+            lastTalkDiagnosticsRefreshedAt = Date()
+            lastTalkDiagnosticsError = ""
+        } catch {
+            lastTalkDiagnosticsError = error.localizedDescription
+            lastTalkDiagnosticsRefreshedAt = Date()
         }
     }
 
@@ -8405,6 +8472,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let sync = await BackendMemoryAPI.shared.currentSyncState()
         let health = lastHealthStatus
         let routeManifest = lastOpsRoutesManifest
+        let talkStats = lastTalkStats
+        let talkErrors = lastTalkErrors
 
         let snapshot = DebugBundleSnapshot(
             generatedAtISO8601: formatter.string(from: now),
@@ -8471,6 +8540,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     lastError: lastOpsRoutesManifestError
                 )
             },
+            backendTalkDiagnostics: {
+                guard talkStats != nil || talkErrors != nil || !lastTalkDiagnosticsError.isEmpty else {
+                    return nil
+                }
+                return DebugBundleTalkDiagnosticsSnapshot(
+                    statsSummary: talkStats?.diagnosticsSummary ?? "n/a",
+                    errorSummary: talkErrors?.diagnosticsSummary ?? "n/a",
+                    refreshedAtISO8601: formatter.string(from: lastTalkDiagnosticsRefreshedAt ?? now),
+                    lastError: lastTalkDiagnosticsError
+                )
+            }(),
             backendSync: DebugBundleSyncSnapshot(
                 status: sync.status,
                 sessionId: sync.sessionId,
@@ -8509,7 +8589,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             "Backend boot id: \(health?.backendBootId ?? "n/a")",
             "Last turn: \(health?.lastTurnId ?? "n/a")",
             "Backend routes: \(lastOpsRoutesManifest?.diagnosticsSummary ?? "n/a")",
-            "Backend route error: \(lastOpsRoutesManifestError.isEmpty ? "n/a" : lastOpsRoutesManifestError)"
+            "Backend route error: \(lastOpsRoutesManifestError.isEmpty ? "n/a" : lastOpsRoutesManifestError)",
+            "Talk stats: \(lastTalkStats?.diagnosticsSummary ?? "n/a")",
+            "Talk errors: \(lastTalkErrors?.diagnosticsSummary ?? "n/a")",
+            "Talk diagnostics error: \(lastTalkDiagnosticsError.isEmpty ? "n/a" : lastTalkDiagnosticsError)"
         ].joined(separator: "\n")
     }
 
