@@ -2,7 +2,7 @@
 id: T95-schema-doc-drift-gate
 title: Gate schema docs against backend field drift
 owner: codex
-status: in-progress
+status: review
 branch: codex/T95-schema-doc-drift-gate
 pillar: infra
 v1_pillar: infra
@@ -23,4 +23,11 @@ v1_effect: prevents stale schema documentation from misleading iOS and backend i
 
 ## Verification
 
-- Not run yet.
+- `node --check scripts/pre_flight.mjs`
+  - Passed.
+- `node --test scripts/pre_flight.test.mjs`
+  - Passed, 35/35.
+- `node scripts/pre_flight.mjs`
+  - Passed, no findings.
+- `git diff --check`
+  - Passed.

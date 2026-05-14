@@ -298,6 +298,84 @@ function checkSchemaVersionedEnvelopes() {
   }
 }
 
+function extractMarkdownSchemaTerms(text) {
+  const terms = new Set();
+  for (const match of text.matchAll(/"([A-Za-z_][A-Za-z0-9_]*)"\s*:/g)) {
+    terms.add(match[1]);
+  }
+  for (const match of text.matchAll(/^\|\s*`([^`]+)`\s*\|/gm)) {
+    terms.add(match[1]);
+  }
+  for (const match of text.matchAll(/`([A-Za-z_][A-Za-z0-9_]*)`/g)) {
+    terms.add(match[1]);
+  }
+  return terms;
+}
+
+function checkSchemaDocBackendDrift() {
+  // Schema docs are only useful if they match the canonical backend
+  // code. Keep this check intentionally narrow and source-backed:
+  // the outbox record drift in schema-doc batch 3 used legacy
+  // snake_case fields/statuses while backend/lib/outbox_store.js
+  // has used camelCase + pending/completed/failed.
+  const outboxDoc = path.join(repoRoot, "docs", "schemas", "outbox-event.md");
+  const outboxSource = path.join(repoRoot, "backend", "lib", "outbox_store.js");
+  if (!fs.existsSync(outboxDoc) || !fs.existsSync(outboxSource)) return;
+  const docText = fs.readFileSync(outboxDoc, "utf8");
+  const sourceText = fs.readFileSync(outboxSource, "utf8");
+  const terms = extractMarkdownSchemaTerms(docText);
+
+  const canonicalFields = [
+    "id",
+    "type",
+    "actionKey",
+    "status",
+    "attempts",
+    "createdAt",
+    "updatedAt",
+    "nextAttemptAt",
+    "payload",
+    "result",
+    "lastError",
+  ];
+  const canonicalStatuses = ["pending", "completed", "failed"];
+  const staleTerms = [
+    "kind",
+    "created_at",
+    "next_attempt_at",
+    "last_error",
+    "completed_at",
+    "in_flight",
+    "succeeded",
+    "failed_permanent",
+  ];
+
+  const sourceHasCanonicalShape = canonicalFields.every((field) => sourceText.includes(field))
+    && canonicalStatuses.every((status) => sourceText.includes(`"${status}"`));
+  if (!sourceHasCanonicalShape) return;
+
+  const foundStaleTerms = staleTerms.filter((term) => terms.has(term));
+  if (foundStaleTerms.length > 0) {
+    add(
+      "schema-doc-backend-drift",
+      path.relative(repoRoot, outboxDoc),
+      null,
+      `outbox schema doc uses stale field/status terms not present in the canonical store shape: ${foundStaleTerms.join(", ")}. Match backend/lib/outbox_store.js before review.`,
+    );
+  }
+
+  const missingFields = canonicalFields.filter((field) => !terms.has(field));
+  const missingStatuses = canonicalStatuses.filter((status) => !terms.has(status));
+  if (missingFields.length > 0 || missingStatuses.length > 0) {
+    add(
+      "schema-doc-backend-drift",
+      path.relative(repoRoot, outboxDoc),
+      null,
+      `outbox schema doc is missing canonical store terms: ${[...missingFields, ...missingStatuses].join(", ")}. Match backend/lib/outbox_store.js before review.`,
+    );
+  }
+}
+
 function checkTaskV1Pillar() {
   // Every active task file in tasks/_active/T-*.md that uses YAML
   // front matter should carry a v1_pillar + v1_effect declaration
@@ -366,6 +444,7 @@ checkFrozenExportedConstants();
 checkConsoleLogInProductionLib();
 checkEvalDeterminismCoverage();
 checkSchemaVersionedEnvelopes();
+checkSchemaDocBackendDrift();
 checkMountRequiredDepsGuard();
 checkLibHasTest();
 checkTaskV1Pillar();

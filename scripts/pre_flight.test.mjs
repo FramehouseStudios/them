@@ -23,12 +23,15 @@ function tempRepo({
   withEvalFile,
   withEnvelopeRouteFile,
   withMountFile,
+  withOutboxSource,
+  withOutboxDoc,
 } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-preflight-"));
   fs.mkdirSync(path.join(tmp, "scripts"));
   fs.mkdirSync(path.join(tmp, "backend", "lib"), { recursive: true });
   fs.mkdirSync(path.join(tmp, "backend", "tests"), { recursive: true });
   fs.mkdirSync(path.join(tmp, "backend", "evals"), { recursive: true });
+  fs.mkdirSync(path.join(tmp, "docs", "schemas"), { recursive: true });
   fs.copyFileSync(script, path.join(tmp, "scripts", "pre_flight.mjs"));
   if (withRouteFile) {
     fs.writeFileSync(path.join(tmp, "backend", "lib", "thing_route.js"), withRouteFile);
@@ -50,6 +53,12 @@ function tempRepo({
   }
   if (withMountFile) {
     fs.writeFileSync(path.join(tmp, "backend", "lib", "mountable_lib.js"), withMountFile);
+  }
+  if (withOutboxSource) {
+    fs.writeFileSync(path.join(tmp, "backend", "lib", "outbox_store.js"), withOutboxSource);
+  }
+  if (withOutboxDoc) {
+    fs.writeFileSync(path.join(tmp, "docs", "schemas", "outbox-event.md"), withOutboxDoc);
   }
   return tmp;
 }
@@ -290,6 +299,106 @@ export { mountFoo };
   const tmp = tempRepo({ withEnvelopeRouteFile: route });
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /schema-envelope-missing-version/);
+});
+
+// ---------- schema-doc-backend-drift ----------
+
+const canonicalOutboxSource = `
+async function enqueueActionOutbox() {
+  return {
+    id: "ob_1",
+    type: "email_compose",
+    actionKey: "outbox_email_compose",
+    status: "pending",
+    attempts: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    nextAttemptAt: 1,
+    payload: {},
+    result: {},
+    lastError: "",
+  };
+}
+async function finish(item) {
+  return { status: item.ok ? "completed" : "failed" };
+}
+export { enqueueActionOutbox, finish };
+`;
+
+test("[pre-flight] flags outbox schema docs with stale backend terms", () => {
+  const staleDoc = `
+# outbox-event schema
+
+\`\`\`json
+{
+  "id": "ob_1",
+  "kind": "email.password_reset",
+  "created_at": 1715620920000,
+  "attempts": 0,
+  "next_attempt_at": 1715620920000,
+  "status": "pending",
+  "payload": {},
+  "last_error": null,
+  "completed_at": null
+}
+\`\`\`
+
+| Key | Type |
+| --- | --- |
+| \`status\` | \`pending\` | \`in_flight\` | \`succeeded\` | \`failed_permanent\` |
+`;
+  const tmp = tempRepo({
+    withOutboxSource: canonicalOutboxSource,
+    withOutboxDoc: staleDoc,
+  });
+  const r = runIn(tmp);
+  assert.match(r.stderr, /schema-doc-backend-drift/);
+  assert.match(r.stderr, /kind/);
+  assert.match(r.stderr, /created_at/);
+  assert.match(r.stderr, /actionKey/);
+  assert.match(r.stderr, /completed/);
+});
+
+test("[pre-flight] accepts outbox schema docs matching the canonical store shape", () => {
+  const currentDoc = `
+# outbox-event schema
+
+\`\`\`json
+{
+  "id": "ob_1",
+  "type": "email_compose",
+  "actionKey": "outbox_email_compose",
+  "status": "pending",
+  "attempts": 0,
+  "createdAt": 1715620920000,
+  "updatedAt": 1715620920000,
+  "nextAttemptAt": 1715620920000,
+  "payload": {},
+  "result": {},
+  "lastError": ""
+}
+\`\`\`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| \`id\` | string | row id |
+| \`type\` | string | normalized action type |
+| \`actionKey\` | string | idempotency key |
+| \`status\` | string | \`pending\` | \`completed\` | \`failed\` |
+| \`attempts\` | int | retry count |
+| \`createdAt\` | int | epoch ms |
+| \`updatedAt\` | int | epoch ms |
+| \`nextAttemptAt\` | int | epoch ms |
+| \`payload\` | object | effect payload |
+| \`result\` | object | last result payload |
+| \`lastError\` | string | last error summary |
+`;
+  const tmp = tempRepo({
+    withOutboxSource: canonicalOutboxSource,
+    withOutboxDoc: currentDoc,
+  });
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /schema-doc-backend-drift/);
 });
 
 // ---------- strict mode ----------

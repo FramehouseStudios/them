@@ -845,7 +845,7 @@
 | T92                                            | Round 22g coordination refresh                                                           | codex  | review      |
 | T93                                            | Round 22h coordination refresh                                                           | codex  | review      |
 | T94                                            | Claude supervisor note handoff                                                           | codex  | review      |
-| T95-schema-doc-drift-gate                      | Gate schema docs against backend field drift                                             | codex  | in-progress |
+| T95-schema-doc-drift-gate                      | Gate schema docs against backend field drift                                             | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -4820,7 +4820,7 @@ Claude can see the directive from both GitHub and `agent_next`.
 - **Owner:** codex
 - **Branch:** codex/T95-schema-doc-drift-gate
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -4836,6 +4836,13 @@ Claude can see the directive from both GitHub and `agent_next`.
 
 ## Verification
 
-- Not run yet.
+- `node --check scripts/pre_flight.mjs`
+  - Passed.
+- `node --test scripts/pre_flight.test.mjs`
+  - Passed, 35/35.
+- `node scripts/pre_flight.mjs`
+  - Passed, no findings.
+- `git diff --check`
+  - Passed.
 
 <!-- END AUTOGEN active-tasks -->
