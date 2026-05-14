@@ -16,8 +16,10 @@ Adds two new pre-flight checks under `scripts/pre_flight.mjs`:
 - `task-missing-status` — task file has YAML front matter but no
   `status:` field.
 - `task-invalid-status` — task file has a `status:` value that
-  isn't one of the canonical vocabulary:
-  `open | review | merged | closed | parked | blocked | draft`.
+  isn't one of the canonical workflow statuses or grandfathered
+  coordination values:
+  `ready | ready-for-claude | in-progress | review | merged |
+   planned | open | blocked | parked | closed | draft`.
 
 Same grandfathering rules as `checkTaskV1Pillar`:
 - Files without YAML front matter are skipped.
@@ -42,11 +44,15 @@ status-reporting bug.
 
 ## Verification
 
-- `node scripts/pre_flight.mjs` → 0 new findings on current main
-  (all active tasks already use canonical statuses).
+- `node --test scripts/pre_flight.test.mjs` → fixture coverage for
+  missing status, invalid status, AGENTS statuses, grandfathered
+  statuses, and legacy/coord-refresh skips.
+- `node scripts/pre_flight.mjs` → 0 findings on current branch.
 - Rule body: validates against the set
-  `{open, review, merged, closed, parked, blocked, draft}`.
-- Grandfather list matches `checkTaskV1Pillar` precedent.
+  `{ready, ready-for-claude, in-progress, review, merged, planned,
+  open, blocked, parked, closed, draft}`.
+- Skip behavior matches `checkTaskV1Pillar` precedent for legacy
+  non-YAML files and coord-refresh files.
 
 ## Self-audit revisions
 
@@ -59,20 +65,22 @@ same branch before re-review:
    `^T\d` (Codex-style numeric ids) so both lanes are audited.
 
 2. **Canonical set was too narrow.** Once the filter widened,
-   Codex-owned tasks surfaced `in-progress` and `planned` as
-   already-in-use status values. Both are reasonable synonyms
-   of `open` (planned = not started, in-progress = open) and
-   shipping them now would force a noisy cross-agent cleanup.
-   Widened the canonical set to:
-   `open | review | merged | closed | parked | blocked |
-    draft | in-progress | planned`.
+   Codex-owned tasks surfaced `in-progress` and `planned`; AGENTS.md
+   also documents `ready` and `ready-for-claude`. Shipping the
+   narrow set would force noisy unrelated cleanup and incorrectly
+   reject real workflow states. Widened the accepted set to:
+   `ready | ready-for-claude | in-progress | review | merged |
+    planned | open | blocked | parked | closed | draft`.
 
-After both revisions: pre-flight is clean on main + this branch.
+3. **No fixture coverage.** Added regression tests for missing
+   status, invalid status, AGENTS workflow statuses, grandfathered
+   statuses, and skip behavior so this rule does not drift silently.
+
+After revisions: pre-flight and fixture tests are clean on this
+branch.
 
 ## Followups (not in this PR)
 
-- Add a fixture-driven unit test under `scripts/tests/` that
-  feeds the rule a bad-status file and verifies it fires.
 - Wire `task-invalid-status` and `task-missing-status` into the
   `--strict` failure set once the followup test lands.
 - Consider collapsing `planned` into `open` and `in-progress`

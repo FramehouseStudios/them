@@ -709,3 +709,100 @@ Legacy task file without YAML front matter.
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /task-id-mismatch-filename/);
 });
+
+// ---------- task-status-vocabulary ----------
+
+test("[pre-flight] flags YAML task files missing status", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-missing-status.md", `---
+id: T-missing-status
+title: Missing status task
+owner: claude
+v1_pillar: infra
+v1_effect: validates task status rollups
+---
+`);
+  const r = runIn(tmp);
+  assert.match(r.stderr, /task-missing-status/);
+  assert.match(r.stderr, /T-missing-status\.md/);
+});
+
+test("[pre-flight] flags invalid task status values", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-invalid-status.md", `---
+id: T-invalid-status
+title: Invalid status task
+owner: claude
+status: shipped
+v1_pillar: infra
+v1_effect: validates task status rollups
+---
+`);
+  const r = runIn(tmp);
+  assert.match(r.stderr, /task-invalid-status/);
+  assert.match(r.stderr, /shipped/);
+});
+
+test("[pre-flight] accepts AGENTS workflow task statuses", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-ready-for-claude.md", `---
+id: T-ready-for-claude
+title: Ready for Claude task
+owner: claude
+status: ready-for-claude
+v1_pillar: infra
+v1_effect: validates task status rollups
+---
+`);
+  writeTaskFile(tmp, "T-ready.md", `---
+id: T-ready
+title: Ready task
+owner: codex
+status: ready
+v1_pillar: infra
+v1_effect: validates task status rollups
+---
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-invalid-status/);
+  assert.doesNotMatch(r.stderr, /task-missing-status/);
+});
+
+test("[pre-flight] accepts grandfathered task statuses already in the repo", () => {
+  const tmp = tempRepo();
+  for (const status of ["open", "blocked", "parked", "closed", "draft", "planned", "in-progress"]) {
+    writeTaskFile(tmp, `T-${status}.md`, `---
+id: T-${status}
+title: ${status} task
+owner: codex
+status: ${status}
+v1_pillar: infra
+v1_effect: validates task status rollups
+---
+`);
+  }
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-invalid-status/);
+  assert.doesNotMatch(r.stderr, /task-missing-status/);
+});
+
+test("[pre-flight] status vocabulary skips legacy and coord-refresh tasks", () => {
+  const tmp = tempRepo();
+  writeTaskFile(tmp, "T-legacy-status.md", `# T-legacy-status
+
+Legacy task body without YAML.
+`);
+  writeTaskFile(tmp, "T84-refresh-after-pr250.md", `---
+id: T84-refresh-after-pr250
+title: Refresh coordination after PR #250
+owner: codex
+v1_pillar: infra
+v1_effect: updates coordination metadata
+---
+
+Refresh coordination after PR #250 merged.
+`);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /task-missing-status/);
+  assert.doesNotMatch(r.stderr, /task-invalid-status/);
+});
