@@ -36,6 +36,8 @@
     "eval:v1-memory-recall-smoke": "node ../scripts/v1_memory_recall_smoke.mjs",
     "eval:v1-realtime-failover-smoke": "node ../scripts/v1_realtime_failover_smoke.mjs",
     "eval:v1-smokes": "npm run eval:v1-voice-to-page-smoke && npm run eval:v1-screenplay-smoke && npm run eval:v1-memory-recall-smoke && npm run eval:v1-realtime-failover-smoke",
+    "v1:status": "node ../scripts/v1_status.mjs",
+    "v1:status:json": "node ../scripts/v1_status.mjs --json",
     "eval:canon": "npm run eval:creative-memory && npm run eval:creative-memory-version && npm run eval:block-signal-history-bounds && npm run eval:block-signal-block-cap && npm run eval:archetype-canon && npm run eval:backend-surface-smoke && npm run eval:ops-health-summary && npm run eval:trait-library-canon && npm run eval:twist-engine-canon && npm run eval:block-detector-canon && npm run eval:format-linter-canon && npm run eval:v1-smokes",
     "eval:regression": "RUN_SERVER=0 node evals/run_nightly_regression.mjs",
     "eval:regression:update": "RUN_SERVER=0 node evals/run_nightly_regression.mjs --write-baseline",
