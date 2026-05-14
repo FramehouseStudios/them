@@ -51,11 +51,29 @@ schema doc" recipe.
 5 new schema docs + INDEX land. Codex can audit envelope drift
 from one file.
 
+## Review-blocker history
+
+Initial draft of `outbox-event.md` used snake_case field names
+(`created_at`, `next_attempt_at`, `last_error`, `completed_at`)
+and invented status values that did not exist in
+`backend/lib/outbox_store.js`. The live code emits camelCase
+fields (`createdAt`, `nextAttemptAt`, `lastError`, `updatedAt` —
+no separate completion stamp) and exactly three status values
+(`pending | completed | failed`).
+
+**Fix in this PR** — `docs/schemas/outbox-event.md` rewritten
+line-by-line against the canonical record built by
+`enqueueActionOutbox` in `backend/lib/outbox_store.js`. Status
+set, field set, and per-type payload/result shapes match the
+live drainers (`note_capture`, `email_compose`,
+`calendar_compose`).
+
+**Gating** — `schema-doc-backend-drift` pre-flight rule (#257)
+is now clean for `outbox-event.md`.
+
 ## Followups (not in this PR)
 
 - Pre-flight rule that flags `backend/lib/*.js` exporting a route
   whose envelope is not referenced in any `docs/schemas/*.md`.
-  Out of scope here — needs a static-scan rule design.
 - Optional `--check` mode for `scripts/v1_status.mjs` that fails
-  CI when an envelope changes without a schema-doc update. Out
-  of scope here.
+  CI when an envelope changes without a schema-doc update.
