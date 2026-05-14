@@ -2,7 +2,7 @@
 id: T107
 title: Block standalone schema-doc branches when the Claude inbox says they are out of lane
 owner: codex
-status: in-progress
+status: review
 branch: codex/T107-preflight-schema-lane-guard
 pillar: infra
 v1_pillar: infra
