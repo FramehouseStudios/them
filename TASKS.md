@@ -842,6 +842,7 @@
 | T91                                            | Round 22f coordination refresh                                                           | codex  | review      |
 | T92                                            | Round 22g coordination refresh                                                           | codex  | review      |
 | T93                                            | Round 22h coordination refresh                                                           | codex  | review      |
+| T94                                            | Claude supervisor note handoff                                                           | codex  | in-progress |
 
 ## Active work — full detail (auto-generated)
 
@@ -4635,5 +4636,24 @@ Claude's next action is visible from `agent_next` without human copy/paste.
   - Passed.
 - `node scripts/decisions_queue_lint.mjs`
   - Passed.
+
+### T94 — Claude supervisor note handoff
+- **Owner:** codex
+- **Branch:** codex/T94-claude-supervisor-note
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+- Record that Codex sent Claude the supervisor note on PR #238.
+- Keep the repo-native event lane aligned with the direct GitHub comment.
+
+## Done when
+
+Claude can see the directive from both GitHub and `agent_next`.
+
+## Verification
+
+- Not run yet.
 
 <!-- END AUTOGEN active-tasks -->
