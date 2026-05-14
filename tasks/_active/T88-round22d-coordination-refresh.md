@@ -2,7 +2,7 @@
 id: T88
 title: Round 22d coordination refresh after V1 smoke fixture pack
 owner: codex
-status: in-progress
+status: review
 branch: codex/T88-round22d-coordination-refresh
 pillar: infra
 v1_pillar: infra
@@ -23,4 +23,8 @@ Refresh the repo-native coordination lane after #231 merged:
 
 ## Verification
 
-- Not run yet.
+- `node scripts/build_tasks_md.mjs --write`
+- `node scripts/coordination_state.mjs validate`
+- `node scripts/agent_next.mjs --role=codex`
+- `node scripts/agent_event.mjs tail --n=12`
+- `git diff --check`
