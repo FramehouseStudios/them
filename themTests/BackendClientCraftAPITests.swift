@@ -644,6 +644,37 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(payload.session.outputModalities, ["audio"])
     }
 
+    func testRealtimeBootstrapFallbackSummarySurfacesProviderSwitch() throws {
+        let bootstrap = BackendRealtimeBootstrap(
+            transport: "webrtc_ephemeral",
+            realtimeProvider: "stub",
+            fallback: true,
+            fallbackReason: "realtime_supplier_request_failed",
+            primarySupplier: "openai",
+            assistantName: "io.them",
+            model: "stub-realtime-1",
+            voice: "stub-voice",
+            session: BackendRealtimeSessionDescriptor(
+                model: "stub-realtime-1",
+                voice: "stub-voice",
+                instructions: "Stay in screenplay mode.",
+                type: "realtime",
+                outputModalities: ["audio"]
+            ),
+            clientSecret: BackendRealtimeClientSecret(
+                value: "stub_secret_abc",
+                expiresAt: 1_800_000_000,
+                sessionExpiresAt: 1_800_000_000
+            ),
+            issuedAt: 1_700_000_000
+        )
+
+        XCTAssertEqual(
+            bootstrap.fallbackSummary,
+            "Fallback from openai · to stub · realtime_supplier_request_failed"
+        )
+    }
+
     func testCraftUnavailableErrorUsesTypedEnvelope() async throws {
         let client = makeClient(recorder: CraftRequestRecorder()) { _ in
             .json(#"{ "error": "craft_runtime_unavailable" }"#, status: 503)

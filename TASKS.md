@@ -848,7 +848,7 @@
 | T107                                           | Block standalone schema-doc branches when the Claude inbox says they are out of lane                       | codex  | merged      |
 | T108                                           | Refresh coordination after T107 schema lane guard merge                                                    | codex  | review      |
 | T109                                           | Refresh V1 checklist after Phase 7 design and realtime decomposition                                       | codex  | review      |
-| T110                                           | Prove realtime fallback status is user-visible                                                             | codex  | in-progress |
+| T110                                           | Prove realtime fallback status is user-visible                                                             | codex  | review      |
 | T42-supervisor-merge-protocol                  | Codex self-merge authority + agent handoff fast lane                                                       | codex  | review      |
 | T43-refresh-claude-queue                       | Refresh Claude queue after supervisor protocol merge                                                       | codex  | review      |
 | T44-creative-memory-export-triage              | Triage creative-memory export privacy gate                                                                 | codex  | review      |
@@ -6712,7 +6712,7 @@ documentation only.
 - **Owner:** codex
 - **Branch:** codex/T110-realtime-fallback-v1-proof
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 

@@ -2,7 +2,7 @@
 id: T110
 title: Prove realtime fallback status is user-visible
 owner: codex
-status: in-progress
+status: review
 branch: codex/T110-realtime-fallback-v1-proof
 pillar: mobile-first
 v1_pillar: realtime
