@@ -2,7 +2,7 @@
 id: T99-fix-auth-expected-action
 title: Fix truncated auth-route coordination expected action
 owner: codex
-status: in-progress
+status: review
 branch: codex/T99-fix-auth-expected-action
 pillar: infra (coordination)
 v1_pillar: infra

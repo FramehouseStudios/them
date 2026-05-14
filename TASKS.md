@@ -872,6 +872,7 @@
 | T96-batch-coordination-refresh                 | Refresh coordination after supervisor merge train                                                          | codex  | review      |
 | T97-post-support-merge-refresh                 | Refresh coordination after support merge train                                                             | codex  | review      |
 | T98-post-v1-realtime-refresh                   | Post V1 status and realtime turn-commit coordination refresh                                               | codex  | review      |
+| T99-fix-auth-expected-action                   | Fix truncated auth-route coordination expected action                                                      | codex  | review      |
 
 ## Active work — full detail (auto-generated)
 
@@ -6593,5 +6594,22 @@ PRs and Phase 5b.3 realtime turn-commit extraction.
   backend lane.
 - The active task index is rebuilt.
 - Coordination validation and current health checks pass.
+
+### T99-fix-auth-expected-action — Fix truncated auth-route coordination expected action
+- **Owner:** codex
+- **Branch:** codex/T99-fix-auth-expected-action
+- **Pillar:** infra (coordination)
+- **Status:** review
+
+## Scope
+
+Repair the T98 coordination refresh typo where the shell truncated the
+structured `expected_action` for PR #212 to just `Claude`.
+
+## Done when
+
+`docs/coordination.json` again gives Claude the full #212 expected action:
+rebase on current main after #273, rerun backend auth tests, and keep
+`do-not-merge`/tier-3 until human auth-route clearance.
 
 <!-- END AUTOGEN active-tasks -->

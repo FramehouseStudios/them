@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T17:13:30.855Z",
+  "updatedAt": "2026-05-14T17:43:57.933Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -951,7 +951,7 @@
       "branch": "claude/T-decompose-phase4-auth-routes",
       "blocker": "Codex design review passed against #221, but branch must rebase on current main and auth route stays tier-3/do-not-merge until explicitly cleared.",
       "reviewer_note": "Reviewed backend/lib/auth_routes.js, auth tests, mount wiring, parser limits, route list, and response surface against merged design note #221; local auth tests passed after installing deps.",
-      "expected_action": "Claude",
+      "expected_action": "Claude rebases on current main after #273, reruns backend auth tests, and keeps do-not-merge/tier-3 until human auth-route clearance.",
       "blocker_kind": "needs_rebase"
     },
     {
