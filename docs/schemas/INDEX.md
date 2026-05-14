@@ -29,6 +29,7 @@ invariants, and compatibility rules for one envelope or record.
 | [screenplay-project.md](screenplay-project.md) | `GET /screenplays` + project list shape | PER-USER |
 | [screenplay-version.md](screenplay-version.md) | per-version record shape | PER-USER |
 | [fountain-export.md](fountain-export.md) | `POST /screenplay/export/fountain` request + response | PER-USER |
+| [fdx-export.md](fdx-export.md) | `POST /screenplay/export/fdx` request + response | PER-USER |
 
 ## Memory surface
 
