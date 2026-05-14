@@ -34,32 +34,61 @@ no LLM calls. Same input always produces the same output.
 
 ### 1. v1_voice_to_page_smoke (talk pillar)
 
-`scripts/v1_voice_to_page_smoke.mjs` — feeds a canonical fixture
-through the talk-pipeline stages (transcript → prompt-assembly →
-response shape → memory-stamp). Verifies:
+`scripts/v1_voice_to_page_smoke.mjs` — feeds a canonical
+fixture (a simulated STT transcript + persona + creative memory)
+into prompt-assembly and verifies the **prompt shape** the LLM
+would see. No LLM call; the smoke pins what we send, not what
+the model returns. Verifies:
 
-- Response envelope keys match `docs/schemas/talk-response.md`.
-- Meta block matches `docs/schemas/talk-turn-meta.md`.
-- Block-signal stamping fires when fixture content triggers it.
-- Memory record is enqueued.
+- Prompt-assembly stages run end-to-end without throwing.
+- The assembled prompt contains every block declared in the
+  fixture's `expected_prompt_contains[]` (persona, session,
+  block-signal, creative-memory blocks, etc.).
+- Block ordering is stable (the `expected_prompt_ordering[]`
+  list appears in document order in the prompt).
+- Determinism: two runs on the same fixture produce a
+  byte-identical assembled prompt.
+- Creative-memory rendering preserves character voice + tags
+  through the prompt path.
 
-Failure means: a talk-pipeline change broke envelope shape or
-stamping. Look at: `backend/lib/talk_pipeline.js`,
+Failure means: a prompt-assembly or creative-memory rendering
+change altered the prompt the LLM sees. Look at:
+`backend/lib/prompt_assembly.js`,
+`backend/lib/creative_memory_store.js`,
 `backend/fixtures/v1_voice_to_page.json`.
+
+(NB: this smoke does **not** verify the `/talk/turn` response
+envelope — that lives in `docs/schemas/talk-response.md` and
+`docs/schemas/talk-turn-meta.md` and is exercised by the route
+tests, not this prompt-shape smoke.)
 
 ### 2. v1_screenplay_smoke (screenplay pillar)
 
-`scripts/v1_screenplay_smoke.mjs` — runs `exportToFountain` on a
-canonical project fixture. Verifies:
+`scripts/v1_screenplay_smoke.mjs` — runs `exportToFountain` on
+a canonical project fixture
+(`backend/fixtures/v1_screenplay_export.json`) and verifies the
+output against the fixture's `expected_fountain_contains[]` and
+`expected_fountain_ordering[]` lists. Verifies:
 
-- Output contains scenes in document order.
-- Character lines render before action lines under the same scene.
-- Transitions render between scenes.
+- Every string in `expected_fountain_contains[]` appears in the
+  output (today: title page fields, scene headings, action
+  lines, character cues, dialogue).
+- Every string in `expected_fountain_ordering[]` appears in
+  order (today: title → scene 1 heading → character → dialogue
+  → scene 2 heading).
 - Two consecutive runs on the same input produce byte-identical
   output (determinism).
 
-Failure means: a fountain-export change broke ordering, character
-rendering, or determinism. Look at: `backend/lib/fountain_export.js`,
+What the per-line-kind serialization invariants pin (action vs
+character cue ordering inside a scene, transition rendering,
+multi-scene ordering, etc.) is the **fountain_export_deeper**
+test in `backend/tests/fountain_export_deeper.test.mjs` (#258),
+not this smoke. The smoke pins the fixture-driven happy path;
+the deeper tests pin the serializer rules.
+
+Failure means: either an `exportToFountain` change broke the
+fixture's expected text/ordering, or determinism regressed.
+Look at: `backend/lib/fountain_export.js`,
 `backend/fixtures/v1_screenplay_export.json`.
 
 ### 3. v1_memory_recall_smoke (memory pillar)
