@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T20:28:41.861Z",
+  "updatedAt": "2026-05-15T06:20:19.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1448,6 +1448,33 @@
       "status": "closed",
       "branch": "claude/T-session-schema-doc",
       "blocker": "closed-out-of-lane-schema-doc-only-pr"
+    },
+    {
+      "number": 319,
+      "title": "T118: prove V1 build and test readiness",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T118-v1-build-test-readiness-proof",
+      "blocker": null
+    },
+    {
+      "number": 320,
+      "title": "T119: close Screenplay Studio export UX gap",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T119-screenplay-export-ux",
+      "blocker": null
+    },
+    {
+      "number": 321,
+      "title": "T120: document memory export/delete decision packet",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T120-memory-privacy-decision-packet",
+      "blocker": null
     }
   ],
   "blockers": [

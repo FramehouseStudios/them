@@ -22,7 +22,8 @@ Human shortcut (Claude direction):
 ```text
 Read AGENTS.md, TASKS.md, DECISIONS.md, docs/codex-claude-live-handoff.md,
 docs/coordination.json, then docs/claude-inbox.md. Follow the Current Command
-exactly, and update docs/coordination.json plus PR comments when status changes.
+exactly, and append event-lane updates when status changes. Codex owns
+docs/coordination.json refreshes unless explicitly assigned.
 ```
 
 Human shortcut (Codex direction — Claude maintains the reciprocal inbox at
@@ -72,6 +73,10 @@ GitHub PR comment on that Claude PR with the relevant status.
 
 | Item | Branch / PR | Status | Verification | Claude action |
 | --- | --- | --- | --- | --- |
+| T121 post V1 progress refresh | `codex/T121-post-v1-progress-refresh` | review | `node scripts/coordination_state.mjs validate`, `node scripts/agent_next.mjs --role=claude --no-events`, `node scripts/pre_flight.mjs --strict`, and `git diff --check` passed locally | Phase 7b talk handler implementation remains the next backend action. Do not open coord-refresh PRs or side-lane schema-only PRs. |
+| T120 memory privacy decision packet | `codex/T120-memory-privacy-decision-packet` / PR #321 | merged | `node scripts/pre_flight.mjs --strict` and `git diff --check` passed before merge | Keep #94/#99 parked until the human answers the decision packet in `docs/memory-export-delete-decision-packet.md`; do not rebase them as busywork. |
+| T119 Screenplay Studio export UX | `codex/T119-screenplay-export-ux` / PR #320 | merged | Focused Xcode export tests passed 10/10; `npm run v1:status` reported 19/25; `node scripts/pre_flight.mjs --strict` and `git diff --check` passed | No backend action. The V1 Screenplay Studio export UX gap is closed; remaining screenplay item is human manual smoke. |
+| T118 build/test readiness proof | `codex/T118-v1-build-test-readiness-proof` / PR #319 | merged | macOS app build passed; macOS `themTests` passed 99/99; V1 status was 18/25 before T119 and is now superseded by 19/25 after PR #320 | No backend action. Codex should re-run full build/tests after app-visible changes before TestFlight handoff. |
 | T105 Phase 6 merge refresh | `codex/T105-phase6-merge-refresh` | in-progress | PR #296 merged after Codex patched logging semantics; local `node --test backend/tests/memories_route.test.mjs` 18/18, `node --check backend/index.js`, `node scripts/pre_flight.mjs`, `git diff --check`, and backend `npm test` 1114 pass / 1 skipped / 0 fail; #298/#299 closed as out-of-lane | Open Phase 7a talk-state guard extraction from merged #293; no Phase 7b, schema-only, or coordination PRs before Phase 7a lands. |
 | T104 schema-only cleanup refresh | `codex/T104-schema-pr-cleanup-refresh` / PR #297 | merged | Closed #287/#289/#291/#292/#294 as out-of-lane schema-doc-only PRs; merged #293 after patching its Phase 7a design drift; open PRs were only human/tier-3 gated | Superseded by T105; Phase 6 merged in #296. |
 | T103 realtime Phase 5b.4 refresh | `codex/T103-phase5b4-merge-refresh` / PR #295 | merged | PR #288 merged after Codex patch; `node --test backend/tests/realtime_call_route.test.mjs` 18/18, `node --test scripts/pre_flight.test.mjs` 44/44, `node scripts/pre_flight.mjs`, `node --check backend/index.js`, `git diff --check`, and backend `npm test` 1096 pass / 1 skipped / 0 fail | Superseded by T104; Phase 5b is complete. |
