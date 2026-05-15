@@ -775,7 +775,7 @@
 | T121                                   | Post V1 progress coordination refresh                                                    | codex  | review      |
 | T122                                   | Reprove current app build and themTests after export UX                                  | codex  | review      |
 | T123                                   | Make V1 manual smoke handoff one-command                                                 | codex  | review      |
-| T124                                   | Refresh after V1 smoke prompt merge                                                      | codex  | in-progress |
+| T124                                   | Refresh after V1 smoke prompt merge                                                      | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3005,7 +3005,7 @@ TestFlight preflight artifact in sync with the readiness proof.
 - **Owner:** codex
 - **Branch:** codex/T124-refresh-after-v1-smoke-prompt
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3021,7 +3021,10 @@ Claude and the human see the current V1 manual-smoke handoff command.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/agent_next.mjs --role=claude --no-events` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

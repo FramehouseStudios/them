@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-15T06:52:18.000Z",
+  "updatedAt": "2026-05-15T07:10:13.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1492,6 +1492,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T122-current-app-test-proof",
+      "blocker": null
+    },
+    {
+      "number": 324,
+      "title": "T123: add one-command V1 smoke prompt",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T123-v1-smoke-prompt",
       "blocker": null
     }
   ],

@@ -2,7 +2,7 @@
 id: T124
 title: Refresh after V1 smoke prompt merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T124-refresh-after-v1-smoke-prompt
 pillar: infra
 v1_pillar: infra
@@ -23,4 +23,7 @@ Claude and the human see the current V1 manual-smoke handoff command.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/agent_next.mjs --role=claude --no-events` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
