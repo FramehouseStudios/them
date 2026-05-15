@@ -773,6 +773,7 @@
 | T119                                   | Close Screenplay Studio export UX gap                                                    | codex  | review      |
 | T120                                   | Memory export/delete privacy decision packet                                             | codex  | review      |
 | T121                                   | Post V1 progress coordination refresh                                                    | codex  | review      |
+| T122                                   | Reprove current app build and themTests after export UX                                  | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2939,6 +2940,28 @@ Claude does not need a human copy/paste report to know what changed.
 - `node scripts/agent_next.mjs --role=claude --no-events` -> passed
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
+
+### T122 — Reprove current app build and themTests after export UX
+- **Owner:** codex
+- **Branch:** codex/T122-current-app-test-proof
+- **Pillar:** mobile-first
+- **Status:** in-progress
+
+## Scope
+
+Re-run the full macOS app build and `themTests` on current `main` after the
+app-visible export UX change from PR #320, then update the readiness artifact.
+
+## Done When
+
+- The macOS app build passes on current `main`.
+- The full macOS `themTests` suite passes on current `main`.
+- `docs/v1-build-test-readiness.md` records the new branch, time, and results.
+- `TASKS.md` is regenerated.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
