@@ -770,7 +770,7 @@
 | T115                                   | Refresh queue after V1 preflight and schema guard                                        | codex  | review      |
 | T117                                   | Refresh queue after memories tests merge                                                 | codex  | review      |
 | T118                                   | Prove current app build and tests for V1 readiness                                       | codex  | review      |
-| T119                                   | Close Screenplay Studio export UX gap                                                    | codex  | in-progress |
+| T119                                   | Close Screenplay Studio export UX gap                                                    | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2863,7 +2863,7 @@ verification is green.
 - **Owner:** codex
 - **Branch:** codex/T119-screenplay-export-ux
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -2883,10 +2883,10 @@ Keep macOS local PDF export available because the app has a local renderer.
 
 ## Verification
 
-- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -only-testing:themTests/ScreenplayExportFormatMenuTests -only-testing:themTests/BackendMemoryScreenplayExportTests`
-- `npm run v1:status`
-- `node scripts/pre_flight.mjs --strict`
-- `git diff --check`
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -only-testing:themTests/ScreenplayExportFormatMenuTests -only-testing:themTests/BackendMemoryScreenplayExportTests` -> passed, 10/10
+- `npm run v1:status` -> passed, 19/25
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

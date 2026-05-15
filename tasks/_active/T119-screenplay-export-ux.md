@@ -2,7 +2,7 @@
 id: T119
 title: Close Screenplay Studio export UX gap
 owner: codex
-status: in-progress
+status: review
 branch: codex/T119-screenplay-export-ux
 pillar: mobile-first
 v1_pillar: screenplay
@@ -27,7 +27,7 @@ Keep macOS local PDF export available because the app has a local renderer.
 
 ## Verification
 
-- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -only-testing:themTests/ScreenplayExportFormatMenuTests -only-testing:themTests/BackendMemoryScreenplayExportTests`
-- `npm run v1:status`
-- `node scripts/pre_flight.mjs --strict`
-- `git diff --check`
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -only-testing:themTests/ScreenplayExportFormatMenuTests -only-testing:themTests/BackendMemoryScreenplayExportTests` -> passed, 10/10
+- `npm run v1:status` -> passed, 19/25
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed

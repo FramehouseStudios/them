@@ -138,6 +138,61 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertNil(formatsRequest.bodyObject)
     }
 
+    func testPDFExportErrorDecodesMessageAndAlternativeFormats() async throws {
+        ScreenplayExportURLProtocolStub.handler = { request in
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/screenplay/export":
+                return ScreenplayExportHTTPStub(
+                    status: 400,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "stage": "screenplay_export",
+                          "error": "pdf_export_not_supported_locally",
+                          "message": "PDF export is not implemented on this backend.",
+                          "alternative_formats": ["fountain", "fdx", "md"]
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        do {
+            _ = try await api.exportScreenplayDraft(
+                draft: "INT. KITCHEN - NIGHT\n",
+                title: "Kitchen Scene",
+                format: "pdf"
+            )
+            XCTFail("Expected PDF export to throw")
+        } catch {
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("PDF export is not implemented on this backend."))
+            XCTAssertTrue(message.contains("Alternatives: fountain, fdx, md."))
+        }
+    }
+
     func testFountainImportPostsTextAndProjectsBackToEditableDraft() async throws {
         let recorder = ScreenplayExportRequestRecorder()
         ScreenplayExportURLProtocolStub.handler = { request in

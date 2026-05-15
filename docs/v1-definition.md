@@ -35,7 +35,7 @@ Checklist:
 - [x] Magic-moment onboarding and Studio polish are merged.
 - [x] Fountain import and Markdown/export-format discovery are consumed.
 - [x] Backend screenplay project read/write routes are extracted and tested.
-- [ ] iOS consumes FDX export and backend PDF rejection alternatives cleanly.
+- [x] iOS consumes FDX export and backend PDF rejection alternatives cleanly.
 - [ ] Manual smoke: create project -> write scene -> save -> export -> reopen.
 
 ## Creative Memory

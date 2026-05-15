@@ -5107,8 +5107,28 @@ actor BackendMemoryAPI {
         struct ErrorPayload: Decodable {
             let error: String?
             let stage: String?
+            let message: String?
+            let alternativeFormats: [String]?
+
+            private enum CodingKeys: String, CodingKey {
+                case error
+                case stage
+                case message
+                case alternativeFormats = "alternative_formats"
+            }
         }
         if let payload = try? JSONDecoder().decode(ErrorPayload.self, from: data) {
+            if let message = payload.message?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !message.isEmpty {
+                let alternatives = payload.alternativeFormats?
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ", ") ?? ""
+                if alternatives.isEmpty {
+                    return message
+                }
+                return "\(message) Alternatives: \(alternatives)."
+            }
             if let error = payload.error, !error.isEmpty {
                 if let stage = payload.stage, !stage.isEmpty {
                     return "\(stage): \(error)"
