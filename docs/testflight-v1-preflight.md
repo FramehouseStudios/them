@@ -85,7 +85,9 @@ Pass: Primary succeeds when healthy; fallback is visible and usable when primary
 
 ## Parked Before V1 External Review
 
-- Full creative-memory export/delete (#94, #99): Needs explicit human privacy/data-control approval before merge.
+- Full creative-memory export/delete (#94, #99): Needs explicit human
+  privacy/data-control approval before merge. Decision packet:
+  `docs/memory-export-delete-decision-packet.md`.
 - Postgres eval gate (#33): Needs the GitHub Actions OPENAI_API_KEY secret fixed by a human.
 - Auth route extraction (#212): Tier-3 auth work remains do-not-merge until explicitly cleared.
 

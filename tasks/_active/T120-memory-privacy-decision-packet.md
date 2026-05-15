@@ -2,7 +2,7 @@
 id: T120
 title: Memory export/delete privacy decision packet
 owner: codex
-status: in-progress
+status: review
 branch: codex/T120-memory-privacy-decision-packet
 pillar: longitudinal learning
 v1_pillar: memory
@@ -24,5 +24,5 @@ the human explicitly approves the privacy/data-control policy.
 
 ## Verification
 
-- `node scripts/pre_flight.mjs --strict`
-- `git diff --check`
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed

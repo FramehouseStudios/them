@@ -771,7 +771,7 @@
 | T117                                   | Refresh queue after memories tests merge                                                 | codex  | review      |
 | T118                                   | Prove current app build and tests for V1 readiness                                       | codex  | review      |
 | T119                                   | Close Screenplay Studio export UX gap                                                    | codex  | review      |
-| T120                                   | Memory export/delete privacy decision packet                                             | codex  | in-progress |
+| T120                                   | Memory export/delete privacy decision packet                                             | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2893,7 +2893,7 @@ Keep macOS local PDF export available because the app has a local renderer.
 - **Owner:** codex
 - **Branch:** codex/T120-memory-privacy-decision-packet
 - **Pillar:** longitudinal learning
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -2910,8 +2910,8 @@ the human explicitly approves the privacy/data-control policy.
 
 ## Verification
 
-- `node scripts/pre_flight.mjs --strict`
-- `git diff --check`
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
