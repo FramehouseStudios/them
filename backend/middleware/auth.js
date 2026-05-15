@@ -2,7 +2,13 @@ import { APP_TOKEN, CORS_ALLOW_ORIGIN, REQUIRE_APP_TOKEN } from "../config.js";
 import { createRequestId } from "../lib/utils.js";
 
 function requestIdMiddleware(req, res, next) {
-  req.requestId = createRequestId();
+  // Honor an incoming X-Request-Id when present (typically set by a
+  // load balancer for distributed tracing). Otherwise mint a fresh
+  // one. The header echoes back either way so clients can correlate.
+  const incoming = String(
+    (typeof req.header === "function" ? req.header("x-request-id") : "") || ""
+  ).trim();
+  req.requestId = incoming || createRequestId();
   res.setHeader("X-Request-Id", req.requestId);
   next();
 }
