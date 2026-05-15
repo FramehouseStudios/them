@@ -771,6 +771,7 @@
 | T117                                   | Refresh queue after memories tests merge                                                 | codex  | review      |
 | T118                                   | Prove current app build and tests for V1 readiness                                       | codex  | review      |
 | T119                                   | Close Screenplay Studio export UX gap                                                    | codex  | review      |
+| T120                                   | Memory export/delete privacy decision packet                                             | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2887,6 +2888,30 @@ Keep macOS local PDF export available because the app has a local renderer.
 - `npm run v1:status` -> passed, 19/25
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
+
+### T120 — Memory export/delete privacy decision packet
+- **Owner:** codex
+- **Branch:** codex/T120-memory-privacy-decision-packet
+- **Pillar:** longitudinal learning
+- **Status:** in-progress
+
+## Scope
+
+Make the parked privacy decisions for Claude PRs #94 and #99 answerable
+without asking the human to inspect old PR bodies. Keep the routes parked until
+the human explicitly approves the privacy/data-control policy.
+
+## Done When
+
+- A short decision packet summarizes what #94 and #99 expose/delete.
+- `docs/decisions-queue.md` links to the packet and states the safe default.
+- `docs/testflight-v1-preflight.md` points to the same packet for V1 blockers.
+- `TASKS.md` is regenerated.
+
+## Verification
+
+- `node scripts/pre_flight.mjs --strict`
+- `git diff --check`
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
