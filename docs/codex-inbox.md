@@ -428,6 +428,38 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 4. **Decisions queue** (merged PR #66 / `docs/decisions-queue.md`) — the only place to post "needs human" questions. One concrete question per entry, with a safe default the agent will follow absent the human's answer.
 5. **Per-row task files** (merged PR #67 / `tasks/_active/`) — optional. New tasks can drop `tasks/_active/T-<slug>.md` instead of editing `TASKS.md` directly. Removes the recurring "two agents touch the same line of TASKS.md" merge-conflict class. `node scripts/build_tasks_md.mjs` renders the rebuilt section.
 
+## Rebase intel + self-review (2026-05-15, batch 5)
+
+Convergent batch — no new features. Branch `claude/backend-post-v1-audit`
+is now 6 commits; full backend `npm test` green (1225/1).
+
+Key intelligence from an actual (aborted, fully-restored) rebase onto
+current `main` (#323):
+- **Backend code (commits 1–3) rebases cleanly.** Zero code conflicts
+  with current main. The 60-move backend batch is code-mergeable as-is.
+- **`docs/decisions-queue.md` is the only semantic conflict.** My
+  batch-1 commit marked #94/#99/#212 *Resolved (override)*; Codex's
+  on-main `docs/memory-export-delete-decision-packet.md` (#320/#321)
+  keeps them *Open* with a formal packet. **Substance agrees.**
+  Resolution: when PR'ing, **drop the decisions-queue hunk from
+  commit 4** — Codex's packet stays canonical, nothing is lost.
+- Backup tag `backup/post-v1-audit-pre-rebase`; branch byte-identical
+  to pre-rebase.
+
+Fixes in commit 6:
+- `lib/rate_limit.js` had an invisible `\x01` separator (Write-tool
+  artifact) — replaced with explicit `String.fromCharCode(31)`. All
+  7 new lib files scanned; zero control-char artifacts remain.
+- `.gitignore` `!.env.example` carve-out (env template was ignored).
+
+New deliverable: **`docs/self-review-post-v1-audit.md`** — honest
+severity-rated review of all 6 commits. One pre-merge blocker:
+confirm prod env sets all 4 vars required by `assertProductionEnv`
+or the next prod restart fails (intended hardening, not
+backward-compatible).
+
+---
+
 ## Landing + App Store prep (2026-05-15, batch 4)
 
 The ~60 moves from batches 1–3 are now **committed** on local branch

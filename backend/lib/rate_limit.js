@@ -47,7 +47,8 @@ function createRateLimiter({
     const t = now();
     // Storage key always namespaces by route class so the same caller
     // key under different classes does not share token state.
-    const storageKey = `${compositeKey}${routeClass}`;
+    const SEP = String.fromCharCode(31);
+    const storageKey = `${compositeKey}${SEP}${routeClass}`;
     let entry = state.get(storageKey);
     if (!entry) {
       entry = { tokens: spec.capacity, lastRefillMs: t };

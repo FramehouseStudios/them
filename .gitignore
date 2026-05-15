@@ -2,6 +2,9 @@
 .env
 .env.*
 *.env
+# Keep documented, secret-free templates tracked.
+!.env.example
+!**/.env.example
 
 # ── User data stores (never commit user data) ──
 backend/user_memory_store.json
