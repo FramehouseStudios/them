@@ -774,7 +774,7 @@
 | T120                                   | Memory export/delete privacy decision packet                                             | codex  | review      |
 | T121                                   | Post V1 progress coordination refresh                                                    | codex  | review      |
 | T122                                   | Reprove current app build and themTests after export UX                                  | codex  | review      |
-| T123                                   | Make V1 manual smoke handoff one-command                                                 | codex  | in-progress |
+| T123                                   | Make V1 manual smoke handoff one-command                                                 | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2973,7 +2973,7 @@ app-visible export UX change from PR #320, then update the readiness artifact.
 - **Owner:** codex
 - **Branch:** codex/T123-v1-smoke-prompt
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -2993,7 +2993,12 @@ TestFlight preflight artifact in sync with the readiness proof.
 
 ## Verification
 
-- Pending.
+- `node --check scripts/v1_manual_qa_checklist.mjs` -> passed
+- `node --test scripts/v1_manual_qa_checklist.test.mjs` -> passed, 4/4
+- `node scripts/v1_manual_qa_checklist.mjs --prompt` -> passed
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

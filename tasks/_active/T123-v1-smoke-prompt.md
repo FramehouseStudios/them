@@ -2,7 +2,7 @@
 id: T123
 title: Make V1 manual smoke handoff one-command
 owner: codex
-status: in-progress
+status: review
 branch: codex/T123-v1-smoke-prompt
 pillar: mobile-first
 v1_pillar: ios
@@ -27,4 +27,9 @@ TestFlight preflight artifact in sync with the readiness proof.
 
 ## Verification
 
-- Pending.
+- `node --check scripts/v1_manual_qa_checklist.mjs` -> passed
+- `node --test scripts/v1_manual_qa_checklist.test.mjs` -> passed, 4/4
+- `node scripts/v1_manual_qa_checklist.mjs --prompt` -> passed
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
