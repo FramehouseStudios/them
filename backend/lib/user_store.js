@@ -47,14 +47,19 @@ function toBase64Url(buffer) {
     .replace(/=+$/g, "");
 }
 
-function hashPassword(password, salt, iterations = 120000) {
+// OWASP 2023 minimum for PBKDF2-SHA256 is 600,000. Existing accounts keep
+// their stored iteration count via `verifyPassword`, so bumping this default
+// only affects newly-created accounts.
+const PBKDF2_ITERATIONS_DEFAULT = 600000;
+
+function hashPassword(password, salt, iterations = PBKDF2_ITERATIONS_DEFAULT) {
   const digest = pbkdf2Sync(password, salt, iterations, 32, "sha256");
   return digest.toString("hex");
 }
 
 function createPasswordRecord(password) {
   const salt = randomBytes(16).toString("hex");
-  const iterations = 120000;
+  const iterations = PBKDF2_ITERATIONS_DEFAULT;
   const hash = hashPassword(password, salt, iterations);
   return { salt, iterations, hash };
 }

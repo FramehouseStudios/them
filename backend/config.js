@@ -56,6 +56,30 @@ const SHOULD_START_SERVER = process.env.RUN_SERVER == null
   ? true
   : parseBool(process.env.RUN_SERVER);
 
+// Production startup guard. Throws a clear, multi-line error listing every
+// missing required environment variable. Callable from app/index startup or
+// from tests with a process-like env arg. Returns nothing on success.
+function assertProductionEnv(env = process.env) {
+  if ((env.NODE_ENV || "") !== "production") return;
+  const missing = [];
+  if (!String(env.DATABASE_URL || "").trim()) {
+    missing.push("DATABASE_URL — production must run against Postgres, not the JSON adapter.");
+  }
+  if (!String(env.JWT_SECRET || "").trim()) {
+    missing.push("JWT_SECRET — required to sign auth tokens.");
+  }
+  if (!String(env.OPENAI_API_KEY || "").trim()) {
+    missing.push("OPENAI_API_KEY — required for talk and realtime suppliers.");
+  }
+  if (!String(env.APP_TOKEN || "").trim()) {
+    missing.push("APP_TOKEN — required when NODE_ENV=production (X-APP-TOKEN gate).");
+  }
+  if (missing.length === 0) return;
+  const banner = "Refusing to boot: required production environment variables are missing.";
+  const detail = missing.map((line) => "  - " + line).join("\n");
+  throw new Error(banner + "\n" + detail);
+}
+
 export {
   API_SCHEMA_VERSION,
   APP_TOKEN,
@@ -67,6 +91,7 @@ export {
   AUTH_PASSWORD_RESET_TTL_SECONDS,
   AUTH_REFRESH_TTL_SECONDS,
   AUTH_REQUIRE_EMAIL_VERIFIED,
+  assertProductionEnv,
   BACKEND_BOOT_ID,
   BACKEND_BUILD,
   CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT,

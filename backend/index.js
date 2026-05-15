@@ -32,6 +32,7 @@ import {
   SHOULD_START_SERVER,
   UNIFIED_PERSONA_PRESET,
   USER_STORE_PATH,
+  assertProductionEnv,
 } from "./config.js";
 import {
   cleanupUserMemoryStore,
@@ -64,7 +65,9 @@ import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountArchetypeRoute } from "./lib/archetype_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
 import { mountOpsHealthSummaryRoute } from "./lib/ops_health_summary_route.js";
+import { mountApiVersionRoute } from "./lib/api_version_route.js";
 import { mountHealthRoutes } from "./lib/health_route.js";
+import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
@@ -26401,6 +26404,25 @@ mountHealthRoutes(app, {
   BACKEND_BOOT_ID,
 });
 
+// Dependency-free /api/version. Safe for high-frequency client polling;
+// no DB, no memory, no supplier reachability checks. Clients use it to
+// detect schema_version bumps and backend_boot_id transitions.
+mountApiVersionRoute(app, {
+  API_SCHEMA_VERSION,
+  BACKEND_BUILD,
+  BACKEND_BOOT_ID,
+});
+
+// /healthz — orchestrator readiness probe. Pings the persistence
+// layer (SELECT 1 in Postgres mode; directory write-access check in
+// JSON dev mode). Returns 503 if persistence is unreachable so
+// Render/Fly/Kubernetes can pull the instance out of the rotation
+// before traffic lands on a half-broken backend.
+mountHealthzRoute(app, {
+  pingPersistence: () => sharedPersistence.ping(),
+  timeoutMs: 1500,
+});
+
 // T-decompose-phase1-ops-routes: /ops/metrics + /ops/alerts moved
 // into lib/ops_metrics_route.js + lib/ops_alerts_route.js. Both
 // extractions are byte-identical with the previous inline handlers
@@ -31526,6 +31548,10 @@ process.on("SIGTERM", () => { void closeScaleBackplaneOnce(); });
 process.on("exit", () => { void closeScaleBackplaneOnce(); });
 
 if (SHOULD_START_SERVER) {
+  // Production env guard: refuse to boot a prod server without the secrets
+  // and infra we depend on (Postgres, JWT signing, OpenAI, app token).
+  // No-ops in non-production environments.
+  assertProductionEnv();
   // T-known-domains-startup-check: cheap boot-time invariant on the
   // persistence-adapter KNOWN_DOMAINS export. Logs (does not throw)
   // so a deploy with a corrupted constant fails diagnostics loudly

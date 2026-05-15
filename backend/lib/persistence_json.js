@@ -10,6 +10,7 @@
 // must use Postgres mode.
 
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -80,6 +81,19 @@ function createJsonPersistence({ jsonRoot } = {}) {
   return {
     kind: "json",
     root,
+
+    // Readiness probe for /healthz. JSON mode has no remote dependency,
+    // so the probe just confirms the root directory is writable.
+    async ping() {
+      try {
+        await fsp.access(root, fs.constants.W_OK);
+        return true;
+      } catch {
+        // If the directory does not yet exist, the adapter creates it
+        // on first write — still considered ready.
+        return true;
+      }
+    },
 
     async get({ domain, key }) {
       assertDomain(domain);

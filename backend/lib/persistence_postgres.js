@@ -51,6 +51,14 @@ function createPostgresPersistence({ databaseUrl, pgClient } = {}) {
     kind: "postgres",
     databaseUrl,
 
+    // Readiness probe for /healthz. Cheapest possible round-trip; just
+    // confirms the connection pool can reach the database.
+    async ping() {
+      const c = await client();
+      const r = await c.query("SELECT 1 AS ok");
+      return r?.rows?.[0]?.ok === 1;
+    },
+
     async get({ domain, key }) {
       assertDomain(domain);
       assertKey(key);
