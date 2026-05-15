@@ -774,6 +774,7 @@
 | T120                                   | Memory export/delete privacy decision packet                                             | codex  | review      |
 | T121                                   | Post V1 progress coordination refresh                                                    | codex  | review      |
 | T122                                   | Reprove current app build and themTests after export UX                                  | codex  | review      |
+| T123                                   | Make V1 manual smoke handoff one-command                                                 | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2967,6 +2968,32 @@ app-visible export UX change from PR #320, then update the readiness artifact.
 - `node scripts/coordination_state.mjs validate` -> passed
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
+
+### T123 — Make V1 manual smoke handoff one-command
+- **Owner:** codex
+- **Branch:** codex/T123-v1-smoke-prompt
+- **Pillar:** mobile-first
+- **Status:** in-progress
+
+## Scope
+
+Tighten the human V1 smoke handoff so the remaining manual checks can be run
+from one repo command instead of reading multiple docs. Keep the generated
+TestFlight preflight artifact in sync with the readiness proof.
+
+## Done When
+
+- `scripts/v1_manual_qa_checklist.mjs` includes the current app build/test
+  readiness proof in generated output.
+- The script can print a compact human smoke prompt with pass/fail fields.
+- Tests cover the new prompt and generated readiness proof.
+- `docs/testflight-v1-preflight.md` regenerates without dropping the current
+  app build/test section.
+- `TASKS.md` is regenerated.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
