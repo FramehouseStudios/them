@@ -779,7 +779,7 @@
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T127                                   | Add V1 launch-room command                                                               | codex  | review      |
-| T128                                   | Add in-app V1 Launch Doctor                                                              | codex  | in-progress |
+| T128                                   | Add in-app V1 Launch Doctor                                                              | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3119,7 +3119,7 @@ set of human decisions/options that unblock launch.
 - **Owner:** codex
 - **Branch:** codex/T128-v1-launch-doctor
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3141,7 +3141,15 @@ launch room can read or point to during release readiness checks.
 
 ## Verification
 
-- Pending.
+- `node --check scripts/v1_launch_room.mjs` (passed)
+- `node --test scripts/v1_launch_room.test.mjs` (passed, 5/5)
+- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO -only-testing:themTests/V1LaunchDoctorTests` (passed, 5/5)
+- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO -only-testing:themTests/DesignSystemGuardTests/testNewSwiftFilesDoNotBypassDesignSystemTokens` (passed, 1/1)
+- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO` (passed, 108/108; existing SwiftUI publish warnings still appear during app-hosted tests)
+- `xcodebuild build -project them.xcodeproj -scheme them -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` (passed)
+- `node scripts/coordination_state.mjs validate` (passed)
+- `node scripts/pre_flight.mjs --strict` (passed)
+- `node scripts/v1_launch_room.mjs --role=human` (passed; reports Launch Doctor proof missing until the human/app exports it)
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

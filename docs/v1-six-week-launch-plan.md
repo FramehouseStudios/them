@@ -21,6 +21,10 @@ node scripts/v1_launch_room.mjs --role=codex
 node scripts/v1_launch_room.mjs --role=human
 ```
 
+The app-side smoke recorder lives at Data Controls -> V1 Launch Doctor and
+exports `~/Downloads/io_them_v1_launch_doctor.latest.json`; the launch-room
+command reports that artifact when it exists.
+
 ## Operating Rules
 
 - Claude works one deep backend task at a time.
@@ -44,12 +48,15 @@ is current.
 
 ## Week 2: Human Smoke Week
 
-- Human runs `node scripts/v1_manual_qa_checklist.mjs --prompt`.
+- Human runs the in-app V1 Launch Doctor from Data Controls and exports the
+  latest report.
+- Human can still run `node scripts/v1_manual_qa_checklist.mjs --prompt` for
+  the text checklist version of the same smoke.
 - Codex fixes every app-facing smoke failure.
 - Claude fixes backend smoke failures only when assigned.
 
-Gate: Talk, Studio, Memory, Realtime, and final V1 signoff are passed or have
-named blockers.
+Gate: the Launch Doctor report says Talk, Studio, Memory, and Realtime are
+passed or each failed flow has a named blocker.
 
 ## Week 3: Data Controls And Privacy
 

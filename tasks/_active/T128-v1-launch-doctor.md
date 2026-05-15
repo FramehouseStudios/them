@@ -2,7 +2,7 @@
 id: T128
 title: Add in-app V1 Launch Doctor
 owner: codex
-status: in-progress
+status: review
 branch: codex/T128-v1-launch-doctor
 pillar: mobile-first
 v1_pillar: ios
@@ -29,4 +29,12 @@ launch room can read or point to during release readiness checks.
 
 ## Verification
 
-- Pending.
+- `node --check scripts/v1_launch_room.mjs` (passed)
+- `node --test scripts/v1_launch_room.test.mjs` (passed, 5/5)
+- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO -only-testing:themTests/V1LaunchDoctorTests` (passed, 5/5)
+- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO -only-testing:themTests/DesignSystemGuardTests/testNewSwiftFilesDoNotBypassDesignSystemTokens` (passed, 1/1)
+- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO` (passed, 108/108; existing SwiftUI publish warnings still appear during app-hosted tests)
+- `xcodebuild build -project them.xcodeproj -scheme them -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` (passed)
+- `node scripts/coordination_state.mjs validate` (passed)
+- `node scripts/pre_flight.mjs --strict` (passed)
+- `node scripts/v1_launch_room.mjs --role=human` (passed; reports Launch Doctor proof missing until the human/app exports it)

@@ -29,6 +29,16 @@ The checked and parked V1 checklist items match docs/v1-definition.md.
 
 The latest local app build and `themTests` result is recorded separately from the human smoke and signed-release checks.
 
+### In-app Launch Doctor
+
+Data Controls -> V1 Launch Doctor
+
+The app records pass/fail, notes, and evidence for Talk Pipeline, Screenplay
+Studio, Creative Memory, and Realtime. Exporting the report writes
+`~/Downloads/io_them_v1_launch_doctor.latest.json` on macOS and the app's
+Documents folder on iOS. The launch-room command reports whether repo-attached
+or macOS-exported proof is present and passed.
+
 ### Release preflight
 
 `scripts/appstore_preflight.sh`
@@ -38,6 +48,9 @@ Latest proof: `docs/v1-release-preflight-proof.md` currently records release
 preflight blockers.
 
 ## Manual App Flows
+
+Use the V1 Launch Doctor for the canonical manual run. The text flows below
+remain the reference checklist for what each Launch Doctor card is proving.
 
 ### Talk Pipeline
 

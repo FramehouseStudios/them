@@ -55,6 +55,7 @@ struct DataControlsScreen: View {
     @State private var memoryStatsRefreshedAt: Date?
     @State private var statusMessage = ""
     @State private var stateVersion = ""
+    @State private var showingV1LaunchDoctor = false
 
     var body: some View {
         NavigationStack {
@@ -77,6 +78,7 @@ struct DataControlsScreen: View {
                     voiceTransportSettings
                     realtimeProviderSettings
                     visualContextSettings
+                    v1LaunchDoctorEntry
                     actionButtons
                     statusRow
                     Spacer(minLength: 0)
@@ -113,6 +115,12 @@ struct DataControlsScreen: View {
         }
         .task {
             await refreshMemoryStats(force: false)
+        }
+        .sheet(isPresented: $showingV1LaunchDoctor) {
+            V1LaunchDoctorView {
+                showingV1LaunchDoctor = false
+            }
+            .frame(minWidth: 760, minHeight: 680)
         }
     }
 
@@ -382,6 +390,41 @@ struct DataControlsScreen: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.22), lineWidth: 1)
         )
+    }
+
+    private var v1LaunchDoctorEntry: some View {
+        Button {
+            showingV1LaunchDoctor = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "checklist.checked")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.herText.opacity(0.78))
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("V1 Launch Doctor")
+                        .font(.system(size: 16, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.92))
+                    Text("Run the release smoke, mark pass/fail, and export the latest launch proof.")
+                        .font(.system(size: 13, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.72))
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.herText.opacity(0.58))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.20))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func actionButton(title: String, subtitle: String, action: DataControlAction) -> some View {
