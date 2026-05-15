@@ -2,7 +2,7 @@
 id: T118
 title: Prove current app build and tests for V1 readiness
 owner: codex
-status: in-progress
+status: review
 branch: codex/T118-v1-readiness-proof
 pillar: mobile-first
 v1_pillar: ios
@@ -24,8 +24,9 @@ verification is green.
 
 ## Verification
 
-- `xcodebuild build -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`
-- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`
-- `npm run v1:status`
-- `node scripts/pre_flight.mjs --strict`
-- `git diff --check`
+- `xcodebuild build -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` -> passed
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` -> passed, 99 tests
+- `npm run v1:status` -> passed, 18/25
+- `node --test scripts/v1_status.test.mjs` -> passed, 10/10
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed

@@ -22,6 +22,13 @@ Health/session/history/memories/talk all respond, and /talk returns non-empty au
 
 The checked and parked V1 checklist items match docs/v1-definition.md.
 
+### Current app build and tests
+
+`docs/v1-build-test-readiness.md`
+
+The latest local app build and `themTests` result is recorded separately from
+the human smoke and signed-release checks.
+
 ### Release preflight
 
 `scripts/appstore_preflight.sh`

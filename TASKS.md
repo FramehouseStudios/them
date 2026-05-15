@@ -769,6 +769,7 @@
 | T113                                   | Archive merged active tasks after V1 status pass                                         | codex  | review      |
 | T115                                   | Refresh queue after V1 preflight and schema guard                                        | codex  | review      |
 | T117                                   | Refresh queue after memories tests merge                                                 | codex  | review      |
+| T118                                   | Prove current app build and tests for V1 readiness                                       | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2828,6 +2829,34 @@ task, regenerate `TASKS.md`, and emit a short coordination event.
 
 Not run: iOS build/themTests or backend npm test, because this is coordination
 metadata only.
+
+### T118 — Prove current app build and tests for V1 readiness
+- **Owner:** codex
+- **Branch:** codex/T118-v1-readiness-proof
+- **Pillar:** mobile-first
+- **Status:** review
+
+## Scope
+
+Run the current app build and `themTests` on main, record the result in a
+release-readiness artifact, and update `docs/v1-definition.md` only if the
+verification is green.
+
+## Done When
+
+- Current app build is run and documented.
+- Current `themTests` are run and documented.
+- `docs/v1-definition.md` reflects the real verification result.
+- `TASKS.md` is regenerated.
+
+## Verification
+
+- `xcodebuild build -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` -> passed
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` -> passed, 99 tests
+- `npm run v1:status` -> passed, 18/25
+- `node --test scripts/v1_status.test.mjs` -> passed, 10/10
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

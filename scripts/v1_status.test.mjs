@@ -60,11 +60,10 @@ test("[v1-status] wrapped checkbox text is joined into a single item", () => {
   // remaining list. Look for any item that ends with a continuation-
   // line's tail to prove the parser captured it.
   // The clearest evidence: "iOS Release Readiness" still has a
-  // remaining item that was wrapped: "Current iOS build and
-  // `themTests` are green after the next app-visible feature."
+  // remaining item that is wrapped across two lines.
   assert.match(
     text,
-    /Current iOS build and `themTests` are green after the next app-visible feature\./,
+    /Human signs off on the V1 manual smoke before external review and the TestFlight handoff can proceed\./,
     "wrapped continuation line must be joined into the item text",
   );
 });
