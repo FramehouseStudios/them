@@ -9,6 +9,7 @@
 // Usage:
 //   node scripts/v1_manual_qa_checklist.mjs
 //   node scripts/v1_manual_qa_checklist.mjs --json
+//   node scripts/v1_manual_qa_checklist.mjs --prompt
 //   node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md
 
 import fs from "node:fs";
@@ -37,6 +38,11 @@ const artifact = {
       name: "Current V1 status",
       command: "npm run v1:status",
       proves: "The checked and parked V1 checklist items match docs/v1-definition.md.",
+    },
+    {
+      name: "Current app build and tests",
+      command: "docs/v1-build-test-readiness.md",
+      proves: "The latest local app build and `themTests` result is recorded separately from the human smoke and signed-release checks.",
     },
     {
       name: "Release preflight",
@@ -97,6 +103,7 @@ const artifact = {
       item: "Full creative-memory export/delete",
       prs: ["#94", "#99"],
       reason: "Needs explicit human privacy/data-control approval before merge.",
+      decisionPacket: "docs/memory-export-delete-decision-packet.md",
     },
     {
       item: "Postgres eval gate",
@@ -144,7 +151,8 @@ function markdown(data) {
   lines.push("## Parked Before V1 External Review");
   lines.push("");
   for (const item of data.parked) {
-    lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}`);
+    const suffix = item.decisionPacket ? ` Decision packet: \`${item.decisionPacket}\`.` : "";
+    lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
   }
   lines.push("");
   lines.push("## Status Command");
@@ -156,10 +164,37 @@ function markdown(data) {
   return lines.join("\n");
 }
 
+function prompt(data) {
+  const lines = [];
+  lines.push("V1 human smoke prompt");
+  lines.push("");
+  lines.push("Run these app flows against the intended backend, then paste the result block back to Codex.");
+  lines.push("");
+  for (const flow of data.manualFlows) {
+    lines.push(`- ${flow.pillar}: ${flow.goal}`);
+  }
+  lines.push("");
+  lines.push("Parked before external review:");
+  for (const item of data.parked) {
+    const suffix = item.decisionPacket ? ` Decision packet: ${item.decisionPacket}.` : "";
+    lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
+  }
+  lines.push("");
+  lines.push("Result block to paste back:");
+  for (const flow of data.manualFlows) {
+    lines.push(`${flow.pillar}: PASS/FAIL - <notes>`);
+  }
+  lines.push("Overall V1 manual smoke: PASS/FAIL - <notes>");
+  lines.push("");
+  lines.push(`Status command: ${data.v1StatusCommand}`);
+  return lines.join("\n");
+}
+
 function parseArgs(argv) {
   const out = {};
   for (const arg of argv) {
     if (arg === "--json") out.json = true;
+    if (arg === "--prompt") out.prompt = true;
     const writePrefix = "--write=";
     if (arg.startsWith(writePrefix)) out.write = arg.slice(writePrefix.length);
   }
@@ -169,6 +204,8 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 if (args.json) {
   console.log(JSON.stringify(artifact, null, 2));
+} else if (args.prompt) {
+  console.log(prompt(artifact));
 } else {
   const body = markdown(artifact);
   if (args.write) {

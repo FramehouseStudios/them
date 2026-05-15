@@ -28,13 +28,16 @@ test("[v1-manual-qa] --json emits the four V1 manual flows", () => {
   );
   assert.ok(payload.parked.some((p) => p.prs.includes("#94")));
   assert.ok(payload.automatedProof.some((p) => p.command.includes("eval:v1-smokes")));
+  assert.ok(payload.automatedProof.some((p) => p.command.includes("v1-build-test-readiness")));
 });
 
 test("[v1-manual-qa] markdown output names pass criteria and parked gates", () => {
   const r = run([]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /## Manual App Flows/);
+  assert.match(r.stdout, /### Current app build and tests/);
   assert.match(r.stdout, /Pass: Reply text is visible/);
+  assert.match(r.stdout, /Decision packet: `docs\/memory-export-delete-decision-packet\.md`/);
   assert.match(r.stdout, /#212/);
 });
 
@@ -46,5 +49,16 @@ test("[v1-manual-qa] --write creates a reusable markdown artifact", () => {
   assert.equal(r.status, 0, r.stderr);
   const body = fs.readFileSync(out, "utf8");
   assert.match(body, /^# io\.them V1 TestFlight Preflight/);
+  assert.match(body, /### Current app build and tests/);
   assert.match(body, /Generated from `scripts\/v1_manual_qa_checklist\.mjs`/);
+});
+
+test("[v1-manual-qa] --prompt prints a compact result block for human signoff", () => {
+  const r = run(["--prompt"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^V1 human smoke prompt/);
+  assert.match(r.stdout, /Talk Pipeline: PASS\/FAIL - <notes>/);
+  assert.match(r.stdout, /Decision packet: docs\/memory-export-delete-decision-packet\.md/);
+  assert.match(r.stdout, /Overall V1 manual smoke: PASS\/FAIL - <notes>/);
+  assert.match(r.stdout, /Status command: npm run v1:status/);
 });

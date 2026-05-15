@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-15T06:35:21.000Z",
+  "updatedAt": "2026-05-15T06:52:18.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1483,6 +1483,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T121-post-v1-progress-refresh",
+      "blocker": null
+    },
+    {
+      "number": 323,
+      "title": "T122: reprove current app build and tests",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T122-current-app-test-proof",
       "blocker": null
     }
   ],
