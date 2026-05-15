@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-15T08:09:03.000Z",
+  "updatedAt": "2026-05-15T08:20:21.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1511,6 +1511,15 @@
       "status": "merged",
       "branch": "codex/T124-refresh-after-v1-smoke-prompt",
       "blocker": null
+    },
+    {
+      "number": 326,
+      "title": "T125: record deterministic V1 smoke proof",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T125-deterministic-v1-smoke-proof",
+      "blocker": null
     }
   ],
   "blockers": [
@@ -1531,6 +1540,12 @@
       "owner": "codex",
       "summary": "Claude PR #212 extracts auth routes. Keep do-not-merge/tier-3 until Codex reviews it against design note #221 and auth guardrails are explicitly cleared.",
       "since": "2026-05-14"
+    },
+    {
+      "id": "v1-release-preflight-config",
+      "owner": "human",
+      "summary": "Release preflight fails until signing/configuration values in docs/v1-release-preflight-proof.md are cleared.",
+      "since": "2026-05-15"
     }
   ],
   "decisionsPending": [
@@ -1551,6 +1566,12 @@
       "question": "After Claude rebases PR #212 and tests are green, may Codex clear the tier-3 auth gate and merge the byte-identical /auth route extraction under D005?",
       "ownerNeeds": "human",
       "since": "2026-05-14"
+    },
+    {
+      "id": "v1-release-preflight-clearance",
+      "question": "May the release signing/configuration values listed in docs/v1-release-preflight-proof.md be set now, including Development Team, Hardened Runtime, Release BACKEND_URL, Release APP_TOKEN, and microphone usage build setting?",
+      "ownerNeeds": "human",
+      "since": "2026-05-15"
     }
   ],
   "endpointsAwaitingIosConsumer": []

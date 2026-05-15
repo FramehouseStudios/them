@@ -777,7 +777,7 @@
 | T123                                   | Make V1 manual smoke handoff one-command                                                 | codex  | review      |
 | T124                                   | Refresh after V1 smoke prompt merge                                                      | codex  | review      |
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
-| T126                                   | Run and record release preflight                                                         | codex  | in-progress |
+| T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3059,7 +3059,7 @@ command.
 - **Owner:** codex
 - **Branch:** codex/T126-release-preflight-proof
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3077,7 +3077,11 @@ human-owned release settings.
 
 ## Verification
 
-- Pending.
+- `scripts/appstore_preflight.sh` -> failed as expected, surfacing 6 release
+  configuration/signing blockers and 0 warnings
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

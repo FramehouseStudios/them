@@ -2,7 +2,7 @@
 id: T126
 title: Run and record release preflight
 owner: codex
-status: in-progress
+status: review
 branch: codex/T126-release-preflight-proof
 pillar: mobile-first
 v1_pillar: ios
@@ -25,4 +25,8 @@ human-owned release settings.
 
 ## Verification
 
-- Pending.
+- `scripts/appstore_preflight.sh` -> failed as expected, surfacing 6 release
+  configuration/signing blockers and 0 warnings
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
