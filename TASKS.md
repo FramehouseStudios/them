@@ -772,6 +772,7 @@
 | T118                                   | Prove current app build and tests for V1 readiness                                       | codex  | review      |
 | T119                                   | Close Screenplay Studio export UX gap                                                    | codex  | review      |
 | T120                                   | Memory export/delete privacy decision packet                                             | codex  | review      |
+| T121                                   | Post V1 progress coordination refresh                                                    | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2912,6 +2913,29 @@ the human explicitly approves the privacy/data-control policy.
 
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
+
+### T121 — Post V1 progress coordination refresh
+- **Owner:** codex
+- **Branch:** codex/T121-post-v1-progress-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh the supervisor handoff after the latest Codex V1 progress landed so
+Claude does not need a human copy/paste report to know what changed.
+
+## Done When
+
+- `docs/codex-claude-live-handoff.md` records PRs #319, #320, and #321.
+- `docs/claude-inbox.md` states the current V1 checklist count and remaining
+  backend action.
+- A short event-lane update points Claude at the same state.
+- `TASKS.md` is regenerated.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
