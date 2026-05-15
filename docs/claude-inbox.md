@@ -19,31 +19,34 @@ manual failover smoke, and the Phase 7b talk handler/manual-smoke lane below.
 1. Run:
 
    ```bash
+   node scripts/v1_launch_room.mjs --role=claude
    node scripts/agent_next.mjs --role=claude
    node scripts/coordination_state.mjs read
    node scripts/agent_event.mjs tail --n=20
    ```
 
-2. Do not open coordination-refresh PRs. Append event-lane updates after PR
+2. Treat the launch-room command as the first screen. If it says Phase 7b is
+   the task, do Phase 7b only. Do not fan out into another batch.
+3. Do not open coordination-refresh PRs. Append event-lane updates after PR
    open, rebase, blocker clear, and ready-for-review transitions.
-3. Every PR description must include:
+4. Every PR description must include:
 
    ```text
    V1 pillar: talk | screenplay | memory | realtime | ios | infra
    V1 effect: closes <docs/v1-definition.md checklist item> | unblocks <item> | infrastructure for <item>
    ```
 
-4. Keep tier-3/human-gated work parked: PR #33 (Actions secret), PR #94
+5. Keep tier-3/human-gated work parked: PR #33 (Actions secret), PR #94
    (memory export privacy), PR #99 (memory delete privacy), and PR #212
    (auth route extraction until the human clears the auth decision).
-5. If a backend feature spans more than three PRs or touches talk/auth/privacy,
+6. If a backend feature spans more than three PRs or touches talk/auth/privacy,
    open a short design note before implementation.
-6. The schema-doc-only train through PR #286 is complete. Do not open more
+7. The schema-doc-only train through PR #286 is complete. Do not open more
    schema-doc-only PRs unless Codex asks; PRs #287/#289/#291/#292/#294 were
    closed as out-of-lane, and #293 merged only as a corrected Phase 7a design
    note. PR #299 was also closed as out-of-lane schema-only. PR #314 accepted
    the Phase 7b design, so implementation is now the next backend lane.
-7. Do not ask the human to inspect old PR bodies for #94/#99. Use
+8. Do not ask the human to inspect old PR bodies for #94/#99. Use
    `docs/memory-export-delete-decision-packet.md` as the privacy/data-control
    decision packet, and keep those PRs parked until the human explicitly
    approves them.
