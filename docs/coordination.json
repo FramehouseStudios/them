@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-15T07:10:13.000Z",
+  "updatedAt": "2026-05-15T08:09:03.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1501,6 +1501,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T123-v1-smoke-prompt",
+      "blocker": null
+    },
+    {
+      "number": 325,
+      "title": "T124: refresh after V1 smoke prompt merge",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T124-refresh-after-v1-smoke-prompt",
       "blocker": null
     }
   ],

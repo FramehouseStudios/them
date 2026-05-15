@@ -2,7 +2,7 @@
 id: T125
 title: Record deterministic V1 smoke proof
 owner: codex
-status: in-progress
+status: review
 branch: codex/T125-deterministic-v1-smoke-proof
 pillar: mobile-first
 v1_pillar: ios
@@ -25,4 +25,7 @@ command.
 
 ## Verification
 
-- Pending.
+- `cd backend && npm run eval:v1-smokes` -> passed
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
