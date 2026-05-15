@@ -2,7 +2,7 @@
 id: T122
 title: Reprove current app build and themTests after export UX
 owner: codex
-status: in-progress
+status: review
 branch: codex/T122-current-app-test-proof
 pillar: mobile-first
 v1_pillar: ios
@@ -23,4 +23,9 @@ app-visible export UX change from PR #320, then update the readiness artifact.
 
 ## Verification
 
-- Pending.
+- `xcodebuild build -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` -> passed
+- `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` -> passed, 103 tests / 0 failures
+- `npm run v1:status` -> passed, 19/25
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
