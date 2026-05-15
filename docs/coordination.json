@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-15T06:20:19.000Z",
+  "updatedAt": "2026-05-15T06:35:21.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1474,6 +1474,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T120-memory-privacy-decision-packet",
+      "blocker": null
+    },
+    {
+      "number": 322,
+      "title": "T121: refresh V1 handoff after Codex merges",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T121-post-v1-progress-refresh",
       "blocker": null
     }
   ],

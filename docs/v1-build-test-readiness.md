@@ -5,8 +5,8 @@ the V1 release-readiness checklist item in `docs/v1-definition.md`.
 
 ## Last Verified
 
-2026-05-14 17:56 America/Los_Angeles on branch
-`codex/T118-v1-readiness-proof`.
+2026-05-14 23:28 America/Los_Angeles on branch
+`codex/T122-current-app-test-proof`.
 
 ## Commands
 
@@ -18,7 +18,7 @@ xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macO
 ## Results
 
 - App build: passed (`** BUILD SUCCEEDED **`).
-- `themTests`: passed (`** TEST SUCCEEDED **`), 99 tests, 0 failures.
+- `themTests`: passed (`** TEST SUCCEEDED **`), 103 tests, 0 failures.
 
 ## Boundaries
 
