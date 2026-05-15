@@ -2,7 +2,7 @@
 id: T121
 title: Post V1 progress coordination refresh
 owner: codex
-status: in-progress
+status: review
 branch: codex/T121-post-v1-progress-refresh
 pillar: infra
 v1_pillar: infra
@@ -24,4 +24,7 @@ Claude does not need a human copy/paste report to know what changed.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/agent_next.mjs --role=claude --no-events` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed

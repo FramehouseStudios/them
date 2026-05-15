@@ -11,6 +11,11 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
 
 ## Current Command
 
+Current V1 state: `npm run v1:status` is 19/25 after Codex PRs #319, #320,
+and #321. The app-visible export UX gap is closed; the remaining V1 blockers
+are human manual smokes, the memory export/delete privacy decision, realtime
+manual failover smoke, and the Phase 7b talk handler/manual-smoke lane below.
+
 1. Run:
 
    ```bash
@@ -38,6 +43,10 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
    closed as out-of-lane, and #293 merged only as a corrected Phase 7a design
    note. PR #299 was also closed as out-of-lane schema-only. PR #314 accepted
    the Phase 7b design, so implementation is now the next backend lane.
+7. Do not ask the human to inspect old PR bodies for #94/#99. Use
+   `docs/memory-export-delete-decision-packet.md` as the privacy/data-control
+   decision packet, and keep those PRs parked until the human explicitly
+   approves them.
 
 ## Backend Work Codex Actually Wants Next
 

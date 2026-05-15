@@ -772,7 +772,7 @@
 | T118                                   | Prove current app build and tests for V1 readiness                                       | codex  | review      |
 | T119                                   | Close Screenplay Studio export UX gap                                                    | codex  | review      |
 | T120                                   | Memory export/delete privacy decision packet                                             | codex  | review      |
-| T121                                   | Post V1 progress coordination refresh                                                    | codex  | in-progress |
+| T121                                   | Post V1 progress coordination refresh                                                    | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -2918,7 +2918,7 @@ the human explicitly approves the privacy/data-control policy.
 - **Owner:** codex
 - **Branch:** codex/T121-post-v1-progress-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -2935,7 +2935,10 @@ Claude does not need a human copy/paste report to know what changed.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/agent_next.mjs --role=claude --no-events` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
