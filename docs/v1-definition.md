@@ -76,11 +76,12 @@ known human-gated privacy decisions must be visible before external review.
 Checklist:
 - [x] macOS app builds and focused Swift tests have been passing in the merge
       train.
-- [ ] Current iOS build and `themTests` are green after the next app-visible
+- [x] Current app build and `themTests` are green after the latest app-visible
       feature.
 - [x] `smoke.sh` or an equivalent manual QA script covers the V1 path.
 - [x] TestFlight preflight artifact names what is verified and what is parked.
-- [ ] Human signs off on the V1 manual smoke before external review.
+- [ ] Human signs off on the V1 manual smoke before external review and the
+      TestFlight handoff can proceed.
 
 ## PR Rule
 
