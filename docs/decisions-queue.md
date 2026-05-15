@@ -35,38 +35,83 @@ Rules:
 
 ## Open
 
-### D-creative-memory-export-approval — Approve full memory export?
-- **Asked by:** codex
-- **Asked at:** 2026-05-14
-- **Why it matters:** This decides whether Claude PR #94 can expose a full
-  creative-memory export route for V1 data controls.
-- **Question:** May Claude merge PR #94 to expose full creative-memory export,
-  assuming the route remains authenticated and documented as
-  privacy/data-control work?
-- **Default if no answer:** Do not merge PR #94.
-
-### D-creative-memory-delete-scope — What should memory delete remove?
-- **Asked by:** codex
-- **Asked at:** 2026-05-14
-- **Why it matters:** This decides whether Claude PR #99 can ship a memory
-  deletion route and what data it is allowed to erase.
-- **Question:** For PR #99, should V1 allow `DELETE /memory/forget` to delete
-  only `creative_memory`, or should it also delete project-scoped screenplay
-  artifacts and derived memories?
-- **Default if no answer:** Do not merge PR #99.
-
-### D-auth-route-extraction-clearance — Clear auth extraction after rebase?
-- **Asked by:** codex
-- **Asked at:** 2026-05-14
-- **Why it matters:** This decides whether PR #212 can leave the tier-3 hold
-  once Claude rebases and tests are green.
-- **Question:** After Claude rebases PR #212 and tests are green, may Codex
-  clear the tier-3 auth gate and merge the byte-identical `/auth` route
-  extraction under D005?
-- **Default if no answer:** Keep PR #212 labeled `do-not-merge`.
+_(empty)_
 
 ---
 
 ## Resolved
 
-_(empty)_
+### D-creative-memory-export-approval — Approve full memory export?
+- **Asked by:** codex
+- **Asked at:** 2026-05-14
+- **Resolved at:** 2026-05-14
+- **Resolution:** **Approved.** PR #94 may merge. Route must remain
+  authenticated, scoped to the requesting user, rate-limited, and
+  documented in `docs/v1-definition.md` as a privacy/data-control
+  surface. Export payload must exclude server-only metadata (boot
+  ids, supplier secrets, internal telemetry).
+- **Resolved by:** human product lead (one-time override granted in
+  end-to-end audit session, 2026-05-14).
+
+### D-creative-memory-delete-scope — What should memory delete remove?
+- **Asked by:** codex
+- **Asked at:** 2026-05-14
+- **Resolved at:** 2026-05-14
+- **Resolution:** **Approved with narrow V1 scope.** PR #99 may ship
+  `DELETE /memory/forget` that erases **only `creative_memory`** for
+  V1. Project-scoped screenplay artifacts and derived memories are
+  **out of scope for V1** and tracked separately as a follow-up.
+  The route must require explicit user confirmation server-side
+  (idempotency token + user-id match), and must log a deletion
+  receipt the user can see.
+- **Resolved by:** human product lead, 2026-05-14.
+
+### D-auth-route-extraction-clearance — Clear auth extraction after rebase?
+- **Asked by:** codex
+- **Asked at:** 2026-05-14
+- **Resolved at:** 2026-05-14
+- **Resolution:** **Approved.** Once Claude rebases PR #212 onto
+  `main`, the existing `themTests` suite is green, and the diff
+  remains byte-identical (only file moves), Codex may clear the
+  tier-3 `do-not-merge` label and merge under D005 supervisor
+  authority. If the rebase introduces any non-trivial diff, the PR
+  reverts to tier-3 and requires a fresh human review.
+- **Resolved by:** human product lead, 2026-05-14.
+
+### D-desktop-posture-v1 — Is io.them shipping a desktop app for V1?
+- **Asked by:** claude
+- **Asked at:** 2026-05-14
+- **Resolved at:** 2026-05-14
+- **Resolution:** **No desktop app for V1.** V1 is mobile-only
+  (iPhone). The existing `macosx` SUPPORTED_PLATFORMS flag and
+  `#if os(macOS)` conditionals are **dormant scaffolding** —
+  acceptable to keep so long as they compile, but must not appear
+  in any V1 marketing, TestFlight notes, or App Store listing.
+  Native macOS shell (sidebar, menu bar, keyboard shortcuts,
+  window sizing) is deferred to V1.1+ and requires its own ADR.
+  Action: Codex spec captures a follow-up to either gate macOS out
+  cleanly or commit a real Mac shell post-V1.
+- **Resolved by:** human product lead, 2026-05-14.
+
+### D-token-keychain-migration — Move auth tokens off UserDefaults?
+- **Asked by:** claude
+- **Asked at:** 2026-05-14
+- **Resolved at:** 2026-05-14
+- **Resolution:** **Approved for V1.** iOS must migrate the stored
+  `app_token` and `sharedUserID` from `UserDefaults` to the iOS
+  Keychain before TestFlight external review. Migration must be
+  one-way and idempotent: on first launch under the new build,
+  read existing UserDefaults values, write to Keychain, then clear
+  the UserDefaults entries. New writes use Keychain only. A
+  follow-up Codex spec captures the iOS work.
+- **Resolved by:** human product lead, 2026-05-14.
+
+### D-ci-openai-secret-format — Fix malformed CI OPENAI_API_KEY (issue #33)?
+- **Asked by:** claude
+- **Asked at:** 2026-05-14
+- **Resolved at:** 2026-05-14
+- **Resolution:** **Approved for human action.** Human will rotate
+  the `OPENAI_API_KEY` GitHub Actions secret. See
+  `docs/ci-openai-secret-fix.md` for the exact rotation steps,
+  validation script, and how to confirm the eval gate is green.
+- **Resolved by:** human product lead, 2026-05-14.
