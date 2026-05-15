@@ -35,6 +35,18 @@ Rules:
 
 ## Open
 
+### D-v1-release-preflight-clearance — Clear release signing/configuration blockers?
+- **Asked by:** codex
+- **Asked at:** 2026-05-15
+- **Why it matters:** This blocks TestFlight/external review even though Debug
+  app build/tests and deterministic V1 smokes are green.
+- **Question:** May the release signing/configuration values listed in
+  `docs/v1-release-preflight-proof.md` be set now, including Development Team,
+  Hardened Runtime, Release `BACKEND_URL`, Release `APP_TOKEN`, and microphone
+  usage build setting?
+- **Default if no answer:** Keep TestFlight handoff parked and do not change
+  human-owned release/signing settings.
+
 ### D-creative-memory-export-approval — Approve full memory export?
 - **Asked by:** codex
 - **Asked at:** 2026-05-14

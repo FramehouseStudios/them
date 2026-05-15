@@ -34,6 +34,8 @@ The latest local app build and `themTests` result is recorded separately from th
 `scripts/appstore_preflight.sh`
 
 Release settings, privacy manifest, entitlements, and macOS release build are ready for archive checks.
+Latest proof: `docs/v1-release-preflight-proof.md` currently records release
+preflight blockers.
 
 ## Manual App Flows
 
@@ -88,6 +90,8 @@ Pass: Primary succeeds when healthy; fallback is visible and usable when primary
 - Full creative-memory export/delete (#94, #99): Needs explicit human privacy/data-control approval before merge. Decision packet: `docs/memory-export-delete-decision-packet.md`.
 - Postgres eval gate (#33): Needs the GitHub Actions OPENAI_API_KEY secret fixed by a human.
 - Auth route extraction (#212): Tier-3 auth work remains do-not-merge until explicitly cleared.
+- Release preflight: Needs release signing/configuration values cleared in
+  `docs/v1-release-preflight-proof.md`.
 
 ## Status Command
 
