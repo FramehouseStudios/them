@@ -2,7 +2,7 @@
 id: T117
 title: Refresh queue after memories tests merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T117-post-memories-tests-refresh
 pillar: infra
 v1_pillar: infra

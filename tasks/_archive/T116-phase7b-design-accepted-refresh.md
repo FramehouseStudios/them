@@ -2,7 +2,7 @@
 id: T116
 title: Refresh Claude handoff after Phase 7b design acceptance
 owner: codex
-status: review
+status: merged
 branch: codex/T116-phase7b-design-accepted-refresh
 pillar: infra
 v1_pillar: talk

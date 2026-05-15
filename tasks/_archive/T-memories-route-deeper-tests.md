@@ -2,7 +2,7 @@
 id: T-memories-route-deeper-tests
 title: Deeper test coverage for backend/lib/memories_route.js
 owner: claude
-status: review
+status: merged
 branch: claude/T-memories-route-deeper-tests
 pillar: memory
 v1_pillar: memory
