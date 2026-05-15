@@ -125,6 +125,29 @@ jobs:
             exit 1
           fi
 
+      # See docs/ci-openai-secret-fix.md for context on issue #33.
+      # This step turns malformed-secret failures into a one-line gate
+      # error instead of a cryptic 401 deep inside eval:gate.
+      - name: Validate OPENAI_API_KEY format
+        if: env.OPENAI_API_KEY != ''
+        run: |
+          set -eo pipefail
+          if [[ "${OPENAI_API_KEY}" =~ [[:space:]] ]]; then
+            echo "::error::OPENAI_API_KEY contains whitespace; rotate per docs/ci-openai-secret-fix.md"
+            exit 1
+          fi
+          code=$(curl -sS -o /tmp/openai-validate.json -w "%{http_code}" \
+            https://api.openai.com/v1/models \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}")
+          if [[ "${code}" != "200" ]]; then
+            echo "::error::OPENAI_API_KEY rejected by api.openai.com (HTTP ${code})"
+            head -c 400 /tmp/openai-validate.json || true
+            echo
+            echo "See docs/ci-openai-secret-fix.md for rotation steps."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY validated OK"
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

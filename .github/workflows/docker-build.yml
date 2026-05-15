@@ -1,0 +1,85 @@
+name: docker-build
+
+# Validates that backend/Dockerfile still builds. Runs on PRs that touch
+# the Dockerfile, dependency manifests, or the image build context. Does
+# NOT push the image — this is a regression gate, not a deploy step.
+
+on:
+  pull_request:
+    paths:
+      - "backend/Dockerfile"
+      - "backend/.dockerignore"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - "backend/app.js"
+      - "backend/index.js"
+      - "backend/config.js"
+      - "backend/lib/**"
+      - "backend/middleware/**"
+      - "backend/migrations/**"
+      - "backend/services/**"
+      - "backend/render.yaml"
+      - ".github/workflows/docker-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build backend image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push, no cache export)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          load: true
+          tags: them-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify image starts and refuses to boot without prod env
+        run: |
+          # NODE_ENV=production with no required envs → assertProductionEnv
+          # should throw a multi-line error listing every missing var and
+          # the process should exit non-zero.
+          set +e
+          docker run --rm \
+            -e NODE_ENV=production \
+            them-backend:ci \
+            node -e "import('./config.js').then(m => m.assertProductionEnv()).catch(e => { console.error(e.message); process.exit(1); })" \
+            > /tmp/boot.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/boot.log
+          if [[ ${rc} -eq 0 ]]; then
+            echo "::error::Image booted in production mode without required env — assertProductionEnv did not run"
+            exit 1
+          fi
+          for var in DATABASE_URL JWT_SECRET OPENAI_API_KEY APP_TOKEN; do
+            if ! grep -q "${var}" /tmp/boot.log; then
+              echo "::error::Boot log did not name missing var ${var}"
+              exit 1
+            fi
+          done
+          echo "Image boot guard validated"
+
+      - name: Image size summary
+        run: |
+          docker image inspect them-backend:ci --format '{{ .Size }}' | \
+            awk '{ printf "Image size: %.1f MB\n", $1 / 1024 / 1024 }' | \
+            tee -a "${GITHUB_STEP_SUMMARY}"
