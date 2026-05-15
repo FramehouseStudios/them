@@ -40,9 +40,9 @@ Rules:
 - **Asked at:** 2026-05-14
 - **Why it matters:** This decides whether Claude PR #94 can expose a full
   creative-memory export route for V1 data controls.
-- **Question:** May Claude merge PR #94 to expose full creative-memory export,
-  assuming the route remains authenticated and documented as
-  privacy/data-control work?
+- **Question:** May Codex clear the privacy gate and merge Claude PR #94 after
+  Claude rebases on current `main` and tests are green, using the constraints in
+  `docs/memory-export-delete-decision-packet.md`?
 - **Default if no answer:** Do not merge PR #94.
 
 ### D-creative-memory-delete-scope — What should memory delete remove?
@@ -50,9 +50,9 @@ Rules:
 - **Asked at:** 2026-05-14
 - **Why it matters:** This decides whether Claude PR #99 can ship a memory
   deletion route and what data it is allowed to erase.
-- **Question:** For PR #99, should V1 allow `DELETE /memory/forget` to delete
-  only `creative_memory`, or should it also delete project-scoped screenplay
-  artifacts and derived memories?
+- **Question:** Should V1 `DELETE /memory/forget` be creative-memory-only, so
+  Codex can clear and merge PR #99 after Claude rebases/tests under the
+  constraints in `docs/memory-export-delete-decision-packet.md`?
 - **Default if no answer:** Do not merge PR #99.
 
 ### D-auth-route-extraction-clearance — Clear auth extraction after rebase?
