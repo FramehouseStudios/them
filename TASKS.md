@@ -777,6 +777,7 @@
 | T123                                   | Make V1 manual smoke handoff one-command                                                 | codex  | review      |
 | T124                                   | Refresh after V1 smoke prompt merge                                                      | codex  | review      |
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
+| T126                                   | Run and record release preflight                                                         | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3053,6 +3054,30 @@ command.
 - `node scripts/coordination_state.mjs validate` -> passed
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
+
+### T126 — Run and record release preflight
+- **Owner:** codex
+- **Branch:** codex/T126-release-preflight-proof
+- **Pillar:** mobile-first
+- **Status:** in-progress
+
+## Scope
+
+Run `scripts/appstore_preflight.sh` on current `main` and record the outcome
+as a release-readiness artifact. This does not change signing, entitlements, or
+human-owned release settings.
+
+## Done When
+
+- `scripts/appstore_preflight.sh` is run locally.
+- A readiness artifact records pass/fail/warn counts and any blockers.
+- `docs/testflight-v1-preflight.md` links to the release preflight proof.
+- Coordination state and the live handoff record the outcome.
+- `TASKS.md` is regenerated.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
