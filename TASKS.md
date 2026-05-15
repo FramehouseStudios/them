@@ -778,6 +778,7 @@
 | T124                                   | Refresh after V1 smoke prompt merge                                                      | codex  | review      |
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
+| T127                                   | Add V1 launch-room command                                                               | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3082,6 +3083,30 @@ human-owned release settings.
 - `node scripts/coordination_state.mjs validate` -> passed
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
+
+### T127 — Add V1 launch-room command
+- **Owner:** codex
+- **Branch:** codex/T127-v1-launch-room
+- **Pillar:** mobile-first
+- **Status:** in-progress
+
+## Scope
+
+Convert the six-week execution plan into repo-native coordination: one command
+that prints current V1 status, owner-specific next actions, and the smallest
+set of human decisions/options that unblock launch.
+
+## Done When
+
+- `scripts/v1_launch_room.mjs` prints role-specific launch options.
+- Tests cover JSON and role-specific output.
+- `docs/v1-six-week-launch-plan.md` records the operating plan.
+- Claude's inbox points Claude at the launch-room command before starting work.
+- `TASKS.md` is regenerated.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
