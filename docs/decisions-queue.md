@@ -35,7 +35,22 @@ Rules:
 
 ## Open
 
-_(empty)_
+### D-account-export-key-scope — How is per-user data keyed for export?
+- **Asked by:** claude
+- **Asked at:** 2026-05-15
+- **Why it matters:** `T-account-deletion-and-export` Phase-1 wiring
+  needs to enumerate every store row owned by a user. The legacy
+  memory path keys by session/ip (`/data/memories/clear` uses
+  `resolveWritableMemoryContext`, not `req.authUser`), so a naive
+  `list({domain, prefix: userId})` may under- or over-collect.
+- **Question:** For V1 export/delete, is `req.authUser.id` a reliable
+  prefix/owner for every persistence domain, or do specific domains
+  (user_memory, screenplay) need a domain-specific ownership lookup?
+- **Default if no answer:** Phase-1 exports only the domains where
+  user-id keying is verified (creative_memory, accepted_twists,
+  craft_*, telemetry); memory/screenplay export is marked "partial —
+  contact support" until the key convention is confirmed. Deletion
+  uses the same conservative set.
 
 ---
 

@@ -428,6 +428,44 @@ With PR #60, PR #64, PR #65, PR #66, PR #67, PR #72, and D005 live, the coordina
 4. **Decisions queue** (merged PR #66 / `docs/decisions-queue.md`) — the only place to post "needs human" questions. One concrete question per entry, with a safe default the agent will follow absent the human's answer.
 5. **Per-row task files** (merged PR #67 / `tasks/_active/`) — optional. New tasks can drop `tasks/_active/T-<slug>.md` instead of editing `TASKS.md` directly. Removes the recurring "two agents touch the same line of TASKS.md" merge-conflict class. `node scripts/build_tasks_md.mjs` renders the rebuilt section.
 
+## Landing + App Store prep (2026-05-15, batch 4)
+
+The ~60 moves from batches 1–3 are now **committed** on local branch
+`claude/backend-post-v1-audit` (4 themed commits + 1 App Store prep
+commit). NOT pushed — human chose local-commit-only landing. The
+branch is based on an older `main` (main advanced to #323 via other
+agents while this ran); **it needs a rebase before it can become a
+PR**. Full backend `npm test` green on the branch (1225 pass / 1 skip).
+
+Branch commits:
+1. `backend: production boot guard, health probes, password hardening`
+2. `backend: Phase-0 reusable helpers (rate limit, logs, idempotency, account routes)`
+3. `deploy + CI: Dockerfile, render blueprint, migrations runner, CI gates`
+4. `docs: V1 audit decisions, specs, task rows, coordination`
+5. `backend: account-lifecycle store + App Store wiring plan` (App Store prep)
+
+App Store prep (the chosen next-focus) — Phase-0 done:
+- `lib/account_lifecycle_store.js` + 8 tests (table-backed,
+  injectable client; read/mark/clear/listDue/finalize/audit).
+- Precise Phase-1 wiring plan in
+  `docs/specs/T-account-deletion-and-export.md` with verified
+  index.js line refs (`req.authUser.id` @ 3092, mount @ 26410,
+  `sharedPersistence.list` signature confirmed).
+- **New open decision** `D-account-export-key-scope` in
+  `docs/decisions-queue.md` — the legacy memory path keys by
+  session/ip not user-id; the per-user export/delete key convention
+  must be confirmed (by Codex or human) before Phase-1 merges. A
+  conservative default is documented.
+
+Recommended next actions:
+1. Human/Codex: review + rebase `claude/backend-post-v1-audit` onto
+   current main, split into PRs (themed commits make this clean), merge.
+2. Human/Codex: answer `D-account-export-key-scope`.
+3. Claude: `T-account-deletion-and-export` Phase-1 wiring once the
+   key-scope decision lands.
+
+---
+
 ## Post-V1-audit batch 3 (2026-05-14, third batch — all Claude-lane)
 
 Third 20-move batch. No override needed — all backend/scripts/docs/CI.

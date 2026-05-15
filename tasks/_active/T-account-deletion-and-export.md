@@ -20,15 +20,24 @@ in `DataControlsScreen.swift`.
 
 ## Progress
 
-- Route shapes + behavior DONE: `backend/lib/account_routes.js`
-  (`GET /account/export`, `DELETE /account`, `POST /account/cancel-deletion`)
-  + 10 tests (`tests/account_routes.test.mjs`) with injected deps.
-- Migration DONE: `backend/migrations/008_account_lifecycle.sql`
-  (account_lifecycle + account_audit_log tables).
-- REMAINING: wire real deps in index.js — `resolveAuthenticatedUser`,
-  `exportUserData` (iterate persistence domains), `lifecycleStore`
-  (persisted via account_lifecycle table), the 7-day hard-delete
-  sweep job, and the iOS DataControlsScreen surface (Codex).
+Phase-0 DONE (branch `claude/backend-post-v1-audit`):
+- `backend/lib/account_routes.js` + 10 tests — route shapes, deps injected.
+- `backend/lib/account_lifecycle_store.js` + 8 tests — table-backed
+  store (read / markPendingDeletion / clearPendingDeletion /
+  listDueForHardDelete / finalizeHardDelete / audit), pg-style
+  client injected, in-memory-fake tested.
+- `backend/migrations/008_account_lifecycle.sql`.
+- Precise Phase-1 wiring plan written into the spec
+  (`docs/specs/T-account-deletion-and-export.md`) with verified
+  index.js line refs.
+- Flagged `D-account-export-key-scope` in the decisions queue —
+  per-user key convention must be confirmed before Phase-1 merges.
+
+Phase-1 REMAINING (next, one PR): wire deps in index.js
+(`resolveAuthenticatedUser` ← `req.authUser.id`; `lifecycleStore` ←
+pg pool; `exportUserData` ← `sharedPersistence.list`), mount at
+`index.js:26410`, add the hard-delete sweep timer, wire
+`verifyReauthProof`. Phase-2: iOS DataControlsScreen (Codex).
 
 ## Done when
 

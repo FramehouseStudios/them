@@ -107,6 +107,61 @@ Out:
   from `T-idempotency-key-contract` covers this.
 - Audit log retention. Out of scope here — legal decides retention.
 
+## Wiring plan (precise — verified against index.js 2026-05-15)
+
+Phase-0 (DONE, on `claude/backend-post-v1-audit`):
+- `lib/account_routes.js` + 10 tests — route shapes, deps injected.
+- `lib/account_lifecycle_store.js` + 8 tests — table-backed store
+  (`createAccountLifecycleStore({ client })`), pg-style client
+  injected, mirrors `persistence_postgres.js`.
+- `migrations/008_account_lifecycle.sql` — `account_lifecycle` +
+  `account_audit_log` tables.
+
+Phase-1 (NEXT — the actual wiring; one PR):
+1. **Auth dep.** `req.authUser?.id` is the canonical authenticated
+   user id, attached by `userAuth.attachUserAuth` middleware
+   (`index.js:3092`). Wire:
+   ```js
+   resolveAuthenticatedUser: (req) =>
+     req.authUser?.id ? { id: String(req.authUser.id) } : null
+   ```
+   No new auth code — reuse the existing subsystem
+   (`createUserAuthSubsystem`, `index.js:3078`).
+2. **Lifecycle store dep.** In Postgres mode, build the store with
+   the same pool the persistence adapter uses. The pg client is
+   created in `lib/persistence_postgres.js` (`loadPgClient`); expose
+   a `getRawClient()` accessor or pass `sharedPersistence`'s client.
+   In JSON dev mode, fall back to an in-memory shim (no DB) so dev
+   `npm start` still boots — the store is only meaningful in prod.
+3. **Export dep.** `exportUserData({ userId, domains })` iterates
+   `sharedPersistence.list({ domain, prefix, limit })` (signature
+   confirmed: `lib/persistence_postgres.js:98`,
+   `lib/persistence_json.js:127`). For each KNOWN_DOMAIN, list with
+   the user's key prefix. **Open question for Codex/human:** the
+   legacy memory path keys by session/ip, not user-id
+   (`index.js:26617` `/data/memories/clear` uses
+   `resolveWritableMemoryContext`, not `req.authUser`). Export
+   correctness depends on confirming the per-user key convention per
+   domain. Track as `D-account-export-key-scope` in the decisions
+   queue before Phase-1 merges.
+4. **Mount point.** Add `mountAccountRoutes(app, deps)` next to
+   `mountApiVersionRoute(app, …)` (`index.js:26410`). Routes:
+   `GET /account/export`, `DELETE /account`,
+   `POST /account/cancel-deletion`.
+5. **Sweep job.** A 1/hour timer (or on-login check) calls
+   `lifecycleStore.listDueForHardDelete()` → for each, run the same
+   per-domain delete the export iterates, then
+   `lifecycleStore.finalizeHardDelete(userId)`. Reuse the
+   `OUTBOX_WORKER` interval pattern (`index.js` ~31536) for the
+   timer.
+6. **Re-auth.** `verifyReauthProof` wires to the existing password
+   challenge / Apple identity-token verifier in `user_auth.js`
+   (`verifyAppleIdentityToken`). Do NOT accept the session bearer
+   alone for `DELETE /account`.
+
+Phase-2 (Codex, iOS): `DataControlsScreen.swift` surface per the
+"iOS" section above.
+
 ## Out-of-scope follow-ups
 
 - Selective export ("just my screenplays, not memory").
