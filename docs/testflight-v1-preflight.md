@@ -9,6 +9,7 @@ This artifact names the V1 proof a human should run before TestFlight or externa
 `cd backend && npm run eval:v1-smokes`
 
 Prompt shape, Fountain export fixture, creative-memory recall, and realtime failover stay deterministic.
+Latest proof: `docs/v1-deterministic-smoke-proof.md`.
 
 ### Backend live talk smoke
 
