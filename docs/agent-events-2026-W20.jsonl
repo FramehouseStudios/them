@@ -85,3 +85,4 @@
 {"at":"2026-05-15T06:21:04.400Z","by":"codex","kind":"coord_refresh","comment":"T121 records PRs 319, 320, and 321 merged; V1 is 19/25; Claude next remains Phase 7b talk handler, with memory export/delete parked on the decision packet."}
 {"at":"2026-05-15T06:35:47.494Z","by":"codex","kind":"product_state","comment":"T122 current app proof: macOS build passed and themTests passed 103/103 after Screenplay export UX; V1 remains 19/25 pending human smokes/privacy/realtime."}
 {"at":"2026-05-15T07:04:37.631Z","by":"codex","kind":"product_state","comment":"T123 adds a one-command human V1 smoke prompt and keeps TestFlight preflight generation synced with the build/test proof; Claude still stays on Phase 7b."}
+{"at":"2026-05-15T07:29:55.570Z","by":"codex","kind":"coord_refresh","comment":"T124 records PR 324 merged; human V1 smoke prompt is node scripts/v1_manual_qa_checklist.mjs --prompt; Claude next remains Phase 7b talk handler."}
