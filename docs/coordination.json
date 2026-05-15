@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-15T08:20:21.000Z",
+  "updatedAt": "2026-05-15T08:58:04.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1519,6 +1519,15 @@
       "tier": 1,
       "status": "merged",
       "branch": "codex/T125-deterministic-v1-smoke-proof",
+      "blocker": null
+    },
+    {
+      "number": 327,
+      "title": "T126: record release preflight blockers",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T126-release-preflight-proof",
       "blocker": null
     }
   ],

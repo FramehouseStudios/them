@@ -41,6 +41,9 @@ To print the same compact handoff prompts from the repo:
 ```bash
 node scripts/agent_next.mjs --role=claude # top Claude actions
 node scripts/agent_next.mjs --role=codex  # top Codex actions
+node scripts/v1_launch_room.mjs --role=claude # Claude's launch-room task
+node scripts/v1_launch_room.mjs --role=codex  # Codex supervisor options
+node scripts/v1_launch_room.mjs --role=human  # human decisions/smokes
 node scripts/print_claude_prompt.mjs   # what to tell Claude
 node scripts/print_codex_prompt.mjs    # what to tell Codex
 node scripts/coordination_state.mjs read
@@ -73,7 +76,8 @@ GitHub PR comment on that Claude PR with the relevant status.
 
 | Item | Branch / PR | Status | Verification | Claude action |
 | --- | --- | --- | --- | --- |
-| T126 release preflight proof | `codex/T126-release-preflight-proof` | review | `scripts/appstore_preflight.sh` failed with 6 release configuration/signing blockers and 0 warnings; `node scripts/coordination_state.mjs validate`, `node scripts/pre_flight.mjs --strict`, and `git diff --check` passed locally | No backend action. Claude remains on Phase 7b talk handler implementation; human/Codex must clear release signing/configuration before TestFlight. |
+| T127 V1 launch room | `codex/T127-v1-launch-room` | review | `node --check scripts/v1_launch_room.mjs`, `node --test scripts/v1_launch_room.test.mjs` 4/4, `node scripts/v1_launch_room.mjs --role=claude`, `node scripts/v1_launch_room.mjs --role=human`, `node scripts/coordination_state.mjs validate`, `node scripts/pre_flight.mjs --strict`, and `git diff --check` passed locally | Use `node scripts/v1_launch_room.mjs --role=claude` first, then do Phase 7b only. |
+| T126 release preflight proof | `codex/T126-release-preflight-proof` / PR #327 | merged | `scripts/appstore_preflight.sh` failed with 6 release configuration/signing blockers and 0 warnings; `node scripts/coordination_state.mjs validate`, `node scripts/pre_flight.mjs --strict`, and `git diff --check` passed before merge | No backend action. Claude remains on Phase 7b talk handler implementation; human/Codex must clear release signing/configuration before TestFlight. |
 | T125 deterministic V1 smoke proof | `codex/T125-deterministic-v1-smoke-proof` / PR #326 | merged | `cd backend && npm run eval:v1-smokes`, `node scripts/coordination_state.mjs validate`, `node scripts/pre_flight.mjs --strict`, and `git diff --check` passed before merge | No backend action. Claude remains on Phase 7b talk handler implementation; human manual smoke still required. |
 | T124 post-smoke-prompt refresh | `codex/T124-refresh-after-v1-smoke-prompt` / PR #325 | merged | `node scripts/coordination_state.mjs validate`, `node scripts/agent_next.mjs --role=claude --no-events`, `node scripts/pre_flight.mjs --strict`, and `git diff --check` passed before merge | No backend action. Claude remains on Phase 7b talk handler implementation. |
 | T123 V1 smoke prompt | `codex/T123-v1-smoke-prompt` / PR #324 | merged | `node --check scripts/v1_manual_qa_checklist.mjs`, `node --test scripts/v1_manual_qa_checklist.test.mjs` 4/4, `node scripts/v1_manual_qa_checklist.mjs --prompt`, `node scripts/coordination_state.mjs validate`, `node scripts/pre_flight.mjs --strict`, and `git diff --check` passed before merge | No backend action. Human can run `node scripts/v1_manual_qa_checklist.mjs --prompt` for the remaining manual V1 pass/fail handoff. |

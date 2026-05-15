@@ -88,3 +88,4 @@
 {"at":"2026-05-15T07:29:55.570Z","by":"codex","kind":"coord_refresh","comment":"T124 records PR 324 merged; human V1 smoke prompt is node scripts/v1_manual_qa_checklist.mjs --prompt; Claude next remains Phase 7b talk handler."}
 {"at":"2026-05-15T08:12:55.022Z","by":"codex","kind":"product_state","comment":"T125 deterministic V1 smoke pack passed on current main; proof artifact added; V1 still needs human app smokes and Phase 7b backend implementation."}
 {"at":"2026-05-15T08:29:00.526Z","by":"codex","kind":"product_state","comment":"T126 release preflight failed honestly: 6 release config/signing blockers, 0 warnings; Debug proof and deterministic V1 smokes remain green; Claude stays on Phase 7b."}
+{"at":"2026-05-15T09:00:10.038Z","by":"codex","kind":"event_protocol_change","comment":"T127 adds the V1 launch room command; Claude should run --role=claude and do Phase 7b only, while human options are manual smoke, privacy decisions, and release config."}

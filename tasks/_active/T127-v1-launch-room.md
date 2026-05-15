@@ -2,7 +2,7 @@
 id: T127
 title: Add V1 launch-room command
 owner: codex
-status: in-progress
+status: review
 branch: codex/T127-v1-launch-room
 pillar: mobile-first
 v1_pillar: infra
@@ -25,4 +25,10 @@ set of human decisions/options that unblock launch.
 
 ## Verification
 
-- Pending.
+- `node --check scripts/v1_launch_room.mjs` -> passed
+- `node --test scripts/v1_launch_room.test.mjs` -> passed, 4/4
+- `node scripts/v1_launch_room.mjs --role=claude` -> passed
+- `node scripts/v1_launch_room.mjs --role=human` -> passed
+- `node scripts/coordination_state.mjs validate` -> passed
+- `node scripts/pre_flight.mjs --strict` -> passed
+- `git diff --check` -> passed
