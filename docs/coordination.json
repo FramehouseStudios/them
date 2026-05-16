@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T16:47:00.000Z",
+  "updatedAt": "2026-05-16T16:52:00.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -8,7 +8,7 @@
       "title": "T132: codify Phase 7b scope-tool decision",
       "owner": "codex",
       "tier": 1,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T132-phase7b-scope-tool-handoff",
       "blocker": null
     },

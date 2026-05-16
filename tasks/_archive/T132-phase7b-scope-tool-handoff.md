@@ -2,7 +2,7 @@
 id: T132
 title: Codify Phase 7b scope-tool decision
 owner: codex
-status: review
+status: merged
 branch: codex/T132-phase7b-scope-tool-handoff
 pillar: voice→scene
 v1_pillar: talk

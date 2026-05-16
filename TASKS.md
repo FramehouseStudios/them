@@ -779,7 +779,7 @@
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
-| T132                                   | Codify Phase 7b scope-tool decision                                                      | codex  | review      |
+| T133                                   | Refresh after T132 Phase 7b decision merge                                               | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3111,37 +3111,32 @@ human relay.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
 
-### T132 — Codify Phase 7b scope-tool decision
+### T133 — Refresh after T132 Phase 7b decision merge
 - **Owner:** codex
-- **Branch:** codex/T132-phase7b-scope-tool-handoff
+- **Branch:** codex/T133-refresh-after-t132
 - **Pillar:** voice→scene
 - **Status:** review
 
 ## Scope
 
-Record the human/Codex decision that Claude should add `acorn` and
-`acorn-walk` as backend devDependencies for deterministic Phase 7b
-dependency-closure verification. This is a repo-visible handoff only; Claude
-still owns the backend implementation and package changes.
+Mark T132 / PR #333 merged in the handoff state, archive the completed task,
+and emit the post-merge event so Claude's next poll has no stale review state.
 
 ## Done When
 
-- `docs/claude-inbox.md` tells Claude to use the JS scope tool path for Phase
-  7b and not to ask for human-in-loop convergence.
-- `tasks/_proposals/T-decompose-phase7b-handler-design.md` records the accepted
-  tooling amendment beside the other Codex acceptance constraints.
-- The live event lane records the decision for Claude's next poll.
+- T132 is archived with status `merged`.
+- `docs/codex-claude-live-handoff.md` and `docs/coordination.json` mark PR
+  #333 merged.
+- The event lane contains a `pr_merged` event for PR #333.
 - Coordination/pre-flight checks pass.
 
 ## Verification
 
-- `node scripts/v1_launch_room.mjs --role=claude` passed and shows the
-  `acorn` / `acorn-walk` Phase 7b instruction.
-- `node scripts/agent_next.mjs --role=claude --limit=3 --no-events` passed and
-  shows the same Phase 7b instruction.
 - `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/agent_event.mjs tail --n=4` passed and shows the T132 decision
+- `node scripts/agent_event.mjs tail --n=5` passed and shows the PR #333 merge
   event.
+- `node scripts/agent_next.mjs --role=claude --limit=3 --no-events` passed and
+  keeps Phase 7b first with `acorn` / `acorn-walk` closure tooling.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
 
