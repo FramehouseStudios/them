@@ -780,6 +780,7 @@
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
 | T135                                   | Refresh after Phase 7b talk-handler merge                                                | codex  | review      |
+| T136                                   | Add Launch Doctor CLI proof recorder                                                     | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3144,6 +3145,33 @@ the stale rebase blocker from the agent queue.
   smoke-failure support mode.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
+
+### T136 — Add Launch Doctor CLI proof recorder
+- **Owner:** codex
+- **Branch:** codex/T136-v1-launch-doctor-cli
+- **Pillar:** mobile-first
+- **Status:** in-progress
+
+## Scope
+
+Add a repo-native CLI companion for the in-app V1 Launch Doctor. The script
+must generate the same schema/versioned JSON and Markdown summary as the app
+from explicit pass/fail/in-progress/not-started flags or a pasted manual QA
+result block.
+
+## Done When
+
+- A script can write `docs/v1-launch-doctor.latest.json` and matching Markdown
+  from explicit flow results without inventing a pass.
+- The script can parse the result block printed by
+  `scripts/v1_manual_qa_checklist.mjs --prompt`.
+- `scripts/v1_launch_room.mjs` can read the generated report unchanged.
+- Docs explain the app export path and CLI fallback path.
+- Focused script tests and launch-room tests pass.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
