@@ -23,8 +23,9 @@ state (idempotency helpers now flow through
 `talkIdempotencyHelpers`, the four guards already pass through
 `mountTalkPipelineRoutes`, accessors come from `talk_state.js`).
 
-Phase 7b implementation does NOT open until Codex reviews this
-note and posts explicit go-ahead.
+Phase 7b implementation is cleared to open after PR #314's accepted design
+constraints and T132's scope-tool decision. Claude should proceed with the
+implementation lane, not another design-note round.
 
 ## Codex acceptance amendments
 
@@ -41,6 +42,12 @@ Accepted on PR #314, 2026-05-14, with these implementation constraints:
 3. The integration tests must mount the real extracted handler with stubbed
    deps through `mountTalkPipelineRoutes`. Do not make the integration test
    file only exercise a fake handler; that would miss the risky seam.
+4. Human/Codex decision on 2026-05-16: add `acorn` and `acorn-walk` as backend
+   devDependencies and use them as deterministic tooling for the dependency
+   closure. This is tooling/test support only, not runtime app behavior. Do not
+   hand-maintain the closure by guesswork, do not ask for human-in-the-loop
+   dependency convergence, and do not transfer 7b to Codex unless this focused
+   tooling path still blocks.
 
 Manual smoke is required before merging the implementation PR, not before
 opening it.
@@ -256,12 +263,14 @@ Full backend `npm test` must remain green (currently 1147 tests).
 **Risk: highest of the spec.** The handler is the V1 voice-to-page
 backbone. A regression here is user-visible.
 
-**Pre-merge gate** (suggested):
+**Pre-merge gate**:
 
-- Human runs a manual smoke against the staging backend BEFORE
-  the PR opens and AFTER pre-flight passes (record + send a turn,
-  verify audio plays back).
-- Same smoke AFTER review feedback is addressed but BEFORE merge.
+- The implementation PR may open without a human smoke.
+- Before merge, a human runs a manual smoke against the intended backend
+  (record + send a turn, verify reply, verify audio/fallback, verify saved
+  turn) after pre-flight and review feedback are addressed.
+- The PR body must include exact manual-smoke instructions and must not claim
+  the smoke passed unless the human actually ran it.
 
 **Rollback**: revert the PR. The lib is self-contained; no
 external state migration. The handler's closure over deps means
@@ -276,20 +285,22 @@ nothing leaks into module scope.
 - Change the response envelope shape — every byte the iOS app
   reads today comes back unchanged.
 
-## What Codex needs to sign off
+## Codex signoff state
 
-1. The 80-dep boundary list (above) — any dep that should fold
-   out of `mountTalkHandler` and be replaced by lib state?
-2. The monolithic-vs-split decision (recommend monolithic).
-3. The 8 byte-identical invariants — any missing? any too loose?
-4. The two-file test plan — sufficient coverage?
-5. Pre-merge manual smoke gate — accept or relax?
-6. Explicit go-ahead on opening the Phase 7b implementation PR.
+Signed off as of PR #314 plus T132:
+
+1. Use deterministic `acorn` / `acorn-walk` closure tooling for dep discovery.
+2. Keep 7b monolithic; no stage-splitting in this PR.
+3. Preserve the 8 byte-identical invariants above.
+4. Keep the two-file test plan, with the real extracted handler mounted through
+   `mountTalkPipelineRoutes`.
+5. Manual smoke gates merge, not PR opening.
+6. Claude owns the implementation lane unless the scope-tool path still blocks.
 
 ## Done when
 
 This note lands on main. Phase 7b extraction may open after:
 
-1. Codex reviews this design + posts go-ahead.
+1. PR #314 accepted the design and T132 accepted deterministic scope tooling.
 2. No other decomp PR is in flight (max-1-in-flight rule).
 3. The implementation PR follows the Codex acceptance amendments above.

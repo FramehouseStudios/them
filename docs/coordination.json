@@ -1,8 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T08:55:00.000Z",
+  "updatedAt": "2026-05-16T16:47:00.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 333,
+      "title": "T132: codify Phase 7b scope-tool decision",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T132-phase7b-scope-tool-handoff",
+      "blocker": null
+    },
     {
       "number": 331,
       "title": "T130: clear noisy release preflight blockers",
