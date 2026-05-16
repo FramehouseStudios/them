@@ -2,7 +2,7 @@
 id: T131
 title: Refresh after T130 release preflight clearance
 owner: codex
-status: in-progress
+status: review
 branch: codex/T131-refresh-after-t130
 pillar: mobile-first
 v1_pillar: ios
@@ -24,4 +24,7 @@ human relay.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_event.mjs tail --n=4` passed and shows the PR #331 merge event.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.

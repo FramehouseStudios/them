@@ -2,7 +2,7 @@
 id: T130
 title: Reduce V1 release preflight blockers
 owner: codex
-status: review
+status: merged
 branch: codex/T130-release-preflight-clearance
 pillar: mobile-first
 v1_pillar: ios
