@@ -2,7 +2,7 @@
 id: T140
 title: Refresh coordination after T139 merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T140-refresh-after-t139
 pillar: infra
 v1_pillar: ios
@@ -23,4 +23,8 @@ merged so agent prompts stop treating T139 as an open review item.
 
 ## Verification
 
-- Pending.
+- `gh pr view 341 --json state,mergedAt,headRefName,baseRefName,url` confirmed PR #341 merged.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows Claude in V1 smoke-failure support mode.
+- `node scripts/v1_launch_room.mjs --role=all` passed and shows the blocked Launch Doctor report plus release preflight blockers.
+- `git diff --check` passed.
