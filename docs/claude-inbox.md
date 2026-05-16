@@ -41,9 +41,12 @@ not configured.
    V1 effect: closes <docs/v1-definition.md checklist item> | unblocks <item> | infrastructure for <item>
    ```
 
-5. Keep tier-3/human-gated work parked: PR #33 (Actions secret), PR #94
-   (memory export privacy), PR #99 (memory delete privacy), and PR #212
-   (auth route extraction until the human clears the auth decision).
+5. Keep tier-3/human-gated work parked: PR #33 (Actions secret), PR #99
+   (memory delete privacy), and PR #212 (auth route extraction until the human
+   clears the auth decision). PR #94 has a Codex supervisor decision: revise it
+   to a V1 core-only memory export by dropping `projectIds`,
+   `loglineHistory`, and `acceptedTwists`; do not merge the current full-export
+   branch.
 6. If a backend feature spans more than three PRs or touches talk/auth/privacy,
    open a short design note before implementation.
 7. The schema-doc-only train through PR #286 is complete. Do not open more
@@ -69,10 +72,11 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Support V1 manual smoke failures | Phase 7b is merged; the next app-critical work is proving live flows. | If Codex posts a Talk/Studio/Realtime smoke failure, fix that exact backend failure first and do not open unrelated feature work. |
-| 2 | Phase 6.1 long-tail routes only if Codex asks | Long-tail cleanup is useful but not ahead of V1 smoke/release work. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
-| 3 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if a code PR changes an envelope, update its schema doc in the same PR. |
-| 4 | Rebase #212 only if the human clears the auth route decision | Auth extraction is still tier-3 and human-gated. | Keep `do-not-merge` until explicit auth clearance; if cleared, rebase on current main and rerun backend auth tests. |
+| 1 | Narrow PR #94 to core-only memory export | This is now the approved V1 privacy path and removes the unscoped project export risk. | Drop `projectIds`, `loglineHistory`, and `acceptedTwists`; update route docs/tests; add post-V1 ownership-scoped project export follow-up; rerun focused tests plus backend npm test. |
+| 2 | Support V1 manual smoke failures | Phase 7b is merged; the next app-critical work is proving live flows. | If Codex posts a Talk/Studio/Realtime smoke failure, fix that exact backend failure first and do not open unrelated feature work. |
+| 3 | Phase 6.1 long-tail routes only if Codex asks | Long-tail cleanup is useful but not ahead of V1 smoke/release work. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
+| 4 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if a code PR changes an envelope, update its schema doc in the same PR. |
+| 5 | Rebase #212 only if the human clears the auth route decision | Auth extraction is still tier-3 and human-gated. | Keep `do-not-merge` until explicit auth clearance; if cleared, rebase on current main and rerun backend auth tests. |
 
 ## Decomposition Rules
 

@@ -263,9 +263,12 @@
       "title": "T-creative-memory-export",
       "owner": "claude",
       "tier": 3,
-      "status": "needs-human",
+      "status": "blocked",
       "branch": "claude/T-creative-memory-export",
-      "blocker": "human: full creative-memory export requires privacy/data-control approval before merge"
+      "blocker": "scope: V1 export must be core-only; drop caller-supplied projectIds/loglineHistory/acceptedTwists until ownership scoping exists",
+      "blocker_kind": "needs_scope_narrowing",
+      "reviewer_note": "Codex supervisor decision posted on PR #94: ship core-only for V1. The current branch still exposes projectIds and project-scoped logline/twist payloads, so it remains blocked until narrowed.",
+      "expected_action": "Claude removes the projectIds expansion, updates docs/tests to the V1 core export contract, adds a post-V1 ownership-scoped project export follow-up, rebases on current main, and reruns focused export tests plus backend npm test."
     },
     {
       "number": 92,
