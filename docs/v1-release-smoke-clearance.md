@@ -38,6 +38,9 @@ The checked-in placeholders remain placeholders, and no secrets were committed.
 - `scripts/appstore_preflight.sh` accepts runtime overrides for
   `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, `APP_TOKEN`, `APP_TOKEN_RELEASE`, and
   `RELEASE_BACKEND_URL`, then rejects placeholders/localhost Release values.
+- `scripts/run_release_preflight.sh` loads the ignored
+  `them/Release.local.env` file and passes those values into the existing
+  preflight gate without committing secrets.
 - The shared scheme passes `APP_TOKEN` and `BACKEND_URL` from build settings
   into the app environment.
 
@@ -125,7 +128,10 @@ Apple signing setup, and an actual app run through:
 4. Rerun:
 
    ```sh
-   DEVELOPMENT_TEAM_ID=<apple-team-id> BACKEND_URL=<hosted-api-url> APP_TOKEN=<production-app-token> scripts/appstore_preflight.sh
+   cp them/Release.local.env.example them/Release.local.env
+   chmod 600 them/Release.local.env
+   # Fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN.
+   scripts/run_release_preflight.sh
    ```
 
 5. Run the in-app V1 Launch Doctor against the intended release backend and

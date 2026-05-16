@@ -55,6 +55,7 @@ test("[v1-launch-room] human role prints choices and decision queue", () => {
   assert.match(r.stdout, /Human Launch Options/);
   assert.match(r.stdout, /Open Data Controls -> V1 Launch Doctor/);
   assert.match(r.stdout, /node scripts\/v1_manual_qa_checklist\.mjs --prompt/);
+  assert.match(r.stdout, /scripts\/run_release_preflight\.sh/);
   assert.match(r.stdout, /Launch Doctor: no report yet/);
   assert.match(r.stdout, /Open decisions:/);
   assert.doesNotMatch(r.stdout, /Claude Launch Options/);

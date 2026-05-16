@@ -69,7 +69,16 @@ Failed: `fail=3`, `warn=1`.
 
 ## Final Preflight Command Shape
 
-When release credentials exist locally or in CI, run:
+When release credentials exist locally, prefer the ignored local env file:
+
+```sh
+cp them/Release.local.env.example them/Release.local.env
+chmod 600 them/Release.local.env
+# Fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN.
+scripts/run_release_preflight.sh
+```
+
+When release credentials exist in CI or a one-off shell, run:
 
 ```sh
 DEVELOPMENT_TEAM_ID=<apple-team-id> \
