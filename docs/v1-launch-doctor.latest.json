@@ -1,0 +1,43 @@
+{
+  "generatedAt": "2026-05-16T21:46:40.914Z",
+  "overallStatus": "not_started",
+  "results": [
+    {
+      "evidence": "Preflight fail=3 warn=1. Env audit shows DEVELOPMENT_TEAM_ID, BACKEND_URL, APP_TOKEN missing. codesigning identities=0.",
+      "flow": "talk_pipeline",
+      "notes": "Blocked: real V1 manual smoke was not performed because release BACKEND_URL, APP_TOKEN, and Development Team/signing identity are not configured in this worktree or environment.",
+      "status": "not_started",
+      "updatedAt": "2026-05-16T21:46:40.914Z"
+    },
+    {
+      "evidence": "Automated app health is green: macOS build passed, macOS themTests passed 108/108, generic iOS build passed unsigned.",
+      "flow": "screenplay_studio",
+      "notes": "Blocked: screenplay manual smoke still needs a human/app run against the intended release backend and signed/release configuration.",
+      "status": "not_started",
+      "updatedAt": "2026-05-16T21:46:40.914Z"
+    },
+    {
+      "evidence": "Release secrets missing. Manual Launch Doctor proof had not existed before this T139 report.",
+      "flow": "creative_memory",
+      "notes": "Blocked: creative-memory manual recall smoke and privacy decisions remain human/release gates before external review.",
+      "status": "not_started",
+      "updatedAt": "2026-05-16T21:46:40.914Z"
+    },
+    {
+      "evidence": "Release preflight still blocks on Development Team, BACKEND_URL, and APP_TOKEN.",
+      "flow": "realtime",
+      "notes": "Blocked: realtime primary/fallback manual smoke requires the intended release backend/token and configured supplier environment.",
+      "status": "not_started",
+      "updatedAt": "2026-05-16T21:46:40.914Z"
+    }
+  ],
+  "schemaVersion": 1,
+  "source": "io.them.v1_launch_doctor",
+  "summary": {
+    "total": 4,
+    "passed": 0,
+    "failed": 0,
+    "inProgress": 0,
+    "notStarted": 4
+  }
+}

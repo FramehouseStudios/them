@@ -39,6 +39,12 @@ Studio, Creative Memory, and Realtime. Exporting the report writes
 Documents folder on iOS. The launch-room command reports whether repo-attached
 or macOS-exported proof is present and passed.
 
+Latest repo-attached proof: `docs/v1-launch-doctor.latest.json` and
+`docs/v1-launch-doctor.latest.md`. The current T139 report exists, but it is a
+blocked `not_started` report, not human smoke signoff. It records that the real
+manual app smoke still needs the intended release backend URL, production app
+token, Apple signing setup, and an actual app run.
+
 If the human already ran the checklist and pasted the result block, Codex can
 record the same schema from a saved block:
 
@@ -117,6 +123,8 @@ Pass: Primary succeeds when healthy; fallback is visible and usable when primary
 - Auth route extraction (#212): Tier-3 auth work remains do-not-merge until explicitly cleared.
 - Release preflight: Needs release signing/configuration values cleared in
   `docs/v1-release-preflight-proof.md`.
+- V1 manual smoke: Current Launch Doctor proof exists but is `not_started`; see
+  `docs/v1-release-smoke-clearance.md`.
 
 ## Status Command
 
