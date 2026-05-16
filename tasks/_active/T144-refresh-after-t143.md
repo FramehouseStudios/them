@@ -2,7 +2,7 @@
 id: T144
 title: Refresh coordination after T143 merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T144-refresh-after-t143
 pillar: infra
 v1_pillar: memory
@@ -24,4 +24,7 @@ core-only memory export decision is now canonical on `main`.
 
 ## Verification
 
-- Pending.
+- `gh pr view 345 --json state,mergedAt,headRefName,url` confirmed PR #345 merged.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows PR #94 core-only narrowing as the top Claude action.
+- `git diff --check` passed.

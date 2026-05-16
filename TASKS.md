@@ -786,7 +786,7 @@
 | T141                                   | Add safe local release config handoff                                                    | codex  | review      |
 | T142                                   | Refresh coordination after T141 merge                                                    | codex  | review      |
 | T143                                   | Record core-only memory export decision for Claude                                       | codex  | review      |
-| T144                                   | Refresh coordination after T143 merge                                                    | codex  | in-progress |
+| T144                                   | Refresh coordination after T143 merge                                                    | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3330,7 +3330,7 @@ payloads until an ownership-scoping design exists.
 - **Owner:** codex
 - **Branch:** codex/T144-refresh-after-t143
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3347,7 +3347,10 @@ core-only memory export decision is now canonical on `main`.
 
 ## Verification
 
-- Pending.
+- `gh pr view 345 --json state,mergedAt,headRefName,url` confirmed PR #345 merged.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows PR #94 core-only narrowing as the top Claude action.
+- `git diff --check` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
