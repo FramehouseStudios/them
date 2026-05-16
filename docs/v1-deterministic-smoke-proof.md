@@ -6,8 +6,8 @@ fixture-level contracts only; it does not replace the human app smoke in
 
 ## Last Verified
 
-2026-05-15 01:08 America/Los_Angeles on branch
-`codex/T125-deterministic-v1-smoke-proof`.
+2026-05-16 13:57 America/Los_Angeles on branch
+`codex/T137-post-phase7b-v1-smoke-proof`.
 
 ## Command
 
@@ -18,6 +18,9 @@ cd backend && npm run eval:v1-smokes
 ## Result
 
 Passed.
+
+Latest refresh is after Phase 7b talk-handler extraction and the Launch Doctor
+CLI proof recorder landed on `main`.
 
 ## Covered Smokes
 
