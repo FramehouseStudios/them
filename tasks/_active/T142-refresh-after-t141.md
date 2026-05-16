@@ -2,7 +2,7 @@
 id: T142
 title: Refresh coordination after T141 merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T142-refresh-after-t141
 pillar: infra
 v1_pillar: ios
@@ -25,4 +25,7 @@ available on `main`.
 
 ## Verification
 
-- Pending.
+- `gh pr view 343 --json state,mergedAt,headRefName,url` confirmed PR #343 merged.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows Claude in V1 smoke-failure support mode.
+- `git diff --check` passed.

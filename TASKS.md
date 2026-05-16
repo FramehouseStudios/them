@@ -784,7 +784,7 @@
 | T139                                   | Clear V1 release smoke and config gap                                                    | codex  | review      |
 | T140                                   | Refresh coordination after T139 merge                                                    | codex  | review      |
 | T141                                   | Add safe local release config handoff                                                    | codex  | review      |
-| T142                                   | Refresh coordination after T141 merge                                                    | codex  | in-progress |
+| T142                                   | Refresh coordination after T141 merge                                                    | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3274,7 +3274,7 @@ production app token can be supplied without editing tracked project files.
 - **Owner:** codex
 - **Branch:** codex/T142-refresh-after-t141
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3292,7 +3292,10 @@ available on `main`.
 
 ## Verification
 
-- Pending.
+- `gh pr view 343 --json state,mergedAt,headRefName,url` confirmed PR #343 merged.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows Claude in V1 smoke-failure support mode.
+- `git diff --check` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
