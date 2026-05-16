@@ -784,6 +784,7 @@
 | T139                                   | Clear V1 release smoke and config gap                                                    | codex  | review      |
 | T140                                   | Refresh coordination after T139 merge                                                    | codex  | review      |
 | T141                                   | Add safe local release config handoff                                                    | codex  | review      |
+| T142                                   | Refresh coordination after T141 merge                                                    | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3268,6 +3269,30 @@ production app token can be supplied without editing tracked project files.
 - `node --test scripts/run_release_preflight.test.mjs` passed 2/2.
 - `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
 - `node --check scripts/v1_launch_room.mjs` passed.
+
+### T142 — Refresh coordination after T141 merge
+- **Owner:** codex
+- **Branch:** codex/T142-refresh-after-t141
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh the supervisor ledger, coordination state, and event lane after PR #343
+merged so the next agent prompt treats the local release-config runner as
+available on `main`.
+
+## Done When
+
+- `docs/coordination.json` marks PR #343 merged.
+- `docs/codex-claude-live-handoff.md` marks T141 merged.
+- Claude remains in V1 smoke-failure support mode until real release config and
+  a concrete manual-smoke failure exist.
+- Coordination validation passes.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
