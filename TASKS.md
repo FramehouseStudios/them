@@ -780,7 +780,7 @@
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
 | T135                                   | Refresh after Phase 7b talk-handler merge                                                | codex  | review      |
-| T136                                   | Add Launch Doctor CLI proof recorder                                                     | codex  | in-progress |
+| T136                                   | Add Launch Doctor CLI proof recorder                                                     | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3150,7 +3150,7 @@ the stale rebase blocker from the agent queue.
 - **Owner:** codex
 - **Branch:** codex/T136-v1-launch-doctor-cli
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3171,7 +3171,13 @@ result block.
 
 ## Verification
 
-- Pending.
+- `node --check scripts/v1_launch_doctor_report.mjs` passed.
+- `node --test scripts/v1_launch_doctor_report.test.mjs` passed 4/4.
+- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
+- `node --test scripts/v1_manual_qa_checklist.test.mjs` passed 4/4.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

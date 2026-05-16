@@ -34,6 +34,35 @@ macOS Downloads export path. Tests can override the path with:
 V1_LAUNCH_DOCTOR_REPORT=/path/to/report.json node scripts/v1_launch_room.mjs --json
 ```
 
+## CLI Fallback
+
+The app export is canonical when a person can run it. If the human has already
+run the manual smoke and pasted the result block from
+`scripts/v1_manual_qa_checklist.mjs --prompt`, Codex can record that proof
+without retyping JSON:
+
+```sh
+node scripts/v1_launch_doctor_report.mjs --from-result-block=/tmp/v1-smoke.txt --write-docs
+```
+
+For direct entry, every flow must be explicit. Missing flows remain
+`not_started`:
+
+```sh
+node scripts/v1_launch_doctor_report.mjs \
+  --talk=pass \
+  --studio=fail \
+  --studio-notes="Export failed after save." \
+  --memory=in-progress \
+  --realtime=not-started \
+  --write-docs
+```
+
+`--write-docs` writes:
+
+- `docs/v1-launch-doctor.latest.json`
+- `docs/v1-launch-doctor.latest.md`
+
 ## Report Schema
 
 ```json

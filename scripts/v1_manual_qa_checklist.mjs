@@ -169,6 +169,7 @@ function prompt(data) {
   lines.push("V1 human smoke prompt");
   lines.push("");
   lines.push("Run these app flows against the intended backend, then paste the result block back to Codex.");
+  lines.push("Codex can save the pasted block with: node scripts/v1_launch_doctor_report.mjs --from-result-block=<file> --write-docs");
   lines.push("");
   for (const flow of data.manualFlows) {
     lines.push(`- ${flow.pillar}: ${flow.goal}`);

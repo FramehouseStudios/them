@@ -190,7 +190,7 @@ function buildState() {
   const humanOptions = [
     {
       action: "Run V1 Launch Doctor",
-      command: "Open Data Controls -> V1 Launch Doctor",
+      command: "Open Data Controls -> V1 Launch Doctor, or record a pasted block with node scripts/v1_launch_doctor_report.mjs --from-result-block=<file> --write-docs",
       why: "Records the Talk, Studio, Memory, and Realtime smoke result as JSON/Markdown launch proof.",
     },
     {
