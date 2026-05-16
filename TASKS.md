@@ -779,6 +779,7 @@
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
+| T132                                   | Codify Phase 7b scope-tool decision                                                      | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3109,6 +3110,32 @@ human relay.
 - `node scripts/agent_event.mjs tail --n=4` passed and shows the PR #331 merge event.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
+
+### T132 — Codify Phase 7b scope-tool decision
+- **Owner:** codex
+- **Branch:** codex/T132-phase7b-scope-tool-handoff
+- **Pillar:** voice→scene
+- **Status:** in-progress
+
+## Scope
+
+Record the human/Codex decision that Claude should add `acorn` and
+`acorn-walk` as backend devDependencies for deterministic Phase 7b
+dependency-closure verification. This is a repo-visible handoff only; Claude
+still owns the backend implementation and package changes.
+
+## Done When
+
+- `docs/claude-inbox.md` tells Claude to use the JS scope tool path for Phase
+  7b and not to ask for human-in-loop convergence.
+- `tasks/_proposals/T-decompose-phase7b-handler-design.md` records the accepted
+  tooling amendment beside the other Codex acceptance constraints.
+- The live event lane records the decision for Claude's next poll.
+- Coordination/pre-flight checks pass.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
