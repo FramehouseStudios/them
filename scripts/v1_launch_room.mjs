@@ -8,6 +8,7 @@
 // one high-leverage action.
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -98,6 +99,61 @@ function summarizeReleaseProof(markdown) {
   return { result, blockers };
 }
 
+function displayPath(fullPath) {
+  const relativeToRepo = path.relative(repoRoot, fullPath);
+  if (relativeToRepo && !relativeToRepo.startsWith("..") && !path.isAbsolute(relativeToRepo)) {
+    return relativeToRepo;
+  }
+  const home = os.homedir();
+  const relativeToHome = path.relative(home, fullPath);
+  if (relativeToHome && !relativeToHome.startsWith("..") && !path.isAbsolute(relativeToHome)) {
+    return `~/${relativeToHome}`;
+  }
+  return fullPath;
+}
+
+function launchDoctorReportCandidates() {
+  if (process.env.V1_LAUNCH_DOCTOR_REPORT) {
+    return [path.resolve(process.env.V1_LAUNCH_DOCTOR_REPORT)];
+  }
+  return [
+    path.join(repoRoot, "docs", "v1-launch-doctor.latest.json"),
+    path.join(os.homedir(), "Downloads", "io_them_v1_launch_doctor.latest.json"),
+  ];
+}
+
+function readLaunchDoctorReport() {
+  const candidates = launchDoctorReportCandidates();
+  for (const fullPath of candidates) {
+    if (!fs.existsSync(fullPath)) continue;
+    try {
+      const report = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+      const summary = report.summary || {};
+      return {
+        status: "found",
+        path: displayPath(fullPath),
+        schemaVersion: report.schemaVersion || null,
+        generatedAt: report.generatedAt || null,
+        overallStatus: report.overallStatus || "unknown",
+        passed: Number(summary.passed || 0),
+        total: Number(summary.total || 0),
+        failed: Number(summary.failed || 0),
+      };
+    } catch (error) {
+      return {
+        status: "invalid",
+        path: displayPath(fullPath),
+        error: error.message,
+      };
+    }
+  }
+  return {
+    status: "missing",
+    expectedPath: displayPath(candidates[0]),
+    expectedPaths: candidates.map(displayPath),
+  };
+}
+
 function buildState() {
   const v1 = JSON.parse(runNodeScript("scripts/v1_status.mjs", ["--json"]));
   const coordination = readJson("docs/coordination.json", {
@@ -108,6 +164,7 @@ function buildState() {
   const claudeBacklog = parseClaudeBacklog(readText("docs/claude-inbox.md"));
   const decisions = extractOpenDecisionTitles(readText("docs/decisions-queue.md"));
   const release = summarizeReleaseProof(readText("docs/v1-release-preflight-proof.md"));
+  const launchDoctor = readLaunchDoctorReport();
   const reviewableClaudePRs = coordination.openPullRequests
     .filter((pr) => pr.owner === "claude")
     .filter((pr) => pr.status === "review" || pr.status === "ready")
@@ -130,6 +187,11 @@ function buildState() {
         why: "No reviewable Claude PR is open; V1 is gated by manual smoke, release config, and human decisions.",
       };
   const humanOptions = [
+    {
+      action: "Run V1 Launch Doctor",
+      command: "Open Data Controls -> V1 Launch Doctor",
+      why: "Records the Talk, Studio, Memory, and Realtime smoke result as JSON/Markdown launch proof.",
+    },
     {
       action: "Run V1 manual smoke",
       command: "node scripts/v1_manual_qa_checklist.mjs --prompt",
@@ -158,6 +220,7 @@ function buildState() {
     blockers: coordination.blockers || [],
     decisionsPending: coordination.decisionsPending || [],
     decisionTitles: decisions,
+    launchDoctor,
     release,
   };
 }
@@ -176,6 +239,8 @@ function linesForHuman(state) {
     out.push(`   Command: ${option.command}`);
     out.push(`   Why: ${option.why}`);
   }
+  out.push("");
+  out.push(`Launch Doctor: ${launchDoctorLine(state.launchDoctor)}`);
   out.push("");
   out.push(`Open decisions: ${state.decisionTitles.length}`);
   for (const decision of state.decisionTitles) out.push(`- ${decision}`);
@@ -206,8 +271,22 @@ function linesForCodex(state) {
     "",
     "Watch:",
     `- Human-gated PRs: ${state.humanGated.map((pr) => `#${pr.number}`).join(", ") || "none"}`,
+    `- Launch Doctor: ${launchDoctorLine(state.launchDoctor)}`,
     `- Release preflight: ${state.release ? state.release.result : "no proof found"}`,
   ];
+}
+
+function launchDoctorLine(report) {
+  if (!report || report.status === "missing") {
+    const expected = report?.expectedPaths?.length
+      ? report.expectedPaths.join(" or ")
+      : report?.expectedPath || "expected path unknown";
+    return `no report yet (${expected})`;
+  }
+  if (report.status === "invalid") {
+    return `invalid report at ${report.path}: ${report.error}`;
+  }
+  return `${report.overallStatus} ${report.passed}/${report.total} passed, failed=${report.failed}, path=${report.path}`;
 }
 
 function textOutput(state) {
