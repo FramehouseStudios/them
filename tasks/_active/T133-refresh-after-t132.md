@@ -2,7 +2,7 @@
 id: T133
 title: Refresh after T132 Phase 7b decision merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T133-refresh-after-t132
 pillar: voice→scene
 v1_pillar: talk
@@ -24,4 +24,10 @@ and emit the post-merge event so Claude's next poll has no stale review state.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_event.mjs tail --n=5` passed and shows the PR #333 merge
+  event.
+- `node scripts/agent_next.mjs --role=claude --limit=3 --no-events` passed and
+  keeps Phase 7b first with `acorn` / `acorn-walk` closure tooling.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
