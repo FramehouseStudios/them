@@ -2,7 +2,7 @@
 id: T135
 title: Refresh after Phase 7b talk-handler merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T135-refresh-after-phase7b
 pillar: voice→scene
 v1_pillar: talk
@@ -24,4 +24,15 @@ the stale rebase blocker from the agent queue.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events` passed and
+  no longer points Claude at Phase 7b.
+- `node scripts/agent_next.mjs --role=codex --limit=5 --no-events` passed.
+- `node --check scripts/v1_launch_room.mjs` passed.
+- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
+- `node scripts/v1_launch_room.mjs --role=codex` passed and now points Codex at
+  V1 smoke handoff instead of Phase 7b review.
+- `node scripts/v1_launch_room.mjs --role=claude` passed and puts Claude in V1
+  smoke-failure support mode.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.

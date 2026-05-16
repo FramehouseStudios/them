@@ -2,7 +2,7 @@
 id: T134
 title: Refresh Phase 7b PR blocker after Claude implementation
 owner: codex
-status: review
+status: merged
 branch: codex/T134-phase7b-blocker-refresh
 pillar: voice→scene
 v1_pillar: talk

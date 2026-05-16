@@ -19,7 +19,7 @@ proved the pattern.
 | 2b | 7 write `/screenplay/projects/*` → `lib/screenplay_projects_routes.js` | #197 | merged | ~173 |
 | 3 | screenplay companion/paginate/revision colors → `lib/screenplay_companion_routes.js` | #204 | merged | ~79 |
 | parser hardening | route-local parsers for every route that reads `req.body` | #193 | merged | n/a |
-| 7b | `handleTalkRequest` (voice-to-page body) → `lib/talk_handler.js` via `createTalkHandler(deps)`; dependency closure derived deterministically by `backend/tools/freevars.mjs` (acorn) and proven complete by `backend/tests/talk_handler_closure.test.mjs` | (this PR) | review | ~3,280 |
+| 7b | `handleTalkRequest` (voice-to-page body) → `lib/talk_handler.js` via `createTalkHandler(deps)`; dependency closure derived deterministically by `backend/tools/freevars.mjs` (acorn) and proven complete by `backend/tests/talk_handler_closure.test.mjs` | #335 | merged | ~3,280 |
 
 Observations after Phase 0–2a:
 
