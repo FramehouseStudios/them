@@ -12,9 +12,13 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
 ## Current Command
 
 Current V1 state: `npm run v1:status` is 19/25 after Codex PRs #319, #320,
-and #321. Phase 7b talk-handler extraction is merged in PR #335. The remaining
-V1 blockers are human/app manual smokes, the memory export/delete privacy
-decision, realtime manual failover smoke, and release signing/configuration.
+and #321. Phase 7b talk-handler extraction is merged in PR #335. T139 release
+clearance found the app source lane green but launch still blocked: macOS build
+passed, macOS `themTests` passed 108/108, generic unsigned iOS build passed,
+`docs/v1-launch-doctor.latest.json` exists as a blocked `not_started` report,
+and `scripts/appstore_preflight.sh` still fails with `fail=3 warn=1` because
+real `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN` are
+not configured.
 
 1. Run:
 
@@ -56,7 +60,8 @@ decision, realtime manual failover smoke, and release signing/configuration.
    deterministically. Do not ask for human-in-the-loop dependency convergence,
    and do not hand-maintain the closure by vibes. This shipped with PR #335.
 10. Stay in support mode until Codex reports app/manual-smoke failures or asks
-    for the next backend decomposition phase.
+    for the next backend decomposition phase. Do not open net-new backend work
+    while the active launch blocker is missing release config/signing.
 
 ## Backend Work Codex Actually Wants Next
 
