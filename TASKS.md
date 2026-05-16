@@ -783,6 +783,7 @@
 | T138                                   | Refresh queue after Launch Doctor proof PRs                                              | codex  | review      |
 | T139                                   | Clear V1 release smoke and config gap                                                    | codex  | review      |
 | T140                                   | Refresh coordination after T139 merge                                                    | codex  | review      |
+| T141                                   | Add safe local release config handoff                                                    | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3235,6 +3236,31 @@ merged so agent prompts stop treating T139 as an open review item.
 - `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows Claude in V1 smoke-failure support mode.
 - `node scripts/v1_launch_room.mjs --role=all` passed and shows the blocked Launch Doctor report plus release preflight blockers.
 - `git diff --check` passed.
+
+### T141 — Add safe local release config handoff
+- **Owner:** codex
+- **Branch:** codex/T141-release-config-local-runbook
+- **Pillar:** mobile-first
+- **Status:** in-progress
+
+## Scope
+
+Make the release configuration path safer and faster after T139 proved the
+remaining blocker is missing real release inputs. Add a local-only release
+config template and documentation so the Apple team ID, hosted backend URL, and
+production app token can be supplied without editing tracked project files.
+
+## Done When
+
+- The repo ignores the local release config file that will hold secrets.
+- A checked-in template documents the exact required keys.
+- The runbook/preflight docs point to the template and final command.
+- Existing preflight still fails cleanly when real values are absent.
+- Claude remains in V1 smoke-failure support mode.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
