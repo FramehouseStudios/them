@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-15T20:00:44.000Z",
+  "updatedAt": "2026-05-16T03:10:13.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -8,7 +8,7 @@
       "title": "T128: add in-app V1 Launch Doctor",
       "owner": "codex",
       "tier": 1,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T128-v1-launch-doctor",
       "blocker": null
     },

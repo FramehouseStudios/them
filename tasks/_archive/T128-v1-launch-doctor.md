@@ -2,7 +2,7 @@
 id: T128
 title: Add in-app V1 Launch Doctor
 owner: codex
-status: review
+status: merged
 branch: codex/T128-v1-launch-doctor
 pillar: mobile-first
 v1_pillar: ios

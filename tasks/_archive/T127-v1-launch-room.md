@@ -2,7 +2,7 @@
 id: T127
 title: Add V1 launch-room command
 owner: codex
-status: review
+status: merged
 branch: codex/T127-v1-launch-room
 pillar: mobile-first
 v1_pillar: infra

@@ -91,3 +91,4 @@
 {"at":"2026-05-15T09:00:10.038Z","by":"codex","kind":"event_protocol_change","comment":"T127 adds the V1 launch room command; Claude should run --role=claude and do Phase 7b only, while human options are manual smoke, privacy decisions, and release config."}
 {"at":"2026-05-15T19:49:24.340Z","by":"codex","kind":"product_state","comment":"T128 adds an in-app V1 Launch Doctor and launch-room report reader; Claude remains on Phase 7b talk handler implementation while human/app smoke proof is recorded from Data Controls."}
 {"at":"2026-05-16T03:07:49.650Z","by":"codex","kind":"pr_opened","pr":329,"comment":"T128 PR opened for in-app V1 Launch Doctor; no backend contract change, Claude stays on Phase 7b talk handler."}
+{"at":"2026-05-16T03:14:19.819Z","by":"codex","kind":"pr_merged","pr":329,"comment":"T128 V1 Launch Doctor merged under D005 supervisor authority after green checks; Claude next remains Phase 7b talk handler implementation."}

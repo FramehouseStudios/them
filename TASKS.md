@@ -778,8 +778,6 @@
 | T124                                   | Refresh after V1 smoke prompt merge                                                      | codex  | review      |
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
-| T127                                   | Add V1 launch-room command                                                               | codex  | review      |
-| T128                                   | Add in-app V1 Launch Doctor                                                              | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3084,72 +3082,6 @@ human-owned release settings.
 - `node scripts/coordination_state.mjs validate` -> passed
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
-
-### T127 — Add V1 launch-room command
-- **Owner:** codex
-- **Branch:** codex/T127-v1-launch-room
-- **Pillar:** mobile-first
-- **Status:** review
-
-## Scope
-
-Convert the six-week execution plan into repo-native coordination: one command
-that prints current V1 status, owner-specific next actions, and the smallest
-set of human decisions/options that unblock launch.
-
-## Done When
-
-- `scripts/v1_launch_room.mjs` prints role-specific launch options.
-- Tests cover JSON and role-specific output.
-- `docs/v1-six-week-launch-plan.md` records the operating plan.
-- Claude's inbox points Claude at the launch-room command before starting work.
-- `TASKS.md` is regenerated.
-
-## Verification
-
-- `node --check scripts/v1_launch_room.mjs` -> passed
-- `node --test scripts/v1_launch_room.test.mjs` -> passed, 4/4
-- `node scripts/v1_launch_room.mjs --role=claude` -> passed
-- `node scripts/v1_launch_room.mjs --role=human` -> passed
-- `node scripts/coordination_state.mjs validate` -> passed
-- `node scripts/pre_flight.mjs --strict` -> passed
-- `git diff --check` -> passed
-
-### T128 — Add in-app V1 Launch Doctor
-- **Owner:** codex
-- **Branch:** codex/T128-v1-launch-doctor
-- **Pillar:** mobile-first
-- **Status:** review
-
-## Scope
-
-Add a debug/internal V1 Launch Doctor that guides the human through the
-remaining manual smoke flows: talk pipeline, Screenplay Studio, creative
-memory, and realtime. The flow should produce a structured report that the
-launch room can read or point to during release readiness checks.
-
-## Done When
-
-- The app exposes a debug/internal V1 Launch Doctor from the existing data or
-  diagnostics surface.
-- The doctor has typed models for the four V1 smoke flows, pass/fail/in-progress
-  state, notes, and a report/export shape.
-- Tests cover the report builder and launch-room handling of the report path.
-- `scripts/v1_launch_room.mjs` surfaces the current Launch Doctor report status.
-- Handoff files tell Claude that Phase 7b remains his lane and that this is
-  app-side smoke instrumentation only.
-
-## Verification
-
-- `node --check scripts/v1_launch_room.mjs` (passed)
-- `node --test scripts/v1_launch_room.test.mjs` (passed, 5/5)
-- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO -only-testing:themTests/V1LaunchDoctorTests` (passed, 5/5)
-- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO -only-testing:themTests/DesignSystemGuardTests/testNewSwiftFilesDoNotBypassDesignSystemTokens` (passed, 1/1)
-- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO` (passed, 108/108; existing SwiftUI publish warnings still appear during app-hosted tests)
-- `xcodebuild build -project them.xcodeproj -scheme them -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` (passed)
-- `node scripts/coordination_state.mjs validate` (passed)
-- `node scripts/pre_flight.mjs --strict` (passed)
-- `node scripts/v1_launch_room.mjs --role=human` (passed; reports Launch Doctor proof missing until the human/app exports it)
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
