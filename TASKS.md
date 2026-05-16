@@ -783,7 +783,7 @@
 | T138                                   | Refresh queue after Launch Doctor proof PRs                                              | codex  | review      |
 | T139                                   | Clear V1 release smoke and config gap                                                    | codex  | review      |
 | T140                                   | Refresh coordination after T139 merge                                                    | codex  | review      |
-| T141                                   | Add safe local release config handoff                                                    | codex  | in-progress |
+| T141                                   | Add safe local release config handoff                                                    | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3241,7 +3241,7 @@ merged so agent prompts stop treating T139 as an open review item.
 - **Owner:** codex
 - **Branch:** codex/T141-release-config-local-runbook
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3260,7 +3260,14 @@ production app token can be supplied without editing tracked project files.
 
 ## Verification
 
-- Pending.
+- `bash -n scripts/run_release_preflight.sh` passed.
+- `bash -n scripts/appstore_preflight.sh` passed.
+- `scripts/run_release_preflight.sh` failed clearly when `them/Release.local.env` was absent.
+- `env RELEASE_ENV_FILE=/private/tmp/io-them-release-placeholder.env scripts/run_release_preflight.sh` rejected placeholder values before invoking preflight.
+- `scripts/appstore_preflight.sh` still reached the expected `fail=3 warn=1` release-config blocker state.
+- `node --test scripts/run_release_preflight.test.mjs` passed 2/2.
+- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
+- `node --check scripts/v1_launch_room.mjs` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

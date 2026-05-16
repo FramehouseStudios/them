@@ -1,36 +1,61 @@
 # io.them Release Runbook
 
-Last updated: 2026-03-27
+Last updated: 2026-05-16
+
+## Local Release Config
+
+Real release values stay out of git. Create the ignored local file from the
+template:
+
+```bash
+cp them/Release.local.env.example them/Release.local.env
+chmod 600 them/Release.local.env
+```
+
+Fill in:
+
+- `DEVELOPMENT_TEAM_ID`
+- `BACKEND_URL`
+- `APP_TOKEN`
+
+Then run:
+
+```bash
+scripts/run_release_preflight.sh
+```
+
+The runner loads `them/Release.local.env` and delegates to
+`scripts/appstore_preflight.sh`. It does not print the app token.
 
 ## Operator Quick Path
 - Smoke tag trigger:
 
 ```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them && TAG="rc-smoke-$(date +%Y%m%d-%H%M%S)" && git tag "$TAG" && git push origin "$TAG"
+TAG="rc-smoke-$(date +%Y%m%d-%H%M%S)" && git tag "$TAG" && git push origin "$TAG"
 ```
 
 - Delete smoke tag:
 
 ```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them && git push origin ":refs/tags/$TAG" && git tag -d "$TAG"
+git push origin ":refs/tags/$TAG" && git tag -d "$TAG"
 ```
 
 - Local gated preflight:
 
 ```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them && RUN_QUALITY_GATE=1 ./scripts/appstore_preflight.sh
+RUN_QUALITY_GATE=1 scripts/run_release_preflight.sh
 ```
 
 ## Release-Candidate Tag Policy
 - Use `rc-*` tags for release candidates.
-- `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml` runs automatically when an `rc-*` tag is pushed.
+- `.github/workflows/release-preflight.yml` runs automatically when an `rc-*` tag is pushed.
 - Keep `workflow_dispatch` and `workflow_call` for dry runs or manual retries, but treat pushed `rc-*` tags as the canonical automated preflight trigger.
 
 ## Workflow Guide
 | Workflow | Primary use | Trigger | Notes |
 | --- | --- | --- | --- |
-| `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/quality-gate.yml` | Manual smoke or reusable backend/app regression gate | `workflow_dispatch`, `workflow_call` | Best for interactive validation or a parent workflow that wants to skip some expensive sections. |
-| `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml` | Release-candidate preflight | push tag `rc-*`, `workflow_dispatch`, `workflow_call` | Enforces `RUN_QUALITY_GATE=1` before macOS preflight. |
+| `.github/workflows/quality-gate.yml` | Manual smoke or reusable backend/app regression gate | `workflow_dispatch`, `workflow_call` | Best for interactive validation or a parent workflow that wants to skip some expensive sections. |
+| `.github/workflows/release-preflight.yml` | Release-candidate preflight | push tag `rc-*`, `workflow_dispatch`, `workflow_call` | Enforces `RUN_QUALITY_GATE=1` before macOS preflight. |
 | `rc-smoke-*` disposable tag | One-off trigger smoke | temporary pushed tag | Use only for validating the automated release-preflight trigger path, then delete it. |
 
 ## Repo Settings Checklist
@@ -43,8 +68,8 @@ cd /Users/halfmutantfilms/Desktop/io.them/them && RUN_QUALITY_GATE=1 ./scripts/a
 
 ## Release Sequence
 1. Confirm local build and config are ready.
-2. Run `/Users/halfmutantfilms/Desktop/io.them/them/scripts/quality_gate.sh` locally when you want a human-controlled preflight before tagging.
-3. Push an `rc-*` tag to trigger `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml`.
+2. Run `scripts/quality_gate.sh` locally when you want a human-controlled preflight before tagging.
+3. Push an `rc-*` tag to trigger `.github/workflows/release-preflight.yml`.
 4. Review the Actions summary and any uploaded failure artifacts:
    - `/tmp/them-quality-gate-backend.log`
    - `/tmp/them_release_preflight_build.log`
@@ -55,7 +80,6 @@ cd /Users/halfmutantfilms/Desktop/io.them/them && RUN_QUALITY_GATE=1 ./scripts/a
 - Example:
 
 ```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them
 TAG="rc-smoke-$(date +%Y%m%d-%H%M%S)"
 git tag "$TAG"
 git push origin "$TAG"
@@ -64,7 +88,6 @@ git push origin "$TAG"
 - After the workflow starts and you have what you need, remove the test tag from the remote and your local clone:
 
 ```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them
 git push origin ":refs/tags/$TAG"
 git tag -d "$TAG"
 ```
@@ -78,7 +101,7 @@ git tag -d "$TAG"
 4. If you used a disposable smoke tag, delete it from the remote and your local clone after verification.
 
 ## Related Files
-- `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/quality-gate.yml`
-- `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml`
-- `/Users/halfmutantfilms/Desktop/io.them/them/QUALITY_GATE.md`
-- `/Users/halfmutantfilms/Desktop/io.them/them/APP_STORE_SUBMISSION_CHECKLIST.md`
+- `.github/workflows/quality-gate.yml`
+- `.github/workflows/release-preflight.yml`
+- `them/QUALITY_GATE.md`
+- `them/APP_STORE_SUBMISSION_CHECKLIST.md`

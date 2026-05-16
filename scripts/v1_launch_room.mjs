@@ -205,7 +205,7 @@ function buildState() {
     },
     {
       action: "Clear release preflight config",
-      command: "DEVELOPMENT_TEAM_ID=<team> BACKEND_URL=<hosted-api> APP_TOKEN=<token> scripts/appstore_preflight.sh",
+      command: "cp them/Release.local.env.example them/Release.local.env && chmod 600 them/Release.local.env && scripts/run_release_preflight.sh",
       why: "Unblocks TestFlight/external review after Debug build/tests and deterministic smokes are green.",
     },
   ];

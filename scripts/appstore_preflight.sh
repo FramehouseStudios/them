@@ -143,7 +143,7 @@ fi
 if ! is_placeholder "$development_team"; then
   ok "Development Team configured: $development_team"
 else
-  fail "Development Team is not configured. Provide DEVELOPMENT_TEAM_ID through release config, environment, or xcodebuild build setting."
+  fail "Development Team is not configured. Provide DEVELOPMENT_TEAM_ID through release config, environment, xcodebuild build setting, or scripts/run_release_preflight.sh with them/Release.local.env."
 fi
 
 if [[ "$hardened_runtime" == "YES" ]]; then
@@ -170,7 +170,7 @@ else
 fi
 
 if is_placeholder "$backend_url"; then
-  fail "BACKEND_URL is placeholder/unset for Release."
+  fail "BACKEND_URL is placeholder/unset for Release. Provide it through scripts/run_release_preflight.sh with them/Release.local.env or an xcodebuild override."
 elif [[ "$backend_url" == http://127.0.0.1* || "$backend_url" == http://localhost* || "$backend_url" == https://127.0.0.1* || "$backend_url" == https://localhost* ]]; then
   fail "BACKEND_URL points to localhost in Release. Use hosted API URL."
 else
@@ -178,7 +178,7 @@ else
 fi
 
 if is_placeholder "$app_token"; then
-  fail "APP_TOKEN is placeholder/unset for Release."
+  fail "APP_TOKEN is placeholder/unset for Release. Provide it through scripts/run_release_preflight.sh with them/Release.local.env or an xcodebuild override."
 else
   ok "Release APP_TOKEN is configured."
 fi

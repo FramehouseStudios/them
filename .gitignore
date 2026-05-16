@@ -2,6 +2,8 @@
 .env
 .env.*
 *.env
+them/Release.local.env
+them/Release.local.xcconfig
 
 # ── User data stores (never commit user data) ──
 backend/user_memory_store.json

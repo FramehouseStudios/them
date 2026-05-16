@@ -59,7 +59,16 @@ node scripts/v1_launch_doctor_report.mjs --from-result-block=/tmp/v1-smoke.txt -
 Release settings, privacy manifest, entitlements, and macOS release build are ready for archive checks.
 Latest proof: `docs/v1-release-preflight-proof.md` currently records release
 preflight blockers. The remaining secret/signing values should be supplied at
-runtime:
+runtime. Preferred local path:
+
+```sh
+cp them/Release.local.env.example them/Release.local.env
+chmod 600 them/Release.local.env
+# Fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN.
+scripts/run_release_preflight.sh
+```
+
+Single-command override path:
 
 ```sh
 DEVELOPMENT_TEAM_ID=<apple-team-id> BACKEND_URL=<hosted-api-url> APP_TOKEN=<production-app-token> scripts/appstore_preflight.sh

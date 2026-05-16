@@ -2,7 +2,7 @@
 id: T141
 title: Add safe local release config handoff
 owner: codex
-status: in-progress
+status: review
 branch: codex/T141-release-config-local-runbook
 pillar: mobile-first
 v1_pillar: ios
@@ -26,4 +26,11 @@ production app token can be supplied without editing tracked project files.
 
 ## Verification
 
-- Pending.
+- `bash -n scripts/run_release_preflight.sh` passed.
+- `bash -n scripts/appstore_preflight.sh` passed.
+- `scripts/run_release_preflight.sh` failed clearly when `them/Release.local.env` was absent.
+- `env RELEASE_ENV_FILE=/private/tmp/io-them-release-placeholder.env scripts/run_release_preflight.sh` rejected placeholder values before invoking preflight.
+- `scripts/appstore_preflight.sh` still reached the expected `fail=3 warn=1` release-config blocker state.
+- `node --test scripts/run_release_preflight.test.mjs` passed 2/2.
+- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
+- `node --check scripts/v1_launch_room.mjs` passed.
