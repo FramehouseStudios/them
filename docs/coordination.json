@@ -1,8 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-15T08:58:04.000Z",
+  "updatedAt": "2026-05-15T20:00:44.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 329,
+      "title": "T128: add in-app V1 Launch Doctor",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T128-v1-launch-doctor",
+      "blocker": null
+    },
     {
       "number": 202,
       "title": "T-snapshot-eval-accepted-twists",
