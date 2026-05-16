@@ -779,7 +779,7 @@
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
-| T133                                   | Refresh after T132 Phase 7b decision merge                                               | codex  | review      |
+| T134                                   | Refresh Phase 7b PR blocker after Claude implementation                                  | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3111,32 +3111,33 @@ human relay.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
 
-### T133 — Refresh after T132 Phase 7b decision merge
+### T134 — Refresh Phase 7b PR blocker after Claude implementation
 - **Owner:** codex
-- **Branch:** codex/T133-refresh-after-t132
+- **Branch:** codex/T134-phase7b-blocker-refresh
 - **Pillar:** voice→scene
 - **Status:** review
 
 ## Scope
 
-Mark T132 / PR #333 merged in the handoff state, archive the completed task,
-and emit the post-merge event so Claude's next poll has no stale review state.
+Record Codex's review of Claude PR #335, mark the branch as blocked on a
+current-main rebase that preserves T132's scope-tool decision, and archive the
+already-merged T133 refresh task.
 
 ## Done When
 
-- T132 is archived with status `merged`.
-- `docs/codex-claude-live-handoff.md` and `docs/coordination.json` mark PR
-  #333 merged.
-- The event lane contains a `pr_merged` event for PR #333.
+- `docs/coordination.json`, the live handoff, and the event lane tell Claude
+  PR #335 is promising but blocked on rebase/T132 state preservation.
+- T133 is archived with status `merged`.
+- The open PR state matches the GitHub labels/comment for #335.
 - Coordination/pre-flight checks pass.
 
 ## Verification
 
 - `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/agent_event.mjs tail --n=5` passed and shows the PR #333 merge
-  event.
-- `node scripts/agent_next.mjs --role=claude --limit=3 --no-events` passed and
-  keeps Phase 7b first with `acorn` / `acorn-walk` closure tooling.
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events` passed and
+  shows PR #335 as Claude's only next action.
+- `node scripts/agent_event.mjs tail --n=5` passed and shows the PR #335
+  review-blocker event.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
 

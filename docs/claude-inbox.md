@@ -55,6 +55,10 @@ manual failover smoke, and the Phase 7b talk handler/manual-smoke lane below.
    deterministically. Do not ask for human-in-the-loop dependency convergence,
    and do not hand-maintain the closure by vibes. Codex is not taking over the
    implementation unless this tooling path still blocks after a focused attempt.
+10. If PR #335 is still open, do not open more net-new backend work. Rebase
+    #335 on current `main`, preserve T132's acceptance amendment #4 in
+    `tasks/_proposals/T-decompose-phase7b-handler-design.md`, rerun the focused
+    talk tests and full backend tests, then post the standard re-review note.
 
 ## Backend Work Codex Actually Wants Next
 
@@ -62,11 +66,12 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Phase 7b talk handler implementation | This is the next V1 voice-to-page backend seam after guards, and PR #314's design is accepted. | Implement `backend/lib/talk_handler.js` from `tasks/_proposals/T-decompose-phase7b-handler-design.md`. Add `acorn` + `acorn-walk` as backend devDependencies for deterministic dependency-closure verification only. Use `createTalkHandler` or another non-`mount*` factory name, group deps by bucket, preserve response envelopes/log prefixes/counter order, keep supplier glue out, run `node scripts/pre_flight.mjs --strict`, `node --test backend/tests/talk_*.test.mjs`, and backend `npm test`. |
-| 2 | Phase 7b implementation manual-smoke support | The implementation cannot merge without a human-run V1 talk smoke. | In the implementation PR body, include exact before/after manual smoke instructions using `docs/testflight-v1-preflight.md`; do not claim the smoke passed unless the human actually runs it. |
-| 3 | Phase 6.1 long-tail routes after Phase 7b lands or blocks | Long-tail cleanup is useful, but it should not outrank the talk handler implementation. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
-| 4 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if a code PR changes an envelope, update its schema doc in the same PR. |
-| 5 | Rebase #212 only if the human clears the auth route decision | Auth extraction is still tier-3 and human-gated. | Keep `do-not-merge` until explicit auth clearance; if cleared, rebase on current main and rerun backend auth tests. |
+| 1 | Clear PR #335 rebase blocker | The Phase 7b handler code tested clean locally, but the branch is behind current main and would roll back T132's accepted decision text. | Rebase `claude/T-decompose-phase7b-talk-handler` on current `main`, preserve T132's acorn/acorn-walk acceptance text, keep the actual `backend/lib/talk_handler.js` + `backend/tools/freevars.mjs` implementation, rerun `node scripts/pre_flight.mjs --strict`, `node --test backend/tests/talk_*.test.mjs`, and backend `npm test`, then request re-review. |
+| 2 | Phase 7b talk handler implementation | This is the next V1 voice-to-page backend seam after guards, and PR #314's design is accepted. | Implement `backend/lib/talk_handler.js` from `tasks/_proposals/T-decompose-phase7b-handler-design.md`. Add `acorn` + `acorn-walk` as backend devDependencies for deterministic dependency-closure verification only. Use `createTalkHandler` or another non-`mount*` factory name, group deps by bucket, preserve response envelopes/log prefixes/counter order, keep supplier glue out, run `node scripts/pre_flight.mjs --strict`, `node --test backend/tests/talk_*.test.mjs`, and backend `npm test`. |
+| 3 | Phase 7b implementation manual-smoke support | The implementation cannot merge without a human-run V1 talk smoke. | In the implementation PR body, include exact before/after manual smoke instructions using `docs/testflight-v1-preflight.md`; do not claim the smoke passed unless the human actually runs it. |
+| 4 | Phase 6.1 long-tail routes after Phase 7b lands or blocks | Long-tail cleanup is useful, but it should not outrank the talk handler implementation. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
+| 5 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if a code PR changes an envelope, update its schema doc in the same PR. |
+| 6 | Rebase #212 only if the human clears the auth route decision | Auth extraction is still tier-3 and human-gated. | Keep `do-not-merge` until explicit auth clearance; if cleared, rebase on current main and rerun backend auth tests. |
 
 ## Decomposition Rules
 
