@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T22:20:17.756Z",
+  "updatedAt": "2026-05-16T22:24:17.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -8,10 +8,10 @@
       "title": "T139: record V1 release smoke clearance",
       "owner": "codex",
       "tier": 1,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T139-v1-release-smoke-clearance",
       "blocker": null,
-      "reviewer_note": "Records T139 launch evidence: app build/tests and generic unsigned iOS build are green; Launch Doctor report exists but is intentionally not_started; release preflight still blocks on missing Development Team, Release BACKEND_URL, and Release APP_TOKEN. No secrets committed."
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Records T139 launch evidence: app build/tests and generic unsigned iOS build are green; Launch Doctor report exists but is intentionally not_started; release preflight still blocks on missing Development Team, Release BACKEND_URL, and Release APP_TOKEN. No secrets committed."
     },
     {
       "number": 335,
