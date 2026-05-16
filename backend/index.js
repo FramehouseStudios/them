@@ -105,6 +105,7 @@ import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.js";
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
+import { mountAuthRoutes } from "./lib/auth_routes.js";
 import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
 import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_routes.js";
@@ -27676,19 +27677,12 @@ mountRealtimeCallRoute(app, {
 // idempotency deps created just above are already in scope.
 
 
-const authJson = express.json({ limit: "256kb" });
-
-app.post("/auth/signup", authJson, userAuth.handleAuthSignup);
-app.post("/auth/login", authJson, userAuth.handleAuthLogin);
-app.post("/auth/apple", authJson, userAuth.handleAuthApple);
-app.post("/auth/refresh", authJson, userAuth.handleAuthRefresh);
-app.post("/auth/logout", authJson, userAuth.handleAuthLogout);
-app.get("/auth/sessions", userAuth.handleAuthSessions);
-app.post("/auth/sessions/revoke", authJson, userAuth.handleAuthSessionsRevoke);
-app.post("/auth/request_password_reset", authJson, userAuth.handleAuthRequestPasswordReset);
-app.post("/auth/reset_password", authJson, userAuth.handleAuthResetPassword);
-app.post("/auth/request_email_verification", authJson, userAuth.handleAuthRequestEmailVerification);
-app.post("/auth/verify_email", authJson, userAuth.handleAuthVerifyEmail);
+// T-decompose-phase4-auth-routes: all 11 /auth/* routes moved to
+// lib/auth_routes.js. Behavior is byte-identical — same 256kb
+// body limit, same handler bindings. The userAuth subsystem is
+// created by createUserAuthSubsystem(...) above and passed as a
+// dep. See docs/specs/T-decompose-backend-index.md.
+mountAuthRoutes(app, { userAuth });
 
 // Phase 7a: guards are built from backend/lib/talk_state.js factories
 // using live config + helpers. State (rate buckets, idempotency cache,
