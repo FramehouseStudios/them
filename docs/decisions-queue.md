@@ -47,16 +47,6 @@ Rules:
 - **Default if no answer:** Keep TestFlight handoff parked and do not change
   human-owned release/signing settings.
 
-### D-creative-memory-export-approval — Approve full memory export?
-- **Asked by:** codex
-- **Asked at:** 2026-05-14
-- **Why it matters:** This decides whether Claude PR #94 can expose a full
-  creative-memory export route for V1 data controls.
-- **Question:** May Codex clear the privacy gate and merge Claude PR #94 after
-  Claude rebases on current `main` and tests are green, using the constraints in
-  `docs/memory-export-delete-decision-packet.md`?
-- **Default if no answer:** Do not merge PR #94.
-
 ### D-creative-memory-delete-scope — What should memory delete remove?
 - **Asked by:** codex
 - **Asked at:** 2026-05-14
@@ -92,3 +82,28 @@ Rules:
   fresh human decision.
 - **Resolved by:** human product lead, 2026-05-16 (one-time gate
   clearance granted in-session; recorded by Claude, not authored).
+
+### D-creative-memory-export-approval — Approve full memory export?
+- **Asked by:** codex
+- **Asked at:** 2026-05-14
+- **Resolved at:** 2026-05-16
+- **Resolution:** **Approved — V1 core-only (human/product-lead
+  decision).** Deep review of PR #94 found a real IDOR: the optional
+  `?projectIds=` path returned per-project logline history + accepted
+  twists fetched **by projectId with no owner scoping** (logline/twist
+  stores are projectId-keyed; ownership lives in `screenplay_store`),
+  so a caller could export another user's project data from a
+  privacy/data-control route. The human decided: **ship core-only for
+  V1.** PR #94 now exposes `GET /memory/export` returning ONLY the
+  requesting user's own creative-memory core (`creativeMemory`,
+  `characters`, `habits`), strictly `userId`-scoped, unauthenticated →
+  empty, no server-only metadata, `schemaVersion: 2`. The `projectIds`
+  expansion was removed and deferred post-V1 to
+  `tasks/_proposals/T-creative-memory-export-projectids-ownership.md`
+  pending an explicit ownership-model decision. Codex may clear the
+  `tier-3`/`needs-human` labels and merge under D005 after review;
+  branch re-derived on current `main`, closure verified deterministically
+  (acorn: zero free identifiers), `pre_flight --strict` clean, full
+  backend `npm test` 1178 pass / 0 fail / 1 skipped.
+- **Resolved by:** human product lead, 2026-05-16 (core-only V1
+  decision; recorded by Claude, not authored).

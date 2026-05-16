@@ -63,6 +63,7 @@ import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention
 import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountArchetypeRoute } from "./lib/archetype_route.js";
 import { mountBlockSignalRoute } from "./lib/block_signal_route.js";
+import { mountCreativeMemoryExportRoute } from "./lib/creative_memory_export_route.js";
 import { mountOpsHealthSummaryRoute } from "./lib/ops_health_summary_route.js";
 import { mountHealthRoutes } from "./lib/health_route.js";
 import { createTalkHandler } from "./lib/talk_handler.js";
@@ -28078,6 +28079,13 @@ mountArchetypeRoute(app, { creativeMemoryStore });
 // computeBlockSignal() so iOS can nudge the writer when block patterns
 // emerge.
 mountBlockSignalRoute(app, { creativeMemoryStore });
+
+// T-creative-memory-export (V1 core-only): GET /memory/export returns
+// the requesting user's own creative-memory record. Project-linked
+// export (logline/twist by projectIds) is deferred post-V1 pending an
+// ownership-scoping design — see
+// tasks/_proposals/T-creative-memory-export-projectids-ownership.md.
+mountCreativeMemoryExportRoute(app, { creativeMemoryStore });
 // T-talk-error-rate-tracker: GET /talk/errors snapshots in-memory
 // error counters. Wired into the /realtime/client_secret error paths
 // above; additional /talk pipeline call sites are a small follow-up.
