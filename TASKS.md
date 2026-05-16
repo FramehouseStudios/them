@@ -782,6 +782,7 @@
 | T135                                   | Refresh after Phase 7b talk-handler merge                                                | codex  | review      |
 | T138                                   | Refresh queue after Launch Doctor proof PRs                                              | codex  | review      |
 | T139                                   | Clear V1 release smoke and config gap                                                    | codex  | review      |
+| T140                                   | Refresh coordination after T139 merge                                                    | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3208,6 +3209,28 @@ Launch Doctor evidence, and document exact results.
 - `scripts/appstore_preflight.sh` failed with the expected real release blockers: missing Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`; signed Release build skipped because `DEVELOPMENT_TEAM_ID` is not configured.
 - `cd backend && npm run v1:status` reported 19/25 V1 checklist items complete.
 - `node scripts/v1_launch_doctor_report.mjs --talk=not-started --studio=not-started --memory=not-started --realtime=not-started --write-docs` wrote the blocked Launch Doctor report.
+
+### T140 — Refresh coordination after T139 merge
+- **Owner:** codex
+- **Branch:** codex/T140-refresh-after-t139
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh the supervisor ledger, coordination state, and event lane after PR #341
+merged so agent prompts stop treating T139 as an open review item.
+
+## Done When
+
+- `docs/coordination.json` marks PR #341 merged.
+- `docs/codex-claude-live-handoff.md` marks T139 merged.
+- Claude's current support-only launch instruction remains visible.
+- Coordination validation passes.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
