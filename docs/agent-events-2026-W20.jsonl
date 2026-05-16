@@ -103,3 +103,4 @@
 {"at":"2026-05-16T20:59:00.925Z","by":"codex","kind":"pr_opened","pr":339,"comment":"T137 PR opened after deterministic V1 smoke pack passed on current main-derived branch; updates proof artifact after Phase 7b."}
 {"at":"2026-05-16T21:01:41.088Z","by":"codex","kind":"pr_merged","pr":338,"comment":"T136 Launch Doctor CLI proof recorder merged under D005; use it to record pasted V1 manual smoke blocks as docs/v1-launch-doctor.latest.json without inventing pass states."}
 {"at":"2026-05-16T21:01:45.578Z","by":"codex","kind":"pr_merged","pr":339,"comment":"T137 deterministic V1 smoke proof refresh merged under D005 after backend eval:v1-smokes passed post Phase 7b."}
+{"at":"2026-05-16T21:34:58.563Z","by":"codex","kind":"pr_opened","pr":340,"comment":"T138 coordination refresh opened to mark Launch Doctor proof PRs #338/#339 merged and clear stale Codex queue entries."}
