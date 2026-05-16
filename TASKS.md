@@ -778,6 +778,7 @@
 | T124                                   | Refresh after V1 smoke prompt merge                                                      | codex  | review      |
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
+| T130                                   | Reduce V1 release preflight blockers                                                     | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3082,6 +3083,35 @@ human-owned release settings.
 - `node scripts/coordination_state.mjs validate` -> passed
 - `node scripts/pre_flight.mjs --strict` -> passed
 - `git diff --check` -> passed
+
+### T130 — Reduce V1 release preflight blockers
+- **Owner:** codex
+- **Branch:** codex/T130-release-preflight-clearance
+- **Pillar:** mobile-first
+- **Status:** in-progress
+
+## Scope
+
+Clear the release-preflight blockers Codex can own without committing secrets
+or changing human-only App Store/privacy surfaces. Make the script accept
+runtime-provided release values, remove duplicate/false-positive checks, and
+enable the non-secret Release build settings that should be source-controlled.
+
+## Done When
+
+- Release Hardened Runtime is enabled in the app target.
+- Release backend URL/app-token checks can be satisfied by environment or
+  command-line build settings without committing secrets.
+- Microphone usage validation accepts the checked-in release plist when the
+  build setting is not present.
+- The signed Release build check is skipped with a clear warning when
+  development-team credentials are absent, instead of adding a duplicate
+  failure.
+- The latest release proof records the smaller, honest blocker set.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
