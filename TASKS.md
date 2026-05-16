@@ -781,7 +781,7 @@
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
 | T135                                   | Refresh after Phase 7b talk-handler merge                                                | codex  | review      |
 | T136                                   | Add Launch Doctor CLI proof recorder                                                     | codex  | review      |
-| T137                                   | Refresh deterministic V1 smoke proof after Phase 7b                                      | codex  | in-progress |
+| T137                                   | Refresh deterministic V1 smoke proof after Phase 7b                                      | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3184,7 +3184,7 @@ result block.
 - **Owner:** codex
 - **Branch:** codex/T137-post-phase7b-v1-smoke-proof
 - **Pillar:** voice→scene
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3201,7 +3201,11 @@ result.
 
 ## Verification
 
-- Pending.
+- `cd backend && npm run eval:v1-smokes` passed.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
+- Not run: Xcode build/tests; this proof refresh changes docs/task state only.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

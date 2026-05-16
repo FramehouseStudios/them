@@ -2,7 +2,7 @@
 id: T137
 title: Refresh deterministic V1 smoke proof after Phase 7b
 owner: codex
-status: in-progress
+status: review
 branch: codex/T137-post-phase7b-v1-smoke-proof
 pillar: voice→scene
 v1_pillar: talk
@@ -24,4 +24,8 @@ result.
 
 ## Verification
 
-- Pending.
+- `cd backend && npm run eval:v1-smokes` passed.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
+- Not run: Xcode build/tests; this proof refresh changes docs/task state only.
