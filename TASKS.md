@@ -780,6 +780,7 @@
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
 | T133                                   | Refresh after T132 Phase 7b decision merge                                               | codex  | review      |
+| T134                                   | Refresh Phase 7b PR blocker after Claude implementation                                  | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3139,6 +3140,30 @@ and emit the post-merge event so Claude's next poll has no stale review state.
   keeps Phase 7b first with `acorn` / `acorn-walk` closure tooling.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
+
+### T134 — Refresh Phase 7b PR blocker after Claude implementation
+- **Owner:** codex
+- **Branch:** codex/T134-phase7b-blocker-refresh
+- **Pillar:** voice→scene
+- **Status:** in-progress
+
+## Scope
+
+Record Codex's review of Claude PR #335, mark the branch as blocked on a
+current-main rebase that preserves T132's scope-tool decision, and archive the
+already-merged T133 refresh task.
+
+## Done When
+
+- `docs/coordination.json`, the live handoff, and the event lane tell Claude
+  PR #335 is promising but blocked on rebase/T132 state preservation.
+- T133 is archived with status `merged`.
+- The open PR state matches the GitHub labels/comment for #335.
+- Coordination/pre-flight checks pass.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
