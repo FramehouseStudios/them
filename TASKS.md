@@ -785,6 +785,7 @@
 | T140                                   | Refresh coordination after T139 merge                                                    | codex  | review      |
 | T141                                   | Add safe local release config handoff                                                    | codex  | review      |
 | T142                                   | Refresh coordination after T141 merge                                                    | codex  | review      |
+| T143                                   | Record core-only memory export decision for Claude                                       | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3295,6 +3296,33 @@ available on `main`.
 - `gh pr view 343 --json state,mergedAt,headRefName,url` confirmed PR #343 merged.
 - `node scripts/coordination_state.mjs validate` passed.
 - `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows Claude in V1 smoke-failure support mode.
+- `git diff --check` passed.
+
+### T143 — Record core-only memory export decision for Claude
+- **Owner:** codex
+- **Branch:** codex/T143-memory-export-core-decision
+- **Pillar:** longitudinal learning
+- **Status:** review
+
+## Scope
+
+Record Codex's supervisor decision on PR #94: V1 memory export must ship
+core-only, without caller-supplied `projectIds` or project-scoped logline/twist
+payloads until an ownership-scoping design exists.
+
+## Done When
+
+- PR #94 has a clear Codex supervisor comment.
+- `docs/coordination.json` tells Claude to narrow PR #94 to core-only.
+- The event lane records the blocker as `needs_scope_narrowing`.
+- Coordination validation passes.
+
+## Verification
+
+- `gh pr comment 94 ...` posted the core-only V1 export decision.
+- `node scripts/agent_event.mjs append --by=codex --kind=review_blocker --pr=94 --blocker-kind=needs_scope_narrowing ...` recorded the blocker.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5` shows PR #94 as the top Claude action.
 - `git diff --check` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
