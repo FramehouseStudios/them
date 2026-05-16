@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T22:49:06.872Z",
+  "updatedAt": "2026-05-16T22:49:52.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -8,10 +8,10 @@
       "title": "T141: add safe local release config handoff",
       "owner": "codex",
       "tier": 1,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T141-release-config-local-runbook",
       "blocker": null,
-      "reviewer_note": "Adds ignored local release config template and runner so real Development Team, release BACKEND_URL, and APP_TOKEN can be supplied without committing secrets. Does not clear the missing real values by itself."
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Adds ignored local release config template and runner so real Development Team, release BACKEND_URL, and APP_TOKEN can be supplied without committing secrets. Does not clear the missing real values by itself."
     },
     {
       "number": 341,
