@@ -69,8 +69,9 @@ outside V1.
 
 ## Week 4: Release Configuration
 
-- Human/Codex clear the release preflight blockers in
-  `docs/v1-release-preflight-proof.md`.
+- Human/Codex clear the remaining release preflight blockers in
+  `docs/v1-release-preflight-proof.md`: Apple team ID, hosted backend URL, and
+  production app token.
 - Codex reruns release preflight.
 - Codex reruns full app build and `themTests`.
 

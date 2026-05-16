@@ -778,7 +778,7 @@
 | T124                                   | Refresh after V1 smoke prompt merge                                                      | codex  | review      |
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
-| T130                                   | Reduce V1 release preflight blockers                                                     | codex  | in-progress |
+| T130                                   | Reduce V1 release preflight blockers                                                     | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3088,7 +3088,7 @@ human-owned release settings.
 - **Owner:** codex
 - **Branch:** codex/T130-release-preflight-clearance
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3111,7 +3111,21 @@ enable the non-secret Release build settings that should be source-controlled.
 
 ## Verification
 
-- Pending.
+- `bash -n scripts/appstore_preflight.sh` passed.
+- `scripts/appstore_preflight.sh` reached the expected `fail=3 warn=1`
+  state: Apple Development Team, hosted `BACKEND_URL`, and production
+  `APP_TOKEN` remain the only release-preflight failures; signed Release build
+  is a warning until credentials exist.
+- `node --check scripts/v1_launch_room.mjs` passed.
+- `node --test scripts/v1_launch_room.test.mjs` passed, 5/5.
+- `node scripts/v1_launch_room.mjs --role=human` passed and now shows the
+  runtime command shape for clearing the remaining release config.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `node scripts/coordination_state.mjs validate` passed.
+- `git diff --check` passed.
+- `xcodebuild build -project them.xcodeproj -scheme them -configuration Release -sdk macosx -destination platform=macOS CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed.
+- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO` passed, 108/108.
+- `xcodebuild build -project them.xcodeproj -scheme them -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

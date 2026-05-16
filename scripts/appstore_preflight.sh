@@ -42,7 +42,7 @@ trim_quotes() {
 is_placeholder() {
   local v="${1:-}"
   case "$v" in
-    ""|*yourdomain*|*REPLACE_WITH_*|"\$("*)
+    ""|*yourdomain*|*REPLACE_WITH_*|"\$("*|APP_TOKEN_RELEASE|RELEASE_BACKEND_URL)
       return 0
       ;;
     *)
@@ -51,18 +51,30 @@ is_placeholder() {
   esac
 }
 
-build_settings="$(
-  xcodebuild \
-    -project "$PROJECT" \
-    -scheme "$SCHEME" \
-    -configuration Release \
-    -sdk macosx \
-    -derivedDataPath "$DERIVED_DATA_PATH" \
-    -showBuildSettings 2>&1 || true
-)"
+release_overrides=()
+for key in DEVELOPMENT_TEAM_ID BACKEND_URL APP_TOKEN APP_TOKEN_RELEASE RELEASE_BACKEND_URL; do
+  if [[ -n "${!key:-}" ]]; then
+    release_overrides+=("${key}=${!key}")
+  fi
+done
 
-if [[ -z "$build_settings" ]]; then
-  fail "Could not load Release build settings."
+build_settings_cmd=(
+  xcodebuild
+  -project "$PROJECT"
+  -scheme "$SCHEME"
+  -configuration Release
+  -sdk macosx
+  -derivedDataPath "$DERIVED_DATA_PATH"
+  -showBuildSettings
+)
+if [[ "${#release_overrides[@]}" -gt 0 ]]; then
+  build_settings_cmd+=("${release_overrides[@]}")
+fi
+
+build_settings="$("${build_settings_cmd[@]}" 2>&1 || true)"
+
+if [[ -z "$build_settings" || "$build_settings" != *"PRODUCT_BUNDLE_IDENTIFIER"* ]]; then
+  fail "Could not load complete Release build settings."
   exit 1
 fi
 
@@ -83,6 +95,7 @@ support_email="$(trim_quotes "$(get_setting SUPPORT_EMAIL)")"
 code_sign_entitlements="$(trim_quotes "$(get_setting CODE_SIGN_ENTITLEMENTS)")"
 hardened_runtime="$(trim_quotes "$(get_setting ENABLE_HARDENED_RUNTIME)")"
 mic_desc_setting="$(trim_quotes "$(get_setting INFOPLIST_KEY_NSMicrophoneUsageDescription)")"
+mic_desc_plist=""
 
 if [[ -z "$privacy_url" && -f "$RELEASE_PLIST_FILE" ]]; then
   privacy_url="$(plutil -extract PRIVACY_POLICY_URL raw -o - "$RELEASE_PLIST_FILE" 2>/dev/null || true)"
@@ -92,6 +105,11 @@ fi
 if [[ -z "$support_email" && -f "$RELEASE_PLIST_FILE" ]]; then
   support_email="$(plutil -extract SUPPORT_EMAIL raw -o - "$RELEASE_PLIST_FILE" 2>/dev/null || true)"
   support_email="$(trim_quotes "$support_email")"
+fi
+
+if [[ -f "$RELEASE_PLIST_FILE" ]]; then
+  mic_desc_plist="$(plutil -extract NSMicrophoneUsageDescription raw -o - "$RELEASE_PLIST_FILE" 2>/dev/null || true)"
+  mic_desc_plist="$(trim_quotes "$mic_desc_plist")"
 fi
 
 echo "=== App Store Preflight (macOS) ==="
@@ -122,10 +140,10 @@ else
   fail "Bundle identifier is missing or placeholder."
 fi
 
-if [[ -n "$development_team" && "$development_team" != "\$(DEVELOPMENT_TEAM_ID)" ]]; then
+if ! is_placeholder "$development_team"; then
   ok "Development Team configured: $development_team"
 else
-  fail "Development Team is not configured. Set DEVELOPMENT_TEAM_ID in Config.xcconfig."
+  fail "Development Team is not configured. Provide DEVELOPMENT_TEAM_ID through release config, environment, or xcodebuild build setting."
 fi
 
 if [[ "$hardened_runtime" == "YES" ]]; then
@@ -179,7 +197,8 @@ else
   fail "SUPPORT_EMAIL is placeholder/unset."
 fi
 
-if [[ -n "$mic_desc_setting" && "$mic_desc_setting" == *"microphone"* ]]; then
+mic_desc_combined="$mic_desc_setting $mic_desc_plist"
+if [[ -n "$mic_desc_combined" && "$mic_desc_combined" == *"microphone"* ]]; then
   ok "Microphone usage description is configured."
 else
   fail "NSMicrophoneUsageDescription missing or too vague."
@@ -207,8 +226,7 @@ else
 fi
 
 if [[ -f "$RELEASE_PLIST_FILE" ]]; then
-  mic_desc="$(plutil -extract NSMicrophoneUsageDescription raw -o - "$RELEASE_PLIST_FILE" 2>/dev/null || true)"
-  if [[ -n "$mic_desc" ]]; then
+  if [[ -n "$mic_desc_plist" ]]; then
     ok "Release Info.plist includes NSMicrophoneUsageDescription."
   else
     fail "Release Info.plist missing NSMicrophoneUsageDescription."
@@ -217,20 +235,31 @@ else
   fail "Missing release plist file: $RELEASE_PLIST_FILE"
 fi
 
-if xcodebuild \
-  -project "$PROJECT" \
-  -scheme "$SCHEME" \
-  -configuration Release \
-  -sdk macosx \
-  -destination "platform=macOS" \
-  -derivedDataPath "$DERIVED_DATA_PATH" \
-  -quiet build >/tmp/them_release_preflight_build.log 2>&1; then
-  ok "Release macOS build succeeds."
+if is_placeholder "$development_team"; then
+  warn "Skipping signed Release macOS build until DEVELOPMENT_TEAM_ID is configured."
 else
-  if rg -n "swift-plugin-server|sandbox_apply: Operation not permitted|CoreSimulatorService connection became invalid" /tmp/them_release_preflight_build.log >/dev/null 2>&1; then
-    warn "Release build check hit local sandbox/tooling limits in this environment. Re-run locally in Xcode to confirm archive."
+  release_build_cmd=(
+    xcodebuild
+    -project "$PROJECT"
+    -scheme "$SCHEME"
+    -configuration Release
+    -sdk macosx
+    -destination "platform=macOS"
+    -derivedDataPath "$DERIVED_DATA_PATH"
+    -quiet build
+  )
+  if [[ "${#release_overrides[@]}" -gt 0 ]]; then
+    release_build_cmd+=("${release_overrides[@]}")
+  fi
+
+  if "${release_build_cmd[@]}" >/tmp/them_release_preflight_build.log 2>&1; then
+    ok "Release macOS build succeeds."
   else
-    fail "Release macOS build failed. See /tmp/them_release_preflight_build.log"
+    if rg -n "swift-plugin-server|sandbox_apply: Operation not permitted|CoreSimulatorService connection became invalid" /tmp/them_release_preflight_build.log >/dev/null 2>&1; then
+      warn "Release build check hit local sandbox/tooling limits in this environment. Re-run locally in Xcode to confirm archive."
+    else
+      fail "Release macOS build failed. See /tmp/them_release_preflight_build.log"
+    fi
   fi
 fi
 

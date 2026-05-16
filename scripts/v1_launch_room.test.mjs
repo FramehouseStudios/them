@@ -35,8 +35,8 @@ test("[v1-launch-room] --json exposes V1 status and launch lanes", () => {
   assert.ok(payload.humanOptions.some((option) => option.command.includes("V1 Launch Doctor")));
   assert.equal(payload.launchDoctor.status, "missing");
   assert.ok(Array.isArray(payload.release.blockers));
-  assert.match(payload.release.result, /fail=6/);
-  assert.ok(payload.release.blockers.some((blocker) => blocker.includes("Config.xcconfig")));
+  assert.match(payload.release.result, /fail=3, warn=1/);
+  assert.ok(payload.release.blockers.some((blocker) => blocker.includes("DEVELOPMENT_TEAM_ID")));
   assert.ok(!payload.humanGated.some((pr) => pr.status === "closed"));
 });
 

@@ -2,7 +2,7 @@
 id: T130
 title: Reduce V1 release preflight blockers
 owner: codex
-status: in-progress
+status: review
 branch: codex/T130-release-preflight-clearance
 pillar: mobile-first
 v1_pillar: ios
@@ -30,4 +30,18 @@ enable the non-secret Release build settings that should be source-controlled.
 
 ## Verification
 
-- Pending.
+- `bash -n scripts/appstore_preflight.sh` passed.
+- `scripts/appstore_preflight.sh` reached the expected `fail=3 warn=1`
+  state: Apple Development Team, hosted `BACKEND_URL`, and production
+  `APP_TOKEN` remain the only release-preflight failures; signed Release build
+  is a warning until credentials exist.
+- `node --check scripts/v1_launch_room.mjs` passed.
+- `node --test scripts/v1_launch_room.test.mjs` passed, 5/5.
+- `node scripts/v1_launch_room.mjs --role=human` passed and now shows the
+  runtime command shape for clearing the remaining release config.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `node scripts/coordination_state.mjs validate` passed.
+- `git diff --check` passed.
+- `xcodebuild build -project them.xcodeproj -scheme them -configuration Release -sdk macosx -destination platform=macOS CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed.
+- `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO` passed, 108/108.
+- `xcodebuild build -project them.xcodeproj -scheme them -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` passed.
