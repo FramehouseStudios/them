@@ -786,6 +786,7 @@
 | T141                                   | Add safe local release config handoff                                                    | codex  | review      |
 | T142                                   | Refresh coordination after T141 merge                                                    | codex  | review      |
 | T143                                   | Record core-only memory export decision for Claude                                       | codex  | review      |
+| T144                                   | Refresh coordination after T143 merge                                                    | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3324,6 +3325,29 @@ payloads until an ownership-scoping design exists.
 - `node scripts/coordination_state.mjs validate` passed.
 - `node scripts/agent_next.mjs --role=claude --limit=5` shows PR #94 as the top Claude action.
 - `git diff --check` passed.
+
+### T144 — Refresh coordination after T143 merge
+- **Owner:** codex
+- **Branch:** codex/T144-refresh-after-t143
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh coordination after PR #345 merged so agent prompts know that the
+core-only memory export decision is now canonical on `main`.
+
+## Done When
+
+- `docs/coordination.json` marks PR #345 merged.
+- `docs/codex-claude-live-handoff.md` marks T143 merged.
+- Claude's next action remains narrowing PR #94 to the V1 core-only memory
+  export contract.
+- Coordination validation passes.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
