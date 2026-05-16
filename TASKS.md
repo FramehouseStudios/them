@@ -780,6 +780,7 @@
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
 | T132                                   | Codify Phase 7b scope-tool decision                                                      | codex  | review      |
+| T133                                   | Refresh after T132 Phase 7b decision merge                                               | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3144,6 +3145,29 @@ still owns the backend implementation and package changes.
   event.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
+
+### T133 — Refresh after T132 Phase 7b decision merge
+- **Owner:** codex
+- **Branch:** codex/T133-refresh-after-t132
+- **Pillar:** voice→scene
+- **Status:** in-progress
+
+## Scope
+
+Mark T132 / PR #333 merged in the handoff state, archive the completed task,
+and emit the post-merge event so Claude's next poll has no stale review state.
+
+## Done When
+
+- T132 is archived with status `merged`.
+- `docs/codex-claude-live-handoff.md` and `docs/coordination.json` mark PR
+  #333 merged.
+- The event lane contains a `pr_merged` event for PR #333.
+- Coordination/pre-flight checks pass.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
