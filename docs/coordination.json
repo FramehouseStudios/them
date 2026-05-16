@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T17:55:00.000Z",
+  "updatedAt": "2026-05-16T20:44:23.226Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1584,6 +1584,16 @@
       "status": "merged",
       "branch": "codex/T126-release-preflight-proof",
       "blocker": null
+    },
+    {
+      "number": 338,
+      "title": "T136: add Launch Doctor CLI proof recorder",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T136-v1-launch-doctor-cli",
+      "blocker": null,
+      "reviewer_note": "Adds a repo-native Launch Doctor CLI recorder so pasted manual smoke results become schema-compatible JSON/Markdown proof without inventing pass states."
     }
   ],
   "blockers": [
