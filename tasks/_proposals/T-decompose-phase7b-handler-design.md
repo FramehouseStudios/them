@@ -80,16 +80,13 @@ on `main` and reflects the new lib seam.
 >
 > **Dep-contract status:** the ~80-name list below is the
 > Codex-reviewed *intent*, but it predates #323 and is NOT
-> safe to wire by static analysis — a heuristic free-identifier
-> pass over the 3,562-line body yields ~977 candidates (dense
-> object literals + template logging defeat tokenization). The
-> only safe wiring method is **iterative convergence through the
-> real talk integration suite**: wire the contract, run
-> `backend/tests/talk.integration.test.mjs` + full `npm test`,
-> resolve each `ReferenceError` until green, then the
-> design-mandated **human manual smoke** (record + play back a
-> real voice turn) BEFORE merge. An agent cannot perform that
-> smoke; it is a human merge gate, not an open gate.
+> the source of truth for wiring. Per T132, the safe wiring method is
+> deterministic lexical-scope tooling: use `acorn` / `acorn-walk` as
+> backend devDependencies to compute the closure, prove it complete in
+> `backend/tests/talk_handler_closure.test.mjs`, then run the focused
+> talk suite and full backend tests. The design-mandated **human manual
+> smoke** (record + play back a real voice turn) remains a pre-merge
+> gate because an agent cannot truthfully perform that app-level smoke.
 
 `handleTalkRequest` (original #314 estimate, superseded by the
 correction above) was cited at `backend/index.js:27673`–`31514`
