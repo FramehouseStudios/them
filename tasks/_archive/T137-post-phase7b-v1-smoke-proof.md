@@ -2,7 +2,7 @@
 id: T137
 title: Refresh deterministic V1 smoke proof after Phase 7b
 owner: codex
-status: review
+status: merged
 branch: codex/T137-post-phase7b-v1-smoke-proof
 pillar: voice→scene
 v1_pillar: talk

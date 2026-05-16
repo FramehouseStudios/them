@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T20:44:23.226Z",
+  "updatedAt": "2026-05-16T21:01:36.706Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1590,10 +1590,20 @@
       "title": "T136: add Launch Doctor CLI proof recorder",
       "owner": "codex",
       "tier": 1,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T136-v1-launch-doctor-cli",
       "blocker": null,
-      "reviewer_note": "Adds a repo-native Launch Doctor CLI recorder so pasted manual smoke results become schema-compatible JSON/Markdown proof without inventing pass states."
+      "reviewer_note": "Merged under D005. Adds Launch Doctor CLI proof recorder and docs; missing flows stay not_started; launch_room can read generated proof."
+    },
+    {
+      "number": 339,
+      "title": "T137: refresh deterministic V1 smoke proof",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T137-post-phase7b-v1-smoke-proof",
+      "blocker": null,
+      "reviewer_note": "Merged under D005 after deterministic V1 smoke pack passed on current main-derived branch; updates docs/v1-deterministic-smoke-proof.md."
     }
   ],
   "blockers": [

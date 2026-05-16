@@ -2,7 +2,7 @@
 id: T136
 title: Add Launch Doctor CLI proof recorder
 owner: codex
-status: review
+status: merged
 branch: codex/T136-v1-launch-doctor-cli
 pillar: mobile-first
 v1_pillar: ios
