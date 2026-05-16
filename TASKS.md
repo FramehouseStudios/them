@@ -782,6 +782,7 @@
 | T135                                   | Refresh after Phase 7b talk-handler merge                                                | codex  | review      |
 | T136                                   | Add Launch Doctor CLI proof recorder                                                     | codex  | review      |
 | T137                                   | Refresh deterministic V1 smoke proof after Phase 7b                                      | codex  | review      |
+| T138                                   | Refresh queue after Launch Doctor proof PRs                                              | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3206,6 +3207,29 @@ result.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
 - Not run: Xcode build/tests; this proof refresh changes docs/task state only.
+
+### T138 — Refresh queue after Launch Doctor proof PRs
+- **Owner:** codex
+- **Branch:** codex/T138-refresh-after-launch-proof-prs
+- **Pillar:** mobile-first
+- **Status:** in-progress
+
+## Scope
+
+Refresh the machine-readable coordination lane after PR #338 and PR #339
+merged, so `agent_next` no longer points Codex at already-landed Launch Doctor
+proof work.
+
+## Done When
+
+- `docs/coordination.json` marks PR #338 and PR #339 merged.
+- The live event lane records the merge events.
+- The handoff ledger tells Claude to stay in V1 smoke-failure support mode.
+- `agent_next` and launch-room commands no longer point Codex at stale PR #338.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
