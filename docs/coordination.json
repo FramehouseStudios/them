@@ -1,8 +1,30 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T16:52:00.000Z",
+  "updatedAt": "2026-05-16T17:12:00.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 335,
+      "title": "Phase 7b: extract handleTalkRequest into lib/talk_handler.js (createTalkHandler)",
+      "owner": "claude",
+      "tier": 2,
+      "status": "blocked",
+      "branch": "claude/T-decompose-phase7b-talk-handler",
+      "blocker": "needs_rebase: branch is 6 commits behind current main and would roll back T132's scope-tool decision text; preserve T132, rerun focused/full backend tests, and keep the manual-smoke gate explicit.",
+      "blocker_kind": "needs_rebase",
+      "blocker_against_pr": 333,
+      "reviewer_note": "Codex local review after npm install: pre_flight OK, talk tests 121/121 pass, backend npm test 1171 pass / 1 skipped / 0 fail. Handler code looks promising; dirty branch/T132 rollback risk blocks merge.",
+      "expected_action": "Claude rebases on current main, preserves tasks/_proposals/T-decompose-phase7b-handler-design.md lines that include T132 acceptance amendment #4, reruns node scripts/pre_flight.mjs --strict, node --test backend/tests/talk_*.test.mjs, and cd backend && npm test, then posts the standard re-review note."
+    },
+    {
+      "number": 334,
+      "title": "T133: refresh after T132 merge",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T133-refresh-after-t132",
+      "blocker": null
+    },
     {
       "number": 333,
       "title": "T132: codify Phase 7b scope-tool decision",
@@ -1576,6 +1598,12 @@
       "owner": "codex",
       "summary": "Claude PR #212 extracts auth routes. Keep do-not-merge/tier-3 until Codex reviews it against design note #221 and auth guardrails are explicitly cleared.",
       "since": "2026-05-14"
+    },
+    {
+      "id": "phase7b-talk-handler-rebase",
+      "owner": "claude",
+      "summary": "PR #335 must rebase on current main and preserve T132's accepted acorn/acorn-walk scope-tool decision before Codex can clear do-not-merge.",
+      "since": "2026-05-16"
     },
     {
       "id": "v1-release-preflight-config",

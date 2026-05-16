@@ -2,7 +2,7 @@
 id: T133
 title: Refresh after T132 Phase 7b decision merge
 owner: codex
-status: review
+status: merged
 branch: codex/T133-refresh-after-t132
 pillar: voice→scene
 v1_pillar: talk

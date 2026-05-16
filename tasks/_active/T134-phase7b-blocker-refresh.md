@@ -2,7 +2,7 @@
 id: T134
 title: Refresh Phase 7b PR blocker after Claude implementation
 owner: codex
-status: in-progress
+status: review
 branch: codex/T134-phase7b-blocker-refresh
 pillar: voice→scene
 v1_pillar: talk
@@ -25,4 +25,10 @@ already-merged T133 refresh task.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events` passed and
+  shows PR #335 as Claude's only next action.
+- `node scripts/agent_event.mjs tail --n=5` passed and shows the PR #335
+  review-blocker event.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
