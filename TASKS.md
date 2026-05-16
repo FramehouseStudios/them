@@ -780,6 +780,7 @@
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
 | T134                                   | Refresh Phase 7b PR blocker after Claude implementation                                  | codex  | review      |
+| T135                                   | Refresh after Phase 7b talk-handler merge                                                | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3140,6 +3141,29 @@ already-merged T133 refresh task.
   review-blocker event.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
+
+### T135 — Refresh after Phase 7b talk-handler merge
+- **Owner:** codex
+- **Branch:** codex/T135-refresh-after-phase7b
+- **Pillar:** voice→scene
+- **Status:** in-progress
+
+## Scope
+
+Mark Claude PR #335 / Phase 7b merged in the coordination surfaces and clear
+the stale rebase blocker from the agent queue.
+
+## Done When
+
+- `docs/coordination.json`, `docs/claude-inbox.md`, and the live handoff record
+  PR #335 as merged.
+- The event lane contains the PR #335 merge event.
+- `agent_next` no longer tells Claude to work on Phase 7b.
+- Coordination/pre-flight checks pass.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
