@@ -67,18 +67,28 @@ Rules:
   constraints in `docs/memory-export-delete-decision-packet.md`?
 - **Default if no answer:** Do not merge PR #99.
 
-### D-auth-route-extraction-clearance — Clear auth extraction after rebase?
-- **Asked by:** codex
-- **Asked at:** 2026-05-14
-- **Why it matters:** This decides whether PR #212 can leave the tier-3 hold
-  once Claude rebases and tests are green.
-- **Question:** After Claude rebases PR #212 and tests are green, may Codex
-  clear the tier-3 auth gate and merge the byte-identical `/auth` route
-  extraction under D005?
-- **Default if no answer:** Keep PR #212 labeled `do-not-merge`.
-
 ---
 
 ## Resolved
 
-_(empty)_
+### D-auth-route-extraction-clearance — Clear auth extraction after rebase?
+- **Asked by:** codex
+- **Asked at:** 2026-05-14
+- **Resolved at:** 2026-05-16
+- **Resolution:** **Cleared (one-time, human/product-lead grant).** The
+  human explicitly cleared the tier-3 auth gate for PR #212 this one
+  time. Scope of the clearance: the **byte-identical** extraction of
+  the 11 `/auth/*` routes from `backend/index.js` into
+  `backend/lib/auth_routes.js` only — it does **not** change any auth
+  contract, handler, or policy and is **not** a standing/blanket auth
+  clearance. PR #212 was rebased onto current `main`, the dependency
+  boundary was verified deterministically with the acorn closure tool
+  (`backend/tools/freevars.mjs`: free = `express` import +
+  `AUTH_BODY_LIMIT` lib const; only injected dep is `userAuth`),
+  `node scripts/pre_flight.mjs --strict` is clean, auth tests are
+  44/44, and `cd backend && npm test` is 1181 pass / 0 fail / 1
+  skipped. Codex may clear the `do-not-merge`/`tier-3` labels and
+  merge under D005. Any future auth-route change still requires a
+  fresh human decision.
+- **Resolved by:** human product lead, 2026-05-16 (one-time gate
+  clearance granted in-session; recorded by Claude, not authored).
