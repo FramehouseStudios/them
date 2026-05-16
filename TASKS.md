@@ -779,7 +779,7 @@
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
-| T132                                   | Codify Phase 7b scope-tool decision                                                      | codex  | in-progress |
+| T132                                   | Codify Phase 7b scope-tool decision                                                      | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3115,7 +3115,7 @@ human relay.
 - **Owner:** codex
 - **Branch:** codex/T132-phase7b-scope-tool-handoff
 - **Pillar:** voice→scene
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3135,7 +3135,15 @@ still owns the backend implementation and package changes.
 
 ## Verification
 
-- Pending.
+- `node scripts/v1_launch_room.mjs --role=claude` passed and shows the
+  `acorn` / `acorn-walk` Phase 7b instruction.
+- `node scripts/agent_next.mjs --role=claude --limit=3 --no-events` passed and
+  shows the same Phase 7b instruction.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_event.mjs tail --n=4` passed and shows the T132 decision
+  event.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex

@@ -2,7 +2,7 @@
 id: T132
 title: Codify Phase 7b scope-tool decision
 owner: codex
-status: in-progress
+status: review
 branch: codex/T132-phase7b-scope-tool-handoff
 pillar: voice→scene
 v1_pillar: talk
@@ -27,4 +27,12 @@ still owns the backend implementation and package changes.
 
 ## Verification
 
-- Pending.
+- `node scripts/v1_launch_room.mjs --role=claude` passed and shows the
+  `acorn` / `acorn-walk` Phase 7b instruction.
+- `node scripts/agent_next.mjs --role=claude --limit=3 --no-events` passed and
+  shows the same Phase 7b instruction.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_event.mjs tail --n=4` passed and shows the T132 decision
+  event.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
