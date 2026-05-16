@@ -787,6 +787,7 @@
 | T142                                   | Refresh coordination after T141 merge                                                    | codex  | review      |
 | T143                                   | Record core-only memory export decision for Claude                                       | codex  | review      |
 | T144                                   | Refresh coordination after T143 merge                                                    | codex  | review      |
+| T145                                   | Refresh coordination after auth and memory export merges                                 | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3351,6 +3352,30 @@ core-only memory export decision is now canonical on `main`.
 - `node scripts/coordination_state.mjs validate` passed.
 - `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows PR #94 core-only narrowing as the top Claude action.
 - `git diff --check` passed.
+
+### T145 — Refresh coordination after auth and memory export merges
+- **Owner:** codex
+- **Branch:** codex/T145-post-auth-memory-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh the supervisor ledger, coordination state, Claude inbox, and launch
+handoff after Codex merged PR #212 and PR #94.
+
+## Done When
+
+- `docs/coordination.json` marks PR #212 and PR #94 merged.
+- Stale #212/#94 human-gated blockers are removed from the coordination queue.
+- `docs/codex-claude-live-handoff.md` tells Claude that auth extraction and
+  core-only memory export are merged.
+- `docs/claude-inbox.md` keeps Claude in V1 smoke-failure support mode.
+- Coordination validation passes.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
