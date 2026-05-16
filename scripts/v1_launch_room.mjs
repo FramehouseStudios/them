@@ -184,7 +184,7 @@ function buildState() {
         why: "Reviewable Claude work is waiting.",
       }
     : {
-        action: "Prepare for Phase 7b review, run human smoke handoff, and fix smoke failures.",
+        action: "Run V1 smoke handoff, inspect Launch Doctor output, and fix smoke failures.",
         why: "No reviewable Claude PR is open; V1 is gated by manual smoke, release config, and human decisions.",
       };
   const humanOptions = [

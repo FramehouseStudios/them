@@ -29,8 +29,8 @@ test("[v1-launch-room] --json exposes V1 status and launch lanes", () => {
   const payload = JSON.parse(r.stdout);
   assert.ok(payload.v1.total > 0);
   assert.ok(payload.v1.done <= payload.v1.total);
-  assert.match(payload.claudeNext.request, /Phase 7b talk handler implementation/);
-  assert.match(payload.codexNext.action, /Phase 7b|Review Claude PR|human smoke/);
+  assert.match(payload.claudeNext.request, /Support V1 manual smoke failures/);
+  assert.match(payload.codexNext.action, /V1 smoke handoff|Review Claude PR|human smoke/);
   assert.ok(payload.humanOptions.some((option) => option.command.includes("v1_manual_qa_checklist")));
   assert.ok(payload.humanOptions.some((option) => option.command.includes("V1 Launch Doctor")));
   assert.equal(payload.launchDoctor.status, "missing");
@@ -45,7 +45,7 @@ test("[v1-launch-room] Claude role prints one deep backend task", () => {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^io\.them V1 Launch Room/);
   assert.match(r.stdout, /Claude Launch Options/);
-  assert.match(r.stdout, /Do now: Phase 7b talk handler implementation/);
+  assert.match(r.stdout, /Do now: Support V1 manual smoke failures/);
   assert.doesNotMatch(r.stdout, /Human Launch Options/);
 });
 
