@@ -2,7 +2,7 @@
 id: T138
 title: Refresh queue after Launch Doctor proof PRs
 owner: codex
-status: in-progress
+status: review
 branch: codex/T138-refresh-after-launch-proof-prs
 pillar: mobile-first
 v1_pillar: ios
@@ -24,4 +24,9 @@ proof work.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=codex --limit=5 --no-events` passed and no longer points Codex at PR #338.
+- `node scripts/v1_launch_room.mjs --role=codex` passed.
+- `node scripts/v1_launch_room.mjs --role=claude` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.

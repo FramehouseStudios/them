@@ -780,9 +780,7 @@
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
 | T135                                   | Refresh after Phase 7b talk-handler merge                                                | codex  | review      |
-| T136                                   | Add Launch Doctor CLI proof recorder                                                     | codex  | review      |
-| T137                                   | Refresh deterministic V1 smoke proof after Phase 7b                                      | codex  | review      |
-| T138                                   | Refresh queue after Launch Doctor proof PRs                                              | codex  | in-progress |
+| T138                                   | Refresh queue after Launch Doctor proof PRs                                              | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3148,71 +3146,11 @@ the stale rebase blocker from the agent queue.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
 
-### T136 — Add Launch Doctor CLI proof recorder
-- **Owner:** codex
-- **Branch:** codex/T136-v1-launch-doctor-cli
-- **Pillar:** mobile-first
-- **Status:** review
-
-## Scope
-
-Add a repo-native CLI companion for the in-app V1 Launch Doctor. The script
-must generate the same schema/versioned JSON and Markdown summary as the app
-from explicit pass/fail/in-progress/not-started flags or a pasted manual QA
-result block.
-
-## Done When
-
-- A script can write `docs/v1-launch-doctor.latest.json` and matching Markdown
-  from explicit flow results without inventing a pass.
-- The script can parse the result block printed by
-  `scripts/v1_manual_qa_checklist.mjs --prompt`.
-- `scripts/v1_launch_room.mjs` can read the generated report unchanged.
-- Docs explain the app export path and CLI fallback path.
-- Focused script tests and launch-room tests pass.
-
-## Verification
-
-- `node --check scripts/v1_launch_doctor_report.mjs` passed.
-- `node --test scripts/v1_launch_doctor_report.test.mjs` passed 4/4.
-- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
-- `node --test scripts/v1_manual_qa_checklist.test.mjs` passed 4/4.
-- `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/pre_flight.mjs --strict` passed.
-- `git diff --check` passed.
-
-### T137 — Refresh deterministic V1 smoke proof after Phase 7b
-- **Owner:** codex
-- **Branch:** codex/T137-post-phase7b-v1-smoke-proof
-- **Pillar:** voice→scene
-- **Status:** review
-
-## Scope
-
-Run the deterministic V1 smoke pack on current `main` after Phase 7b and the
-Launch Doctor recorder merge, then update the proof artifact with the latest
-result.
-
-## Done When
-
-- `backend` deterministic V1 smoke pack passes on the current branch.
-- `docs/v1-deterministic-smoke-proof.md` records the new verification time,
-  branch, and result.
-- The task row records exactly what was run and what was not run.
-
-## Verification
-
-- `cd backend && npm run eval:v1-smokes` passed.
-- `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/pre_flight.mjs --strict` passed.
-- `git diff --check` passed.
-- Not run: Xcode build/tests; this proof refresh changes docs/task state only.
-
 ### T138 — Refresh queue after Launch Doctor proof PRs
 - **Owner:** codex
 - **Branch:** codex/T138-refresh-after-launch-proof-prs
 - **Pillar:** mobile-first
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3229,7 +3167,12 @@ proof work.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=codex --limit=5 --no-events` passed and no longer points Codex at PR #338.
+- `node scripts/v1_launch_room.mjs --role=codex` passed.
+- `node scripts/v1_launch_room.mjs --role=claude` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
