@@ -39,6 +39,13 @@ Studio, Creative Memory, and Realtime. Exporting the report writes
 Documents folder on iOS. The launch-room command reports whether repo-attached
 or macOS-exported proof is present and passed.
 
+If the human already ran the checklist and pasted the result block, Codex can
+record the same schema from a saved block:
+
+```sh
+node scripts/v1_launch_doctor_report.mjs --from-result-block=/tmp/v1-smoke.txt --write-docs
+```
+
 ### Release preflight
 
 `scripts/appstore_preflight.sh`
