@@ -63,9 +63,34 @@ on `main` and reflects the new lib seam.
 
 ## Handler boundary
 
-`handleTalkRequest` lives at `backend/index.js:27673` and runs to
-`backend/index.js:31514`. That's **3,842 lines** in one async
-function. It is the entire voice-to-page pipeline body:
+> **Boundary correction (verified against `main` @ #323,
+> 2026-05-15).** The numbers below were measured at #314. After
+> Phase 7a (#306) and subsequent merges the function is smaller and
+> shifted. Verified current boundary:
+>
+> - Definition: `backend/index.js:27673`
+>   `async function handleTalkRequest(req, res) {`
+> - Close brace (column 0): `backend/index.js:31236`
+> - Inner body to move (byte-exact): lines **27674–31235**
+>   (**3,562 lines**); brace-balance over 27673–31236 is net 0.
+> - Registration unchanged: `mountTalkPipelineRoutes(app, { … })`
+>   at `backend/index.js:31299`, `handleTalkRequest,` at line 31306.
+> - Per amendment #1 the factory is `createTalkHandler(deps)`
+>   (it returns the handler; it does not mount routes).
+>
+> **Dep-contract status:** the ~80-name list below is the
+> Codex-reviewed *intent*, but it predates #323 and is NOT
+> the source of truth for wiring. Per T132, the safe wiring method is
+> deterministic lexical-scope tooling: use `acorn` / `acorn-walk` as
+> backend devDependencies to compute the closure, prove it complete in
+> `backend/tests/talk_handler_closure.test.mjs`, then run the focused
+> talk suite and full backend tests. The design-mandated **human manual
+> smoke** (record + play back a real voice turn) remains a pre-merge
+> gate because an agent cannot truthfully perform that app-level smoke.
+
+`handleTalkRequest` (original #314 estimate, superseded by the
+correction above) was cited at `backend/index.js:27673`–`31514`
+(**~3,842 lines**). It is the entire voice-to-page pipeline body:
 
   1. STT (Whisper / Replicate / stub fallback)
   2. Memory load + read-state snapshot
