@@ -779,6 +779,7 @@
 | T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
 | T126                                   | Run and record release preflight                                                         | codex  | review      |
 | T130                                   | Reduce V1 release preflight blockers                                                     | codex  | review      |
+| T131                                   | Refresh after T130 release preflight clearance                                           | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3126,6 +3127,29 @@ enable the non-secret Release build settings that should be source-controlled.
 - `xcodebuild build -project them.xcodeproj -scheme them -configuration Release -sdk macosx -destination platform=macOS CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed.
 - `xcodebuild test -project them.xcodeproj -scheme them -destination platform=macOS CODE_SIGNING_ALLOWED=NO` passed, 108/108.
 - `xcodebuild build -project them.xcodeproj -scheme them -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO` passed.
+
+### T131 — Refresh after T130 release preflight clearance
+- **Owner:** codex
+- **Branch:** codex/T131-refresh-after-t130
+- **Pillar:** mobile-first
+- **Status:** in-progress
+
+## Scope
+
+Record PR #331 as merged, update the supervisor handoff and coordination state,
+and emit the post-merge event so Claude sees the current launch gate without a
+human relay.
+
+## Done When
+
+- `docs/codex-claude-live-handoff.md` marks T130 / PR #331 merged.
+- `docs/coordination.json` marks PR #331 merged.
+- The agent-events lane has a `pr_merged` event for PR #331.
+- Coordination validation and pre-flight pass.
+
+## Verification
+
+- Pending.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
