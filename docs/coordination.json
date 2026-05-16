@@ -1,8 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T03:10:13.000Z",
+  "updatedAt": "2026-05-16T08:48:00.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 331,
+      "title": "T130: clear noisy release preflight blockers",
+      "owner": "codex",
+      "tier": 1,
+      "status": "review",
+      "branch": "codex/T130-release-preflight-clearance",
+      "blocker": null
+    },
     {
       "number": 329,
       "title": "T128: add in-app V1 Launch Doctor",

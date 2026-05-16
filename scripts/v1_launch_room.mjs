@@ -81,10 +81,11 @@ function summarizeReleaseProof(markdown) {
   if (!markdown) return null;
   const result = markdown.match(/^Failed:\s+(.+)$/m)?.[1]?.replace(/`/g, "") || "unknown";
   const blockingStart = markdown.indexOf("## Blocking Checks");
-  const buildStart = markdown.indexOf("## Build Log");
+  const blockingRest = blockingStart === -1 ? "" : markdown.slice(blockingStart);
+  const nextSection = blockingRest.search(/\n## (Warning|Final Preflight Command Shape|Build Log|Boundary)\b/);
   const blockSection = blockingStart === -1
     ? ""
-    : markdown.slice(blockingStart, buildStart === -1 ? undefined : buildStart);
+    : blockingRest.slice(0, nextSection === -1 ? undefined : nextSection);
   const blockers = [];
   let active = null;
   for (const line of blockSection.split("\n")) {
@@ -204,7 +205,7 @@ function buildState() {
     },
     {
       action: "Clear release preflight config",
-      command: "Open docs/v1-release-preflight-proof.md",
+      command: "DEVELOPMENT_TEAM_ID=<team> BACKEND_URL=<hosted-api> APP_TOKEN=<token> scripts/appstore_preflight.sh",
       why: "Unblocks TestFlight/external review after Debug build/tests and deterministic smokes are green.",
     },
   ];

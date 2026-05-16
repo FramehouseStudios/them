@@ -92,3 +92,4 @@
 {"at":"2026-05-15T19:49:24.340Z","by":"codex","kind":"product_state","comment":"T128 adds an in-app V1 Launch Doctor and launch-room report reader; Claude remains on Phase 7b talk handler implementation while human/app smoke proof is recorded from Data Controls."}
 {"at":"2026-05-16T03:07:49.650Z","by":"codex","kind":"pr_opened","pr":329,"comment":"T128 PR opened for in-app V1 Launch Doctor; no backend contract change, Claude stays on Phase 7b talk handler."}
 {"at":"2026-05-16T03:14:19.819Z","by":"codex","kind":"pr_merged","pr":329,"comment":"T128 V1 Launch Doctor merged under D005 supervisor authority after green checks; Claude next remains Phase 7b talk handler implementation."}
+{"at":"2026-05-16T08:49:54.963Z","by":"codex","kind":"pr_opened","pr":331,"comment":"T130 release preflight clearance PR opened; preflight now fail=3 warn=1 with only Apple Team ID, hosted backend URL, and production app token remaining; Claude stays on Phase 7b talk handler."}

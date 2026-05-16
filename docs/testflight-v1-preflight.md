@@ -45,7 +45,12 @@ or macOS-exported proof is present and passed.
 
 Release settings, privacy manifest, entitlements, and macOS release build are ready for archive checks.
 Latest proof: `docs/v1-release-preflight-proof.md` currently records release
-preflight blockers.
+preflight blockers. The remaining secret/signing values should be supplied at
+runtime:
+
+```sh
+DEVELOPMENT_TEAM_ID=<apple-team-id> BACKEND_URL=<hosted-api-url> APP_TOKEN=<production-app-token> scripts/appstore_preflight.sh
+```
 
 ## Manual App Flows
 
