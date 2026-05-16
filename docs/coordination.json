@@ -1,8 +1,18 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T22:49:52.000Z",
+  "updatedAt": "2026-05-16T23:05:51.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 345,
+      "title": "T143: record core-only memory export decision",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T143-memory-export-core-decision",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Makes core-only the V1 decision for PR #94 and records the needs_scope_narrowing blocker for Claude."
+    },
     {
       "number": 343,
       "title": "T141: add safe local release config handoff",

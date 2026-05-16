@@ -786,6 +786,7 @@
 | T141                                   | Add safe local release config handoff                                                    | codex  | review      |
 | T142                                   | Refresh coordination after T141 merge                                                    | codex  | review      |
 | T143                                   | Record core-only memory export decision for Claude                                       | codex  | review      |
+| T144                                   | Refresh coordination after T143 merge                                                    | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3323,6 +3324,32 @@ payloads until an ownership-scoping design exists.
 - `node scripts/agent_event.mjs append --by=codex --kind=review_blocker --pr=94 --blocker-kind=needs_scope_narrowing ...` recorded the blocker.
 - `node scripts/coordination_state.mjs validate` passed.
 - `node scripts/agent_next.mjs --role=claude --limit=5` shows PR #94 as the top Claude action.
+- `git diff --check` passed.
+
+### T144 — Refresh coordination after T143 merge
+- **Owner:** codex
+- **Branch:** codex/T144-refresh-after-t143
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Refresh coordination after PR #345 merged so agent prompts know that the
+core-only memory export decision is now canonical on `main`.
+
+## Done When
+
+- `docs/coordination.json` marks PR #345 merged.
+- `docs/codex-claude-live-handoff.md` marks T143 merged.
+- Claude's next action remains narrowing PR #94 to the V1 core-only memory
+  export contract.
+- Coordination validation passes.
+
+## Verification
+
+- `gh pr view 345 --json state,mergedAt,headRefName,url` confirmed PR #345 merged.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows PR #94 core-only narrowing as the top Claude action.
 - `git diff --check` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
