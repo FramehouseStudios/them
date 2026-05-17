@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-17T04:55:41Z",
+  "updatedAt": "2026-05-17T18:14:07Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -8,10 +8,10 @@
       "title": "T150: take over Phase 7c talk supplier glue",
       "owner": "codex",
       "tier": 2,
-      "status": "review",
+      "status": "merged",
       "branch": "codex/T150-phase7c-takeover",
       "blocker": null,
-      "reviewer_note": "Codex took over the unclaimed Phase 7c lane. Local verification passed: strict pre-flight, talk tests 127/127, backend npm test 1194 pass / 1 skipped / 0 fail on rerun, task-frontmatter strict eval, and diff check. Waiting on GitHub evaluate before D005 merge."
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Codex took over the unclaimed Phase 7c lane. Local verification passed: strict pre-flight, talk tests 127/127, backend npm test 1194 pass / 1 skipped / 0 fail on rerun, task-frontmatter strict eval, and diff check."
     },
     {
       "number": 94,

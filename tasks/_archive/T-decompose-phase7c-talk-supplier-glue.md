@@ -2,7 +2,7 @@
 id: T-decompose-phase7c-talk-supplier-glue
 title: Decompose backend talk supplier glue
 owner: codex
-status: review
+status: merged
 branch: codex/T150-phase7c-takeover
 pillar: infra
 v1_pillar: talk
