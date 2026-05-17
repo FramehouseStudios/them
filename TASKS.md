@@ -791,6 +791,7 @@
 | T146                                   | Run V1 launch smoke and release preflight pass                                           | codex  | review      |
 | T147                                   | Refresh Claude handoff after Phase 7c design merge                                      | codex  | review      |
 | T148                                   | Add safe release config status command                                                   | codex  | review      |
+| T149                                   | Add Phase 7c implementation task row for Claude                                          | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3973,5 +3974,27 @@ concrete backend failure.
 - `gh pr list --state open` shows only human-gated PR #33 remains open.
 - `docs/v1-launch-doctor.latest.json/.md` was regenerated with truthful
   blocked manual-smoke evidence.
+
+### T149 — Add Phase 7c implementation task row for Claude
+- **Owner:** codex
+- **Branch:** codex/T149-phase7c-task-row
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Add the authoritative active-task row that lets Claude start the approved
+Phase 7c talk supplier-glue implementation without waiting on another human
+copy/paste handoff.
+
+## Done When
+
+- `tasks/_active/` contains a Claude-owned Phase 7c implementation row with
+  exact branch, scope, constraints, and verification requirements.
+- `TASKS.md` is regenerated so `agent_next` and task readers agree that Phase
+  7c is ready for Claude.
+- The live handoff/inbox remains pointed at Phase 7c and does not invite
+  side quests while release secrets are human-blocked.
+- Verification commands are recorded.
 
 <!-- END AUTOGEN active-tasks -->
