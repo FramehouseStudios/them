@@ -480,6 +480,7 @@ function createChatSupplier(deps = {}) {
 
 function createTtsSupplier(deps = {}) {
   const {
+    logger = console,
     ALLOWED_TTS_VOICES,
     CLEMENTINE_PROFILE,
     ELEVENLABS_API_KEY,
@@ -747,18 +748,18 @@ function createTtsSupplier(deps = {}) {
           elevenLabsBlockedReason = "quota_exceeded";
         }
         if (TTS_PROVIDER_FALLBACK_OPENAI) {
-          console.log(
+          logger.log(
             `[${rid}] tts_provider_fallback from=elevenlabs to=openai reason=${String(err?.message || err)}`
           );
           if (isPlanGate) {
             const remainingMs = Math.max(0, elevenLabsBlockedUntilMs - Date.now());
-            console.log(
+            logger.log(
               `[${rid}] elevenlabs_temp_block reason=plan_required until_ms=${elevenLabsBlockedUntilMs} remaining_ms=${remainingMs}`
             );
           }
           if (isQuotaGate) {
             const remainingMs = Math.max(0, elevenLabsBlockedUntilMs - Date.now());
-            console.log(
+            logger.log(
               `[${rid}] elevenlabs_temp_block reason=quota_exceeded until_ms=${elevenLabsBlockedUntilMs} remaining_ms=${remainingMs}`
             );
           }
@@ -796,7 +797,7 @@ function createTtsSupplier(deps = {}) {
       throw err;
     }
     if (process.env.NODE_ENV !== "production") {
-      console.log(
+      logger.log(
         `[${rid}] tts_segment label=${label} provider=${provider} chars=${inputText.length} bytes=${mp3Buffer.length} ms=${elapsedMs}`
       );
     }
