@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-17T21:27:02Z",
+  "updatedAt": "2026-05-17T21:45:57.765Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1647,6 +1647,15 @@
       "branch": "claude/T-decompose-phase7c-design",
       "blocker": null,
       "reviewer_note": "Merged by Codex after review. Design note only; approves the 3-factory Phase 7c implementation shape but does not pre-approve the implementation merge."
+    },
+    {
+      "number": 358,
+      "title": "Phase 6.1a: extract /outbox/*, /state, /data/* routes",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase6-1a-outbox-data-state",
+      "blocker": null
     }
   ],
   "blockers": [
