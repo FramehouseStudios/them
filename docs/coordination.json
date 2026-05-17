@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-17T21:45:57.765Z",
+  "updatedAt": "2026-05-17T22:08:43.272Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -426,18 +426,6 @@
       "blocker_kind": "policy_gated",
       "reviewer_note": "Codex closed PR #63 as stale policy after confirming D005/D006 already record the current supervisor authority.",
       "expected_action": "Do not reopen or merge stale trust-tier policy unless the human asks for a fresh policy change."
-    },
-    {
-      "number": 33,
-      "title": "T07 eval gate",
-      "owner": "claude",
-      "tier": 3,
-      "status": "blocked",
-      "branch": "claude/T07-eval-gate-postgres",
-      "blocker": "eval gate quality regression after OPENAI_API_KEY secret replacement",
-      "blocker_kind": "needs_test_fix",
-      "reviewer_note": "Codex reran eval:gate against Postgres after the human replaced the repository Actions OPENAI_API_KEY secret. The job now sees OPENAI_API_KEY masked, so credentials are cleared. The remaining failure is real eval quality: knowledge_art_history 0.674 < 0.700, knowledge_philosophy 0.641 < 0.700, knowledge_learning_science 0.582 < 0.700, and playful_banter_humor 0.628 < 0.720.",
-      "expected_action": "Claude fixes the failing eval behavior without weakening thresholds or bypassing the gate, then reruns eval:gate against Postgres."
     },
     {
       "number": 133,
@@ -1659,12 +1647,6 @@
     }
   ],
   "blockers": [
-    {
-      "id": "eval-gate-quality-regression",
-      "owner": "claude",
-      "summary": "PR #33 now has credentials but fails eval:gate quality cases: knowledge_art_history, knowledge_philosophy, knowledge_learning_science, and playful_banter_humor.",
-      "since": "2026-05-17"
-    },
     {
       "id": "v1-release-preflight-config",
       "owner": "human",

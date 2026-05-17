@@ -13,11 +13,10 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
 
 Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
 and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c
-talk supplier-glue extraction is merged in PR #354 after Codex took over the
-unclaimed lane. Do not open a competing Claude Phase 7c branch.
-PR #33 is no longer blocked on the GitHub Actions `OPENAI_API_KEY` secret:
-Codex reran the gate after the human replaced the secret, and the job now sees
-the key masked. PR #33 is now a Claude-owned eval-quality repair.
+talk supplier-glue extraction is merged in PR #354. Phase 6.1a is merged in
+PR #358. PR #33 is merged; GitHub `evaluate` and `eval:gate against Postgres`
+passed on 2026-05-17 after Codex fixed fragile eval response guards and the
+speculative reuse header path.
 The launch lane is still blocked by real release configuration:
 no `them/Release.local.env` exists in the current worktree, the environment
 lacks `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`,
@@ -34,11 +33,10 @@ passes when local loopback binding is allowed.
    node scripts/agent_event.mjs tail --n=20
    ```
 
-2. Treat this inbox and `agent_next` as the first screen. Your next action is
-   PR #33 eval-quality repair if it is still failing. After #33 is green, your
-   next backend lane is Phase 6.1a, tracked in
-   `tasks/_active/T-decompose-phase6-1a-outbox-data-state.md`, unless Codex
-   posts a concrete V1 manual-smoke failure first.
+2. Treat this inbox and `agent_next` as the first screen. There is no open
+   Claude PR and no Claude-owned blocker. Do not open net-new backend work
+   unless Codex posts a concrete V1 manual-smoke failure or assigns a focused
+   support task.
 3. Do not open coordination-refresh PRs. Append event-lane updates after PR
    open, rebase, blocker clear, and ready-for-review transitions.
 4. Every PR description must include:
@@ -48,11 +46,8 @@ passes when local loopback binding is allowed.
    V1 effect: closes <docs/v1-definition.md checklist item> | unblocks <item> | infrastructure for <item>
    ```
 
-5. PR #33 is tier-3 for merge/release significance, but it is not human-secret
-   blocked anymore. Fix the failing eval behavior without weakening thresholds
-   or bypassing the gate. PR #212 and PR #94 are merged; PR #99 memory delete
-   is out of V1 and must not be reopened unless Codex assigns a post-V1
-   deletion task.
+5. PR #33, PR #212, and PR #94 are merged. PR #99 memory delete is out of V1
+   and must not be reopened unless Codex assigns a post-V1 deletion task.
 6. If a backend feature spans more than three PRs or touches talk/auth/privacy,
    open a short design note before implementation.
 7. The schema-doc-only train through PR #286 is complete. Do not open more
@@ -76,11 +71,9 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Fix PR #33 eval-quality failures | The OpenAI secret is fixed; V1 release confidence still needs the Postgres eval gate green. | Branch `claude/T07-eval-gate-postgres`; fix `knowledge_art_history`, `knowledge_philosophy`, `knowledge_learning_science`, and `playful_banter_humor` behavior without weakening thresholds; rerun eval:gate against Postgres and append a `blocker_cleared` event when green. |
-| 2 | Implement Phase 6.1a long-tail route extraction | Phase 7c landed, and the next safe backend lane is the accepted 6.1a group. This keeps backend index decomposition moving without touching release/auth/privacy after #33 is green. | Branch `claude/T-decompose-phase6-1a-outbox-data-state`; extract `/outbox/*`, `/data/*`, and `/state` into `backend/lib/outbox_routes.js`, `backend/lib/data_routes.js`, and `backend/lib/state_route.js`; preserve behavior byte-identically; add focused bare-Express tests; run strict pre-flight, focused tests, backend `npm test`, and `git diff --check`. |
-| 3 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but there is no concrete backend failure yet. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
-| 4 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
-| 5 | Keep Phase 7c closed | Phase 7c is merged through PR #354. | Do not reopen or duplicate `claude/T-decompose-phase7c-talk-supplier-glue`. |
+| 1 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but there is no concrete backend failure yet. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
+| 2 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
+| 3 | Keep merged lanes closed | PR #33, PR #354, and PR #358 are merged. | Do not reopen or duplicate the eval-gate, Phase 7c, or Phase 6.1a branches. |
 
 ## Decomposition Rules
 

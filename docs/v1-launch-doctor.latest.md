@@ -11,9 +11,9 @@
 - Status: not_started
 - Goal: Record voice, receive a useful companion reply, hear playback, and keep the turn.
 - Pass criteria: Voice -> reply -> playback -> saved turn works without a restart or manual repair.
-- Evidence: 2026-05-17 T152 rerun: deterministic/local talk evidence remains valid, but real app voice smoke is still blocked by missing them/Release.local.env and absent release Development Team, BACKEND_URL, and APP_TOKEN. GitHub OPENAI_API_KEY is fixed; PR #33 now fails eval-quality cases, not credentials.
+- Evidence: 2026-05-17: deterministic/local talk evidence remains valid, and PR #33 is merged after GitHub `evaluate` plus `eval:gate against Postgres` passed. Real app voice smoke is still blocked by missing them/Release.local.env and absent release Development Team, BACKEND_URL, and APP_TOKEN.
 
-Blocked: real app voice smoke needs release config plus a human/device run. Claude owns the PR #33 eval-quality repair separately.
+Blocked: real app voice smoke needs release config plus a human/device run.
 
 ## Screenplay Studio
 

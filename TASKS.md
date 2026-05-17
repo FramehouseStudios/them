@@ -20,7 +20,7 @@
 | T05  | Add `first_page_written` client telemetry event    | codex  | merged            |
 | T07  | Promote backend persistence to Postgres canonical  | claude | merged            |
 | T07a | Wire `outbox_store` diagnostic snapshots           | claude | merged            |
-| T07-eval-gate | Verify eval gate against Postgres          | claude | in-progress       |
+| T07-eval-gate | Verify eval gate against Postgres          | claude | merged            |
 | T07-cutover | Drop dual-write JSON paths after Postgres soak | claude | blocked-T07-eval |
 | T08  | Centralize prompt assembly + first memory tier (backend) | claude | merged            |
 | T08w-triggers | Fire creative-memory write triggers from `/talk` | claude | merged            |
@@ -157,7 +157,7 @@
 
 ## Current next-10 checklist (2026-05-13 after round-17 merge train)
 
-1. Current: PR #33 is no longer blocked on the GitHub Actions `OPENAI_API_KEY` secret; Claude must fix the remaining eval-quality failures without weakening thresholds.
+1. Current: PR #33 is merged; the Postgres eval gate passed in GitHub Actions on 2026-05-17.
 2. Historical: PR #63 was closed instead of shipping trust-policy changes beyond D005.
 3. Historical: PR #94 merged as V1 core-only memory export after the unsafe project-scoped expansion was removed.
 4. Historical: PR #99 was closed/out of V1; destructive memory delete needs a post-V1 product decision.

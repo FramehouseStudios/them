@@ -228,9 +228,9 @@ GitHub PR comment on that Claude PR with the relevant status.
 
 | Claude item | Current Codex note |
 | --- | --- |
-| PR #33, T07 eval gate | Open and red for the expected human-owned blocker: repository Actions secret `OPENAI_API_KEY` is malformed or not the literal OpenAI key value. Do not weaken eval gates. |
-| T07-cutover | Remains blocked until PR #33 is truly green against Postgres. |
-| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. As of T146, the only open human-gated PR is #33. PR #99 is closed/out of V1 and must not be treated as a launch blocker. |
+| PR #33, T07 eval gate | Merged on 2026-05-17. GitHub `evaluate` and `eval:gate against Postgres` passed after fragile eval guards and speculative reuse header handling were fixed. |
+| T07-cutover | No longer blocked by PR #33, but still requires the planned Postgres soak/promotion decision before removing legacy JSON write paths. |
+| Blocked Claude PRs | Use `docs/coordination.json` for the current blocked/open PR list. As of 2026-05-17, there are no open PRs and no Claude-owned blockers. PR #99 is closed/out of V1 and must not be treated as a launch blocker. |
 
 ## Completed Codex Context
 

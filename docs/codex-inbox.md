@@ -22,8 +22,8 @@ node scripts/coordination_state.mjs read
 
 Codex supervisor note, 2026-05-17: for current launch state, prefer
 `docs/coordination.json`, `docs/claude-inbox.md`, and
-`docs/codex-claude-live-handoff.md`. The remaining open PR list is only #33;
-PR #99 is closed/out of V1 and PR #94/#212 are merged.
+`docs/codex-claude-live-handoff.md`. There are no open PRs after #33 and #358
+merged; PR #99 is closed/out of V1 and PR #94/#212 are merged.
 
 Throughput rules live in `docs/agent-throughput-protocol.md`. Routine green
 tier-1 PRs should be reviewed as a merge train, then reflected with one
