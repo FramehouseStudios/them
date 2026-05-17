@@ -2,7 +2,7 @@
 id: T147
 title: Refresh Claude handoff after Phase 7c design merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T147-phase7c-handoff-refresh
 pillar: infra
 v1_pillar: talk
@@ -26,4 +26,8 @@ from backend decomposition work.
 
 ## Verification
 
-- Pending.
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+  routes Claude to Phase 7c implementation.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.

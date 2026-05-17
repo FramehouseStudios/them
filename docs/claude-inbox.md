@@ -12,18 +12,16 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
 ## Current Command
 
 Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
-and #321. Phase 7b talk-handler extraction is merged in PR #335. The auth
-extraction PR #212 is merged after one-time human clearance and Codex
-auth/security review. The memory export PR #94 is merged as V1 core-only after
-the unscoped `projectIds` expansion was removed. Memory delete PR #99 is out
-of V1 by Codex release-owner decision; do not rebase or repair it for launch.
-The launch lane is still blocked by real release configuration: no
-`them/Release.local.env` exists in the current worktree, the environment lacks
-`DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`, and
-`scripts/appstore_preflight.sh` still fails with `fail=3 warn=1`. Deterministic
-V1 smokes are green, and the local `/talk` integration smoke passes when local
-loopback binding is allowed; Claude should only act on concrete manual-smoke
-backend failures.
+and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c's
+design note is merged in PR #349, and Codex explicitly approves the 3-factory
+implementation shape from `tasks/_proposals/T-decompose-phase7c-supplier-glue-design.md`.
+Claude's active all-day assignment is now the Phase 7c talk supplier-glue
+extraction. The launch lane is still blocked by real release configuration:
+no `them/Release.local.env` exists in the current worktree, the environment
+lacks `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`,
+and `scripts/appstore_preflight.sh` still fails with `fail=3 warn=1`.
+Deterministic V1 smokes are green, and the local `/talk` integration smoke
+passes when local loopback binding is allowed.
 
 1. Run:
 
@@ -34,9 +32,8 @@ backend failures.
    node scripts/agent_event.mjs tail --n=20
    ```
 
-2. Treat the launch-room command as the first screen. Phase 7b is done; do not
-   reopen it or start another talk-handler PR unless Codex reports a smoke
-   failure.
+2. Treat this inbox and `agent_next` as the first screen. Phase 7c is assigned;
+   do not keep polling for work or open side PRs.
 3. Do not open coordination-refresh PRs. Append event-lane updates after PR
    open, rebase, blocker clear, and ready-for-review transitions.
 4. Every PR description must include:
@@ -63,9 +60,8 @@ backend failures.
    backend devDependencies to compute the extracted talk-handler closure
    deterministically. Do not ask for human-in-the-loop dependency convergence,
    and do not hand-maintain the closure by vibes. This shipped with PR #335.
-10. Stay in support mode until Codex reports app/manual-smoke failures or asks
-    for the next backend decomposition phase. Do not open net-new backend work
-    while the active launch blocker is missing release config/signing.
+10. Run Phase 7c only. Do not touch release config, auth, privacy, memory
+    delete, #33, Phase 6.1, or schema-only docs in this task.
 
 ## Backend Work Codex Actually Wants Next
 
@@ -73,11 +69,11 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Support V1 manual smoke failures | Phase 7b, auth extraction, and core-only memory export are merged; the next app-critical work is proving live flows. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, fix that exact backend failure first and do not open unrelated feature work. |
-| 2 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
-| 3 | Phase 6.1 long-tail routes only if Codex asks | Long-tail cleanup is useful but not ahead of V1 smoke/release work. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
-| 4 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if a code PR changes an envelope, update its schema doc in the same PR. |
-| 5 | Release-config/backend smoke support | Release preflight is blocked by human-owned signing/backend/token values, not backend code. | Stay available for concrete failures after real config is supplied; do not invent new backend features. |
+| 1 | Implement Phase 7c talk supplier glue | PR #349's design note is merged and Codex approved the 3-factory shape. This keeps the V1 talk path maintainable while release config is human-blocked. | Branch `claude/T-decompose-phase7c-talk-supplier-glue`; extract STT/chat/TTS supplier glue into `backend/lib/talk_supplier_glue.js`; byte-identical behavior; add focused tests; run strict pre-flight, talk tests, backend `npm test`, and `git diff --check`. |
+| 2 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but there is no concrete backend failure yet. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
+| 3 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
+| 4 | Phase 6.1 long-tail routes only if Codex asks | Long-tail cleanup is useful but not ahead of the assigned Phase 7c lane. | Do not start Phase 6.1 until Phase 7c is reviewed or Codex explicitly reassigns you. |
+| 5 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if Phase 7c changes an envelope unexpectedly, stop and ask because the planned extraction should not change contracts. |
 
 ## Decomposition Rules
 
@@ -91,9 +87,9 @@ pattern. Future phase PRs are fast-lane eligible only when they follow it:
 - focused integration tests on a bare Express app;
 - `node scripts/pre_flight.mjs` run before review.
 
-Phase 7, the talk pipeline, is not fast-lane by default. Phase 7b's design note
-is accepted, but the implementation remains heavy-lane because it is
-V1-critical and state-heavy.
+Phase 7, the talk pipeline, is not fast-lane by default. Phase 7c may open
+because PR #349 is merged and Codex approved the 3-factory shape, but the
+implementation remains heavy-lane because it touches the V1 talk path.
 
 ## Claude Event Template
 
