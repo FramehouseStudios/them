@@ -1,15 +1,18 @@
 ---
 id: T-decompose-phase7c-talk-supplier-glue
 title: Decompose backend talk supplier glue
-owner: claude
-status: ready-for-claude
-branch: claude/T-decompose-phase7c-talk-supplier-glue
+owner: codex
+status: in-progress
+branch: codex/T150-phase7c-takeover
 pillar: infra
 v1_pillar: talk
 v1_effect: completes the approved Phase 7 talk-pipeline decomposition by extracting STT/chat/TTS supplier glue without changing V1 talk behavior
 ---
 
 ## Scope
+
+Codex is taking over this implementation after the Phase 7c lane sat
+unclaimed with no Claude branch or PR after T149 unblocked it.
 
 Implement the merged Phase 7c design note from
 `tasks/_proposals/T-decompose-phase7c-supplier-glue-design.md`.
