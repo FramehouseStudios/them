@@ -100,6 +100,13 @@ function summarizeReleaseProof(markdown) {
   return { result, blockers };
 }
 
+function isHumanActionGated(pr) {
+  if (pr.status === "needs-human" || pr.status === "policy-gated") return true;
+  if (/human/i.test(pr.blocker || "")) return true;
+  if (pr.tier !== 3) return false;
+  return !["needs_test_fix", "needs_rebase", "needs_scope_narrowing"].includes(pr.blocker_kind || "");
+}
+
 function readReleaseLocalConfigStatus() {
   try {
     return JSON.parse(runNodeScript("scripts/release_config_status.mjs", ["--json"]));
@@ -188,7 +195,7 @@ function buildState() {
     .filter((pr) => pr.tier !== 3 && !pr.blocker);
   const humanGated = coordination.openPullRequests
     .filter((pr) => !["closed", "merged"].includes(pr.status))
-    .filter((pr) => pr.tier === 3 || pr.status === "needs-human" || /human/i.test(pr.blocker || ""));
+    .filter(isHumanActionGated);
   const claudeNext = claudeBacklog[0] || {
     request: "Wait for Codex assignment",
     why: "No backend queue row found.",

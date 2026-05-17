@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-17T18:14:07Z",
+  "updatedAt": "2026-05-17T21:27:02Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -434,7 +434,10 @@
       "tier": 3,
       "status": "blocked",
       "branch": "claude/T07-eval-gate-postgres",
-      "blocker": "human: replace malformed OPENAI_API_KEY Actions secret"
+      "blocker": "eval gate quality regression after OPENAI_API_KEY secret replacement",
+      "blocker_kind": "needs_test_fix",
+      "reviewer_note": "Codex reran eval:gate against Postgres after the human replaced the repository Actions OPENAI_API_KEY secret. The job now sees OPENAI_API_KEY masked, so credentials are cleared. The remaining failure is real eval quality: knowledge_art_history 0.674 < 0.700, knowledge_philosophy 0.641 < 0.700, knowledge_learning_science 0.582 < 0.700, and playful_banter_humor 0.628 < 0.720.",
+      "expected_action": "Claude fixes the failing eval behavior without weakening thresholds or bypassing the gate, then reruns eval:gate against Postgres."
     },
     {
       "number": 133,
@@ -1648,10 +1651,10 @@
   ],
   "blockers": [
     {
-      "id": "openai-api-key-secret",
-      "owner": "human",
-      "summary": "Repository Actions secret OPENAI_API_KEY is malformed. Replace with the literal OpenAI key. Blocks PR #33.",
-      "since": "2026-05-10"
+      "id": "eval-gate-quality-regression",
+      "owner": "claude",
+      "summary": "PR #33 now has credentials but fails eval:gate quality cases: knowledge_art_history, knowledge_philosophy, knowledge_learning_science, and playful_banter_humor.",
+      "since": "2026-05-17"
     },
     {
       "id": "v1-release-preflight-config",
@@ -1660,13 +1663,6 @@
       "since": "2026-05-15"
     }
   ],
-  "decisionsPending": [
-    {
-      "id": "v1-release-preflight-clearance",
-      "question": "May the release signing/configuration values listed in docs/v1-release-preflight-proof.md be set now, including Development Team, Hardened Runtime, Release BACKEND_URL, Release APP_TOKEN, and microphone usage build setting?",
-      "ownerNeeds": "human",
-      "since": "2026-05-15"
-    }
-  ],
+  "decisionsPending": [],
   "endpointsAwaitingIosConsumer": []
 }

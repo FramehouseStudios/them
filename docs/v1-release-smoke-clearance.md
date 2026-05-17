@@ -4,6 +4,12 @@ This is the T139 launch-blocker evidence packet. It records what Codex could
 truthfully clear locally and what remains blocked by missing release inputs or
 manual human smoke proof.
 
+T152 refresh, 2026-05-17 14:31 America/Los_Angeles: Codex reran the release
+config/preflight path after the GitHub Actions `OPENAI_API_KEY` secret was
+fixed. The OpenAI secret is no longer a human blocker for PR #33; PR #33 is now
+a Claude-owned eval-quality repair. The release/manual-smoke blockers below
+remain unchanged because no local Release config or signing identity exists.
+
 ## Status
 
 - Automated app build/tests: passed.
@@ -11,7 +17,7 @@ manual human smoke proof.
   `docs/v1-launch-doctor.latest.md`.
 - Launch Doctor result: `not_started`, 0/4 flows passed, because the real V1
   manual app smoke has not been performed.
-- Release preflight: failed with `fail=3 warn=1`.
+- Release preflight: still failed with `fail=3 warn=1`.
 - Signed Release preflight with real secrets: not run, because the real values
   are not present and this machine has no valid code signing identities.
 
@@ -98,9 +104,8 @@ cd backend
 npm run v1:status
 ```
 
-Result: 19/25 V1 checklist items complete. Remaining items are the manual Talk,
-Screenplay, Memory, Realtime, and final iOS release signoff checks, plus the
-human privacy decision for full memory export/delete.
+Result: 20/25 V1 checklist items complete. Remaining items are the manual Talk,
+Screenplay, Memory, Realtime, and final iOS release signoff checks.
 
 ```sh
 node scripts/v1_launch_doctor_report.mjs --talk=not-started --studio=not-started --memory=not-started --realtime=not-started --write-docs
@@ -108,6 +113,15 @@ node scripts/v1_launch_doctor_report.mjs --talk=not-started --studio=not-started
 
 Result: wrote `docs/v1-launch-doctor.latest.json` and
 `docs/v1-launch-doctor.latest.md` with explicit blocker notes.
+
+T152 reran the same report path with updated notes:
+
+```sh
+node scripts/v1_launch_doctor_report.mjs --talk=not-started --studio=not-started --memory=not-started --realtime=not-started --write-docs
+```
+
+Result: refreshed `docs/v1-launch-doctor.latest.json` and
+`docs/v1-launch-doctor.latest.md` at `2026-05-17T21:31:39.959Z`.
 
 ## Manual V1 Smoke
 
@@ -140,7 +154,7 @@ Apple signing setup, and an actual app run through:
 
 ## Claude Direction
 
-Claude should stay in V1 smoke-failure support mode. Do not open net-new
-backend work. If Codex or the human posts a concrete Talk, Studio, Memory, or
-Realtime smoke failure from the Launch Doctor/manual app run, fix that exact
-backend failure first and append an event-lane update.
+Claude should fix PR #33's eval-quality failures first because the credential
+blocker is cleared and the gate still fails. After #33 is green, Claude should
+move to Phase 6.1a unless Codex or the human posts a concrete Talk, Studio,
+Memory, or Realtime smoke failure from the Launch Doctor/manual app run.

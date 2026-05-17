@@ -59,6 +59,33 @@ function humanGatedOnlyFixturePath() {
   return file;
 }
 
+function tier3RepairFixturePath() {
+  const dir = mkdtempSync(path.join(tmpdir(), "agent-next-tier3-repair-"));
+  const file = path.join(dir, "coordination.json");
+  writeFileSync(file, JSON.stringify({
+    schemaVersion: 1,
+    updatedAt: "2026-05-17T21:27:02.000Z",
+    updatedBy: "test",
+    openPullRequests: [
+      {
+        number: 33,
+        title: "T07 eval gate",
+        owner: "claude",
+        tier: 3,
+        status: "blocked",
+        branch: "claude/T07-eval-gate-postgres",
+        blocker: "eval gate quality regression after OPENAI_API_KEY secret replacement",
+        blocker_kind: "needs_test_fix",
+        expected_action: "Fix the failing eval behavior without weakening thresholds.",
+      },
+    ],
+    blockers: [],
+    decisionsPending: [],
+    endpointsAwaitingIosConsumer: [],
+  }, null, 2));
+  return file;
+}
+
 function claudeInboxPath() {
   const dir = mkdtempSync(path.join(tmpdir(), "agent-next-inbox-"));
   const file = path.join(dir, "claude-inbox.md");
@@ -196,6 +223,24 @@ test("[agent-next] human-gated PRs do not consume Claude WIP and inbox backlog b
   assert.match(r.stdout, /Phase 5b\.4 realtime call extraction/);
   assert.match(r.stdout, /Expected: Extract POST \/realtime\/call with byte-identical behavior and tests\./);
   assert.doesNotMatch(r.stdout, /Claude should clear existing blockers/);
+});
+
+test("[agent-next] tier-3 engineering repair blockers stay actionable for Claude", () => {
+  const r = spawnSync("node", [
+    script,
+    "--role=claude",
+    "--limit=2",
+    "--no-events",
+    `--state=${tier3RepairFixturePath()}`,
+    `--claude-inbox=${claudeInboxPath()}`,
+  ], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Active PRs: claude 1, codex 0, human 0/);
+  assert.match(r.stdout, /Claude should clear existing blockers/);
+  assert.match(r.stdout, /Claude Next 1/);
+  assert.match(r.stdout, /#33 T07 eval gate/);
+  assert.doesNotMatch(r.stdout, /Human-Gated/);
+  assert.doesNotMatch(r.stdout, /Phase 5b\.4 realtime call extraction/);
 });
 
 test("[agent-next] warns when the checkout is behind origin/main", () => {
