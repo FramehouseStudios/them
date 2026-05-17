@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-17T01:51:44.517Z",
+  "updatedAt": "2026-05-17T03:47:30.591Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -1624,6 +1624,16 @@
       "branch": "codex/T137-post-phase7b-v1-smoke-proof",
       "blocker": null,
       "reviewer_note": "Merged under D005 after deterministic V1 smoke pack passed on current main-derived branch; updates docs/v1-deterministic-smoke-proof.md."
+    },
+    {
+      "number": 349,
+      "title": "Phase 7c design note — talk supplier glue",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase7c-design",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex after review. Design note only; approves the 3-factory Phase 7c implementation shape but does not pre-approve the implementation merge."
     }
   ],
   "blockers": [
