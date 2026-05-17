@@ -26,11 +26,17 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = path.join(HERE, "..", "lib", "talk_handler.js");
 
 // talk_handler.js legitimately declares these at its OWN module scope
-// (two Node stdlib imports + the REQUIRED_DEPS constant). The analyzer
-// scopes a function in isolation (not the module), so these read as
-// "free" in createTalkHandler — that is expected and allowed. Anything
-// ELSE that reads free is a dependency missing from the destructure.
-const ALLOWED_MODULE_BINDINGS = new Set(["File", "randomUUID", "REQUIRED_DEPS"]);
+// (Node stdlib/imported supplier factories + the REQUIRED_DEPS constant).
+// The analyzer scopes a function in isolation (not the module), so these read
+// as "free" in createTalkHandler — that is expected and allowed. Anything ELSE
+// that reads free is a dependency missing from the destructure.
+const ALLOWED_MODULE_BINDINGS = new Set([
+  "randomUUID",
+  "REQUIRED_DEPS",
+  "createChatSupplier",
+  "createSttSupplier",
+  "createTtsSupplier",
+]);
 
 test("[phase7b] createTalkHandler dependency boundary is complete", () => {
   const src = fs.readFileSync(LIB, "utf8");

@@ -744,7 +744,7 @@
 | T-decompose-phase5a-realtime-reads     | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | claude | review      |
 | T-decompose-phase5b4-realtime-call     | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                 | claude | review      |
 | T-decompose-phase6-memories            | Decompose backend/index.js — Phase 6 (/memories/* cluster)                               | claude | review      |
-| T-decompose-phase7c-talk-supplier-glue | Decompose backend talk supplier glue                                                     | claude | ready-for-claude |
+| T-decompose-phase7c-talk-supplier-glue | Decompose backend talk supplier glue                                                     | codex  | review      |
 | T-deeper-lib-tests-batch-2             | Deeper tests for persona + utils + screenplay_store + outbox_store                       | claude | review      |
 | T-deeper-lib-tests-batch-3             | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats           | claude | review      |
 | T-deeper-lib-tests-batch               | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | claude | review      |
@@ -1410,12 +1410,15 @@ Per spec (max 1 decomp PR in flight), Phase 7a code does NOT
 open until Phase 6 merges.
 
 ### T-decompose-phase7c-talk-supplier-glue — Decompose backend talk supplier glue
-- **Owner:** claude
-- **Branch:** claude/T-decompose-phase7c-talk-supplier-glue
+- **Owner:** codex
+- **Branch:** codex/T150-phase7c-takeover
 - **Pillar:** infra
-- **Status:** ready-for-claude
+- **Status:** review
 
 ## Scope
+
+Codex is taking over this implementation after the Phase 7c lane sat
+unclaimed with no Claude branch or PR after T149 unblocked it.
 
 Implement the merged Phase 7c design note from
 `tasks/_proposals/T-decompose-phase7c-supplier-glue-design.md`.

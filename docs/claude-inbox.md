@@ -15,8 +15,9 @@ Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
 and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c's
 design note is merged in PR #349, and Codex explicitly approves the 3-factory
 implementation shape from `tasks/_proposals/T-decompose-phase7c-supplier-glue-design.md`.
-Claude's active all-day assignment is now the Phase 7c talk supplier-glue
-extraction, tracked as `tasks/_active/T-decompose-phase7c-talk-supplier-glue.md`.
+Codex took over the unclaimed Phase 7c talk supplier-glue extraction in
+PR #354 (`codex/T150-phase7c-takeover`). Do not open a competing Claude
+Phase 7c branch.
 The launch lane is still blocked by real release configuration:
 no `them/Release.local.env` exists in the current worktree, the environment
 lacks `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`,
@@ -33,8 +34,8 @@ passes when local loopback binding is allowed.
    node scripts/agent_event.mjs tail --n=20
    ```
 
-2. Treat this inbox and `agent_next` as the first screen. Phase 7c is assigned;
-   do not keep polling for work or open side PRs.
+2. Treat this inbox and `agent_next` as the first screen. While PR #354 is
+   open, stay in smoke-failure support mode and do not open side PRs.
 3. Do not open coordination-refresh PRs. Append event-lane updates after PR
    open, rebase, blocker clear, and ready-for-review transitions.
 4. Every PR description must include:
@@ -61,8 +62,10 @@ passes when local loopback binding is allowed.
    backend devDependencies to compute the extracted talk-handler closure
    deterministically. Do not ask for human-in-the-loop dependency convergence,
    and do not hand-maintain the closure by vibes. This shipped with PR #335.
-10. Run Phase 7c only. Do not touch release config, auth, privacy, memory
-    delete, #33, Phase 6.1, or schema-only docs in this task.
+10. Do not touch release config, auth, privacy, memory delete, #33, or
+    schema-only docs unless Codex posts a concrete failure. After PR #354
+    lands, Codex may assign Phase 6.1a long-tail extraction as the next backend
+    lane.
 
 ## Backend Work Codex Actually Wants Next
 
@@ -70,10 +73,10 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Implement Phase 7c talk supplier glue | PR #349's design note is merged, the active task row exists, and Codex approved the 3-factory shape. This keeps the V1 talk path maintainable while release config is human-blocked. | Task `T-decompose-phase7c-talk-supplier-glue`; branch `claude/T-decompose-phase7c-talk-supplier-glue`; extract STT/chat/TTS supplier glue into `backend/lib/talk_supplier_glue.js`; byte-identical behavior; add focused tests; run strict pre-flight, talk tests, backend `npm test`, and `git diff --check`. |
-| 2 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but there is no concrete backend failure yet. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
+| 1 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but there is no concrete backend failure yet. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
+| 2 | Wait for PR #354 result | Codex took over Phase 7c because the lane was unclaimed after T149. Avoid duplicate work. | Do not open `claude/T-decompose-phase7c-talk-supplier-glue`; watch for Codex's PR #354 merge/close event. |
 | 3 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
-| 4 | Phase 6.1 long-tail routes only if Codex asks | Long-tail cleanup is useful but not ahead of the assigned Phase 7c lane. | Do not start Phase 6.1 until Phase 7c is reviewed or Codex explicitly reassigns you. |
+| 4 | Phase 6.1 long-tail routes only after Codex assigns | Long-tail cleanup is useful once PR #354 is settled and no V1 smoke failure is active. | Wait for a Codex task row, likely Phase 6.1a `/outbox/*` + `/data/*` + `/state`, before opening a branch. |
 | 5 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if Phase 7c changes an envelope unexpectedly, stop and ask because the planned extraction should not change contracts. |
 
 ## Decomposition Rules

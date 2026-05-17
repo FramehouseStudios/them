@@ -1,8 +1,18 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-17T03:47:30.591Z",
+  "updatedAt": "2026-05-17T04:55:41Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 354,
+      "title": "T150: take over Phase 7c talk supplier glue",
+      "owner": "codex",
+      "tier": 2,
+      "status": "review",
+      "branch": "codex/T150-phase7c-takeover",
+      "blocker": null,
+      "reviewer_note": "Codex took over the unclaimed Phase 7c lane. Local verification passed: strict pre-flight, talk tests 127/127, backend npm test 1194 pass / 1 skipped / 0 fail on rerun, task-frontmatter strict eval, and diff check. Waiting on GitHub evaluate before D005 merge."
+    },
     {
       "number": 94,
       "title": "T-creative-memory-export: GET /memory/export — V1 core-only",

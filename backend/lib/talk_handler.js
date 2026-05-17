@@ -27,8 +27,12 @@
 // Factory is createTalkHandler (not mount*) per the #314 acceptance
 // amendment: it returns the handler; it does not register routes.
 
-import { File } from "node:buffer";
 import { randomUUID } from "node:crypto";
+import {
+  createChatSupplier,
+  createSttSupplier,
+  createTtsSupplier,
+} from "./talk_supplier_glue.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","setPersistedUserMemoryForIp","clientIp","commitTalkIdempotencySuccess"]);
 
@@ -320,6 +324,27 @@ function createTalkHandler(deps) {
     wrapSystemPromptWithCreativeMemory,
   } = deps;
 
+  const sttSupplier = deps.sttSupplier || createSttSupplier({
+    OPENAI_API_KEY,
+    STT_LANGUAGE,
+    STT_MODEL_PRIMARY,
+    STT_TIMEOUT_MS,
+    fetchWithTimeout,
+    isAbortError,
+  });
+  const chatSupplier = deps.chatSupplier || createChatSupplier({
+    OPENAI_API_KEY,
+    CHAT_TIMEOUT_MS,
+    fetchWithTimeout,
+    isAbortError,
+    streamChatReplyWithFirstSentence,
+  });
+  const ttsSupplier = deps.ttsSupplier || createTtsSupplier({
+    synthesizeSpeechMp3,
+    synthesizeSpeechMp3OpenAI,
+    synthesizeTalkScreenplayPageAudio,
+  });
+
   return async function handleTalkRequest(req, res) {
   logger.log(`\n==================== NEW TALK ====================`);
 
@@ -458,52 +483,12 @@ function createTalkHandler(deps) {
       sttMs = 0;
       logger.log(`[${rid}] client_transcript_override active chars=${transcript.length}`);
     } else {
-      const transcribeWithModel = async (modelName, { includeLanguage = true } = {}) => {
-        const startedAt = Date.now();
-        const sttForm = new FormData();
-        sttForm.append("model", String(modelName || STT_MODEL_PRIMARY));
-        if (includeLanguage && STT_LANGUAGE) {
-          sttForm.append("language", STT_LANGUAGE);
-        }
-
-        const file = new File([uploadedFile.buffer], uploadedFile.originalname || "recording.m4a", {
-          type: uploadedFile.mimetype || "audio/m4a",
-        });
-        sttForm.append("file", file);
-
-        let sttResp;
-        try {
-          sttResp = await fetchWithTimeout(
-            "https://api.openai.com/v1/audio/transcriptions",
-            {
-              method: "POST",
-              headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-              body: sttForm,
-            },
-            STT_TIMEOUT_MS
-          );
-        } catch (err) {
-          if (isAbortError(err)) {
-            const timeoutErr = new Error("Transcription timed out.");
-            timeoutErr.stage = "stt";
-            timeoutErr.status = 504;
-            throw timeoutErr;
-          }
-          throw err;
-        }
-
-        const rawText = await sttResp.text();
-        return {
-          model: String(modelName || STT_MODEL_PRIMARY),
-          response: sttResp,
-          rawText,
-          elapsedMs: Date.now() - startedAt,
-        };
-      };
-
       let sttResult;
       try {
-        sttResult = await transcribeWithModel(STT_MODEL_PRIMARY);
+        sttResult = await sttSupplier.transcribe({
+          uploadedFile,
+          modelName: STT_MODEL_PRIMARY,
+        });
       } catch (err) {
         const status = Number(err?.status || 500);
         const message = String(err?.message || "Transcription failed.");
@@ -545,7 +530,9 @@ function createTalkHandler(deps) {
             `[${rid}] stt_empty_retry model=${attempt.model} lang=${attempt.includeLanguage ? "on" : "off"} bytes=${Number(uploadedFile?.size || 0)}`
           );
           try {
-            const fallbackResult = await transcribeWithModel(attempt.model, {
+            const fallbackResult = await sttSupplier.transcribe({
+              uploadedFile,
+              modelName: attempt.model,
               includeLanguage: attempt.includeLanguage,
             });
             sttMs += Math.max(0, Number(fallbackResult.elapsedMs || 0));
@@ -601,7 +588,7 @@ function createTalkHandler(deps) {
           emptyTranscriptCount >= EMPTY_TRANSCRIPT_VOICE_PROMPT_STREAK;
         if (shouldSpeakEmptyPrompt) {
           try {
-            const promptTts = await synthesizeSpeechMp3({
+            const promptTts = await ttsSupplier.synthesize({
               text: CLEMENTINE_PROFILE.prompts.emptyTranscriptVoicePrompt,
               speed: CLEMENTINE_PROFILE.voice.speed,
               rid,
@@ -733,7 +720,7 @@ function createTalkHandler(deps) {
     if (shouldPromptLowConfidenceRepeat) {
       const clarificationPrompt = buildLowConfidenceClarificationPrompt(transcript);
       try {
-        const promptTts = await synthesizeSpeechMp3({
+        const promptTts = await ttsSupplier.synthesize({
           text: clarificationPrompt,
           speed: CLEMENTINE_PROFILE.voice.speed,
           rid,
@@ -2735,7 +2722,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       const seedSpeech = applyTtsLeadIn(sentence, leadIn);
       earlyTtsLeadIn = leadIn;
       earlyTtsSeedSpeech = seedSpeech;
-      earlyTtsPromise = synthesizeSpeechMp3({
+      earlyTtsPromise = ttsSupplier.synthesize({
         text: seedSpeech,
         speed: cycleUiReflection.voiceSpeed,
         rid,
@@ -2771,7 +2758,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       if (useChatStreaming) {
         try {
           const streamStart = Date.now();
-          const streamResult = await streamChatReplyWithFirstSentence({
+          const streamResult = await chatSupplier.stream({
             rid,
             system,
             shortTermContextMessages,
@@ -2795,33 +2782,26 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       }
 
       if (!rawReply) {
-        let chatResp;
+        let chatResult;
         try {
-          chatResp = await fetchWithTimeout(
-            "https://api.openai.com/v1/chat/completions",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${OPENAI_API_KEY}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-              model: chatModelPlan.model,
-              temperature: chatTemperature,
-              max_tokens: chatMaxTokens,
-              messages: chatMessages,
-              }),
-            },
-            CHAT_TIMEOUT_MS
-          );
+          chatResult = await chatSupplier.chat({
+            model: chatModelPlan.model,
+            temperature: chatTemperature,
+            maxTokens: chatMaxTokens,
+            messages: chatMessages,
+          });
         } catch (err) {
-          if (isAbortError(err)) {
-            return res.status(504).json({ stage: "chat", error: "Chat completion timed out." });
+          if (String(err?.stage || "") === "chat" && Number(err?.status || 0) === 504) {
+            return res.status(504).json({
+              stage: "chat",
+              error: String(err?.message || "Chat completion timed out."),
+            });
           }
           throw err;
         }
 
-        const chatText = await chatResp.text();
+        const chatResp = chatResult.response;
+        const chatText = chatResult.rawText;
         chatMs = Date.now() - chatStart;
 
         if (!chatResp.ok) {
@@ -3184,7 +3164,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     if (!speculativeReuseApplied) {
       if (talkScreenplayOutput?.target === "page") {
         try {
-          const screenplaySpeech = await synthesizeTalkScreenplayPageAudio({
+          const screenplaySpeech = await ttsSupplier.synthesizeScreenplayPage({
             screenplayOutput: talkScreenplayOutput,
             speed: cycleUiReflection.voiceSpeed,
             rid,
@@ -3240,7 +3220,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
 
         if (!firstTtsResult) {
           try {
-            firstTtsResult = await synthesizeSpeechMp3({
+            firstTtsResult = await ttsSupplier.synthesize({
               text: firstSpeechSegment,
               speed: cycleUiReflection.voiceSpeed,
               rid,
@@ -3263,7 +3243,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
 
         if (remainderSpeech && !streamAudioRequested) {
           try {
-            secondTtsResult = await synthesizeSpeechMp3({
+            secondTtsResult = await ttsSupplier.synthesize({
               text: remainderSpeech,
               speed: cycleUiReflection.voiceSpeed,
               rid,
@@ -3558,7 +3538,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       // Chunked streaming mode: write first sentence segment immediately, then remainder segment.
       if (remainderSpeech && !secondMp3.length) {
         try {
-          secondTtsResult = await synthesizeSpeechMp3({
+          secondTtsResult = await ttsSupplier.synthesize({
             text: remainderSpeech,
             speed: cycleUiReflection.voiceSpeed,
             rid,
@@ -3784,7 +3764,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           recoveryProvider = "fixture";
         }
         if (!recoveryAudio.length || !isLikelyMp3Buffer(recoveryAudio)) {
-          const recoveryResult = await synthesizeSpeechMp3OpenAI({
+          const recoveryResult = await ttsSupplier.synthesizeOpenAI({
             inputText: TALK_RUNTIME_RECOVERY_PROMPT_TEXT,
             speed: 1.0,
             voice: CLEMENTINE_PROFILE.voice.openaiVoice,
