@@ -16,7 +16,8 @@ and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c's
 design note is merged in PR #349, and Codex explicitly approves the 3-factory
 implementation shape from `tasks/_proposals/T-decompose-phase7c-supplier-glue-design.md`.
 Claude's active all-day assignment is now the Phase 7c talk supplier-glue
-extraction. The launch lane is still blocked by real release configuration:
+extraction, tracked as `tasks/_active/T-decompose-phase7c-talk-supplier-glue.md`.
+The launch lane is still blocked by real release configuration:
 no `them/Release.local.env` exists in the current worktree, the environment
 lacks `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`,
 and `scripts/appstore_preflight.sh` still fails with `fail=3 warn=1`.
@@ -69,7 +70,7 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Implement Phase 7c talk supplier glue | PR #349's design note is merged and Codex approved the 3-factory shape. This keeps the V1 talk path maintainable while release config is human-blocked. | Branch `claude/T-decompose-phase7c-talk-supplier-glue`; extract STT/chat/TTS supplier glue into `backend/lib/talk_supplier_glue.js`; byte-identical behavior; add focused tests; run strict pre-flight, talk tests, backend `npm test`, and `git diff --check`. |
+| 1 | Implement Phase 7c talk supplier glue | PR #349's design note is merged, the active task row exists, and Codex approved the 3-factory shape. This keeps the V1 talk path maintainable while release config is human-blocked. | Task `T-decompose-phase7c-talk-supplier-glue`; branch `claude/T-decompose-phase7c-talk-supplier-glue`; extract STT/chat/TTS supplier glue into `backend/lib/talk_supplier_glue.js`; byte-identical behavior; add focused tests; run strict pre-flight, talk tests, backend `npm test`, and `git diff --check`. |
 | 2 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but there is no concrete backend failure yet. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
 | 3 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
 | 4 | Phase 6.1 long-tail routes only if Codex asks | Long-tail cleanup is useful but not ahead of the assigned Phase 7c lane. | Do not start Phase 6.1 until Phase 7c is reviewed or Codex explicitly reassigns you. |

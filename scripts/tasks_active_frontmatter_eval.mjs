@@ -28,7 +28,18 @@ const repoRoot = path.resolve(__dirname, "..");
 const activeDir = path.join(repoRoot, "tasks/_active");
 
 const ALLOWED_OWNERS = new Set(["claude", "codex", "human"]);
-const ALLOWED_STATUSES_PREFIX = ["ready", "in-progress", "review", "merged", "blocked"];
+const ALLOWED_STATUSES_PREFIX = [
+  "ready",
+  "in-progress",
+  "review",
+  "merged",
+  "blocked",
+  "planned",
+  "open",
+  "parked",
+  "closed",
+  "draft",
+];
 
 function parseYamlFrontMatter(text) {
   if (!text.startsWith("---\n")) return null;
