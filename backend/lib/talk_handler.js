@@ -308,6 +308,7 @@ function createTalkHandler(deps) {
     storeSpeculativeTalkPrepared,
     storeTalkTurnMeta,
     streamChatReplyWithFirstSentence,
+    sttSupplier,
     stripLeadingId3Tag,
     synthesizeSpeechMp3,
     synthesizeSpeechMp3OpenAI,
@@ -458,48 +459,12 @@ function createTalkHandler(deps) {
       sttMs = 0;
       logger.log(`[${rid}] client_transcript_override active chars=${transcript.length}`);
     } else {
-      const transcribeWithModel = async (modelName, { includeLanguage = true } = {}) => {
-        const startedAt = Date.now();
-        const sttForm = new FormData();
-        sttForm.append("model", String(modelName || STT_MODEL_PRIMARY));
-        if (includeLanguage && STT_LANGUAGE) {
-          sttForm.append("language", STT_LANGUAGE);
-        }
-
-        const file = new File([uploadedFile.buffer], uploadedFile.originalname || "recording.m4a", {
-          type: uploadedFile.mimetype || "audio/m4a",
-        });
-        sttForm.append("file", file);
-
-        let sttResp;
-        try {
-          sttResp = await fetchWithTimeout(
-            "https://api.openai.com/v1/audio/transcriptions",
-            {
-              method: "POST",
-              headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-              body: sttForm,
-            },
-            STT_TIMEOUT_MS
-          );
-        } catch (err) {
-          if (isAbortError(err)) {
-            const timeoutErr = new Error("Transcription timed out.");
-            timeoutErr.stage = "stt";
-            timeoutErr.status = 504;
-            throw timeoutErr;
-          }
-          throw err;
-        }
-
-        const rawText = await sttResp.text();
-        return {
-          model: String(modelName || STT_MODEL_PRIMARY),
-          response: sttResp,
-          rawText,
-          elapsedMs: Date.now() - startedAt,
-        };
-      };
+      // Phase 7c: transcribeWithModel delegates to the extracted
+      // sttSupplier (backend/lib/talk_supplier_glue.js). Byte-identical:
+      // same call signature, same { model, response, rawText, elapsedMs }
+      // return shape; uploadedFile is the same handler-scope value.
+      const transcribeWithModel = (modelName, { includeLanguage = true } = {}) =>
+        sttSupplier.transcribe({ uploadedFile, modelName, includeLanguage });
 
       let sttResult;
       try {

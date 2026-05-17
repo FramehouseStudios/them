@@ -67,6 +67,7 @@ import { mountCreativeMemoryExportRoute } from "./lib/creative_memory_export_rou
 import { mountOpsHealthSummaryRoute } from "./lib/ops_health_summary_route.js";
 import { mountHealthRoutes } from "./lib/health_route.js";
 import { createTalkHandler } from "./lib/talk_handler.js";
+import { createSttSupplier } from "./lib/talk_supplier_glue.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
@@ -27732,6 +27733,17 @@ const clearTalkIdempotencyPending = (req, opts) =>
 const captureTalkResponseHeaders = (res) =>
   talkIdempotencyHelpers.captureResponseHeaders(res);
 
+// Phase 7c: STT supplier glue extracted to backend/lib/talk_supplier_glue.js.
+// Constructed here with the same config/deps the handler used inline; the
+// handler now delegates transcribeWithModel to sttSupplier.transcribe.
+const sttSupplier = createSttSupplier({
+  OPENAI_API_KEY,
+  STT_MODEL_PRIMARY,
+  STT_LANGUAGE,
+  STT_TIMEOUT_MS,
+  fetchWithTimeout,
+  isAbortError,
+});
 const handleTalkRequest = createTalkHandler({
   ACTIVE_PRESET_GUIDANCE,
   ACTIVE_THEME_DECAY_MULTIPLIER,
@@ -27998,6 +28010,7 @@ const handleTalkRequest = createTalkHandler({
   storeSpeculativeTalkPrepared,
   storeTalkTurnMeta,
   streamChatReplyWithFirstSentence,
+  sttSupplier,
   stripLeadingId3Tag,
   synthesizeSpeechMp3,
   synthesizeSpeechMp3OpenAI,
