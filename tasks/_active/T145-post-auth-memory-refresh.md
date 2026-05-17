@@ -2,7 +2,7 @@
 id: T145
 title: Refresh coordination after auth and memory export merges
 owner: codex
-status: in-progress
+status: review
 branch: codex/T145-post-auth-memory-refresh
 pillar: infra
 v1_pillar: memory
@@ -25,4 +25,11 @@ handoff after Codex merged PR #212 and PR #94.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows
+  Claude in V1 smoke-failure support mode with #94/#212 merged.
+- `node scripts/agent_next.mjs --role=codex --limit=10` passed.
+- `node scripts/v1_launch_room.mjs --role=claude` passed and points Claude at
+  manual-smoke failure support.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.

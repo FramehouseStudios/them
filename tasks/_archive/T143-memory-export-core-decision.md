@@ -2,7 +2,7 @@
 id: T143
 title: Record core-only memory export decision for Claude
 owner: codex
-status: review
+status: merged
 branch: codex/T143-memory-export-core-decision
 pillar: longitudinal learning
 v1_pillar: memory

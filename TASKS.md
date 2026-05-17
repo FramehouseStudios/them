@@ -784,10 +784,10 @@
 | T139                                   | Clear V1 release smoke and config gap                                                    | codex  | review      |
 | T140                                   | Refresh coordination after T139 merge                                                    | codex  | review      |
 | T141                                   | Add safe local release config handoff                                                    | codex  | review      |
-| T142                                   | Refresh coordination after T141 merge                                                    | codex  | review      |
-| T143                                   | Record core-only memory export decision for Claude                                       | codex  | review      |
-| T144                                   | Refresh coordination after T143 merge                                                    | codex  | review      |
-| T145                                   | Refresh coordination after auth and memory export merges                                 | codex  | in-progress |
+| T142                                   | Refresh coordination after T141 merge                                                    | codex  | merged      |
+| T143                                   | Record core-only memory export decision for Claude                                       | codex  | merged      |
+| T144                                   | Refresh coordination after T143 merge                                                    | codex  | merged      |
+| T145                                   | Refresh coordination after auth and memory export merges                                 | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -820,7 +820,7 @@
 - **Owner:** claude
 - **Branch:** claude/T-backfill-v1-pillar-legacy
 - **Pillar:** infra
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -869,7 +869,7 @@ rule against current main.
 - **Owner:** claude
 - **Branch:** claude/T-block-signal-history-bounds-eval
 - **Pillar:** evals (layer-3-living)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -907,7 +907,7 @@ all checks passing; `npm run eval:block-signal-history-bounds` works;
 - **Owner:** claude
 - **Branch:** claude/T-block-signal-history-route
 - **Pillar:** layer-3-living (creative-memory surfaces)
-- **Status:** review
+- **Status:** merged
 
 ## Scope
 
@@ -3357,7 +3357,7 @@ core-only memory export decision is now canonical on `main`.
 - **Owner:** codex
 - **Branch:** codex/T145-post-auth-memory-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3375,7 +3375,14 @@ handoff after Codex merged PR #212 and PR #94.
 
 ## Verification
 
-- Pending.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows
+  Claude in V1 smoke-failure support mode with #94/#212 merged.
+- `node scripts/agent_next.mjs --role=codex --limit=10` passed.
+- `node scripts/v1_launch_room.mjs --role=claude` passed and points Claude at
+  manual-smoke failure support.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
