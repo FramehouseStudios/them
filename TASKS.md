@@ -744,6 +744,7 @@
 | T-decompose-phase5a-realtime-reads     | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | claude | review      |
 | T-decompose-phase5b4-realtime-call     | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                 | claude | review      |
 | T-decompose-phase6-memories            | Decompose backend/index.js — Phase 6 (/memories/* cluster)                               | claude | review      |
+| T-decompose-phase7c-talk-supplier-glue | Decompose backend talk supplier glue                                                     | claude | ready-for-claude |
 | T-deeper-lib-tests-batch-2             | Deeper tests for persona + utils + screenplay_store + outbox_store                       | claude | review      |
 | T-deeper-lib-tests-batch-3             | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats           | claude | review      |
 | T-deeper-lib-tests-batch               | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | claude | review      |
@@ -791,7 +792,7 @@
 | T146                                   | Run V1 launch smoke and release preflight pass                                           | codex  | review      |
 | T147                                   | Refresh Claude handoff after Phase 7c design merge                                      | codex  | review      |
 | T148                                   | Add safe release config status command                                                   | codex  | review      |
-| T149                                   | Add Phase 7c implementation task row for Claude                                          | codex  | in-progress |
+| T149                                   | Add Phase 7c implementation task row for Claude                                          | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -1407,6 +1408,64 @@ Once it lands:
 
 Per spec (max 1 decomp PR in flight), Phase 7a code does NOT
 open until Phase 6 merges.
+
+### T-decompose-phase7c-talk-supplier-glue — Decompose backend talk supplier glue
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase7c-talk-supplier-glue
+- **Pillar:** infra
+- **Status:** ready-for-claude
+
+## Scope
+
+Implement the merged Phase 7c design note from
+`tasks/_proposals/T-decompose-phase7c-supplier-glue-design.md`.
+
+Extract the STT, chat, and TTS supplier-selection and supplier-call glue from
+`backend/lib/talk_handler.js` into `backend/lib/talk_supplier_glue.js`.
+
+The approved public shape is exactly three factories:
+
+- `createSttSupplier(...)`
+- `createChatSupplier(...)`
+- `createTtsSupplier(...)`
+
+`handleTalkRequest` should receive/use those suppliers without changing the
+observable `/talk` contract.
+
+## Constraints
+
+- Byte-identical behavior only.
+- No new suppliers.
+- No retry, timeout, stage-name, error-code, error-counter, payload, streaming,
+  or audio-metadata changes.
+- No route/API contract changes.
+- No module-level mutable state.
+- No setter exports.
+- Do not touch release config, auth, privacy, memory delete, PR #33, Phase 6.1,
+  or schema-only docs in this task.
+
+If implementation exposes a required contract change, stop and write the
+specific blocker instead of broadening the PR.
+
+## Done When
+
+- `backend/lib/talk_supplier_glue.js` exists and exports the three approved
+  factories.
+- `backend/lib/talk_handler.js` uses the extracted suppliers with unchanged
+  behavior.
+- Focused tests cover the supplier factories in
+  `backend/tests/talk_supplier_glue.test.mjs`.
+- Deterministic dependency-closure proof from the Phase 7b acorn/acorn-walk
+  tooling is recorded in the PR description.
+- Verification passes:
+  - `node scripts/pre_flight.mjs --strict`
+  - `node --test backend/tests/talk_*.test.mjs`
+  - `cd backend && npm test`
+  - `git diff --check`
+- PR description includes:
+  - `V1 pillar: talk`
+  - `V1 effect: infrastructure for V1 talk-pipeline maintainability`
+  - exact commands run and not run.
 
 ### T-deeper-lib-tests-batch-2 — Deeper tests for persona + utils + screenplay_store + outbox_store
 - **Owner:** claude
@@ -3979,7 +4038,7 @@ concrete backend failure.
 - **Owner:** codex
 - **Branch:** codex/T149-phase7c-task-row
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
@@ -3996,5 +4055,15 @@ copy/paste handoff.
 - The live handoff/inbox remains pointed at Phase 7c and does not invite
   side quests while release secrets are human-blocked.
 - Verification commands are recorded.
+
+## Verification
+
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events` routes
+  Claude to `T-decompose-phase7c-talk-supplier-glue` first.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node --test scripts/tasks_active_frontmatter_eval.test.mjs` passed 2/2.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
 
 <!-- END AUTOGEN active-tasks -->

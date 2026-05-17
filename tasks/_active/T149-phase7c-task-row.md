@@ -2,7 +2,7 @@
 id: T149
 title: Add Phase 7c implementation task row for Claude
 owner: codex
-status: in-progress
+status: review
 branch: codex/T149-phase7c-task-row
 pillar: infra
 v1_pillar: talk
@@ -24,3 +24,13 @@ copy/paste handoff.
 - The live handoff/inbox remains pointed at Phase 7c and does not invite
   side quests while release secrets are human-blocked.
 - Verification commands are recorded.
+
+## Verification
+
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events` routes
+  Claude to `T-decompose-phase7c-talk-supplier-glue` first.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node --test scripts/tasks_active_frontmatter_eval.test.mjs` passed 2/2.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
