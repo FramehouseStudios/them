@@ -788,6 +788,7 @@
 | T143                                   | Record core-only memory export decision for Claude                                       | codex  | merged      |
 | T144                                   | Refresh coordination after T143 merge                                                    | codex  | merged      |
 | T145                                   | Refresh coordination after auth and memory export merges                                 | codex  | review      |
+| T146                                   | Run V1 launch smoke and release preflight pass                                           | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3930,5 +3931,30 @@ structured `expected_action` for PR #212 to just `Claude`.
 `docs/coordination.json` again gives Claude the full #212 expected action:
 rebase on current main after #273, rerun backend auth tests, and keep
 `do-not-merge`/tier-3 until human auth-route clearance.
+
+### T146 — Run V1 launch smoke and release preflight pass
+- **Owner:** codex
+- **Branch:** codex/T146-v1-launch-smoke-preflight
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Run the current V1 launch room path: release config check, release preflight,
+manual-smoke/Launch Doctor evidence capture, and Claude handoff for any
+concrete backend failure.
+
+## Done When
+
+- The release local config state is audited.
+- `scripts/run_release_preflight.sh` has been run or is blocked with exact
+  evidence.
+- Launch Doctor docs are current for the smoke attempt.
+- Claude's next action is concrete and does not invite net-new backend work.
+- Verification commands are recorded.
+
+## Verification
+
+- Pending.
 
 <!-- END AUTOGEN active-tasks -->
