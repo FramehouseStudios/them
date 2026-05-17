@@ -2,7 +2,7 @@
 id: T146
 title: Run V1 launch smoke and release preflight pass
 owner: codex
-status: in-progress
+status: review
 branch: codex/T146-v1-launch-smoke-preflight
 pillar: infra
 v1_pillar: ios
@@ -26,4 +26,19 @@ concrete backend failure.
 
 ## Verification
 
-- Pending.
+- `scripts/run_release_preflight.sh` failed before preflight because
+  `them/Release.local.env` is missing.
+- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
+  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
+- `cd backend && npm run eval:v1-smokes` passed all four deterministic V1
+  smokes.
+- `env TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs`
+  passed 6/7 with one expected skip after local loopback binding was allowed.
+- `node --test scripts/v1_manual_qa_checklist.test.mjs` passed 4/4.
+- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
+- `cd backend && npm run v1:status` reported 20/25.
+- `node scripts/v1_launch_room.mjs --role=codex` and `--role=human` both
+  reflected the updated launch state.
+- `gh pr list --state open` shows only human-gated PR #33 remains open.
+- `docs/v1-launch-doctor.latest.json/.md` was regenerated with truthful
+  blocked manual-smoke evidence.

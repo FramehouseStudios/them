@@ -26,7 +26,9 @@ test("[v1-manual-qa] --json emits the four V1 manual flows", () => {
     payload.manualFlows.map((f) => f.pillar),
     ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime"],
   );
-  assert.ok(payload.parked.some((p) => p.prs.includes("#94")));
+  assert.ok(!payload.parked.some((p) => p.prs.includes("#99")));
+  assert.ok(payload.outOfV1.some((p) => p.prs.includes("#99")));
+  assert.ok(payload.outOfV1.some((p) => p.reason.includes("V1 core-only export already shipped in #94")));
   assert.ok(payload.automatedProof.some((p) => p.command.includes("eval:v1-smokes")));
   assert.ok(payload.automatedProof.some((p) => p.command.includes("v1-build-test-readiness")));
 });
@@ -37,8 +39,10 @@ test("[v1-manual-qa] markdown output names pass criteria and parked gates", () =
   assert.match(r.stdout, /## Manual App Flows/);
   assert.match(r.stdout, /### Current app build and tests/);
   assert.match(r.stdout, /Pass: Reply text is visible/);
-  assert.match(r.stdout, /Decision packet: `docs\/memory-export-delete-decision-packet\.md`/);
-  assert.match(r.stdout, /#212/);
+  assert.match(r.stdout, /## Explicitly Out of V1/);
+  assert.match(r.stdout, /Decision record: `docs\/memory-export-delete-decision-packet\.md`/);
+  assert.doesNotMatch(r.stdout, /#212/);
+  assert.match(r.stdout, /V1 core-only export already shipped in #94/);
 });
 
 test("[v1-manual-qa] --write creates a reusable markdown artifact", () => {
@@ -58,7 +62,8 @@ test("[v1-manual-qa] --prompt prints a compact result block for human signoff", 
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^V1 human smoke prompt/);
   assert.match(r.stdout, /Talk Pipeline: PASS\/FAIL - <notes>/);
-  assert.match(r.stdout, /Decision packet: docs\/memory-export-delete-decision-packet\.md/);
+  assert.match(r.stdout, /Explicitly out of V1:/);
+  assert.match(r.stdout, /Decision record: docs\/memory-export-delete-decision-packet\.md/);
   assert.match(r.stdout, /Overall V1 manual smoke: PASS\/FAIL - <notes>/);
   assert.match(r.stdout, /Status command: npm run v1:status/);
 });

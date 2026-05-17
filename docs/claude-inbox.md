@@ -11,17 +11,19 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
 
 ## Current Command
 
-Current V1 state: `npm run v1:status` is 19/25 after Codex PRs #319, #320,
+Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
 and #321. Phase 7b talk-handler extraction is merged in PR #335. The auth
 extraction PR #212 is merged after one-time human clearance and Codex
 auth/security review. The memory export PR #94 is merged as V1 core-only after
-the unscoped `projectIds` expansion was removed. T139 release clearance found
-the app source lane green but launch still blocked: macOS build passed, macOS
-`themTests` passed 108/108, generic unsigned iOS build passed,
-`docs/v1-launch-doctor.latest.json` exists as a blocked `not_started` report,
-and `scripts/appstore_preflight.sh` still fails with `fail=3 warn=1` because
-real `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN` are
-not configured.
+the unscoped `projectIds` expansion was removed. Memory delete PR #99 is out
+of V1 by Codex release-owner decision; do not rebase or repair it for launch.
+The launch lane is still blocked by real release configuration: no
+`them/Release.local.env` exists in the current worktree, the environment lacks
+`DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`, and
+`scripts/appstore_preflight.sh` still fails with `fail=3 warn=1`. Deterministic
+V1 smokes are green, and the local `/talk` integration smoke passes when local
+loopback binding is allowed; Claude should only act on concrete manual-smoke
+backend failures.
 
 1. Run:
 
@@ -44,8 +46,9 @@ not configured.
    V1 effect: closes <docs/v1-definition.md checklist item> | unblocks <item> | infrastructure for <item>
    ```
 
-5. Keep tier-3/human-gated work parked: PR #33 (Actions secret) and PR #99
-   (memory delete privacy). PR #212 and PR #94 are merged; do not reopen them.
+5. Keep tier-3/human-gated work parked: PR #33 (Actions secret). PR #212 and
+   PR #94 are merged; PR #99 memory delete is out of V1 and must not be
+   reopened unless Codex assigns a post-V1 deletion task.
 6. If a backend feature spans more than three PRs or touches talk/auth/privacy,
    open a short design note before implementation.
 7. The schema-doc-only train through PR #286 is complete. Do not open more
@@ -55,8 +58,7 @@ not configured.
    Phase 7b, so implementation is no longer the backend lane.
 8. Do not ask the human to inspect old PR bodies for #94/#99. Use
    `docs/memory-export-delete-decision-packet.md` as the privacy/data-control
-   decision packet, and keep those PRs parked until the human explicitly
-   approves them.
+   record: #94 is done, #99 is post-V1.
 9. Phase 7b dependency-boundary decision: use `acorn` and `acorn-walk` as
    backend devDependencies to compute the extracted talk-handler closure
    deterministically. Do not ask for human-in-the-loop dependency convergence,
@@ -72,7 +74,7 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
 | 1 | Support V1 manual smoke failures | Phase 7b, auth extraction, and core-only memory export are merged; the next app-critical work is proving live flows. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, fix that exact backend failure first and do not open unrelated feature work. |
-| 2 | Keep PR #99 parked until delete scope is approved | Delete is the remaining memory privacy gate; export is resolved. | Do not rebase or expand PR #99 unless Codex provides the delete-scope decision. |
+| 2 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
 | 3 | Phase 6.1 long-tail routes only if Codex asks | Long-tail cleanup is useful but not ahead of V1 smoke/release work. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
 | 4 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if a code PR changes an envelope, update its schema doc in the same PR. |
 | 5 | Release-config/backend smoke support | Release preflight is blocked by human-owned signing/backend/token values, not backend code. | Stay available for concrete failures after real config is supplied; do not invent new backend features. |

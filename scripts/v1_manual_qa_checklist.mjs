@@ -100,20 +100,17 @@ const artifact = {
   ],
   parked: [
     {
-      item: "Full creative-memory export/delete",
-      prs: ["#94", "#99"],
-      reason: "Needs explicit human privacy/data-control approval before merge.",
-      decisionPacket: "docs/memory-export-delete-decision-packet.md",
-    },
-    {
       item: "Postgres eval gate",
       prs: ["#33"],
       reason: "Needs the GitHub Actions OPENAI_API_KEY secret fixed by a human.",
     },
+  ],
+  outOfV1: [
     {
-      item: "Auth route extraction",
-      prs: ["#212"],
-      reason: "Tier-3 auth work remains do-not-merge until explicitly cleared.",
+      item: "Creative-memory delete",
+      prs: ["#99"],
+      reason: "Intentionally deferred post-V1. V1 core-only export already shipped in #94; destructive delete needs explicit product semantics before release.",
+      decisionPacket: "docs/memory-export-delete-decision-packet.md",
     },
   ],
 };
@@ -155,6 +152,15 @@ function markdown(data) {
     lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
   }
   lines.push("");
+  if (data.outOfV1.length) {
+    lines.push("## Explicitly Out of V1");
+    lines.push("");
+    for (const item of data.outOfV1) {
+      const suffix = item.decisionPacket ? ` Decision record: \`${item.decisionPacket}\`.` : "";
+      lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
+    }
+    lines.push("");
+  }
   lines.push("## Status Command");
   lines.push("");
   lines.push(`Run \`${data.v1StatusCommand}\` after updating docs/v1-definition.md.`);
@@ -179,6 +185,14 @@ function prompt(data) {
   for (const item of data.parked) {
     const suffix = item.decisionPacket ? ` Decision packet: ${item.decisionPacket}.` : "";
     lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
+  }
+  if (data.outOfV1.length) {
+    lines.push("");
+    lines.push("Explicitly out of V1:");
+    for (const item of data.outOfV1) {
+      const suffix = item.decisionPacket ? ` Decision record: ${item.decisionPacket}.` : "";
+      lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
+    }
   }
   lines.push("");
   lines.push("Result block to paste back:");
