@@ -15,6 +15,10 @@ Create it from the checked-in template:
   chmod 600 "$ENV_FILE"
 
 Then fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN.
+
+You can inspect the local config without printing secrets first:
+
+  node "$ROOT/scripts/release_config_status.mjs"
 EOF
   exit 1
 fi

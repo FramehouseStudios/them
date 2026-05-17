@@ -21,11 +21,13 @@ Fill in:
 Then run:
 
 ```bash
+node scripts/release_config_status.mjs
 scripts/run_release_preflight.sh
 ```
 
-The runner loads `them/Release.local.env` and delegates to
-`scripts/appstore_preflight.sh`. It does not print the app token.
+The status command parses the file without sourcing it and does not print the
+app token. The runner loads `them/Release.local.env` and delegates to
+`scripts/appstore_preflight.sh`.
 
 ## Operator Quick Path
 - Smoke tag trigger:
