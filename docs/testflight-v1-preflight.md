@@ -84,7 +84,10 @@ Pass: Primary succeeds when healthy; fallback is visible and usable when primary
 
 ## Parked Before V1 External Review
 
-- Postgres eval gate (#33): Needs the GitHub Actions OPENAI_API_KEY secret fixed by a human.
+- Postgres eval gate (#33): GitHub Actions `OPENAI_API_KEY` is fixed, but the
+  rerun now fails real eval-quality cases. Claude owns the repair:
+  `knowledge_art_history`, `knowledge_philosophy`, `knowledge_learning_science`,
+  and `playful_banter_humor` must clear without weakening thresholds.
 
 ## Explicitly Out of V1
 

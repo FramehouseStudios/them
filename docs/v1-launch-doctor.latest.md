@@ -1,6 +1,6 @@
 # io.them V1 Launch Doctor
 
-- Generated: 2026-05-17T01:55:44.856Z
+- Generated: 2026-05-17T21:31:39.959Z
 - Overall: not_started
 - Passed: 0/4
 - Failed: 0
@@ -11,9 +11,9 @@
 - Status: not_started
 - Goal: Record voice, receive a useful companion reply, hear playback, and keep the turn.
 - Pass criteria: Voice -> reply -> playback -> saved turn works without a restart or manual repair.
-- Evidence: Deterministic V1 smokes passed; escalated local talk integration smoke passed 6/7 with 1 expected skip after sandbox bind was allowed. scripts/run_release_preflight.sh failed before preflight because them/Release.local.env is missing.
+- Evidence: 2026-05-17 T152 rerun: deterministic/local talk evidence remains valid, but real app voice smoke is still blocked by missing them/Release.local.env and absent release Development Team, BACKEND_URL, and APP_TOKEN. GitHub OPENAI_API_KEY is fixed; PR #33 now fails eval-quality cases, not credentials.
 
-Blocked: real app voice smoke not run because Release.local.env is missing and release BACKEND_URL/APP_TOKEN/Development Team are not configured.
+Blocked: real app voice smoke needs release config plus a human/device run. Claude owns the PR #33 eval-quality repair separately.
 
 ## Screenplay Studio
 
@@ -21,9 +21,9 @@ Blocked: real app voice smoke not run because Release.local.env is missing and r
 - Status: not_started
 - Goal: Create a project, write a properly formatted page, save it, reopen it, and export it.
 - Pass criteria: A one-page screenplay survives save/reopen and exports through the current Studio controls.
-- Evidence: Deterministic screenplay smoke passed through npm run eval:v1-smokes; manual QA artifact refreshed at docs/testflight-v1-preflight.md.
+- Evidence: 2026-05-17 T152 rerun: deterministic screenplay smoke proof remains valid; release preflight still fails before signed/manual Studio run because release config is missing.
 
-Blocked: real app Studio create/save/export/reopen smoke not run against signed release config.
+Blocked: create/save/export/reopen manual smoke has not run against signed release configuration.
 
 ## Creative Memory
 
@@ -31,9 +31,9 @@ Blocked: real app Studio create/save/export/reopen smoke not run against signed 
 - Status: not_started
 - Goal: Confirm io.them remembers safe creative context and exposes enough shape to diagnose memory.
 - Pass criteria: Memory improves continuity, diagnostics are readable, and privacy-gated export/delete behavior is understood.
-- Evidence: Deterministic memory recall smoke passed; D-creative-memory-delete-scope resolved 2026-05-17 as out of V1; PR #99 closed.
+- Evidence: 2026-05-17 T152 rerun: deterministic memory recall proof remains valid; #94 core-only export is merged and #99 destructive delete remains post-V1.
 
-Blocked: real app memory recall smoke not run. Privacy decision is no longer blocking V1: #94 shipped core-only export and #99 delete is post-V1.
+Blocked: real app memory recall smoke still needs release config and manual app run. Privacy decision is no longer blocking V1 export scope.
 
 ## Realtime
 
@@ -41,6 +41,6 @@ Blocked: real app memory recall smoke not run. Privacy decision is no longer blo
 - Status: not_started
 - Goal: Mint a realtime session, confirm supplier metadata, and verify degraded-mode behavior.
 - Pass criteria: Realtime starts on the primary path, fallback is visible when triggered, and no dead-end state traps the user.
-- Evidence: Deterministic realtime failover smoke passed through npm run eval:v1-smokes; scripts/appstore_preflight.sh still reports fail=3 warn=1 for Development Team, BACKEND_URL, APP_TOKEN.
+- Evidence: 2026-05-17 T152 rerun: deterministic realtime failover proof remains valid. scripts/run_release_preflight.sh failed because them/Release.local.env is missing; direct scripts/appstore_preflight.sh reported fail=3 warn=1.
 
-Blocked: real primary/fallback manual smoke not run because release backend/token/supplier config are not present.
+Blocked: real primary/fallback realtime manual smoke still needs hosted backend URL, production APP_TOKEN, Development Team, and signing identity.

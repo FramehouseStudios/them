@@ -1,34 +1,34 @@
 {
-  "generatedAt": "2026-05-17T01:55:44.856Z",
+  "generatedAt": "2026-05-17T21:31:39.959Z",
   "overallStatus": "not_started",
   "results": [
     {
-      "evidence": "Deterministic V1 smokes passed; escalated local talk integration smoke passed 6/7 with 1 expected skip after sandbox bind was allowed. scripts/run_release_preflight.sh failed before preflight because them/Release.local.env is missing.",
+      "evidence": "2026-05-17 T152 rerun: deterministic/local talk evidence remains valid, but real app voice smoke is still blocked by missing them/Release.local.env and absent release Development Team, BACKEND_URL, and APP_TOKEN. GitHub OPENAI_API_KEY is fixed; PR #33 now fails eval-quality cases, not credentials.",
       "flow": "talk_pipeline",
-      "notes": "Blocked: real app voice smoke not run because Release.local.env is missing and release BACKEND_URL/APP_TOKEN/Development Team are not configured.",
+      "notes": "Blocked: real app voice smoke needs release config plus a human/device run. Claude owns the PR #33 eval-quality repair separately.",
       "status": "not_started",
-      "updatedAt": "2026-05-17T01:55:44.856Z"
+      "updatedAt": "2026-05-17T21:31:39.959Z"
     },
     {
-      "evidence": "Deterministic screenplay smoke passed through npm run eval:v1-smokes; manual QA artifact refreshed at docs/testflight-v1-preflight.md.",
+      "evidence": "2026-05-17 T152 rerun: deterministic screenplay smoke proof remains valid; release preflight still fails before signed/manual Studio run because release config is missing.",
       "flow": "screenplay_studio",
-      "notes": "Blocked: real app Studio create/save/export/reopen smoke not run against signed release config.",
+      "notes": "Blocked: create/save/export/reopen manual smoke has not run against signed release configuration.",
       "status": "not_started",
-      "updatedAt": "2026-05-17T01:55:44.856Z"
+      "updatedAt": "2026-05-17T21:31:39.959Z"
     },
     {
-      "evidence": "Deterministic memory recall smoke passed; D-creative-memory-delete-scope resolved 2026-05-17 as out of V1; PR #99 closed.",
+      "evidence": "2026-05-17 T152 rerun: deterministic memory recall proof remains valid; #94 core-only export is merged and #99 destructive delete remains post-V1.",
       "flow": "creative_memory",
-      "notes": "Blocked: real app memory recall smoke not run. Privacy decision is no longer blocking V1: #94 shipped core-only export and #99 delete is post-V1.",
+      "notes": "Blocked: real app memory recall smoke still needs release config and manual app run. Privacy decision is no longer blocking V1 export scope.",
       "status": "not_started",
-      "updatedAt": "2026-05-17T01:55:44.856Z"
+      "updatedAt": "2026-05-17T21:31:39.959Z"
     },
     {
-      "evidence": "Deterministic realtime failover smoke passed through npm run eval:v1-smokes; scripts/appstore_preflight.sh still reports fail=3 warn=1 for Development Team, BACKEND_URL, APP_TOKEN.",
+      "evidence": "2026-05-17 T152 rerun: deterministic realtime failover proof remains valid. scripts/run_release_preflight.sh failed because them/Release.local.env is missing; direct scripts/appstore_preflight.sh reported fail=3 warn=1.",
       "flow": "realtime",
-      "notes": "Blocked: real primary/fallback manual smoke not run because release backend/token/supplier config are not present.",
+      "notes": "Blocked: real primary/fallback realtime manual smoke still needs hosted backend URL, production APP_TOKEN, Development Team, and signing identity.",
       "status": "not_started",
-      "updatedAt": "2026-05-17T01:55:44.856Z"
+      "updatedAt": "2026-05-17T21:31:39.959Z"
     }
   ],
   "schemaVersion": 1,

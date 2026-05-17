@@ -39,6 +39,8 @@ concrete backend failure.
 - `cd backend && npm run v1:status` reported 20/25.
 - `node scripts/v1_launch_room.mjs --role=codex` and `--role=human` both
   reflected the updated launch state.
-- `gh pr list --state open` shows only human-gated PR #33 remains open.
+- `gh pr list --state open` showed only PR #33 open at the time. T152 later
+  cleared the human-secret blocker and reclassified #33 as a Claude-owned
+  eval-quality repair.
 - `docs/v1-launch-doctor.latest.json/.md` was regenerated with truthful
   blocked manual-smoke evidence.
