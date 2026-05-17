@@ -324,6 +324,8 @@ function createTalkHandler(deps) {
     wrapSystemPromptWithCreativeMemory,
   } = deps;
 
+  let didLogMp3SignatureLocal = Boolean(didLogMp3Signature);
+
   const sttSupplier = deps.sttSupplier || createSttSupplier({
     OPENAI_API_KEY,
     STT_LANGUAGE,
@@ -3284,14 +3286,14 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       return res.status(502).json({ stage: "tts", error: "Speech synthesis output was not MP3." });
     }
 
-    if (!didLogMp3Signature) {
+    if (!didLogMp3SignatureLocal) {
       const marker =
         combinedMp3.length >= 3 && combinedMp3.subarray(0, 3).toString("utf8") === "ID3"
           ? "ID3"
           : "FFFB";
       const signatureHex = combinedMp3.subarray(0, 8).toString("hex");
       logger.log(`[${rid}] MP3 signature=${marker} first8=${signatureHex}`);
-      didLogMp3Signature = true;
+      didLogMp3SignatureLocal = true;
     }
 
     // Response headers

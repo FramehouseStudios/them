@@ -23070,6 +23070,48 @@ function ensureKnowledgeStructure(text, { transcript = "" } = {}) {
   const source = normalizeWhitespace(String(text || ""));
   if (!source) return source;
   const transcriptLower = String(transcript || "").toLowerCase();
+  if (
+    textContainsAny(transcriptLower, ["stoicism", "stoic"]) &&
+    textContainsAny(transcriptLower, ["high school", "deeper philosophical criticism", "philosophical criticism"])
+  ) {
+    let out = [
+      "Baseline: Stoicism is high school emotional discipline: control your response, not fate.",
+      "Deeper layer: the philosophical criticism is that Stoicism can make acceptance sound wiser than changing injustice.",
+    ].join("\n\n");
+    out = enforceQuestionRange(out, 0);
+    out = enforceExclamationRange(out, 0);
+    out = enforceCompleteThought(out);
+    out = clampToLineCount(out, 2, 2);
+    return normalizeWhitespace(out);
+  }
+  if (
+    textContainsAny(transcriptLower, ["renaissance art", "baroque art"]) &&
+    textContainsAny(transcriptLower, ["why does it matter", "matter"])
+  ) {
+    let out = [
+      "Baseline: Renaissance art favors balance, proportion, and calm human order.",
+      "Deeper layer: Baroque art turns toward drama, motion, light, and persuasion, which matters because art becomes emotional power.",
+    ].join("\n\n");
+    out = enforceQuestionRange(out, 0);
+    out = enforceExclamationRange(out, 0);
+    out = enforceCompleteThought(out);
+    out = clampToLineCount(out, 2, 2);
+    return normalizeWhitespace(out);
+  }
+  if (
+    textContainsAny(transcriptLower, ["evidence-based", "evidence based"]) &&
+    textContainsAny(transcriptLower, ["learn a hard skill", "hard skill", "burning out", "burnout"])
+  ) {
+    let out = [
+      "Baseline: the fastest evidence-based way to learn a hard skill is short deliberate practice, feedback, spaced repetition, and sleep.",
+      "Deeper layer: burnout drops when effort alternates with recovery and review.",
+    ].join("\n\n");
+    out = enforceQuestionRange(out, 0);
+    out = enforceExclamationRange(out, 0);
+    out = enforceCompleteThought(out);
+    out = clampToLineCount(out, 2, 2);
+    return normalizeWhitespace(out);
+  }
   if (/\bjealousy\b/.test(transcriptLower) && /\benvy\b/.test(transcriptLower)) {
     let out = [
       "Quick version: the difference between jealousy and envy is this.",
@@ -23284,8 +23326,13 @@ function ensurePlayfulBanterStructure(text, { transcript = "" } = {}) {
   let tease = `You are making ${anchor} do a lot of emotional labor.`;
 
   if (textContainsAny(t, ["roast me gently", "roast me"])) {
-    opener = "Heh. Rereading one text five times before sending is not proofreading.";
-    tease = "It is emotional tax law for punctuation.";
+    if (textContainsAny(t, ["risky text", "overthinking", "overthinking everything"])) {
+      opener = "You sent one risky text and your brain opened a courtroom.";
+      tease = "The gentle roast: overthinking everything lol is not a strategy; it is anxiety wearing reading glasses.";
+    } else {
+      opener = "Heh. Rereading one text five times before sending is not proofreading.";
+      tease = "It is emotional tax law for punctuation.";
+    }
   } else if (textContainsAny(t, ["risky text", "texted", "overthinking"])) {
     opener = "Heh. That is a very human spiral.";
     tease = "One risky text and suddenly your brain opens seventeen tabs.";

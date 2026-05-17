@@ -127,6 +127,85 @@ Doing the foundation as one PR and per-store wirings as separate PRs is delibera
 - **Risk isolation.** If wiring `memory_store` introduces a regression, the rollback is `git revert` of a small commit, not a giant one.
 - **Postgres availability.** Each follow-up can be gated on the team having a real Postgres instance to validate against. The foundation can land before that.
 
+## Eval gate against Postgres (T07-eval-gate)
+
+`.github/workflows/eval-gate-postgres.yml` runs the full
+`npm run eval:gate` path against a live Postgres service container so
+the persistence-canonical foundation is exercised end-to-end.
+
+### Triggers
+
+- `workflow_dispatch` — run manually from the Actions tab. Optional
+  `keep_data` input keeps the migrated data after the run for
+  debugging (default: drop the schema after the run).
+- `push` to `claude/T07*` or `claude/backend-T07*` branches — auto-runs
+  the gate when persistence-related branches change.
+- `schedule` — nightly at 09:00 UTC so the gate stays green even when
+  no PR touched persistence today.
+
+### What it does
+
+1. Boots a `postgres:16` service container with a fixed user, password,
+   and database (test-only credentials).
+2. Waits for Postgres to be ready, then applies every migration under
+   `backend/migrations/0*.sql` in order (`001`, `002`, `003`, ...).
+3. Confirms the `persistence_*` tables exist.
+4. Runs `bash ./scripts/quality_gate.sh` with `RUN_QUALITY_GATE=1`,
+   `RUN_SERVER=1`, and the `DATABASE_URL` env var set to the local
+   container, plus the standard required secrets
+   (`OPENAI_API_KEY`; `APP_TOKEN` falls back to a CI test value when the secret is absent).
+5. Captures the gate's backend log on failure and produces a
+   `GITHUB_STEP_SUMMARY` with row counts per `persistence_*` table.
+
+### Required secrets
+
+- `OPENAI_API_KEY` — required by prompt regression and talk recovery.
+- `APP_TOKEN` — used by speculative reuse, smoke, and ops alert. The workflow falls back to `them-eval-gate-app-token` when the secret is absent so PR checks can run in fresh repositories.
+- `JWT_SECRET` — falls back to a hard-coded test value when the
+  secret is not configured. Production runs should set it.
+
+The workflow fails fast (with a step-summary diagnosis) before any
+eval execution if `OPENAI_API_KEY` is missing or does not look like
+a literal OpenAI key value. If CI reports that `OPENAI_API_KEY` is
+invalid, update the repository Actions secret itself; the workflow
+cannot evaluate a secret that was saved as a shell command, file path,
+or placeholder.
+
+### Local invocation
+
+```bash
+# Boot a local Postgres for the gate
+docker run --rm -d --name them-eval-pg \
+  -e POSTGRES_USER=io_them -e POSTGRES_PASSWORD=io_them_test \
+  -e POSTGRES_DB=io_them -p 5432:5432 postgres:16
+
+# Apply migrations
+PGPASSWORD=io_them_test psql -h localhost -U io_them -d io_them \
+  -f backend/migrations/001_init_persistence.sql
+PGPASSWORD=io_them_test psql -h localhost -U io_them -d io_them \
+  -f backend/migrations/002_craft_persistence.sql
+PGPASSWORD=io_them_test psql -h localhost -U io_them -d io_them \
+  -f backend/migrations/003_creative_memory_persistence.sql
+
+# Run the gate
+DATABASE_URL=postgres://io_them:io_them_test@localhost:5432/io_them \
+RUN_QUALITY_GATE=1 RUN_SERVER=1 \
+  bash ./scripts/quality_gate.sh
+
+# Cleanup
+docker stop them-eval-pg
+```
+
+### Promotion path
+
+This workflow is currently advisory. Once it has been green for a
+short soak (~7 days, captured in the T07-cutover row), promote by:
+
+1. Adding a `workflow_call` to it in `release-preflight.yml` so RC
+   runs invoke it.
+2. Marking the `claude/T07-cutover` row's blocker as cleared.
+3. Removing the legacy `*_store.json` write paths (T07-cutover scope).
+
 ## Verification
 
 - `cd backend && node --test tests/persistence_adapter.test.mjs` → 21 tests, all pass.

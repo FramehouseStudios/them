@@ -1,0 +1,185 @@
+name: eval-gate-postgres
+
+# T07-eval-gate: runs `npm run eval:gate` against a live Postgres
+# service container so the persistence-canonical foundation is exercised
+# end-to-end. Manual + branch-pushes for now; once it's been green for
+# a few runs, integrate it as a required pre-merge check.
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep_data:
+        description: "Keep migrated data after the run (for debugging)"
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - "claude/T07*"
+      - "claude/backend-T07*"
+  schedule:
+    # Nightly at 09:00 UTC so the gate stays green even when no PR
+    # touched persistence today.
+    - cron: "0 9 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-gate-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval-gate-postgres:
+    name: eval:gate against Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: io_them
+          POSTGRES_PASSWORD: io_them_test
+          POSTGRES_DB: io_them
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U io_them"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://io_them:io_them_test@localhost:5432/io_them
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      APP_TOKEN: ${{ secrets.APP_TOKEN || 'them-eval-gate-app-token' }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET || 'them-eval-gate-jwt-secret' }}
+      RUN_QUALITY_GATE: 1
+      RUN_SERVER: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          missing=()
+          invalid=()
+          [[ -z "${OPENAI_API_KEY:-}" ]] && missing+=("OPENAI_API_KEY")
+          if [[ -n "${OPENAI_API_KEY:-}" && "${OPENAI_API_KEY}" != sk-* ]]; then
+            invalid+=("OPENAI_API_KEY must be the literal OpenAI key value, not a shell command, file path, or placeholder")
+          fi
+          if (( ${#missing[@]} > 0 || ${#invalid[@]} > 0 )); then
+            {
+              echo "## eval-gate-postgres summary"
+              echo
+              echo "- Status: failed before execution"
+              if (( ${#missing[@]} > 0 )); then
+                echo "- Missing required secrets: ${missing[*]}"
+              fi
+              if (( ${#invalid[@]} > 0 )); then
+                echo "- Invalid required secrets:"
+                for item in "${invalid[@]}"; do
+                  echo "  - ${item}"
+                done
+              fi
+              echo
+              echo "Set the repository Actions secret to the actual value, then re-run this workflow."
+            } | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U io_them; then
+              echo "Postgres is ready"
+              exit 0
+            fi
+            echo "Waiting for Postgres ($i/30) ..."
+            sleep 1
+          done
+          echo "::error::Postgres did not become ready within 30 seconds"
+          exit 1
+
+      - name: Apply persistence migrations
+        run: |
+          set -euo pipefail
+          export PGPASSWORD=io_them_test
+          for migration in backend/migrations/0*.sql; do
+            echo "Applying ${migration} ..."
+            psql -h localhost -U io_them -d io_them -f "${migration}"
+          done
+
+      - name: Confirm tables exist
+        run: |
+          set -euo pipefail
+          export PGPASSWORD=io_them_test
+          psql -h localhost -U io_them -d io_them -tAc \
+            "select table_name from information_schema.tables where table_name like 'persistence_%' order by 1"
+
+      - name: Make scripts executable
+        run: |
+          chmod +x ./scripts/quality_gate.sh
+          if [[ -f ./scripts/check_craft_completeness.mjs ]]; then
+            chmod +x ./scripts/check_craft_completeness.mjs
+          fi
+
+      - name: Run eval gate against Postgres
+        run: bash ./scripts/quality_gate.sh
+
+      - name: Capture gate evidence
+        if: always()
+        run: |
+          if [[ -s /tmp/them-quality-gate-backend.log ]]; then
+            echo "::group::quality_gate backend log (last 200 lines)"
+            tail -n 200 /tmp/them-quality-gate-backend.log || true
+            echo "::endgroup::"
+          fi
+
+      - name: Snapshot persistence_* row counts
+        if: always() && !cancelled()
+        run: |
+          set -euo pipefail
+          export PGPASSWORD=io_them_test
+          {
+            echo "## eval-gate-postgres summary"
+            echo
+            echo "- Trigger: ${{ github.event_name }}"
+            echo "- Ref: ${{ github.ref }}"
+            echo "- Status: ${{ job.status }}"
+            echo
+            echo "### Persistence row counts"
+            echo
+            echo "| table | rows |"
+            echo "| --- | --- |"
+            for table in persistence_outbox persistence_user_memory persistence_screenplay persistence_knowledge_embeddings persistence_craft_reports persistence_craft_overrides persistence_creative_memory; do
+              count=$(psql -h localhost -U io_them -d io_them -tAc "select count(*) from ${table}" 2>/dev/null || echo "—")
+              echo "| ${table} | ${count} |"
+            done
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
+
+      - name: Drop schema unless keep_data is true
+        if: always() && !inputs.keep_data
+        run: |
+          export PGPASSWORD=io_them_test
+          psql -h localhost -U io_them -d io_them -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" || true
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-gate-postgres-failure-logs
+          if-no-files-found: ignore
+          path: |
+            /tmp/them-quality-gate-backend.log
+            /tmp/them-smoke/them-home.png
