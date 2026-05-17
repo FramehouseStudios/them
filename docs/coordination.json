@@ -1,8 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-16T23:05:51.000Z",
+  "updatedAt": "2026-05-17T01:19:55.000Z",
   "updatedBy": "codex",
   "openPullRequests": [
+    {
+      "number": 94,
+      "title": "T-creative-memory-export: GET /memory/export — V1 core-only",
+      "owner": "claude",
+      "tier": 3,
+      "status": "merged",
+      "branch": "claude/T-creative-memory-export",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after the V1 contract was narrowed to core-only. Codex rebased over PR #212, resolved the decisions-queue conflict, verified no projectIds/loglineHistory/acceptedTwists export path remains, ran pre_flight, focused memory-export tests 7/7, backend npm test 1188 pass / 1 skipped, and confirmed GitHub evaluate green."
+    },
+    {
+      "number": 212,
+      "title": "T-decompose-phase4-auth-routes: extract 11 /auth/* routes",
+      "owner": "claude",
+      "tier": 3,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase4-auth-routes",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after one-time human auth clearance and Codex auth/security review. Byte-identical extraction only: same 256kb parser on POST routes, GET /auth/sessions parser-free, existing userAuth handlers injected unchanged. Local focused auth tests passed 44/44; backend npm test passed 1181 pass / 1 skipped."
+    },
     {
       "number": 345,
       "title": "T143: record core-only memory export decision",
@@ -267,18 +287,6 @@
       "status": "merged",
       "branch": "claude/T-talk-turn-meta-stats",
       "blocker": null
-    },
-    {
-      "number": 94,
-      "title": "T-creative-memory-export",
-      "owner": "claude",
-      "tier": 3,
-      "status": "blocked",
-      "branch": "claude/T-creative-memory-export",
-      "blocker": "scope: V1 export must be core-only; drop caller-supplied projectIds/loglineHistory/acceptedTwists until ownership scoping exists",
-      "blocker_kind": "needs_scope_narrowing",
-      "reviewer_note": "Codex supervisor decision posted on PR #94: ship core-only for V1. The current branch still exposes projectIds and project-scoped logline/twist payloads, so it remains blocked until narrowed.",
-      "expected_action": "Claude removes the projectIds expansion, updates docs/tests to the V1 core export contract, adds a post-V1 ownership-scoped project export follow-up, rebases on current main, and reruns focused export tests plus backend npm test."
     },
     {
       "number": 92,
@@ -1031,18 +1039,6 @@
       "blocker": null
     },
     {
-      "number": 212,
-      "title": "T-decompose-phase4-auth-routes",
-      "owner": "claude",
-      "tier": 3,
-      "status": "blocked",
-      "branch": "claude/T-decompose-phase4-auth-routes",
-      "blocker": "Codex design review passed against #221, but branch must rebase on current main and auth route stays tier-3/do-not-merge until explicitly cleared.",
-      "reviewer_note": "Reviewed backend/lib/auth_routes.js, auth tests, mount wiring, parser limits, route list, and response surface against merged design note #221; local auth tests passed after installing deps.",
-      "expected_action": "Claude rebases on current main after #273, reruns backend auth tests, and keeps do-not-merge/tier-3 until human auth-route clearance.",
-      "blocker_kind": "needs_rebase"
-    },
-    {
       "number": 223,
       "title": "T-decompose-phase7-talk-pipeline-design",
       "owner": "claude",
@@ -1649,14 +1645,8 @@
     {
       "id": "creative-memory-export-privacy",
       "owner": "human",
-      "summary": "Claude PR #94 exposes full creative-memory export and PR #99 deletes creative memory. Memory export/delete surfaces need explicit privacy/data-control approval before merge.",
+      "summary": "PR #94 is resolved and merged as V1 core-only export. PR #99 still deletes creative memory and needs explicit privacy/data-control approval before merge.",
       "since": "2026-05-11"
-    },
-    {
-      "id": "auth-route-tier3",
-      "owner": "codex",
-      "summary": "Claude PR #212 extracts auth routes. Keep do-not-merge/tier-3 until Codex reviews it against design note #221 and auth guardrails are explicitly cleared.",
-      "since": "2026-05-14"
     },
     {
       "id": "v1-release-preflight-config",
@@ -1667,20 +1657,8 @@
   ],
   "decisionsPending": [
     {
-      "id": "creative-memory-export-approval",
-      "question": "May Claude merge PR #94 to expose full creative-memory export, assuming the route remains authenticated and documented as privacy/data-control work?",
-      "ownerNeeds": "human",
-      "since": "2026-05-14"
-    },
-    {
       "id": "creative-memory-delete-scope",
       "question": "For PR #99, should V1 allow DELETE /memory/forget to delete only creative_memory, or should it also delete project-scoped screenplay artifacts and derived memories?",
-      "ownerNeeds": "human",
-      "since": "2026-05-14"
-    },
-    {
-      "id": "auth-route-extraction-clearance",
-      "question": "After Claude rebases PR #212 and tests are green, may Codex clear the tier-3 auth gate and merge the byte-identical /auth route extraction under D005?",
       "ownerNeeds": "human",
       "since": "2026-05-14"
     },

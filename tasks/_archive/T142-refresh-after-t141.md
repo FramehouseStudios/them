@@ -2,7 +2,7 @@
 id: T142
 title: Refresh coordination after T141 merge
 owner: codex
-status: review
+status: merged
 branch: codex/T142-refresh-after-t141
 pillar: infra
 v1_pillar: ios

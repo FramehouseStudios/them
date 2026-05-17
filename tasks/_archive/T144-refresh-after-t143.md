@@ -2,7 +2,7 @@
 id: T144
 title: Refresh coordination after T143 merge
 owner: codex
-status: review
+status: merged
 branch: codex/T144-refresh-after-t143
 pillar: infra
 v1_pillar: memory
