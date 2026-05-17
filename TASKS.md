@@ -793,6 +793,7 @@
 | T147                                   | Refresh Claude handoff after Phase 7c design merge                                      | codex  | review      |
 | T148                                   | Add safe release config status command                                                   | codex  | review      |
 | T149                                   | Add Phase 7c implementation task row for Claude                                          | codex  | review      |
+| T151                                   | Refresh coordination after Phase 7c merge                                                | codex  | in-progress |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -4068,5 +4069,26 @@ copy/paste handoff.
 - `node scripts/tasks_active_frontmatter_eval.mjs --strict` passed.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
+
+### T151 — Refresh coordination after Phase 7c merge
+- **Owner:** codex
+- **Branch:** codex/T151-post-phase7c-refresh
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Refresh the coordination docs after PR #354 merged, mark the Phase 7c task as
+merged, and publish the next Claude backend assignment so the support lane does
+not stall or duplicate completed work.
+
+## Done When
+
+- `TASKS.md` and task front matter mark Phase 7c as merged.
+- `docs/coordination.json`, `docs/claude-inbox.md`, and the live handoff all
+  reflect PR #354 as merged.
+- Claude has one concrete next backend lane or a clear support-only instruction.
+- Coordination validation, strict pre-flight, task-frontmatter eval, and
+  `git diff --check` pass.
 
 <!-- END AUTOGEN active-tasks -->
