@@ -733,92 +733,91 @@
 
 ## Active work — quick view (auto-generated from tasks/_active/)
 
-| ID                                     | Title                                                                                    | Owner  | Status      |
-|----------------------------------------|------------------------------------------------------------------------------------------|--------|-------------|
-| T-backfill-v1-pillar-legacy            | Backfill V1 pillar/effect on 13 legacy non-merged task files                             | claude | review      |
-| T-block-signal-history-bounds-eval     | Pathological-input guard on the block-signal history buffer                              | claude | review      |
-| T-block-signal-history-route           | GET /memory/block-signal/history read endpoint                                           | claude | review      |
-| T-block-signal-history-tracking        | Persist block-signal samples to creative memory habits                                   | claude | review      |
-| T-coord-refresh-batch-12               | Batched coordination refresh — round 17 (post merge train)                               | claude | review      |
-| T-coord-refresh-batch-15               | Coord refresh round 19 — mark #197/#199/#200/#201/#202 merged                            | claude | review      |
-| T-decompose-phase5a-realtime-reads     | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | claude | review      |
-| T-decompose-phase5b4-realtime-call     | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                 | claude | review      |
-| T-decompose-phase6-memories            | Decompose backend/index.js — Phase 6 (/memories/* cluster)                               | claude | review      |
+| ID                                      | Title                                                                                    | Owner  | Status           |
+|-----------------------------------------|------------------------------------------------------------------------------------------|--------|------------------|
+| T-backfill-v1-pillar-legacy             | Backfill V1 pillar/effect on 13 legacy non-merged task files                             | claude | review           |
+| T-block-signal-history-bounds-eval      | Pathological-input guard on the block-signal history buffer                              | claude | review           |
+| T-block-signal-history-route            | GET /memory/block-signal/history read endpoint                                           | claude | review           |
+| T-block-signal-history-tracking         | Persist block-signal samples to creative memory habits                                   | claude | review           |
+| T-coord-refresh-batch-12                | Batched coordination refresh — round 17 (post merge train)                               | claude | review           |
+| T-coord-refresh-batch-15                | Coord refresh round 19 — mark #197/#199/#200/#201/#202 merged                            | claude | review           |
+| T-decompose-phase4-auth-routes          | Decompose backend/index.js — Phase 4 (11 /auth/* routes)                                 | claude | review           |
+| T-decompose-phase5a-realtime-reads      | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | claude | review           |
+| T-decompose-phase5b4-realtime-call      | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                 | claude | review           |
 | T-decompose-phase6-1a-outbox-data-state | Decompose backend long-tail Phase 6.1a routes                                            | claude | ready-for-claude |
-| T-deeper-lib-tests-batch-2             | Deeper tests for persona + utils + screenplay_store + outbox_store                       | claude | review      |
-| T-deeper-lib-tests-batch-3             | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats           | claude | review      |
-| T-deeper-lib-tests-batch               | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | claude | review      |
-| T-deeper-memstore-and-user-auth-tests  | Deeper tests for memory_store + user_auth                                                | claude | review      |
-| T-eval-determinism-doc-pass            | Document determinism stance across 10 canon evals                                        | claude | review      |
-| T-fix-214-audit-and-readme             | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | claude | review      |
-| T-fountain-export-deeper               | Deeper tests for fountain_export                                                         | claude | review      |
-| T-protocol-infra-batch                 | Tighten backend extraction protocol helpers                                              | claude | review      |
-| T-schema-docs-batch-2                  | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | claude | review      |
-| T-schema-docs-scaffold                 | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | claude | review      |
-| T-screenplay-export-formats-list-route | GET /screenplay/export/formats canonical format list                                     | claude | review      |
-| T-screenplay-export-markdown           | POST /screenplay/export format=md|markdown                                               | claude | review      |
-| T-talk-error-counter-zero-fix          | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                           | claude | review      |
-| T-talk-turn-meta-contract-snapshot     | Pin /talk/turn/:turnId response key set + error codes                                    | claude | review      |
-| T-talk-turn-rate-limit-deeper          | Deeper tests for talk_turn_rate_limit                                                    | claude | review      |
-| T-task-files-cleanup                   | Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)                         | claude | review      |
-| T-trust-tiers                          | Trust tiers + standing pre-approvals (AGENTS.md)                                         | claude | review      |
-| T-untested-libs-followups              | Add tests for remaining untested infrastructure libs                                     | claude | planned     |
-| T-user-auth-roundtrip-tests            | Full handler round-trip tests for backend/lib/user_auth.js                               | claude | review      |
-| T-v1-pillar-rule-and-canon-wire        | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                             | claude | review      |
-| T-v1-three-smoke-fixtures              | V1 smoke fixtures — screenplay export + memory recall + realtime failover                | claude | review      |
-| T-v1-voice-to-page-smoke               | V1 voice-to-page smoke fixture + automated subset                                        | claude | review      |
-| T113                                   | Archive merged active tasks after V1 status pass                                         | codex  | review      |
-| T115                                   | Refresh queue after V1 preflight and schema guard                                        | codex  | review      |
-| T117                                   | Refresh queue after memories tests merge                                                 | codex  | review      |
-| T118                                   | Prove current app build and tests for V1 readiness                                       | codex  | review      |
-| T119                                   | Close Screenplay Studio export UX gap                                                    | codex  | review      |
-| T120                                   | Memory export/delete privacy decision packet                                             | codex  | review      |
-| T121                                   | Post V1 progress coordination refresh                                                    | codex  | review      |
-| T122                                   | Reprove current app build and themTests after export UX                                  | codex  | review      |
-| T123                                   | Make V1 manual smoke handoff one-command                                                 | codex  | review      |
-| T124                                   | Refresh after V1 smoke prompt merge                                                      | codex  | review      |
-| T125                                   | Record deterministic V1 smoke proof                                                      | codex  | review      |
-| T126                                   | Run and record release preflight                                                         | codex  | review      |
-| T131                                   | Refresh after T130 release preflight clearance                                           | codex  | review      |
-| T135                                   | Refresh after Phase 7b talk-handler merge                                                | codex  | review      |
-| T138                                   | Refresh queue after Launch Doctor proof PRs                                              | codex  | review      |
-| T139                                   | Clear V1 release smoke and config gap                                                    | codex  | review      |
-| T140                                   | Refresh coordination after T139 merge                                                    | codex  | review      |
-| T141                                   | Add safe local release config handoff                                                    | codex  | review      |
-| T142                                   | Refresh coordination after T141 merge                                                    | codex  | merged      |
-| T143                                   | Record core-only memory export decision for Claude                                       | codex  | merged      |
-| T144                                   | Refresh coordination after T143 merge                                                    | codex  | merged      |
-| T145                                   | Refresh coordination after auth and memory export merges                                 | codex  | review      |
-| T146                                   | Run V1 launch smoke and release preflight pass                                           | codex  | review      |
-| T147                                   | Refresh Claude handoff after Phase 7c design merge                                      | codex  | review      |
-| T148                                   | Add safe release config status command                                                   | codex  | review      |
-| T149                                   | Add Phase 7c implementation task row for Claude                                          | codex  | review      |
-| T151                                   | Refresh coordination after Phase 7c merge                                                | codex  | review      |
-| T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
-| T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
-| T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
-| T46-post-review-queue-refresh          | Refresh queue after Codex PR reviews                                                     | codex  | review      |
-| T47-refresh-after-new-claude-prs       | Refresh queue after new Claude PR triage                                                 | codex  | review      |
-| T48-ios-archetype-traits               | Surface character archetypes in the Studio traits rail                                   | codex  | in-progress |
-| T81                                    | Refresh coordination after PR #193/#194                                                  | codex  | review      |
-| T82                                    | Refresh coordination after PR #204/#205/#206/#207                                        | codex  | review      |
-| T83                                    | Define V1 and product-state handoff loop                                                 | codex  | review      |
-| T84                                    | Surface talk health and error diagnostics in iOS                                         | codex  | review      |
-| T85                                    | Round 22 coordination refresh after supervisor merge train                               | codex  | review      |
-| T86                                    | Round 22b coordination refresh after design-note mini-train                              | codex  | review      |
-| T87                                    | Round 22c coordination refresh after memory and long-tail design notes                   | codex  | review      |
-| T88                                    | Round 22d coordination refresh after V1 smoke fixture pack                               | codex  | review      |
-| T89                                    | Round 22e coordination refresh after schema docs batch 2                                 | codex  | review      |
-| T90                                    | V1 memory and realtime diagnostics in iOS                                                | codex  | review      |
-| T91                                    | Round 22f coordination refresh                                                           | codex  | review      |
-| T92                                    | Round 22g coordination refresh                                                           | codex  | review      |
-| T93                                    | Round 22h coordination refresh                                                           | codex  | review      |
-| T94                                    | Claude supervisor note handoff                                                           | codex  | review      |
-| T95-schema-doc-drift-gate              | Gate schema docs against backend field drift                                             | codex  | review      |
-| T96-batch-coordination-refresh         | Refresh coordination after supervisor merge train                                        | codex  | review      |
-| T97-post-support-merge-refresh         | Refresh coordination after support merge train                                           | codex  | review      |
-| T98-post-v1-realtime-refresh           | Post V1 status and realtime turn-commit coordination refresh                             | codex  | review      |
-| T99-fix-auth-expected-action           | Fix truncated auth-route coordination expected action                                    | codex  | review      |
+| T-decompose-phase6-memories             | Decompose backend/index.js — Phase 6 (/memories/* cluster)                               | claude | review           |
+| T-deeper-lib-tests-batch-2              | Deeper tests for persona + utils + screenplay_store + outbox_store                       | claude | review           |
+| T-deeper-lib-tests-batch-3              | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats           | claude | review           |
+| T-deeper-lib-tests-batch                | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | claude | review           |
+| T-deeper-memstore-and-user-auth-tests   | Deeper tests for memory_store + user_auth                                                | claude | review           |
+| T-eval-determinism-doc-pass             | Document determinism stance across 10 canon evals                                        | claude | review           |
+| T-fix-214-audit-and-readme              | Fix #214 follow-up — audit script + lib README precedent + task file with V1 pillar      | claude | review           |
+| T-fountain-export-deeper                | Deeper tests for fountain_export                                                         | claude | review           |
+| T-protocol-infra-batch                  | Tighten backend extraction protocol helpers                                              | claude | review           |
+| T-schema-docs-batch-2                   | Schema docs batch — talk + screenplay + realtime + ops + memory + block-signal           | claude | review           |
+| T-schema-docs-scaffold                  | Bootstrap docs/schemas/ with README + 3 first envelope docs                              | claude | review           |
+| T-screenplay-export-formats-list-route  | GET /screenplay/export/formats canonical format list                                     | claude | review           |
+| T-screenplay-export-markdown            | POST /screenplay/export format=md|markdown                                               | claude | review           |
+| T-talk-error-counter-zero-fix           | Fix talk_error_counter falsy-zero bug in errorRatePerHour math                           | claude | review           |
+| T-talk-turn-meta-contract-snapshot      | Pin /talk/turn/:turnId response key set + error codes                                    | claude | review           |
+| T-talk-turn-rate-limit-deeper           | Deeper tests for talk_turn_rate_limit                                                    | claude | review           |
+| T-task-files-cleanup                    | Add TASKS.md rows for orphan task files (T-trust-tiers, T42-T56)                         | claude | review           |
+| T-trust-tiers                           | Trust tiers + standing pre-approvals (AGENTS.md)                                         | claude | review           |
+| T-untested-libs-followups               | Add tests for remaining untested infrastructure libs                                     | claude | planned          |
+| T-user-auth-roundtrip-tests             | Full handler round-trip tests for backend/lib/user_auth.js                               | claude | review           |
+| T-v1-pillar-rule-and-canon-wire         | Pre-flight V1 pillar rule + wire 4 V1 smokes into eval:canon                             | claude | review           |
+| T-v1-three-smoke-fixtures               | V1 smoke fixtures — screenplay export + memory recall + realtime failover                | claude | review           |
+| T-v1-voice-to-page-smoke                | V1 voice-to-page smoke fixture + automated subset                                        | claude | review           |
+| T113                                    | Archive merged active tasks after V1 status pass                                         | codex  | review           |
+| T115                                    | Refresh queue after V1 preflight and schema guard                                        | codex  | review           |
+| T117                                    | Refresh queue after memories tests merge                                                 | codex  | review           |
+| T118                                    | Prove current app build and tests for V1 readiness                                       | codex  | review           |
+| T119                                    | Close Screenplay Studio export UX gap                                                    | codex  | review           |
+| T120                                    | Memory export/delete privacy decision packet                                             | codex  | review           |
+| T121                                    | Post V1 progress coordination refresh                                                    | codex  | review           |
+| T122                                    | Reprove current app build and themTests after export UX                                  | codex  | review           |
+| T123                                    | Make V1 manual smoke handoff one-command                                                 | codex  | review           |
+| T124                                    | Refresh after V1 smoke prompt merge                                                      | codex  | review           |
+| T125                                    | Record deterministic V1 smoke proof                                                      | codex  | review           |
+| T126                                    | Run and record release preflight                                                         | codex  | review           |
+| T131                                    | Refresh after T130 release preflight clearance                                           | codex  | review           |
+| T135                                    | Refresh after Phase 7b talk-handler merge                                                | codex  | review           |
+| T138                                    | Refresh queue after Launch Doctor proof PRs                                              | codex  | review           |
+| T139                                    | Clear V1 release smoke and config gap                                                    | codex  | review           |
+| T140                                    | Refresh coordination after T139 merge                                                    | codex  | review           |
+| T141                                    | Add safe local release config handoff                                                    | codex  | review           |
+| T145                                    | Refresh coordination after auth and memory export merges                                 | codex  | review           |
+| T146                                    | Run V1 launch smoke and release preflight pass                                           | codex  | review           |
+| T147                                    | Refresh Claude handoff after Phase 7c design merge                                       | codex  | review           |
+| T148                                    | Add safe release config status command                                                   | codex  | review           |
+| T149                                    | Add Phase 7c implementation task row for Claude                                          | codex  | review           |
+| T151                                    | Refresh coordination after Phase 7c merge                                                | codex  | review           |
+| T152                                    | Refresh eval-secret and release-gap state                                                | codex  | in-progress      |
+| T42-supervisor-merge-protocol           | Codex self-merge authority + agent handoff fast lane                                     | codex  | review           |
+| T43-refresh-claude-queue                | Refresh Claude queue after supervisor protocol merge                                     | codex  | review           |
+| T44-creative-memory-export-triage       | Triage creative-memory export privacy gate                                               | codex  | review           |
+| T46-post-review-queue-refresh           | Refresh queue after Codex PR reviews                                                     | codex  | review           |
+| T47-refresh-after-new-claude-prs        | Refresh queue after new Claude PR triage                                                 | codex  | review           |
+| T48-ios-archetype-traits                | Surface character archetypes in the Studio traits rail                                   | codex  | in-progress      |
+| T81                                     | Refresh coordination after PR #193/#194                                                  | codex  | review           |
+| T82                                     | Refresh coordination after PR #204/#205/#206/#207                                        | codex  | review           |
+| T83                                     | Define V1 and product-state handoff loop                                                 | codex  | review           |
+| T84                                     | Surface talk health and error diagnostics in iOS                                         | codex  | review           |
+| T85                                     | Round 22 coordination refresh after supervisor merge train                               | codex  | review           |
+| T86                                     | Round 22b coordination refresh after design-note mini-train                              | codex  | review           |
+| T87                                     | Round 22c coordination refresh after memory and long-tail design notes                   | codex  | review           |
+| T88                                     | Round 22d coordination refresh after V1 smoke fixture pack                               | codex  | review           |
+| T89                                     | Round 22e coordination refresh after schema docs batch 2                                 | codex  | review           |
+| T90                                     | V1 memory and realtime diagnostics in iOS                                                | codex  | review           |
+| T91                                     | Round 22f coordination refresh                                                           | codex  | review           |
+| T92                                     | Round 22g coordination refresh                                                           | codex  | review           |
+| T93                                     | Round 22h coordination refresh                                                           | codex  | review           |
+| T94                                     | Claude supervisor note handoff                                                           | codex  | review           |
+| T95-schema-doc-drift-gate               | Gate schema docs against backend field drift                                             | codex  | review           |
+| T96-batch-coordination-refresh          | Refresh coordination after supervisor merge train                                        | codex  | review           |
+| T97-post-support-merge-refresh          | Refresh coordination after support merge train                                           | codex  | review           |
+| T98-post-v1-realtime-refresh            | Post V1 status and realtime turn-commit coordination refresh                             | codex  | review           |
+| T99-fix-auth-expected-action            | Fix truncated auth-route coordination expected action                                    | codex  | review           |
 
 ## Active work — full detail (auto-generated)
 
@@ -826,7 +825,7 @@
 - **Owner:** claude
 - **Branch:** claude/T-backfill-v1-pillar-legacy
 - **Pillar:** infra
-- **Status:** merged
+- **Status:** review
 
 ## Scope
 
@@ -875,7 +874,7 @@ rule against current main.
 - **Owner:** claude
 - **Branch:** claude/T-block-signal-history-bounds-eval
 - **Pillar:** evals (layer-3-living)
-- **Status:** merged
+- **Status:** review
 
 ## Scope
 
@@ -913,7 +912,7 @@ all checks passing; `npm run eval:block-signal-history-bounds` works;
 - **Owner:** claude
 - **Branch:** claude/T-block-signal-history-route
 - **Pillar:** layer-3-living (creative-memory surfaces)
-- **Status:** merged
+- **Status:** review
 
 ## Scope
 
@@ -1065,6 +1064,62 @@ documents what's next.
 Worktree audit also ran this round: cleaned 10 stale local
 worktrees that corresponded to merged/closed PRs. Active Claude
 worktrees: 8 → ready for the next round of work.
+
+### T-decompose-phase4-auth-routes — Decompose backend/index.js — Phase 4 (11 /auth/* routes)
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase4-auth-routes
+- **Pillar:** infra (backend architecture)
+- **Status:** review
+
+## Scope
+
+Phase 4 of the `backend/index.js` decomposition. Phases 0–3 all
+merged on main. Per spec, max 1 decomp PR in flight.
+
+Routes extracted byte-identically to `backend/lib/auth_routes.js`:
+
+- POST `/auth/signup`
+- POST `/auth/login`
+- POST `/auth/apple`
+- POST `/auth/refresh`
+- POST `/auth/logout`
+- GET  `/auth/sessions`
+- POST `/auth/sessions/revoke`
+- POST `/auth/request_password_reset`
+- POST `/auth/reset_password`
+- POST `/auth/request_email_verification`
+- POST `/auth/verify_email`
+
+All 11 were thin delegates to handlers that already live in
+`lib/user_auth.js`. The lib bundles them under
+`mountAuthRoutes(app, { userAuth })` with the shared 256kb JSON
+parser created inside the lib. Required-deps guard fails loud at
+mount if any of the 11 handlers is missing.
+
+Access-control posture (documented in the module header):
+**TIER-3 SENSITIVE** — auth handlers gate the rest of the surface.
+No contract change in this PR.
+
+## Verification
+
+- `node --test backend/tests/auth_routes.test.mjs` → **10/10 pass**.
+- Required-deps guard tested for every handler name.
+- Production-style test uses a bare Express app (no `app.use(express.json())`).
+- `node --check backend/index.js` passes.
+- `backend/index.js`: -5 net lines (12 deletions, 7 insertions for
+  the new import + mount call + comment).
+
+## Done when
+
+The 11 auth routes are no longer inline; the lib file exists with
+tier-3-sensitive posture documented; tests pass; behavior is
+byte-identical.
+
+## Next phase
+
+Phase 5 (per spec): extract `/realtime/*` routes (supplier mint,
+health probe, ICE servers). Per spec, max 1 decomp PR in flight,
+so Phase 5 is gated on this landing.
 
 ### T-decompose-phase5a-realtime-reads — Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)
 - **Owner:** claude
@@ -1251,6 +1306,50 @@ pass; pre-flight clean; 5b chain complete.
 Phase 7 (talk-pipeline) is unblocked but its #223 design note
 already calls out the staged approach (7a + 7b + 7c).
 
+### T-decompose-phase6-1a-outbox-data-state — Decompose backend long-tail Phase 6.1a routes
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase6-1a-outbox-data-state
+- **Pillar:** infra
+- **Status:** ready-for-claude
+
+## Scope
+
+Implement Phase 6.1a from
+`tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`.
+
+Extract the `/outbox/*`, `/data/*`, and `/state` inline route clusters from
+`backend/index.js` into focused route libs:
+
+- `backend/lib/outbox_routes.js`
+- `backend/lib/data_routes.js`
+- `backend/lib/state_route.js`
+
+Preserve mount order, body-parser limits, response envelopes, and access-control
+posture exactly. This is a byte-identical extraction only.
+
+## Constraints
+
+- No new endpoints.
+- No response-shape changes.
+- No auth/privacy behavior changes.
+- No method-guard sweep; that is Phase 6.1e.
+- No release config, PR #33, talk handler, or schema-doc-only work.
+- If a real V1 smoke failure appears, pause this lane and fix the concrete
+  smoke failure first.
+
+## Done When
+
+- The three route libs exist and are mounted from `backend/index.js`.
+- Focused tests cover the extracted routes on a bare Express app.
+- Existing backend tests remain green.
+- Verification passes:
+  - `node scripts/pre_flight.mjs --strict`
+  - focused route tests for the three libs
+  - `cd backend && npm test`
+  - `git diff --check`
+- PR description includes `V1 pillar: infra`, the exact V1 effect, and exact
+  commands run/not run.
+
 ### T-decompose-phase6-memories — Decompose backend/index.js — Phase 6 (/memories/* cluster)
 - **Owner:** claude
 - **Branch:** claude/T-decompose-phase6-memories
@@ -1409,50 +1508,6 @@ Once it lands:
 
 Per spec (max 1 decomp PR in flight), Phase 7a code does NOT
 open until Phase 6 merges.
-
-### T-decompose-phase6-1a-outbox-data-state — Decompose backend long-tail Phase 6.1a routes
-- **Owner:** claude
-- **Branch:** claude/T-decompose-phase6-1a-outbox-data-state
-- **Pillar:** infra
-- **Status:** ready-for-claude
-
-## Scope
-
-Implement Phase 6.1a from
-`tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`.
-
-Extract the `/outbox/*`, `/data/*`, and `/state` inline route clusters from
-`backend/index.js` into focused route libs:
-
-- `backend/lib/outbox_routes.js`
-- `backend/lib/data_routes.js`
-- `backend/lib/state_route.js`
-
-Preserve mount order, body-parser limits, response envelopes, and access-control
-posture exactly. This is a byte-identical extraction only.
-
-## Constraints
-
-- No new endpoints.
-- No response-shape changes.
-- No auth/privacy behavior changes.
-- No method-guard sweep; that is Phase 6.1e.
-- No release config, PR #33, talk handler, or schema-doc-only work.
-- If a real V1 smoke failure appears, pause this lane and fix the concrete
-  smoke failure first.
-
-## Done When
-
-- The three route libs exist and are mounted from `backend/index.js`.
-- Focused tests cover the extracted routes on a bare Express app.
-- Existing backend tests remain green.
-- Verification passes:
-  - `node scripts/pre_flight.mjs --strict`
-  - focused route tests for the three libs
-  - `cd backend && npm test`
-  - `git diff --check`
-- PR description includes `V1 pillar: infra`, the exact V1 effect, and exact
-  commands run/not run.
 
 ### T-deeper-lib-tests-batch-2 — Deeper tests for persona + utils + screenplay_store + outbox_store
 - **Owner:** claude
@@ -3323,86 +3378,6 @@ production app token can be supplied without editing tracked project files.
 - `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
 - `node --check scripts/v1_launch_room.mjs` passed.
 
-### T142 — Refresh coordination after T141 merge
-- **Owner:** codex
-- **Branch:** codex/T142-refresh-after-t141
-- **Pillar:** infra
-- **Status:** review
-
-## Scope
-
-Refresh the supervisor ledger, coordination state, and event lane after PR #343
-merged so the next agent prompt treats the local release-config runner as
-available on `main`.
-
-## Done When
-
-- `docs/coordination.json` marks PR #343 merged.
-- `docs/codex-claude-live-handoff.md` marks T141 merged.
-- Claude remains in V1 smoke-failure support mode until real release config and
-  a concrete manual-smoke failure exist.
-- Coordination validation passes.
-
-## Verification
-
-- `gh pr view 343 --json state,mergedAt,headRefName,url` confirmed PR #343 merged.
-- `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows Claude in V1 smoke-failure support mode.
-- `git diff --check` passed.
-
-### T143 — Record core-only memory export decision for Claude
-- **Owner:** codex
-- **Branch:** codex/T143-memory-export-core-decision
-- **Pillar:** longitudinal learning
-- **Status:** review
-
-## Scope
-
-Record Codex's supervisor decision on PR #94: V1 memory export must ship
-core-only, without caller-supplied `projectIds` or project-scoped logline/twist
-payloads until an ownership-scoping design exists.
-
-## Done When
-
-- PR #94 has a clear Codex supervisor comment.
-- `docs/coordination.json` tells Claude to narrow PR #94 to core-only.
-- The event lane records the blocker as `needs_scope_narrowing`.
-- Coordination validation passes.
-
-## Verification
-
-- `gh pr comment 94 ...` posted the core-only V1 export decision.
-- `node scripts/agent_event.mjs append --by=codex --kind=review_blocker --pr=94 --blocker-kind=needs_scope_narrowing ...` recorded the blocker.
-- `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/agent_next.mjs --role=claude --limit=5` shows PR #94 as the top Claude action.
-- `git diff --check` passed.
-
-### T144 — Refresh coordination after T143 merge
-- **Owner:** codex
-- **Branch:** codex/T144-refresh-after-t143
-- **Pillar:** infra
-- **Status:** review
-
-## Scope
-
-Refresh coordination after PR #345 merged so agent prompts know that the
-core-only memory export decision is now canonical on `main`.
-
-## Done When
-
-- `docs/coordination.json` marks PR #345 merged.
-- `docs/codex-claude-live-handoff.md` marks T143 merged.
-- Claude's next action remains narrowing PR #94 to the V1 core-only memory
-  export contract.
-- Coordination validation passes.
-
-## Verification
-
-- `gh pr view 345 --json state,mergedAt,headRefName,url` confirmed PR #345 merged.
-- `node scripts/coordination_state.mjs validate` passed.
-- `node scripts/agent_next.mjs --role=claude --limit=5` passed and shows PR #94 core-only narrowing as the top Claude action.
-- `git diff --check` passed.
-
 ### T145 — Refresh coordination after auth and memory export merges
 - **Owner:** codex
 - **Branch:** codex/T145-post-auth-memory-refresh
@@ -3433,6 +3408,186 @@ handoff after Codex merged PR #212 and PR #94.
   manual-smoke failure support.
 - `node scripts/pre_flight.mjs --strict` passed.
 - `git diff --check` passed.
+
+### T146 — Run V1 launch smoke and release preflight pass
+- **Owner:** codex
+- **Branch:** codex/T146-v1-launch-smoke-preflight
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Run the current V1 launch room path: release config check, release preflight,
+manual-smoke/Launch Doctor evidence capture, and Claude handoff for any
+concrete backend failure.
+
+## Done When
+
+- The release local config state is audited.
+- `scripts/run_release_preflight.sh` has been run or is blocked with exact
+  evidence.
+- Launch Doctor docs are current for the smoke attempt.
+- Claude's next action is concrete and does not invite net-new backend work.
+- Verification commands are recorded.
+
+## Verification
+
+- `scripts/run_release_preflight.sh` failed before preflight because
+  `them/Release.local.env` is missing.
+- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
+  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
+- `cd backend && npm run eval:v1-smokes` passed all four deterministic V1
+  smokes.
+- `env TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs`
+  passed 6/7 with one expected skip after local loopback binding was allowed.
+- `node --test scripts/v1_manual_qa_checklist.test.mjs` passed 4/4.
+- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
+- `cd backend && npm run v1:status` reported 20/25.
+- `node scripts/v1_launch_room.mjs --role=codex` and `--role=human` both
+  reflected the updated launch state.
+- `gh pr list --state open` shows only human-gated PR #33 remains open.
+- `docs/v1-launch-doctor.latest.json/.md` was regenerated with truthful
+  blocked manual-smoke evidence.
+
+### T147 — Refresh Claude handoff after Phase 7c design merge
+- **Owner:** codex
+- **Branch:** codex/T147-phase7c-handoff-refresh
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Record that PR #349's Phase 7c design note is merged, give Claude the exact
+implementation lane, and keep the release-config/manual-smoke blockers separate
+from backend decomposition work.
+
+## Done When
+
+- `docs/coordination.json`, `docs/claude-inbox.md`, and
+  `docs/codex-claude-live-handoff.md` say Phase 7c implementation is assigned.
+- The handoff forbids side PRs and preserves the talk-path merge caution.
+- `agent_next` routes Claude to the Phase 7c implementation instead of polling
+  or inventing unrelated work.
+- Verification commands are recorded.
+
+## Verification
+
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events`
+  routes Claude to Phase 7c implementation.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
+
+### T148 — Add safe release config status command
+- **Owner:** codex
+- **Branch:** codex/T148-release-config-status
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Add a non-secret-printing status command for `them/Release.local.env` and wire
+the V1 launch room to show whether the release config file exists, has safe
+permissions, and contains real-looking values for the three launch blockers:
+`DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN`.
+
+## Done When
+
+- A script reports release local config status without sourcing or printing
+  secret values.
+- The V1 launch room includes the release local config state.
+- Tests cover missing file, placeholders, localhost backend rejection, and
+  present values.
+- Verification commands are recorded.
+
+## Verification
+
+- `node --test scripts/release_config_status.test.mjs` passed 5/5.
+- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
+- `node scripts/release_config_status.mjs` passed and reports the current
+  missing `them/Release.local.env` without printing secrets.
+- `node scripts/v1_launch_room.mjs --role=human` passed and now includes the
+  release local config status line.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
+
+### T149 — Add Phase 7c implementation task row for Claude
+- **Owner:** codex
+- **Branch:** codex/T149-phase7c-task-row
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Add the authoritative active-task row that lets Claude start the approved
+Phase 7c talk supplier-glue implementation without waiting on another human
+copy/paste handoff.
+
+## Done When
+
+- `tasks/_active/` contains a Claude-owned Phase 7c implementation row with
+  exact branch, scope, constraints, and verification requirements.
+- `TASKS.md` is regenerated so `agent_next` and task readers agree that Phase
+  7c is ready for Claude.
+- The live handoff/inbox remains pointed at Phase 7c and does not invite
+  side quests while release secrets are human-blocked.
+- Verification commands are recorded.
+
+## Verification
+
+- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events` routes
+  Claude to `T-decompose-phase7c-talk-supplier-glue` first.
+- `node scripts/coordination_state.mjs validate` passed.
+- `node --test scripts/tasks_active_frontmatter_eval.test.mjs` passed 2/2.
+- `node scripts/tasks_active_frontmatter_eval.mjs --strict` passed.
+- `node scripts/pre_flight.mjs --strict` passed.
+- `git diff --check` passed.
+
+### T151 — Refresh coordination after Phase 7c merge
+- **Owner:** codex
+- **Branch:** codex/T151-post-phase7c-refresh
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Refresh the coordination docs after PR #354 merged, mark the Phase 7c task as
+merged, and publish the next Claude backend assignment so the support lane does
+not stall or duplicate completed work.
+
+## Done When
+
+- `TASKS.md` and task front matter mark Phase 7c as merged.
+- `docs/coordination.json`, `docs/claude-inbox.md`, and the live handoff all
+  reflect PR #354 as merged.
+- Claude has one concrete next backend lane or a clear support-only instruction.
+- Coordination validation, strict pre-flight, task-frontmatter eval, and
+  `git diff --check` pass.
+
+### T152 — Refresh eval-secret and release-gap state
+- **Owner:** codex
+- **Branch:** codex/T152-clear-eval-secret-and-release-gap
+- **Pillar:** infra
+- **Status:** in-progress
+
+## Scope
+
+Update the V1 launch coordination state after the GitHub Actions
+`OPENAI_API_KEY` secret was replaced and PR #33 reran. The secret is no longer
+the blocker; the remaining #33 blocker is eval quality. Keep the release
+preflight/manual smoke gap honest: real release values and signing identities
+are still absent locally.
+
+## Done When
+
+- `TASKS.md`, `docs/coordination.json`, and agent handoff docs no longer call
+  PR #33 a human OpenAI-secret blocker.
+- Claude has the precise #33 eval-quality fix target, while Phase 6.1a remains
+  the next backend lane after #33.
+- Launch/release docs record the current release config and signing state
+  without committing secrets.
+- Coordination validation, strict pre-flight, release-config status, launch
+  room, and diff checks pass.
 
 ### T42-supervisor-merge-protocol — Codex self-merge authority + agent handoff fast lane
 - **Owner:** codex
@@ -3980,98 +4135,5 @@ structured `expected_action` for PR #212 to just `Claude`.
 `docs/coordination.json` again gives Claude the full #212 expected action:
 rebase on current main after #273, rerun backend auth tests, and keep
 `do-not-merge`/tier-3 until human auth-route clearance.
-
-### T146 — Run V1 launch smoke and release preflight pass
-- **Owner:** codex
-- **Branch:** codex/T146-v1-launch-smoke-preflight
-- **Pillar:** infra
-- **Status:** review
-
-## Scope
-
-Run the current V1 launch room path: release config check, release preflight,
-manual-smoke/Launch Doctor evidence capture, and Claude handoff for any
-concrete backend failure.
-
-## Done When
-
-- The release local config state is audited.
-- `scripts/run_release_preflight.sh` has been run or is blocked with exact
-  evidence.
-- Launch Doctor docs are current for the smoke attempt.
-- Claude's next action is concrete and does not invite net-new backend work.
-- Verification commands are recorded.
-
-## Verification
-
-- `scripts/run_release_preflight.sh` failed before preflight because
-  `them/Release.local.env` is missing.
-- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
-  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
-- `cd backend && npm run eval:v1-smokes` passed all four deterministic V1
-  smokes.
-- `env TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs`
-  passed 6/7 with one expected skip after local loopback binding was allowed.
-- `node --test scripts/v1_manual_qa_checklist.test.mjs` passed 4/4.
-- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
-- `cd backend && npm run v1:status` reported 20/25.
-- `node scripts/v1_launch_room.mjs --role=codex` and `--role=human` both
-  reflected the updated launch state.
-- `gh pr list --state open` shows only human-gated PR #33 remains open.
-- `docs/v1-launch-doctor.latest.json/.md` was regenerated with truthful
-  blocked manual-smoke evidence.
-
-### T149 — Add Phase 7c implementation task row for Claude
-- **Owner:** codex
-- **Branch:** codex/T149-phase7c-task-row
-- **Pillar:** infra
-- **Status:** review
-
-## Scope
-
-Add the authoritative active-task row that lets Claude start the approved
-Phase 7c talk supplier-glue implementation without waiting on another human
-copy/paste handoff.
-
-## Done When
-
-- `tasks/_active/` contains a Claude-owned Phase 7c implementation row with
-  exact branch, scope, constraints, and verification requirements.
-- `TASKS.md` is regenerated so `agent_next` and task readers agree that Phase
-  7c is ready for Claude.
-- The live handoff/inbox remains pointed at Phase 7c and does not invite
-  side quests while release secrets are human-blocked.
-- Verification commands are recorded.
-
-## Verification
-
-- `node scripts/agent_next.mjs --role=claude --limit=5 --no-events` routes
-  Claude to `T-decompose-phase7c-talk-supplier-glue` first.
-- `node scripts/coordination_state.mjs validate` passed.
-- `node --test scripts/tasks_active_frontmatter_eval.test.mjs` passed 2/2.
-- `node scripts/tasks_active_frontmatter_eval.mjs --strict` passed.
-- `node scripts/pre_flight.mjs --strict` passed.
-- `git diff --check` passed.
-
-### T151 — Refresh coordination after Phase 7c merge
-- **Owner:** codex
-- **Branch:** codex/T151-post-phase7c-refresh
-- **Pillar:** infra
-- **Status:** review
-
-## Scope
-
-Refresh the coordination docs after PR #354 merged, mark the Phase 7c task as
-merged, and publish the next Claude backend assignment so the support lane does
-not stall or duplicate completed work.
-
-## Done When
-
-- `TASKS.md` and task front matter mark Phase 7c as merged.
-- `docs/coordination.json`, `docs/claude-inbox.md`, and the live handoff all
-  reflect PR #354 as merged.
-- Claude has one concrete next backend lane or a clear support-only instruction.
-- Coordination validation, strict pre-flight, task-frontmatter eval, and
-  `git diff --check` pass.
 
 <!-- END AUTOGEN active-tasks -->
