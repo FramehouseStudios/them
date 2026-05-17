@@ -128,6 +128,9 @@ import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifi
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
 import { configureFirstPageTelemetry } from "./lib/first_page_telemetry.js";
 import { mountFirstPageTelemetryRoute } from "./lib/first_page_telemetry_route.js";
+import { mountOutboxRoutes } from "./lib/outbox_routes.js";
+import { mountStateRoute } from "./lib/state_route.js";
+import { mountDataRoutes } from "./lib/data_routes.js";
 import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
@@ -26431,198 +26434,38 @@ mountOpsAlertsRoute(app, {
   scaleBackplaneStatus: () => scaleBackplane.status(),
 });
 
-app.get("/outbox", async (req, res) => {
-  const status = String(req.query?.status || "all").trim().toLowerCase();
-  const limit = parseQueryLimit(req.query?.limit, 80, 500);
-  const rows = await scaleBackplane.listOutbox({
-    status: ["all", "pending", "completed", "failed"].includes(status) ? status : "all",
-    limit,
-  });
-  return res.status(200).json({
-    ok: true,
-    status_filter: status,
-    limit,
-    count: rows.length,
-    items: rows,
-  });
+// Phase 6.1a: /outbox/*, /state, /data/* extracted to lib/. Mount calls
+// preserve the exact original registration order of these 5 routes. The
+// method-not-allowed (405) app.all guards remain inline below, untouched.
+mountOutboxRoutes(app, {
+  OUTBOX_WORKER_BATCH_SIZE,
+  createRequestId,
+  parseQueryLimit,
+  processOutboxBatch,
+  processSingleOutboxItemById,
+  scaleBackplane,
 });
-
-app.post("/outbox/retry", express.json({ limit: "256kb" }), async (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const id = String(req.body?.id || "").trim();
-  if (id) {
-    const result = await processSingleOutboxItemById(id, rid);
-    const code = result.ok ? 200 : (result.error === "not_found" ? 404 : 409);
-    return res.status(code).json({
-      ok: Boolean(result.ok),
-      id,
-      status: result.status || "",
-      error: result.error || null,
-      item: result.item || null,
-    });
-  }
-  const batch = await processOutboxBatch({
-    limit: parseQueryLimit(req.body?.limit, OUTBOX_WORKER_BATCH_SIZE, 200),
-    reqId: rid,
-  });
-  return res.status(200).json({
-    ok: true,
-    ...batch,
-  });
+mountStateRoute(app, {
+  applyReadStateHeaders,
+  buildConversationHistoryThreads,
+  buildMemoryCards,
+  buildReadStateMeta,
+  maybeBackfillThemesFromHistory,
+  normalizeClientToken,
+  parseQueryLimit,
+  parseTurnIdToNumber,
+  sanitizePersistedSessionMemory,
+  selectMemoryRecordForRead,
+  setPersistedUserMemoryForIp,
 });
-
-app.get("/state", (req, res) => {
-  const sinceVersion = String(req.query?.sinceVersion || "").trim();
-  const sinceTurnNumber = parseTurnIdToNumber(req.query?.sinceTurnId);
-  const historyLimit = parseQueryLimit(
-    req.query?.historyLimit ??
-      req.query?.history_limit ??
-      req.query?.limit_history ??
-      req.query?.limit,
-    60,
-    240
-  );
-  const memoriesLimit = parseQueryLimit(
-    req.query?.memoriesLimit ??
-      req.query?.memories_limit ??
-      req.query?.limit_memories,
-    24,
-    120
-  );
-
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const fullThreads = buildConversationHistoryThreads(memory, Math.max(historyLimit, 260));
-  const backfillResult = maybeBackfillThemesFromHistory(
-    memory,
-    fullThreads,
-    Date.now(),
-    { trigger: "state_read" }
-  );
-  if (backfillResult.applied && selected.ip && selected.ip !== "unknown") {
-    setPersistedUserMemoryForIp(selected.ip, memory, Date.now(), {
-      clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
-    });
-    console.log(
-      `[state_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`
-    );
-  }
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const historyDelta = sinceTurnNumber > 0
-    ? fullThreads
-        .filter((item) => Math.max(0, Number(item?.turn || 0)) > sinceTurnNumber)
-        .slice(0, historyLimit)
-    : fullThreads.slice(0, historyLimit);
-  const memoriesDelta = buildMemoryCards(memory, fullThreads, memoriesLimit);
-  const deltaNoChange = Boolean(sinceVersion && sinceVersion === readMeta.stateVersion);
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  if (deltaNoChange) {
-    return res.status(200).json({
-      source: selected.source,
-      source_ip: selected.ip,
-      session_id: readMeta.sessionId,
-      state_version: readMeta.stateVersion,
-      last_updated_at: readMeta.lastUpdatedAt || null,
-      history_updated_at: readMeta.historyUpdatedAt || null,
-      memory_updated_at: readMeta.memoryUpdatedAt || null,
-      last_turn_id: readMeta.lastTurnId || null,
-      schema_version: readMeta.schemaVersion,
-      backend_build: readMeta.backendBuild,
-      backend_boot_id: readMeta.backendBootId,
-      is_delta: true,
-      delta_no_change: true,
-      history_changed: false,
-      memory_changed: false,
-      since_version: sinceVersion || null,
-      since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
-      history_delta: [],
-      memories_delta: [],
-    });
-  }
-
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    is_delta: Boolean(sinceVersion || sinceTurnNumber > 0),
-    delta_no_change: false,
-    history_changed: historyDelta.length > 0,
-    memory_changed: memoriesDelta.length > 0,
-    since_version: sinceVersion || null,
-    since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
-    history_delta: historyDelta,
-    memories_delta: memoriesDelta,
-  });
-});
-
-app.post("/data/history/clear", (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const cleared = clearConversationHistoryMemory(context.memory, nowTs);
-  const persisted = persistWritableMemoryContext(context, cleared, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  res.setHeader("x-backend-status", "up");
-  console.log(
-    `[${rid}] data_control action=clear_history ip=${context.requesterIp} mode=${context.clientToken ? "session" : "ip"} state=${readMeta.stateVersion}`
-  );
-
-  return res.status(200).json({
-    ok: true,
-    action: "clear_history",
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    backend_boot_id: readMeta.backendBootId,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
-});
-
-app.post("/data/memories/clear", (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const cleared = clearAllMemoriesMemory(context.memory, nowTs);
-  const persisted = persistWritableMemoryContext(context, cleared, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  res.setHeader("x-backend-status", "up");
-  console.log(
-    `[${rid}] data_control action=clear_memories ip=${context.requesterIp} mode=${context.clientToken ? "session" : "ip"} state=${readMeta.stateVersion}`
-  );
-
-  return res.status(200).json({
-    ok: true,
-    action: "clear_memories",
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    backend_boot_id: readMeta.backendBootId,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
+mountDataRoutes(app, {
+  applyReadStateHeaders,
+  buildReadStateMeta,
+  clearAllMemoriesMemory,
+  clearConversationHistoryMemory,
+  createRequestId,
+  persistWritableMemoryContext,
+  resolveWritableMemoryContext,
 });
 
 app.get("/history", (req, res) => {
