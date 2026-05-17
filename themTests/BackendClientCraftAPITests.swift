@@ -3,6 +3,51 @@ import ScreenplayStudio
 @testable import them
 
 final class BackendClientCraftAPITests: XCTestCase {
+    func testTalkTurnRateLimitNoticeParsesRetryAfterMsAndBannerCopy() throws {
+        let notice = try XCTUnwrap(
+            BackendTalkTurnMetaRateLimitNotice(
+                turnId: "turn-7",
+                statusCode: 429,
+                data: Data(#"{ "error": "rate_limited", "retry_after_ms": 1250 }"#.utf8),
+                retryAfterHeader: nil
+            )
+        )
+
+        XCTAssertEqual(notice.turnId, "turn-7")
+        XCTAssertEqual(notice.retryAfterMs, 1250)
+        XCTAssertEqual(notice.retryDelayLabel, "2 seconds")
+        XCTAssertEqual(
+            notice.bannerText,
+            "Saved the response. Extra turn details are cooling down; retry in 2 seconds."
+        )
+    }
+
+    func testTalkTurnRateLimitNoticeFallsBackToRetryAfterHeader() throws {
+        let notice = try XCTUnwrap(
+            BackendTalkTurnMetaRateLimitNotice(
+                turnId: " turn-8 ",
+                statusCode: 429,
+                data: Data(#"{ "error": "rate_limited" }"#.utf8),
+                retryAfterHeader: "3"
+            )
+        )
+
+        XCTAssertEqual(notice.turnId, "turn-8")
+        XCTAssertEqual(notice.retryAfterMs, 3000)
+        XCTAssertEqual(notice.retryDelayLabel, "3 seconds")
+    }
+
+    func testTalkTurnRateLimitNoticeIgnoresOtherErrors() {
+        let notice = BackendTalkTurnMetaRateLimitNotice(
+            turnId: "turn-9",
+            statusCode: 500,
+            data: Data(#"{ "error": "rate_limited", "retry_after_ms": 1000 }"#.utf8),
+            retryAfterHeader: "1"
+        )
+
+        XCTAssertNil(notice)
+    }
+
     func testFetchesCraftFrameworksAndSchemasWithVersionHeader() async throws {
         let recorder = CraftRequestRecorder()
         let client = makeClient(recorder: recorder) { request in
@@ -165,6 +210,373 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
     }
 
+    func testLoglineEndpointsBuildExpectedRequests() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/craft/logline/distill"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "logline": "A pilot chases a vanished signal through a haunted airport.",
+                  "source": "stub",
+                  "distilledAt": "2026-05-10T21:00:00.000Z",
+                  "stored": true
+                }
+                """#)
+            case ("GET", "/craft/logline/drift"):
+                XCTAssertEqual(request.url?.query?.contains("projectId=proj-17"), true)
+                XCTAssertEqual(request.url?.query?.contains("currentLogline=A%20pilot"), true)
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "score": 0.42,
+                  "current": "A pilot chases a vanished signal through a haunted airport.",
+                  "earliest": "A pilot searches for a missing tower voice.",
+                  "historyCount": 2,
+                  "summary": "Logline has drifted meaningfully from the original pitch."
+                }
+                """#)
+            case ("GET", "/craft/logline/history"):
+                XCTAssertEqual(request.url?.query, "projectId=proj-17")
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "projectId": "proj-17",
+                  "entries": [
+                    {
+                      "schemaVersion": 1,
+                      "projectId": "proj-17",
+                      "versionId": "v1",
+                      "logline": "A pilot searches for a missing tower voice.",
+                      "frameworkId": "save-the-cat",
+                      "source": "stub",
+                      "distilledAt": "2026-05-10T20:00:00.000Z",
+                      "distilledAtMs": 1770000000000
+                    }
+                  ]
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let distilled = try await client.distillCraftLogline(
+            text: "INT. AIRPORT - NIGHT",
+            projectId: "proj-17",
+            versionId: "v1",
+            frameworkId: "save-the-cat"
+        )
+        let drift = try await client.fetchCraftLoglineDrift(
+            projectId: "proj-17",
+            currentLogline: distilled.logline
+        )
+        let history = try await client.fetchCraftLoglineHistory(projectId: "proj-17")
+
+        XCTAssertEqual(distilled.stored, true)
+        XCTAssertEqual(drift.score, 0.42)
+        XCTAssertEqual(history.entries.first?.logline, "A pilot searches for a missing tower voice.")
+        XCTAssertEqual(recorder.methodsAndPaths, [
+            "POST /craft/logline/distill",
+            "GET /craft/logline/drift",
+            "GET /craft/logline/history"
+        ])
+        XCTAssertEqual(recorder.allHeaders(named: "X-Craft-Schema-Version"), ["1", "1", "1"])
+        let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
+        XCTAssertEqual(body["projectId"] as? String, "proj-17")
+        XCTAssertEqual(body["versionId"] as? String, "v1")
+        XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+    }
+
+    func testBlockSignalEndpointBuildsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/memory/block-signal"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "score": 0.625,
+                  "level": "high",
+                  "signals": [
+                    { "key": "scene_completion_gap", "value": 1.0, "weight": 0.4 },
+                    { "key": "attempt_completion_dropoff", "value": 1.0, "weight": 0.3 }
+                  ],
+                  "summary": "It's been a while since you finished a scene. Try a low-stakes warm-up.",
+                  "habitsObserved": {
+                    "last_scene_attempt_at": 1714752000000,
+                    "last_scene_completion_at": null,
+                    "last_talk_turn_at": 1714838400000,
+                    "scenes_attempted": 8,
+                    "scenes_completed": 1,
+                    "recent_short_turns": 5
+                  }
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let signal = try await client.fetchMemoryBlockSignal()
+
+        XCTAssertEqual(signal.level, .high)
+        XCTAssertEqual(signal.score, 0.625)
+        XCTAssertEqual(signal.signals.first?.key, "scene_completion_gap")
+        XCTAssertEqual(signal.habitsObserved.scenesAttempted, 8)
+        XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/block-signal"])
+    }
+
+    func testBlockSignalHistoryEndpointBuildsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/memory/block-signal/history"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "entries": [
+                    { "at": 1000, "score": 0.1, "level": "low" },
+                    { "at": 300000, "score": 0.5, "level": "medium" },
+                    { "at": 600000, "score": 0.9, "level": "high" }
+                  ],
+                  "counts": {
+                    "total": 3,
+                    "byLevel": { "low": 1, "medium": 1, "high": 1 }
+                  },
+                  "newestAt": 600000,
+                  "oldestAt": 1000
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let history = try await client.fetchMemoryBlockSignalHistory()
+
+        XCTAssertEqual(history.entries.count, 3)
+        XCTAssertEqual(history.entries.last?.level, .high)
+        XCTAssertEqual(history.counts.byLevel.medium, 1)
+        XCTAssertEqual(history.newestAt, 600000)
+        XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/block-signal/history"])
+    }
+
+
+
+    func testTwistSuggestPostsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/craft/twist/suggest"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "frameworkId": "save-the-cat",
+                  "currentBeatId": "midpoint",
+                  "source": "stub",
+                  "twists": [
+                    {
+                      "id": "stc-midpoint-1",
+                      "label": "False Victory",
+                      "hook": "The win is real, but the cost was paid by the wrong person.",
+                      "severity": "high",
+                      "rationale": "Converts triumph into a trap."
+                    }
+                  ]
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let response = try await client.suggestCraftTwists(
+            frameworkId: "save-the-cat",
+            currentBeatId: "midpoint",
+            sceneSummary: "A false victory lands badly.",
+            count: 2
+        )
+
+        XCTAssertEqual(response.twists.first?.id, "stc-midpoint-1")
+        XCTAssertEqual(recorder.methodsAndPaths, ["POST /craft/twist/suggest"])
+        let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
+        XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+        XCTAssertEqual(body["currentBeatId"] as? String, "midpoint")
+        XCTAssertEqual(body["sceneSummary"] as? String, "A false victory lands badly.")
+        XCTAssertEqual(body["count"] as? Int, 2)
+    }
+
+    func testAcceptedTwistEndpointsBuildExpectedRequests() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/craft/twist/accepted"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "ok": true,
+                  "action": "recorded",
+                  "entry": {
+                    "schemaVersion": 1,
+                    "projectId": "proj-17",
+                    "versionId": "v1",
+                    "frameworkId": "save-the-cat",
+                    "beatId": "midpoint",
+                    "twist": {
+                      "id": "stc-midpoint-1",
+                      "label": "False Victory",
+                      "hook": "The win is real, but the cost was paid by the wrong person.",
+                      "severity": "high",
+                      "rationale": "Converts triumph into a trap."
+                    },
+                    "acceptedAt": "2026-05-10T22:00:00.000Z",
+                    "acceptedAtMs": 1770000000000,
+                    "lastUpdatedAt": "2026-05-10T22:00:00.000Z",
+                    "lastUpdatedAtMs": 1770000000000,
+                    "userId": "usr_test",
+                    "sceneId": "scene-1",
+                    "note": "Keep this reversal."
+                  }
+                }
+                """#)
+            case ("GET", "/craft/twist/accepted"):
+                XCTAssertEqual(request.url?.query, "projectId=proj-17")
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "projectId": "proj-17",
+                  "entries": []
+                }
+                """#)
+            case ("DELETE", "/craft/twist/accepted/stc-midpoint-1"):
+                XCTAssertEqual(request.url?.query?.contains("projectId=proj-17"), true)
+                XCTAssertEqual(request.url?.query?.contains("versionId=v1"), true)
+                return .json(#"""
+                { "schemaVersion": 1, "ok": true, "action": "removed" }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let twist = ScreenplayCraftTwistSuggestion(
+            id: "stc-midpoint-1",
+            label: "False Victory",
+            hook: "The win is real, but the cost was paid by the wrong person.",
+            severity: "high",
+            rationale: "Converts triumph into a trap."
+        )
+
+        let recorded = try await client.recordAcceptedCraftTwist(
+            projectId: "proj-17",
+            versionId: "v1",
+            frameworkId: "save-the-cat",
+            beatId: "midpoint",
+            twist: twist,
+            sceneId: "scene-1",
+            note: "Keep this reversal."
+        )
+        let fetched = try await client.fetchAcceptedCraftTwists(projectId: "proj-17")
+        let deleted = try await client.deleteAcceptedCraftTwist(
+            twistId: "stc-midpoint-1",
+            projectId: "proj-17",
+            versionId: "v1"
+        )
+
+        XCTAssertEqual(recorded.action, "recorded")
+        XCTAssertEqual(recorded.entry.twist.id, "stc-midpoint-1")
+        XCTAssertEqual(fetched.projectId, "proj-17")
+        XCTAssertEqual(deleted.action, "removed")
+        XCTAssertEqual(recorder.methodsAndPaths, [
+            "POST /craft/twist/accepted",
+            "GET /craft/twist/accepted",
+            "DELETE /craft/twist/accepted/stc-midpoint-1"
+        ])
+        let body = try XCTUnwrap(recorder.requests.first?.bodyObject)
+        XCTAssertEqual(body["projectId"] as? String, "proj-17")
+        XCTAssertEqual(body["versionId"] as? String, "v1")
+        XCTAssertEqual(body["frameworkId"] as? String, "save-the-cat")
+        XCTAssertEqual(body["beatId"] as? String, "midpoint")
+        XCTAssertEqual(body["sceneId"] as? String, "scene-1")
+        XCTAssertEqual(body["note"] as? String, "Keep this reversal.")
+        let bodyTwist = try XCTUnwrap(body["twist"] as? [String: Any])
+        XCTAssertEqual(bodyTwist["id"] as? String, "stc-midpoint-1")
+    }
+
+    func testCharacterTraitsEndpointBuildsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/memory/character-traits"):
+                XCTAssertEqual(request.url?.query, "characterName=JUNE")
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "userId": "usr_test",
+                  "characters": [
+                    {
+                      "name": "JUNE",
+                      "traits": {
+                        "vocabulary": ["quiet room"],
+                        "keywords": ["guarded", "wry"],
+                        "speech_style": { "pace": "terse", "syntax": "fragmented" },
+                        "emotional_default": "guarded",
+                        "goals": ["Protect Leo"],
+                        "relationships": { "LEO": "estranged brother" }
+                      }
+                    }
+                  ]
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let response = try await client.fetchMemoryCharacterTraits(characterName: " JUNE ")
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.characters.first?.name, "JUNE")
+        XCTAssertEqual(response.characters.first?.traits?.speechStyle.pace, "terse")
+        XCTAssertEqual(response.characters.first?.traits?.relationships["LEO"], "estranged brother")
+        XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/character-traits"])
+    }
+
+    func testCharacterArchetypesEndpointBuildsExpectedRequest() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/memory/character-archetypes"):
+                return .json(#"""
+                {
+                  "schemaVersion": 1,
+                  "userId": "usr_test",
+                  "entries": [
+                    {
+                      "name": "JUNE",
+                      "primary": { "archetype": "hero", "score": 0.81, "signals": ["traits:2"] },
+                      "candidates": [],
+                      "summary": "JUNE reads as hero."
+                    }
+                  ]
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let response = try await client.fetchMemoryCharacterArchetypes()
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.entries.first?.name, "JUNE")
+        XCTAssertEqual(response.entries.first?.primary?.archetype, "hero")
+        XCTAssertEqual(response.entries.first?.primary?.score, 0.81)
+        XCTAssertEqual(recorder.methodsAndPaths, ["GET /memory/character-archetypes"])
+    }
+
     func testRealtimeSupplierBodyOmitsServerDefaultAndIncludesExplicitProviders() throws {
         let serverDefault = BackendClient.realtimeClientSecretBody(
             systemPrompt: "  write in screenplay mode  ",
@@ -201,6 +613,9 @@ final class BackendClientCraftAPITests: XCTestCase {
         {
           "transport": "webrtc_ephemeral",
           "realtime_provider": "stub",
+          "fallback": true,
+          "fallback_reason": "realtime_supplier_request_failed",
+          "primary_supplier": "openai",
           "assistant_name": "io.them",
           "model": "stub-realtime-1",
           "voice": "stub-voice",
@@ -222,8 +637,42 @@ final class BackendClientCraftAPITests: XCTestCase {
 
         let payload = try JSONDecoder().decode(BackendRealtimeBootstrapPayload.self, from: data)
         XCTAssertEqual(payload.realtimeProvider, "stub")
+        XCTAssertEqual(payload.fallback, true)
+        XCTAssertEqual(payload.fallbackReason, "realtime_supplier_request_failed")
+        XCTAssertEqual(payload.primarySupplier, "openai")
         XCTAssertEqual(payload.clientSecret.value, "stub_secret_abc")
         XCTAssertEqual(payload.session.outputModalities, ["audio"])
+    }
+
+    func testRealtimeBootstrapFallbackSummarySurfacesProviderSwitch() throws {
+        let bootstrap = BackendRealtimeBootstrap(
+            transport: "webrtc_ephemeral",
+            realtimeProvider: "stub",
+            fallback: true,
+            fallbackReason: "realtime_supplier_request_failed",
+            primarySupplier: "openai",
+            assistantName: "io.them",
+            model: "stub-realtime-1",
+            voice: "stub-voice",
+            session: BackendRealtimeSessionDescriptor(
+                model: "stub-realtime-1",
+                voice: "stub-voice",
+                instructions: "Stay in screenplay mode.",
+                type: "realtime",
+                outputModalities: ["audio"]
+            ),
+            clientSecret: BackendRealtimeClientSecret(
+                value: "stub_secret_abc",
+                expiresAt: 1_800_000_000,
+                sessionExpiresAt: 1_800_000_000
+            ),
+            issuedAt: 1_700_000_000
+        )
+
+        XCTAssertEqual(
+            bootstrap.fallbackSummary,
+            "Fallback from openai · to stub · realtime_supplier_request_failed"
+        )
     }
 
     func testCraftUnavailableErrorUsesTypedEnvelope() async throws {

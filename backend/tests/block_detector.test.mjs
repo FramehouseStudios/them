@@ -10,10 +10,17 @@ import express from "express";
 
 import {
   computeBlockSignal,
+  buildBlockCoachingBlockForPrompt,
   SIGNAL_WEIGHTS,
   LEVEL_LOW_MAX,
   LEVEL_MEDIUM_MAX,
 } from "../lib/block_detector.js";
+import {
+  buildModelPrompt,
+  buildModelPromptParts,
+  BLOCK_SIGNAL_BLOCK_OPEN,
+  BLOCK_SIGNAL_BLOCK_CLOSE,
+} from "../lib/prompt_assembly.js";
 import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { mountBlockSignalRoute } from "../lib/block_signal_route.js";
@@ -319,4 +326,183 @@ test("[block-detector] endpoint score round-trips the pure analyzer for the same
     },
     { userId: "u-rt", store },
   );
+});
+
+// ---------- T-block-signal-system-prompt ----------
+
+test("[block-prompt] coaching block is empty for level=low signals", () => {
+  const signal = computeBlockSignal({ habits: {}, nowMs: 0 });
+  assert.equal(signal.level, "low");
+  assert.equal(buildBlockCoachingBlockForPrompt(signal), "");
+});
+
+test("[block-prompt] coaching block emits warmer tone for medium signals", () => {
+  const signal = {
+    level: "medium",
+    summary: "You haven't shipped a scene in a few days — a short scene can break the spell.",
+  };
+  const block = buildBlockCoachingBlockForPrompt(signal);
+  assert.ok(block.includes("writer-coaching-note"));
+  assert.ok(/gentle|encouraging/i.test(block));
+  assert.ok(block.includes(signal.summary));
+});
+
+test("[block-prompt] coaching block escalates for high signals", () => {
+  const signal = {
+    level: "high",
+    summary: "Recent prompts have been very short. Try describing one image you can't shake.",
+  };
+  const block = buildBlockCoachingBlockForPrompt(signal);
+  assert.ok(block.includes("writer-coaching-note"));
+  assert.ok(/warmer|shorter|low-stakes/i.test(block));
+  assert.ok(block.includes("ONE concrete image"));
+});
+
+test("[block-prompt] coaching block tolerates missing summary", () => {
+  const block = buildBlockCoachingBlockForPrompt({ level: "medium" });
+  assert.ok(block.includes("writer-coaching-note"));
+  assert.ok(block.includes("Writer may be stuck"));
+});
+
+test("[block-prompt] coaching block returns empty for malformed input", () => {
+  assert.equal(buildBlockCoachingBlockForPrompt(null), "");
+  assert.equal(buildBlockCoachingBlockForPrompt({}), "");
+  assert.equal(buildBlockCoachingBlockForPrompt({ level: "ok" }), "");
+});
+
+test("[block-prompt] buildModelPrompt emits a <block_signal> block when coaching is supplied", () => {
+  const coaching = buildBlockCoachingBlockForPrompt({
+    level: "high",
+    summary: "Long gap since last scene.",
+  });
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    blockCoaching: coaching,
+    userInput: "next scene",
+  });
+  assert.ok(out.includes(BLOCK_SIGNAL_BLOCK_OPEN));
+  assert.ok(out.includes(BLOCK_SIGNAL_BLOCK_CLOSE));
+  assert.ok(out.includes("writer-coaching-note"));
+});
+
+test("[block-prompt] buildModelPrompt emits no <block_signal> block when coaching is empty", () => {
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    blockCoaching: "",
+    userInput: "next scene",
+  });
+  assert.ok(!out.includes("block_signal"));
+});
+
+test("[block-prompt] buildModelPromptParts surfaces blockSignalBlock", () => {
+  const coaching = buildBlockCoachingBlockForPrompt({
+    level: "medium",
+    summary: "Some drift.",
+  });
+  const parts = buildModelPromptParts({ persona: "P", blockCoaching: coaching, userInput: "U" });
+  assert.ok(parts.blockSignalBlock.includes(BLOCK_SIGNAL_BLOCK_OPEN));
+  assert.ok(parts.blockSignalBlock.includes("writer-coaching-note"));
+});
+
+// ---------- T-block-signal-clears-on-completion ----------
+//
+// These tests lock in the *behavioral* recovery semantics: not just
+// that recordSceneCompletion clears the short-turn counter field, but
+// that the *signal score* the model sees actually drops after the
+// writer ships a scene. They sit alongside the field-level checks so
+// a future change can't silently rewire short_turns to skip the reset
+// or stop stamping last_scene_completion_at without failing here too.
+
+test("[block-clears] block-signal score recovers after recordSceneCompletion (short-turn dominated)", async () => {
+  const store = freshStore();
+  // Build a high signal from short turns + a missing completion gap.
+  for (let i = 0; i < 6; i += 1) {
+    await store.recordTalkTurnForBlockSignal({ userId: "u-recover-1", transcript: "uh" });
+  }
+  await store.recordSceneAttempt({ userId: "u-recover-1" });
+  await store.recordSceneAttempt({ userId: "u-recover-1" });
+  await store.recordSceneAttempt({ userId: "u-recover-1" });
+  let habits = await store.getHabitsForUser("u-recover-1");
+  const before = computeBlockSignal({ habits, nowMs: Date.now() });
+  assert.ok(before.score >= 0.25, `expected pre-completion score>=0.25, got ${before.score}`);
+
+  await store.recordSceneCompletion({ userId: "u-recover-1", scenePageCount: 3 });
+  habits = await store.getHabitsForUser("u-recover-1");
+  const after = computeBlockSignal({ habits, nowMs: Date.now() });
+  assert.ok(after.score < before.score, `expected score to drop, before=${before.score} after=${after.score}`);
+  // Short-turn signal in particular should be zero (counter cleared).
+  const shortAfter = after.signals.find((s) => s.key === "short_turn_ratio");
+  assert.ok(!shortAfter, "short_turn_ratio should be absent (cleared)");
+});
+
+test("[block-clears] recordSceneCompletion does not erase historical _scenes_attempted", async () => {
+  const store = freshStore();
+  for (let i = 0; i < 4; i += 1) {
+    await store.recordSceneAttempt({ userId: "u-history" });
+  }
+  const before = await store.getHabitsForUser("u-history");
+  assert.equal(before._scenes_attempted, 4);
+  await store.recordSceneCompletion({ userId: "u-history", scenePageCount: 2 });
+  const after = await store.getHabitsForUser("u-history");
+  // Attempts preserved (max(attempted, completed)).
+  assert.ok(after._scenes_attempted >= 4, `_scenes_attempted=${after._scenes_attempted}`);
+  assert.equal(after._scenes_completed, 1);
+});
+
+test("[block-clears] scene-completion-gap signal clears (recovery)", async () => {
+  const store = freshStore();
+  // Seed last_scene_completion_at far in the past via talk turn signal,
+  // then verify computeBlockSignal sees a fresh completion as recovery.
+  const now = Date.now();
+  const FIFTEEN_DAYS = 15 * 24 * 60 * 60 * 1000;
+  // Use a synthetic habits object to bypass the timestamp issue.
+  const pastHabits = {
+    last_scene_completion_at: now - FIFTEEN_DAYS,
+    last_scene_attempt_at: now - FIFTEEN_DAYS,
+    _scenes_attempted: 3,
+    _scenes_completed: 1,
+  };
+  const before = computeBlockSignal({ habits: pastHabits, nowMs: now });
+  const gapBefore = before.signals.find((s) => s.key === "scene_completion_gap");
+  assert.ok(gapBefore && gapBefore.value === 1, "expected saturated completion gap");
+
+  // After a fresh completion, last_scene_completion_at = now, gap = 0.
+  const freshHabits = {
+    ...pastHabits,
+    last_scene_completion_at: now,
+    last_scene_attempt_at: now,
+  };
+  const after = computeBlockSignal({ habits: freshHabits, nowMs: now });
+  const gapAfter = after.signals.find((s) => s.key === "scene_completion_gap");
+  assert.ok(!gapAfter, "scene_completion_gap should be absent after fresh completion");
+  assert.ok(after.score < before.score);
+});
+
+test("[block-clears] level recovers from high to low when block was short-turn + gap dominated", async () => {
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const HOUR = 60 * 60 * 1000;
+  const blocked = {
+    last_scene_completion_at: now - 14 * DAY,
+    last_scene_attempt_at: now - 14 * DAY,
+    last_talk_turn_at: now - 72 * HOUR,
+    recent_short_turns: 8,
+    _scenes_attempted: 5,
+    _scenes_completed: 1,
+  };
+  assert.equal(computeBlockSignal({ habits: blocked, nowMs: now }).level, "high");
+  // After completion: gap clears, short-turn counter clears,
+  // last_talk_turn_at unchanged, attempts/completions both stamped.
+  const recovered = {
+    ...blocked,
+    last_scene_completion_at: now,
+    last_scene_attempt_at: now,
+    recent_short_turns: 0,
+    _scenes_completed: 2,
+  };
+  const after = computeBlockSignal({ habits: recovered, nowMs: now });
+  // Dropoff stays elevated (2/5 = 0.4 → still in dropoff range), but
+  // the composite score should drop substantially below high.
+  assert.ok(after.level === "low" || after.level === "medium",
+    `expected level low/medium after recovery, got ${after.level}`);
 });

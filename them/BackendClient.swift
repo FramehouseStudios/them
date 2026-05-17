@@ -31,6 +31,412 @@ struct BackendTurnCommitSignal {
     let memoryUpdatedAt: TimeInterval
 }
 
+enum BackendBlockSignalLevel: String, Codable, Equatable {
+    case low
+    case medium
+    case high
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = BackendBlockSignalLevel(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) ?? .unknown
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+struct BackendBlockSignalComponent: Codable, Equatable {
+    let key: String
+    let value: Double
+    let weight: Double
+}
+
+struct BackendBlockSignalHabitsObserved: Codable, Equatable {
+    let lastSceneAttemptAtMs: Double?
+    let lastSceneCompletionAtMs: Double?
+    let lastTalkTurnAtMs: Double?
+    let scenesAttempted: Int
+    let scenesCompleted: Int
+    let recentShortTurns: Int
+
+    enum CodingKeys: String, CodingKey {
+        case lastSceneAttemptAtMs = "last_scene_attempt_at"
+        case lastSceneCompletionAtMs = "last_scene_completion_at"
+        case lastTalkTurnAtMs = "last_talk_turn_at"
+        case scenesAttempted = "scenes_attempted"
+        case scenesCompleted = "scenes_completed"
+        case recentShortTurns = "recent_short_turns"
+    }
+}
+
+struct BackendBlockSignalResponse: Codable, Equatable {
+    let schemaVersion: Int
+    let score: Double
+    let level: BackendBlockSignalLevel
+    let signals: [BackendBlockSignalComponent]
+    let summary: String
+    let habitsObserved: BackendBlockSignalHabitsObserved
+    let error: String?
+}
+
+struct BackendBlockSignalHistoryEntry: Codable, Equatable {
+    let at: Double
+    let score: Double
+    let level: BackendBlockSignalLevel
+}
+
+struct BackendBlockSignalHistoryCountsByLevel: Codable, Equatable {
+    let low: Int
+    let medium: Int
+    let high: Int
+}
+
+struct BackendBlockSignalHistoryCounts: Codable, Equatable {
+    let total: Int
+    let byLevel: BackendBlockSignalHistoryCountsByLevel
+}
+
+struct BackendBlockSignalHistoryResponse: Codable, Equatable {
+    let schemaVersion: Int
+    let entries: [BackendBlockSignalHistoryEntry]
+    let counts: BackendBlockSignalHistoryCounts
+    let newestAt: Double?
+    let oldestAt: Double?
+    let error: String?
+}
+
+struct BackendBlockSignalNudgeState: Equatable {
+    let shouldRender: Bool
+    let title: String
+    let summary: String
+    let scoreLabel: String
+    let detailLabel: String
+    let topSignalLabel: String
+    let progress: Double
+    let level: BackendBlockSignalLevel
+
+    static func make(signal: BackendBlockSignalResponse?) -> BackendBlockSignalNudgeState {
+        guard let signal else {
+            return BackendBlockSignalNudgeState(
+                shouldRender: false,
+                title: "Momentum",
+                summary: "",
+                scoreLabel: "0%",
+                detailLabel: "No signal yet",
+                topSignalLabel: "",
+                progress: 0,
+                level: .low
+            )
+        }
+        let score = min(max(signal.score, 0), 1)
+        let percent = Int((score * 100).rounded())
+        let summary = signal.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let topSignal = signal.signals.first?.key ?? ""
+        let shouldRender = signal.level == .medium || signal.level == .high
+        return BackendBlockSignalNudgeState(
+            shouldRender: shouldRender,
+            title: signal.level == .high ? "Momentum needs care" : "Momentum check",
+            summary: summary.isEmpty ? "Try one small page move to keep the draft warm." : summary,
+            scoreLabel: "\(percent)%",
+            detailLabel: "\(signal.habitsObserved.scenesCompleted)/\(signal.habitsObserved.scenesAttempted) scenes finished - \(signal.habitsObserved.recentShortTurns) short turns",
+            topSignalLabel: Self.label(for: topSignal),
+            progress: score,
+            level: signal.level
+        )
+    }
+
+    private static func label(for key: String) -> String {
+        switch key {
+        case "scene_completion_gap": return "Scene gap"
+        case "attempt_completion_dropoff": return "Started vs. finished"
+        case "short_turn_ratio": return "Short prompts"
+        case "talk_turn_gap": return "Time away"
+        default: return "Momentum"
+        }
+    }
+}
+
+struct BackendBlockSignalHistoryTrendState: Equatable {
+    let shouldRender: Bool
+    let title: String
+    let countLabel: String
+    let trendLabel: String
+    let levelMixLabel: String
+    let sparklineScores: [Double]
+    let latestLevel: BackendBlockSignalLevel
+
+    static func make(history: BackendBlockSignalHistoryResponse?) -> BackendBlockSignalHistoryTrendState {
+        guard let history else {
+            return BackendBlockSignalHistoryTrendState(
+                shouldRender: false,
+                title: "Momentum history",
+                countLabel: "No samples",
+                trendLabel: "Waiting for a few writing passes",
+                levelMixLabel: "",
+                sparklineScores: [],
+                latestLevel: .low
+            )
+        }
+
+        let sortedEntries = history.entries.sorted { $0.at < $1.at }
+        let clampedScores = sortedEntries
+            .suffix(12)
+            .map { min(max($0.score, 0), 1) }
+        let latestLevel = sortedEntries.last?.level ?? .low
+        let total = max(history.counts.total, sortedEntries.count)
+        let countLabel = total == 1 ? "1 sample" : "\(total) samples"
+        let trend = trendLabel(for: clampedScores)
+        let mixLabel = "High \(history.counts.byLevel.high) / Medium \(history.counts.byLevel.medium)"
+
+        return BackendBlockSignalHistoryTrendState(
+            shouldRender: clampedScores.count >= 2,
+            title: "Momentum history",
+            countLabel: countLabel,
+            trendLabel: trend,
+            levelMixLabel: mixLabel,
+            sparklineScores: clampedScores,
+            latestLevel: latestLevel
+        )
+    }
+
+    private static func trendLabel(for scores: [Double]) -> String {
+        guard let first = scores.first, let last = scores.last else {
+            return "Waiting for a few writing passes"
+        }
+        let delta = last - first
+        if delta >= 0.15 { return "Momentum rising" }
+        if delta <= -0.15 { return "Momentum settling" }
+        return "Momentum steady"
+    }
+}
+
+
+struct BackendCharacterSpeechStyle: Codable, Equatable {
+    let pace: String
+    let syntax: String
+
+    enum CodingKeys: String, CodingKey {
+        case pace
+        case syntax
+    }
+
+    init(pace: String = "", syntax: String = "") {
+        self.pace = pace
+        self.syntax = syntax
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pace = (try container.decodeIfPresent(String.self, forKey: .pace)) ?? ""
+        syntax = (try container.decodeIfPresent(String.self, forKey: .syntax)) ?? ""
+    }
+}
+
+struct BackendCharacterTraits: Codable, Equatable {
+    let vocabulary: [String]
+    let keywords: [String]
+    let speechStyle: BackendCharacterSpeechStyle
+    let emotionalDefault: String
+    let goals: [String]
+    let relationships: [String: String]
+
+    enum CodingKeys: String, CodingKey {
+        case vocabulary
+        case keywords
+        case speechStyle = "speech_style"
+        case emotionalDefault = "emotional_default"
+        case goals
+        case relationships
+    }
+
+    init(
+        vocabulary: [String] = [],
+        keywords: [String] = [],
+        speechStyle: BackendCharacterSpeechStyle = BackendCharacterSpeechStyle(),
+        emotionalDefault: String = "",
+        goals: [String] = [],
+        relationships: [String: String] = [:]
+    ) {
+        self.vocabulary = vocabulary
+        self.keywords = keywords
+        self.speechStyle = speechStyle
+        self.emotionalDefault = emotionalDefault
+        self.goals = goals
+        self.relationships = relationships
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        vocabulary = (try container.decodeIfPresent([String].self, forKey: .vocabulary)) ?? []
+        keywords = (try container.decodeIfPresent([String].self, forKey: .keywords)) ?? []
+        speechStyle = (try container.decodeIfPresent(BackendCharacterSpeechStyle.self, forKey: .speechStyle)) ?? BackendCharacterSpeechStyle()
+        emotionalDefault = (try container.decodeIfPresent(String.self, forKey: .emotionalDefault)) ?? ""
+        goals = (try container.decodeIfPresent([String].self, forKey: .goals)) ?? []
+        relationships = (try container.decodeIfPresent([String: String].self, forKey: .relationships)) ?? [:]
+    }
+
+    var hasContent: Bool {
+        !vocabulary.isEmpty ||
+        !keywords.isEmpty ||
+        !speechStyle.pace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !speechStyle.syntax.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !emotionalDefault.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !goals.isEmpty ||
+        !relationships.isEmpty
+    }
+}
+
+struct BackendCharacterTraitRecord: Codable, Equatable {
+    let name: String
+    let traits: BackendCharacterTraits?
+}
+
+struct BackendCharacterTraitsResponse: Codable, Equatable {
+    let schemaVersion: Int
+    let userId: String?
+    let characters: [BackendCharacterTraitRecord]
+    let error: String?
+}
+
+struct BackendCharacterArchetypeCandidate: Codable, Equatable {
+    let archetype: String
+    let score: Double
+    let signals: [String]
+
+    init(archetype: String = "", score: Double = 0, signals: [String] = []) {
+        self.archetype = archetype
+        self.score = score
+        self.signals = signals
+    }
+}
+
+struct BackendCharacterArchetypeEntry: Codable, Equatable {
+    let name: String
+    let primary: BackendCharacterArchetypeCandidate?
+    let candidates: [BackendCharacterArchetypeCandidate]
+    let summary: String
+
+    init(
+        name: String = "",
+        primary: BackendCharacterArchetypeCandidate? = nil,
+        candidates: [BackendCharacterArchetypeCandidate] = [],
+        summary: String = ""
+    ) {
+        self.name = name
+        self.primary = primary
+        self.candidates = candidates
+        self.summary = summary
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try container.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        primary = try container.decodeIfPresent(BackendCharacterArchetypeCandidate.self, forKey: .primary)
+        candidates = (try container.decodeIfPresent([BackendCharacterArchetypeCandidate].self, forKey: .candidates)) ?? []
+        summary = (try container.decodeIfPresent(String.self, forKey: .summary)) ?? ""
+    }
+}
+
+struct BackendCharacterArchetypesResponse: Codable, Equatable {
+    let schemaVersion: Int
+    let userId: String?
+    let entries: [BackendCharacterArchetypeEntry]
+    let error: String?
+}
+
+struct BackendCharacterTraitCardState: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let summary: String
+    let chips: [String]
+    let detail: String
+    let hasTraits: Bool
+    let archetypeLabel: String
+    let archetypeSummary: String
+    let archetypeScoreLabel: String
+    let hasArchetype: Bool
+
+    static func make(
+        response: BackendCharacterTraitsResponse?,
+        archetypes: BackendCharacterArchetypesResponse? = nil
+    ) -> [BackendCharacterTraitCardState] {
+        guard let response else { return [] }
+        var archetypesByName: [String: BackendCharacterArchetypeEntry] = [:]
+        for entry in archetypes?.entries ?? [] {
+            let key = clean(entry.name).lowercased()
+            if !key.isEmpty, archetypesByName[key] == nil {
+                archetypesByName[key] = entry
+            }
+        }
+        return response.characters.prefix(4).enumerated().map { index, record in
+            let cleanedName = clean(record.name)
+            let traits = record.traits
+            let archetypeEntry = archetypesByName[cleanedName.lowercased()]
+            let primaryArchetype = clean(archetypeEntry?.primary?.archetype ?? "")
+            let score = archetypeEntry?.primary?.score ?? 0
+            let archetypeLabel = displayArchetype(primaryArchetype)
+            let scoreLabel = score > 0 ? "\(Int((score * 100).rounded()))%" : ""
+            let styleParts = [
+                clean(traits?.speechStyle.pace ?? ""),
+                clean(traits?.speechStyle.syntax ?? "")
+            ].filter { !$0.isEmpty }
+            let emotionalDefault = clean(traits?.emotionalDefault ?? "")
+            let goals = (traits?.goals ?? []).map { clean($0) }.filter { !$0.isEmpty }
+            let vocabulary = (traits?.vocabulary ?? []).map { clean($0) }.filter { !$0.isEmpty }
+            let keywords = (traits?.keywords ?? []).map { clean($0) }.filter { !$0.isEmpty }
+            let relationships = traits?.relationships ?? [:]
+            let summary: String
+            if !emotionalDefault.isEmpty {
+                summary = "Default: \(emotionalDefault)"
+            } else if !styleParts.isEmpty {
+                summary = "Voice: \(styleParts.joined(separator: ", "))"
+            } else if let firstGoal = goals.first {
+                summary = "Wants: \(firstGoal)"
+            } else {
+                summary = "Known character; voice inventory is still learning."
+            }
+            let chipSource = keywords + styleParts + Array(goals.prefix(1))
+            let chips = Array(chipSource.prefix(4))
+            let detailBits = [
+                vocabulary.isEmpty ? nil : "\(vocabulary.count) phrase\(vocabulary.count == 1 ? "" : "s")",
+                goals.isEmpty ? nil : "\(goals.count) goal\(goals.count == 1 ? "" : "s")",
+                relationships.isEmpty ? nil : "\(relationships.count) tie\(relationships.count == 1 ? "" : "s")"
+            ].compactMap { $0 }
+            return BackendCharacterTraitCardState(
+                id: "\(cleanedName.lowercased())-\(index)",
+                name: cleanedName.isEmpty ? "Unknown" : cleanedName,
+                summary: summary,
+                chips: chips,
+                detail: detailBits.isEmpty ? "Waiting for more dialogue evidence" : detailBits.joined(separator: " | "),
+                hasTraits: traits?.hasContent ?? false,
+                archetypeLabel: archetypeLabel,
+                archetypeSummary: clean(archetypeEntry?.summary ?? ""),
+                archetypeScoreLabel: scoreLabel,
+                hasArchetype: !archetypeLabel.isEmpty
+            )
+        }
+    }
+
+    private static func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func displayArchetype(_ value: String) -> String {
+        let cleaned = clean(value)
+        guard !cleaned.isEmpty else { return "" }
+        return cleaned
+            .split(separator: "_")
+            .map { part in
+                let lower = part.lowercased()
+                return lower.prefix(1).uppercased() + lower.dropFirst()
+            }
+            .joined(separator: " ")
+    }
+}
+
 private struct BackendTalkTurnMetaPayload: Decodable {
     let turnID: String?
     let sessionID: String?
@@ -88,6 +494,66 @@ private struct BackendTalkTurnMetaRenderContractPayload: Decodable {
             authoritativePageTextAvailable: authoritativePageTextAvailable ?? false,
             syncReady: syncReady ?? false
         )
+    }
+}
+
+private struct BackendTalkTurnMetaRateLimitEnvelope: Decodable {
+    let error: String?
+    let retryAfterMs: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case retryAfterMs = "retry_after_ms"
+    }
+}
+
+struct BackendTalkTurnMetaRateLimitNotice: Equatable {
+    let turnId: String
+    let retryAfterMs: Int?
+
+    init?(
+        turnId: String,
+        statusCode: Int,
+        data: Data,
+        retryAfterHeader: String?
+    ) {
+        guard statusCode == 429 else { return nil }
+        let envelope = try? JSONDecoder().decode(BackendTalkTurnMetaRateLimitEnvelope.self, from: data)
+        let error = (envelope?.error ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard error.isEmpty || error == "rate_limited" else { return nil }
+
+        let headerRetryMs = retryAfterHeader
+            .flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .map { Int(ceil(max(0, $0) * 1000)) }
+        let parsedRetryMs = envelope?.retryAfterMs ?? headerRetryMs
+
+        self.turnId = turnId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.retryAfterMs = parsedRetryMs.map { max(0, $0) }
+    }
+
+    var retryDelayLabel: String {
+        guard let retryAfterMs else { return "a moment" }
+        if retryAfterMs <= 0 { return "now" }
+        if retryAfterMs < 1000 { return "less than a second" }
+        let seconds = max(1, Int(ceil(Double(retryAfterMs) / 1000.0)))
+        return seconds == 1 ? "1 second" : "\(seconds) seconds"
+    }
+
+    var bannerText: String {
+        let retryPhrase = retryDelayLabel == "now"
+            ? "retry now"
+            : "retry in \(retryDelayLabel)"
+        return "Saved the response. Extra turn details are cooling down; \(retryPhrase)."
+    }
+}
+
+private struct BackendTalkTurnMetaRateLimitError: LocalizedError {
+    let notice: BackendTalkTurnMetaRateLimitNotice
+
+    var errorDescription: String? {
+        notice.bannerText
     }
 }
 
@@ -288,6 +754,7 @@ struct BackendTalkResult {
     let calendarAction: BackendCalendarComposeAction?
     let taskAction: BackendTaskAction?
     let speculativeTrace: BackendTalkSpeculativeTrace
+    let turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
     let commit: BackendTurnCommitSignal?
 }
 
@@ -391,6 +858,9 @@ struct BackendRealtimeSessionPayload: Decodable {
 struct BackendRealtimeBootstrapPayload: Decodable {
     let transport: String
     let realtimeProvider: String?
+    let fallback: Bool?
+    let fallbackReason: String?
+    let primarySupplier: String?
     let assistantName: String?
     let model: String
     let voice: String
@@ -401,6 +871,9 @@ struct BackendRealtimeBootstrapPayload: Decodable {
     enum CodingKeys: String, CodingKey {
         case transport
         case realtimeProvider = "realtime_provider"
+        case fallback
+        case fallbackReason = "fallback_reason"
+        case primarySupplier = "primary_supplier"
         case assistantName = "assistant_name"
         case model
         case voice
@@ -745,6 +1218,304 @@ final class BackendClient {
             body: request,
             responseType: ScreenplayCraftReport.self
         )
+    }
+
+    func distillCraftLogline(
+        text: String,
+        projectId: String,
+        versionId: String? = nil,
+        frameworkId: String? = nil
+    ) async throws -> ScreenplayCraftLoglineDistillResponse {
+        let request = ScreenplayCraftLoglineDistillRequest(
+            text: try requiredCraftBodyValue(text, field: "text"),
+            projectId: try requiredCraftBodyValue(projectId, field: "projectId"),
+            versionId: try optionalCraftBodyValue(versionId, field: "versionId"),
+            frameworkId: try optionalCraftBodyValue(frameworkId, field: "frameworkId")
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "logline", "distill"],
+            body: request,
+            responseType: ScreenplayCraftLoglineDistillResponse.self
+        )
+    }
+
+    func fetchCraftLoglineDrift(
+        projectId: String,
+        currentLogline: String? = nil
+    ) async throws -> ScreenplayCraftLoglineDriftResponse {
+        var queryItems = [
+            URLQueryItem(name: "projectId", value: try requiredCraftBodyValue(projectId, field: "projectId"))
+        ]
+        if let current = try optionalCraftBodyValue(currentLogline, field: "currentLogline") {
+            queryItems.append(URLQueryItem(name: "currentLogline", value: current))
+        }
+        return try await performCraftRequest(
+            pathComponents: ["craft", "logline", "drift"],
+            queryItems: queryItems,
+            responseType: ScreenplayCraftLoglineDriftResponse.self
+        )
+    }
+
+    func fetchCraftLoglineHistory(
+        projectId: String
+    ) async throws -> ScreenplayCraftLoglineHistoryResponse {
+        try await performCraftRequest(
+            pathComponents: ["craft", "logline", "history"],
+            queryItems: [URLQueryItem(name: "projectId", value: try requiredCraftBodyValue(projectId, field: "projectId"))],
+            responseType: ScreenplayCraftLoglineHistoryResponse.self
+        )
+    }
+
+    func suggestCraftTwists(
+        frameworkId: String,
+        currentBeatId: String,
+        sceneSummary: String? = nil,
+        count: Int? = 3
+    ) async throws -> ScreenplayCraftTwistSuggestResponse {
+        let request = ScreenplayCraftTwistSuggestRequest(
+            frameworkId: try requiredCraftBodyValue(frameworkId, field: "frameworkId"),
+            currentBeatId: try requiredCraftBodyValue(currentBeatId, field: "currentBeatId"),
+            sceneSummary: try optionalCraftBodyValue(sceneSummary, field: "sceneSummary"),
+            count: count
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "twist", "suggest"],
+            body: request,
+            responseType: ScreenplayCraftTwistSuggestResponse.self
+        )
+    }
+
+    func recordAcceptedCraftTwist(
+        projectId: String,
+        versionId: String? = nil,
+        frameworkId: String? = nil,
+        beatId: String? = nil,
+        twist: ScreenplayCraftTwistSuggestion,
+        sceneId: String? = nil,
+        note: String? = nil
+    ) async throws -> ScreenplayCraftAcceptedTwistResponse {
+        _ = try requiredCraftBodyValue(twist.id, field: "twist.id")
+        let request = ScreenplayCraftAcceptedTwistRequest(
+            projectId: try requiredCraftBodyValue(projectId, field: "projectId"),
+            versionId: try optionalCraftBodyValue(versionId, field: "versionId"),
+            frameworkId: try optionalCraftBodyValue(frameworkId, field: "frameworkId"),
+            beatId: try optionalCraftBodyValue(beatId, field: "beatId"),
+            twist: twist,
+            sceneId: try optionalCraftBodyValue(sceneId, field: "sceneId"),
+            note: try optionalCraftBodyValue(note, field: "note")
+        )
+        return try await performCraftRequest(
+            method: "POST",
+            pathComponents: ["craft", "twist", "accepted"],
+            body: request,
+            responseType: ScreenplayCraftAcceptedTwistResponse.self
+        )
+    }
+
+    func fetchAcceptedCraftTwists(
+        projectId: String
+    ) async throws -> ScreenplayCraftAcceptedTwistListResponse {
+        try await performCraftRequest(
+            pathComponents: ["craft", "twist", "accepted"],
+            queryItems: [URLQueryItem(name: "projectId", value: try requiredCraftBodyValue(projectId, field: "projectId"))],
+            responseType: ScreenplayCraftAcceptedTwistListResponse.self
+        )
+    }
+
+    func deleteAcceptedCraftTwist(
+        twistId: String,
+        projectId: String,
+        versionId: String? = nil
+    ) async throws -> ScreenplayCraftAcceptedTwistDeleteResponse {
+        var queryItems = [
+            URLQueryItem(name: "projectId", value: try requiredCraftBodyValue(projectId, field: "projectId"))
+        ]
+        if let versionId = try optionalCraftBodyValue(versionId, field: "versionId") {
+            queryItems.append(URLQueryItem(name: "versionId", value: versionId))
+        }
+        return try await performCraftRequest(
+            method: "DELETE",
+            pathComponents: ["craft", "twist", "accepted", try requiredCraftPathValue(twistId, field: "twistId")],
+            queryItems: queryItems,
+            responseType: ScreenplayCraftAcceptedTwistDeleteResponse.self
+        )
+    }
+
+    func fetchMemoryBlockSignal() async throws -> BackendBlockSignalResponse {
+        persistSharedBackendBaseURL(baseURL)
+        var url = baseURL
+        url.appendPathComponent("memory")
+        url.appendPathComponent("block-signal")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid block-signal response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+        do {
+            return try JSONDecoder().decode(BackendBlockSignalResponse.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid block-signal payload." : raw)
+        }
+    }
+
+    func fetchMemoryBlockSignalHistory() async throws -> BackendBlockSignalHistoryResponse {
+        persistSharedBackendBaseURL(baseURL)
+        var url = baseURL
+        url.appendPathComponent("memory")
+        url.appendPathComponent("block-signal")
+        url.appendPathComponent("history")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid block-signal history response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+        do {
+            return try JSONDecoder().decode(BackendBlockSignalHistoryResponse.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid block-signal history payload." : raw)
+        }
+    }
+
+
+    func fetchMemoryCharacterTraits(characterName: String? = nil) async throws -> BackendCharacterTraitsResponse {
+        persistSharedBackendBaseURL(baseURL)
+        var url = baseURL
+        url.appendPathComponent("memory")
+        url.appendPathComponent("character-traits")
+
+        let normalizedName = characterName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedName.isEmpty {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = [URLQueryItem(name: "characterName", value: normalizedName)]
+            if let componentURL = components?.url {
+                url = componentURL
+            }
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid character-traits response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+        do {
+            return try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid character-traits payload." : raw)
+        }
+    }
+
+    func fetchMemoryCharacterArchetypes() async throws -> BackendCharacterArchetypesResponse {
+        persistSharedBackendBaseURL(baseURL)
+        var url = baseURL
+        url.appendPathComponent("memory")
+        url.appendPathComponent("character-archetypes")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+        if shouldAttachUserIDHeader {
+            let userID = resolveUserID()
+            if !userID.isEmpty {
+                request.setValue(userID, forHTTPHeaderField: "X-User-Id")
+            }
+        }
+        if let token = appToken() {
+            request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
+        }
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendError.http(-1, "Invalid character-archetypes response.")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if let stageError = parseStageError(from: data) {
+                throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(http.statusCode, raw)
+        }
+        do {
+            return try JSONDecoder().decode(BackendCharacterArchetypesResponse.self, from: data)
+        } catch {
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            throw BackendError.http(502, raw.isEmpty ? "Invalid character-archetypes payload." : raw)
+        }
     }
 
     func lintCraftFormat(
@@ -1209,6 +1980,9 @@ final class BackendClient {
         return BackendRealtimeBootstrap(
             transport: payload.transport,
             realtimeProvider: payload.realtimeProvider,
+            fallback: payload.fallback,
+            fallbackReason: payload.fallbackReason,
+            primarySupplier: payload.primarySupplier,
             assistantName: payload.assistantName ?? "CLEMENTINE",
             model: payload.model,
             voice: payload.voice,
@@ -2317,6 +3091,7 @@ final class BackendClient {
             (screenplayOutput?.writesToPage == true && !renderContract.previewReplyOnly) ||
             (knowledgeTopics.isEmpty && knowledgeCitations.isEmpty)
         )
+        var turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
         if shouldFetchTurnMeta, let commitSignal {
             do {
                 let payload = try await fetchTurnMeta(
@@ -2367,6 +3142,9 @@ final class BackendClient {
                 if knowledgeContradictionRisk <= 0 {
                     knowledgeContradictionRisk = min(max(payload.knowledgeContradictionRisk ?? 0, 0), 1)
                 }
+            } catch let error as BackendTalkTurnMetaRateLimitError {
+                turnMetaRateLimitNotice = error.notice
+                print("GET /talk/turn/\(commitSignal.turnId) rate limited: \(error.localizedDescription)")
             } catch {
                 print("GET /talk/turn/\(commitSignal.turnId) failed: \(error.localizedDescription)")
             }
@@ -2554,6 +3332,7 @@ final class BackendClient {
             calendarAction: calendarAction,
             taskAction: taskAction,
             speculativeTrace: speculativeTrace,
+            turnMetaRateLimitNotice: turnMetaRateLimitNotice,
             commit: commitSignal
         )
     }
@@ -2588,6 +3367,14 @@ final class BackendClient {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid turn metadata response")
+        }
+        if let notice = BackendTalkTurnMetaRateLimitNotice(
+            turnId: normalizedTurnID,
+            statusCode: http.statusCode,
+            data: data,
+            retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+        ) {
+            throw BackendTalkTurnMetaRateLimitError(notice: notice)
         }
         guard http.statusCode == 200 else {
             let raw = String(data: data, encoding: .utf8) ?? ""
@@ -2782,11 +3569,13 @@ final class BackendClient {
     private func performCraftRequest<T: Decodable>(
         method: String = "GET",
         pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
         responseType: T.Type
     ) async throws -> T {
         try await performCraftRequestData(
             method: method,
             pathComponents: pathComponents,
+            queryItems: queryItems,
             bodyData: nil,
             responseType: responseType
         )
@@ -2795,6 +3584,7 @@ final class BackendClient {
     private func performCraftRequest<T: Decodable, Body: Encodable>(
         method: String,
         pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
         body: Body,
         responseType: T.Type
     ) async throws -> T {
@@ -2803,6 +3593,7 @@ final class BackendClient {
         return try await performCraftRequestData(
             method: method,
             pathComponents: pathComponents,
+            queryItems: queryItems,
             bodyData: bodyData,
             responseType: responseType
         )
@@ -2811,12 +3602,14 @@ final class BackendClient {
     private func performCraftRequestData<T: Decodable>(
         method: String,
         pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
         bodyData: Data?,
         responseType: T.Type
     ) async throws -> T {
         var request = makeCraftRequest(
             method: method,
             pathComponents: pathComponents,
+            queryItems: queryItems,
             hasJSONBody: bodyData != nil
         )
         request.httpBody = bodyData
@@ -2847,12 +3640,23 @@ final class BackendClient {
     private func makeCraftRequest(
         method: String,
         pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
         hasJSONBody: Bool
     ) -> URLRequest {
         persistSharedBackendBaseURL(baseURL)
         var url = baseURL
         for component in pathComponents {
             url.appendPathComponent(component)
+        }
+        if !queryItems.isEmpty {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = queryItems.filter { item in
+                guard let value = item.value else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if let componentURL = components?.url {
+                url = componentURL
+            }
         }
 
         var request = URLRequest(url: url)

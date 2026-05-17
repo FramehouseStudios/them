@@ -10,8 +10,12 @@ struct themApp: App {
         let launchProbeValue = String(Int(Date().timeIntervalSince1970 * 1000))
         UserDefaults.standard.set(launchProbeValue, forKey: "studio_debug_launch_probe")
         UserDefaults.standard.synchronize()
-        UserDefaults(suiteName: "io.them.them")?.set(launchProbeValue, forKey: "studio_debug_launch_probe")
-        UserDefaults(suiteName: "io.them.them")?.synchronize()
+        let launchProbeMirrorDomain = "io.them.them"
+        let appDefaultsDomain = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if launchProbeMirrorDomain != appDefaultsDomain {
+            UserDefaults(suiteName: launchProbeMirrorDomain)?.set(launchProbeValue, forKey: "studio_debug_launch_probe")
+            UserDefaults(suiteName: launchProbeMirrorDomain)?.synchronize()
+        }
         _ = StudioDebugDefaultsBridge.shared
         #endif
         #endif

@@ -1,0 +1,43 @@
+{
+  "generatedAt": "2026-05-17T21:31:39.959Z",
+  "overallStatus": "not_started",
+  "results": [
+    {
+      "evidence": "2026-05-17 T152 rerun: deterministic/local talk evidence remains valid, but real app voice smoke is still blocked by missing them/Release.local.env and absent release Development Team, BACKEND_URL, and APP_TOKEN. GitHub OPENAI_API_KEY is fixed; PR #33 now fails eval-quality cases, not credentials.",
+      "flow": "talk_pipeline",
+      "notes": "Blocked: real app voice smoke needs release config plus a human/device run. Claude owns the PR #33 eval-quality repair separately.",
+      "status": "not_started",
+      "updatedAt": "2026-05-17T21:31:39.959Z"
+    },
+    {
+      "evidence": "2026-05-17 T152 rerun: deterministic screenplay smoke proof remains valid; release preflight still fails before signed/manual Studio run because release config is missing.",
+      "flow": "screenplay_studio",
+      "notes": "Blocked: create/save/export/reopen manual smoke has not run against signed release configuration.",
+      "status": "not_started",
+      "updatedAt": "2026-05-17T21:31:39.959Z"
+    },
+    {
+      "evidence": "2026-05-17 T152 rerun: deterministic memory recall proof remains valid; #94 core-only export is merged and #99 destructive delete remains post-V1.",
+      "flow": "creative_memory",
+      "notes": "Blocked: real app memory recall smoke still needs release config and manual app run. Privacy decision is no longer blocking V1 export scope.",
+      "status": "not_started",
+      "updatedAt": "2026-05-17T21:31:39.959Z"
+    },
+    {
+      "evidence": "2026-05-17 T152 rerun: deterministic realtime failover proof remains valid. scripts/run_release_preflight.sh failed because them/Release.local.env is missing; direct scripts/appstore_preflight.sh reported fail=3 warn=1.",
+      "flow": "realtime",
+      "notes": "Blocked: real primary/fallback realtime manual smoke still needs hosted backend URL, production APP_TOKEN, Development Team, and signing identity.",
+      "status": "not_started",
+      "updatedAt": "2026-05-17T21:31:39.959Z"
+    }
+  ],
+  "schemaVersion": 1,
+  "source": "io.them.v1_launch_doctor",
+  "summary": {
+    "total": 4,
+    "passed": 0,
+    "failed": 0,
+    "inProgress": 0,
+    "notStarted": 4
+  }
+}

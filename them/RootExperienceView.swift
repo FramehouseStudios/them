@@ -46,6 +46,8 @@ private struct DebugBundleSnapshot: Codable {
     let diagnosticsSummary: String
     let speculative: DebugBundleSpeculativeSnapshot
     let backendHealth: DebugBundleHealthSnapshot?
+    let backendRoutes: DebugBundleRoutesSnapshot?
+    let backendTalkDiagnostics: DebugBundleTalkDiagnosticsSnapshot?
     let backendSync: DebugBundleSyncSnapshot
 }
 
@@ -72,6 +74,24 @@ private struct DebugBundleHealthSnapshot: Codable {
     let lastUpdatedAt: TimeInterval
     let historyUpdatedAt: TimeInterval
     let memoryUpdatedAt: TimeInterval
+}
+
+private struct DebugBundleRoutesSnapshot: Codable {
+    let schemaVersion: Int
+    let scope: String
+    let total: Int
+    let diagnosticsSummary: String
+    let groups: [String]
+    let routes: [BackendOpsRoute]
+    let refreshedAtISO8601: String
+    let lastError: String
+}
+
+private struct DebugBundleTalkDiagnosticsSnapshot: Codable {
+    let statsSummary: String
+    let errorSummary: String
+    let refreshedAtISO8601: String
+    let lastError: String
 }
 
 private struct DebugBundleSyncSnapshot: Codable {
@@ -185,6 +205,14 @@ private func studioDebugPreferenceDomains() -> [String] {
     return domains
 }
 
+private func studioDebugSuiteDefaults(for domain: String) -> UserDefaults? {
+    if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+       domain == bundleID {
+        return nil
+    }
+    return UserDefaults(suiteName: domain)
+}
+
 private func studioDebugPreferencePlistURLs(for domain: String) -> [URL] {
     let libraryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
     let filename = domain.hasSuffix(".plist") ? domain : "\(domain).plist"
@@ -217,7 +245,7 @@ private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
                 append(dictionary[key])
             }
         }
-        if let suite = UserDefaults(suiteName: domain) {
+        if let suite = studioDebugSuiteDefaults(for: domain) {
             suite.synchronize()
             append(suite.object(forKey: key))
         }
@@ -233,8 +261,10 @@ private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
 private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugPreferenceDomains() {
-        UserDefaults(suiteName: domain)?.set(value, forKey: key)
-        UserDefaults(suiteName: domain)?.synchronize()
+        if let suite = studioDebugSuiteDefaults(for: domain) {
+            suite.set(value, forKey: key)
+            suite.synchronize()
+        }
         let domainRef = domain as CFString
         CFPreferencesSetAppValue(key as CFString, NSNumber(value: value), domainRef)
         CFPreferencesAppSynchronize(domainRef)
@@ -246,8 +276,10 @@ private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
 private func writeStudioDebugPreferenceString(_ value: String, forKey key: String) {
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugPreferenceDomains() {
-        UserDefaults(suiteName: domain)?.set(value, forKey: key)
-        UserDefaults(suiteName: domain)?.synchronize()
+        if let suite = studioDebugSuiteDefaults(for: domain) {
+            suite.set(value, forKey: key)
+            suite.synchronize()
+        }
         let domainRef = domain as CFString
         CFPreferencesSetAppValue(key as CFString, value as CFString, domainRef)
         CFPreferencesAppSynchronize(domainRef)
@@ -575,6 +607,7 @@ struct RootExperienceView: View {
     @State private var isMagicMomentSubmitting = false
     @State private var magicMomentOnboardingError = ""
     @AppStorage("t11.magic_moment_last_duration_ms") private var magicMomentLastDurationMs: Double = 0
+    @AppStorage("t12.magic_moment_perceived_response_ms") private var magicMomentPerceivedResponseMs: Double = 0
     @State private var showingMemories = false
     @State private var showingConversationHistory = false
     @State private var showingNotes = false
@@ -615,6 +648,14 @@ struct RootExperienceView: View {
     @State private var isTurnSubmitting = false
     @State private var lastIssueSummary = ""
     @State private var lastHealthStatus: BackendHealthStatus?
+    @State private var lastOpsRoutesManifest: BackendOpsRouteManifestResponse?
+    @State private var lastOpsRoutesManifestRefreshedAt: Date?
+    @State private var lastOpsRoutesManifestError = ""
+    @State private var lastTalkStats: BackendTalkStatsResponse?
+    @State private var lastTalkErrors: BackendTalkErrorsResponse?
+    @State private var lastTalkDiagnosticsRefreshedAt: Date?
+    @State private var lastTalkDiagnosticsError = ""
+    @State private var isRefreshingTalkDiagnostics = false
     @State private var lastSubmittedFingerprint = ""
     @State private var lastSubmittedAt: Date = .distantPast
     @State private var lastOpenedEmailTurnID = ""
@@ -656,7 +697,7 @@ struct RootExperienceView: View {
     @State private var studioTypedPromptRoutingMode: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     @AppStorage("show_live_script_preview") private var showLiveScriptPreview: Bool = true
     @AppStorage(ClementineVoiceSettings.voiceSpeedKey) private var clementineSpeakingPace: Double = 1.0
-    @AppStorage("studio_typed_reply_audio_enabled") private var studioTypedReplyAudioEnabled: Bool = false
+    @AppStorage("studio_typed_reply_audio_enabled") private var studioTypedReplyAudioEnabled: Bool = true
     @AppStorage("clementine_visual_context_enabled") private var visualContextEnabled: Bool = false
     @AppStorage("clementine_voice_transport_mode")
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
@@ -708,6 +749,7 @@ struct RootExperienceView: View {
     @State private var replyEchoOpacity: Double = 0
     @State private var replyEchoClearTask: Task<Void, Never>?
     @State private var showingReportOptions = false
+    @State private var showingTalkDiagnostics = false
     @State private var showingDebugBundleNotice = false
     @State private var debugBundleNoticeMessage = ""
     #if os(iOS)
@@ -905,33 +947,51 @@ struct RootExperienceView: View {
         AnyView(
             rootBodyView
                 .onChange(of: studioDebugOpenToken) { _, _ in
-                    handleStudioDebugOpenChange()
+                    DispatchQueue.main.async {
+                        handleStudioDebugOpenChange()
+                    }
                 }
                 .onChange(of: studioDebugLoadProjectToken) { _, newValue in
-                    handleStudioDebugLoadProjectTokenChange(newValue)
+                    DispatchQueue.main.async {
+                        handleStudioDebugLoadProjectTokenChange(newValue)
+                    }
                 }
                 .onChange(of: studioDebugVoiceTurnToken) { _, newValue in
-                    handleStudioDebugVoiceTurnTokenChange(newValue)
+                    DispatchQueue.main.async {
+                        handleStudioDebugVoiceTurnTokenChange(newValue)
+                    }
                 }
 #if os(macOS)
                 .onReceive(studioDebugDefaultsBridge.$openToken.removeDuplicates()) { token in
-                    handleStudioDebugOpenChange(token)
+                    DispatchQueue.main.async {
+                        handleStudioDebugOpenChange(token)
+                    }
                 }
                 .onReceive(studioDebugDefaultsBridge.$loadProjectToken.removeDuplicates()) { token in
-                    handleStudioDebugLoadProjectTokenChange(token)
+                    DispatchQueue.main.async {
+                        handleStudioDebugLoadProjectTokenChange(token)
+                    }
                 }
                 .onReceive(studioDebugDefaultsBridge.$voiceTurnToken.removeDuplicates()) { token in
-                    handleStudioDebugVoiceTurnTokenChange(token)
+                    DispatchQueue.main.async {
+                        handleStudioDebugVoiceTurnTokenChange(token)
+                    }
                 }
 #endif
                 .onChange(of: homeTurnCueDebugToken) { _, newValue in
-                    handleHomeTurnCueDebugTokenChange(newValue)
+                    DispatchQueue.main.async {
+                        handleHomeTurnCueDebugTokenChange(newValue)
+                    }
                 }
                 .onChange(of: orbEchoDebugShowToken) { _, newValue in
-                    handleOrbEchoDebugShowChange(newValue)
+                    DispatchQueue.main.async {
+                        handleOrbEchoDebugShowChange(newValue)
+                    }
                 }
                 .onChange(of: orbEchoDebugHideToken) { _, newValue in
-                    handleOrbEchoDebugHideChange(newValue)
+                    DispatchQueue.main.async {
+                        handleOrbEchoDebugHideChange(newValue)
+                    }
                 }
         )
     }
@@ -939,19 +999,35 @@ struct RootExperienceView: View {
     private var bodyWithLifecycleObservers: AnyView {
         AnyView(
             bodyWithObservedChanges
-                .onAppear(perform: handleContentViewAppear)
-                .onDisappear(perform: handleContentViewDisappear)
+                .onAppear {
+                    DispatchQueue.main.async {
+                        handleContentViewAppear()
+                    }
+                }
+                .onDisappear {
+                    DispatchQueue.main.async {
+                        handleContentViewDisappear()
+                    }
+                }
                 .onChange(of: scenePhase) { _, newPhase in
-                    handleScenePhaseChange(newPhase)
+                    DispatchQueue.main.async {
+                        handleScenePhaseChange(newPhase)
+                    }
                 }
                 .onChange(of: isStudioSurfaceActive) { _, newValue in
-                    voice.isStudioMode = newValue
+                    DispatchQueue.main.async {
+                        voice.isStudioMode = newValue
+                    }
                 }
                 .onChange(of: voiceTransportModeRaw) { _, newValue in
-                    handleVoiceTransportModeChange(newValue)
+                    DispatchQueue.main.async {
+                        handleVoiceTransportModeChange(newValue)
+                    }
                 }
                 .onChange(of: realtimeSupplierModeRaw) { _, newValue in
-                    handleRealtimeSupplierModeChange(newValue)
+                    DispatchQueue.main.async {
+                        handleRealtimeSupplierModeChange(newValue)
+                    }
                 }
         )
     }
@@ -1122,6 +1198,7 @@ struct RootExperienceView: View {
     }
 
     private func noteStudioDebugLifecycle(_ stage: String) {
+        guard !IOThemRuntime.isRunningTests else { return }
         let cleanStage = stage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanStage.isEmpty else { return }
         let timestamp = Int(Date().timeIntervalSince1970 * 1000)
@@ -1163,6 +1240,7 @@ struct RootExperienceView: View {
     }
 
     private func processPendingStudioDebugCommandsIfNeeded() {
+        guard !IOThemRuntime.isRunningTests else { return }
         handleStudioDebugLoadProjectRequestFileIfNeeded()
 
         let openToken = studioDebugPreferenceInt("studio_debug_open_token")
@@ -1215,6 +1293,7 @@ struct RootExperienceView: View {
 
     #if os(macOS)
     private func startStudioDebugCommandPolling() {
+        guard !IOThemRuntime.isRunningTests else { return }
         studioDebugCommandPollTask?.cancel()
         noteStudioDebugLifecycle("polling_started")
         studioDebugCommandPollTask = Task { @MainActor in
@@ -2288,6 +2367,16 @@ struct RootExperienceView: View {
                     }
                     NumberedChoiceActionButton(
                         number: "2",
+                        title: "Talk Diagnostics",
+                        prominence: .prominent
+                    ) {
+                        showingTalkDiagnostics = true
+                        Task { @MainActor in
+                            await refreshTalkDiagnostics(force: true)
+                        }
+                    }
+                    NumberedChoiceActionButton(
+                        number: "3",
                         title: "Send Debug Bundle",
                         prominence: .prominent
                     ) {
@@ -2297,7 +2386,25 @@ struct RootExperienceView: View {
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("Choose what to send to support. Press 1 for an email summary or 2 for a debug bundle.")
+                    Text("Choose what to send to support. Press 1 for an email summary, 2 for talk diagnostics, or 3 for a debug bundle.")
+                }
+                .sheet(isPresented: $showingTalkDiagnostics) {
+                    TalkDiagnosticsSheet(
+                        stats: lastTalkStats,
+                        errors: lastTalkErrors,
+                        refreshedAt: lastTalkDiagnosticsRefreshedAt,
+                        lastError: lastTalkDiagnosticsError,
+                        isRefreshing: isRefreshingTalkDiagnostics,
+                        onRefresh: {
+                            Task { @MainActor in
+                                await refreshTalkDiagnostics(force: true)
+                            }
+                        },
+                        onDone: {
+                            showingTalkDiagnostics = false
+                        }
+                    )
+                    .frame(minWidth: 520, minHeight: 520)
                 }
                 .alert("Debug Bundle", isPresented: $showingDebugBundleNotice) {
                     Button("OK", role: .cancel) {}
@@ -3063,6 +3170,7 @@ struct RootExperienceView: View {
         magicMomentOnboardingError = ""
         openStudio()
         screenplayDraftBridge.autoInsertStatusText = "io.them is writing the first page..."
+        magicMomentPerceivedResponseMs = Date().timeIntervalSince(startedAt) * 1_000
 
         Task { @MainActor in
             await Task.yield()
@@ -4777,6 +4885,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func scheduleBackendHydration() {
+        guard !IOThemRuntime.isRunningTests else { return }
         backendHydrationTask?.cancel()
         backendHydrationTask = Task { @MainActor in
             await hydrateBackendState()
@@ -4785,6 +4894,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func hydrateBackendState() async {
+        guard !IOThemRuntime.isRunningTests else { return }
         do {
             let session = try? await BackendMemoryAPI.shared.bootstrapSession(force: false)
             if let evolutionSync = session?.evolutionSync {
@@ -6592,6 +6702,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func startBackendHealthMonitoring() {
+        guard !IOThemRuntime.isRunningTests else { return }
         backendHealthTask?.cancel()
         backendConnectionState = .checking
         backendFailureCount = 0
@@ -6613,6 +6724,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func refreshBackendHealth() async {
+        guard !IOThemRuntime.isRunningTests else { return }
         do {
             let health = try await BackendMemoryAPI.shared.fetchHealth()
             lastHealthStatus = health
@@ -6622,6 +6734,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if isUp {
                 backendConnectionState = .up
                 backendFailureCount = 0
+                await refreshOpsRouteManifestIfNeeded(force: false)
+                await refreshTalkDiagnostics(force: false)
                 return
             }
 
@@ -6641,7 +6755,64 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func refreshOpsRouteManifestIfNeeded(force: Bool) async {
+        guard !IOThemRuntime.isRunningTests else { return }
+        let now = Date()
+        if !force,
+           let lastRefresh = lastOpsRoutesManifestRefreshedAt,
+           now.timeIntervalSince(lastRefresh) < 300 {
+            return
+        }
+        lastOpsRoutesManifestRefreshedAt = now
+        do {
+            lastOpsRoutesManifest = try await BackendMemoryAPI.shared.fetchOpsRoutesManifest()
+            lastOpsRoutesManifestError = ""
+        } catch {
+            lastOpsRoutesManifestError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func refreshTalkDiagnostics(force: Bool) async {
+        guard !IOThemRuntime.isRunningTests else { return }
+        let now = Date()
+        if !force,
+           let lastRefresh = lastTalkDiagnosticsRefreshedAt,
+           now.timeIntervalSince(lastRefresh) < 120 {
+            return
+        }
+        isRefreshingTalkDiagnostics = true
+        defer { isRefreshingTalkDiagnostics = false }
+        do {
+            async let stats = BackendMemoryAPI.shared.fetchTalkStats()
+            async let errors = BackendMemoryAPI.shared.fetchTalkErrors()
+            lastTalkStats = try await stats
+            lastTalkErrors = try await errors
+            lastTalkDiagnosticsRefreshedAt = Date()
+            lastTalkDiagnosticsError = ""
+        } catch {
+            lastTalkDiagnosticsError = error.localizedDescription
+            lastTalkDiagnosticsRefreshedAt = Date()
+        }
+    }
+
+    @MainActor
     private func updateTransientTurnBanner(from result: BackendTalkResult) {
+        if let notice = result.turnMetaRateLimitNotice {
+            transientTurnBannerTask?.cancel()
+            withAnimation(.easeInOut(duration: 0.18)) {
+                transientTurnBannerText = notice.bannerText
+            }
+            transientTurnBannerTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_400_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    transientTurnBannerText = nil
+                }
+            }
+            return
+        }
+
         guard result.turnStatus == "error_recovered" else { return }
 
         let stage = (result.turnErrorStage ?? "response")
@@ -7399,6 +7570,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             calendarAction: nil,
             taskAction: nil,
             speculativeTrace: .none,
+            turnMetaRateLimitNotice: nil,
             commit: nil
         )
     }
@@ -8294,10 +8466,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func buildDebugBundleFile() async throws -> URL {
+        await refreshOpsRouteManifestIfNeeded(force: true)
         let now = Date()
         let formatter = ISO8601DateFormatter()
         let sync = await BackendMemoryAPI.shared.currentSyncState()
         let health = lastHealthStatus
+        let routeManifest = lastOpsRoutesManifest
+        let talkStats = lastTalkStats
+        let talkErrors = lastTalkErrors
 
         let snapshot = DebugBundleSnapshot(
             generatedAtISO8601: formatter.string(from: now),
@@ -8352,6 +8528,29 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     memoryUpdatedAt: $0.memoryUpdatedAt
                 )
             },
+            backendRoutes: routeManifest.map {
+                DebugBundleRoutesSnapshot(
+                    schemaVersion: $0.schemaVersion,
+                    scope: $0.scope,
+                    total: $0.routeCountForDiagnostics,
+                    diagnosticsSummary: $0.diagnosticsSummary,
+                    groups: $0.groupNamesForDiagnostics,
+                    routes: $0.routes,
+                    refreshedAtISO8601: formatter.string(from: lastOpsRoutesManifestRefreshedAt ?? now),
+                    lastError: lastOpsRoutesManifestError
+                )
+            },
+            backendTalkDiagnostics: {
+                guard talkStats != nil || talkErrors != nil || !lastTalkDiagnosticsError.isEmpty else {
+                    return nil
+                }
+                return DebugBundleTalkDiagnosticsSnapshot(
+                    statsSummary: talkStats?.diagnosticsSummary ?? "n/a",
+                    errorSummary: talkErrors?.diagnosticsSummary ?? "n/a",
+                    refreshedAtISO8601: formatter.string(from: lastTalkDiagnosticsRefreshedAt ?? now),
+                    lastError: lastTalkDiagnosticsError
+                )
+            }(),
             backendSync: DebugBundleSyncSnapshot(
                 status: sync.status,
                 sessionId: sync.sessionId,
@@ -8388,7 +8587,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
             "Backend speculative reuse: \(speculativeTalk.telemetry.lastBackendReuseHit ? "hit" : "miss")",
             "Backend status: \(health?.status ?? "n/a")",
             "Backend boot id: \(health?.backendBootId ?? "n/a")",
-            "Last turn: \(health?.lastTurnId ?? "n/a")"
+            "Last turn: \(health?.lastTurnId ?? "n/a")",
+            "Backend routes: \(lastOpsRoutesManifest?.diagnosticsSummary ?? "n/a")",
+            "Backend route error: \(lastOpsRoutesManifestError.isEmpty ? "n/a" : lastOpsRoutesManifestError)",
+            "Talk stats: \(lastTalkStats?.diagnosticsSummary ?? "n/a")",
+            "Talk errors: \(lastTalkErrors?.diagnosticsSummary ?? "n/a")",
+            "Talk diagnostics error: \(lastTalkDiagnosticsError.isEmpty ? "n/a" : lastTalkDiagnosticsError)"
         ].joined(separator: "\n")
     }
 

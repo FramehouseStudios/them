@@ -223,6 +223,38 @@ async function getLoglineHistory({ persistence, projectId, limit = 100 } = {}) {
   return (records || []).map((r) => r.value).filter((v) => v && v.logline);
 }
 
+// T-logline-drift-alert: map score → structured alert iOS surfaces
+// can consume directly. Levels follow the same thresholds as the
+// summary string so we never disagree with ourselves.
+function driftAlertForScore(score) {
+  if (!Number.isFinite(score) || score < 0.2) {
+    return {
+      level: "ok",
+      actionable: false,
+      recommendation: "Logline is steady. Keep writing.",
+    };
+  }
+  if (score < 0.4) {
+    return {
+      level: "soft",
+      actionable: false,
+      recommendation: "Small drift — worth re-reading your opening pitch before the next scene.",
+    };
+  }
+  if (score < 0.7) {
+    return {
+      level: "firm",
+      actionable: true,
+      recommendation: "Meaningful drift. Consider re-pitching the logline to match where the story is heading, or steering the next scene back toward the original premise.",
+    };
+  }
+  return {
+    level: "sharp",
+    actionable: true,
+    recommendation: "Story has diverged from the original premise. Stop and decide: re-pitch the logline, or pull the next scene back toward what you set out to write.",
+  };
+}
+
 async function computeDrift({
   persistence,
   projectId,
@@ -236,6 +268,11 @@ async function computeDrift({
       earliest: "",
       historyCount: 0,
       summary: "No logline history yet.",
+      alert: {
+        level: "ok",
+        actionable: false,
+        recommendation: "No logline history yet — drop a logline to start tracking drift.",
+      },
     };
   }
   const earliest = history[0].logline;
@@ -254,6 +291,7 @@ async function computeDrift({
     earliest,
     historyCount: history.length,
     summary,
+    alert: driftAlertForScore(score),
   };
 }
 
@@ -288,6 +326,7 @@ export {
   recordLogline,
   getLoglineHistory,
   computeDrift,
+  driftAlertForScore,
   normalizeLogline,
   jaccardDistance,
   wordsFrom,

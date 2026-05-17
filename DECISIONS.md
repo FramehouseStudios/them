@@ -47,4 +47,18 @@ Status transitions: `proposed` → `accepted`, or `proposed` → `rejected`. An 
 - **Decision:** Keep lowercase `archive/` as the only repository casing for tracked legacy archive contents. Do not introduce a tracked `Archive/` directory. If a human-only archival folder is needed later, place it outside the repo or record a new accepted ADR that supersedes this one.
 - **Consequences:** Existing README references to `archive/...` remain correct; the local worktree was normalized through a temporary rename so the on-disk directory also reads `archive/`; future migration and modularization work can assume no `Archive/`/`archive/` case collision.
 
-## D005 — _next decision goes here_
+## D005 — Codex has supervisor self-merge authority under guardrails
+
+- **Date:** 2026-05-11
+- **Status:** accepted
+- **Context:** The human promoted Codex from review-only supervisor to supervisor with explicit authority to merge Codex-owned PRs. The previous process required the human to copy/paste agent handoffs and externally merge verified Codex PRs, which slowed down the team after the project added strict labels, coordination state, and CI gates.
+- **Decision:** Codex may merge Codex-owned PRs after required checks are green, no blocking label is present, the branch is current with `main`, verification is recorded in the PR, and the merge reason names the human-approved supervisor authority. Codex may merge Claude-owned PRs only when the PR has no `do-not-merge`, `needs-human`, tier-3, or explicit blocker; Codex has reviewed the change; checks are green; and the change does not weaken gates or alter human-only surfaces. Codex still never pushes directly to `main`.
+- **Consequences:** `AGENTS.md`, `docs/coordination.json`, and the Codex/Claude inbox prompts become operational sources of truth for fast self-serve coordination. The human no longer needs to manually copy long checklists between agents for routine green work, but human-owned blockers and product decisions remain explicitly gated.
+
+## D006 — Agent throughput protocol is canonical
+
+- **Date:** 2026-05-12
+- **Status:** accepted
+- **Context:** After D005, Codex could merge routine work, but the team still lost time to large PR queues, stale blocker labels, repeated coordination refreshes, and human copy/paste between agents. The human explicitly asked Codex to fix the process and make Codex/Claude work faster.
+- **Decision:** `docs/agent-throughput-protocol.md` is the canonical execution rhythm for multi-agent velocity. Claude works under a three-PR WIP limit, blockers outrank net-new backend work, Codex batches routine tier-1 review/merge work into merge trains, and app-facing backend contracts use the `ready-for-ios`, `blocked-for-ios`, `backend-only`, and `needs-human-policy` labels or equivalent PR documentation. `scripts/agent_next.mjs` is the repo-native next-action command for both agents.
+- **Consequences:** Agents should start from `node scripts/agent_next.mjs --role=claude|codex` plus `docs/coordination.json` instead of waiting for pasted checklists. Coordination refresh PRs should be batched unless a state change directly unblocks app work. Opening net-new backend features while many blockers remain is now a protocol violation unless Codex explicitly assigns the exception.

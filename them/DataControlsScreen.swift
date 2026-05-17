@@ -42,13 +42,20 @@ struct DataControlsScreen: View {
 
     @AppStorage("clementine_voice_transport_mode")
     private var voiceTransportModeRaw: String = ClementineVoiceTransportMode.turnBased.rawValue
+    @AppStorage(ClementineRealtimeSupplierMode.storageKey)
+    private var realtimeSupplierModeRaw: String = ClementineRealtimeSupplierMode.serverDefault.rawValue
     @AppStorage("clementine_visual_context_enabled")
     private var visualContextEnabled: Bool = false
     @State private var pendingAction: DataControlAction?
     @State private var runningAction: DataControlAction?
     @State private var isExporting = false
+    @State private var isRefreshingMemoryStats = false
+    @State private var memoryStats: BackendMemoryStatsResponse?
+    @State private var memoryStatsError = ""
+    @State private var memoryStatsRefreshedAt: Date?
     @State private var statusMessage = ""
     @State private var stateVersion = ""
+    @State private var showingV1LaunchDoctor = false
 
     var body: some View {
         NavigationStack {
@@ -67,8 +74,11 @@ struct DataControlsScreen: View {
                 VStack(alignment: .leading, spacing: 20) {
                     header
                     storageExplanation
+                    memoryStatus
                     voiceTransportSettings
+                    realtimeProviderSettings
                     visualContextSettings
+                    v1LaunchDoctorEntry
                     actionButtons
                     statusRow
                     Spacer(minLength: 0)
@@ -102,6 +112,15 @@ struct DataControlsScreen: View {
                 },
                 secondaryButton: .cancel()
             )
+        }
+        .task {
+            await refreshMemoryStats(force: false)
+        }
+        .sheet(isPresented: $showingV1LaunchDoctor) {
+            V1LaunchDoctorView {
+                showingV1LaunchDoctor = false
+            }
+            .frame(minWidth: 760, minHeight: 680)
         }
     }
 
@@ -248,6 +267,81 @@ struct DataControlsScreen: View {
         )
     }
 
+    private var realtimeProviderSettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Realtime Provider")
+                .font(.system(size: 18, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.92))
+
+            Picker("Realtime Provider", selection: $realtimeSupplierModeRaw) {
+                ForEach(ClementineRealtimeSupplierMode.allCases) { mode in
+                    Text(mode.title).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            let selectedMode = ClementineRealtimeSupplierMode.normalized(rawValue: realtimeSupplierModeRaw)
+            Text(selectedMode.subtitle)
+                .font(.system(size: 14, weight: .regular, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.78))
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.20))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+        )
+    }
+
+    private var memoryStatus: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Memory Shape")
+                    .font(.system(size: 18, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.92))
+                Spacer()
+                Button {
+                    Task { @MainActor in
+                        await refreshMemoryStats(force: true)
+                    }
+                } label: {
+                    if isRefreshingMemoryStats {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshingMemoryStats)
+                .accessibilityLabel("Refresh memory shape")
+            }
+
+            Text(memoryStatsSummary)
+                .font(.system(size: 14, weight: .regular, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.78))
+
+            if let refreshed = memoryStatsRefreshedAt {
+                Text("Refreshed \(refreshed.formatted(date: .omitted, time: .shortened))")
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.62))
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.20))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+        )
+    }
+
     private var visualContextSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Visual Context")
@@ -296,6 +390,41 @@ struct DataControlsScreen: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.22), lineWidth: 1)
         )
+    }
+
+    private var v1LaunchDoctorEntry: some View {
+        Button {
+            showingV1LaunchDoctor = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "checklist.checked")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.herText.opacity(0.78))
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("V1 Launch Doctor")
+                        .font(.system(size: 16, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.92))
+                    Text("Run the release smoke, mark pass/fail, and export the latest launch proof.")
+                        .font(.system(size: 13, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.72))
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.herText.opacity(0.58))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.20))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func actionButton(title: String, subtitle: String, action: DataControlAction) -> some View {
@@ -359,6 +488,29 @@ struct DataControlsScreen: View {
         runningAction != nil || isExporting
     }
 
+    private var memoryStatsSummary: String {
+        if !memoryStatsError.isEmpty {
+            return "Memory shape unavailable: \(memoryStatsError)"
+        }
+        return memoryStats?.diagnosticsSummary ?? "Memory shape has not been refreshed yet."
+    }
+
+    @MainActor
+    private func refreshMemoryStats(force: Bool) async {
+        if isRefreshingMemoryStats { return }
+        if !force, memoryStats != nil { return }
+        isRefreshingMemoryStats = true
+        defer { isRefreshingMemoryStats = false }
+        do {
+            memoryStats = try await BackendMemoryAPI.shared.fetchMemoryStats()
+            memoryStatsError = ""
+            memoryStatsRefreshedAt = Date()
+        } catch {
+            memoryStatsError = error.localizedDescription
+            memoryStatsRefreshedAt = Date()
+        }
+    }
+
     @MainActor
     private func runAction(_ action: DataControlAction) {
         guard runningAction == nil else { return }
@@ -381,6 +533,7 @@ struct DataControlsScreen: View {
                     : "All memories deleted."
                 _ = try? await BackendMemoryAPI.shared.fetchHistory(limit: 140, force: true, sinceTurnId: nil)
                 _ = try? await BackendMemoryAPI.shared.fetchMemories(limit: 72, force: true, sinceVersion: nil)
+                await refreshMemoryStats(force: true)
             } catch {
                 statusMessage = "Action failed: \(error.localizedDescription)"
             }

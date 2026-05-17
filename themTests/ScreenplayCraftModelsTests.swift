@@ -136,6 +136,430 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(cards.first?.ruleLabel, "Character Cue Caps")
     }
 
+    func testLoglineResponsesDecodeBackendEnvelopes() throws {
+        let distilled = try JSONDecoder().decode(ScreenplayCraftLoglineDistillResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "logline": "A pilot chases a vanished signal through a haunted airport.",
+          "source": "stub",
+          "distilledAt": "2026-05-10T21:00:00.000Z",
+          "stored": true
+        }
+        """#.utf8))
+        let drift = try JSONDecoder().decode(ScreenplayCraftLoglineDriftResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "score": 0.42,
+          "current": "A pilot chases a vanished signal through a haunted airport.",
+          "earliest": "A pilot searches for a missing tower voice.",
+          "historyCount": 2,
+          "summary": "Logline has drifted meaningfully from the original pitch."
+        }
+        """#.utf8))
+        let history = try JSONDecoder().decode(ScreenplayCraftLoglineHistoryResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "projectId": "proj-17",
+          "entries": [
+            {
+              "schemaVersion": 1,
+              "projectId": "proj-17",
+              "versionId": "v1",
+              "logline": "A pilot searches for a missing tower voice.",
+              "frameworkId": "save-the-cat",
+              "source": "stub",
+              "distilledAt": "2026-05-10T20:00:00.000Z",
+              "distilledAtMs": 1770000000000
+            }
+          ]
+        }
+        """#.utf8))
+
+        XCTAssertEqual(distilled.logline, "A pilot chases a vanished signal through a haunted airport.")
+        XCTAssertEqual(drift.historyCount, 2)
+        XCTAssertEqual(history.entries.first?.frameworkId, "save-the-cat")
+        XCTAssertEqual(history.entries.first?.id.contains("proj-17"), true)
+    }
+
+    func testLoglineRailStateMapsCurrentDriftAndHistory() throws {
+        let state = ScreenplayCraftLoglineRailState.make(
+            logline: ScreenplayCraftLoglineDistillResponse(
+                schemaVersion: 1,
+                logline: "  A pilot chases a vanished signal.  ",
+                source: "stub",
+                distilledAt: "2026-05-10T21:00:00.000Z",
+                stored: true
+            ),
+            drift: ScreenplayCraftLoglineDriftResponse(
+                schemaVersion: 1,
+                score: 1.4,
+                current: "A pilot chases a vanished signal.",
+                earliest: "A pilot searches for a missing tower voice.",
+                historyCount: 4,
+                summary: "Logline has diverged sharply from the original pitch."
+            ),
+            history: [
+                ScreenplayCraftLoglineEntry(
+                    schemaVersion: 1,
+                    projectId: "proj-17",
+                    versionId: "v1",
+                    logline: "First",
+                    frameworkId: nil,
+                    source: "stub",
+                    distilledAt: "2026-05-10T20:00:00.000Z",
+                    distilledAtMs: nil
+                ),
+                ScreenplayCraftLoglineEntry(
+                    schemaVersion: 1,
+                    projectId: "proj-17",
+                    versionId: "v2",
+                    logline: "Second",
+                    frameworkId: nil,
+                    source: "stub",
+                    distilledAt: "2026-05-10T21:00:00.000Z",
+                    distilledAtMs: nil
+                )
+            ]
+        )
+
+        XCTAssertEqual(state.currentLogline, "A pilot chases a vanished signal.")
+        XCTAssertEqual(state.sourceLabel, "Stored · Stub")
+        XCTAssertEqual(state.driftLabel, "Drift 100%")
+        XCTAssertEqual(state.historyCountLabel, "4 saved")
+        XCTAssertEqual(state.recentHistory, ["Second", "First"])
+        XCTAssertTrue(state.hasCurrentLogline)
+    }
+
+    func testBlockSignalResponseDecodesBackendEnvelope() throws {
+        let signal = try JSONDecoder().decode(BackendBlockSignalResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "score": 0.625,
+          "level": "high",
+          "signals": [
+            { "key": "scene_completion_gap", "value": 1.0, "weight": 0.4 }
+          ],
+          "summary": "It's been a while since you finished a scene. Try a low-stakes warm-up.",
+          "habitsObserved": {
+            "last_scene_attempt_at": 1714752000000,
+            "last_scene_completion_at": null,
+            "last_talk_turn_at": 1714838400000,
+            "scenes_attempted": 8,
+            "scenes_completed": 1,
+            "recent_short_turns": 5
+          }
+        }
+        """#.utf8))
+
+        XCTAssertEqual(signal.schemaVersion, 1)
+        XCTAssertEqual(signal.level, .high)
+        XCTAssertEqual(signal.signals.first?.weight, 0.4)
+        XCTAssertEqual(signal.habitsObserved.lastSceneCompletionAtMs, nil)
+        XCTAssertEqual(signal.habitsObserved.recentShortTurns, 5)
+    }
+
+    func testBlockSignalHistoryResponseDecodesBackendEnvelope() throws {
+        let history = try JSONDecoder().decode(BackendBlockSignalHistoryResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "entries": [
+            { "at": 1000, "score": 0.1, "level": "low" },
+            { "at": 300000, "score": 0.5, "level": "medium" },
+            { "at": 600000, "score": 0.9, "level": "high" }
+          ],
+          "counts": {
+            "total": 3,
+            "byLevel": { "low": 1, "medium": 1, "high": 1 }
+          },
+          "newestAt": 600000,
+          "oldestAt": 1000
+        }
+        """#.utf8))
+
+        XCTAssertEqual(history.schemaVersion, 1)
+        XCTAssertEqual(history.entries.last?.level, .high)
+        XCTAssertEqual(history.counts.total, 3)
+        XCTAssertEqual(history.counts.byLevel.low, 1)
+    }
+
+    func testBlockSignalNudgeStateMapsAndClampsSignal() throws {
+        let state = BackendBlockSignalNudgeState.make(signal: BackendBlockSignalResponse(
+            schemaVersion: 1,
+            score: 1.4,
+            level: .high,
+            signals: [BackendBlockSignalComponent(key: "attempt_completion_dropoff", value: 1, weight: 0.3)],
+            summary: "  Recent scenes are stalling before the finish.  ",
+            habitsObserved: BackendBlockSignalHabitsObserved(
+                lastSceneAttemptAtMs: 1714752000000,
+                lastSceneCompletionAtMs: nil,
+                lastTalkTurnAtMs: 1714838400000,
+                scenesAttempted: 8,
+                scenesCompleted: 1,
+                recentShortTurns: 5
+            ),
+            error: nil
+        ))
+
+        XCTAssertTrue(state.shouldRender)
+        XCTAssertEqual(state.title, "Momentum needs care")
+        XCTAssertEqual(state.summary, "Recent scenes are stalling before the finish.")
+        XCTAssertEqual(state.scoreLabel, "100%")
+        XCTAssertEqual(state.topSignalLabel, "Started vs. finished")
+        XCTAssertEqual(state.progress, 1)
+    }
+
+    func testBlockSignalHistoryTrendStateMapsAndClampsHistory() throws {
+        let state = BackendBlockSignalHistoryTrendState.make(history: BackendBlockSignalHistoryResponse(
+            schemaVersion: 1,
+            entries: [
+                BackendBlockSignalHistoryEntry(at: 300_000, score: 1.3, level: .high),
+                BackendBlockSignalHistoryEntry(at: 1000, score: -0.2, level: .low),
+                BackendBlockSignalHistoryEntry(at: 600_000, score: 0.7, level: .medium)
+            ],
+            counts: BackendBlockSignalHistoryCounts(
+                total: 3,
+                byLevel: BackendBlockSignalHistoryCountsByLevel(low: 1, medium: 1, high: 1)
+            ),
+            newestAt: 600_000,
+            oldestAt: 1000,
+            error: nil
+        ))
+
+        XCTAssertTrue(state.shouldRender)
+        XCTAssertEqual(state.countLabel, "3 samples")
+        XCTAssertEqual(state.trendLabel, "Momentum rising")
+        XCTAssertEqual(state.levelMixLabel, "High 1 / Medium 1")
+        XCTAssertEqual(state.sparklineScores, [0, 1, 0.7])
+        XCTAssertEqual(state.latestLevel, .medium)
+    }
+
+
+
+    func testTwistSuggestResponseDecodesBackendEnvelope() throws {
+        let response = try JSONDecoder().decode(ScreenplayCraftTwistSuggestResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "frameworkId": "save-the-cat",
+          "currentBeatId": "midpoint",
+          "source": "stub",
+          "twists": [
+            {
+              "id": "stc-midpoint-1",
+              "label": "False Victory",
+              "hook": "The win is real, but the cost was paid by the wrong person.",
+              "severity": "high",
+              "rationale": "Converts triumph into a trap."
+            }
+          ]
+        }
+        """#.utf8))
+
+        XCTAssertEqual(response.frameworkId, "save-the-cat")
+        XCTAssertEqual(response.currentBeatId, "midpoint")
+        XCTAssertEqual(response.twists.first?.severity, "high")
+    }
+
+    func testAcceptedTwistResponsesDecodeBackendEnvelopes() throws {
+        let recorded = try JSONDecoder().decode(ScreenplayCraftAcceptedTwistResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "ok": true,
+          "action": "recorded",
+          "entry": {
+            "schemaVersion": 1,
+            "projectId": "proj-17",
+            "versionId": "v1",
+            "frameworkId": "save-the-cat",
+            "beatId": "midpoint",
+            "twist": {
+              "id": "stc-midpoint-1",
+              "label": "False Victory",
+              "hook": "The win becomes a trap.",
+              "severity": "high",
+              "rationale": "Turns success into pressure."
+            },
+            "acceptedAt": "2026-05-10T22:00:00.000Z",
+            "acceptedAtMs": 1770000000000,
+            "lastUpdatedAt": "2026-05-10T22:00:00.000Z",
+            "lastUpdatedAtMs": 1770000000000,
+            "userId": "usr_test",
+            "sceneId": "scene-1",
+            "note": "Keep this reversal."
+          }
+        }
+        """#.utf8))
+
+        let list = try JSONDecoder().decode(ScreenplayCraftAcceptedTwistListResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "projectId": "proj-17",
+          "entries": []
+        }
+        """#.utf8))
+
+        let deleted = try JSONDecoder().decode(ScreenplayCraftAcceptedTwistDeleteResponse.self, from: Data(#"""
+        { "schemaVersion": 1, "ok": true, "action": "removed" }
+        """#.utf8))
+
+        XCTAssertTrue(recorded.ok)
+        XCTAssertEqual(recorded.action, "recorded")
+        XCTAssertEqual(recorded.entry.id, "proj-17:v1:stc-midpoint-1")
+        XCTAssertEqual(recorded.entry.twist.label, "False Victory")
+        XCTAssertEqual(list.projectId, "proj-17")
+        XCTAssertTrue(list.entries.isEmpty)
+        XCTAssertEqual(deleted.action, "removed")
+    }
+
+    func testTwistCardStateMapsSeverityAndCopy() throws {
+        let response = ScreenplayCraftTwistSuggestResponse(
+            schemaVersion: 1,
+            frameworkId: "save-the-cat",
+            currentBeatId: "midpoint",
+            source: "stub",
+            twists: [
+                ScreenplayCraftTwistSuggestion(
+                    id: "stc-midpoint-1",
+                    label: " False Victory ",
+                    hook: " The win turns into a trap. ",
+                    severity: "HIGH",
+                    rationale: " Re-aims the third act. "
+                )
+            ]
+        )
+
+        let cards = ScreenplayCraftTwistCardState.cards(from: response)
+
+        XCTAssertEqual(cards.count, 1)
+        XCTAssertEqual(cards.first?.label, "False Victory")
+        XCTAssertEqual(cards.first?.hook, "The win turns into a trap.")
+        XCTAssertEqual(cards.first?.severity, "high")
+        XCTAssertEqual(cards.first?.severityLabel, "High")
+        XCTAssertEqual(cards.first?.rationale, "Re-aims the third act.")
+        XCTAssertEqual(cards.first?.suggestion.id, "stc-midpoint-1")
+        XCTAssertEqual(cards.first?.isAccepted, false)
+    }
+
+    func testCharacterTraitsResponseDecodesBackendEnvelope() throws {
+        let response = try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "userId": "usr_test",
+          "characters": [
+            {
+              "name": "JUNE",
+              "traits": {
+                "vocabulary": ["quiet room"],
+                "keywords": ["guarded", "wry"],
+                "speech_style": { "pace": "terse", "syntax": "fragmented" },
+                "emotional_default": "guarded",
+                "goals": ["Protect Leo"],
+                "relationships": { "LEO": "estranged brother" }
+              }
+            },
+            { "name": "LEO", "traits": null }
+          ]
+        }
+        """#.utf8))
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.characters.count, 2)
+        XCTAssertEqual(response.characters.first?.traits?.keywords, ["guarded", "wry"])
+        XCTAssertEqual(response.characters.first?.traits?.speechStyle.syntax, "fragmented")
+        XCTAssertEqual(response.characters.last?.traits, nil)
+    }
+
+    func testCharacterArchetypesResponseDecodesBackendEnvelope() throws {
+        let response = try JSONDecoder().decode(BackendCharacterArchetypesResponse.self, from: Data(#"""
+        {
+          "schemaVersion": 1,
+          "userId": "usr_test",
+          "entries": [
+            {
+              "name": "JUNE",
+              "primary": { "archetype": "hero", "score": 0.72, "signals": ["traits:2"] },
+              "candidates": [
+                { "archetype": "hero", "score": 0.72, "signals": ["traits:2"] },
+                { "archetype": "ally", "score": 0.18, "signals": ["emotion:earnest"] }
+              ],
+              "summary": "JUNE reads as hero."
+            }
+          ]
+        }
+        """#.utf8))
+
+        XCTAssertEqual(response.schemaVersion, 1)
+        XCTAssertEqual(response.entries.count, 1)
+        XCTAssertEqual(response.entries.first?.name, "JUNE")
+        XCTAssertEqual(response.entries.first?.primary?.archetype, "hero")
+        XCTAssertEqual(response.entries.first?.primary?.score, 0.72)
+        XCTAssertEqual(response.entries.first?.candidates.last?.archetype, "ally")
+    }
+
+    func testCharacterTraitCardStateMapsVoiceInventory() throws {
+        let response = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            characters: [
+                BackendCharacterTraitRecord(
+                    name: " JUNE ",
+                    traits: BackendCharacterTraits(
+                        vocabulary: ["quiet room", "tell me again"],
+                        keywords: ["guarded", "wry"],
+                        speechStyle: BackendCharacterSpeechStyle(pace: "terse", syntax: "fragmented"),
+                        emotionalDefault: "guarded",
+                        goals: ["Protect Leo"],
+                        relationships: ["LEO": "estranged brother"]
+                    )
+                ),
+                BackendCharacterTraitRecord(name: "LEO", traits: nil)
+            ],
+            error: nil
+        )
+
+        let cards = BackendCharacterTraitCardState.make(response: response)
+
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertEqual(cards.first?.name, "JUNE")
+        XCTAssertEqual(cards.first?.summary, "Default: guarded")
+        XCTAssertEqual(cards.first?.chips, ["guarded", "wry", "terse", "fragmented"])
+        XCTAssertEqual(cards.first?.detail, "2 phrases | 1 goal | 1 tie")
+        XCTAssertTrue(cards.first?.hasTraits == true)
+        XCTAssertEqual(cards.last?.summary, "Known character; voice inventory is still learning.")
+    }
+
+    func testCharacterTraitCardStateMapsArchetypeInsight() throws {
+        let traits = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            characters: [
+                BackendCharacterTraitRecord(
+                    name: "JUNE",
+                    traits: BackendCharacterTraits(keywords: ["earnest"], emotionalDefault: "earnest")
+                )
+            ],
+            error: nil
+        )
+        let archetypes = BackendCharacterArchetypesResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            entries: [
+                BackendCharacterArchetypeEntry(
+                    name: " june ",
+                    primary: BackendCharacterArchetypeCandidate(archetype: "threshold_guardian", score: 0.44),
+                    summary: "JUNE reads as threshold_guardian with mixed secondary signals."
+                )
+            ],
+            error: nil
+        )
+
+        let cards = BackendCharacterTraitCardState.make(response: traits, archetypes: archetypes)
+
+        XCTAssertEqual(cards.first?.archetypeLabel, "Threshold Guardian")
+        XCTAssertEqual(cards.first?.archetypeScoreLabel, "44%")
+        XCTAssertEqual(cards.first?.archetypeSummary, "JUNE reads as threshold_guardian with mixed secondary signals.")
+        XCTAssertEqual(cards.first?.hasArchetype, true)
+    }
+
     private func decodeReportFixture() throws -> ScreenplayCraftReport {
         let data = Data(#"""
         {

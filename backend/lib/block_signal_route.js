@@ -61,6 +61,20 @@ function mountBlockSignalRoute(app, {
     try {
       const habits = await creativeMemoryStore.getHabitsForUser(userId);
       const signal = computeBlockSignal({ habits: habits || {}, nowMs: nowFn() });
+      // T-block-signal-history-tracking: append a sample to the
+      // user's habits.block_signal_history ring buffer (debounced
+      // to 60s on the same level). Best-effort; never blocks the
+      // response on a recording failure.
+      if (typeof creativeMemoryStore.recordBlockSignalSample === "function") {
+        try {
+          await creativeMemoryStore.recordBlockSignalSample({
+            userId,
+            score: signal.score,
+            level: signal.level,
+            atMs: nowFn(),
+          });
+        } catch (_e) { /* best-effort */ }
+      }
       return res.status(200).json(signal);
     } catch (e) {
       return res.status(500).json({

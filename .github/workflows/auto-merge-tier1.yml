@@ -1,0 +1,148 @@
+name: auto-merge-tier1
+
+# Auto-merges Tier 1 PRs once they pass the gates required by the
+# Trust Tiers section in AGENTS.md. Tier 1 = agent-owned routine work
+# (new pure-backend module + tests + docs, new canonical endpoint,
+# additive persistence domain, conflict refreshes, status flips,
+# doc-only fixes).
+#
+# A PR is auto-merged when ALL of the following hold:
+#   1. It carries the `tier-1` label.
+#   2. It does NOT carry the `tier-2`, `tier-3`, `needs-human`,
+#      `do-not-merge`, or `block-merge` labels.
+#   3. The backend test suite is green on the head SHA.
+#   4. Explicit cross-agent approval — one of:
+#        a. A formal Approve review from a trusted OWNER/MEMBER/COLLABORATOR.
+#        b. A trusted OWNER/MEMBER/COLLABORATOR comment beginning with
+#           "Codex supervisor update: approved" or
+#           "Claude supervisor update: approved".
+#
+# There is NO quiet-time fallback. Per the human's rule (2026-05-11),
+# the auto-merger never merges anything without an explicit approval
+# signal from the other agent. An idle PR sits idle.
+#
+# Either agent can escalate a PR by replacing the label with `tier-2` /
+# `tier-3` and leaving a comment. Escalation cannot be reversed by an
+# agent — only the human may downgrade.
+#
+# Tier 3 PRs are never auto-merged regardless of other gates.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+  workflow_run:
+    workflows: ["quality-gate"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR context
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_review)
+              echo "pr_number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+              ;;
+            issue_comment)
+              if [[ "${{ github.event.issue.pull_request }}" == "" ]]; then
+                echo "Comment is on an issue, not a PR; skipping."
+                echo "pr_number=" >> "$GITHUB_OUTPUT"
+              else
+                echo "pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+            workflow_run)
+              # Find the PR(s) whose head SHA matches the completed workflow.
+              SHA="${{ github.event.workflow_run.head_sha }}"
+              PR=$(gh pr list --repo "$REPO" --state open --search "$SHA" --json number --jq '.[0].number')
+              echo "pr_number=${PR:-}" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Skip if no PR resolved
+        if: steps.pr.outputs.pr_number == ''
+        run: echo "No PR to evaluate; exiting."
+
+      - name: Check tier + gates and auto-merge if eligible
+        if: steps.pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          # All gh calls explicitly pass --repo so the workflow does not
+          # require an actions/checkout step. (Without --repo, gh falls
+          # back to the local git remote and fails with "not a git
+          # repository" on the merge step.)
+          info=$(gh pr view "$PR" --repo "$REPO" --json number,headRefOid,mergeable,mergeStateStatus,labels,reviews,comments,createdAt,isDraft,state)
+          state=$(echo "$info" | jq -r '.state')
+          if [[ "$state" != "OPEN" ]]; then
+            echo "PR #$PR is not open (state=$state); skipping."; exit 0
+          fi
+          is_draft=$(echo "$info" | jq -r '.isDraft')
+          if [[ "$is_draft" == "true" ]]; then
+            echo "PR #$PR is draft; skipping."; exit 0
+          fi
+
+          labels=$(echo "$info" | jq -r '.labels[].name' | tr '\n' ' ')
+          if ! echo " $labels " | grep -q " tier-1 "; then
+            echo "PR #$PR is not tier-1; skipping."; exit 0
+          fi
+          for forbidden in tier-2 tier-3 needs-human do-not-merge block-merge; do
+            if echo " $labels " | grep -q " $forbidden "; then
+              echo "PR #$PR carries blocking label $forbidden; skipping."; exit 0
+            fi
+          done
+
+          mergeable=$(echo "$info" | jq -r '.mergeable')
+          if [[ "$mergeable" != "MERGEABLE" ]]; then
+            echo "PR #$PR not mergeable (mergeable=$mergeable); skipping."; exit 0
+          fi
+
+          # Check suite status via merge-state. UNSTABLE = required checks
+          # passed but a non-required check failed; refuse to auto-merge in
+          # that case so the agent or the human can decide.
+          mss=$(echo "$info" | jq -r '.mergeStateStatus')
+          case "$mss" in
+            CLEAN|HAS_HOOKS) ;;
+            *)
+              echo "PR #$PR mergeStateStatus=$mss is not green-enough; skipping."; exit 0 ;;
+          esac
+
+          # Cross-agent approval check. Strict: an explicit signal from a
+          # trusted OWNER/MEMBER/COLLABORATOR is required. There is no
+          # quiet-time fallback — the workflow never merges anything
+          # without explicit approval from the other agent.
+          approved_via_review=$(echo "$info" | jq -r "[.reviews[] | select(.state == \"APPROVED\" and (.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)))] | length")
+          approved_via_comment=$(echo "$info" | jq -r "[.comments[] | select((.authorAssociation as \$a | [\"OWNER\", \"MEMBER\", \"COLLABORATOR\"] | index(\$a)) and (.body | test(\"^(Codex|Claude) supervisor update: approved\")))] | length")
+
+          if [[ "$approved_via_review" -eq 0 && "$approved_via_comment" -eq 0 ]]; then
+            echo "PR #$PR has no explicit cross-agent approval (review=0, comment=0); skipping."
+            exit 0
+          fi
+
+          echo "PR #$PR is tier-1, mergeable, and explicitly approved. Merging."
+          gh pr merge "$PR" --repo "$REPO" --squash --auto --delete-branch \
+            || gh pr merge "$PR" --repo "$REPO" --squash --delete-branch

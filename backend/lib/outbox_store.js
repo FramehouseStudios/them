@@ -55,9 +55,9 @@ async function enqueueActionOutbox({
     lastError: nextStatus === "failed" ? normalizeSnippet(result?.error, 640) : "",
   });
   if (row?.duplicate) {
-    console.log(`[${reqId}] outbox duplicate type=${normalizedType} key=${row.actionKey || "none"}`);
+    console.warn(`[${reqId}] outbox duplicate type=${normalizedType} key=${row.actionKey || "none"}`);
   } else {
-    console.log(`[${reqId}] outbox enqueue id=${row?.id || "none"} type=${normalizedType} status=${nextStatus}`);
+    console.warn(`[${reqId}] outbox enqueue id=${row?.id || "none"} type=${normalizedType} status=${nextStatus}`);
   }
   return row;
 }
@@ -193,7 +193,7 @@ async function processOutboxBatch({ limit = null, reqId = "outbox_worker" } = {}
     else retried += 1;
   }
   if (due.length > 0) {
-    console.log(
+    console.warn(
       `[${reqId}] outbox_batch claimed=${due.length} completed=${completed} failed=${failed} retried=${retried}`
     );
   }
@@ -238,7 +238,7 @@ async function processSingleOutboxItemById(id, reqId = "outbox_manual_retry") {
     result: retry.result,
     lastError: normalizeSnippet(retry.error, 640),
   });
-  console.log(
+  console.warn(
     `[${reqId}] outbox_single id=${targetId} status=${String(updated?.status || "failed")} err=${normalizeSnippet(retry.error, 120) || "none"}`
   );
   return { ok: false, status: String(updated?.status || "failed"), error: retry.error, item: updated };
@@ -256,7 +256,7 @@ async function runOutboxWorkerTick() {
   try {
     await processOutboxBatch({ limit: OUTBOX_WORKER_BATCH_SIZE, reqId: "outbox_worker" });
   } catch (err) {
-    console.log(`[outbox_worker] error=${String(err?.message || err)}`);
+    console.error(`[outbox_worker] error=${String(err?.message || err)}`);
   } finally {
     outboxWorkerInFlight = false;
   }

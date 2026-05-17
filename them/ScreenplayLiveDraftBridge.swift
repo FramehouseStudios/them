@@ -13,6 +13,14 @@ private func screenplayDebugMirroredDomains() -> [String] {
     ["io.them.them"]
 }
 
+private func screenplayDebugMirroredSuiteDefaults(for domain: String) -> UserDefaults? {
+    if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+       domain == bundleID {
+        return nil
+    }
+    return UserDefaults(suiteName: domain)
+}
+
 private func screenplayDebugMirroredPlistURLs(for domain: String) -> [URL] {
     let filename = domain.hasSuffix(".plist") ? domain : "\(domain).plist"
     let home = FileManager.default.homeDirectoryForCurrentUser
@@ -45,8 +53,10 @@ private func mirrorScreenplayDebugPreferenceValue(_ value: Any, forKey key: Stri
 private func writeMirroredScreenplayDebugPreferenceString(_ value: String, forKey key: String) {
     UserDefaults.standard.set(value, forKey: key)
     for domain in screenplayDebugMirroredDomains() {
-        UserDefaults(suiteName: domain)?.set(value, forKey: key)
-        UserDefaults(suiteName: domain)?.synchronize()
+        if let suite = screenplayDebugMirroredSuiteDefaults(for: domain) {
+            suite.set(value, forKey: key)
+            suite.synchronize()
+        }
         let domainRef = domain as CFString
         CFPreferencesSetAppValue(key as CFString, value as CFString, domainRef)
         CFPreferencesAppSynchronize(domainRef)
@@ -2468,6 +2478,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func hydrateBackendCompanionState(force: Bool = false) async {
+        guard !IOThemRuntime.isRunningTests else { return }
         if isHydratingBackendCompanionState && !force { return }
         isHydratingBackendCompanionState = true
         defer { isHydratingBackendCompanionState = false }

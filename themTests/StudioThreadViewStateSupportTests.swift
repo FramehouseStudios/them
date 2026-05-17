@@ -235,4 +235,40 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(metadata["source"] as? String, "ios_screenplay_render")
     }
 
+    func testPerceivedSpeedStateStartsInsideResponseBudget() {
+        let start = Date(timeIntervalSince1970: 100)
+        let state = StudioPerceivedSpeedState.start(
+            requestID: " request-1 ",
+            prompt: "  write the opener  ",
+            target: .page,
+            sourceRaw: " typed ",
+            now: start
+        )
+
+        XCTAssertEqual(state.id, "request-1")
+        XCTAssertEqual(state.prompt, "write the opener")
+        XCTAssertTrue(state.isActive)
+        XCTAssertEqual(state.firstFeedbackMilliseconds, 0)
+        XCTAssertTrue(state.meetsResponseBudget)
+        XCTAssertEqual(state.statusText, "Writing to the page...")
+        XCTAssertEqual(state.skeletonLines.first, "INT. LOCATION - MOMENTS LATER")
+    }
+
+    func testPerceivedSpeedStateCompletesWithoutLosingFirstFeedbackMeasurement() {
+        let state = StudioPerceivedSpeedState.start(
+            requestID: "voice-pin-1",
+            prompt: "what is weak here?",
+            target: .voicePin,
+            sourceRaw: "voice",
+            now: Date(timeIntervalSince1970: 10)
+        )
+        let completed = state.completing()
+
+        XCTAssertFalse(completed.isActive)
+        XCTAssertTrue(completed.isComplete)
+        XCTAssertEqual(completed.firstFeedbackMilliseconds, 0)
+        XCTAssertEqual(completed.statusText, "Preparing a fast reply...")
+        XCTAssertEqual(completed.skeletonLines.count, 3)
+    }
+
 }

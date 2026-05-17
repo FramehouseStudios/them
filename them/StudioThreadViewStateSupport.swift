@@ -1,5 +1,96 @@
 import Foundation
 
+struct StudioPerceivedSpeedState: Equatable, Identifiable {
+    enum Target: String, Equatable {
+        case page
+        case voicePin
+    }
+
+    let id: String
+    let prompt: String
+    let target: Target
+    let sourceRaw: String
+    let startedAt: Date
+    let firstFeedbackAt: Date?
+    let isComplete: Bool
+
+    static let responseBudgetMilliseconds: Double = 100
+
+    static var idle: StudioPerceivedSpeedState {
+        StudioPerceivedSpeedState(
+            id: "",
+            prompt: "",
+            target: .voicePin,
+            sourceRaw: "",
+            startedAt: Date(timeIntervalSince1970: 0),
+            firstFeedbackAt: nil,
+            isComplete: true
+        )
+    }
+
+    static func start(
+        requestID: String,
+        prompt: String,
+        target: Target,
+        sourceRaw: String,
+        now: Date = Date()
+    ) -> StudioPerceivedSpeedState {
+        StudioPerceivedSpeedState(
+            id: requestID.trimmingCharacters(in: .whitespacesAndNewlines),
+            prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+            target: target,
+            sourceRaw: sourceRaw.trimmingCharacters(in: .whitespacesAndNewlines),
+            startedAt: now,
+            firstFeedbackAt: now,
+            isComplete: false
+        )
+    }
+
+    var isActive: Bool {
+        !id.isEmpty && !isComplete
+    }
+
+    var firstFeedbackMilliseconds: Double? {
+        guard let firstFeedbackAt else { return nil }
+        return max(0, firstFeedbackAt.timeIntervalSince(startedAt) * 1_000)
+    }
+
+    var meetsResponseBudget: Bool {
+        guard let firstFeedbackMilliseconds else { return false }
+        return firstFeedbackMilliseconds <= Self.responseBudgetMilliseconds
+    }
+
+    var statusText: String {
+        switch target {
+        case .page:
+            return "Writing to the page..."
+        case .voicePin:
+            return "Preparing a fast reply..."
+        }
+    }
+
+    var skeletonLines: [String] {
+        switch target {
+        case .page:
+            return ["INT. LOCATION - MOMENTS LATER", "Action arrives first.", "CHARACTER", "A line is forming."]
+        case .voicePin:
+            return ["Reading the draft signal.", "Finding the useful note.", "Shaping the reply."]
+        }
+    }
+
+    func completing() -> StudioPerceivedSpeedState {
+        StudioPerceivedSpeedState(
+            id: id,
+            prompt: prompt,
+            target: target,
+            sourceRaw: sourceRaw,
+            startedAt: startedAt,
+            firstFeedbackAt: firstFeedbackAt,
+            isComplete: true
+        )
+    }
+}
+
 enum StudioThreadViewStateSource: String, Codable, Equatable {
     case none
     case local

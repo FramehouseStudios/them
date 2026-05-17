@@ -428,6 +428,38 @@ nonisolated struct BackendDataControlResponse: Decodable {
     let memoryQuality: BackendMemoryQualitySnapshot?
 }
 
+nonisolated struct BackendMemoryStatsCounts: Decodable, Hashable {
+    let characters: Int
+    let charactersWithVoice: Int
+    let charactersWithTraits: Int
+    let toneSignals: Int
+    let habitSignals: Int
+}
+
+nonisolated struct BackendMemoryStatsResponse: Decodable, Hashable {
+    let schemaVersion: Int
+    let hasMemory: Bool
+    let counts: BackendMemoryStatsCounts
+    let lastUpdatedMs: TimeInterval?
+    let error: String?
+
+    var lastUpdatedDate: Date? {
+        guard let lastUpdatedMs, lastUpdatedMs > 0 else { return nil }
+        return Date(timeIntervalSince1970: lastUpdatedMs / 1000.0)
+    }
+
+    var diagnosticsSummary: String {
+        guard hasMemory else { return "No companion memory yet." }
+        return [
+            "\(counts.characters) characters",
+            "\(counts.charactersWithVoice) voices",
+            "\(counts.charactersWithTraits) trait sets",
+            "\(counts.toneSignals) tone signals",
+            "\(counts.habitSignals) habit signals",
+        ].joined(separator: " · ")
+    }
+}
+
 nonisolated struct BackendCharacterMentionReceipt: Decodable, Equatable {
     let ok: Bool?
     let action: String?
@@ -1194,6 +1226,136 @@ nonisolated struct BackendScreenplayExportArtifact {
     let data: Data
 }
 
+nonisolated struct BackendScreenplayExportFormat: Decodable, Hashable, Identifiable {
+    let format: String
+    let fileExtension: String
+    let mediaType: String
+    let description: String
+    let supported: Bool
+
+    var id: String { format }
+
+    private enum CodingKeys: String, CodingKey {
+        case format
+        case fileExtension = "extension"
+        case mediaType
+        case description
+        case supported
+    }
+}
+
+nonisolated struct BackendScreenplayExportFormatsResponse: Decodable, Hashable {
+    let schemaVersion: Int
+    let defaultFormat: String
+    let formats: [BackendScreenplayExportFormat]
+}
+
+nonisolated struct BackendScreenplayImportResponse: Decodable, Hashable {
+    let schemaVersion: Int
+    let screenplay: BackendImportedScreenplay
+}
+
+nonisolated struct BackendImportedScreenplay: Decodable, Hashable {
+    let title: BackendImportedScreenplayTitle?
+    let scenes: [BackendImportedScreenplayScene]
+
+    var fountainDraft: String {
+        var blocks: [String] = []
+        if let titleBlock = title?.fountainBlock, !titleBlock.isEmpty {
+            blocks.append(titleBlock)
+        }
+        for scene in scenes {
+            let block = scene.fountainBlock
+            if !block.isEmpty {
+                blocks.append(block)
+            }
+        }
+        return blocks.joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+nonisolated struct BackendImportedScreenplayTitle: Decodable, Hashable {
+    let title: String?
+    let author: String?
+
+    var fountainBlock: String {
+        var lines: [String] = []
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            lines.append("Title: \(title)")
+        }
+        if let author = author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty {
+            lines.append("Author: \(author)")
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+nonisolated struct BackendImportedScreenplayScene: Decodable, Hashable {
+    let heading: String?
+    let lines: [BackendImportedScreenplayLine]
+
+    var fountainBlock: String {
+        var blocks: [String] = []
+        if let heading = heading?.trimmingCharacters(in: .whitespacesAndNewlines), !heading.isEmpty {
+            blocks.append(heading)
+        }
+        for line in lines {
+            let block = line.fountainBlock
+            if !block.isEmpty {
+                blocks.append(block)
+            }
+        }
+        return blocks.joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+nonisolated struct BackendImportedScreenplayLine: Decodable, Hashable {
+    let kind: String
+    let text: String?
+    let name: String?
+    let parenthetical: String?
+    let dialogue: [String]?
+
+    var fountainBlock: String {
+        switch kind.lowercased() {
+        case "section":
+            return prefixedText("#")
+        case "synopsis":
+            return prefixedText("=")
+        case "character":
+            return characterBlock
+        default:
+            return text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+    }
+
+    private func prefixedText(_ prefix: String) -> String {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return ""
+        }
+        return "\(prefix) \(text)"
+    }
+
+    private var characterBlock: String {
+        guard let cleanName = name?.trimmingCharacters(in: .whitespacesAndNewlines), !cleanName.isEmpty else {
+            return ""
+        }
+        var lines = [cleanName]
+        if let parenthetical = parenthetical?.trimmingCharacters(in: .whitespacesAndNewlines), !parenthetical.isEmpty {
+            lines.append("(\(parenthetical))")
+        }
+        for dialogueLine in dialogue ?? [] {
+            let cleanDialogue = dialogueLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanDialogue.isEmpty {
+                lines.append(cleanDialogue)
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
 nonisolated struct BackendScreenplaySceneDraft: Hashable {
     var id: String?
     var slugline: String
@@ -1272,6 +1434,49 @@ nonisolated struct BackendHealthStatus {
     let turnReliability: BackendTurnReliabilitySnapshot
 }
 
+nonisolated struct BackendOpsRoute: Codable, Hashable, Identifiable {
+    let method: String
+    let path: String
+    let group: String
+
+    var id: String { "\(method.uppercased()) \(path)" }
+}
+
+nonisolated struct BackendOpsRouteManifestResponse: Codable, Hashable {
+    let schemaVersion: Int
+    let scope: String
+    let total: Int
+    let routes: [BackendOpsRoute]
+
+    var routeCountForDiagnostics: Int {
+        total > 0 ? total : routes.count
+    }
+
+    var diagnosticsSummary: String {
+        let groups = groupCountsForDiagnostics
+        guard !groups.isEmpty else {
+            return "\(routeCountForDiagnostics) routes"
+        }
+        let groupText = groups
+            .map { "\($0.group) \($0.count)" }
+            .joined(separator: ", ")
+        return "\(routeCountForDiagnostics) routes across \(groups.count) groups: \(groupText)"
+    }
+
+    var groupNamesForDiagnostics: [String] {
+        groupCountsForDiagnostics.map(\.group)
+    }
+
+    private var groupCountsForDiagnostics: [(group: String, count: Int)] {
+        let counts = Dictionary(grouping: routes) { route in
+            route.group.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return counts
+            .map { (group: $0.key.isEmpty ? "ungrouped" : $0.key, count: $0.value.count) }
+            .sorted { lhs, rhs in lhs.group < rhs.group }
+    }
+}
+
 nonisolated struct BackendTurnReliabilitySnapshot {
     let sampleCount: Int
     let silentTurnRate: Double
@@ -1288,6 +1493,71 @@ nonisolated struct BackendTurnReliabilitySnapshot {
         medianEndToEndMs: nil,
         source: "none"
     )
+}
+
+nonisolated struct BackendTalkMetricBucket: Codable, Hashable {
+    let median: Double
+    let p90: Double
+    let max: Double
+}
+
+nonisolated struct BackendTalkReplyRoleCounts: Codable, Hashable {
+    let preview: Int
+    let final: Int
+}
+
+nonisolated struct BackendTalkAgeBuckets: Codable, Hashable {
+    let last5min: Int
+    let last1h: Int
+    let last24h: Int
+    let older: Int
+}
+
+nonisolated struct BackendTalkStatsResponse: Codable, Hashable {
+    let schemaVersion: Int
+    let total: Int
+    let audioDurationMs: BackendTalkMetricBucket
+    let transcriptChars: BackendTalkMetricBucket
+    let replyChars: BackendTalkMetricBucket
+    let uniqueUserCount: Int
+    let uniqueSessionCount: Int
+    let replyRoleCounts: BackendTalkReplyRoleCounts
+    let authoritativePageTextRate: Double
+    let syncReadyRate: Double
+    let ageBuckets: BackendTalkAgeBuckets
+    let newestCreatedAtMs: Double
+    let oldestCreatedAtMs: Double
+
+    var diagnosticsSummary: String {
+        guard total > 0 else { return "0 turns recorded" }
+        let pageRate = Int((max(0, min(1, authoritativePageTextRate)) * 100).rounded())
+        let syncRate = Int((max(0, min(1, syncReadyRate)) * 100).rounded())
+        return "\(total) turns, \(pageRate)% page text, \(syncRate)% sync ready, p90 audio \(Int(audioDurationMs.p90)) ms"
+    }
+}
+
+nonisolated struct BackendTalkErrorsResponse: Codable, Hashable {
+    let schemaVersion: Int
+    let total: Int
+    let counts: [String: Int]
+    let lastOccurrence: [String: Double]
+    let sinceMs: Double
+    let observedAtMs: Double
+    let errorRatePerHour: Double
+
+    var diagnosticsSummary: String {
+        guard total > 0 else { return "0 talk errors" }
+        let top = counts
+            .sorted { lhs, rhs in
+                if lhs.value == rhs.value { return lhs.key < rhs.key }
+                return lhs.value > rhs.value
+            }
+            .prefix(3)
+            .map { "\($0.key) \($0.value)" }
+            .joined(separator: ", ")
+        let rate = String(format: "%.1f", errorRatePerHour)
+        return "\(total) errors, \(rate)/hr\(top.isEmpty ? "" : " · \(top)")"
+    }
 }
 
 nonisolated enum BackendMemoryAPIError: LocalizedError {
@@ -1711,12 +1981,14 @@ nonisolated enum BackendAuthClient {
     }
 
     fileprivate static func accessToken() -> String? {
+        guard !IOThemRuntime.isRunningTests else { return nil }
         let token = readKeychainString(account: authAccessTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func refreshToken() -> String? {
+        guard !IOThemRuntime.isRunningTests else { return nil }
         let token = readKeychainString(account: authRefreshTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -1774,6 +2046,14 @@ nonisolated enum BackendAuthClient {
         return domains
     }
 
+    private static func suiteDefaults(forPreferenceDomain domain: String) -> UserDefaults? {
+        if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           domain == bundleID {
+            return nil
+        }
+        return UserDefaults(suiteName: domain)
+    }
+
     private static func preferencePlistURLs(for domain: String) -> [URL] {
         #if os(macOS)
         let libraryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
@@ -1807,7 +2087,7 @@ nonisolated enum BackendAuthClient {
         UserDefaults.standard.synchronize()
         append(UserDefaults.standard.object(forKey: key))
         for domain in preferenceDomains() {
-            if let suite = UserDefaults(suiteName: domain) {
+            if let suite = suiteDefaults(forPreferenceDomain: domain) {
                 suite.synchronize()
                 append(suite.object(forKey: key))
             }
@@ -2027,6 +2307,7 @@ actor BackendMemoryAPI {
 #endif
     }()
     private let session: URLSession
+    private let baseURLOverride: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
     private var syncState: BackendSyncState = .empty
@@ -2037,8 +2318,9 @@ actor BackendMemoryAPI {
     private var lastForcedSessionRefreshAt: Date?
     private let forcedSessionRefreshCooldown: TimeInterval = 8
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, baseURL: URL? = nil) {
         self.session = session
+        self.baseURLOverride = baseURL
     }
 
     func currentSyncState() -> BackendSyncState {
@@ -2136,6 +2418,64 @@ actor BackendMemoryAPI {
         } catch {
             return try await fetchHealth(path: "/health")
         }
+    }
+
+    func fetchOpsRoutesManifest() async throws -> BackendOpsRouteManifestResponse {
+        let request = try makeRequest(path: "/ops/routes")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(BackendOpsRouteManifestResponse.self, from: data)
+    }
+
+    func fetchMemoryStats() async throws -> BackendMemoryStatsResponse {
+        let request = try makeRequest(path: "/memory/stats")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        return try JSONDecoder().decode(BackendMemoryStatsResponse.self, from: data)
+    }
+
+    func fetchTalkStats() async throws -> BackendTalkStatsResponse {
+        let request = try makeRequest(path: "/talk/stats")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        return try JSONDecoder().decode(BackendTalkStatsResponse.self, from: data)
+    }
+
+    func fetchTalkErrors(sinceMs: Double? = nil) async throws -> BackendTalkErrorsResponse {
+        var queryItems: [URLQueryItem] = []
+        if let sinceMs, sinceMs > 0 {
+            queryItems.append(URLQueryItem(name: "sinceMs", value: String(Int(sinceMs.rounded()))))
+        }
+        let request = try makeRequest(path: "/talk/errors", extraQueryItems: queryItems)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        return try JSONDecoder().decode(BackendTalkErrorsResponse.self, from: data)
     }
 
     private func fetchHealth(path: String) async throws -> BackendHealthStatus {
@@ -3352,6 +3692,42 @@ actor BackendMemoryAPI {
         )
     }
 
+    func fetchScreenplayExportFormats() async throws -> BackendScreenplayExportFormatsResponse {
+        _ = try? await bootstrapSession(force: false)
+        let request = try makeRequest(path: "/screenplay/export/formats")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(BackendScreenplayExportFormatsResponse.self, from: data)
+    }
+
+    func importFountainDraft(text: String) async throws -> BackendScreenplayImportResponse {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/screenplay/import/fountain")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text], options: [])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(headerSync, emitTurnEvent: false)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(BackendScreenplayImportResponse.self, from: data)
+    }
+
     func updateMemoryCard(
         id: String,
         key: String? = nil,
@@ -3874,6 +4250,12 @@ actor BackendMemoryAPI {
     ) {
         Task {
             do {
+                guard BackendEvolutionSyncPolicy.shouldAutoSync(
+                    sessionId: syncState.sessionId,
+                    cachedSessionAvailable: cachedSession != nil
+                ) else {
+                    return
+                }
                 let url = baseURL().appendingPathComponent("session").appendingPathComponent("evolution")
                 var request = URLRequest(url: url)
                 request.httpMethod = "PATCH"
@@ -4712,6 +5094,8 @@ actor BackendMemoryAPI {
             return "pdf"
         case "json":
             return "json"
+        case "md", "markdown":
+            return "md"
         case "txt":
             return "txt"
         default:
@@ -4723,8 +5107,28 @@ actor BackendMemoryAPI {
         struct ErrorPayload: Decodable {
             let error: String?
             let stage: String?
+            let message: String?
+            let alternativeFormats: [String]?
+
+            private enum CodingKeys: String, CodingKey {
+                case error
+                case stage
+                case message
+                case alternativeFormats = "alternative_formats"
+            }
         }
         if let payload = try? JSONDecoder().decode(ErrorPayload.self, from: data) {
+            if let message = payload.message?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !message.isEmpty {
+                let alternatives = payload.alternativeFormats?
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ", ") ?? ""
+                if alternatives.isEmpty {
+                    return message
+                }
+                return "\(message) Alternatives: \(alternatives)."
+            }
             if let error = payload.error, !error.isEmpty {
                 if let stage = payload.stage, !stage.isEmpty {
                     return "\(stage): \(error)"
@@ -4736,6 +5140,9 @@ actor BackendMemoryAPI {
     }
 
     private func baseURL() -> URL {
+        if let baseURLOverride {
+            return baseURLOverride
+        }
         let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
         if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults) {
             return canonicalizeLoopbackURL(url)

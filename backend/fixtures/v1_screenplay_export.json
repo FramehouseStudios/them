@@ -1,0 +1,45 @@
+{
+  "_meta": {
+    "id": "v1-screenplay-export-canonical",
+    "schemaVersion": 1,
+    "purpose": "Canonical deterministic input for the V1 screenplay-export smoke. Used by scripts/v1_screenplay_smoke.mjs to verify exportToFountain produces a stable, reopenable Fountain text payload.",
+    "v1_pillar": "screenplay",
+    "v1_effect": "infrastructure for 'Manual smoke: create project -> write scene -> save -> export -> reopen' (docs/v1-definition.md line 39)"
+  },
+  "screenplay": {
+    "title": { "title": "Rooftop", "credit": "Written by", "author": "io.them user" },
+    "scenes": [
+      {
+        "heading": "EXT. ROOFTOP - NIGHT",
+        "lines": [
+          { "kind": "action", "text": "Rain. JUNE stands at the edge, staring at the city." },
+          { "kind": "character", "name": "JUNE", "dialogue": "I came up here to think." },
+          { "kind": "action", "text": "She lights a cigarette." }
+        ]
+      },
+      {
+        "heading": "INT. APARTMENT - NIGHT",
+        "lines": [
+          { "kind": "action", "text": "Empty rooms. A phone rings. June doesn't answer." }
+        ]
+      }
+    ]
+  },
+  "expected_fountain_contains": [
+    "Title: Rooftop",
+    "Written by",
+    "io.them user",
+    "EXT. ROOFTOP - NIGHT",
+    "Rain. JUNE stands at the edge",
+    "JUNE",
+    "I came up here to think.",
+    "INT. APARTMENT - NIGHT"
+  ],
+  "expected_fountain_ordering": [
+    "Title:",
+    "EXT. ROOFTOP - NIGHT",
+    "JUNE",
+    "I came up here to think.",
+    "INT. APARTMENT - NIGHT"
+  ]
+}

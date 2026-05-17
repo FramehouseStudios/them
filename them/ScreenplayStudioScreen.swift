@@ -78,6 +78,7 @@ private enum BeatProvenanceSource: String, Codable, Equatable {
         case .manual:
             return "Manual"
         }
+
     }
 
     var compactTitle: String {
@@ -181,11 +182,20 @@ private func studioDebugMirroredDomains() -> [String] {
        !bundleID.isEmpty {
         domains.append(bundleID)
     }
+
     let fallbackDomain = String(studioDebugMirroredPreferencesDomain)
     if !domains.contains(fallbackDomain) {
         domains.append(fallbackDomain)
     }
     return domains
+}
+
+private func studioDebugMirroredSuiteDefaults(for domain: String) -> UserDefaults? {
+    if let bundleID = Bundle.main.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+       domain == bundleID {
+        return nil
+    }
+    return UserDefaults(suiteName: domain)
 }
 
 private func studioDebugMirroredPlistURLs(for domain: String) -> [URL] {
@@ -216,8 +226,10 @@ private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, 
 private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugMirroredDomains() {
-        UserDefaults(suiteName: domain)?.set(value, forKey: key)
-        UserDefaults(suiteName: domain)?.synchronize()
+        if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
+            suite.set(value, forKey: key)
+            suite.synchronize()
+        }
         let domainRef = domain as CFString
         CFPreferencesSetAppValue(key as CFString, NSNumber(value: value), domainRef)
         CFPreferencesAppSynchronize(domainRef)
@@ -229,8 +241,10 @@ private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: Str
 private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey key: String) {
     UserDefaults.standard.set(value, forKey: key)
     for domain in studioDebugMirroredDomains() {
-        UserDefaults(suiteName: domain)?.set(value, forKey: key)
-        UserDefaults(suiteName: domain)?.synchronize()
+        if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
+            suite.set(value, forKey: key)
+            suite.synchronize()
+        }
         let domainRef = domain as CFString
         CFPreferencesSetAppValue(key as CFString, value as CFString, domainRef)
         CFPreferencesAppSynchronize(domainRef)
@@ -256,7 +270,7 @@ private func studioDebugMirroredPreferenceValues(forKey key: String) -> [Any] {
                 append(dictionary[key])
             }
         }
-        if let suite = UserDefaults(suiteName: domain) {
+        if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
             suite.synchronize()
             append(suite.object(forKey: key))
         }
@@ -385,10 +399,59 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isFormatLinting: Bool = false
     @Published var formatLintErrorText: String = ""
     @Published var formatLintSourceText: String = ""
+    @Published var craftLogline: ScreenplayCraftLoglineDistillResponse?
+    @Published var craftLoglineDrift: ScreenplayCraftLoglineDriftResponse?
+    @Published var craftLoglineHistory: [ScreenplayCraftLoglineEntry] = []
+    @Published var isCraftLoglineLoading: Bool = false
+    @Published var craftLoglineErrorText: String = ""
+    @Published var craftLoglineInfoText: String = ""
+    @Published var blockSignal: BackendBlockSignalResponse?
+    @Published var blockSignalHistory: BackendBlockSignalHistoryResponse?
+    @Published var isBlockSignalLoading: Bool = false
+    @Published var blockSignalErrorText: String = ""
+    @Published var blockSignalInfoText: String = ""
+    @Published var characterTraits: BackendCharacterTraitsResponse?
+    @Published var characterArchetypes: BackendCharacterArchetypesResponse?
+    @Published var isCharacterTraitsLoading: Bool = false
+    @Published var characterTraitsErrorText: String = ""
+    @Published var characterTraitsInfoText: String = ""
+    @Published var craftTwists: ScreenplayCraftTwistSuggestResponse?
+    @Published var isCraftTwistLoading: Bool = false
+    @Published var craftTwistErrorText: String = ""
+    @Published var craftTwistInfoText: String = ""
+    @Published var craftTwistBeatLabel: String = ""
+    @Published var acceptedCraftTwists: [ScreenplayCraftAcceptedTwistEntry] = []
+    @Published var isAcceptedCraftTwistMutating: Bool = false
+    @Published var acceptedCraftTwistErrorText: String = ""
+    @Published var acceptedCraftTwistInfoText: String = ""
+    @Published var screenplayExportFormats: [BackendScreenplayExportFormat] = []
+    @Published var isScreenplayExportFormatsLoading: Bool = false
+    @Published var screenplayExportFormatsErrorText: String = ""
+    private var didLoadScreenplayProjectsFromBackend: Bool = false
 
     var formatLintCards: [ScreenplayFormatLintCard] {
         ScreenplayFormatLintCard.cards(from: formatLintReport, linesPerPage: linesPerPage)
     }
+
+    var screenplayExportMenuItems: [ScreenplayExportMenuItem] {
+        ScreenplayExportFormatMenu.items(
+            from: screenplayExportFormats,
+            localPDFSupported: Self.localPDFExportSupported
+        )
+    }
+
+    var screenplayExportPDFUnavailableText: String {
+        ScreenplayExportFormatMenu.pdfUnavailableText(
+            from: screenplayExportFormats,
+            localPDFSupported: Self.localPDFExportSupported
+        )
+    }
+
+    #if os(macOS)
+    private static let localPDFExportSupported = true
+    #else
+    private static let localPDFExportSupported = false
+    #endif
 
     @Published var newProjectTitle: String = ""
     @Published var newSceneSlugline: String = ""
@@ -469,6 +532,15 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func load() async {
+        guard !IOThemRuntime.isRunningTests else {
+            didLoadScreenplayProjectsFromBackend = false
+            projects = []
+            selectedProjectID = ""
+            selectedProject = nil
+            outline = .empty
+            syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
+            return
+        }
         isLoading = true
         defer { isLoading = false }
         errorText = ""
@@ -479,6 +551,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 includeVersions: false,
                 includeDrafts: false
             )
+            didLoadScreenplayProjectsFromBackend = true
             projects = result.payload.screenplayProjects
             let preferredID = (result.payload.screenplayActiveProjectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !preferredID.isEmpty, projects.contains(where: { $0.id == preferredID }) {
@@ -488,6 +561,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             }
             await loadSelectedProjectOutline()
         } catch {
+            didLoadScreenplayProjectsFromBackend = false
             errorText = error.localizedDescription
             selectedProject = nil
             outline = .empty
@@ -2126,6 +2200,18 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         craftReport = nil
         craftErrorText = ""
         craftInfoText = ""
+        craftLogline = nil
+        craftLoglineDrift = nil
+        craftLoglineHistory = []
+        craftLoglineErrorText = ""
+        craftLoglineInfoText = ""
+        craftTwists = nil
+        craftTwistErrorText = ""
+        craftTwistInfoText = ""
+        craftTwistBeatLabel = ""
+        acceptedCraftTwists = []
+        acceptedCraftTwistErrorText = ""
+        acceptedCraftTwistInfoText = ""
         if clearFrameworks {
             craftFrameworks = []
             selectedCraftFrameworkID = ""
@@ -2164,6 +2250,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             if selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 selectedCraftFrameworkID = report.framework.id
             }
+            await loadAcceptedCraftTwists(projectId: project.id, source: "Craft report")
             craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft report loaded."
         } catch BackendError.http(let status, _) where status == 404 {
             craftReport = nil
@@ -2196,6 +2283,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             )
             craftReport = report
             selectedCraftFrameworkID = report.framework.id
+            await loadAcceptedCraftTwists(projectId: project.id, source: "Craft report")
             craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft analysis complete."
         } catch {
             craftErrorText = error.localizedDescription
@@ -2245,6 +2333,258 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             formatLintReport = nil
             formatLintErrorText = error.localizedDescription
             formatLintSourceText = source
+        }
+    }
+
+    func refreshCraftLogline(source: String = "Draft") async {
+        guard let project = selectedProject else {
+            craftLogline = nil
+            craftLoglineDrift = nil
+            craftLoglineHistory = []
+            craftLoglineErrorText = ""
+            craftLoglineInfoText = "Select a screenplay project to track a logline."
+            return
+        }
+        guard !isCraftLoglineLoading else { return }
+
+        let draft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else {
+            craftLogline = nil
+            craftLoglineDrift = nil
+            craftLoglineErrorText = ""
+            craftLoglineInfoText = "Draft text is empty."
+            await loadCraftLoglineHistoryOnly(projectId: project.id)
+            return
+        }
+
+        isCraftLoglineLoading = true
+        defer { isCraftLoglineLoading = false }
+        craftLoglineErrorText = ""
+        do {
+            let versionId = activeCraftVersionID
+            let frameworkId = normalizedOrNil(selectedCraftFrameworkID)
+            let response = try await craftClient.distillCraftLogline(
+                text: draft,
+                projectId: project.id,
+                versionId: versionId,
+                frameworkId: frameworkId
+            )
+            let drift = try? await craftClient.fetchCraftLoglineDrift(
+                projectId: project.id,
+                currentLogline: response.logline
+            )
+            let history = try? await craftClient.fetchCraftLoglineHistory(projectId: project.id)
+            guard selectedProject?.id == project.id else { return }
+            guard draft == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            craftLogline = response
+            craftLoglineDrift = drift
+            craftLoglineHistory = history?.entries ?? craftLoglineHistory
+            craftLoglineInfoText = source
+        } catch BackendError.http(400, _) {
+            craftLogline = nil
+            craftLoglineErrorText = "Draft text is required before distilling a logline."
+            craftLoglineInfoText = source
+        } catch {
+            craftLogline = nil
+            craftLoglineErrorText = error.localizedDescription
+            craftLoglineInfoText = source
+        }
+    }
+
+    private func loadCraftLoglineHistoryOnly(projectId: String) async {
+        do {
+            let history = try await craftClient.fetchCraftLoglineHistory(projectId: projectId)
+            guard selectedProject?.id == projectId else { return }
+            craftLoglineHistory = history.entries
+        } catch {
+            craftLoglineHistory = []
+        }
+    }
+
+    func refreshBlockSignal(source: String = "io.them") async {
+        guard !IOThemRuntime.isRunningTests else { return }
+        guard !isBlockSignalLoading else { return }
+        isBlockSignalLoading = true
+        defer { isBlockSignalLoading = false }
+        do {
+            let response = try await craftClient.fetchMemoryBlockSignal()
+            blockSignal = response
+            blockSignalErrorText = ""
+            blockSignalInfoText = source
+        } catch {
+            blockSignalErrorText = error.localizedDescription
+            blockSignalInfoText = source
+        }
+        if let history = try? await craftClient.fetchMemoryBlockSignalHistory() {
+            blockSignalHistory = history
+        }
+    }
+
+    func refreshCharacterTraits(source: String = "io.them") async {
+        guard !IOThemRuntime.isRunningTests else { return }
+        guard !isCharacterTraitsLoading else { return }
+        isCharacterTraitsLoading = true
+        defer { isCharacterTraitsLoading = false }
+        do {
+            let response = try await craftClient.fetchMemoryCharacterTraits()
+            characterTraits = response
+            characterArchetypes = try? await craftClient.fetchMemoryCharacterArchetypes()
+            characterTraitsErrorText = ""
+            characterTraitsInfoText = source
+        } catch {
+            characterTraitsErrorText = error.localizedDescription
+            characterTraitsInfoText = source
+        }
+    }
+
+    func refreshCraftTwists(source: String = "io.them") async {
+        guard !IOThemRuntime.isRunningTests else { return }
+        guard !isCraftTwistLoading else { return }
+        let context = preferredCraftTwistContext()
+        isCraftTwistLoading = true
+        defer { isCraftTwistLoading = false }
+        craftTwistBeatLabel = context.beatLabel
+        do {
+            let response = try await craftClient.suggestCraftTwists(
+                frameworkId: context.frameworkId,
+                currentBeatId: context.beatId,
+                sceneSummary: context.sceneSummary,
+                count: 3
+            )
+            craftTwists = response
+            craftTwistErrorText = ""
+            craftTwistInfoText = source
+        } catch {
+            craftTwistErrorText = error.localizedDescription
+            craftTwistInfoText = source
+        }
+    }
+
+    func refreshAcceptedCraftTwists(source: String = "io.them") async {
+        guard !IOThemRuntime.isRunningTests else { return }
+        guard let project = selectedProject else {
+            acceptedCraftTwists = []
+            acceptedCraftTwistErrorText = ""
+            acceptedCraftTwistInfoText = "Select a screenplay project to track kept reversals."
+            return
+        }
+        await loadAcceptedCraftTwists(projectId: project.id, source: source)
+    }
+
+    private func loadAcceptedCraftTwists(projectId: String, source: String) async {
+        do {
+            let response = try await craftClient.fetchAcceptedCraftTwists(projectId: projectId)
+            guard selectedProject?.id == projectId else { return }
+            acceptedCraftTwists = response.entries
+            acceptedCraftTwistErrorText = ""
+            acceptedCraftTwistInfoText = source
+        } catch {
+            acceptedCraftTwistErrorText = error.localizedDescription
+            acceptedCraftTwistInfoText = source
+        }
+    }
+
+    func acceptCraftTwist(_ card: ScreenplayCraftTwistCardState) async {
+        guard !isAcceptedCraftTwistMutating else { return }
+        guard let project = selectedProject else {
+            acceptedCraftTwistErrorText = "Select a screenplay project before keeping a reversal."
+            return
+        }
+
+        isAcceptedCraftTwistMutating = true
+        defer { isAcceptedCraftTwistMutating = false }
+        acceptedCraftTwistErrorText = ""
+        let context = preferredCraftTwistContext()
+        do {
+            let response = try await craftClient.recordAcceptedCraftTwist(
+                projectId: project.id,
+                versionId: activeCraftVersionID,
+                frameworkId: craftTwists?.frameworkId ?? context.frameworkId,
+                beatId: craftTwists?.currentBeatId ?? context.beatId,
+                twist: card.suggestion,
+                sceneId: nil,
+                note: nil
+            )
+            guard selectedProject?.id == project.id else { return }
+            acceptedCraftTwists.removeAll { existing in
+                existing.twist.id == response.entry.twist.id && (existing.versionId ?? "") == (response.entry.versionId ?? "")
+            }
+            acceptedCraftTwists.append(response.entry)
+            acceptedCraftTwistInfoText = "Kept \(card.label) for future draft context."
+        } catch {
+            acceptedCraftTwistErrorText = "Could not keep reversal yet: \(error.localizedDescription)"
+            acceptedCraftTwistInfoText = "Keep action stayed local."
+        }
+    }
+
+    func dismissAcceptedCraftTwist(_ card: ScreenplayCraftTwistCardState) async {
+        guard !isAcceptedCraftTwistMutating else { return }
+        guard let project = selectedProject else {
+            acceptedCraftTwistErrorText = "Select a screenplay project before dismissing a reversal."
+            return
+        }
+
+        isAcceptedCraftTwistMutating = true
+        defer { isAcceptedCraftTwistMutating = false }
+        do {
+            _ = try await craftClient.deleteAcceptedCraftTwist(
+                twistId: card.id,
+                projectId: project.id,
+                versionId: activeCraftVersionID
+            )
+            guard selectedProject?.id == project.id else { return }
+            acceptedCraftTwists.removeAll { $0.twist.id == card.id }
+            acceptedCraftTwistErrorText = ""
+            acceptedCraftTwistInfoText = "Dismissed \(card.label)."
+        } catch {
+            acceptedCraftTwists.removeAll { $0.twist.id == card.id }
+            acceptedCraftTwistErrorText = "Dismiss sync is pending: \(error.localizedDescription)"
+            acceptedCraftTwistInfoText = "Dismissed locally."
+        }
+    }
+
+    private struct CraftTwistContext {
+        let frameworkId: String
+        let beatId: String
+        let beatLabel: String
+        let sceneSummary: String?
+    }
+
+    private func preferredCraftTwistContext() -> CraftTwistContext {
+        let selectedFramework = normalizedOrNil(selectedCraftFrameworkID) ?? craftReport?.framework.id ?? "save-the-cat"
+        if let report = craftReport {
+            let unsatisfied = report.majorTurns.first { !$0.isSatisfied }
+            let drifting = report.majorTurns.first { abs($0.driftPages ?? 0) >= 4 }
+            let midpoint = report.majorTurns.first { $0.turnId.lowercased().contains("midpoint") }
+            if let turn = unsatisfied ?? drifting ?? midpoint ?? report.majorTurns.first {
+                let sceneSummaryParts: [String?] = [turn.sceneTitle, report.summary]
+                let sceneSummary = sceneSummaryParts
+                    .compactMap { $0 }
+                    .compactMap { normalizedOrNil($0) }
+                    .joined(separator: " | ")
+                return CraftTwistContext(
+                    frameworkId: report.framework.id,
+                    beatId: turn.turnId,
+                    beatLabel: turn.label,
+                    sceneSummary: sceneSummary.isEmpty ? nil : sceneSummary
+                )
+            }
+        }
+        let fallback = Self.fallbackTwistBeat(for: selectedFramework)
+        return CraftTwistContext(
+            frameworkId: selectedFramework,
+            beatId: fallback.id,
+            beatLabel: fallback.label,
+            sceneSummary: normalizedOrNil(fountainDraft).map { String($0.prefix(480)) }
+        )
+    }
+
+    private static func fallbackTwistBeat(for frameworkId: String) -> (id: String, label: String) {
+        switch frameworkId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "three-act": return ("midpoint-twist", "Midpoint Twist")
+        case "story-circle": return ("find", "Find")
+        case "hero-journey": return ("ordeal", "Ordeal")
+        default: return ("midpoint", "Midpoint")
         }
     }
 
@@ -2318,6 +2658,29 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             projectId: project.id,
             versionId: latestVersionID.isEmpty ? nil : latestVersionID
         )
+    }
+
+    func refreshScreenplayExportFormats(reportErrors: Bool = true) async {
+        guard !isScreenplayExportFormatsLoading else { return }
+        isScreenplayExportFormatsLoading = true
+        defer { isScreenplayExportFormatsLoading = false }
+        do {
+            let response = try await BackendMemoryAPI.shared.fetchScreenplayExportFormats()
+            screenplayExportFormats = response.formats
+            screenplayExportFormatsErrorText = ""
+        } catch {
+            screenplayExportFormats = []
+            screenplayExportFormatsErrorText = reportErrors ? error.localizedDescription : ""
+        }
+    }
+
+    func refreshScreenplayExportFormatsAutomatically() async {
+        guard ScreenplayExportFormatRefreshPolicy.shouldAutoRefresh(
+            projectListLoadedFromBackend: didLoadScreenplayProjectsFromBackend
+        ) else {
+            return
+        }
+        await refreshScreenplayExportFormats(reportErrors: false)
     }
 
     private func loadSelectedProjectOutline() async {
@@ -2966,6 +3329,24 @@ struct ScreenplayStudioScreen: View {
         case append
     }
 
+    private static let draftImportTextExtensions: Set<String> = [
+        "fountain",
+        "txt",
+        "md",
+        "text",
+        "screenplay",
+    ]
+
+    private static var draftImportContentTypes: [UTType] {
+        var types: [UTType] = [.pdf, .plainText, .text]
+        for ext in draftImportTextExtensions.sorted() {
+            if let type = UTType(filenameExtension: ext), !types.contains(type) {
+                types.append(type)
+            }
+        }
+        return types
+    }
+
     private enum StudioTarget: String, Codable, Equatable {
         case page
         case voicePin
@@ -3342,6 +3723,39 @@ struct ScreenplayStudioScreen: View {
     @Binding var typedReplyAudioEnabled: Bool
     var onSubmitPrompt: (String, PromptRoutingMode, String) async -> String?
     var shouldRoutePromptToPage: (String, PromptRoutingMode) -> Bool
+
+    init(
+        onDone: @escaping () -> Void,
+        liveDraftBridge: ScreenplayLiveDraftBridge,
+        onArmTalk: @escaping () -> Void,
+        onStopTalk: @escaping () -> Void,
+        onOpenVoiceSettings: @escaping () -> Void,
+        canTalk: Bool,
+        talkStatusText: String,
+        talkIsActive: Bool,
+        debugVoicePartialStableSeconds: Double,
+        debugVoicePartialStabilityWindowSeconds: Double,
+        isSubmittingPrompt: Bool,
+        typedReplyAudioEnabled: Binding<Bool>,
+        onSubmitPrompt: @escaping (String, PromptRoutingMode, String) async -> String?,
+        shouldRoutePromptToPage: @escaping (String, PromptRoutingMode) -> Bool
+    ) {
+        self.onDone = onDone
+        self.liveDraftBridge = liveDraftBridge
+        self.onArmTalk = onArmTalk
+        self.onStopTalk = onStopTalk
+        self.onOpenVoiceSettings = onOpenVoiceSettings
+        self.canTalk = canTalk
+        self.talkStatusText = talkStatusText
+        self.talkIsActive = talkIsActive
+        self.debugVoicePartialStableSeconds = debugVoicePartialStableSeconds
+        self.debugVoicePartialStabilityWindowSeconds = debugVoicePartialStabilityWindowSeconds
+        self.isSubmittingPrompt = isSubmittingPrompt
+        self._typedReplyAudioEnabled = typedReplyAudioEnabled
+        self.onSubmitPrompt = onSubmitPrompt
+        self.shouldRoutePromptToPage = shouldRoutePromptToPage
+    }
+
     @StateObject private var vm = ScreenplayStudioViewModel()
     @State private var navigatorRootURL: URL?
     @State private var navigatorCurrentURL: URL?
@@ -3371,10 +3785,12 @@ struct ScreenplayStudioScreen: View {
     @State private var studioPromptSeed: String = ""
     @State private var studioPromptIntent: StudioPromptIntent = .advice
     @State private var isSubmittingStudioPrompt: Bool = false
+    @State private var perceivedSpeedState: StudioPerceivedSpeedState = .idle
     @State private var sendingVoicePinSuggestionID: String?
     @State private var pendingDraftImportURL: URL?
     @State private var pendingDraftImportSourceName: String = ""
     @State private var showingDraftImportChoice = false
+    @State private var showingDraftFileImporter = false
     @State private var showingLeadReferenceDetails = false
     @State private var showingScreenplayShortcuts = false
     @State private var hoveredScreenplayElement: ScreenplayEditorElement?
@@ -3652,6 +4068,19 @@ Replace is best when this file should become the script you edit. Append is safe
 """
                 )
             }
+            .fileImporter(
+                isPresented: $showingDraftFileImporter,
+                allowedContentTypes: Self.draftImportContentTypes,
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    queueDraftImport(from: url)
+                case .failure(let error):
+                    vm.errorText = error.localizedDescription
+                }
+            }
     }
 
     private var studioPresentationBoundView: some View {
@@ -3880,7 +4309,11 @@ Replace is best when this file should become the script you edit. Append is safe
                 vm.screenplayBindings = currentScreenplayBindingPayload()
                 if directionOneRightPanelTab == .craft {
                     vm.resetCraftReportForProjectChange()
-                    Task { await vm.loadCraftReport(force: true) }
+                    Task {
+                        await vm.loadCraftReport(force: true)
+                        await vm.refreshAcceptedCraftTwists(source: "Version")
+                    }
+                    Task { await vm.refreshCraftLogline(source: "Version") }
                 }
                 publishDebugStudioDiffState()
             }
@@ -3933,11 +4366,23 @@ Replace is best when this file should become the script you edit. Append is safe
                 if newValue == .them {
                     isDirectionOneMemoryExpanded = true
                 }
+                if newValue == .them {
+                    Task {
+                        await vm.refreshBlockSignal(source: "io.them rail")
+                        await vm.refreshCharacterTraits(source: "io.them rail")
+                        await vm.refreshCraftTwists(source: "io.them rail")
+                        await vm.refreshAcceptedCraftTwists(source: "io.them rail")
+                    }
+                }
                 if newValue == .saved {
                     isDirectionOneSavedExpanded = true
                 }
                 if newValue == .craft {
-                    Task { await vm.loadCraftReport() }
+                    Task {
+                        await vm.loadCraftReport()
+                        await vm.refreshAcceptedCraftTwists(source: "Craft rail")
+                    }
+                    Task { await vm.refreshCraftLogline(source: "Craft rail") }
                 }
                 persistInspectorWorkspaceState()
                 publishDebugStudioDiffState()
@@ -4105,12 +4550,19 @@ Replace is best when this file should become the script you edit. Append is safe
         studioBaseLayout
             .task {
                 await vm.load()
+                await vm.refreshScreenplayExportFormatsAutomatically()
                 await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
                 await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 vm.replaceDraftFromVoiceBridgeIfNeeded(liveDraftBridge.draftText)
                 bootstrapNavigatorIfNeeded()
                 await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
                 restoreInspectorWorkspaceState()
+                if directionOneRightPanelTab == .them {
+                    await vm.refreshBlockSignal(source: "Studio open")
+                    await vm.refreshCharacterTraits(source: "Studio open")
+                    await vm.refreshCraftTwists(source: "Studio open")
+                    await vm.refreshAcceptedCraftTwists(source: "Studio open")
+                }
             }
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
                 Task {
@@ -6364,6 +6816,13 @@ private var directionOneScriptEditor: some View {
                 .overlay(alignment: .topLeading) {
                     focusedPageDiffAnchoredOverlay
                 }
+                .overlay(alignment: .topTrailing) {
+                    if perceivedSpeedState.isActive && perceivedSpeedState.target == .page {
+                        studioPerceivedPageSkeleton
+                            .padding(.top, 18)
+                            .padding(.trailing, 18)
+                    }
+                }
             }
             .frame(width: pageWidth)
             .frame(maxWidth: .infinity)
@@ -6379,6 +6838,82 @@ private var directionOneScriptEditor: some View {
                 handleDraftDrop(providers: providers)
             }
         }
+    }
+
+    private var isVoicePinPerceivedResponseActive: Bool {
+        perceivedSpeedState.isActive && perceivedSpeedState.target == .voicePin
+    }
+
+    private var studioPerceivedPageSkeleton: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(perceivedSpeedState.statusText)
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.72))
+            }
+
+            ForEach(perceivedSpeedState.skeletonLines, id: \.self) { line in
+                Text(line)
+                    .font(.system(size: line == line.uppercased() ? 9 : 10, weight: line == line.uppercased() ? .semibold : .regular, design: .monospaced))
+                    .foregroundStyle(Color.herText.opacity(line == line.uppercased() ? 0.54 : 0.42))
+                    .lineLimit(1)
+            }
+        }
+        .padding(12)
+        .frame(width: 238, alignment: .leading)
+        .background(Color.white.opacity(0.72))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.herText.opacity(0.10), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 8)
+    }
+
+    private var studioPerceivedVoicePinPendingCard: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(perceivedSpeedState.statusText)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.78))
+                Spacer(minLength: 0)
+                if let ms = perceivedSpeedState.firstFeedbackMilliseconds {
+                    Text("\(Int(ms))ms")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.herText.opacity(0.42))
+                }
+            }
+
+            Text(perceivedSpeedState.prompt)
+                .font(.system(size: 12, weight: .medium, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.58))
+                .lineLimit(2)
+
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(perceivedSpeedState.skeletonLines, id: \.self) { line in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.herText.opacity(0.20))
+                            .frame(width: 4, height: 4)
+                        Text(line)
+                            .font(.system(size: 10, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.42))
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var directionOneDraftFooterStrip: some View {
@@ -7951,12 +8486,21 @@ Detail:
             infoText: vm.craftInfoText,
             fallbackPageCount: vm.craftFallbackPageCount,
             isSavingOverride: vm.isCraftOverrideSaving,
+            logline: vm.craftLogline,
+            loglineDrift: vm.craftLoglineDrift,
+            loglineHistory: vm.craftLoglineHistory,
+            isLoglineLoading: vm.isCraftLoglineLoading,
+            loglineErrorText: vm.craftLoglineErrorText,
+            loglineInfoText: vm.craftLoglineInfoText,
             formatLintCards: vm.formatLintCards,
             isFormatLinting: vm.isFormatLinting,
             formatLintErrorText: vm.formatLintErrorText,
             formatLintSource: vm.formatLintSourceText,
             onRefresh: {
                 Task { await vm.loadCraftReport(force: true) }
+            },
+            onRefreshLogline: {
+                Task { await vm.refreshCraftLogline(source: "Manual check") }
             },
             onRefreshFormatLint: {
                 Task { await vm.refreshFormatLint(source: "Manual check") }
@@ -8059,6 +8603,10 @@ Detail:
 private var directionOneThemPanel: some View {
     let analytics = liveDraftBridge.companionAnalytics
     let signalState = liveDraftBridge.companionSignalState
+    let blockSignalNudge = BackendBlockSignalNudgeState.make(signal: vm.blockSignal)
+    let blockSignalHistoryTrend = BackendBlockSignalHistoryTrendState.make(history: vm.blockSignalHistory)
+    let characterTraitCards = BackendCharacterTraitCardState.make(response: vm.characterTraits, archetypes: vm.characterArchetypes)
+    let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
 
     return VStack(alignment: .leading, spacing: 16) {
         VStack(alignment: .leading, spacing: 6) {
@@ -8111,6 +8659,49 @@ private var directionOneThemPanel: some View {
             }
         }
 
+        if vm.isBlockSignalLoading {
+            intelligenceCollectionCard(title: "Momentum", icon: "hourglass") {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Checking writing momentum without interrupting the page.")
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } else if !vm.blockSignalErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            intelligenceCollectionCard(title: "Momentum", icon: "exclamationmark.triangle") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(vm.blockSignalErrorText)
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        Task { await vm.refreshBlockSignal(source: "Manual check") }
+                    } label: {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        } else if blockSignalNudge.shouldRender || blockSignalHistoryTrend.shouldRender {
+            directionOneBlockSignalNudgeCard(blockSignalNudge, history: blockSignalHistoryTrend)
+        }
+
+        if vm.isCharacterTraitsLoading ||
+            !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            vm.characterTraits != nil {
+            directionOneCharacterTraitsCard(characterTraitCards)
+        }
+
+        if vm.isCraftTwistLoading ||
+            !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            vm.craftTwists != nil {
+            directionOneTwistCardsCard(twistCards)
+        }
+
         directionOneThemCollaboratorSection
 
         intelligenceCollectionCard(title: "Surface mix", icon: "waveform.path.ecg") {
@@ -8137,6 +8728,358 @@ private var directionOneThemPanel: some View {
             .stroke(Color.herShellStroke.opacity(0.40), lineWidth: 1)
     )
 }
+
+    private func directionOneBlockSignalNudgeCard(
+        _ state: BackendBlockSignalNudgeState,
+        history: BackendBlockSignalHistoryTrendState
+    ) -> some View {
+        let title = state.shouldRender ? state.title : history.title
+        let icon = state.shouldRender ? (state.level == .high ? "sparkles.rectangle.stack" : "sparkle.magnifyingglass") : "chart.xyaxis.line"
+
+        return intelligenceCollectionCard(title: title, icon: icon) {
+            VStack(alignment: .leading, spacing: 10) {
+                if state.shouldRender {
+                    HStack(spacing: 8) {
+                        Text(state.scoreLabel)
+                            .font(.system(size: 18, weight: .semibold, design: .serif))
+                            .foregroundStyle(blockSignalTint(state.level))
+                        if !state.topSignalLabel.isEmpty {
+                            Text(state.topSignalLabel)
+                                .font(.system(size: 10, weight: .semibold, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.62))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.16))
+                                .clipShape(Capsule())
+                        }
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await vm.refreshBlockSignal(source: "Manual check") }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Refresh momentum signal")
+                    }
+
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.herShellStroke.opacity(0.20))
+                            Capsule()
+                                .fill(blockSignalTint(state.level).opacity(0.58))
+                                .frame(width: max(8, geometry.size.width * state.progress))
+                        }
+                    }
+                    .frame(height: 5)
+
+                    Text(state.summary)
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.78))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(state.detailLabel)
+                        .font(.system(size: 10, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.48))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(spacing: 8) {
+                        Text(history.trendLabel)
+                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .foregroundStyle(blockSignalTint(history.latestLevel))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Button {
+                            Task { await vm.refreshBlockSignal(source: "Manual check") }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Refresh momentum history")
+                    }
+                }
+
+                if history.shouldRender {
+                    directionOneBlockSignalHistorySparkline(history)
+                }
+            }
+        }
+    }
+
+    private func directionOneBlockSignalHistorySparkline(_ history: BackendBlockSignalHistoryTrendState) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 3) {
+                ForEach(Array(history.sparklineScores.enumerated()), id: \.offset) { _, score in
+                    Capsule()
+                        .fill(blockSignalTint(history.latestLevel).opacity(0.30 + (0.42 * score)))
+                        .frame(width: 5, height: CGFloat(max(5, 26 * score)))
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(height: 28)
+
+            HStack(spacing: 8) {
+                Text(history.countLabel)
+                Text(history.levelMixLabel)
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 10, weight: .medium, design: .default))
+            .foregroundStyle(Color.herText.opacity(0.48))
+        }
+    }
+
+    private func blockSignalTint(_ level: BackendBlockSignalLevel) -> Color {
+        switch level {
+        case .high: return Color.red.opacity(0.74)
+        case .medium: return Color.orange.opacity(0.76)
+        case .low, .unknown: return Color.green.opacity(0.66)
+        }
+    }
+
+    private func directionOneCharacterTraitsCard(_ cards: [BackendCharacterTraitCardState]) -> some View {
+        intelligenceCollectionCard(title: "Character Memory", icon: "person.2") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("Voice inventory")
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.78))
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { await vm.refreshCharacterTraits(source: "Manual check") }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Refresh character memory")
+                }
+
+                if vm.isCharacterTraitsLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Reading the character voice library.")
+                            .font(.system(size: 12, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.70))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else if !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(vm.characterTraitsErrorText)
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if cards.isEmpty {
+                    Text("No character traits saved yet. Dialogue and rendered character cues will teach io.them who belongs in the draft.")
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(cards) { card in
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack(spacing: 8) {
+                                Text(card.name)
+                                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                                    .foregroundStyle(Color.herText.opacity(0.88))
+                                if card.hasTraits {
+                                    Text("learned")
+                                        .font(.system(size: 9, weight: .semibold, design: .default))
+                                        .foregroundStyle(Color.herText.opacity(0.54))
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(Color.white.opacity(0.14))
+                                        .clipShape(Capsule())
+                                }
+                                if card.hasArchetype {
+                                    Text(card.archetypeLabel)
+                                        .font(.system(size: 9, weight: .semibold, design: .default))
+                                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.86))
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(Color.herStudioActiveFill.opacity(0.14))
+                                        .clipShape(Capsule())
+                                }
+                                Spacer(minLength: 0)
+                            }
+
+                            Text(card.summary)
+                                .font(.system(size: 12, weight: .medium, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.72))
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            if card.hasArchetype && !card.archetypeSummary.isEmpty {
+                                Text(card.archetypeScoreLabel.isEmpty ? card.archetypeSummary : "\(card.archetypeSummary) - \(card.archetypeScoreLabel)")
+                                    .font(.system(size: 11, weight: .semibold, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.62))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+
+                            if !card.chips.isEmpty {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    ForEach(card.chips, id: \.self) { chip in
+                                        Text(chip)
+                                            .font(.system(size: 10, weight: .semibold, design: .default))
+                                            .foregroundStyle(Color.herText.opacity(0.62))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color.herStudioActiveFill.opacity(0.14))
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                            }
+
+                            Text(card.detail)
+                                .font(.system(size: 10, weight: .medium, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.46))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(10)
+                        .background(Color.white.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
+    private func directionOneTwistCardsCard(_ cards: [ScreenplayCraftTwistCardState]) -> some View {
+        intelligenceCollectionCard(title: "Reversal Cards", icon: "sparkles") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(vm.craftTwistBeatLabel.isEmpty ? "Beat-aware twist pass" : vm.craftTwistBeatLabel)
+                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.78))
+                        Text("Derived from the current craft framework.")
+                            .font(.system(size: 10, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.48))
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        Task {
+                            await vm.refreshCraftTwists(source: "Manual check")
+                            await vm.refreshAcceptedCraftTwists(source: "Manual check")
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Refresh reversal cards")
+                }
+
+                if !vm.acceptedCraftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(vm.acceptedCraftTwistErrorText)
+                        .font(.system(size: 10, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.56))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if !vm.acceptedCraftTwists.isEmpty {
+                    Text("\(vm.acceptedCraftTwists.count) kept reversal\(vm.acceptedCraftTwists.count == 1 ? "" : "s") linked to this project.")
+                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.56))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if vm.isCraftTwistLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Asking the twist engine for reversible pressure.")
+                            .font(.system(size: 12, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.70))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else if !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(vm.craftTwistErrorText)
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.70))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if cards.isEmpty {
+                    Text("No reversal cards yet. Run craft analysis or refresh once the draft has a major turn to pressure-test.")
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(cards) { card in
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack(spacing: 8) {
+                                Text(card.label)
+                                    .font(.system(size: 13, weight: .semibold, design: .serif))
+                                    .foregroundStyle(Color.herText.opacity(0.88))
+                                Text(card.severityLabel)
+                                    .font(.system(size: 9, weight: .semibold, design: .default))
+                                    .foregroundStyle(twistSeverityTint(card.severity))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(twistSeverityTint(card.severity).opacity(0.12))
+                                    .clipShape(Capsule())
+                                if card.isAccepted {
+                                    Text("Kept")
+                                        .font(.system(size: 9, weight: .semibold, design: .default))
+                                        .foregroundStyle(Color.herText.opacity(0.78))
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(Color.white.opacity(0.16))
+                                        .clipShape(Capsule())
+                                }
+                                Spacer(minLength: 0)
+                            }
+
+                            Text(card.hook)
+                                .font(.system(size: 12, weight: .semibold, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.76))
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            if !card.rationale.isEmpty {
+                                Text(card.rationale)
+                                    .font(.system(size: 10, weight: .medium, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.48))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+
+                            HStack(spacing: 8) {
+                                Button {
+                                    Task { await vm.acceptCraftTwist(card) }
+                                } label: {
+                                    Label(card.isAccepted ? "Kept" : "Keep", systemImage: card.isAccepted ? "checkmark.circle.fill" : "pin")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(vm.isAcceptedCraftTwistMutating || card.isAccepted || vm.selectedProject == nil)
+
+                                Button {
+                                    Task { await vm.dismissAcceptedCraftTwist(card) }
+                                } label: {
+                                    Label("Dismiss", systemImage: "xmark.circle")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(vm.isAcceptedCraftTwistMutating || vm.selectedProject == nil)
+
+                                if vm.isAcceptedCraftTwistMutating {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                        }
+                        .padding(10)
+                        .background(Color.white.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
+    private func twistSeverityTint(_ severity: String) -> Color {
+        switch severity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "high": return Color.red.opacity(0.76)
+        case "medium": return Color.orange.opacity(0.76)
+        default: return Color.herText.opacity(0.58)
+        }
+    }
+
     private var directionOneSavedPanel: some View {
         let hasDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let latestVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9418,8 +10361,8 @@ private var projectsSidebarContent: some View {
                     .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                    Button("Import PDF…") {
-                        importDraftPDF()
+                    Button("Import Script…") {
+                        importDraftDocument()
                     }
                     .buttonStyle(.bordered)
                 }
@@ -9427,7 +10370,7 @@ private var projectsSidebarContent: some View {
             }
 
             draftUtilityRow(
-                message: "Save, export, and page review live in the Draft rail so the screenplay page can stay clear."
+                message: "Save, import, export, and page review live in the Draft rail so the screenplay page can stay clear."
             )
         }
     }
@@ -9450,8 +10393,8 @@ private var projectsSidebarContent: some View {
                     .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                    Button("Import PDF…") {
-                        importDraftPDF()
+                    Button("Import Script…") {
+                        importDraftDocument()
                     }
                     .buttonStyle(.bordered)
                 }
@@ -9544,7 +10487,7 @@ private var projectsSidebarContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 inspectorSubsectionLabel("Document Controls")
-                Text("Save, export, and autosave live here so the rest of the inspector can stay focused on the draft itself.")
+                Text("Save, import, export, and autosave live here so the rest of the inspector can stay focused on the draft itself.")
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.54))
             }
@@ -9559,12 +10502,24 @@ private var projectsSidebarContent: some View {
                 .buttonStyle(.borderedProminent)
                 .disabled(vm.isSaving)
 
+                Button {
+                    importDraftDocument()
+                } label: {
+                    Label("Import", systemImage: "square.and.arrow.down")
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                }
+                .buttonStyle(.bordered)
+
                 Menu {
-                    Button("Export FDX") {
-                        Task { await exportCurrentDraft(format: "fdx") }
+                    ForEach(vm.screenplayExportMenuItems) { item in
+                        Button(item.title) {
+                            Task { await exportCurrentDraft(format: item.format) }
+                        }
+                        .disabled(!item.isEnabled)
                     }
-                    Button("Export PDF") {
-                        Task { await exportCurrentDraft(format: "pdf") }
+                    Divider()
+                    Button("Refresh Formats") {
+                        Task { await vm.refreshScreenplayExportFormats() }
                     }
                     Button("Open in Google Docs") {
                         openInGoogleDocs(draft: vm.fountainDraft)
@@ -9589,6 +10544,18 @@ private var projectsSidebarContent: some View {
                 .foregroundStyle(Color.herText.opacity(0.66))
                 .textCase(.uppercase)
                 .tracking(0.5)
+
+            if !vm.screenplayExportFormatsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(vm.screenplayExportFormatsErrorText)
+                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .foregroundStyle(Color.orange.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !vm.screenplayExportPDFUnavailableText.isEmpty {
+                Text(vm.screenplayExportPDFUnavailableText)
+                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(14)
         .background(
@@ -13930,7 +14897,7 @@ private var projectsSidebarContent: some View {
         VStack(spacing: 0) {
             voicePinHeader
 
-            if voicePinTurns.isEmpty {
+            if voicePinTurns.isEmpty && !isVoicePinPerceivedResponseActive {
                 voicePinEmptyState
             } else {
                 Divider()
@@ -13940,6 +14907,11 @@ private var projectsSidebarContent: some View {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 0) {
                             voicePinThreadHeader
+
+                            if isVoicePinPerceivedResponseActive {
+                                studioPerceivedVoicePinPendingCard
+                                    .padding(.bottom, 8)
+                            }
 
                             ForEach(visibleVoicePinTurns) { turn in
                                 voicePinTurnCard(turn)
@@ -17088,7 +18060,7 @@ Current draft version:
                     if vm.selectedProject == nil {
                         screenplayPageActionChipButton(
                             title: "Create Project",
-                            systemImage: "square.stack.badge.plus",
+                            systemImage: "rectangle.stack.badge.plus",
                             tint: Color.accentColor.opacity(0.84),
                             fill: Color.accentColor.opacity(0.08),
                             stroke: Color.accentColor.opacity(0.18)
@@ -20292,6 +21264,12 @@ Return revised screenplay lines only.
     private func restoreStudioAskNoteHistory(for key: String) async {
         let store = loadStudioAskNoteHistoryMap()
         let decoded = applyStoredWriteAnchors(to: Array((store[key] ?? []).prefix(24)), for: key)
+        if IOThemRuntime.isRunningTests {
+            studioAskNoteHistory = decoded
+            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: decoded)
+            syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
+            return
+        }
         let shouldBackfill = decoded.count < 8
 
         do {
@@ -21003,6 +21981,38 @@ Return revised screenplay lines only.
         #endif
     }
 
+    private func beginPerceivedSpeedResponse(
+        prompt: String,
+        requestID: String,
+        target: StudioPerceivedSpeedState.Target,
+        source: StudioPromptSource
+    ) {
+        perceivedSpeedState = StudioPerceivedSpeedState.start(
+            requestID: requestID,
+            prompt: prompt,
+            target: target,
+            sourceRaw: source.rawValue
+        )
+        vm.infoText = perceivedSpeedState.statusText
+        if target == .page {
+            liveDraftBridge.autoInsertStatusText = perceivedSpeedState.statusText
+        } else {
+            withAnimation(.easeInOut(duration: 0.14)) {
+                isDirectionOneRightRailExpanded = true
+                directionOneRightPanelTab = .them
+            }
+        }
+    }
+
+    private func completePerceivedSpeedResponse(requestID: String) {
+        guard perceivedSpeedState.id == requestID else { return }
+        let completedState = perceivedSpeedState.completing()
+        if completedState.target == .page && liveDraftBridge.autoInsertStatusText == perceivedSpeedState.statusText {
+            liveDraftBridge.autoInsertStatusText = ""
+        }
+        perceivedSpeedState = completedState
+    }
+
     private func submitStudioPromptText(
         _ rawText: String,
         displayText: String? = nil,
@@ -21023,7 +22033,14 @@ Return revised screenplay lines only.
         guard !isSubmittingStudioPrompt, !isSubmittingPrompt else { return }
         let routesToPage = shouldRoutePromptToPage(text, routingMode)
         let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
+        let perceivedTarget: StudioPerceivedSpeedState.Target = routesToPage ? .page : .voicePin
 
+        beginPerceivedSpeedResponse(
+            prompt: text,
+            requestID: requestID,
+            target: perceivedTarget,
+            source: source
+        )
         isSubmittingStudioPrompt = true
         self.sendingVoicePinSuggestionID = sendingSuggestionID
         studioPromptFocused = false
@@ -21066,6 +22083,7 @@ Return revised screenplay lines only.
 #endif
                 isSubmittingStudioPrompt = false
                 self.sendingVoicePinSuggestionID = nil
+                completePerceivedSpeedResponse(requestID: requestID)
                 if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 #if DEBUG || os(macOS)
                     if let effectiveDebugSubmitToken {
@@ -21654,6 +22672,7 @@ Return revised screenplay lines only.
 
     private func applyDebugLoadProjectIfNeeded() {
         #if DEBUG || os(macOS)
+        guard !IOThemRuntime.isRunningTests else { return }
         guard studioDebugLoadProjectToken > 0 else { return }
         guard studioDebugLoadProjectToken != studioDebugLoadProjectAckToken else { return }
         guard studioDebugLoadProjectToken != lastAppliedStudioDebugLoadProjectToken else { return }
@@ -21679,6 +22698,7 @@ Return revised screenplay lines only.
     @MainActor
     private func applyBridgeDebugProjectLoadIfNeeded(force: Bool = false) async {
         #if DEBUG || os(macOS)
+        guard !IOThemRuntime.isRunningTests else { return }
         let token = liveDraftBridge.debugProjectLoadToken
         let requestedProjectID = liveDraftBridge.debugRequestedProjectID
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -23131,10 +24151,12 @@ Look at the city.
         let encoder = JSONEncoder()
         guard let data = try? encoder.encode(state),
               let encoded = String(data: data, encoding: .utf8) else { return }
-        studioDebugDiffStateJSON = encoded
-        #if os(macOS)
-        writeMirroredStudioDebugPreferenceString(encoded, forKey: "studio_debug_diff_state_json")
-        #endif
+        DispatchQueue.main.async {
+            studioDebugDiffStateJSON = encoded
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceString(encoded, forKey: "studio_debug_diff_state_json")
+            #endif
+        }
         #endif
     }
 
@@ -23195,6 +24217,7 @@ Look at the city.
     }
 
     private func bootstrapNavigatorIfNeeded() {
+        guard !IOThemRuntime.isRunningTests else { return }
         guard navigatorCurrentURL == nil else { return }
         let fallback = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
@@ -23295,15 +24318,8 @@ Look at the city.
             return
         }
         let ext = entry.url.pathExtension.lowercased()
-        if ["fountain", "txt", "md", "text", "screenplay"].contains(ext) {
-            do {
-                let content = try String(contentsOf: entry.url, encoding: .utf8)
-                vm.fountainDraft = content
-                liveDraftBridge.draftText = content
-                vm.infoText = "Loaded \(entry.name)"
-            } catch {
-                vm.errorText = error.localizedDescription
-            }
+        if Self.draftImportTextExtensions.contains(ext) {
+            queueDraftImport(from: entry.url)
             return
         }
         if ext == "pdf" {
@@ -23495,18 +24511,20 @@ Look at the city.
         }
     }
 
-    private func importDraftPDF() {
+    private func importDraftDocument() {
         #if os(macOS)
         let panel = NSOpenPanel()
-        panel.title = "Import Screenplay PDF"
+        panel.title = "Import Screenplay"
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.canCreateDirectories = false
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.pdf]
+        panel.allowedContentTypes = Self.draftImportContentTypes
         if panel.runModal() == .OK, let url = panel.url {
             queueDraftImport(from: url)
         }
+        #else
+        showingDraftFileImporter = true
         #endif
     }
 
@@ -23514,7 +24532,7 @@ Look at the city.
         let standardizedURL = sourceURL.standardizedFileURL
         let hasExistingDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard hasExistingDraft else {
-            importDraftFile(from: standardizedURL, appendToExisting: false)
+            Task { await importDraftFile(from: standardizedURL, appendToExisting: false) }
             return
         }
         pendingDraftImportURL = standardizedURL
@@ -23526,7 +24544,7 @@ Look at the city.
         guard let sourceURL = pendingDraftImportURL else { return }
         let shouldAppend = (mode == .append)
         clearPendingDraftImport()
-        importDraftFile(from: sourceURL, appendToExisting: shouldAppend)
+        Task { await importDraftFile(from: sourceURL, appendToExisting: shouldAppend) }
     }
 
     private func clearPendingDraftImport() {
@@ -23534,7 +24552,7 @@ Look at the city.
         pendingDraftImportSourceName = ""
     }
 
-    private func importDraftFile(from sourceURL: URL, appendToExisting: Bool) {
+    private func importDraftFile(from sourceURL: URL, appendToExisting: Bool) async {
         let source = sourceURL.standardizedFileURL
         let hasAccess = source.startAccessingSecurityScopedResource()
         defer {
@@ -23542,7 +24560,7 @@ Look at the city.
         }
 
         do {
-            let importedDraft = try extractedEditableDraft(from: source)
+            let importedDraft = try await extractedEditableDraft(from: source)
             vm.importExternalDraft(
                 importedDraft.text,
                 sourceName: source.lastPathComponent,
@@ -23551,19 +24569,29 @@ Look at the city.
             if importedDraft.usedOCR {
                 vm.infoText += " OCR was used for scanned pages."
             }
+            if importedDraft.usedBackendFountainImport {
+                vm.infoText += " Parsed with the Fountain import service."
+            }
             liveDraftBridge.draftText = vm.fountainDraft
         } catch {
             vm.errorText = error.localizedDescription
         }
     }
 
-    private func extractedEditableDraft(from sourceURL: URL) throws -> (text: String, usedOCR: Bool) {
+    private func extractedEditableDraft(from sourceURL: URL) async throws -> (text: String, usedOCR: Bool, usedBackendFountainImport: Bool) {
         let ext = sourceURL.pathExtension.lowercased()
         if ext == "pdf" {
-            return try extractDraftTextFromPDF(sourceURL)
+            let extracted = try extractDraftTextFromPDF(sourceURL)
+            return (extracted.text, extracted.usedOCR, false)
         }
-        if ["fountain", "txt", "md", "text", "screenplay"].contains(ext) {
+        if Self.draftImportTextExtensions.contains(ext) {
             let raw = try String(contentsOf: sourceURL, encoding: .utf8)
+            if let imported = try? await BackendMemoryAPI.shared.importFountainDraft(text: raw) {
+                let parsedDraft = normalizeImportedDraftText(imported.screenplay.fountainDraft)
+                if !parsedDraft.isEmpty {
+                    return (parsedDraft, false, true)
+                }
+            }
             let normalized = normalizeImportedDraftText(raw)
             guard !normalized.isEmpty else {
                 throw NSError(
@@ -23572,12 +24600,12 @@ Look at the city.
                     userInfo: [NSLocalizedDescriptionKey: "That file did not contain readable screenplay text."]
                 )
             }
-            return (normalized, false)
+            return (normalized, false, false)
         }
         throw NSError(
             domain: "ScreenplayStudioImport",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Only screenplay PDFs and plain-text script files can be imported into the draft."]
+            userInfo: [NSLocalizedDescriptionKey: "Only screenplay PDFs and Fountain/plain-text script files can be imported into the draft."]
         )
     }
 
@@ -24368,7 +25396,7 @@ Look at the city.
                 }
             }
         } catch {
-            vm.errorText = error.localizedDescription
+            vm.errorText = ScreenplayExportFormatMenu.displayMessage(for: error, format: format)
         }
     }
 
@@ -24708,6 +25736,7 @@ Look at the city.
 
     @MainActor
     private func selectPreferredProjectIfNeeded(_ projectID: String) async {
+        guard !IOThemRuntime.isRunningTests else { return }
         let clean = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         guard vm.selectedProjectID != clean else { return }

@@ -445,8 +445,11 @@
 		D699072B2F43F6F000F55BE4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_TOKEN = "$(APP_TOKEN_DEBUG)";
+				APP_TOKEN_DEBUG = "them-dev";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				BACKEND_URL = "http://localhost:3000";
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "them/them.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -469,6 +472,8 @@
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "them/Info.plist";
+				INFOPLIST_KEY_APP_TOKEN = "$(APP_TOKEN)";
+				INFOPLIST_KEY_BACKEND_URL = "$(BACKEND_URL)";
 				INFOPLIST_KEY_CFBundleDisplayName = "io.them";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -504,12 +509,16 @@
 		D699072C2F43F6F000F55BE4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APP_TOKEN = "$(APP_TOKEN_RELEASE)";
+				APP_TOKEN_RELEASE = REPLACE_WITH_PROD_APP_TOKEN;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				BACKEND_URL = "$(RELEASE_BACKEND_URL)";
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "them/them.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				EXCLUDED_SOURCE_FILE_NAMES = (
@@ -528,6 +537,8 @@
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "them/Info.plist";
+				INFOPLIST_KEY_APP_TOKEN = "$(APP_TOKEN)";
+				INFOPLIST_KEY_BACKEND_URL = "$(BACKEND_URL)";
 				INFOPLIST_KEY_CFBundleDisplayName = "io.them";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -547,6 +558,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.them.them;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
+				RELEASE_BACKEND_URL = REPLACE_WITH_HOSTED_BACKEND_URL;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";

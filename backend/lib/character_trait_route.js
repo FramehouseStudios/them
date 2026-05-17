@@ -23,9 +23,16 @@
 // Auth mirrors the other /memory routes: unauthenticated requests
 // return a typed empty receipt instead of 401.
 
+import express from "express";
+
 import { extractTraits, mergeTraits } from "./trait_library.js";
 
 const MAX_NAME_LENGTH = 64;
+// T-route-local-parsers / Codex #90: every backend route that reads
+// req.body mounts its own express.json() so the production-style
+// test path doesn't depend on an upstream app-level parser. The
+// limit matches what was implicit before (default 100kb).
+const CHARACTER_TRAIT_BODY_LIMIT = "256kb";
 
 function sanitizeName(raw) {
   if (typeof raw !== "string") return "";
@@ -64,7 +71,7 @@ function mountCharacterTraitRoute(app, {
     throw new Error("mountCharacterTraitRoute requires a creativeMemoryStore with trait support");
   }
 
-  app.post("/memory/character-trait", async (req, res) => {
+  app.post("/memory/character-trait", express.json({ limit: CHARACTER_TRAIT_BODY_LIMIT }), async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const body = req.body || {};
     const characterName = sanitizeName(

@@ -171,6 +171,270 @@ public nonisolated struct ScreenplayCraftDeleteOverrideResponse: Codable, Hashab
     public let ok: Bool
 }
 
+public nonisolated struct ScreenplayCraftLoglineDistillRequest: Codable, Hashable {
+    public let text: String
+    public let projectId: String
+    public let versionId: String?
+    public let frameworkId: String?
+
+    public init(text: String, projectId: String, versionId: String?, frameworkId: String?) {
+        self.text = text
+        self.projectId = projectId
+        self.versionId = versionId
+        self.frameworkId = frameworkId
+    }
+}
+
+public nonisolated struct ScreenplayCraftLoglineDistillResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let logline: String
+    public let source: String
+    public let distilledAt: String
+    public let stored: Bool
+
+    public init(schemaVersion: Int, logline: String, source: String, distilledAt: String, stored: Bool) {
+        self.schemaVersion = schemaVersion
+        self.logline = logline
+        self.source = source
+        self.distilledAt = distilledAt
+        self.stored = stored
+    }
+}
+
+public nonisolated struct ScreenplayCraftLoglineDriftResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let score: Double
+    public let current: String
+    public let earliest: String
+    public let historyCount: Int
+    public let summary: String
+
+    public init(schemaVersion: Int, score: Double, current: String, earliest: String, historyCount: Int, summary: String) {
+        self.schemaVersion = schemaVersion
+        self.score = score
+        self.current = current
+        self.earliest = earliest
+        self.historyCount = historyCount
+        self.summary = summary
+    }
+}
+
+public nonisolated struct ScreenplayCraftLoglineHistoryResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let projectId: String
+    public let entries: [ScreenplayCraftLoglineEntry]
+
+    public init(schemaVersion: Int, projectId: String, entries: [ScreenplayCraftLoglineEntry]) {
+        self.schemaVersion = schemaVersion
+        self.projectId = projectId
+        self.entries = entries
+    }
+}
+
+public nonisolated struct ScreenplayCraftLoglineEntry: Codable, Hashable, Identifiable {
+    public let schemaVersion: Int
+    public let projectId: String
+    public let versionId: String?
+    public let logline: String
+    public let frameworkId: String?
+    public let source: String
+    public let distilledAt: String
+    public let distilledAtMs: Int?
+
+    public init(
+        schemaVersion: Int,
+        projectId: String,
+        versionId: String?,
+        logline: String,
+        frameworkId: String?,
+        source: String,
+        distilledAt: String,
+        distilledAtMs: Int?
+    ) {
+        self.schemaVersion = schemaVersion
+        self.projectId = projectId
+        self.versionId = versionId
+        self.logline = logline
+        self.frameworkId = frameworkId
+        self.source = source
+        self.distilledAt = distilledAt
+        self.distilledAtMs = distilledAtMs
+    }
+
+    public var id: String {
+        [projectId, versionId ?? "draft", distilledAt, logline].joined(separator: ":")
+    }
+}
+
+
+public nonisolated struct ScreenplayCraftTwistSuggestRequest: Codable, Hashable {
+    public let frameworkId: String
+    public let currentBeatId: String
+    public let sceneSummary: String?
+    public let count: Int?
+
+    public init(frameworkId: String, currentBeatId: String, sceneSummary: String?, count: Int?) {
+        self.frameworkId = frameworkId
+        self.currentBeatId = currentBeatId
+        self.sceneSummary = sceneSummary
+        self.count = count
+    }
+}
+
+public nonisolated struct ScreenplayCraftTwistSuggestResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let frameworkId: String
+    public let currentBeatId: String
+    public let source: String
+    public let twists: [ScreenplayCraftTwistSuggestion]
+
+    public init(
+        schemaVersion: Int,
+        frameworkId: String,
+        currentBeatId: String,
+        source: String,
+        twists: [ScreenplayCraftTwistSuggestion]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.frameworkId = frameworkId
+        self.currentBeatId = currentBeatId
+        self.source = source
+        self.twists = twists
+    }
+}
+
+public nonisolated struct ScreenplayCraftTwistSuggestion: Codable, Hashable, Identifiable {
+    public let id: String
+    public let label: String
+    public let hook: String
+    public let severity: String
+    public let rationale: String
+
+    public init(id: String, label: String, hook: String, severity: String, rationale: String) {
+        self.id = id
+        self.label = label
+        self.hook = hook
+        self.severity = severity
+        self.rationale = rationale
+    }
+}
+
+public nonisolated struct ScreenplayCraftAcceptedTwistRequest: Codable, Hashable {
+    public let projectId: String
+    public let versionId: String?
+    public let frameworkId: String?
+    public let beatId: String?
+    public let twist: ScreenplayCraftTwistSuggestion
+    public let sceneId: String?
+    public let note: String?
+
+    public init(
+        projectId: String,
+        versionId: String?,
+        frameworkId: String?,
+        beatId: String?,
+        twist: ScreenplayCraftTwistSuggestion,
+        sceneId: String?,
+        note: String?
+    ) {
+        self.projectId = projectId
+        self.versionId = versionId
+        self.frameworkId = frameworkId
+        self.beatId = beatId
+        self.twist = twist
+        self.sceneId = sceneId
+        self.note = note
+    }
+}
+
+public nonisolated struct ScreenplayCraftAcceptedTwistEntry: Codable, Hashable, Identifiable {
+    public let schemaVersion: Int
+    public let projectId: String
+    public let versionId: String?
+    public let frameworkId: String?
+    public let beatId: String?
+    public let twist: ScreenplayCraftTwistSuggestion
+    public let acceptedAt: String?
+    public let acceptedAtMs: Int?
+    public let lastUpdatedAt: String?
+    public let lastUpdatedAtMs: Int?
+    public let userId: String?
+    public let sceneId: String?
+    public let note: String?
+
+    public init(
+        schemaVersion: Int,
+        projectId: String,
+        versionId: String?,
+        frameworkId: String?,
+        beatId: String?,
+        twist: ScreenplayCraftTwistSuggestion,
+        acceptedAt: String?,
+        acceptedAtMs: Int?,
+        lastUpdatedAt: String?,
+        lastUpdatedAtMs: Int?,
+        userId: String?,
+        sceneId: String?,
+        note: String?
+    ) {
+        self.schemaVersion = schemaVersion
+        self.projectId = projectId
+        self.versionId = versionId
+        self.frameworkId = frameworkId
+        self.beatId = beatId
+        self.twist = twist
+        self.acceptedAt = acceptedAt
+        self.acceptedAtMs = acceptedAtMs
+        self.lastUpdatedAt = lastUpdatedAt
+        self.lastUpdatedAtMs = lastUpdatedAtMs
+        self.userId = userId
+        self.sceneId = sceneId
+        self.note = note
+    }
+
+    public var id: String {
+        [projectId, versionId ?? "draft", twist.id].joined(separator: ":")
+    }
+}
+
+public nonisolated struct ScreenplayCraftAcceptedTwistResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let ok: Bool
+    public let action: String
+    public let entry: ScreenplayCraftAcceptedTwistEntry
+
+    public init(schemaVersion: Int, ok: Bool, action: String, entry: ScreenplayCraftAcceptedTwistEntry) {
+        self.schemaVersion = schemaVersion
+        self.ok = ok
+        self.action = action
+        self.entry = entry
+    }
+}
+
+public nonisolated struct ScreenplayCraftAcceptedTwistListResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let projectId: String
+    public let entries: [ScreenplayCraftAcceptedTwistEntry]
+
+    public init(schemaVersion: Int, projectId: String, entries: [ScreenplayCraftAcceptedTwistEntry]) {
+        self.schemaVersion = schemaVersion
+        self.projectId = projectId
+        self.entries = entries
+    }
+}
+
+public nonisolated struct ScreenplayCraftAcceptedTwistDeleteResponse: Codable, Hashable {
+    public let schemaVersion: Int
+    public let ok: Bool
+    public let action: String
+
+    public init(schemaVersion: Int, ok: Bool, action: String) {
+        self.schemaVersion = schemaVersion
+        self.ok = ok
+        self.action = action
+    }
+}
+
 public nonisolated struct ScreenplayFormatLintRequest: Codable, Hashable {
     public let text: String
     public let frameworkId: String?

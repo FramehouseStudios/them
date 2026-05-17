@@ -1,6 +1,87 @@
 import SwiftUI
 import ScreenplayStudio
 
+
+struct ScreenplayCraftTwistCardState: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let hook: String
+    let severity: String
+    let rationale: String
+    let severityLabel: String
+    let suggestion: ScreenplayCraftTwistSuggestion
+    let isAccepted: Bool
+
+    static func cards(
+        from response: ScreenplayCraftTwistSuggestResponse?,
+        acceptedTwists: [ScreenplayCraftAcceptedTwistEntry] = []
+    ) -> [ScreenplayCraftTwistCardState] {
+        guard let response else { return [] }
+        let acceptedIDs = Set(acceptedTwists.map(\.twist.id))
+        return response.twists.map { twist in
+            let cleanSeverity = twist.severity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return ScreenplayCraftTwistCardState(
+                id: twist.id,
+                label: clean(twist.label),
+                hook: clean(twist.hook),
+                severity: cleanSeverity.isEmpty ? "low" : cleanSeverity,
+                rationale: clean(twist.rationale),
+                severityLabel: cleanSeverity.isEmpty ? "Low" : cleanSeverity.capitalized,
+                suggestion: twist,
+                isAccepted: acceptedIDs.contains(twist.id)
+            )
+        }
+    }
+
+    private static func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct ScreenplayCraftLoglineRailState: Equatable {
+    let currentLogline: String
+    let sourceLabel: String
+    let driftLabel: String
+    let driftSummary: String
+    let driftScore: Double
+    let historyCountLabel: String
+    let recentHistory: [String]
+
+    var hasCurrentLogline: Bool {
+        !currentLogline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func make(
+        logline: ScreenplayCraftLoglineDistillResponse?,
+        drift: ScreenplayCraftLoglineDriftResponse?,
+        history: [ScreenplayCraftLoglineEntry]
+    ) -> ScreenplayCraftLoglineRailState {
+        let fallbackCurrent = drift?.current.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? history.last?.logline.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? ""
+        let current = logline?.logline.trimmingCharacters(in: .whitespacesAndNewlines) ?? fallbackCurrent
+        let rawScore = drift?.score ?? 0
+        let score = min(max(rawScore, 0), 1)
+        let percent = Int((score * 100).rounded())
+        let source = logline?.source.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stored = logline?.stored == true ? "Stored" : "Preview"
+        let sourceLabel = source.isEmpty ? stored : "\(stored) · \(source.capitalized)"
+        let recent = history.reversed().prefix(3).map { $0.logline }
+        return ScreenplayCraftLoglineRailState(
+            currentLogline: current,
+            sourceLabel: sourceLabel,
+            driftLabel: "Drift \(percent)%",
+            driftSummary: drift?.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? drift?.summary ?? ""
+                : "No logline drift signal yet.",
+            driftScore: score,
+            historyCountLabel: "\(drift?.historyCount ?? history.count) saved",
+            recentHistory: Array(recent)
+        )
+    }
+}
+
+
 struct ScreenplayCraftRailView: View {
     let projectTitle: String
     let versionId: String
@@ -13,11 +94,18 @@ struct ScreenplayCraftRailView: View {
     let infoText: String
     let fallbackPageCount: Int
     let isSavingOverride: Bool
+    let logline: ScreenplayCraftLoglineDistillResponse?
+    let loglineDrift: ScreenplayCraftLoglineDriftResponse?
+    let loglineHistory: [ScreenplayCraftLoglineEntry]
+    let isLoglineLoading: Bool
+    let loglineErrorText: String
+    let loglineInfoText: String
     let formatLintCards: [ScreenplayFormatLintCard]
     let isFormatLinting: Bool
     let formatLintErrorText: String
     let formatLintSource: String
     let onRefresh: () -> Void
+    let onRefreshLogline: () -> Void
     let onRefreshFormatLint: () -> Void
     let onAnalyze: () -> Void
     let onCreateOverride: (ScreenplayCraftTurnOverrideMutation) -> Void
@@ -30,6 +118,7 @@ struct ScreenplayCraftRailView: View {
         VStack(alignment: .leading, spacing: 14) {
             header
             frameworkPicker
+            loglinePanel
             ScreenplayFormatLintCardListView(
                 title: "Format lint",
                 cards: formatLintCards,
@@ -196,6 +285,120 @@ struct ScreenplayCraftRailView: View {
         }
         .buttonStyle(.plain)
         .disabled(isLoading || isAnalyzing)
+    }
+
+    private var loglinePanel: some View {
+        let state = ScreenplayCraftLoglineRailState.make(
+            logline: logline,
+            drift: loglineDrift,
+            history: loglineHistory
+        )
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                sectionLabel("Logline")
+                Spacer(minLength: 0)
+                craftChip(state.sourceLabel)
+                craftChip(state.historyCountLabel)
+            }
+
+            if isLoglineLoading {
+                craftStateCard(
+                    icon: "quote.bubble",
+                    title: "Distilling logline",
+                    detail: "Reading the current draft without blocking the page."
+                ) {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            } else if !loglineErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                craftStateCard(
+                    icon: "exclamationmark.triangle",
+                    title: "Logline unavailable",
+                    detail: loglineErrorText
+                ) {
+                    Button(action: onRefreshLogline) {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            } else if state.hasCurrentLogline {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(state.currentLogline)
+                        .font(.system(size: 12, weight: .semibold, design: .serif))
+                        .foregroundStyle(Color.herText.opacity(0.84))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Text(state.driftLabel)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(loglineDriftColor(state.driftScore))
+                            Spacer(minLength: 0)
+                            Text(loglineInfoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Live" : loglineInfoText)
+                                .font(.system(size: 9, weight: .medium, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.42))
+                                .lineLimit(1)
+                        }
+                        GeometryReader { geometry in
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(Color.herShellStroke.opacity(0.22))
+                                Capsule()
+                                    .fill(loglineDriftColor(state.driftScore).opacity(0.58))
+                                    .frame(width: max(8, geometry.size.width * state.driftScore))
+                            }
+                        }
+                        .frame(height: 5)
+                        Text(state.driftSummary)
+                            .font(.system(size: 10, weight: .regular, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.56))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if !state.recentHistory.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            sectionLabel("Recent")
+                            ForEach(Array(state.recentHistory.enumerated()), id: \.offset) { _, item in
+                                Text(item)
+                                    .font(.system(size: 10, weight: .regular, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.50))
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+
+                    Button(action: onRefreshLogline) {
+                        Label("Refresh logline", systemImage: "quote.bubble")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(12)
+                .background(Color.white.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            } else {
+                craftStateCard(
+                    icon: "quote.bubble",
+                    title: "No logline yet",
+                    detail: loglineInfoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "Distill the current draft into one sentence and track drift over time."
+                        : loglineInfoText
+                ) {
+                    Button(action: onRefreshLogline) {
+                        Label("Distill", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    private func loglineDriftColor(_ score: Double) -> Color {
+        if score >= 0.70 { return Color.red.opacity(0.78) }
+        if score >= 0.40 { return Color.orange.opacity(0.78) }
+        return Color.green.opacity(0.70)
     }
 
     private func reportContent(_ report: ScreenplayCraftReport) -> some View {
@@ -696,11 +899,18 @@ private struct ScreenplayCraftRailPreviewHost: View {
                 infoText: "",
                 fallbackPageCount: 102,
                 isSavingOverride: false,
+                logline: ScreenplayCraftRailPreviewData.logline,
+                loglineDrift: ScreenplayCraftRailPreviewData.loglineDrift,
+                loglineHistory: ScreenplayCraftRailPreviewData.loglineHistory,
+                isLoglineLoading: false,
+                loglineErrorText: "",
+                loglineInfoText: "Preview",
                 formatLintCards: [],
                 isFormatLinting: false,
                 formatLintErrorText: "",
                 formatLintSource: "Preview",
                 onRefresh: {},
+                onRefreshLogline: {},
                 onRefreshFormatLint: {},
                 onAnalyze: {},
                 onCreateOverride: { _ in }
@@ -713,6 +923,33 @@ private struct ScreenplayCraftRailPreviewHost: View {
 }
 
 private enum ScreenplayCraftRailPreviewData {
+    static let logline = ScreenplayCraftLoglineDistillResponse(
+        schemaVersion: 1,
+        logline: "A pilot chases a vanished signal through a haunted airport.",
+        source: "stub",
+        distilledAt: "2026-05-10T21:00:00.000Z",
+        stored: true
+    )
+    static let loglineDrift = ScreenplayCraftLoglineDriftResponse(
+        schemaVersion: 1,
+        score: 0.42,
+        current: "A pilot chases a vanished signal through a haunted airport.",
+        earliest: "A pilot searches for a missing tower voice.",
+        historyCount: 2,
+        summary: "Logline has drifted meaningfully from the original pitch."
+    )
+    static let loglineHistory = [
+        ScreenplayCraftLoglineEntry(
+            schemaVersion: 1,
+            projectId: "preview",
+            versionId: "v1",
+            logline: "A pilot searches for a missing tower voice.",
+            frameworkId: "save-the-cat",
+            source: "stub",
+            distilledAt: "2026-05-10T20:00:00.000Z",
+            distilledAtMs: nil
+        )
+    ]
     static let frameworks: [ScreenplayCraftFrameworkReference] = decodeFrameworks()
     static let report: ScreenplayCraftReport = decodeReport()
 
