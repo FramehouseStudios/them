@@ -100,6 +100,21 @@ function summarizeReleaseProof(markdown) {
   return { result, blockers };
 }
 
+function readReleaseLocalConfigStatus() {
+  try {
+    return JSON.parse(runNodeScript("scripts/release_config_status.mjs", ["--json"]));
+  } catch (error) {
+    return {
+      blockers: ["could not read release local config status"],
+      envFile: "them/Release.local.env",
+      keys: [],
+      mode: "",
+      overall: "unknown",
+      warnings: [error.message],
+    };
+  }
+}
+
 function displayPath(fullPath) {
   const relativeToRepo = path.relative(repoRoot, fullPath);
   if (relativeToRepo && !relativeToRepo.startsWith("..") && !path.isAbsolute(relativeToRepo)) {
@@ -165,6 +180,7 @@ function buildState() {
   const claudeBacklog = parseClaudeBacklog(readText("docs/claude-inbox.md"));
   const decisions = extractOpenDecisionTitles(readText("docs/decisions-queue.md"));
   const release = summarizeReleaseProof(readText("docs/v1-release-preflight-proof.md"));
+  const releaseLocalConfig = readReleaseLocalConfigStatus();
   const launchDoctor = readLaunchDoctorReport();
   const reviewableClaudePRs = coordination.openPullRequests
     .filter((pr) => pr.owner === "claude")
@@ -225,6 +241,7 @@ function buildState() {
     decisionTitles: decisions,
     launchDoctor,
     release,
+    releaseLocalConfig,
   };
 }
 
@@ -244,6 +261,7 @@ function linesForHuman(state) {
   }
   out.push("");
   out.push(`Launch Doctor: ${launchDoctorLine(state.launchDoctor)}`);
+  out.push(`Release local config: ${releaseLocalConfigLine(state.releaseLocalConfig)}`);
   out.push("");
   out.push(`Open decisions: ${state.decisionTitles.length}`);
   for (const decision of state.decisionTitles) out.push(`- ${decision}`);
@@ -275,6 +293,7 @@ function linesForCodex(state) {
     "Watch:",
     `- Human-gated PRs: ${state.humanGated.map((pr) => `#${pr.number}`).join(", ") || "none"}`,
     `- Launch Doctor: ${launchDoctorLine(state.launchDoctor)}`,
+    `- Release local config: ${releaseLocalConfigLine(state.releaseLocalConfig)}`,
     `- Release preflight: ${state.release ? state.release.result : "no proof found"}`,
   ];
 }
@@ -290,6 +309,14 @@ function launchDoctorLine(report) {
     return `invalid report at ${report.path}: ${report.error}`;
   }
   return `${report.overallStatus} ${report.passed}/${report.total} passed, failed=${report.failed}, path=${report.path}`;
+}
+
+function releaseLocalConfigLine(status) {
+  if (!status) return "unknown";
+  const blockerCount = Array.isArray(status.blockers) ? status.blockers.length : 0;
+  const warningCount = Array.isArray(status.warnings) ? status.warnings.length : 0;
+  const mode = status.mode ? `, mode=${status.mode}` : "";
+  return `${status.overall || "unknown"} at ${status.envFile || "them/Release.local.env"} (${blockerCount} blockers, ${warningCount} warnings${mode})`;
 }
 
 function textOutput(state) {
@@ -308,6 +335,11 @@ function textOutput(state) {
   if (state.release?.blockers?.length) {
     out.push("Release Preflight Blockers");
     for (const blocker of state.release.blockers.slice(0, 6)) out.push(`- ${blocker}`);
+  }
+  if (state.releaseLocalConfig?.blockers?.length) {
+    out.push("");
+    out.push("Release Local Config Blockers");
+    for (const blocker of state.releaseLocalConfig.blockers.slice(0, 6)) out.push(`- ${blocker}`);
   }
   return out.join("\n").trimEnd();
 }

@@ -83,6 +83,7 @@ When release credentials exist locally, prefer the ignored local env file:
 cp them/Release.local.env.example them/Release.local.env
 chmod 600 them/Release.local.env
 # Fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN.
+node scripts/release_config_status.mjs
 scripts/run_release_preflight.sh
 ```
 

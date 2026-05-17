@@ -790,7 +790,7 @@
 | T145                                   | Refresh coordination after auth and memory export merges                                 | codex  | review      |
 | T146                                   | Run V1 launch smoke and release preflight pass                                           | codex  | review      |
 | T147                                   | Refresh Claude handoff after Phase 7c design merge                                      | codex  | review      |
-| T148                                   | Add safe release config status command                                                   | codex  | in-progress |
+| T148                                   | Add safe release config status command                                                   | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
