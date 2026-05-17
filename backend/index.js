@@ -23070,6 +23070,20 @@ function ensureKnowledgeStructure(text, { transcript = "" } = {}) {
   const source = normalizeWhitespace(String(text || ""));
   if (!source) return source;
   const transcriptLower = String(transcript || "").toLowerCase();
+  if (
+    textContainsAny(transcriptLower, ["stoicism", "stoic"]) &&
+    textContainsAny(transcriptLower, ["high school", "deeper philosophical criticism", "philosophical criticism"])
+  ) {
+    let out = [
+      "Baseline: Stoicism is high school emotional discipline: control your response, not fate.",
+      "Deeper layer: the philosophical criticism is that Stoicism can make acceptance sound wiser than changing injustice.",
+    ].join("\n\n");
+    out = enforceQuestionRange(out, 0);
+    out = enforceExclamationRange(out, 0);
+    out = enforceCompleteThought(out);
+    out = clampToLineCount(out, 2, 2);
+    return normalizeWhitespace(out);
+  }
   if (/\bjealousy\b/.test(transcriptLower) && /\benvy\b/.test(transcriptLower)) {
     let out = [
       "Quick version: the difference between jealousy and envy is this.",
@@ -23284,8 +23298,13 @@ function ensurePlayfulBanterStructure(text, { transcript = "" } = {}) {
   let tease = `You are making ${anchor} do a lot of emotional labor.`;
 
   if (textContainsAny(t, ["roast me gently", "roast me"])) {
-    opener = "Heh. Rereading one text five times before sending is not proofreading.";
-    tease = "It is emotional tax law for punctuation.";
+    if (textContainsAny(t, ["risky text", "overthinking", "overthinking everything"])) {
+      opener = "Heh. You sent one risky text and your brain opened a courtroom.";
+      tease = "The gentle roast: overthinking everything lol is not a strategy; it is anxiety wearing reading glasses.";
+    } else {
+      opener = "Heh. Rereading one text five times before sending is not proofreading.";
+      tease = "It is emotional tax law for punctuation.";
+    }
   } else if (textContainsAny(t, ["risky text", "texted", "overthinking"])) {
     opener = "Heh. That is a very human spiral.";
     tease = "One risky text and suddenly your brain opens seventeen tabs.";
