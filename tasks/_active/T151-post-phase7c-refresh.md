@@ -2,7 +2,7 @@
 id: T151
 title: Refresh coordination after Phase 7c merge
 owner: codex
-status: in-progress
+status: review
 branch: codex/T151-post-phase7c-refresh
 pillar: infra
 v1_pillar: talk

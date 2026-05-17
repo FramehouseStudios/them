@@ -744,7 +744,7 @@
 | T-decompose-phase5a-realtime-reads     | Decompose backend/index.js — Phase 5a (2 read-only /realtime/* routes)                   | claude | review      |
 | T-decompose-phase5b4-realtime-call     | Decompose backend/index.js — Phase 5b.4 (/realtime/call)                                 | claude | review      |
 | T-decompose-phase6-memories            | Decompose backend/index.js — Phase 6 (/memories/* cluster)                               | claude | review      |
-| T-decompose-phase7c-talk-supplier-glue | Decompose backend talk supplier glue                                                     | codex  | review      |
+| T-decompose-phase6-1a-outbox-data-state | Decompose backend long-tail Phase 6.1a routes                                            | claude | ready-for-claude |
 | T-deeper-lib-tests-batch-2             | Deeper tests for persona + utils + screenplay_store + outbox_store                       | claude | review      |
 | T-deeper-lib-tests-batch-3             | Deeper tests for realtime_supplier_stub + talk_error_counter + talk_turn_stats           | claude | review      |
 | T-deeper-lib-tests-batch               | Deeper direct tests for user_store (with planned followups for memory_store + user_auth) | claude | review      |
@@ -793,7 +793,7 @@
 | T147                                   | Refresh Claude handoff after Phase 7c design merge                                      | codex  | review      |
 | T148                                   | Add safe release config status command                                                   | codex  | review      |
 | T149                                   | Add Phase 7c implementation task row for Claude                                          | codex  | review      |
-| T151                                   | Refresh coordination after Phase 7c merge                                                | codex  | in-progress |
+| T151                                   | Refresh coordination after Phase 7c merge                                                | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -1410,66 +1410,49 @@ Once it lands:
 Per spec (max 1 decomp PR in flight), Phase 7a code does NOT
 open until Phase 6 merges.
 
-### T-decompose-phase7c-talk-supplier-glue — Decompose backend talk supplier glue
-- **Owner:** codex
-- **Branch:** codex/T150-phase7c-takeover
+### T-decompose-phase6-1a-outbox-data-state — Decompose backend long-tail Phase 6.1a routes
+- **Owner:** claude
+- **Branch:** claude/T-decompose-phase6-1a-outbox-data-state
 - **Pillar:** infra
-- **Status:** review
+- **Status:** ready-for-claude
 
 ## Scope
 
-Codex is taking over this implementation after the Phase 7c lane sat
-unclaimed with no Claude branch or PR after T149 unblocked it.
+Implement Phase 6.1a from
+`tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`.
 
-Implement the merged Phase 7c design note from
-`tasks/_proposals/T-decompose-phase7c-supplier-glue-design.md`.
+Extract the `/outbox/*`, `/data/*`, and `/state` inline route clusters from
+`backend/index.js` into focused route libs:
 
-Extract the STT, chat, and TTS supplier-selection and supplier-call glue from
-`backend/lib/talk_handler.js` into `backend/lib/talk_supplier_glue.js`.
+- `backend/lib/outbox_routes.js`
+- `backend/lib/data_routes.js`
+- `backend/lib/state_route.js`
 
-The approved public shape is exactly three factories:
-
-- `createSttSupplier(...)`
-- `createChatSupplier(...)`
-- `createTtsSupplier(...)`
-
-`handleTalkRequest` should receive/use those suppliers without changing the
-observable `/talk` contract.
+Preserve mount order, body-parser limits, response envelopes, and access-control
+posture exactly. This is a byte-identical extraction only.
 
 ## Constraints
 
-- Byte-identical behavior only.
-- No new suppliers.
-- No retry, timeout, stage-name, error-code, error-counter, payload, streaming,
-  or audio-metadata changes.
-- No route/API contract changes.
-- No module-level mutable state.
-- No setter exports.
-- Do not touch release config, auth, privacy, memory delete, PR #33, Phase 6.1,
-  or schema-only docs in this task.
-
-If implementation exposes a required contract change, stop and write the
-specific blocker instead of broadening the PR.
+- No new endpoints.
+- No response-shape changes.
+- No auth/privacy behavior changes.
+- No method-guard sweep; that is Phase 6.1e.
+- No release config, PR #33, talk handler, or schema-doc-only work.
+- If a real V1 smoke failure appears, pause this lane and fix the concrete
+  smoke failure first.
 
 ## Done When
 
-- `backend/lib/talk_supplier_glue.js` exists and exports the three approved
-  factories.
-- `backend/lib/talk_handler.js` uses the extracted suppliers with unchanged
-  behavior.
-- Focused tests cover the supplier factories in
-  `backend/tests/talk_supplier_glue.test.mjs`.
-- Deterministic dependency-closure proof from the Phase 7b acorn/acorn-walk
-  tooling is recorded in the PR description.
+- The three route libs exist and are mounted from `backend/index.js`.
+- Focused tests cover the extracted routes on a bare Express app.
+- Existing backend tests remain green.
 - Verification passes:
   - `node scripts/pre_flight.mjs --strict`
-  - `node --test backend/tests/talk_*.test.mjs`
+  - focused route tests for the three libs
   - `cd backend && npm test`
   - `git diff --check`
-- PR description includes:
-  - `V1 pillar: talk`
-  - `V1 effect: infrastructure for V1 talk-pipeline maintainability`
-  - exact commands run and not run.
+- PR description includes `V1 pillar: infra`, the exact V1 effect, and exact
+  commands run/not run.
 
 ### T-deeper-lib-tests-batch-2 — Deeper tests for persona + utils + screenplay_store + outbox_store
 - **Owner:** claude
@@ -4074,7 +4057,7 @@ copy/paste handoff.
 - **Owner:** codex
 - **Branch:** codex/T151-post-phase7c-refresh
 - **Pillar:** infra
-- **Status:** in-progress
+- **Status:** review
 
 ## Scope
 
