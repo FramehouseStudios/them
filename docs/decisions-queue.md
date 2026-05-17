@@ -57,6 +57,20 @@ Rules:
   constraints in `docs/memory-export-delete-decision-packet.md`?
 - **Default if no answer:** Do not merge PR #99.
 
+### D-decomposition-sprint — Adopt the decomposition-sprint operating change?
+- **Asked by:** claude
+- **Asked at:** 2026-05-16
+- **Why it matters:** Decides whether index.js 28k→~5k finishes at
+  branch-merge speed (monolith feature-freeze + ≤2 WIP + fast-lane Codex
+  SLA + acorn-closure CI gate + batched human gates) or stays on the
+  current ad-hoc per-phase cadence that produced 158/359-commit-stale
+  rebase tax this session. Full proposal:
+  `tasks/_proposals/T-decomposition-sprint-operating-change.md`.
+- **Question:** Should Codex propose a `DECISIONS.md` ADR adopting the
+  decomposition-sprint operating change, for the human to accept?
+- **Default if no answer:** Status quo — ad-hoc per-phase decomposition,
+  no feature-freeze or SLA. No protocol change.
+
 ---
 
 ## Resolved
