@@ -477,4 +477,433 @@ function createChatSupplier(deps = {}) {
   return { selectChatModelForTurn, streamChatReplyWithFirstSentence };
 }
 
-export { createSttSupplier, createChatSupplier };
+
+function createTtsSupplier(deps = {}) {
+  const {
+    ALLOWED_TTS_VOICES,
+    CLEMENTINE_PROFILE,
+    ELEVENLABS_API_KEY,
+    ELEVENLABS_BLOCK_MS_ON_PLAN_ERROR,
+    ELEVENLABS_BLOCK_MS_ON_QUOTA_ERROR,
+    ELEVENLABS_DEFAULT_VOICE_ID,
+    ELEVENLABS_MODEL_ID,
+    ELEVENLABS_OUTPUT_FORMAT,
+    ELEVENLABS_SIMILARITY_BOOST,
+    ELEVENLABS_SPEAKER_BOOST,
+    ELEVENLABS_STABILITY,
+    ELEVENLABS_STYLE,
+    ELEVENLABS_VOICE_ID,
+    OPENAI_API_KEY,
+    TTS_PROVIDER,
+    TTS_PROVIDER_FALLBACK_OPENAI,
+    TTS_PROVIDER_OPTIONS,
+    TTS_TIMEOUT_MS,
+    TTS_VOICE,
+    estimateMp3DurationMs,
+    estimateTalkSpeechDurationMs,
+    fetchWithTimeout,
+    isAbortError,
+    isLikelyMp3Buffer,
+    normalizeElevenLabsVoiceId,
+    normalizeSnippet,
+    parseOneOf,
+    stripLeadingId3Tag,
+  } = deps;
+  for (const k of ["OPENAI_API_KEY","ELEVENLABS_API_KEY","fetchWithTimeout","TTS_TIMEOUT_MS","TTS_PROVIDER"]) {
+    if (deps[k] === undefined) throw new Error("createTtsSupplier missing required dep: " + k);
+  }
+
+  // ElevenLabs circuit-breaker state. Was module-level in index.js
+  // (let elevenLabsBlockedUntilMs = 0; let elevenLabsBlockedReason = "";).
+  // It is cluster-internal (only resolveTtsProviderPlan reads, ElevenLabs
+  // path writes, synthesizeSpeechMp3 reads/logs). Moved here as
+  // factory-closure-private state: #238-compliant (NOT module-level, no
+  // setter exports), byte-identical behavior (single supplier instance
+  // constructed once at module init — same lifetime as the old module
+  // vars). Init values are verbatim.
+  let elevenLabsBlockedUntilMs = 0;
+  let elevenLabsBlockedReason = "";
+
+  // Verbatim from backend/index.js. resolveTtsProviderPlan +
+  // synthesizeSpeechMp3ElevenLabs are cluster-internal (not returned).
+  function resolveTtsProviderPlan(voiceProfile = null) {
+    const preferred = String(voiceProfile?.provider || TTS_PROVIDER || "openai");
+    const effectiveElevenLabsVoiceId = normalizeElevenLabsVoiceId(
+      voiceProfile?.elevenlabsVoiceId || ELEVENLABS_VOICE_ID,
+      ELEVENLABS_DEFAULT_VOICE_ID
+    );
+    if (preferred === "elevenlabs") {
+      const now = Date.now();
+      if (
+        TTS_PROVIDER_FALLBACK_OPENAI &&
+        elevenLabsBlockedUntilMs > now
+      ) {
+        return {
+          provider: "openai",
+          reason: `elevenlabs_blocked_${elevenLabsBlockedReason || "cooldown"}`,
+        };
+      }
+      if (!ELEVENLABS_API_KEY) {
+        if (TTS_PROVIDER_FALLBACK_OPENAI) {
+          return {
+            provider: "openai",
+            reason: "elevenlabs_missing_api_key_fallback",
+          };
+        }
+        return {
+          provider: "elevenlabs",
+          reason: "elevenlabs_missing_api_key",
+          invalid: true,
+        };
+      }
+      if (!effectiveElevenLabsVoiceId) {
+        if (TTS_PROVIDER_FALLBACK_OPENAI) {
+          return {
+            provider: "openai",
+            reason: "elevenlabs_missing_voice_fallback",
+          };
+        }
+        return {
+          provider: "elevenlabs",
+          reason: "elevenlabs_missing_voice",
+          invalid: true,
+        };
+      }
+      return {
+        provider: "elevenlabs",
+        reason: "elevenlabs_configured",
+        elevenlabsVoiceId: effectiveElevenLabsVoiceId,
+      };
+    }
+    return {
+      provider: "openai",
+      reason: "openai_default",
+    };
+  }
+
+  async function synthesizeSpeechMp3OpenAI({ inputText, speed, voice }) {
+    let ttsResp;
+    try {
+      ttsResp = await fetchWithTimeout(
+        "https://api.openai.com/v1/audio/speech",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini-tts",
+            voice: parseOneOf(voice, ALLOWED_TTS_VOICES, TTS_VOICE),
+            format: "mp3",
+            speed,
+            input: inputText,
+          }),
+        },
+        TTS_TIMEOUT_MS
+      );
+    } catch (err) {
+      if (isAbortError(err)) {
+        const timeoutErr = new Error("Speech synthesis timed out.");
+        timeoutErr.stage = "tts";
+        timeoutErr.status = 504;
+        throw timeoutErr;
+      }
+      throw err;
+    }
+
+    if (!ttsResp.ok) {
+      const ttsText = await ttsResp.text();
+      const apiErr = new Error(ttsText || "Speech synthesis failed.");
+      apiErr.stage = "tts";
+      apiErr.status = ttsResp.status;
+      throw apiErr;
+    }
+
+    const mp3Buffer = Buffer.from(await ttsResp.arrayBuffer());
+    return { buffer: mp3Buffer, provider: "openai" };
+  }
+
+  async function synthesizeSpeechMp3ElevenLabs({ inputText, voiceId, modelId }) {
+    const effectiveVoiceId = normalizeElevenLabsVoiceId(voiceId, ELEVENLABS_DEFAULT_VOICE_ID);
+    const effectiveModelId = String(modelId || ELEVENLABS_MODEL_ID).trim() || ELEVENLABS_MODEL_ID;
+    const url =
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(effectiveVoiceId)}/stream` +
+      `?output_format=${encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT)}`;
+
+    let ttsResp;
+    try {
+      ttsResp = await fetchWithTimeout(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "xi-api-key": ELEVENLABS_API_KEY,
+            Accept: "audio/mpeg",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: inputText,
+            model_id: effectiveModelId,
+            voice_settings: {
+              stability: ELEVENLABS_STABILITY,
+              similarity_boost: ELEVENLABS_SIMILARITY_BOOST,
+              style: ELEVENLABS_STYLE,
+              use_speaker_boost: ELEVENLABS_SPEAKER_BOOST,
+            },
+          }),
+        },
+        TTS_TIMEOUT_MS
+      );
+    } catch (err) {
+      if (isAbortError(err)) {
+        const timeoutErr = new Error("Speech synthesis timed out.");
+        timeoutErr.stage = "tts";
+        timeoutErr.status = 504;
+        throw timeoutErr;
+      }
+      throw err;
+    }
+
+    if (!ttsResp.ok) {
+      const ttsText = await ttsResp.text();
+      const apiErr = new Error(ttsText || "ElevenLabs speech synthesis failed.");
+      apiErr.stage = "tts";
+      apiErr.status = ttsResp.status;
+      throw apiErr;
+    }
+
+    const mp3Buffer = Buffer.from(await ttsResp.arrayBuffer());
+    return { buffer: mp3Buffer, provider: "elevenlabs" };
+  }
+
+  async function synthesizeSpeechMp3({
+    text,
+    speed,
+    rid,
+    label = "full",
+    voiceProfile = CLEMENTINE_PROFILE.voice,
+    providerOverride = "",
+  }) {
+    // TTS performs more naturally when we remove line-break driven pauses.
+    const inputText = String(text || "").replace(/\s+/g, " ").trim();
+    if (!inputText) {
+      const err = new Error("Speech synthesis input was empty.");
+      err.stage = "tts";
+      err.status = 400;
+      throw err;
+    }
+
+    const startedAt = Date.now();
+    const effectiveVoiceProfile = {
+      provider: parseOneOf(
+        String(providerOverride || voiceProfile?.provider || CLEMENTINE_PROFILE.voice.provider || TTS_PROVIDER || "openai")
+          .trim()
+          .toLowerCase(),
+        TTS_PROVIDER_OPTIONS,
+        "openai"
+      ),
+      openaiVoice: parseOneOf(voiceProfile?.openaiVoice, ALLOWED_TTS_VOICES, CLEMENTINE_PROFILE.voice.openaiVoice),
+      elevenlabsVoiceId: normalizeElevenLabsVoiceId(
+        voiceProfile?.elevenlabsVoiceId || CLEMENTINE_PROFILE.voice.elevenlabsVoiceId,
+        ELEVENLABS_DEFAULT_VOICE_ID
+      ),
+      elevenlabsModelId: String(
+        voiceProfile?.elevenlabsModelId || CLEMENTINE_PROFILE.voice.elevenlabsModelId || ELEVENLABS_MODEL_ID
+      ).trim() || ELEVENLABS_MODEL_ID,
+    };
+    const providerPlan = resolveTtsProviderPlan(effectiveVoiceProfile);
+    if (providerPlan.invalid) {
+      const err = new Error(
+        providerPlan.reason === "elevenlabs_missing_api_key"
+          ? "TTS provider is ElevenLabs but ELEVENLABS_API_KEY is missing."
+          : "TTS provider is ElevenLabs but ELEVENLABS_VOICE_ID is missing."
+      );
+      err.stage = "tts";
+      err.status = 500;
+      throw err;
+    }
+
+    let result;
+    if (providerPlan.provider === "elevenlabs") {
+      try {
+        result = await synthesizeSpeechMp3ElevenLabs({
+          inputText,
+          voiceId: providerPlan.elevenlabsVoiceId || effectiveVoiceProfile.elevenlabsVoiceId,
+          modelId: effectiveVoiceProfile.elevenlabsModelId,
+        });
+      } catch (err) {
+        const errMsg = String(err?.message || err || "");
+        const isPlanGate = /paid_plan_required|payment_required|library voices/i.test(errMsg);
+        const isQuotaGate = /quota_exceeded|insufficient[_\s-]?credits?|credits?\s+remaining|rate[_\s-]?limit/i.test(
+          errMsg
+        );
+        if (isPlanGate && TTS_PROVIDER_FALLBACK_OPENAI) {
+          elevenLabsBlockedUntilMs = Date.now() + Math.max(60_000, ELEVENLABS_BLOCK_MS_ON_PLAN_ERROR);
+          elevenLabsBlockedReason = "plan_required";
+        }
+        if (isQuotaGate && TTS_PROVIDER_FALLBACK_OPENAI) {
+          elevenLabsBlockedUntilMs = Date.now() + Math.max(30_000, ELEVENLABS_BLOCK_MS_ON_QUOTA_ERROR);
+          elevenLabsBlockedReason = "quota_exceeded";
+        }
+        if (TTS_PROVIDER_FALLBACK_OPENAI) {
+          console.log(
+            `[${rid}] tts_provider_fallback from=elevenlabs to=openai reason=${String(err?.message || err)}`
+          );
+          if (isPlanGate) {
+            const remainingMs = Math.max(0, elevenLabsBlockedUntilMs - Date.now());
+            console.log(
+              `[${rid}] elevenlabs_temp_block reason=plan_required until_ms=${elevenLabsBlockedUntilMs} remaining_ms=${remainingMs}`
+            );
+          }
+          if (isQuotaGate) {
+            const remainingMs = Math.max(0, elevenLabsBlockedUntilMs - Date.now());
+            console.log(
+              `[${rid}] elevenlabs_temp_block reason=quota_exceeded until_ms=${elevenLabsBlockedUntilMs} remaining_ms=${remainingMs}`
+            );
+          }
+          result = await synthesizeSpeechMp3OpenAI({
+            inputText,
+            speed,
+            voice: effectiveVoiceProfile.openaiVoice,
+          });
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      result = await synthesizeSpeechMp3OpenAI({
+        inputText,
+        speed,
+        voice: effectiveVoiceProfile.openaiVoice,
+      });
+    }
+
+    const mp3Buffer = Buffer.from(result?.buffer || []);
+    const provider = String(result?.provider || providerPlan.provider || "openai");
+    const elapsedMs = Date.now() - startedAt;
+    if (!mp3Buffer.length) {
+      const err = new Error("Speech synthesis returned empty audio.");
+      err.stage = "tts";
+      err.status = 502;
+      throw err;
+    }
+    if (!isLikelyMp3Buffer(mp3Buffer)) {
+      const signatureHex = mp3Buffer.subarray(0, 8).toString("hex");
+      const err = new Error(`Speech synthesis output was not MP3 (sig=${signatureHex}).`);
+      err.stage = "tts";
+      err.status = 502;
+      throw err;
+    }
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `[${rid}] tts_segment label=${label} provider=${provider} chars=${inputText.length} bytes=${mp3Buffer.length} ms=${elapsedMs}`
+      );
+    }
+
+    return {
+      buffer: mp3Buffer,
+      elapsedMs,
+      text: inputText,
+      provider,
+    };
+  }
+
+  async function synthesizeTalkScreenplayPageAudio({
+    screenplayOutput,
+    speed,
+    rid,
+    voiceProfile,
+  } = {}) {
+    const lines = Array.isArray(screenplayOutput?.lines)
+      ? screenplayOutput.lines
+          .filter((line) => line && typeof line === "object")
+          .map((line, index) => ({
+            index: Math.max(0, Number(line.index ?? index)),
+            text: String(line.text || ""),
+            element: normalizeSnippet(line.element, 32) || "action",
+          }))
+      : [];
+    if (!lines.length) return null;
+
+    const cues = [];
+    const remainderSegments = [];
+    const providerLabels = [];
+    let firstSegmentBuffer = Buffer.alloc(0);
+    let spokenSegmentCount = 0;
+    let cursorMs = 0;
+
+    for (const line of lines) {
+      const text = String(line.text || "");
+      if (!text.trim()) {
+        cues.push({
+          index: line.index,
+          text,
+          element: line.element,
+          start_ms: cursorMs,
+          end_ms: cursorMs,
+        });
+        continue;
+      }
+
+      const ttsResult = await synthesizeSpeechMp3({
+        text,
+        speed,
+        rid,
+        label: `screenplay_cue_${line.index + 1}`,
+        voiceProfile,
+      });
+      const rawBuffer = Buffer.from(ttsResult?.buffer || []);
+      if (!rawBuffer.length || !isLikelyMp3Buffer(rawBuffer)) {
+        const err = new Error("Screenplay segment synthesis returned invalid audio.");
+        err.stage = "tts";
+        err.status = 502;
+        throw err;
+      }
+
+      const segmentDurationMs = Math.max(
+        90,
+        estimateMp3DurationMs(rawBuffer) || estimateTalkSpeechDurationMs(text, speed)
+      );
+      const startMs = cursorMs;
+      const endMs = startMs + segmentDurationMs;
+      cues.push({
+        index: line.index,
+        text,
+        element: line.element,
+        start_ms: startMs,
+        end_ms: endMs,
+      });
+      cursorMs = endMs;
+
+      if (spokenSegmentCount === 0) {
+        firstSegmentBuffer = rawBuffer;
+      } else {
+        remainderSegments.push(stripLeadingId3Tag(rawBuffer));
+      }
+      providerLabels.push(String(ttsResult?.provider || "openai"));
+      spokenSegmentCount += 1;
+    }
+
+    const remainderBuffer = remainderSegments.length ? Buffer.concat(remainderSegments) : Buffer.alloc(0);
+    const uniqueProviders = [...new Set(providerLabels.filter(Boolean))];
+    return {
+      firstSegmentBuffer,
+      remainderBuffer,
+      cues,
+      audioDurationMs: Math.max(0, cursorMs),
+      segmentCount: Math.max(1, spokenSegmentCount),
+      providerLabel: uniqueProviders.length > 1
+        ? uniqueProviders.join("+")
+        : String(uniqueProviders[0] || "openai"),
+    };
+  }
+
+  return {
+    synthesizeSpeechMp3,
+    synthesizeSpeechMp3OpenAI,
+    synthesizeTalkScreenplayPageAudio,
+  };
+}
+
+export { createSttSupplier, createChatSupplier, createTtsSupplier };
