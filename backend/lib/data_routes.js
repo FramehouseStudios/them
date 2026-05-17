@@ -14,7 +14,7 @@
 // registration order with zero behavioral reasoning.
 //
 // No module-level mutable state; deps injected; boundary proven by
-// backend/tools/freevars.mjs (acorn). 
+// backend/tools/freevars.mjs (acorn).
 
 
 function mountDataRoutes(app, deps = {}) {
