@@ -51,7 +51,7 @@ Checklist:
 - [x] Prompt assembly consumes persona, memory, session, accepted twists, and
       block signal in a pinned order.
 - [x] iOS exposes a plain-language memory summary and refresh state.
-- [ ] Human privacy decision is made for full memory export/delete.
+- [x] Human privacy decision is made for full memory export/delete.
 - [ ] Manual smoke: mention character -> later suggestion recalls them.
 
 ## Realtime

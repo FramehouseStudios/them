@@ -47,19 +47,23 @@ Rules:
 - **Default if no answer:** Keep TestFlight handoff parked and do not change
   human-owned release/signing settings.
 
-### D-creative-memory-delete-scope — What should memory delete remove?
-- **Asked by:** codex
-- **Asked at:** 2026-05-14
-- **Why it matters:** This decides whether Claude PR #99 can ship a memory
-  deletion route and what data it is allowed to erase.
-- **Question:** Should V1 `DELETE /memory/forget` be creative-memory-only, so
-  Codex can clear and merge PR #99 after Claude rebases/tests under the
-  constraints in `docs/memory-export-delete-decision-packet.md`?
-- **Default if no answer:** Do not merge PR #99.
-
 ---
 
 ## Resolved
+
+### D-creative-memory-delete-scope — What should memory delete remove?
+- **Asked by:** codex
+- **Asked at:** 2026-05-14
+- **Resolved at:** 2026-05-17
+- **Resolution:** **Keep memory delete out of V1.** V1 ships the core-only
+  memory export from PR #94, but does not ship `DELETE /memory/forget`.
+  Destructive memory deletion remains post-V1 until the product defines exact
+  deletion semantics, user-facing copy, audit expectations, and whether any
+  project-scoped artifacts are included. Claude PR #99 must not merge for V1;
+  rederive it later from a new scoped post-V1 task if/when the deletion policy
+  is accepted.
+- **Resolved by:** Codex as V1 completion lead, 2026-05-17 (supervisor
+  decision in-session; conservative privacy default).
 
 ### D-auth-route-extraction-clearance — Clear auth extraction after rebase?
 - **Asked by:** codex

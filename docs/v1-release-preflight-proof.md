@@ -6,13 +6,14 @@ manifest changes, or App Store metadata.
 
 ## Last Run
 
-2026-05-16 14:46 America/Los_Angeles on branch
-`codex/T139-v1-release-smoke-clearance`.
+2026-05-16 18:55 America/Los_Angeles on branch
+`codex/T146-v1-launch-smoke-preflight`.
 
 ## Configuration Audit
 
-No real release values were available in the worktree or shell environment, so
-no release secrets were committed or substituted into project files.
+No real release values were available in the worktree or shell environment, and
+`them/Release.local.env` did not exist. No release secrets were committed or
+substituted into project files.
 
 ```sh
 zsh -lc 'for k in DEVELOPMENT_TEAM_ID BACKEND_URL APP_TOKEN APP_TOKEN_RELEASE RELEASE_BACKEND_URL OPENAI_API_KEY; do if [[ -n ${(P)k} ]]; then print "$k=present"; else print "$k=missing"; fi; done'
@@ -27,17 +28,24 @@ Result:
 - `APP_TOKEN_RELEASE`: missing.
 - `RELEASE_BACKEND_URL`: missing.
 - `OPENAI_API_KEY`: missing.
-- Code signing identities: `0 valid identities found`.
+- Code signing identities: not rechecked in T146; T139 found `0 valid
+  identities found` on this machine.
 
 ## Command Run
 
 ```sh
+scripts/run_release_preflight.sh
 scripts/appstore_preflight.sh
 ```
 
 ## Result
 
+`scripts/run_release_preflight.sh` failed before running release preflight
+because `them/Release.local.env` is missing.
+
 Failed: `fail=3`, `warn=1`.
+
+Direct `scripts/appstore_preflight.sh` produced the failing result above.
 
 ## Passing Checks
 

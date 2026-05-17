@@ -1,34 +1,34 @@
 {
-  "generatedAt": "2026-05-16T21:46:40.914Z",
+  "generatedAt": "2026-05-17T01:55:44.856Z",
   "overallStatus": "not_started",
   "results": [
     {
-      "evidence": "Preflight fail=3 warn=1. Env audit shows DEVELOPMENT_TEAM_ID, BACKEND_URL, APP_TOKEN missing. codesigning identities=0.",
+      "evidence": "Deterministic V1 smokes passed; escalated local talk integration smoke passed 6/7 with 1 expected skip after sandbox bind was allowed. scripts/run_release_preflight.sh failed before preflight because them/Release.local.env is missing.",
       "flow": "talk_pipeline",
-      "notes": "Blocked: real V1 manual smoke was not performed because release BACKEND_URL, APP_TOKEN, and Development Team/signing identity are not configured in this worktree or environment.",
+      "notes": "Blocked: real app voice smoke not run because Release.local.env is missing and release BACKEND_URL/APP_TOKEN/Development Team are not configured.",
       "status": "not_started",
-      "updatedAt": "2026-05-16T21:46:40.914Z"
+      "updatedAt": "2026-05-17T01:55:44.856Z"
     },
     {
-      "evidence": "Automated app health is green: macOS build passed, macOS themTests passed 108/108, generic iOS build passed unsigned.",
+      "evidence": "Deterministic screenplay smoke passed through npm run eval:v1-smokes; manual QA artifact refreshed at docs/testflight-v1-preflight.md.",
       "flow": "screenplay_studio",
-      "notes": "Blocked: screenplay manual smoke still needs a human/app run against the intended release backend and signed/release configuration.",
+      "notes": "Blocked: real app Studio create/save/export/reopen smoke not run against signed release config.",
       "status": "not_started",
-      "updatedAt": "2026-05-16T21:46:40.914Z"
+      "updatedAt": "2026-05-17T01:55:44.856Z"
     },
     {
-      "evidence": "Release secrets missing. Manual Launch Doctor proof had not existed before this T139 report.",
+      "evidence": "Deterministic memory recall smoke passed; D-creative-memory-delete-scope resolved 2026-05-17 as out of V1; PR #99 closed.",
       "flow": "creative_memory",
-      "notes": "Blocked: creative-memory manual recall smoke and privacy decisions remain human/release gates before external review.",
+      "notes": "Blocked: real app memory recall smoke not run. Privacy decision is no longer blocking V1: #94 shipped core-only export and #99 delete is post-V1.",
       "status": "not_started",
-      "updatedAt": "2026-05-16T21:46:40.914Z"
+      "updatedAt": "2026-05-17T01:55:44.856Z"
     },
     {
-      "evidence": "Release preflight still blocks on Development Team, BACKEND_URL, and APP_TOKEN.",
+      "evidence": "Deterministic realtime failover smoke passed through npm run eval:v1-smokes; scripts/appstore_preflight.sh still reports fail=3 warn=1 for Development Team, BACKEND_URL, APP_TOKEN.",
       "flow": "realtime",
-      "notes": "Blocked: realtime primary/fallback manual smoke requires the intended release backend/token and configured supplier environment.",
+      "notes": "Blocked: real primary/fallback manual smoke not run because release backend/token/supplier config are not present.",
       "status": "not_started",
-      "updatedAt": "2026-05-16T21:46:40.914Z"
+      "updatedAt": "2026-05-17T01:55:44.856Z"
     }
   ],
   "schemaVersion": 1,

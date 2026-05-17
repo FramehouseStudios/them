@@ -9,7 +9,6 @@ This artifact names the V1 proof a human should run before TestFlight or externa
 `cd backend && npm run eval:v1-smokes`
 
 Prompt shape, Fountain export fixture, creative-memory recall, and realtime failover stay deterministic.
-Latest proof: `docs/v1-deterministic-smoke-proof.md`.
 
 ### Backend live talk smoke
 
@@ -29,55 +28,13 @@ The checked and parked V1 checklist items match docs/v1-definition.md.
 
 The latest local app build and `themTests` result is recorded separately from the human smoke and signed-release checks.
 
-### In-app Launch Doctor
-
-Data Controls -> V1 Launch Doctor
-
-The app records pass/fail, notes, and evidence for Talk Pipeline, Screenplay
-Studio, Creative Memory, and Realtime. Exporting the report writes
-`~/Downloads/io_them_v1_launch_doctor.latest.json` on macOS and the app's
-Documents folder on iOS. The launch-room command reports whether repo-attached
-or macOS-exported proof is present and passed.
-
-Latest repo-attached proof: `docs/v1-launch-doctor.latest.json` and
-`docs/v1-launch-doctor.latest.md`. The current T139 report exists, but it is a
-blocked `not_started` report, not human smoke signoff. It records that the real
-manual app smoke still needs the intended release backend URL, production app
-token, Apple signing setup, and an actual app run.
-
-If the human already ran the checklist and pasted the result block, Codex can
-record the same schema from a saved block:
-
-```sh
-node scripts/v1_launch_doctor_report.mjs --from-result-block=/tmp/v1-smoke.txt --write-docs
-```
-
 ### Release preflight
 
 `scripts/appstore_preflight.sh`
 
 Release settings, privacy manifest, entitlements, and macOS release build are ready for archive checks.
-Latest proof: `docs/v1-release-preflight-proof.md` currently records release
-preflight blockers. The remaining secret/signing values should be supplied at
-runtime. Preferred local path:
-
-```sh
-cp them/Release.local.env.example them/Release.local.env
-chmod 600 them/Release.local.env
-# Fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN.
-scripts/run_release_preflight.sh
-```
-
-Single-command override path:
-
-```sh
-DEVELOPMENT_TEAM_ID=<apple-team-id> BACKEND_URL=<hosted-api-url> APP_TOKEN=<production-app-token> scripts/appstore_preflight.sh
-```
 
 ## Manual App Flows
-
-Use the V1 Launch Doctor for the canonical manual run. The text flows below
-remain the reference checklist for what each Launch Doctor card is proving.
 
 ### Talk Pipeline
 
@@ -127,13 +84,11 @@ Pass: Primary succeeds when healthy; fallback is visible and usable when primary
 
 ## Parked Before V1 External Review
 
-- Full creative-memory export/delete (#94, #99): Needs explicit human privacy/data-control approval before merge. Decision packet: `docs/memory-export-delete-decision-packet.md`.
 - Postgres eval gate (#33): Needs the GitHub Actions OPENAI_API_KEY secret fixed by a human.
-- Auth route extraction (#212): Tier-3 auth work remains do-not-merge until explicitly cleared.
-- Release preflight: Needs release signing/configuration values cleared in
-  `docs/v1-release-preflight-proof.md`.
-- V1 manual smoke: Current Launch Doctor proof exists but is `not_started`; see
-  `docs/v1-release-smoke-clearance.md`.
+
+## Explicitly Out of V1
+
+- Creative-memory delete (#99): Intentionally deferred post-V1. V1 core-only export already shipped in #94; destructive delete needs explicit product semantics before release. Decision record: `docs/memory-export-delete-decision-packet.md`.
 
 ## Status Command
 

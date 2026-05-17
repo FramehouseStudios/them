@@ -158,9 +158,9 @@
 ## Current next-10 checklist (2026-05-13 after round-17 merge train)
 
 1. Keep PR #33 parked until the human replaces the malformed GitHub Actions `OPENAI_API_KEY` secret.
-2. Keep PR #63 parked unless the human explicitly approves trust-policy changes beyond D005.
-3. Keep PR #94 parked until the human approves the creative-memory export privacy posture.
-4. Keep PR #99 parked until the human approves the creative-memory delete privacy posture and V1 scope.
+2. Historical: PR #63 was closed instead of shipping trust-policy changes beyond D005.
+3. Historical: PR #94 merged as V1 core-only memory export after the unsafe project-scoped expansion was removed.
+4. Historical: PR #99 was closed/out of V1; destructive memory delete needs a post-V1 product decision.
 5. Start the iOS consumer for `POST /craft/coverage/simulate`.
 6. Start the iOS consumer for `POST /screenplay/export/fdx`.
 7. Start the iOS payoff-tracker surface for `POST /craft/payoff/track`.
@@ -788,6 +788,7 @@
 | T143                                   | Record core-only memory export decision for Claude                                       | codex  | merged      |
 | T144                                   | Refresh coordination after T143 merge                                                    | codex  | merged      |
 | T145                                   | Refresh coordination after auth and memory export merges                                 | codex  | review      |
+| T146                                   | Run V1 launch smoke and release preflight pass                                           | codex  | review      |
 | T42-supervisor-merge-protocol          | Codex self-merge authority + agent handoff fast lane                                     | codex  | review      |
 | T43-refresh-claude-queue               | Refresh Claude queue after supervisor protocol merge                                     | codex  | review      |
 | T44-creative-memory-export-triage      | Triage creative-memory export privacy gate                                               | codex  | review      |
@@ -3930,5 +3931,45 @@ structured `expected_action` for PR #212 to just `Claude`.
 `docs/coordination.json` again gives Claude the full #212 expected action:
 rebase on current main after #273, rerun backend auth tests, and keep
 `do-not-merge`/tier-3 until human auth-route clearance.
+
+### T146 — Run V1 launch smoke and release preflight pass
+- **Owner:** codex
+- **Branch:** codex/T146-v1-launch-smoke-preflight
+- **Pillar:** infra
+- **Status:** review
+
+## Scope
+
+Run the current V1 launch room path: release config check, release preflight,
+manual-smoke/Launch Doctor evidence capture, and Claude handoff for any
+concrete backend failure.
+
+## Done When
+
+- The release local config state is audited.
+- `scripts/run_release_preflight.sh` has been run or is blocked with exact
+  evidence.
+- Launch Doctor docs are current for the smoke attempt.
+- Claude's next action is concrete and does not invite net-new backend work.
+- Verification commands are recorded.
+
+## Verification
+
+- `scripts/run_release_preflight.sh` failed before preflight because
+  `them/Release.local.env` is missing.
+- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
+  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
+- `cd backend && npm run eval:v1-smokes` passed all four deterministic V1
+  smokes.
+- `env TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs`
+  passed 6/7 with one expected skip after local loopback binding was allowed.
+- `node --test scripts/v1_manual_qa_checklist.test.mjs` passed 4/4.
+- `node --test scripts/v1_launch_room.test.mjs` passed 5/5.
+- `cd backend && npm run v1:status` reported 20/25.
+- `node scripts/v1_launch_room.mjs --role=codex` and `--role=human` both
+  reflected the updated launch state.
+- `gh pr list --state open` shows only human-gated PR #33 remains open.
+- `docs/v1-launch-doctor.latest.json/.md` was regenerated with truthful
+  blocked manual-smoke evidence.
 
 <!-- END AUTOGEN active-tasks -->

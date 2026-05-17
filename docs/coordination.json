@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-17T01:19:55.000Z",
+  "updatedAt": "2026-05-17T01:51:44.517Z",
   "updatedBy": "codex",
   "openPullRequests": [
     {
@@ -269,15 +269,6 @@
       "status": "merged",
       "branch": "claude/T-talk-error-rate-tracker",
       "blocker": null
-    },
-    {
-      "number": 99,
-      "title": "T-creative-memory-delete-endpoint",
-      "owner": "claude",
-      "tier": 3,
-      "status": "needs-human",
-      "branch": "claude/T-creative-memory-delete-endpoint",
-      "blocker": "human: memory deletion is privacy/data-control work; needs explicit product approval before merge"
     },
     {
       "number": 97,
@@ -1643,12 +1634,6 @@
       "since": "2026-05-10"
     },
     {
-      "id": "creative-memory-export-privacy",
-      "owner": "human",
-      "summary": "PR #94 is resolved and merged as V1 core-only export. PR #99 still deletes creative memory and needs explicit privacy/data-control approval before merge.",
-      "since": "2026-05-11"
-    },
-    {
       "id": "v1-release-preflight-config",
       "owner": "human",
       "summary": "Release preflight fails until signing/configuration values in docs/v1-release-preflight-proof.md are cleared.",
@@ -1656,12 +1641,6 @@
     }
   ],
   "decisionsPending": [
-    {
-      "id": "creative-memory-delete-scope",
-      "question": "For PR #99, should V1 allow DELETE /memory/forget to delete only creative_memory, or should it also delete project-scoped screenplay artifacts and derived memories?",
-      "ownerNeeds": "human",
-      "since": "2026-05-14"
-    },
     {
       "id": "v1-release-preflight-clearance",
       "question": "May the release signing/configuration values listed in docs/v1-release-preflight-proof.md be set now, including Development Team, Hardened Runtime, Release BACKEND_URL, Release APP_TOKEN, and microphone usage build setting?",

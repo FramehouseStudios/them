@@ -185,7 +185,7 @@ function buildState() {
       }
     : {
         action: "Run V1 smoke handoff, inspect Launch Doctor output, and fix smoke failures.",
-        why: "No reviewable Claude PR is open; V1 is gated by manual smoke, release config, and human decisions.",
+        why: "No reviewable Claude PR is open; V1 is gated by manual smoke plus release signing/backend/token configuration.",
       };
   const humanOptions = [
     {
@@ -199,16 +199,18 @@ function buildState() {
       why: "Closes the Talk, Studio, Memory, Realtime, and final iOS signoff checklist items when passing.",
     },
     {
-      action: "Answer privacy decisions",
-      command: "Open docs/memory-export-delete-decision-packet.md and docs/decisions-queue.md",
-      why: "Unblocks or intentionally parks PR #94 and PR #99.",
-    },
-    {
       action: "Clear release preflight config",
       command: "cp them/Release.local.env.example them/Release.local.env && chmod 600 them/Release.local.env && scripts/run_release_preflight.sh",
       why: "Unblocks TestFlight/external review after Debug build/tests and deterministic smokes are green.",
     },
   ];
+  if (decisions.some((decision) => /privacy|memory|delete|export/i.test(decision))) {
+    humanOptions.splice(2, 0, {
+      action: "Answer privacy decisions",
+      command: "Open docs/memory-export-delete-decision-packet.md and docs/decisions-queue.md",
+      why: "Unblocks or intentionally parks privacy-gated memory work.",
+    });
+  }
   return {
     generatedAt: new Date().toISOString(),
     v1: v1.overall,

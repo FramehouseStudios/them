@@ -1,6 +1,6 @@
 # io.them V1 Launch Doctor
 
-- Generated: 2026-05-16T21:46:40.914Z
+- Generated: 2026-05-17T01:55:44.856Z
 - Overall: not_started
 - Passed: 0/4
 - Failed: 0
@@ -11,9 +11,9 @@
 - Status: not_started
 - Goal: Record voice, receive a useful companion reply, hear playback, and keep the turn.
 - Pass criteria: Voice -> reply -> playback -> saved turn works without a restart or manual repair.
-- Evidence: Preflight fail=3 warn=1. Env audit shows DEVELOPMENT_TEAM_ID, BACKEND_URL, APP_TOKEN missing. codesigning identities=0.
+- Evidence: Deterministic V1 smokes passed; escalated local talk integration smoke passed 6/7 with 1 expected skip after sandbox bind was allowed. scripts/run_release_preflight.sh failed before preflight because them/Release.local.env is missing.
 
-Blocked: real V1 manual smoke was not performed because release BACKEND_URL, APP_TOKEN, and Development Team/signing identity are not configured in this worktree or environment.
+Blocked: real app voice smoke not run because Release.local.env is missing and release BACKEND_URL/APP_TOKEN/Development Team are not configured.
 
 ## Screenplay Studio
 
@@ -21,9 +21,9 @@ Blocked: real V1 manual smoke was not performed because release BACKEND_URL, APP
 - Status: not_started
 - Goal: Create a project, write a properly formatted page, save it, reopen it, and export it.
 - Pass criteria: A one-page screenplay survives save/reopen and exports through the current Studio controls.
-- Evidence: Automated app health is green: macOS build passed, macOS themTests passed 108/108, generic iOS build passed unsigned.
+- Evidence: Deterministic screenplay smoke passed through npm run eval:v1-smokes; manual QA artifact refreshed at docs/testflight-v1-preflight.md.
 
-Blocked: screenplay manual smoke still needs a human/app run against the intended release backend and signed/release configuration.
+Blocked: real app Studio create/save/export/reopen smoke not run against signed release config.
 
 ## Creative Memory
 
@@ -31,9 +31,9 @@ Blocked: screenplay manual smoke still needs a human/app run against the intende
 - Status: not_started
 - Goal: Confirm io.them remembers safe creative context and exposes enough shape to diagnose memory.
 - Pass criteria: Memory improves continuity, diagnostics are readable, and privacy-gated export/delete behavior is understood.
-- Evidence: Release secrets missing. Manual Launch Doctor proof had not existed before this T139 report.
+- Evidence: Deterministic memory recall smoke passed; D-creative-memory-delete-scope resolved 2026-05-17 as out of V1; PR #99 closed.
 
-Blocked: creative-memory manual recall smoke and privacy decisions remain human/release gates before external review.
+Blocked: real app memory recall smoke not run. Privacy decision is no longer blocking V1: #94 shipped core-only export and #99 delete is post-V1.
 
 ## Realtime
 
@@ -41,6 +41,6 @@ Blocked: creative-memory manual recall smoke and privacy decisions remain human/
 - Status: not_started
 - Goal: Mint a realtime session, confirm supplier metadata, and verify degraded-mode behavior.
 - Pass criteria: Realtime starts on the primary path, fallback is visible when triggered, and no dead-end state traps the user.
-- Evidence: Release preflight still blocks on Development Team, BACKEND_URL, and APP_TOKEN.
+- Evidence: Deterministic realtime failover smoke passed through npm run eval:v1-smokes; scripts/appstore_preflight.sh still reports fail=3 warn=1 for Development Team, BACKEND_URL, APP_TOKEN.
 
-Blocked: realtime primary/fallback manual smoke requires the intended release backend/token and configured supplier environment.
+Blocked: real primary/fallback manual smoke not run because release backend/token/supplier config are not present.
