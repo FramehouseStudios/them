@@ -1188,6 +1188,39 @@ console.log("fresh five-flow checklist");
   assert.doesNotMatch(r.stderr, /generated-v1-manual-qa-drift/);
 });
 
+// ---------- stale V1 launch handoff instructions ----------
+
+test("[pre-flight] flags stale V1 launch handoff instructions", () => {
+  const tmp = tempRepo();
+  fs.writeFileSync(
+    path.join(tmp, "docs", "v1-release-smoke-clearance.md"),
+    "Claude should fix PR #33's eval-quality failures first. Launch Doctor result: 0/4 flows passed.\n",
+  );
+  fs.writeFileSync(
+    path.join(tmp, "scripts", "v1_launch_room.mjs"),
+    "Records the Talk, Studio, Memory, and Realtime smoke result as JSON/Markdown launch proof.\n",
+  );
+  const r = runIn(tmp);
+  assert.match(r.stderr, /stale-v1-launch-handoff/);
+  assert.match(r.stderr, /PR #33\/#359 are merged/);
+  assert.match(r.stderr, /five V1 gates/);
+  assert.match(r.stderr, /include iOS Release Readiness/);
+});
+
+test("[pre-flight] current V1 launch handoff instructions are NOT flagged", () => {
+  const tmp = tempRepo();
+  fs.writeFileSync(
+    path.join(tmp, "docs", "v1-release-smoke-clearance.md"),
+    "Claude should stay in V1 manual-smoke support mode. Launch Doctor result: not_started, 0/5 flows passed.\n",
+  );
+  fs.writeFileSync(
+    path.join(tmp, "scripts", "v1_launch_room.mjs"),
+    "Records Talk, Studio, Memory, Realtime, and iOS Release Readiness as JSON/Markdown launch proof.\n",
+  );
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /stale-v1-launch-handoff/);
+});
+
 test("[pre-flight] schema-doc-missing-endpoint: handles multiple endpoints per doc", () => {
   const tmp = tempRepo();
   writeSchemaDoc(tmp, "multi.md", `# multi

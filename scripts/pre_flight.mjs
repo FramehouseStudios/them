@@ -151,6 +151,60 @@ function checkGeneratedV1ManualQaChecklistCurrent() {
   }
 }
 
+function checkV1LaunchHandoffHasNoStaleInstructions() {
+  // These files are the launch-room handoff path that Codex, Claude,
+  // and the human read first. Once a blocker/lane closes, stale text
+  // here sends the next agent back into already-merged work. Keep the
+  // patterns narrow and source-of-truth based; historical event logs
+  // are intentionally not scanned.
+  const checks = [
+    {
+      file: "docs/testflight-v1-preflight.md",
+      patterns: [
+        [/Postgres eval gate/i, "PR #33/#359 eval work is merged; do not list a Postgres eval gate as parked V1 work"],
+        [/OPENAI_API_KEY secret fixed by a human/i, "GitHub OPENAI_API_KEY is no longer the active V1 handoff blocker"],
+        [/\b0\/4\b|four-flow/i, "Launch Doctor has five V1 gates, not four"],
+      ],
+    },
+    {
+      file: "docs/v1-release-smoke-clearance.md",
+      patterns: [
+        [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "PR #33/#359 are merged; Claude should not be told to repair that lane"],
+        [/\b0\/4\b|four-flow/i, "Launch Doctor has five V1 gates, not four"],
+      ],
+    },
+    {
+      file: "docs/v1-six-week-launch-plan.md",
+      patterns: [
+        [/Launch Doctor report says Talk, Studio, Memory, and Realtime are\s+passed/i, "Launch Doctor gate text must include iOS Release Readiness"],
+      ],
+    },
+    {
+      file: "docs/claude-inbox.md",
+      patterns: [
+        [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "Claude inbox must not reopen merged #33/#359 eval-quality work"],
+        [/\b0\/4\b|four-flow/i, "Claude inbox must describe the five-gate Launch Doctor state"],
+      ],
+    },
+    {
+      file: "scripts/v1_launch_room.mjs",
+      patterns: [
+        [/Talk, Studio, Memory, and Realtime smoke result/i, "launch room human option must include iOS Release Readiness"],
+      ],
+    },
+  ];
+  for (const { file, patterns } of checks) {
+    const fullPath = path.join(repoRoot, file);
+    if (!fs.existsSync(fullPath)) continue;
+    const text = fs.readFileSync(fullPath, "utf8");
+    for (const [pattern, message] of patterns) {
+      if (pattern.test(text)) {
+        add("stale-v1-launch-handoff", file, null, message);
+      }
+    }
+  }
+}
+
 // ---------- code-pattern checks ----------
 
 function checkRouteJsonParsers() {
@@ -840,6 +894,7 @@ checkSchemaDocBackendDrift();
 checkSchemaDocMissingEndpoint();
 checkSchemaDocOnlyLane();
 checkGeneratedV1ManualQaChecklistCurrent();
+checkV1LaunchHandoffHasNoStaleInstructions();
 checkMountRequiredDepsGuard();
 checkLibHasTest();
 checkTaskV1Pillar();

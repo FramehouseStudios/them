@@ -33,6 +33,7 @@ test("[v1-launch-room] --json exposes V1 status and launch lanes", () => {
   assert.match(payload.codexNext.action, /V1 smoke handoff|Review Claude PR|human smoke/);
   assert.ok(payload.humanOptions.some((option) => option.command.includes("v1_manual_qa_checklist")));
   assert.ok(payload.humanOptions.some((option) => option.command.includes("V1 Launch Doctor")));
+  assert.ok(payload.humanOptions.some((option) => option.why.includes("iOS Release Readiness")));
   assert.equal(payload.launchDoctor.status, "missing");
   assert.ok(Array.isArray(payload.release.blockers));
   assert.match(payload.release.result, /fail=3, warn=1/);
