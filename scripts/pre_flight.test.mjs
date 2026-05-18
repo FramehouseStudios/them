@@ -25,6 +25,8 @@ function tempRepo({
   withMountFile,
   withOutboxSource,
   withOutboxDoc,
+  withV1ManualQaGenerator,
+  withV1ManualQaDoc,
 } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-preflight-"));
   fs.mkdirSync(path.join(tmp, "scripts"));
@@ -59,6 +61,12 @@ function tempRepo({
   }
   if (withOutboxDoc) {
     fs.writeFileSync(path.join(tmp, "docs", "schemas", "outbox-event.md"), withOutboxDoc);
+  }
+  if (withV1ManualQaGenerator) {
+    fs.writeFileSync(path.join(tmp, "scripts", "v1_manual_qa_checklist.mjs"), withV1ManualQaGenerator);
+  }
+  if (withV1ManualQaDoc) {
+    fs.writeFileSync(path.join(tmp, "docs", "testflight-v1-preflight.md"), withV1ManualQaDoc);
   }
   return tmp;
 }
@@ -1147,6 +1155,37 @@ test("[pre-flight] schema-doc-missing-endpoint: skips INDEX.md and README.md", (
 `);
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /schema-doc-missing-endpoint/);
+});
+
+// ---------- generated V1 manual QA checklist drift ----------
+
+test("[pre-flight] flags stale generated TestFlight checklist", () => {
+  const generator = `
+console.log("# io.them V1 TestFlight Preflight");
+console.log("");
+console.log("fresh five-flow checklist");
+`;
+  const tmp = tempRepo({
+    withV1ManualQaGenerator: generator,
+    withV1ManualQaDoc: "# io.them V1 TestFlight Preflight\n\nstale four-flow checklist\n",
+  });
+  const r = runIn(tmp);
+  assert.match(r.stderr, /generated-v1-manual-qa-drift/);
+  assert.match(r.stderr, /v1_manual_qa_checklist\.mjs --write=docs\/testflight-v1-preflight\.md/);
+});
+
+test("[pre-flight] current generated TestFlight checklist is NOT flagged", () => {
+  const generator = `
+console.log("# io.them V1 TestFlight Preflight");
+console.log("");
+console.log("fresh five-flow checklist");
+`;
+  const tmp = tempRepo({
+    withV1ManualQaGenerator: generator,
+    withV1ManualQaDoc: "# io.them V1 TestFlight Preflight\n\nfresh five-flow checklist\n",
+  });
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /generated-v1-manual-qa-drift/);
 });
 
 test("[pre-flight] schema-doc-missing-endpoint: handles multiple endpoints per doc", () => {

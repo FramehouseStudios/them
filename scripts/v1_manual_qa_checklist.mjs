@@ -110,13 +110,7 @@ const artifact = {
       passCriteria: "Release config is real, preflight is green, Launch Doctor proof is exported, and human signoff is recorded.",
     },
   ],
-  parked: [
-    {
-      item: "Postgres eval gate",
-      prs: ["#33"],
-      reason: "Needs the GitHub Actions OPENAI_API_KEY secret fixed by a human.",
-    },
-  ],
+  parked: [],
   outOfV1: [
     {
       item: "Creative-memory delete",
@@ -157,13 +151,15 @@ function markdown(data) {
     lines.push(`Pass: ${flow.passCriteria}`);
     lines.push("");
   }
-  lines.push("## Parked Before V1 External Review");
-  lines.push("");
-  for (const item of data.parked) {
-    const suffix = item.decisionPacket ? ` Decision packet: \`${item.decisionPacket}\`.` : "";
-    lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
+  if (data.parked.length) {
+    lines.push("## Parked Before V1 External Review");
+    lines.push("");
+    for (const item of data.parked) {
+      const suffix = item.decisionPacket ? ` Decision packet: \`${item.decisionPacket}\`.` : "";
+      lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
+    }
+    lines.push("");
   }
-  lines.push("");
   if (data.outOfV1.length) {
     lines.push("## Explicitly Out of V1");
     lines.push("");
@@ -192,11 +188,13 @@ function prompt(data) {
   for (const flow of data.manualFlows) {
     lines.push(`- ${flow.pillar}: ${flow.goal}`);
   }
-  lines.push("");
-  lines.push("Parked before external review:");
-  for (const item of data.parked) {
-    const suffix = item.decisionPacket ? ` Decision packet: ${item.decisionPacket}.` : "";
-    lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
+  if (data.parked.length) {
+    lines.push("");
+    lines.push("Parked before external review:");
+    for (const item of data.parked) {
+      const suffix = item.decisionPacket ? ` Decision packet: ${item.decisionPacket}.` : "";
+      lines.push(`- ${item.item} (${item.prs.join(", ")}): ${item.reason}${suffix}`);
+    }
   }
   if (data.outOfV1.length) {
     lines.push("");

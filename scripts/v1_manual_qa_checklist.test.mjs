@@ -26,6 +26,7 @@ test("[v1-manual-qa] --json emits the five V1 manual flows", () => {
     payload.manualFlows.map((f) => f.pillar),
     ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime", "iOS Release Readiness"],
   );
+  assert.equal(payload.parked.length, 0);
   assert.ok(!payload.parked.some((p) => p.prs.includes("#99")));
   assert.ok(payload.outOfV1.some((p) => p.prs.includes("#99")));
   assert.ok(payload.outOfV1.some((p) => p.reason.includes("V1 core-only export already shipped in #94")));
@@ -33,7 +34,7 @@ test("[v1-manual-qa] --json emits the five V1 manual flows", () => {
   assert.ok(payload.automatedProof.some((p) => p.command.includes("v1-build-test-readiness")));
 });
 
-test("[v1-manual-qa] markdown output names pass criteria and parked gates", () => {
+test("[v1-manual-qa] markdown output names pass criteria and current V1 decisions", () => {
   const r = run([]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /## Manual App Flows/);
@@ -43,6 +44,8 @@ test("[v1-manual-qa] markdown output names pass criteria and parked gates", () =
   assert.match(r.stdout, /Pass: Release config is real, preflight is green/);
   assert.match(r.stdout, /## Explicitly Out of V1/);
   assert.match(r.stdout, /Decision record: `docs\/memory-export-delete-decision-packet\.md`/);
+  assert.doesNotMatch(r.stdout, /Postgres eval gate/);
+  assert.doesNotMatch(r.stdout, /#33/);
   assert.doesNotMatch(r.stdout, /#212/);
   assert.match(r.stdout, /V1 core-only export already shipped in #94/);
 });

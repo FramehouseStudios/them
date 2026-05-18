@@ -29,6 +29,9 @@ and `scripts/appstore_preflight.sh` still fails with `fail=3 warn=1`.
 Launch Doctor now tracks the fifth V1 gate as `iOS Release Readiness`, so
 manual smoke proof is incomplete until Talk, Studio, Memory, Realtime, and
 release readiness are all recorded from the actual release path.
+The generated TestFlight checklist at `docs/testflight-v1-preflight.md` is
+also five-flow/current; strict pre-flight now fails if it drifts from
+`scripts/v1_manual_qa_checklist.mjs`.
 Deterministic V1 smokes are green, and the local `/talk` integration smoke
 passes when local loopback binding is allowed.
 

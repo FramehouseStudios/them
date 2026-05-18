@@ -82,12 +82,17 @@ Goal: primary mint works; forced primary failure shows fallback
 
 Pass: Primary succeeds when healthy; fallback is visible and usable when primary fails.
 
-## Parked Before V1 External Review
+### iOS Release Readiness
 
-- Postgres eval gate (#33): GitHub Actions `OPENAI_API_KEY` is fixed, but the
-  rerun now fails real eval-quality cases. Claude owns the repair:
-  `knowledge_art_history`, `knowledge_philosophy`, `knowledge_learning_science`,
-  and `playful_banter_humor` must clear without weakening thresholds.
+Goal: real release config -> green preflight -> exported proof -> human signoff
+
+1. Create them/Release.local.env from them/Release.local.env.example.
+2. Fill real DEVELOPMENT_TEAM_ID, hosted BACKEND_URL, and production APP_TOKEN values.
+3. Run scripts/run_release_preflight.sh and confirm it is green.
+4. Confirm the release build is not using localhost, placeholders, or debug signing.
+5. Export Launch Doctor JSON/Markdown and attach it to the TestFlight or release handoff.
+
+Pass: Release config is real, preflight is green, Launch Doctor proof is exported, and human signoff is recorded.
 
 ## Explicitly Out of V1
 

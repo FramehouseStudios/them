@@ -55,8 +55,8 @@ is current.
 - Codex fixes every app-facing smoke failure.
 - Claude fixes backend smoke failures only when assigned.
 
-Gate: the Launch Doctor report says Talk, Studio, Memory, and Realtime are
-passed or each failed flow has a named blocker.
+Gate: the Launch Doctor report says Talk, Studio, Memory, Realtime, and iOS
+Release Readiness are passed or each failed flow has a named blocker.
 
 ## Week 3: Data Controls And Privacy
 

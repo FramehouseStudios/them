@@ -122,6 +122,35 @@ function checkSchemaDocOnlyLane() {
   );
 }
 
+function checkGeneratedV1ManualQaChecklistCurrent() {
+  // docs/testflight-v1-preflight.md is generated from
+  // scripts/v1_manual_qa_checklist.mjs. If it drifts, humans and
+  // agents get stale launch instructions (for example, a four-flow
+  // checklist after Launch Doctor moved to five gates).
+  const generator = path.join(repoRoot, "scripts", "v1_manual_qa_checklist.mjs");
+  const target = path.join(repoRoot, "docs", "testflight-v1-preflight.md");
+  if (!fs.existsSync(generator) || !fs.existsSync(target)) return;
+  let expected = "";
+  try {
+    expected = execFileSync(
+      process.execPath,
+      [generator],
+      { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+  } catch {
+    return;
+  }
+  const actual = fs.readFileSync(target, "utf8");
+  if (actual.trimEnd() !== expected.trimEnd()) {
+    add(
+      "generated-v1-manual-qa-drift",
+      "docs/testflight-v1-preflight.md",
+      null,
+      "generated checklist is stale. Run `node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md` and commit the result.",
+    );
+  }
+}
+
 // ---------- code-pattern checks ----------
 
 function checkRouteJsonParsers() {
@@ -810,6 +839,7 @@ checkSchemaVersionedEnvelopes();
 checkSchemaDocBackendDrift();
 checkSchemaDocMissingEndpoint();
 checkSchemaDocOnlyLane();
+checkGeneratedV1ManualQaChecklistCurrent();
 checkMountRequiredDepsGuard();
 checkLibHasTest();
 checkTaskV1Pillar();
