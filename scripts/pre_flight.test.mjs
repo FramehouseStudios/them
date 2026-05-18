@@ -29,6 +29,14 @@ function tempRepo({
   withV1ManualQaDoc,
 } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-preflight-"));
+  fs.writeFileSync(path.join(tmp, ".gitignore"), [
+    ".env",
+    ".env.*",
+    "*.env",
+    "them/Release.local.env",
+    "them/Release.local.xcconfig",
+    "",
+  ].join("\n"));
   fs.mkdirSync(path.join(tmp, "scripts"));
   fs.mkdirSync(path.join(tmp, "backend", "lib"), { recursive: true });
   fs.mkdirSync(path.join(tmp, "backend", "tests"), { recursive: true });
@@ -108,6 +116,19 @@ test("[pre-flight] clean repo with no lib/ → exit 0, no findings", () => {
   const r = runIn(tmp);
   assert.equal(r.status, 0);
   assert.match(r.stdout, /pre-flight: OK/);
+});
+
+test("[pre-flight] flags tracked provider secrets without printing the value", () => {
+  const tmp = tempRepo();
+  const fakeSecret = "sk-proj-" + "A".repeat(48);
+  fs.writeFileSync(path.join(tmp, "backend", "config.js"), `export const key = "${fakeSecret}";\n`);
+  initGitWithOriginMain(tmp);
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /secret-hygiene/);
+  assert.match(r.stderr, /backend\/config\.js:1/);
+  assert.match(r.stderr, /openai-project-key/);
+  assert.doesNotMatch(r.stderr, new RegExp(fakeSecret));
 });
 
 // ---------- route-needs-own-parser ----------

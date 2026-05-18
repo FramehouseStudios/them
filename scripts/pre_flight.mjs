@@ -71,6 +71,27 @@ function changedFilesAgainstOriginMain() {
   return [...files].sort();
 }
 
+function gitOutputRaw(args) {
+  try {
+    return execFileSync("git", ["-C", repoRoot, ...args], {
+      encoding: "buffer",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return Buffer.alloc(0);
+  }
+}
+
+function trackedFiles() {
+  const raw = gitOutputRaw(["ls-files", "-z"]);
+  if (!raw.length) return [];
+  return raw.toString("utf8").split("\0").filter(Boolean);
+}
+
+function isGitRepo() {
+  return gitOutput(["rev-parse", "--is-inside-work-tree"]) === "true";
+}
+
 function claudeInboxBlocksSchemaDocOnly() {
   const inboxPath = path.join(repoRoot, "docs", "claude-inbox.md");
   if (!fs.existsSync(inboxPath)) return false;
@@ -148,6 +169,79 @@ function checkGeneratedV1ManualQaChecklistCurrent() {
       null,
       "generated checklist is stale. Run `node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md` and commit the result.",
     );
+  }
+}
+
+function checkSecretHygiene() {
+  if (!isGitRepo()) return;
+  const forbiddenTrackedFiles = [
+    "backend/.env",
+    "backend/.env.production",
+    "backend/.env.local",
+    "them/Release.local.env",
+    "them/Release.local.xcconfig",
+  ];
+  const tracked = new Set(trackedFiles());
+  for (const file of forbiddenTrackedFiles) {
+    if (tracked.has(file)) {
+      add(
+        "secret-hygiene",
+        file,
+        null,
+        "local secret/config file is tracked; remove it from git and keep values in ignored local env, Render, or a password manager",
+      );
+    }
+  }
+
+  for (const file of forbiddenTrackedFiles) {
+    const ignoreOutput = gitOutput(["check-ignore", "-v", file]);
+    const ignored = ignoreOutput
+      .split("\n")
+      .some((line) => line.trim().split(/\s+/).at(-1) === file);
+    if (!ignored) {
+      add(
+        "secret-hygiene",
+        ".gitignore",
+        null,
+        `${file} is not covered by gitignore; add an ignore rule before creating local release or provider config`,
+      );
+    }
+  }
+
+  const secretPatterns = [
+    ["openai-project-key", /\bsk-proj-[A-Za-z0-9_-]{20,}\b/g],
+    ["openai-secret-key", /\bsk-[A-Za-z0-9_-]{32,}\b/g],
+    ["elevenlabs-secret-key", /\bsk_[A-Za-z0-9A-Za-z_-]{32,}\b/g],
+  ];
+  const scanExtensions = new Set([
+    ".js", ".mjs", ".cjs", ".ts", ".tsx", ".swift", ".sh", ".yml", ".yaml",
+    ".json", ".md", ".plist", ".xcconfig", ".pbxproj",
+  ]);
+  const skipFiles = new Set([
+    "backend/package-lock.json",
+    "package-lock.json",
+  ]);
+  for (const file of tracked) {
+    if (skipFiles.has(file)) continue;
+    const ext = path.extname(file);
+    if (!scanExtensions.has(ext)) continue;
+    const fullPath = path.join(repoRoot, file);
+    if (!fs.existsSync(fullPath)) continue;
+    const text = fs.readFileSync(fullPath, "utf8");
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i += 1) {
+      for (const [name, pattern] of secretPatterns) {
+        pattern.lastIndex = 0;
+        if (pattern.test(lines[i])) {
+          add(
+            "secret-hygiene",
+            file,
+            i + 1,
+            `tracked file appears to contain a ${name}; rotate the value if real and remove it without printing it`,
+          );
+        }
+      }
+    }
   }
 }
 
@@ -895,6 +989,7 @@ checkSchemaDocMissingEndpoint();
 checkSchemaDocOnlyLane();
 checkGeneratedV1ManualQaChecklistCurrent();
 checkV1LaunchHandoffHasNoStaleInstructions();
+checkSecretHygiene();
 checkMountRequiredDepsGuard();
 checkLibHasTest();
 checkTaskV1Pillar();
