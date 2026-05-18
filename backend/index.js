@@ -347,7 +347,13 @@ const USER_NAME_MENTION_EVERY_TURNS = Math.max(
 );
 const CHAT_MODEL_FAST = String(process.env.CHAT_MODEL_FAST || "gpt-4o-mini").trim();
 const CHAT_MODEL_RICH = String(process.env.CHAT_MODEL_RICH || "gpt-4o").trim();
-const CHAT_MODEL_KNOWLEDGE = String(process.env.CHAT_MODEL_KNOWLEDGE || CHAT_MODEL_FAST).trim();
+// Knowledge-tier turns require accurate, substantive, structured answers
+// (art history, philosophy + criticism, evidence-based learning science).
+// Default to the knowledge-grade rich model, not the fast/mini model:
+// the prior CHAT_MODEL_FAST default under-served knowledge answers in
+// production while the regression eval force-riches — a prod/eval
+// divergence. Env override still wins.
+const CHAT_MODEL_KNOWLEDGE = String(process.env.CHAT_MODEL_KNOWLEDGE || CHAT_MODEL_RICH).trim();
 const VISUAL_CONTEXT_MODEL = String(process.env.VISUAL_CONTEXT_MODEL || CHAT_MODEL_FAST).trim();
 const VISUAL_CONTEXT_TIMEOUT_MS = parsePositiveInt(process.env.VISUAL_CONTEXT_TIMEOUT_MS, 7_500);
 const VISUAL_CONTEXT_SUMMARY_MAX_CHARS = parsePositiveInt(
@@ -19878,6 +19884,7 @@ function buildTurnPlanner({
   else if (Boolean(flags?.socialSpark)) intent = "social_spark_story";
   else if (motivationMode) intent = "motivation_coaching";
   else if (Boolean(flags?.isVenting)) intent = "vent_container";
+  else if (Boolean(flags?.isPlayful)) intent = "playful_banter";
   else if ((asksPractical || Boolean(flags?.isDirect)) && !adviceOptOut) intent = "practical_action";
   else if (
     (lane === "creative" && ideaDevelopmentSignal.active) ||
@@ -19899,6 +19906,7 @@ function buildTurnPlanner({
   else if (motivationMode) emotionToMatch = "energizing_grounded";
   else if (Boolean(flags?.isVenting) || Boolean(flags?.isVulnerable)) emotionToMatch = "warm_attuned";
   else if (Boolean(flags?.socialSpark)) emotionToMatch = "bright_playful";
+  else if (Boolean(flags?.isPlayful)) emotionToMatch = "bright_playful";
   else if ((Boolean(flags?.isDirect) || asksPractical) && !adviceOptOut) emotionToMatch = "clear_confident";
   else if (asksKnowledge) emotionToMatch = "clear_curious";
 
@@ -19924,6 +19932,7 @@ function buildTurnPlanner({
     nextBestMove = "acknowledge_drag_then_confidence_reframe_then_one_tiny_action";
   }
   else if (intent === "social_spark_story") nextBestMove = "mirror_excitement_then_one_vivid_story_door";
+  else if (intent === "playful_banter") nextBestMove = "gentle_witty_mirror_then_one_warm_reframe_then_light_turn_back";
   else if (intent === "vent_container") nextBestMove = "mirror_then_one_open_door_before_advice";
   else if (intent === "practical_action") nextBestMove = "direct_answer_then_one_precise_next_step";
   else if (intent === "knowledge_answer") nextBestMove = "baseline_fact_then_one_deeper_layer_then_concrete_example";
