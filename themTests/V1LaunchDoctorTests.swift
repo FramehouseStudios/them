@@ -10,8 +10,8 @@ final class V1LaunchDoctorTests: XCTestCase {
 
         XCTAssertEqual(report.schemaVersion, 1)
         XCTAssertEqual(report.source, "io.them.v1_launch_doctor")
-        XCTAssertEqual(report.summary.total, 4)
-        XCTAssertEqual(report.summary.notStarted, 4)
+        XCTAssertEqual(report.summary.total, 5)
+        XCTAssertEqual(report.summary.notStarted, 5)
         XCTAssertEqual(report.overallStatus, .notStarted)
         XCTAssertEqual(report.results.map(\.flow), V1LaunchDoctorFlow.allCases)
     }
@@ -29,7 +29,7 @@ final class V1LaunchDoctorTests: XCTestCase {
         XCTAssertEqual(report.summary.passed, 1)
         XCTAssertEqual(report.summary.failed, 1)
         XCTAssertEqual(report.summary.inProgress, 1)
-        XCTAssertEqual(report.summary.notStarted, 1)
+        XCTAssertEqual(report.summary.notStarted, 2)
         XCTAssertEqual(report.overallStatus, .failed)
     }
 
@@ -41,7 +41,7 @@ final class V1LaunchDoctorTests: XCTestCase {
             generatedAt: Date(timeIntervalSince1970: 0)
         )
 
-        XCTAssertEqual(report.summary.passed, 4)
+        XCTAssertEqual(report.summary.passed, 5)
         XCTAssertEqual(report.summary.failed, 0)
         XCTAssertEqual(report.overallStatus, .passed)
     }
@@ -62,8 +62,10 @@ final class V1LaunchDoctorTests: XCTestCase {
 
         XCTAssertTrue(report.markdown.contains("# io.them V1 Launch Doctor"))
         XCTAssertTrue(report.markdown.contains("## Talk Pipeline"))
+        XCTAssertTrue(report.markdown.contains("## iOS Release Readiness"))
         XCTAssertTrue(report.markdown.contains("Evidence: Build 128, local backend"))
         XCTAssertTrue(report.markdown.contains("Voice -> reply -> playback -> saved turn"))
+        XCTAssertTrue(report.markdown.contains("Release config is real, preflight is green"))
     }
 
     func testJSONRoundTripsWithSchemaVersion() throws {
@@ -81,6 +83,6 @@ final class V1LaunchDoctorTests: XCTestCase {
 
         XCTAssertEqual(decoded.schemaVersion, V1LaunchDoctorReport.schemaVersion)
         XCTAssertEqual(decoded.overallStatus, .inProgress)
-        XCTAssertEqual(decoded.results.count, 4)
+        XCTAssertEqual(decoded.results.count, 5)
     }
 }

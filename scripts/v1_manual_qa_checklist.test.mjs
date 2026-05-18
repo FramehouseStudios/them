@@ -17,14 +17,14 @@ function run(args) {
   });
 }
 
-test("[v1-manual-qa] --json emits the four V1 manual flows", () => {
+test("[v1-manual-qa] --json emits the five V1 manual flows", () => {
   const r = run(["--json"]);
   assert.equal(r.status, 0, r.stderr);
   const payload = JSON.parse(r.stdout);
-  assert.equal(payload.manualFlows.length, 4);
+  assert.equal(payload.manualFlows.length, 5);
   assert.deepEqual(
     payload.manualFlows.map((f) => f.pillar),
-    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime"],
+    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime", "iOS Release Readiness"],
   );
   assert.ok(!payload.parked.some((p) => p.prs.includes("#99")));
   assert.ok(payload.outOfV1.some((p) => p.prs.includes("#99")));
@@ -38,7 +38,9 @@ test("[v1-manual-qa] markdown output names pass criteria and parked gates", () =
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /## Manual App Flows/);
   assert.match(r.stdout, /### Current app build and tests/);
+  assert.match(r.stdout, /### iOS Release Readiness/);
   assert.match(r.stdout, /Pass: Reply text is visible/);
+  assert.match(r.stdout, /Pass: Release config is real, preflight is green/);
   assert.match(r.stdout, /## Explicitly Out of V1/);
   assert.match(r.stdout, /Decision record: `docs\/memory-export-delete-decision-packet\.md`/);
   assert.doesNotMatch(r.stdout, /#212/);
@@ -62,6 +64,7 @@ test("[v1-manual-qa] --prompt prints a compact result block for human signoff", 
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^V1 human smoke prompt/);
   assert.match(r.stdout, /Talk Pipeline: PASS\/FAIL - <notes>/);
+  assert.match(r.stdout, /iOS Release Readiness: PASS\/FAIL - <notes>/);
   assert.match(r.stdout, /Explicitly out of V1:/);
   assert.match(r.stdout, /Decision record: docs\/memory-export-delete-decision-packet\.md/);
   assert.match(r.stdout, /Overall V1 manual smoke: PASS\/FAIL - <notes>/);

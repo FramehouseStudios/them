@@ -1,0 +1,1 @@
+{"at":"2026-05-18T00:14:35.289Z","by":"codex","kind":"product_state","comment":"Launch Doctor now includes iOS Release Readiness as the fifth V1 gate; current proof remains 0/5 with release config/signing/env blockers explicit; Claude should stay in support mode until a concrete smoke failure is posted."}

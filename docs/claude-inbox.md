@@ -21,6 +21,9 @@ The launch lane is still blocked by real release configuration:
 no `them/Release.local.env` exists in the current worktree, the environment
 lacks `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`,
 and `scripts/appstore_preflight.sh` still fails with `fail=3 warn=1`.
+Launch Doctor now tracks the fifth V1 gate as `iOS Release Readiness`, so
+manual smoke proof is incomplete until Talk, Studio, Memory, Realtime, and
+release readiness are all recorded from the actual release path.
 Deterministic V1 smokes are green, and the local `/talk` integration smoke
 passes when local loopback binding is allowed.
 

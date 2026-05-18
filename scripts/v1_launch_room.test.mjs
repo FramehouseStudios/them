@@ -29,7 +29,7 @@ test("[v1-launch-room] --json exposes V1 status and launch lanes", () => {
   const payload = JSON.parse(r.stdout);
   assert.ok(payload.v1.total > 0);
   assert.ok(payload.v1.done <= payload.v1.total);
-  assert.match(payload.claudeNext.request, /Fix PR #33 eval-quality failures/);
+  assert.match(payload.claudeNext.request, /Support V1 manual smoke failures/);
   assert.match(payload.codexNext.action, /V1 smoke handoff|Review Claude PR|human smoke/);
   assert.ok(payload.humanOptions.some((option) => option.command.includes("v1_manual_qa_checklist")));
   assert.ok(payload.humanOptions.some((option) => option.command.includes("V1 Launch Doctor")));
@@ -47,7 +47,7 @@ test("[v1-launch-room] Claude role prints one deep backend task", () => {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^io\.them V1 Launch Room/);
   assert.match(r.stdout, /Claude Launch Options/);
-  assert.match(r.stdout, /Do now: Fix PR #33 eval-quality failures/);
+  assert.match(r.stdout, /Do now: Support V1 manual smoke failures/);
   assert.doesNotMatch(r.stdout, /Human Launch Options/);
 });
 
@@ -73,7 +73,7 @@ test("[v1-launch-room] reads the latest Launch Doctor report when present", () =
       schemaVersion: 1,
       generatedAt: "2026-05-15T00:00:00.000Z",
       overallStatus: "passed",
-      summary: { total: 4, passed: 4, failed: 0, inProgress: 0, notStarted: 0 },
+      summary: { total: 5, passed: 5, failed: 0, inProgress: 0, notStarted: 0 },
       results: [],
     }),
     "utf8"
@@ -84,8 +84,8 @@ test("[v1-launch-room] reads the latest Launch Doctor report when present", () =
   const payload = JSON.parse(r.stdout);
   assert.equal(payload.launchDoctor.status, "found");
   assert.equal(payload.launchDoctor.overallStatus, "passed");
-  assert.equal(payload.launchDoctor.passed, 4);
-  assert.equal(payload.launchDoctor.total, 4);
+  assert.equal(payload.launchDoctor.passed, 5);
+  assert.equal(payload.launchDoctor.total, 5);
 });
 
 test("[v1-launch-room] rejects unknown roles", () => {

@@ -55,6 +55,15 @@ const flows = [
     goal: "Mint a realtime session, confirm supplier metadata, and verify degraded-mode behavior.",
     passCriteria: "Realtime starts on the primary path, fallback is visible when triggered, and no dead-end state traps the user.",
   },
+  {
+    id: "release_readiness",
+    title: "iOS Release Readiness",
+    pillar: "ios",
+    flags: ["release", "release-readiness", "release_readiness", "ios-release", "ios_release", "testflight", "testflight-readiness"],
+    promptNames: ["ios release readiness", "release readiness", "testflight readiness"],
+    goal: "Confirm release config, signed preflight, and Launch Doctor proof are ready before TestFlight or external review.",
+    passCriteria: "Release config is real, preflight is green, Launch Doctor proof is exported, and human sign-off is recorded before TestFlight/external review.",
+  },
 ];
 
 const flowByFlag = new Map();
@@ -102,6 +111,7 @@ Options:
   --studio=<status>               pass|fail|in-progress|not-started
   --memory=<status>               pass|fail|in-progress|not-started
   --realtime=<status>             pass|fail|in-progress|not-started
+  --release=<status>              pass|fail|in-progress|not-started
   --<flow>-notes=<text>           Notes for a flow, e.g. --talk-notes="..."
   --<flow>-evidence=<text>        Evidence for a flow, e.g. --realtime-evidence="..."
   --from-result-block=<path|->    Parse the block printed by v1_manual_qa_checklist --prompt
@@ -222,7 +232,7 @@ function makeReport(args) {
   for (const [id, value] of args.flowNotes.entries()) notes.set(id, value);
   const explicitCount = updates.size + args.flowNotes.size + args.flowEvidence.size + block.parsed.size;
   if (explicitCount === 0) {
-    throw new Error("no Launch Doctor results supplied; pass explicit --talk/--studio/--memory/--realtime statuses or --from-result-block");
+    throw new Error("no Launch Doctor results supplied; pass explicit --talk/--studio/--memory/--realtime/--release statuses or --from-result-block");
   }
 
   const results = flows.map((flow) => makeResult(

@@ -13,6 +13,7 @@ enum V1LaunchDoctorFlow: String, CaseIterable, Codable, Identifiable {
     case screenplayStudio = "screenplay_studio"
     case creativeMemory = "creative_memory"
     case realtime = "realtime"
+    case releaseReadiness = "release_readiness"
 
     var id: String { rawValue }
 
@@ -77,6 +78,21 @@ enum V1LaunchDoctorFlow: String, CaseIterable, Codable, Identifiable {
                     "Confirm fallback/degraded state is visible and the app remains usable.",
                 ],
                 passCriteria: "Realtime starts on the primary path, fallback is visible when triggered, and no dead-end state traps the user."
+            )
+        case .releaseReadiness:
+            return V1LaunchDoctorFlowDefinition(
+                flow: self,
+                title: "iOS Release Readiness",
+                v1Pillar: "ios",
+                goal: "Confirm release config, signed preflight, and Launch Doctor proof are ready before TestFlight or external review.",
+                checklist: [
+                    "Create them/Release.local.env from the example template.",
+                    "Fill real DEVELOPMENT_TEAM_ID, hosted BACKEND_URL, and production APP_TOKEN values.",
+                    "Run scripts/run_release_preflight.sh and confirm it is green.",
+                    "Confirm the app is not using localhost, placeholder tokens, or debug signing for release.",
+                    "Export Launch Doctor JSON/Markdown and record human sign-off for the release build.",
+                ],
+                passCriteria: "Release config is real, preflight is green, Launch Doctor proof is exported, and human sign-off is recorded before TestFlight/external review."
             )
         }
     }

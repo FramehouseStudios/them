@@ -33,6 +33,7 @@ test("[v1-launch-doctor-report] writes explicit flow statuses without inventing 
     "--studio-notes=Export failed after save.",
     "--memory=in-progress",
     "--realtime-evidence=Not run yet.",
+    "--release-evidence=Missing them/Release.local.env.",
     `--write=${jsonPath}`,
   ]);
   assert.equal(r.status, 0, r.stderr);
@@ -41,14 +42,15 @@ test("[v1-launch-doctor-report] writes explicit flow statuses without inventing 
   assert.equal(report.source, "io.them.v1_launch_doctor");
   assert.equal(report.overallStatus, "failed");
   assert.deepEqual(report.summary, {
-    total: 4,
+    total: 5,
     passed: 1,
     failed: 1,
     inProgress: 1,
-    notStarted: 1,
+    notStarted: 2,
   });
   assert.equal(report.results.find((result) => result.flow === "realtime").status, "not_started");
   assert.equal(report.results.find((result) => result.flow === "realtime").evidence, "Not run yet.");
+  assert.equal(report.results.find((result) => result.flow === "release_readiness").evidence, "Missing them/Release.local.env.");
   assert.match(fs.readFileSync(jsonPath.replace(/\.json$/, ".md"), "utf8"), /Export failed after save/);
 });
 
@@ -58,6 +60,7 @@ test("[v1-launch-doctor-report] parses the manual QA result block", () => {
     "Screenplay Studio: PASS - save/export/reopen worked",
     "Creative Memory: FAIL - later suggestion forgot June",
     "Realtime: IN PROGRESS - primary minted; fallback still pending",
+    "iOS Release Readiness: NOT STARTED - missing signing and release env",
     "Overall V1 manual smoke: FAIL - memory regression",
   ].join("\n");
   const r = run(["--from-result-block=-", "--generated-at=2026-05-16T12:00:00.000Z"], {
@@ -67,13 +70,14 @@ test("[v1-launch-doctor-report] parses the manual QA result block", () => {
   const report = JSON.parse(r.stdout);
   assert.equal(report.overallStatus, "failed");
   assert.deepEqual(report.summary, {
-    total: 4,
+    total: 5,
     passed: 2,
     failed: 1,
     inProgress: 1,
-    notStarted: 0,
+    notStarted: 1,
   });
   assert.match(report.results.find((result) => result.flow === "creative_memory").notes, /forgot June/);
+  assert.match(report.results.find((result) => result.flow === "release_readiness").notes, /missing signing/);
 });
 
 test("[v1-launch-doctor-report] refuses placeholder prompt blocks", () => {
@@ -82,6 +86,7 @@ test("[v1-launch-doctor-report] refuses placeholder prompt blocks", () => {
     "Screenplay Studio: PASS/FAIL - <notes>",
     "Creative Memory: PASS/FAIL - <notes>",
     "Realtime: PASS/FAIL - <notes>",
+    "iOS Release Readiness: PASS/FAIL - <notes>",
     "Overall V1 manual smoke: PASS/FAIL - <notes>",
   ].join("\n");
   const r = run(["--from-result-block=-"], { input: block });
@@ -97,6 +102,7 @@ test("[v1-launch-doctor-report] output is readable by the launch room unchanged"
     "--studio=pass",
     "--memory=pass",
     "--realtime=pass",
+    "--release=pass",
     `--write=${jsonPath}`,
   ]);
   assert.equal(r.status, 0, r.stderr);
@@ -113,6 +119,6 @@ test("[v1-launch-doctor-report] output is readable by the launch room unchanged"
   const payload = JSON.parse(room.stdout);
   assert.equal(payload.launchDoctor.status, "found");
   assert.equal(payload.launchDoctor.overallStatus, "passed");
-  assert.equal(payload.launchDoctor.passed, 4);
-  assert.equal(payload.launchDoctor.total, 4);
+  assert.equal(payload.launchDoctor.passed, 5);
+  assert.equal(payload.launchDoctor.total, 5);
 });

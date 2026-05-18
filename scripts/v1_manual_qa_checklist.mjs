@@ -97,6 +97,18 @@ const artifact = {
       ],
       passCriteria: "Primary succeeds when healthy; fallback is visible and usable when primary fails.",
     },
+    {
+      pillar: "iOS Release Readiness",
+      goal: "real release config -> green preflight -> exported proof -> human signoff",
+      steps: [
+        "Create them/Release.local.env from them/Release.local.env.example.",
+        "Fill real DEVELOPMENT_TEAM_ID, hosted BACKEND_URL, and production APP_TOKEN values.",
+        "Run scripts/run_release_preflight.sh and confirm it is green.",
+        "Confirm the release build is not using localhost, placeholders, or debug signing.",
+        "Export Launch Doctor JSON/Markdown and attach it to the TestFlight or release handoff.",
+      ],
+      passCriteria: "Release config is real, preflight is green, Launch Doctor proof is exported, and human signoff is recorded.",
+    },
   ],
   parked: [
     {
