@@ -16,7 +16,12 @@ and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c
 talk supplier-glue extraction is merged in PR #354. Phase 6.1a is merged in
 PR #358. PR #33 is merged; GitHub `evaluate` and `eval:gate against Postgres`
 passed on 2026-05-17 after Codex fixed fragile eval response guards and the
-speculative reuse header path.
+speculative reuse header path. PR #359 is also merged; the eval-quality repair
+for knowledge routing and playful banter passed GitHub `evaluate`,
+`eval:gate against Postgres`, local `node scripts/pre_flight.mjs --strict`,
+focused `talk_routing_quality_guard` 5/5, and backend `npm test` 1208 pass /
+0 fail / 1 skipped. Do not reopen the eval-quality lane unless Codex posts a
+new concrete regression.
 The launch lane is still blocked by real release configuration:
 no `them/Release.local.env` exists in the current worktree, the environment
 lacks `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`,
@@ -76,7 +81,7 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 | --- | --- | --- | --- |
 | 1 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but there is no concrete backend failure yet. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
 | 2 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
-| 3 | Keep merged lanes closed | PR #33, PR #354, and PR #358 are merged. | Do not reopen or duplicate the eval-gate, Phase 7c, or Phase 6.1a branches. |
+| 3 | Keep merged lanes closed | PR #33, PR #354, PR #358, and PR #359 are merged. | Do not reopen or duplicate the eval-gate, eval-quality repair, Phase 7c, or Phase 6.1a branches. |
 
 ## Decomposition Rules
 

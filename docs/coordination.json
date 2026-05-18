@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-17T22:08:43.272Z",
-  "updatedBy": "codex",
+  "updatedAt": "2026-05-18T00:20:06.203Z",
+  "updatedBy": "unknown",
   "openPullRequests": [
     {
       "number": 354,
@@ -1644,6 +1644,16 @@
       "status": "merged",
       "branch": "claude/T-decompose-phase6-1a-outbox-data-state",
       "blocker": null
+    },
+    {
+      "number": 359,
+      "title": "eval-quality repair: fix knowledge + playful routing root causes",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T07-eval-quality-repair",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex after GitHub evaluate and eval:gate against Postgres passed, local strict pre-flight passed, focused talk_routing_quality_guard passed 5/5, backend npm test passed 1208/0/1, and review confirmed no scorecard threshold weakening or auth/privacy/data-access change."
     }
   ],
   "blockers": [
