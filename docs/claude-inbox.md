@@ -11,12 +11,13 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
 
 ## Current Command
 
-Active schedule: `docs/v1-two-week-free-first-schedule.md`. When the human says
-`continue`, Codex starts at the earliest incomplete day in that schedule.
-Claude reads that file but does not start work unless Codex assigns a concrete
-smoke/backend blocker. Paid/external release inputs are last unless already
-free/available: Apple team/signing, hosted release `BACKEND_URL`, and
-production `APP_TOKEN`.
+Active schedule: `docs/v1-two-week-free-first-schedule.md`. The 2026-05-17
+audit is now a launch input. When the human says `continue`, Codex starts at
+the earliest incomplete day in that schedule. Claude reads that file and works
+only on the current Codex-assigned deep task. Paid/external release inputs are
+last unless already free/available: Apple team/signing, hosted release
+`BACKEND_URL`, production `APP_TOKEN`, and real provider keys for final
+Talk/Realtime proof.
 
 Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
 and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c
@@ -52,9 +53,9 @@ passes when local loopback binding is allowed.
    ```
 
 2. Treat this inbox and `agent_next` as the first screen. There is no open
-   Claude PR and no Claude-owned blocker. Do not open net-new backend work
-   unless Codex posts a concrete V1 manual-smoke failure or assigns a focused
-   support task.
+   Claude PR. The next Claude-owned work, when Codex says `continue` on the
+   audit schedule, is Day 1 Backend Exposure Lock. Do not open any other
+   backend work.
 3. Do not open coordination-refresh PRs. Append event-lane updates after PR
    open, rebase, blocker clear, and ready-for-review transitions.
 4. Every PR description must include:
@@ -80,8 +81,9 @@ passes when local loopback binding is allowed.
    backend devDependencies to compute the extracted talk-handler closure
    deterministically. Do not ask for human-in-the-loop dependency convergence,
    and do not hand-maintain the closure by vibes. This shipped with PR #335.
-10. Do not touch release config, auth, privacy, memory delete, talk handler, or
-    schema-only docs unless Codex posts a concrete failure.
+10. Do not touch release config, memory delete, talk handler decomposition, or
+    schema-only docs unless Codex posts a concrete failure. Auth/privacy work is
+    allowed only for the current audit-schedule assignment.
 11. Do not work on paid/external release inputs before the free-first schedule
     reaches Day 14 unless Codex explicitly says those inputs are available.
 
@@ -91,9 +93,9 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but there is no concrete backend failure yet. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
-| 2 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
-| 3 | Keep merged lanes closed | PR #33, PR #354, PR #358, and PR #359 are merged. | Do not reopen or duplicate the eval-gate, eval-quality repair, Phase 7c, or Phase 6.1a branches. |
+| 1 | Day 1 Backend Exposure Lock | Audit found header-trusted identity and cost-attached realtime/visual exposure. | Expected files: `backend/lib/user_auth.js`, `backend/index.js`, realtime route libs, visual context mount path, and focused backend tests. Require user auth for paid/provider/user-data paths, strip inbound `X-User-Id`, stop rewriting the header, replace screenplay owner resolution with `req.authUser.id` / `req.userId`, add IDOR and protected-route tests, run strict pre-flight, append event, and stop. |
+| 2 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but security/App Review audit blockers now rank first. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
+| 3 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
 
 ## Decomposition Rules
 
