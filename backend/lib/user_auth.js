@@ -36,6 +36,13 @@ const USER_PROTECTED_PATTERNS = [
   /^\/screenplay(?:\/|$)/,
   /^\/linkedin(?:\/|$)/,
   /^\/secretary(?:\/|$)/,
+  // Day 1 Backend Exposure Lock: cost-attached provider paths. These
+  // mint paid OpenAI realtime/visual calls and must require an
+  // authenticated user so they cannot be driven anonymously (cost +
+  // user-data exposure). /realtime/health and /realtime/bridge are
+  // intentionally NOT listed — they are unauthenticated health probes.
+  /^\/realtime\/(?:call|client_secret|turn_commit|studio_render|studio_render_stream)(?:\/|$)/,
+  /^\/visual\/context(?:\/|$)/,
 ];
 
 function normalizeEmail(value) {
@@ -243,6 +250,13 @@ function createUserAuthSubsystem(options = {}) {
   }
 
   function attachUserAuth(req, res, next) {
+    // Day 1 Backend Exposure Lock: never trust a client-supplied identity
+    // header. Strip any inbound X-User-Id on EVERY request before any
+    // token logic, so an unauthenticated/invalid-token request can never
+    // smuggle an identity downstream (IDOR / impersonation). Authoritative
+    // identity is ONLY req.authUser.id / req.userId, set below from a
+    // verified access token.
+    delete req.headers["x-user-id"];
     const token = extractAccessToken(req);
     if (!token) {
       req.authUser = null;
@@ -262,7 +276,9 @@ function createUserAuthSubsystem(options = {}) {
     req.authTokenPayload = verified.payload;
     req.authUserError = "";
     req.userId = verified.user.id;
-    req.headers["x-user-id"] = verified.user.id;
+    // Do NOT rewrite req.headers["x-user-id"]. Downstream identity must
+    // read req.authUser.id / req.userId, never the header — so a future
+    // header reader cannot silently re-open the impersonation vector.
     return next();
   }
 

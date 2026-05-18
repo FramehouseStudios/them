@@ -41,7 +41,6 @@ function defaultResolveUserId(req) {
     (req && req.user && req.user.id) ||
     (req && req.authUser && req.authUser.id) ||
     (req && req.userId) ||
-    (req && typeof req.get === "function" ? req.get("X-User-Id") : null) ||
     null
   );
 }

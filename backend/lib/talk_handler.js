@@ -1850,7 +1850,7 @@ function createTalkHandler(deps) {
         storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
-          userId: req.get("X-User-Id"),
+          userId: req.authUser?.id || req.userId || null,
           stateVersion: committedStateVersion,
           transcript,
           reply: talkReplyPreview,
@@ -3426,7 +3426,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
-          userId: req.get("X-User-Id"),
+          userId: req.authUser?.id || req.userId || null,
           stateVersion: committedStateVersion,
           transcript,
           reply: talkReplyPreview,

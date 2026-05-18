@@ -53,6 +53,23 @@ async function createFailingRealtimeEndpoint() {
   };
 }
 
+// Day 1 Backend Exposure Lock: /realtime/client_secret is a
+// cost-attached provider path and now requires an authenticated user.
+// These route tests must drive it through the auth gate (the failover
+// behavior is unchanged — only the entry is now authenticated).
+async function signUpAndAuthHeader(server, email) {
+  const signup = await apiRequest(server, "/auth/signup", {
+    method: "POST",
+    json: { email, password: "failover-test-password-123" },
+  });
+  assert.equal(signup.status, 201, "auth signup must succeed for the failover route test");
+  assert.ok(
+    typeof signup.json?.token === "string" && signup.json.token.length > 20,
+    "signup must return an access token",
+  );
+  return { Authorization: "Bearer " + signup.json.token };
+}
+
 // ---------- shouldAttemptFallback ----------
 
 test("[failover] shouldAttemptFallback returns false when allowFallback is false", () => {
@@ -234,8 +251,19 @@ test("[failover-route] unpinned provider falls back to stub when OpenAI mint fai
     },
   });
   try {
+    // The cost path must reject anonymous callers (end-to-end proof
+    // of the Day 1 lock through the real spawned server).
+    const anon = await apiRequest(server, "/realtime/client_secret", {
+      method: "POST",
+      json: { instructions: "Keep it spare.", voice: "marin" },
+    });
+    assert.equal(anon.status, 401, "cost path must reject anonymous callers");
+    assert.equal(anon.json?.error, "user_auth_required");
+
+    const auth = await signUpAndAuthHeader(server, "failover-unpinned@example.com");
     const r = await apiRequest(server, "/realtime/client_secret", {
       method: "POST",
+      headers: auth,
       json: { instructions: "Keep it spare.", voice: "marin" },
     });
     assert.equal(r.status, 201);
@@ -260,8 +288,10 @@ test("[failover-route] pinned provider does not fall back", async () => {
     },
   });
   try {
+    const auth = await signUpAndAuthHeader(server, "failover-pinned@example.com");
     const r = await apiRequest(server, "/realtime/client_secret", {
       method: "POST",
+      headers: auth,
       json: { provider: "openai", instructions: "Keep it spare." },
     });
     assert.equal(r.status, 500);
