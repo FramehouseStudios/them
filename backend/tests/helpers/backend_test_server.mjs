@@ -61,6 +61,19 @@ export async function startBackend({
     OPENAI_API_KEY: "test-openai-key",
     OUTBOX_WORKER_ENABLED: "0",
     KNOWLEDGE_RAG_WARMUP_DELAY_MS: "600000",
+    // Day 2 exposure guards default OPEN for the suite so unrelated
+    // tests that burst /auth, /talk, /realtime, /visual from loopback
+    // are unaffected. The focused exposure-guard test overrides these
+    // (via `env`) with tight values to prove real enforcement.
+    EXPOSURE_AUTH_RATE_CAPACITY: "100000",
+    EXPOSURE_AUTH_RATE_REFILL_PER_MIN: "100000",
+    EXPOSURE_REALTIME_RATE_CAPACITY: "100000",
+    EXPOSURE_REALTIME_RATE_REFILL_PER_MIN: "100000",
+    EXPOSURE_TALK_RATE_CAPACITY: "100000",
+    EXPOSURE_TALK_RATE_REFILL_PER_MIN: "100000",
+    EXPOSURE_VISUAL_RATE_CAPACITY: "100000",
+    EXPOSURE_VISUAL_RATE_REFILL_PER_MIN: "100000",
+    PROVIDER_DAILY_BUDGET_MAX: "100000000",
     BACKEND_SQLITE_PATH: path.join(dataDir, "backend_store.sqlite"),
     USER_STORE_PATH: path.join(dataDir, "user_store.json"),
     USER_MEMORY_STORE_PATH: path.join(dataDir, "user_memory_store.json"),

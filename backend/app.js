@@ -6,6 +6,12 @@ import { applyAppMiddleware } from "./middleware/auth.js";
 
 const app = express();
 app.disable("x-powered-by");
+// Day 2: trust exactly one proxy hop (Render's load balancer) so
+// `req.ip` is the real client address and X-Forwarded-For beyond that
+// hop is not attacker-spoofable. The exposure rate/budget guards key
+// unauthenticated requests on `req.ip`, so this must be set for the
+// IP fallback to be trustworthy.
+app.set("trust proxy", 1);
 applyAppMiddleware(app);
 
 const upload = multer({

@@ -113,6 +113,7 @@ import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_ro
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
+import { createExposureGuards } from "./lib/exposure_rate_guard.js";
 import {
   createTalkRateLimitGuard,
   createTalkIdempotencyGuard,
@@ -186,6 +187,21 @@ const ALLOWED_REALTIME_VOICES = new Set([
 
 const TALK_RATE_LIMIT_MAX = parsePositiveInt(process.env.TALK_RATE_LIMIT_MAX, 40);
 const TALK_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.TALK_RATE_LIMIT_WINDOW_MS, 60_000);
+// Day 2 exposure guards: per-group token-bucket capacity (burst) and
+// sustained refill/min, plus a per-user daily provider-cost cap.
+// Strict-by-default; the test harness sets generous values so the
+// existing suite is unaffected (a focused test dials these down to
+// prove enforcement). /auth/* is tight (brute-force), provider paths
+// are moderate, /visual is lowest (vision calls are the most costly).
+const EXPOSURE_AUTH_RATE_CAPACITY = parsePositiveInt(process.env.EXPOSURE_AUTH_RATE_CAPACITY, 10);
+const EXPOSURE_AUTH_RATE_REFILL_PER_MIN = parsePositiveInt(process.env.EXPOSURE_AUTH_RATE_REFILL_PER_MIN, 10);
+const EXPOSURE_REALTIME_RATE_CAPACITY = parsePositiveInt(process.env.EXPOSURE_REALTIME_RATE_CAPACITY, 30);
+const EXPOSURE_REALTIME_RATE_REFILL_PER_MIN = parsePositiveInt(process.env.EXPOSURE_REALTIME_RATE_REFILL_PER_MIN, 30);
+const EXPOSURE_TALK_RATE_CAPACITY = parsePositiveInt(process.env.EXPOSURE_TALK_RATE_CAPACITY, 30);
+const EXPOSURE_TALK_RATE_REFILL_PER_MIN = parsePositiveInt(process.env.EXPOSURE_TALK_RATE_REFILL_PER_MIN, 30);
+const EXPOSURE_VISUAL_RATE_CAPACITY = parsePositiveInt(process.env.EXPOSURE_VISUAL_RATE_CAPACITY, 15);
+const EXPOSURE_VISUAL_RATE_REFILL_PER_MIN = parsePositiveInt(process.env.EXPOSURE_VISUAL_RATE_REFILL_PER_MIN, 15);
+const PROVIDER_DAILY_BUDGET_MAX = parsePositiveInt(process.env.PROVIDER_DAILY_BUDGET_MAX, 500);
 const TALK_MAX_IN_FLIGHT = parsePositiveInt(process.env.TALK_MAX_IN_FLIGHT, 3);
 const TALK_SESSION_SERIAL_ENABLED = process.env.TALK_SESSION_SERIAL_ENABLED == null
   ? true
@@ -3100,6 +3116,33 @@ const userAuth = createUserAuthSubsystem({
 });
 app.use(userAuth.attachUserAuth);
 app.use(userAuth.protectUserRoutes);
+// Day 2: Rate Limits And Spend Guard. Mounted AFTER attachUserAuth so
+// the guards key on the authoritative req.authUser id (never the
+// spoofable X-User-Id header), and before the route mounts so /auth/*,
+// the cost-attached /realtime/* + /talk + /visual/context paths get a
+// burst limiter and a per-user daily provider-cost cap. Non-guarded
+// paths fall straight through (cheap path classification).
+const exposureGuards = createExposureGuards({
+  auth: {
+    capacity: EXPOSURE_AUTH_RATE_CAPACITY,
+    refillPerSec: EXPOSURE_AUTH_RATE_REFILL_PER_MIN / 60,
+  },
+  realtime: {
+    capacity: EXPOSURE_REALTIME_RATE_CAPACITY,
+    refillPerSec: EXPOSURE_REALTIME_RATE_REFILL_PER_MIN / 60,
+  },
+  talk: {
+    capacity: EXPOSURE_TALK_RATE_CAPACITY,
+    refillPerSec: EXPOSURE_TALK_RATE_REFILL_PER_MIN / 60,
+  },
+  visual: {
+    capacity: EXPOSURE_VISUAL_RATE_CAPACITY,
+    refillPerSec: EXPOSURE_VISUAL_RATE_REFILL_PER_MIN / 60,
+  },
+  dailyProviderBudget: PROVIDER_DAILY_BUDGET_MAX,
+});
+app.use(exposureGuards.rateLimitMiddleware);
+app.use(exposureGuards.budgetMiddleware);
 // T07c: prefer adapter when it has data; fall back to legacy JSON-file load.
 const memoryLoadedFromAdapter = await loadUserMemoryStoreFromAdapter(userMemoryByIp, userMemoryByClientToken);
 if (!memoryLoadedFromAdapter) {
