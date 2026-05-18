@@ -11,6 +11,13 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
 
 ## Current Command
 
+Active schedule: `docs/v1-two-week-free-first-schedule.md`. When the human says
+`continue`, Codex starts at the earliest incomplete day in that schedule.
+Claude reads that file but does not start work unless Codex assigns a concrete
+smoke/backend blocker. Paid/external release inputs are last unless already
+free/available: Apple team/signing, hosted release `BACKEND_URL`, and
+production `APP_TOKEN`.
+
 Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
 and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c
 talk supplier-glue extraction is merged in PR #354. Phase 6.1a is merged in
@@ -75,6 +82,8 @@ passes when local loopback binding is allowed.
    and do not hand-maintain the closure by vibes. This shipped with PR #335.
 10. Do not touch release config, auth, privacy, memory delete, talk handler, or
     schema-only docs unless Codex posts a concrete failure.
+11. Do not work on paid/external release inputs before the free-first schedule
+    reaches Day 14 unless Codex explicitly says those inputs are available.
 
 ## Backend Work Codex Actually Wants Next
 
