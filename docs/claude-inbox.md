@@ -11,33 +11,87 @@ Codex owns `docs/coordination.json` refreshes unless explicitly assigned.
 
 ## Current Command
 
+Active schedule: `docs/v1-two-week-free-first-schedule.md`. The 2026-05-17
+audit is now a launch input. When the human says `continue`, Codex starts at
+the earliest incomplete day in that schedule. Claude reads that file and works
+only on the current Codex-assigned deep task. Paid/external release inputs are
+last unless already free/available: Apple team/signing, hosted release
+`BACKEND_URL`, production `APP_TOKEN`, and real provider keys for final
+Talk/Realtime proof.
+
+Claude's backend sprint plan is `docs/claude-backend-two-week-plan.md`.
+Claude must execute it day by day. When a full day-task is complete, Claude
+must append proof to the event lane, check Launch Room/agent_next, and start
+the next incomplete day-task automatically unless Codex has posted a blocker,
+review request, or emergency smoke failure. The human must not be used as a
+copy-paste bridge for the next-day instruction.
+
+Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
+and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c
+talk supplier-glue extraction is merged in PR #354. Phase 6.1a is merged in
+PR #358. PR #33 is merged; GitHub `evaluate` and `eval:gate against Postgres`
+passed on 2026-05-17 after Codex fixed fragile eval response guards and the
+speculative reuse header path. PR #359 is also merged; the eval-quality repair
+for knowledge routing and playful banter passed GitHub `evaluate`,
+`eval:gate against Postgres`, local `node scripts/pre_flight.mjs --strict`,
+focused `talk_routing_quality_guard` 5/5, and backend `npm test` 1208 pass /
+0 fail / 1 skipped. Do not reopen the eval-quality lane unless Codex posts a
+new concrete regression.
+The launch lane is still blocked by real release configuration:
+no `them/Release.local.env` exists in the current worktree, the environment
+lacks `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`,
+and `scripts/appstore_preflight.sh` still fails with `fail=3 warn=1`.
+Launch Doctor now tracks the fifth V1 gate as `iOS Release Readiness`, so
+manual smoke proof is incomplete until Talk, Studio, Memory, Realtime, and
+release readiness are all recorded from the actual release path.
+The generated TestFlight checklist at `docs/testflight-v1-preflight.md` is
+also five-flow/current; strict pre-flight now fails if it drifts from
+`scripts/v1_manual_qa_checklist.mjs`.
+Deterministic V1 smokes are green, and the local `/talk` integration smoke
+passes when local loopback binding is allowed.
+
 1. Run:
 
    ```bash
+   node scripts/v1_launch_room.mjs --role=claude
    node scripts/agent_next.mjs --role=claude
    node scripts/coordination_state.mjs read
    node scripts/agent_event.mjs tail --n=20
    ```
 
-2. Do not open coordination-refresh PRs. Append event-lane updates after PR
+2. Treat this inbox and `agent_next` as the first screen. The next
+   Claude-owned work is the first incomplete day in
+   `docs/claude-backend-two-week-plan.md`. Do not open any other backend work.
+3. Do not open coordination-refresh PRs. Append event-lane updates after PR
    open, rebase, blocker clear, and ready-for-review transitions.
-3. Every PR description must include:
+4. Every PR description must include:
 
    ```text
    V1 pillar: talk | screenplay | memory | realtime | ios | infra
    V1 effect: closes <docs/v1-definition.md checklist item> | unblocks <item> | infrastructure for <item>
    ```
 
-4. Keep tier-3/human-gated work parked: PR #33 (Actions secret), PR #94
-   (memory export privacy), PR #99 (memory delete privacy), and PR #212
-   (auth route extraction until the human clears the auth decision).
-5. If a backend feature spans more than three PRs or touches talk/auth/privacy,
+5. PR #33, PR #212, and PR #94 are merged. PR #99 memory delete is out of V1
+   and must not be reopened unless Codex assigns a post-V1 deletion task.
+6. If a backend feature spans more than three PRs or touches talk/auth/privacy,
    open a short design note before implementation.
-6. The schema-doc-only train through PR #286 is complete. Do not open more
+7. The schema-doc-only train through PR #286 is complete. Do not open more
    schema-doc-only PRs unless Codex asks; PRs #287/#289/#291/#292/#294 were
    closed as out-of-lane, and #293 merged only as a corrected Phase 7a design
-   note. PR #299 was also closed as out-of-lane schema-only. PR #314 accepted
-   the Phase 7b design, so implementation is now the next backend lane.
+   note. PR #299 was also closed as out-of-lane schema-only. PR #335 merged
+   Phase 7b, so implementation is no longer the backend lane.
+8. Do not ask the human to inspect old PR bodies for #94/#99. Use
+   `docs/memory-export-delete-decision-packet.md` as the privacy/data-control
+   record: #94 is done, #99 is post-V1.
+9. Phase 7b dependency-boundary decision: use `acorn` and `acorn-walk` as
+   backend devDependencies to compute the extracted talk-handler closure
+   deterministically. Do not ask for human-in-the-loop dependency convergence,
+   and do not hand-maintain the closure by vibes. This shipped with PR #335.
+10. Do not touch release config, memory delete, talk handler decomposition, or
+    schema-only docs unless Codex posts a concrete failure. Auth/privacy work is
+    allowed only for the current audit-schedule assignment.
+11. Do not work on paid/external release inputs before the free-first schedule
+    reaches Day 14 unless Codex explicitly says those inputs are available.
 
 ## Backend Work Codex Actually Wants Next
 
@@ -45,11 +99,9 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Phase 7b talk handler implementation | This is the next V1 voice-to-page backend seam after guards, and PR #314's design is accepted. | Implement `backend/lib/talk_handler.js` from `tasks/_proposals/T-decompose-phase7b-handler-design.md`. Use `createTalkHandler` or another non-`mount*` factory name, group deps by bucket, preserve response envelopes/log prefixes/counter order, keep supplier glue out, run `node scripts/pre_flight.mjs --strict`, `node --test backend/tests/talk_*.test.mjs`, and backend `npm test`. |
-| 2 | Phase 7b implementation manual-smoke support | The implementation cannot merge without a human-run V1 talk smoke. | In the implementation PR body, include exact before/after manual smoke instructions using `docs/testflight-v1-preflight.md`; do not claim the smoke passed unless the human actually runs it. |
-| 3 | Phase 6.1 long-tail routes after Phase 7b lands or blocks | Long-tail cleanup is useful, but it should not outrank the talk handler implementation. | Follow `tasks/_proposals/T-decompose-phase6-1-long-tail-design.md`; keep method guards and behavior unchanged. |
-| 4 | Schema docs only when paired with code or requested by Codex | Canonical docs matter, but standalone schema PRs are no longer the critical path. | Do not open new schema-doc-only PRs; if a code PR changes an envelope, update its schema doc in the same PR. |
-| 5 | Rebase #212 only if the human clears the auth route decision | Auth extraction is still tier-3 and human-gated. | Keep `do-not-merge` until explicit auth clearance; if cleared, rebase on current main and rerun backend auth tests. |
+| 1 | Execute Claude backend two-week plan | Backend audit blockers now gate V1 safety, App Review readiness, and provider-cost risk. | Read `docs/claude-backend-two-week-plan.md`. Start with the first incomplete day-task. When a day is complete, append proof, check Launch Room/agent_next, and automatically continue to the next incomplete day unless Codex has posted a blocker/review/emergency smoke failure. |
+| 2 | Day 1 Backend Exposure Lock | Audit found header-trusted identity and cost-attached realtime/visual exposure. | Expected files: `backend/lib/user_auth.js`, `backend/index.js`, realtime route libs, visual context mount path, and focused backend tests. Require user auth for paid/provider/user-data paths, strip inbound `X-User-Id`, stop rewriting the header, replace screenplay owner resolution with `req.authUser.id` / `req.userId`, add IDOR and protected-route tests, run strict pre-flight, append event, and stop only if Codex review is needed. |
+| 3 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but security/App Review audit blockers now rank first. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause scheduled work and fix that exact backend failure first. |
 
 ## Decomposition Rules
 
@@ -63,9 +115,9 @@ pattern. Future phase PRs are fast-lane eligible only when they follow it:
 - focused integration tests on a bare Express app;
 - `node scripts/pre_flight.mjs` run before review.
 
-Phase 7, the talk pipeline, is not fast-lane by default. Phase 7b's design note
-is accepted, but the implementation remains heavy-lane because it is
-V1-critical and state-heavy.
+Phase 7, the talk pipeline, is not fast-lane by default. Phase 7c may open
+because PR #349 is merged and Codex approved the 3-factory shape, but the
+implementation remains heavy-lane because it touches the V1 talk path.
 
 ## Claude Event Template
 
