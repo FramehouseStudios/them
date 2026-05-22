@@ -14,6 +14,11 @@ production app token.
   final release readiness.
 - Claude works one deep task at a time and only from this schedule or a direct
   Codex assignment.
+- Claude's backend-specific daily execution plan lives in
+  `docs/claude-backend-two-week-plan.md`. When a full day-task is complete,
+  Claude appends proof, checks Launch Room/agent_next, and starts the next
+  incomplete day-task automatically unless Codex has posted a blocker, review
+  request, or emergency smoke failure.
 - Claude must not open net-new schema-only, decomposition-only, release-config,
   memory-delete, or polish work while audit launch blockers wait.
 - Claude must not touch Apple signing, `them/Release.local.env`, production

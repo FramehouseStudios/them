@@ -19,6 +19,13 @@ last unless already free/available: Apple team/signing, hosted release
 `BACKEND_URL`, production `APP_TOKEN`, and real provider keys for final
 Talk/Realtime proof.
 
+Claude's backend sprint plan is `docs/claude-backend-two-week-plan.md`.
+Claude must execute it day by day. When a full day-task is complete, Claude
+must append proof to the event lane, check Launch Room/agent_next, and start
+the next incomplete day-task automatically unless Codex has posted a blocker,
+review request, or emergency smoke failure. The human must not be used as a
+copy-paste bridge for the next-day instruction.
+
 Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
 and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c
 talk supplier-glue extraction is merged in PR #354. Phase 6.1a is merged in
@@ -52,10 +59,9 @@ passes when local loopback binding is allowed.
    node scripts/agent_event.mjs tail --n=20
    ```
 
-2. Treat this inbox and `agent_next` as the first screen. There is no open
-   Claude PR. The next Claude-owned work, when Codex says `continue` on the
-   audit schedule, is Day 1 Backend Exposure Lock. Do not open any other
-   backend work.
+2. Treat this inbox and `agent_next` as the first screen. The next
+   Claude-owned work is the first incomplete day in
+   `docs/claude-backend-two-week-plan.md`. Do not open any other backend work.
 3. Do not open coordination-refresh PRs. Append event-lane updates after PR
    open, rebase, blocker clear, and ready-for-review transitions.
 4. Every PR description must include:
@@ -93,9 +99,9 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Day 1 Backend Exposure Lock | Audit found header-trusted identity and cost-attached realtime/visual exposure. | Expected files: `backend/lib/user_auth.js`, `backend/index.js`, realtime route libs, visual context mount path, and focused backend tests. Require user auth for paid/provider/user-data paths, strip inbound `X-User-Id`, stop rewriting the header, replace screenplay owner resolution with `req.authUser.id` / `req.userId`, add IDOR and protected-route tests, run strict pre-flight, append event, and stop. |
-| 2 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but security/App Review audit blockers now rank first. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause new work and fix that exact backend failure first. |
-| 3 | Keep PR #99 out of V1 | Destructive memory deletion needs post-V1 product semantics; export is resolved. | Do not rebase, repair, or expand PR #99 unless Codex assigns a new post-V1 deletion task. |
+| 1 | Execute Claude backend two-week plan | Backend audit blockers now gate V1 safety, App Review readiness, and provider-cost risk. | Read `docs/claude-backend-two-week-plan.md`. Start with the first incomplete day-task. When a day is complete, append proof, check Launch Room/agent_next, and automatically continue to the next incomplete day unless Codex has posted a blocker/review/emergency smoke failure. |
+| 2 | Day 1 Backend Exposure Lock | Audit found header-trusted identity and cost-attached realtime/visual exposure. | Expected files: `backend/lib/user_auth.js`, `backend/index.js`, realtime route libs, visual context mount path, and focused backend tests. Require user auth for paid/provider/user-data paths, strip inbound `X-User-Id`, stop rewriting the header, replace screenplay owner resolution with `req.authUser.id` / `req.userId`, add IDOR and protected-route tests, run strict pre-flight, append event, and stop only if Codex review is needed. |
+| 3 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but security/App Review audit blockers now rank first. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause scheduled work and fix that exact backend failure first. |
 
 ## Decomposition Rules
 
