@@ -44,6 +44,55 @@ private enum InspectorAutoScrollDirection {
     case down
 }
 
+struct ScreenplayLocalDraftRecoveryStore {
+    static let defaultKey = "screenplay.studio.localDraftRecovery.v1"
+
+    let defaults: UserDefaults
+    let key: String
+
+    init(defaults: UserDefaults = .standard, key: String = Self.defaultKey) {
+        self.defaults = defaults
+        self.key = key
+    }
+
+    func payloads() -> [String: [String: Any]] {
+        let raw = defaults.dictionary(forKey: key) ?? [:]
+        var out: [String: [String: Any]] = [:]
+        for (key, value) in raw {
+            guard let payload = value as? [String: Any] else { continue }
+            out[key] = payload
+        }
+        return out
+    }
+
+    func save(
+        projectId: String,
+        draft: String,
+        baseVersionId: String,
+        dirty: Bool,
+        savedAt: TimeInterval = Date().timeIntervalSince1970
+    ) {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else { return }
+        var nextPayloads = payloads()
+        nextPayloads[normalizedProjectId] = [
+            "draft": draft,
+            "baseVersionId": baseVersionId,
+            "dirty": dirty,
+            "savedAt": savedAt,
+        ]
+        defaults.set(nextPayloads, forKey: key)
+    }
+
+    func clear(projectId: String) {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else { return }
+        var nextPayloads = payloads()
+        nextPayloads.removeValue(forKey: normalizedProjectId)
+        defaults.set(nextPayloads, forKey: key)
+    }
+}
+
 private struct InspectorAutoScrollRequest {
     let anchorID: String
     let anchor: UnitPoint
@@ -498,7 +547,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     private var lastRevisionBaseDraft = ""
     private var loadedDraftProjectID: String = ""
     private var lastManualDraftEditAt: Date = .distantPast
-    private let localDraftRecoveryStoreKey = "screenplay.studio.localDraftRecovery.v1"
+    private let localDraftRecoveryStore = ScreenplayLocalDraftRecoveryStore()
     private let craftClient = BackendClient()
 
     init() {
@@ -583,6 +632,16 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         guard !isHydratingDraft else { return }
         isManualDraftEditing = true
         lastManualDraftEditAt = Date()
+        let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
+        if !normalized.isEmpty {
+            persistLocalDraftRecovery(
+                projectId: selectedProjectID,
+                draft: fountainDraft,
+                baseVersionId: latestVersionID,
+                dirty: hasUnsavedDraftChanges
+            )
+        }
         if !isStreamingDraftPreviewActive {
             autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Editing draft"
         }
@@ -3246,14 +3305,12 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
-        var payloads = draftRecoveryPayloads()
-        payloads[normalizedProjectId] = [
-            "draft": draft,
-            "baseVersionId": baseVersionId,
-            "dirty": dirty,
-            "savedAt": Date().timeIntervalSince1970,
-        ]
-        storeDraftRecoveryPayloads(payloads)
+        localDraftRecoveryStore.save(
+            projectId: normalizedProjectId,
+            draft: draft,
+            baseVersionId: baseVersionId,
+            dirty: dirty
+        )
         if !dirty {
             recoveryCandidate = nil
         }
@@ -3262,26 +3319,14 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     private func clearLocalDraftRecovery(projectId: String) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
-        var payloads = draftRecoveryPayloads()
-        payloads.removeValue(forKey: normalizedProjectId)
-        storeDraftRecoveryPayloads(payloads)
+        localDraftRecoveryStore.clear(projectId: normalizedProjectId)
         if recoveryCandidate?.projectId == normalizedProjectId {
             recoveryCandidate = nil
         }
     }
 
     private func draftRecoveryPayloads() -> [String: [String: Any]] {
-        let raw = UserDefaults.standard.dictionary(forKey: localDraftRecoveryStoreKey) ?? [:]
-        var out: [String: [String: Any]] = [:]
-        for (key, value) in raw {
-            guard let payload = value as? [String: Any] else { continue }
-            out[key] = payload
-        }
-        return out
-    }
-
-    private func storeDraftRecoveryPayloads(_ payloads: [String: [String: Any]]) {
-        UserDefaults.standard.set(payloads, forKey: localDraftRecoveryStoreKey)
+        localDraftRecoveryStore.payloads()
     }
 }
 
