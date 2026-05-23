@@ -201,6 +201,20 @@ test("[screenplay-projects-routes] GET /screenplay/projects respects include_ver
   });
 });
 
+test("[screenplay-projects-routes] GET /screenplay/projects preserves active project id outside returned page", async () => {
+  const deps = defaultDeps();
+  deps._owner.activeProjectId = "p2";
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await get(baseURL, "/screenplay/projects?limit=1");
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.screenplay_active_project_id, "p2");
+    assert.equal(r.body.screenplay_projects.length, 1);
+    assert.equal(r.body.screenplay_projects[0].id, "p1");
+  });
+});
+
 test("[screenplay-projects-routes] GET /screenplay/projects/:projectId returns 404 for unknown id", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await get(baseURL, "/screenplay/projects/nope");
