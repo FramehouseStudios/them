@@ -101,6 +101,68 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertFalse(ScreenplayProjectScopedState.matches(nil, selectedProjectId: "project-a"))
     }
 
+    func testRestorePolicyKeepsBackendActiveProjectEvenWhenListPageOmitsIt() {
+        let selectedProjectId = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
+            activeProjectId: " legacy-active-project ",
+            projects: [
+                projectSummary(id: "recent-project"),
+                projectSummary(id: "another-recent-project"),
+            ]
+        )
+
+        XCTAssertEqual(selectedProjectId, "legacy-active-project")
+    }
+
+    func testRestorePolicyFallsBackToFirstProjectWhenNoActiveProjectExists() {
+        let selectedProjectId = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
+            activeProjectId: " ",
+            projects: [
+                projectSummary(id: "first-project"),
+                projectSummary(id: "second-project"),
+            ]
+        )
+
+        XCTAssertEqual(selectedProjectId, "first-project")
+    }
+
+    private func projectSummary(id: String) -> BackendScreenplayProjectSummary {
+        BackendScreenplayProjectSummary(
+            id: id,
+            title: id,
+            archived: nil,
+            tags: nil,
+            characters: nil,
+            setting: nil,
+            tone: nil,
+            promptSeed: nil,
+            createdAt: nil,
+            updatedAt: nil,
+            versionCount: nil,
+            lastPhase: nil,
+            activeVersionId: nil,
+            lastVersionId: nil,
+            lastVersionAt: nil,
+            formatScore: nil,
+            storyScore: nil,
+            confidenceClass: nil,
+            latestExcerpt: nil,
+            actCount: nil,
+            sceneCount: nil,
+            beatCount: nil,
+            outlineUpdatedAt: nil,
+            collaboratorCount: nil,
+            approvedEmails: nil,
+            commentCount: nil,
+            lastCommentAt: nil,
+            studioThreadViewState: nil,
+            studioDiffAcknowledged: nil,
+            collaborators: nil,
+            comments: nil,
+            versions: nil,
+            outline: nil
+        )
+    }
+
     private func stableFingerprint(_ value: String) -> String {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in value.utf8 {

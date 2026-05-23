@@ -59,6 +59,17 @@ struct ScreenplayProjectScopedState {
     }
 }
 
+struct ScreenplayProjectSelectionRestorePolicy {
+    static func selectedProjectId(
+        activeProjectId: String?,
+        projects: [BackendScreenplayProjectSummary]
+    ) -> String {
+        let active = (activeProjectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !active.isEmpty { return active }
+        return projects.first?.id ?? ""
+    }
+}
+
 struct ScreenplayLocalDraftRecoveryStore {
     static let defaultKey = "screenplay.studio.localDraftRecovery.v1"
 
@@ -631,12 +642,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             )
             didLoadScreenplayProjectsFromBackend = true
             projects = result.payload.screenplayProjects
-            let preferredID = (result.payload.screenplayActiveProjectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !preferredID.isEmpty, projects.contains(where: { $0.id == preferredID }) {
-                selectedProjectID = preferredID
-            } else {
-                selectedProjectID = projects.first?.id ?? ""
-            }
+            selectedProjectID = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
+                activeProjectId: result.payload.screenplayActiveProjectId,
+                projects: projects
+            )
             await loadSelectedProjectOutline()
         } catch {
             didLoadScreenplayProjectsFromBackend = false
