@@ -93,6 +93,14 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertNil(store.payloads()["project-recovery"])
     }
 
+    func testProjectScopedStateRequiresMatchingNonEmptyProjectIds() {
+        XCTAssertTrue(ScreenplayProjectScopedState.matches(" project-a ", selectedProjectId: "project-a"))
+        XCTAssertFalse(ScreenplayProjectScopedState.matches("project-a", selectedProjectId: "project-b"))
+        XCTAssertFalse(ScreenplayProjectScopedState.matches("", selectedProjectId: "project-a"))
+        XCTAssertFalse(ScreenplayProjectScopedState.matches("project-a", selectedProjectId: ""))
+        XCTAssertFalse(ScreenplayProjectScopedState.matches(nil, selectedProjectId: "project-a"))
+    }
+
     private func stableFingerprint(_ value: String) -> String {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in value.utf8 {

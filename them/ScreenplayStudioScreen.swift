@@ -51,6 +51,14 @@ struct ScreenplayLocalDraftRecoverySnapshot: Equatable {
     let savedAt: TimeInterval
 }
 
+struct ScreenplayProjectScopedState {
+    static func matches(_ scopedProjectId: String?, selectedProjectId: String) -> Bool {
+        let scoped = (scopedProjectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let selected = selectedProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !scoped.isEmpty && scoped == selected
+    }
+}
+
 struct ScreenplayLocalDraftRecoveryStore {
     static let defaultKey = "screenplay.studio.localDraftRecovery.v1"
 
@@ -653,6 +661,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     func selectProject(_ projectID: String) async {
         selectedProjectID = projectID
+        clearTransientProjectStateForSelectionChange(to: projectID)
         resetCraftReportForProjectChange()
         await loadSelectedProjectOutline()
         await persistActiveProjectSelection(projectID)
@@ -2126,6 +2135,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     func restoreDraftFromRecovery() {
         guard let candidate = recoveryCandidate else { return }
+        guard ScreenplayProjectScopedState.matches(candidate.projectId, selectedProjectId: selectedProjectID) else {
+            recoveryCandidate = nil
+            return
+        }
         isHydratingDraft = true
         fountainDraft = candidate.draft
         isHydratingDraft = false
@@ -2147,6 +2160,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     func keepServerDraft() {
         guard let projectId = recoveryCandidate?.projectId else { return }
+        guard ScreenplayProjectScopedState.matches(projectId, selectedProjectId: selectedProjectID) else {
+            recoveryCandidate = nil
+            return
+        }
         recoveryCandidate = nil
         clearLocalDraftRecovery(projectId: projectId)
         autosaveStatusText = "Using server draft"
@@ -2155,6 +2172,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     func applyServerVersionFromConflict() {
         guard let conflict = conflictState else { return }
+        guard ScreenplayProjectScopedState.matches(conflict.projectId, selectedProjectId: selectedProjectID) else {
+            conflictState = nil
+            return
+        }
         if !conflict.serverDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             applyServerDraft(
                 conflict.serverDraft,
@@ -2171,6 +2192,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     func keepLocalDraftAfterConflict() async {
         guard let conflict = conflictState else { return }
+        guard ScreenplayProjectScopedState.matches(conflict.projectId, selectedProjectId: selectedProjectID) else {
+            conflictState = nil
+            return
+        }
         conflictState = nil
         await saveCurrentDraft(
             source: "studio_conflict_resolve",
@@ -2766,6 +2791,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     private func loadSelectedProjectOutline() async {
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        clearTransientProjectStateForSelectionChange(to: id)
         guard !id.isEmpty else {
             selectedProject = nil
             outline = .empty
@@ -2809,6 +2835,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             errorText = ""
             syncLiveDraftBridgeProjectContext()
         } catch {
+            clearTransientProjectStateForSelectionChange(to: id)
             selectedProject = projects.first(where: { $0.id == id })
             outline = .empty
             errorText = error.localizedDescription
@@ -2857,6 +2884,15 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         upsertProject(project)
         if selectedProjectID == project.id {
             selectedProject = project
+        }
+    }
+
+    private func clearTransientProjectStateForSelectionChange(to projectID: String) {
+        if !ScreenplayProjectScopedState.matches(recoveryCandidate?.projectId, selectedProjectId: projectID) {
+            recoveryCandidate = nil
+        }
+        if !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID) {
+            conflictState = nil
         }
     }
 
