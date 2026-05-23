@@ -6,6 +6,25 @@ nonisolated extension Notification.Name {
     static let themBackendSyncUpdated = Notification.Name("io.them.them.backendSyncUpdated")
 }
 
+nonisolated private struct BackendNotificationPayload: @unchecked Sendable {
+    let name: Notification.Name
+    let userInfo: [AnyHashable: Any]
+}
+
+nonisolated private func postBackendNotificationOnMain(
+    name: Notification.Name,
+    userInfo: [AnyHashable: Any]
+) {
+    let payload = BackendNotificationPayload(name: name, userInfo: userInfo)
+    if Thread.isMainThread {
+        NotificationCenter.default.post(name: payload.name, object: nil, userInfo: payload.userInfo)
+    } else {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: payload.name, object: nil, userInfo: payload.userInfo)
+        }
+    }
+}
+
 nonisolated struct BackendSyncState: Equatable {
     var status: String
     var sessionId: String
@@ -4924,9 +4943,8 @@ actor BackendMemoryAPI {
             latestSeenStateVersion = merged.stateVersion
         }
         if syncChanged {
-            NotificationCenter.default.post(
+            postBackendNotificationOnMain(
                 name: .themBackendSyncUpdated,
-                object: nil,
                 userInfo: [
                     NotificationKey.status: merged.status,
                     NotificationKey.sessionId: merged.sessionId,
@@ -5038,7 +5056,7 @@ actor BackendMemoryAPI {
                 userInfo[NotificationKey.screenplayResolvedAnchorExcerpt] = resolvedAnchorExcerpt
             }
         }
-        NotificationCenter.default.post(name: .themTurnCommitted, object: nil, userInfo: userInfo)
+        postBackendNotificationOnMain(name: .themTurnCommitted, userInfo: userInfo)
     }
 
     private func normalizedEtag(from http: HTTPURLResponse, fallbackStateVersion: String) -> String {

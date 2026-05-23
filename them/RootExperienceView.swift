@@ -320,6 +320,8 @@ final class StudioDebugDefaultsBridge: ObservableObject {
     private func startPolling() {
         pollTask?.cancel()
         pollTask = Task { @MainActor in
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 50_000_000)
             while !Task.isCancelled {
                 let nextOpenToken = Self.readInt(forKey: "studio_debug_open_token")
                 if nextOpenToken != openToken {
@@ -1042,6 +1044,7 @@ struct RootExperienceView: View {
 
     private func handleStudioDebugOpenChange(_ newValue: Int? = nil) {
         #if DEBUG || os(macOS)
+        guard !IOThemRuntime.isRunningTests else { return }
         let token = newValue ?? studioDebugOpenToken
         guard token > 0 else { return }
         guard token != lastHandledStudioDebugOpenToken else { return }
@@ -1055,6 +1058,7 @@ struct RootExperienceView: View {
 
     private func handleStudioDebugLoadProjectTokenChange(_ newValue: Int) {
         #if DEBUG || os(macOS)
+        guard !IOThemRuntime.isRunningTests else { return }
         guard newValue > 0 else { return }
         guard newValue != lastHandledStudioDebugLoadProjectToken else { return }
         lastHandledStudioDebugLoadProjectToken = newValue
@@ -1080,6 +1084,7 @@ struct RootExperienceView: View {
 
     private func handleStudioDebugVoiceTurnTokenChange(_ newValue: Int) {
         #if DEBUG || os(macOS)
+        guard !IOThemRuntime.isRunningTests else { return }
         handleStudioDebugVoiceTurnCommand(
             token: newValue,
             promptOverride: nil,
@@ -1094,6 +1099,7 @@ struct RootExperienceView: View {
         projectIDOverride: String?
     ) {
         #if DEBUG || os(macOS)
+        guard !IOThemRuntime.isRunningTests else { return }
         guard token > 0 else { return }
         guard token != lastHandledStudioDebugVoiceTurnToken else { return }
         lastHandledStudioDebugVoiceTurnToken = token
