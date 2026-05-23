@@ -4,11 +4,17 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
     var projectId: String
     var versionId: String
     var scene: String
+    var phase: String = ""
+    var pack: String = ""
+    var draftExcerpt: String = ""
 
     enum CodingKeys: String, CodingKey {
         case projectId = "project_id"
         case versionId = "version_id"
         case scene
+        case phase
+        case pack
+        case draftExcerpt = "draft_excerpt"
     }
 }
 
@@ -71,6 +77,9 @@ struct ScreenplayPromptBuilder {
         var projectId: String = ""
         var versionId: String = ""
         var scene: String = ""
+        var phase: String = ""
+        var pack: String = ""
+        var draftExcerpt: String = ""
         var screenplayTaskHint: String = ""
         var isScreenplayMode: Bool = false
         var shouldWriteToPage: Bool = false
@@ -147,11 +156,17 @@ struct ScreenplayPromptBuilder {
         let projectId = request.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let versionId = request.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
         let scene = request.scene.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !projectId.isEmpty || !versionId.isEmpty || !scene.isEmpty else { return nil }
+        let phase = request.phase.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pack = request.pack.trimmingCharacters(in: .whitespacesAndNewlines)
+        let draftExcerpt = request.draftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !projectId.isEmpty || !versionId.isEmpty || !scene.isEmpty || !phase.isEmpty || !pack.isEmpty || !draftExcerpt.isEmpty else { return nil }
         return BackendScreenplayPromptSessionContext(
             projectId: projectId,
             versionId: versionId,
-            scene: scene
+            scene: scene,
+            phase: phase,
+            pack: pack,
+            draftExcerpt: String(draftExcerpt.suffix(6_000))
         )
     }
 

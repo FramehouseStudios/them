@@ -8108,6 +8108,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let versionId = screenplayDraftBridge.preferredVersionID
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ? liveScreenplayVersionID : screenplayDraftBridge.preferredVersionID
+        let phase = screenplayDraftBridge.latestPhase
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayPhase : screenplayDraftBridge.latestPhase
+        let pack = screenplayDraftBridge.latestPack
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ? liveScreenplayPack : screenplayDraftBridge.latestPack
+        let draftExcerpt = screenplayDraftBridge.draftText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let result = await screenplayPromptBuilder.buildModelPrompt(
             backend: backend,
             request: ScreenplayPromptBuilder.Request(
@@ -8117,6 +8125,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 projectId: projectId,
                 versionId: versionId,
                 scene: "",
+                phase: phase,
+                pack: pack,
+                draftExcerpt: String(draftExcerpt.suffix(6_000)),
                 screenplayTaskHint: userMessage,
                 isScreenplayMode: isScreenplayMode,
                 shouldWriteToPage: shouldWriteToPage,

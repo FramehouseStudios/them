@@ -62,7 +62,10 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
         session_context: {
           project_id: "proj-77",
           version_id: "v3",
+          phase: "scene_draft",
+          pack: "Feature Sprint",
           scene: "EXT. PIER - DAWN",
+          draft_excerpt: "EXT. PIER - DAWN\n\nMARA watches the tide pull back.",
         },
         include_craft_context: true,
         craft_framework_id: "story-circle",
@@ -86,6 +89,10 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("<screenplay_task>"));
       assert.ok(body.prompt.includes("intent: write_scene"));
       assert.ok(body.prompt.includes("project: proj-77"));
+      assert.ok(body.prompt.includes("phase: scene_draft"));
+      assert.ok(body.prompt.includes("pack: Feature Sprint"));
+      assert.ok(body.prompt.includes("draft_excerpt:"));
+      assert.ok(body.prompt.includes("MARA watches the tide"));
       assert.ok(body.prompt.includes("Write the all-is-lost beat."));
       assert.ok(body.prompt.includes("CRAFT CONTEXT (story-circle)"));
     },

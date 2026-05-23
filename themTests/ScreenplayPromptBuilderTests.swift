@@ -24,6 +24,9 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 projectId: "proj-7",
                 versionId: "v2",
                 scene: "INT. MOTEL - NIGHT",
+                phase: "scene_draft",
+                pack: "Feature Sprint",
+                draftExcerpt: "INT. MOTEL - NIGHT\n\nJUNE closes the blinds.",
                 isScreenplayMode: true,
                 shouldWriteToPage: true,
                 craftFrameworkId: "story-circle"
@@ -39,6 +42,9 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.projectId, "proj-7")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.versionId, "v2")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.scene, "INT. MOTEL - NIGHT")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.phase, "scene_draft")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.pack, "Feature Sprint")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.draftExcerpt, "INT. MOTEL - NIGHT\n\nJUNE closes the blinds.")
         XCTAssertEqual(backend.capturedRequest?.includeCraftContext, true)
         XCTAssertEqual(backend.capturedRequest?.craftFrameworkId, "story-circle")
     }

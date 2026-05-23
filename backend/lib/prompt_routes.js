@@ -22,10 +22,19 @@ function sanitizeSessionContext(value) {
   const projectId = trimToString(value.projectId ?? value.project_id, 160);
   const versionId = trimToString(value.versionId ?? value.version_id, 160);
   const scene = trimToString(value.scene, 240);
+  const phase = trimToString(value.phase, 80);
+  const pack = trimToString(value.pack, 120);
+  const draftExcerpt = trimToString(
+    value.draftExcerpt ?? value.draft_excerpt ?? value.screenplayDraftExcerpt ?? value.screenplay_draft_excerpt,
+    6_000
+  );
   const context = {};
   if (projectId) context.projectId = projectId;
   if (versionId) context.versionId = versionId;
+  if (phase) context.phase = phase;
+  if (pack) context.pack = pack;
   if (scene) context.scene = scene;
+  if (draftExcerpt) context.draftExcerpt = draftExcerpt;
   return Object.keys(context).length ? context : null;
 }
 

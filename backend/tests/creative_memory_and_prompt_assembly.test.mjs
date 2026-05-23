@@ -169,9 +169,32 @@ test("buildModelPrompt orders blocks: persona → memory → session → user", 
 test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs", () => {
   assert.equal(inferScreenplayTask("Rewrite this scene with more subtext.").intent, "rewrite_scene");
   assert.equal(inferScreenplayTask("Continue the script from this moment.").intent, "continue_script");
+  assert.equal(inferScreenplayTask("Help me finish this feature film.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Give me scene doctor notes.").intent, "scene_doctor");
   assert.equal(inferScreenplayTask("Punch up the dialogue.").intent, "dialogue_punchup");
   assert.equal(inferScreenplayTask("Fix the emotional continuity.").intent, "emotional_continuity");
+});
+
+test("[screenplay-task] buildModelPrompt carries draft context for continuation and rewrite turns", () => {
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    sessionContext: {
+      projectId: "proj-7",
+      versionId: "v3",
+      phase: "scene_draft",
+      pack: "Feature sprint",
+      draftExcerpt: "INT. DINER - NIGHT\n\nJUNE waits with her coat still on.",
+    },
+    screenplayTask: inferScreenplayTask("Continue the script."),
+    userInput: "Continue the script.",
+  });
+
+  assert.ok(out.includes("<session>"));
+  assert.ok(out.includes("phase: scene_draft"));
+  assert.ok(out.includes("pack: Feature sprint"));
+  assert.ok(out.includes("draft_excerpt:"));
+  assert.ok(out.includes("    INT. DINER - NIGHT"));
+  assert.ok(out.includes("intent: continue_script"));
 });
 
 test("[screenplay-task] buildModelPrompt injects task block before user input", () => {

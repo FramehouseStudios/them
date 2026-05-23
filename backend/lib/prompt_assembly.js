@@ -68,6 +68,10 @@ function inferScreenplayTask(userInput = "") {
     intent = "rewrite_scene";
     label = "Rewrite Scene";
     output = "Return a revised scene or passage in clean screenplay/Fountain style, preserving story intent while improving specificity, rhythm, and emotional truth.";
+  } else if (hasAny(lower, [/\b(finish|complete|help me finish|land the ending|ending)\b.*\b(feature|film|movie|script|screenplay|pilot)\b/, /\b(feature|film|movie|script|screenplay|pilot)\b.*\b(finish|complete|ending|finale)\b/])) {
+    intent = "finish_feature";
+    label = "Finish Feature";
+    output = "Help the writer finish the larger script: identify the next highest-leverage pages, preserve emotional continuity, and move toward a playable ending.";
   } else if (hasAny(lower, [/\b(continue|keep going|next scene|what happens next|finish this scene|carry on)\b/])) {
     intent = "continue_script";
     label = "Continue Script";
@@ -197,7 +201,13 @@ function buildSessionContextBlock(sessionContext) {
   const parts = [];
   if (sessionContext.projectId) parts.push(`project: ${sessionContext.projectId}`);
   if (sessionContext.versionId) parts.push(`version: ${sessionContext.versionId}`);
+  if (sessionContext.phase) parts.push(`phase: ${sessionContext.phase}`);
+  if (sessionContext.pack) parts.push(`pack: ${sessionContext.pack}`);
   if (sessionContext.scene) parts.push(`scene: ${sessionContext.scene}`);
+  const draftExcerpt = trimToString(sessionContext.draftExcerpt);
+  if (draftExcerpt) {
+    parts.push(`draft_excerpt:\n${draftExcerpt.split("\n").map((line) => `    ${line}`).join("\n")}`);
+  }
   return parts.length ? `<session>\n${parts.map((p) => `  ${p}`).join("\n")}\n</session>` : "";
 }
 
