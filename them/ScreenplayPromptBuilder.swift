@@ -15,6 +15,7 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
 struct BackendScreenplayPromptBuildRequest: Codable, Equatable {
     var persona: String
     var userInput: String
+    var screenplayTaskHint: String = ""
     var sessionContext: BackendScreenplayPromptSessionContext?
     var includeCraftContext: Bool
     var craftFrameworkId: String
@@ -22,6 +23,7 @@ struct BackendScreenplayPromptBuildRequest: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case persona
         case userInput = "user_input"
+        case screenplayTaskHint = "screenplay_task_hint"
         case sessionContext = "session_context"
         case includeCraftContext = "include_craft_context"
         case craftFrameworkId = "craft_framework_id"
@@ -38,6 +40,8 @@ struct BackendScreenplayPromptBuildResponse: Codable, Equatable {
     var sessionContextApplied: Bool
     var craftContextApplied: Bool
     var craftFrameworkId: String
+    var screenplayTaskIntent: String = ""
+    var screenplayTaskLabel: String = ""
 
     enum CodingKeys: String, CodingKey {
         case ok
@@ -49,6 +53,8 @@ struct BackendScreenplayPromptBuildResponse: Codable, Equatable {
         case sessionContextApplied = "session_context_applied"
         case craftContextApplied = "craft_context_applied"
         case craftFrameworkId = "craft_framework_id"
+        case screenplayTaskIntent = "screenplay_task_intent"
+        case screenplayTaskLabel = "screenplay_task_label"
     }
 }
 
@@ -65,6 +71,7 @@ struct ScreenplayPromptBuilder {
         var projectId: String = ""
         var versionId: String = ""
         var scene: String = ""
+        var screenplayTaskHint: String = ""
         var isScreenplayMode: Bool = false
         var shouldWriteToPage: Bool = false
         var craftFrameworkId: String = ""
@@ -114,6 +121,7 @@ struct ScreenplayPromptBuilder {
                 BackendScreenplayPromptBuildRequest(
                     persona: persona,
                     userInput: request.userInput.trimmingCharacters(in: .whitespacesAndNewlines),
+                    screenplayTaskHint: screenplayTaskHint(from: request),
                     sessionContext: sessionContext(from: request),
                     includeCraftContext: request.isScreenplayMode && request.shouldWriteToPage,
                     craftFrameworkId: request.craftFrameworkId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -127,6 +135,12 @@ struct ScreenplayPromptBuilder {
         } catch {
             return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: error.localizedDescription)
         }
+    }
+
+    private func screenplayTaskHint(from request: Request) -> String {
+        let explicit = request.screenplayTaskHint.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        if !explicit.isEmpty { return explicit }
+        return request.userInput.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
     }
 
     private func sessionContext(from request: Request) -> BackendScreenplayPromptSessionContext? {

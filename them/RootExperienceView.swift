@@ -8117,6 +8117,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 projectId: projectId,
                 versionId: versionId,
                 scene: "",
+                screenplayTaskHint: userMessage,
                 isScreenplayMode: isScreenplayMode,
                 shouldWriteToPage: shouldWriteToPage,
                 craftFrameworkId: ""

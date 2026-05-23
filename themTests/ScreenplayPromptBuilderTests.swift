@@ -35,11 +35,43 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(result.fallbackReason, "")
         XCTAssertEqual(backend.capturedRequest?.persona, "LOCAL PERSONA")
         XCTAssertEqual(backend.capturedRequest?.userInput, "Write the midpoint reversal.")
+        XCTAssertEqual(backend.capturedRequest?.screenplayTaskHint, "Write the midpoint reversal.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.projectId, "proj-7")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.versionId, "v2")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.scene, "INT. MOTEL - NIGHT")
         XCTAssertEqual(backend.capturedRequest?.includeCraftContext, true)
         XCTAssertEqual(backend.capturedRequest?.craftFrameworkId, "story-circle")
+    }
+
+    func testBuildModelPromptCanSendTaskHintWithoutEmbeddingUserInput() async {
+        let backend = PromptBackendSpy(response: BackendScreenplayPromptBuildResponse(
+            ok: true,
+            action: "screenplay_prompt_build",
+            schemaVersion: 1,
+            source: "buildModelPrompt",
+            prompt: "TASK ROUTED PROMPT",
+            memoryApplied: false,
+            sessionContextApplied: false,
+            craftContextApplied: false,
+            craftFrameworkId: "",
+            screenplayTaskIntent: "continue_script",
+            screenplayTaskLabel: "Continue Script"
+        ))
+        let builder = ScreenplayPromptBuilder()
+
+        _ = await builder.buildModelPrompt(
+            backend: backend,
+            request: ScreenplayPromptBuilder.Request(
+                persona: "LOCAL PERSONA",
+                userInput: "",
+                screenplayTaskHint: "Continue the diner scene.",
+                isScreenplayMode: true,
+                shouldWriteToPage: true
+            )
+        )
+
+        XCTAssertEqual(backend.capturedRequest?.userInput, "")
+        XCTAssertEqual(backend.capturedRequest?.screenplayTaskHint, "Continue the diner scene.")
     }
 
     func testBuildModelPromptDisablesCraftContextWhenNotWritingToPage() async {

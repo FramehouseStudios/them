@@ -131,6 +131,22 @@ test("POST /screenplay/prompt/build accepts X-User-Id when auth middleware is ab
   }
 });
 
+test("POST /screenplay/prompt/build can infer task from hint without duplicating user input", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+      persona: "PERSONA",
+      user_input: "",
+      screenplay_task_hint: "Continue the motel scene.",
+    });
+
+    assert.equal(status, 200);
+    assert.equal(body.screenplay_task_intent, "continue_script");
+    assert.ok(body.prompt.includes("<screenplay_task>"));
+    assert.ok(body.prompt.includes("intent: continue_script"));
+    assert.ok(!body.prompt.includes("Continue the motel scene."));
+  });
+});
+
 test("POST /screenplay/prompt/build rejects empty prompt payloads", async () => {
   await withTestServer(async ({ baseURL }) => {
     const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {});

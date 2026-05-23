@@ -42,6 +42,10 @@ function mountPromptRoutes(app, {
       req.body?.user_input ?? req.body?.userInput ?? req.body?.transcript,
       8_000
     );
+    const screenplayTaskHint = trimToString(
+      req.body?.screenplay_task_hint ?? req.body?.screenplayTaskHint,
+      8_000
+    );
     if (!persona && !userInput) {
       return res.status(400).json({
         stage: "screenplay_prompt_build",
@@ -56,7 +60,7 @@ function mountPromptRoutes(app, {
     const sessionContext = sanitizeSessionContext(
       req.body?.session_context ?? req.body?.sessionContext
     );
-    const screenplayTask = inferScreenplayTask(userInput);
+    const screenplayTask = inferScreenplayTask(userInput || screenplayTaskHint);
 
     let prompt = buildModelPrompt({
       persona,
