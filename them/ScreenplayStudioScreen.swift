@@ -569,6 +569,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         selectedProjectID = projectID
         resetCraftReportForProjectChange()
         await loadSelectedProjectOutline()
+        await persistActiveProjectSelection(projectID)
     }
 
     func replaceDraftFromVoiceBridgeIfNeeded(_ draft: String) {
@@ -2716,6 +2717,27 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             outline = .empty
             errorText = error.localizedDescription
             syncLiveDraftBridgeProjectContext()
+        }
+    }
+
+    private func persistActiveProjectSelection(_ projectID: String) async {
+        let normalizedProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectID.isEmpty else { return }
+        do {
+            let result = try await BackendMemoryAPI.shared.activateScreenplayProject(projectId: normalizedProjectID)
+            if let project = result.payload.project {
+                upsertProject(project)
+                if selectedProjectID == project.id {
+                    selectedProject = project
+                }
+            }
+            if selectedProjectID == normalizedProjectID {
+                infoText = "Project ready."
+            }
+        } catch {
+            if selectedProjectID == normalizedProjectID {
+                infoText = "Project opened. Restore sync is pending."
+            }
         }
     }
 

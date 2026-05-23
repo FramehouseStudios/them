@@ -316,6 +316,29 @@ test("[screenplay-projects-routes] POST /screenplay/projects updates existing pr
   });
 });
 
+test("[screenplay-projects-routes] POST /activate persists the active project for restore", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    assert.equal(deps._owner.activeProjectId, "p1");
+    const r = await postJson(baseURL, "/screenplay/projects/p2/activate", {});
+    assert.equal(r.status, 200);
+    assert.equal(r.body.status, "activated");
+    assert.equal(r.body.screenplay_active_project_id, "p2");
+    assert.equal(deps._owner.activeProjectId, "p2");
+
+    const list = await get(baseURL, "/screenplay/projects");
+    assert.equal(list.body.screenplay_active_project_id, "p2");
+  });
+});
+
+test("[screenplay-projects-routes] POST /activate returns 404 for unknown project", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects/missing/activate", {});
+    assert.equal(r.status, 404);
+    assert.equal(r.body.error, "project_not_found");
+  });
+});
+
 test("[screenplay-projects-routes] POST /outline parses body and persists outline", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/projects/p1/outline", {

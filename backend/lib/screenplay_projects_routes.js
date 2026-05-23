@@ -200,6 +200,35 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
+  app.post("/screenplay/projects/:projectId/activate", express.json({ limit: "64kb" }), (req, res) => {
+    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+    const projectId = normalizeSnippet(req.params?.projectId, 64);
+    const project = getScreenplayProjectRecord(owner, projectId);
+    if (!project) {
+      return res.status(404).json({ stage: "screenplay_project_activate", error: "project_not_found" });
+    }
+    const now = Date.now();
+    owner.activeProjectId = project.id;
+    project.updatedAt = now;
+    markScreenplayOwnerDirty(owner, now);
+    applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
+    return res.status(200).json(buildScreenplayEnvelope(req, owner, {
+      stage: "screenplay_project_activate",
+      status: "activated",
+      project_id: project.id,
+      project: toScreenplayProjectPayload(project, {
+        includeVersions: false,
+        includeDrafts: false,
+      }),
+      screenplay_active_project_id: owner.activeProjectId || "",
+      screenplay_project_count: owner.projects.length,
+      screenplay_projects: owner.projects.map((item) => toScreenplayProjectPayload(item, {
+        includeVersions: false,
+        includeDrafts: false,
+      })),
+    }));
+  });
+
   app.get("/screenplay/projects/:projectId/collaborators", (req, res) => {
     const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
     const projectId = normalizeSnippet(req.params?.projectId, 64);

@@ -3078,6 +3078,43 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
+    func activateScreenplayProject(
+        projectId: String
+    ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
+        _ = try? await bootstrapSession(force: false)
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/activate")
+        request.httpBody = Data("{}".utf8)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayProjectMutationResponse.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: parsed.sessionId,
+            stateVersion: parsed.stateVersion,
+            lastUpdatedAt: parsed.lastUpdatedAt,
+            historyUpdatedAt: parsed.historyUpdatedAt,
+            memoryUpdatedAt: parsed.memoryUpdatedAt,
+            lastTurnId: parsed.lastTurnId,
+            schemaVersion: parsed.schemaVersion,
+            backendBuild: parsed.backendBuild,
+            backendBootId: parsed.backendBootId
+        )
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
     func upsertScreenplayOutline(
         projectId: String,
         acts: [BackendScreenplayAct],
