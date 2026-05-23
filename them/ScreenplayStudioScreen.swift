@@ -77,6 +77,13 @@ struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     }
 }
 
+struct ScreenplaySceneSessionRestorePolicy {
+    static func shouldClearSelection(_ selection: String, validIDs: Set<String>) -> Bool {
+        let normalized = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !normalized.isEmpty && !validIDs.contains(normalized)
+    }
+}
+
 struct ScreenplayLocalDraftRecoveryStore {
     static let defaultKey = "screenplay.studio.localDraftRecovery.v1"
 
@@ -2811,6 +2818,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         guard !id.isEmpty else {
             selectedProject = nil
             outline = .empty
+            reconcileSceneSessionState(with: outline)
             resetCraftReportForProjectChange()
             applyServerDraft("", versionId: "", allowOverwriteDirtyLocalDraft: true)
             collaborators = []
@@ -2847,6 +2855,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 selectedProject = projects.first(where: { $0.id == id })
             }
             outline = outlineResult.payload.outline ?? .empty
+            reconcileSceneSessionState(with: outline)
             await refreshCollaborationData()
             errorText = ""
             syncLiveDraftBridgeProjectContext()
@@ -2854,6 +2863,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             clearTransientProjectStateForSelectionChange(to: id)
             selectedProject = projects.first(where: { $0.id == id })
             outline = .empty
+            reconcileSceneSessionState(with: outline)
             errorText = error.localizedDescription
             syncLiveDraftBridgeProjectContext()
         }
@@ -2909,6 +2919,28 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         }
         if !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID) {
             conflictState = nil
+        }
+    }
+
+    private func reconcileSceneSessionState(with outline: BackendScreenplayOutline) {
+        let sceneIDs = Set(outline.scenes.map { $0.id.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+        let actIDs = Set(outline.acts.map { $0.id.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+        let beatIDs = Set(outline.beats.map { $0.id.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+
+        if ScreenplaySceneSessionRestorePolicy.shouldClearSelection(editingSceneID, validIDs: sceneIDs) {
+            cancelEditingScene()
+        }
+        if ScreenplaySceneSessionRestorePolicy.shouldClearSelection(newSceneActID, validIDs: actIDs) {
+            newSceneActID = ""
+        }
+        if ScreenplaySceneSessionRestorePolicy.shouldClearSelection(newBeatSceneID, validIDs: sceneIDs) {
+            newBeatSceneID = ""
+        }
+        if ScreenplaySceneSessionRestorePolicy.shouldClearSelection(newBeatActID, validIDs: actIDs) {
+            newBeatActID = ""
+        }
+        if ScreenplaySceneSessionRestorePolicy.shouldClearSelection(editingBeatID, validIDs: beatIDs) {
+            cancelEditingBeat()
         }
     }
 

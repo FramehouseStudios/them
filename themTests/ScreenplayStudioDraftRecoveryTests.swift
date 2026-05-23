@@ -140,6 +140,14 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testSceneSessionRestorePolicyClearsOnlyMissingSelections() {
+        let validIDs: Set<String> = ["scene-a", "scene-b"]
+
+        XCTAssertFalse(ScreenplaySceneSessionRestorePolicy.shouldClearSelection(" scene-a ", validIDs: validIDs))
+        XCTAssertTrue(ScreenplaySceneSessionRestorePolicy.shouldClearSelection("scene-old", validIDs: validIDs))
+        XCTAssertFalse(ScreenplaySceneSessionRestorePolicy.shouldClearSelection("   ", validIDs: validIDs))
+    }
+
     private func projectSummary(id: String) -> BackendScreenplayProjectSummary {
         BackendScreenplayProjectSummary(
             id: id,
