@@ -447,6 +447,13 @@ nonisolated struct BackendDataControlResponse: Decodable {
     let memoryQuality: BackendMemoryQualitySnapshot?
 }
 
+nonisolated struct BackendAccountDeletionResponse: Decodable, Equatable {
+    let status: String
+    let pendingDeletionAt: String?
+    let hardDeleteAt: String?
+    let recoveryWindowDays: Int?
+}
+
 nonisolated struct BackendMemoryStatsCounts: Decodable, Hashable {
     let characters: Int
     let charactersWithVoice: Int
@@ -1750,6 +1757,11 @@ nonisolated enum BackendAuthClient {
         }
     }
 
+    static func clearLocalSessionAfterAccountDeletion() async {
+        clearAuthSession()
+        await BackendMemoryAPI.shared.invalidateResolvedSession(clearSharedUserID: true)
+    }
+
     static func requestPasswordReset(email: String) async throws -> BackendAuthEnvelope {
         var request = try makeAuthWriteRequest(path: "/auth/request_password_reset")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -2768,6 +2780,20 @@ actor BackendMemoryAPI {
 
     func clearMemories() async throws -> BackendReadResult<BackendDataControlResponse> {
         try await runDataControl(path: "/data/memories/clear")
+    }
+
+    func requestAccountDeletion(reason: String = "") async throws -> BackendAccountDeletionResponse {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeWriteRequest(path: "/account")
+        request.httpMethod = "DELETE"
+        let normalizedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "reason": String(normalizedReason.prefix(280)),
+        ], options: [])
+        let payload = try await run(request, as: BackendAccountDeletionResponse.self)
+        await BackendAuthClient.clearLocalSessionAfterAccountDeletion()
+        invalidateReadCaches(clearSyncState: true)
+        return payload
     }
 
     func fetchTasks(

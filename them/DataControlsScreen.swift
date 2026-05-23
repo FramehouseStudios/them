@@ -6,6 +6,7 @@ import AppKit
 private enum DataControlAction: String, Identifiable {
     case clearHistory
     case clearMemories
+    case deleteAccount
 
     var id: String { rawValue }
 
@@ -15,6 +16,8 @@ private enum DataControlAction: String, Identifiable {
             return "Clear History"
         case .clearMemories:
             return "Delete All Memories"
+        case .deleteAccount:
+            return "Delete Account"
         }
     }
 
@@ -24,6 +27,8 @@ private enum DataControlAction: String, Identifiable {
             return "This removes stored conversation history and transcript trail for this assistant context. This cannot be undone."
         case .clearMemories:
             return "This removes remembered names, themes, and continuity memory context. This cannot be undone."
+        case .deleteAccount:
+            return "This requests deletion for your backend account, revokes signed-in sessions, and signs this device out. The backend may keep the account in its recovery window before hard deletion."
         }
     }
 
@@ -33,6 +38,19 @@ private enum DataControlAction: String, Identifiable {
             return "Clear History"
         case .clearMemories:
             return "Delete Memories"
+        case .deleteAccount:
+            return "Delete Account"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .clearHistory:
+            return "trash"
+        case .clearMemories:
+            return "trash"
+        case .deleteAccount:
+            return "person.crop.circle.badge.xmark"
         }
     }
 }
@@ -227,6 +245,11 @@ struct DataControlsScreen: View {
                 subtitle: "Removes remembered names, themes, and memory context.",
                 action: .clearMemories
             )
+            actionButton(
+                title: "Delete Account",
+                subtitle: "Requests backend account deletion and signs this device out.",
+                action: .deleteAccount
+            )
         }
     }
 
@@ -402,7 +425,7 @@ struct DataControlsScreen: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Image(systemName: "trash")
+                    Image(systemName: action.iconName)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color.red.opacity(0.78))
                 }
@@ -477,20 +500,32 @@ struct DataControlsScreen: View {
         Task { @MainActor in
             defer { runningAction = nil }
             do {
-                let result: BackendReadResult<BackendDataControlResponse>
                 switch action {
                 case .clearHistory:
-                    result = try await BackendMemoryAPI.shared.clearHistory()
+                    let result = try await BackendMemoryAPI.shared.clearHistory()
+                    stateVersion = result.sync.stateVersion
+                    statusMessage = "History cleared."
+                    _ = try? await BackendMemoryAPI.shared.fetchHistory(limit: 140, force: true, sinceTurnId: nil)
+                    _ = try? await BackendMemoryAPI.shared.fetchMemories(limit: 72, force: true, sinceVersion: nil)
+                    await refreshMemoryStats(force: true)
                 case .clearMemories:
-                    result = try await BackendMemoryAPI.shared.clearMemories()
+                    let result = try await BackendMemoryAPI.shared.clearMemories()
+                    stateVersion = result.sync.stateVersion
+                    statusMessage = "All memories deleted."
+                    _ = try? await BackendMemoryAPI.shared.fetchHistory(limit: 140, force: true, sinceTurnId: nil)
+                    _ = try? await BackendMemoryAPI.shared.fetchMemories(limit: 72, force: true, sinceVersion: nil)
+                    await refreshMemoryStats(force: true)
+                case .deleteAccount:
+                    let result = try await BackendMemoryAPI.shared.requestAccountDeletion(reason: "Requested from Data Controls")
+                    stateVersion = ""
+                    let hardDelete = (result.hardDeleteAt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let recovery = result.recoveryWindowDays.map { "\($0)-day recovery window" } ?? "backend recovery window"
+                    statusMessage = hardDelete.isEmpty
+                        ? "Account deletion requested. This device has been signed out."
+                        : "Account deletion requested. Hard deletion is scheduled for \(hardDelete) after the \(recovery). This device has been signed out."
+                    memoryStats = nil
+                    memoryStatsError = ""
                 }
-                stateVersion = result.sync.stateVersion
-                statusMessage = action == .clearHistory
-                    ? "History cleared."
-                    : "All memories deleted."
-                _ = try? await BackendMemoryAPI.shared.fetchHistory(limit: 140, force: true, sinceTurnId: nil)
-                _ = try? await BackendMemoryAPI.shared.fetchMemories(limit: 72, force: true, sinceVersion: nil)
-                await refreshMemoryStats(force: true)
             } catch {
                 statusMessage = "Action failed: \(error.localizedDescription)"
             }

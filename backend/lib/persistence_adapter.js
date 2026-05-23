@@ -37,6 +37,8 @@ const KNOWN_DOMAINS = Object.freeze([
   "accepted_twists",
   // T-first-page-telemetry-sink: per-user first-page-written events for measuring the T11 magic-moment SLA.
   "telemetry_first_page_written",
+  "account_lifecycle",
+  "account_audit_log",
 ]);
 
 function isKnownDomain(domain) {

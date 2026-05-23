@@ -209,11 +209,13 @@ for (const impl of makeImplementations()) {
 
 // ---------- module-level invariants ----------
 
-test("KNOWN_DOMAINS includes the canonical domains (T07 + T22 + T21 follow-up + T08 + T-logline-distiller + T-accepted-twist-log + T-first-page-telemetry-sink)", () => {
+test("KNOWN_DOMAINS includes the canonical domains", () => {
   assert.deepEqual(
     [...KNOWN_DOMAINS].sort(),
     [
       "accepted_twists",
+      "account_audit_log",
+      "account_lifecycle",
       "craft_classifications",
       "craft_loglines",
       "craft_overrides",

@@ -113,6 +113,8 @@ import { mountRealtimeStudioRenderRoutes } from "./lib/realtime_studio_render_ro
 import { mountRealtimeTurnCommitRoute } from "./lib/realtime_turn_commit_route.js";
 import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
+import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
+import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
 import {
   createTalkRateLimitGuard,
   createTalkIdempotencyGuard,
@@ -132,6 +134,7 @@ import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js
 import {
   configureUserStore,
   loadUserStore,
+  revokeAllAuthSessionsForUser,
 } from "./lib/user_store.js";
 import { createUserAuthSubsystem } from "./lib/user_auth.js";
 import { createRateLimiter } from "./lib/rate_limit.js";
@@ -3129,6 +3132,107 @@ const providerBudgetGuard = createProviderBudgetGuard({
     return `ip:${normalizeClientIp(req?.ip || req?.socket?.remoteAddress || "unknown")}`;
   },
 });
+
+function createAdapterAccountLifecycleStore(persistence) {
+  const domain = "account_lifecycle";
+  return {
+    async read(userId) {
+      return await persistence.get({ domain, key: String(userId) });
+    },
+    async markPendingDeletion({ userId, pendingDeletionAt, hardDeleteAt, reason = "" }) {
+      await persistence.put({
+        domain,
+        key: String(userId),
+        value: {
+          userId: String(userId),
+          pendingDeletionAt,
+          hardDeleteAt,
+          reason: String(reason || ""),
+          updatedAt: Date.now(),
+        },
+      });
+    },
+    async clearPendingDeletion(userId) {
+      await persistence.delete({ domain, key: String(userId) });
+    },
+  };
+}
+
+function createAdapterAccountAuditLog(persistence) {
+  return async function auditLog(entry) {
+    const userId = String(entry?.userId || "").trim();
+    const event = String(entry?.event || "").trim();
+    if (!userId || !event) return;
+    await persistence.put({
+      domain: "account_audit_log",
+      key: `${Date.now()}-${randomUUID()}`,
+      value: {
+        userId,
+        event,
+        requestId: entry?.requestId || null,
+        actorIp: entry?.actorIp || null,
+        metadata: entry?.metadata || {},
+        createdAt: Date.now(),
+      },
+    });
+  };
+}
+
+function persistenceRowBelongsToUser(row, userId) {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return false;
+  const key = String(row?.key || "");
+  if (
+    key === normalizedUserId ||
+    key === `user:${normalizedUserId}` ||
+    key === `authuser:${normalizedUserId}` ||
+    key.startsWith(`${normalizedUserId}:`) ||
+    key.startsWith(`user:${normalizedUserId}:`) ||
+    key.startsWith(`authuser:${normalizedUserId}:`)
+  ) {
+    return true;
+  }
+  const value = row?.value && typeof row.value === "object" ? row.value : {};
+  const candidates = [
+    value.userId,
+    value.user_id,
+    value.ownerId,
+    value.owner_id,
+    value.ownerUserId,
+    value.owner_user_id,
+    value.authUserId,
+    value.auth_user_id,
+  ];
+  return candidates.some((candidate) => String(candidate || "").trim() === normalizedUserId);
+}
+
+async function exportAuthenticatedUserData({ userId, domains = EXPORTABLE_DOMAINS }) {
+  const normalizedUserId = String(userId || "").trim();
+  const payload = {};
+  for (const domain of domains) {
+    const rows = await sharedPersistence.list({ domain, limit: 10_000 });
+    payload[domain] = rows
+      .filter((row) => persistenceRowBelongsToUser(row, normalizedUserId))
+      .map((row) => ({
+        key: row.key,
+        value: row.value,
+      }));
+  }
+  return { domains: payload };
+}
+
+const accountLifecycleStore = sharedPersistence.kind === "postgres"
+  ? createAccountLifecycleStore({ client: sharedPersistence })
+  : createAdapterAccountLifecycleStore(sharedPersistence);
+const accountAuditLog = sharedPersistence.kind === "postgres"
+  ? async (entry) => {
+      const event = String(entry?.event || "").trim();
+      if (event === "account_deletion_requested" || event === "account_deletion_cancelled") {
+        return;
+      }
+      await accountLifecycleStore.audit(entry);
+    }
+  : createAdapterAccountAuditLog(sharedPersistence);
 
 // T07c: prefer adapter when it has data; fall back to legacy JSON-file load.
 const memoryLoadedFromAdapter = await loadUserMemoryStoreFromAdapter(userMemoryByIp, userMemoryByClientToken);
@@ -31344,6 +31448,15 @@ app.post("/auth/request_password_reset", authJson, userAuth.handleAuthRequestPas
 app.post("/auth/reset_password", authJson, userAuth.handleAuthResetPassword);
 app.post("/auth/request_email_verification", authJson, userAuth.handleAuthRequestEmailVerification);
 app.post("/auth/verify_email", authJson, userAuth.handleAuthVerifyEmail);
+
+app.use("/account", express.json({ limit: "64kb" }));
+mountAccountRoutes(app, {
+  resolveAuthenticatedUser: async (req) => req.authUser || null,
+  exportUserData: exportAuthenticatedUserData,
+  lifecycleStore: accountLifecycleStore,
+  revokeAllSessions: async (userId) => revokeAllAuthSessionsForUser(userId, Date.now()),
+  auditLog: accountAuditLog,
+});
 
 // Phase 7a: guards are built from backend/lib/talk_state.js factories
 // using live config + helpers. State (rate buckets, idempotency cache,

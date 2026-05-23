@@ -59,6 +59,11 @@ function createPostgresPersistence({ databaseUrl, pgClient } = {}) {
       return r?.rows?.[0]?.ok === 1;
     },
 
+    async query(...args) {
+      const c = await client();
+      return c.query(...args);
+    },
+
     async get({ domain, key }) {
       assertDomain(domain);
       assertKey(key);
