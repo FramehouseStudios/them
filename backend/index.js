@@ -8598,16 +8598,39 @@ function normalizeStoredScreenplayOutline(entry) {
   const acts = Array.isArray(raw.acts)
     ? raw.acts.map((item, index) => normalizeStoredScreenplayAct(item, index)).filter(Boolean)
     : [];
-  const scenes = Array.isArray(raw.scenes)
+  let scenes = Array.isArray(raw.scenes)
     ? raw.scenes.map((item, index) => normalizeStoredScreenplayScene(item, index)).filter(Boolean)
     : [];
-  const beats = Array.isArray(raw.beats)
+  let beats = Array.isArray(raw.beats)
     ? raw.beats.map((item, index) => normalizeStoredScreenplayBeat(item, index)).filter(Boolean)
     : [];
+  const actIds = new Set(acts.map((act) => act.id));
+  scenes = scenes.map((scene) => ({
+    ...scene,
+    actId: scene.actId && actIds.has(scene.actId) ? scene.actId : "",
+  }));
+  const sceneIds = new Set(scenes.map((scene) => scene.id));
+  beats = beats.map((beat) => ({
+    ...beat,
+    sceneId: beat.sceneId && sceneIds.has(beat.sceneId) ? beat.sceneId : "",
+    actId: beat.actId && actIds.has(beat.actId) ? beat.actId : "",
+  }));
+  const orderedScenes = [...scenes].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  const orderedBeats = [...beats].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   return {
     updatedAt: Math.max(0, Number(raw.updatedAt || 0)),
-    acts,
-    scenes,
+    acts: acts.map((act) => ({
+      ...act,
+      sceneIds: orderedScenes
+        .filter((scene) => scene.actId === act.id)
+        .map((scene) => scene.id),
+    })),
+    scenes: scenes.map((scene) => ({
+      ...scene,
+      beatIds: orderedBeats
+        .filter((beat) => beat.sceneId === scene.id)
+        .map((beat) => beat.id),
+    })),
     beats,
   };
 }
@@ -26227,6 +26250,17 @@ function reconcileScreenplayOutline(outline, now = Date.now()) {
       updatedAt: Math.max(0, Number(beat.updatedAt || beat.createdAt || now)),
       createdAt: Math.max(0, Number(beat.createdAt || beat.updatedAt || now)),
     }));
+  const actIds = new Set(safeOutline.acts.map((act) => act.id));
+  safeOutline.scenes = safeOutline.scenes.map((scene) => ({
+    ...scene,
+    actId: scene.actId && actIds.has(scene.actId) ? scene.actId : "",
+  }));
+  const sceneIds = new Set(safeOutline.scenes.map((scene) => scene.id));
+  safeOutline.beats = safeOutline.beats.map((beat) => ({
+    ...beat,
+    sceneId: beat.sceneId && sceneIds.has(beat.sceneId) ? beat.sceneId : "",
+    actId: beat.actId && actIds.has(beat.actId) ? beat.actId : "",
+  }));
   safeOutline.acts = safeOutline.acts.map((act) => ({
     ...act,
     sceneIds: safeOutline.scenes

@@ -38,3 +38,27 @@ test("[screenplay-model-payload] includes active version even beyond version lim
   assert.deepEqual(payload.versions.map((version) => version.id), ["v_new", "v_old_active"]);
   assert.equal(payload.versions.find((version) => version.id === "v_old_active")?.draft, "INT. OLD ACTIVE - DAY");
 });
+
+test("[screenplay-model-payload] outline payload removes orphan scene and beat references", () => {
+  const { toScreenplayOutlinePayload } = services();
+  const payload = toScreenplayOutlinePayload({
+    acts: [
+      { id: "act-live", title: "Act Live", order: 0, sceneIds: ["scene-live", "scene-missing"] },
+    ],
+    scenes: [
+      { id: "scene-live", title: "Live", actId: "act-live", order: 0, beatIds: ["beat-live", "beat-missing"] },
+      { id: "scene-orphan", title: "Orphan", actId: "act-missing", order: 1, beatIds: [] },
+    ],
+    beats: [
+      { id: "beat-live", label: "Live Beat", sceneId: "scene-live", actId: "act-live", order: 0 },
+      { id: "beat-orphan", label: "Orphan Beat", sceneId: "scene-missing", actId: "act-missing", order: 1 },
+    ],
+  });
+
+  assert.deepEqual(payload.acts[0].scene_ids, ["scene-live"]);
+  assert.equal(payload.scenes.find((scene) => scene.id === "scene-orphan")?.act_id, "");
+  assert.deepEqual(payload.scenes.find((scene) => scene.id === "scene-live")?.beat_ids, ["beat-live"]);
+  const orphanBeat = payload.beats.find((beat) => beat.id === "beat-orphan");
+  assert.equal(orphanBeat?.scene_id, "");
+  assert.equal(orphanBeat?.act_id, "");
+});
