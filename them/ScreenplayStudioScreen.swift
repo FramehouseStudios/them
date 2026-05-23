@@ -70,6 +70,13 @@ struct ScreenplayProjectSelectionRestorePolicy {
     }
 }
 
+struct ScreenplayUnconfirmedSaveRecoveryPolicy {
+    static func shouldPersist(projectId: String, draft: String) -> Bool {
+        !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 struct ScreenplayLocalDraftRecoveryStore {
     static let defaultKey = "screenplay.studio.localDraftRecovery.v1"
 
@@ -3068,6 +3075,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 hasUnsavedDraftChanges = true
                 autosaveStatusText = "Conflict detected"
                 infoText = "Another collaborator updated this draft. Choose keep mine or load server."
+                persistRecoveryForUnconfirmedSave(
+                    projectId: project.id,
+                    draft: fountainDraft,
+                    baseVersionId: baseVersionId.isEmpty ? latestVersionID : baseVersionId
+                )
                 return
             }
             conflictState = nil
@@ -3116,6 +3128,12 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 errorText = ""
             }
         } catch {
+            hasUnsavedDraftChanges = true
+            persistRecoveryForUnconfirmedSave(
+                projectId: project.id,
+                draft: fountainDraft,
+                baseVersionId: latestVersionID
+            )
             autosaveStatusText = "Autosave failed"
             errorText = error.localizedDescription
         }
@@ -3374,6 +3392,25 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         if !dirty {
             recoveryCandidate = nil
         }
+    }
+
+    private func persistRecoveryForUnconfirmedSave(
+        projectId: String,
+        draft: String,
+        baseVersionId: String
+    ) {
+        guard ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
+            projectId: projectId,
+            draft: draft
+        ) else {
+            return
+        }
+        persistLocalDraftRecovery(
+            projectId: projectId,
+            draft: draft,
+            baseVersionId: baseVersionId,
+            dirty: true
+        )
     }
 
     private func clearLocalDraftRecovery(projectId: String) {

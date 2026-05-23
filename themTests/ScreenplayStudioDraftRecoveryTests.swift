@@ -125,6 +125,21 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(selectedProjectId, "first-project")
     }
 
+    func testUnconfirmedSaveRecoveryPolicyRequiresProjectAndDraft() {
+        XCTAssertTrue(ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
+            projectId: " project-a ",
+            draft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
+            projectId: "",
+            draft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
+            projectId: "project-a",
+            draft: "   "
+        ))
+    }
+
     private func projectSummary(id: String) -> BackendScreenplayProjectSummary {
         BackendScreenplayProjectSummary(
             id: id,
