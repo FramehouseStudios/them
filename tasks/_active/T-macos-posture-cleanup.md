@@ -2,7 +2,7 @@
 id: T-macos-posture-cleanup
 title: Gate macOS scaffolding off the V1 iOS scheme
 owner: codex
-status: ready-for-codex
+status: ready
 branch: -
 pillar: ios
 v1_pillar: ios

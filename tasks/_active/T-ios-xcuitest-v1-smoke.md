@@ -2,7 +2,7 @@
 id: T-ios-xcuitest-v1-smoke
 title: Thin XCUITest scaffold for the V1 manual smoke checklist
 owner: codex
-status: ready-for-codex
+status: ready
 branch: -
 pillar: ios
 v1_pillar: ios

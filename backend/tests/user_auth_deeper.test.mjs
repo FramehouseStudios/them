@@ -103,7 +103,7 @@ test("[user-auth-deeper] createUserAuthSubsystem clamps accessTtlSeconds to mini
   assert.equal(typeof s.handleAuthSignup, "function");
 });
 
-test("[user-auth-deeper] createUserAuthSubsystem returns 12 named handlers + protectUserRoutes", () => {
+test("[user-auth-deeper] createUserAuthSubsystem returns 12 named handlers + protectUserRoutes + protectPaidProviderRoutes", () => {
   const s = createUserAuthSubsystem({});
   const handlers = [
     "handleAuthSignup", "handleAuthLogin", "handleAuthApple",
@@ -111,6 +111,7 @@ test("[user-auth-deeper] createUserAuthSubsystem returns 12 named handlers + pro
     "handleAuthSessionsRevoke", "handleAuthRequestPasswordReset",
     "handleAuthResetPassword", "handleAuthRequestEmailVerification",
     "handleAuthVerifyEmail", "protectUserRoutes",
+    "protectPaidProviderRoutes",
   ];
   for (const name of handlers) {
     assert.equal(typeof s[name], "function", `${name} should be a function`);

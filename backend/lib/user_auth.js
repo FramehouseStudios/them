@@ -36,6 +36,20 @@ const USER_PROTECTED_PATTERNS = [
   /^\/screenplay(?:\/|$)/,
   /^\/linkedin(?:\/|$)/,
   /^\/secretary(?:\/|$)/,
+  /^\/visual\/context(?:\/|$)/,
+];
+
+// Day 1 Backend Exposure Lock: cost-attached realtime + visual endpoints
+// must require authenticated identity *regardless* of the global
+// REQUIRE_USER_AUTH flag. /realtime/health and /realtime/bridge are
+// intentionally excluded — they are unauth health/proxy surfaces.
+const PAID_PROVIDER_PATTERNS = [
+  /^\/realtime\/client_secret(?:\/|$)/,
+  /^\/realtime\/turn_commit(?:\/|$)/,
+  /^\/realtime\/call(?:\/|$)/,
+  /^\/realtime\/studio_render(?:\/|$)/,
+  /^\/realtime\/studio_render_stream(?:\/|$)/,
+  /^\/visual\/context(?:\/|$)/,
 ];
 
 function normalizeEmail(value) {
@@ -243,6 +257,17 @@ function createUserAuthSubsystem(options = {}) {
   }
 
   function attachUserAuth(req, res, next) {
+    // Day 1 Backend Exposure Lock: strip any inbound X-User-Id header
+    // *before* identity is attached. Client-supplied identity must never
+    // reach downstream code — ownership must derive from req.authUser.id
+    // / req.userId only. Without this strip, a client could send
+    // `X-User-Id: <victim>` and have any code that fell back to the
+    // header attribute the request to another user.
+    if (req && req.headers) {
+      delete req.headers["x-user-id"];
+      delete req.headers["X-User-Id"];
+      delete req.headers["X-USER-ID"];
+    }
     const token = extractAccessToken(req);
     if (!token) {
       req.authUser = null;
@@ -262,7 +287,9 @@ function createUserAuthSubsystem(options = {}) {
     req.authTokenPayload = verified.payload;
     req.authUserError = "";
     req.userId = verified.user.id;
-    req.headers["x-user-id"] = verified.user.id;
+    // Day 1 Backend Exposure Lock: do not rewrite req.headers["x-user-id"]
+    // with the auth-derived id. Downstream ownership must read req.authUser.id
+    // / req.userId, never a header.
     return next();
   }
 
@@ -271,9 +298,29 @@ function createUserAuthSubsystem(options = {}) {
     return USER_PROTECTED_PATTERNS.some((pattern) => pattern.test(path));
   }
 
+  function isPaidProviderRoute(pathname) {
+    const path = String(pathname || "").trim();
+    return PAID_PROVIDER_PATTERNS.some((pattern) => pattern.test(path));
+  }
+
   function protectUserRoutes(req, res, next) {
     if (!requireUserAuth) return next();
     if (!isProtectedRoute(req.path)) return next();
+    if (!authConfigured) return authMisconfigured(res, "auth_user");
+    if (req.authUser) return next();
+    return res.status(401).json({
+      stage: "auth_user",
+      error: req.authUserError || "user_auth_required",
+    });
+  }
+
+  // Day 1 Backend Exposure Lock: gate cost-attached realtime + visual
+  // endpoints behind authenticated identity unconditionally. Independent
+  // of the global REQUIRE_USER_AUTH flag — these routes touch paid
+  // provider access and user data, so they must never be reachable by
+  // unauthenticated clients.
+  function protectPaidProviderRoutes(req, res, next) {
+    if (!isPaidProviderRoute(req.path)) return next();
     if (!authConfigured) return authMisconfigured(res, "auth_user");
     if (req.authUser) return next();
     return res.status(401).json({
@@ -769,6 +816,7 @@ function createUserAuthSubsystem(options = {}) {
     handleAuthSessionsRevoke,
     handleAuthSignup,
     handleAuthVerifyEmail,
+    protectPaidProviderRoutes,
     protectUserRoutes,
   };
 }

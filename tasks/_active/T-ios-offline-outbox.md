@@ -2,7 +2,7 @@
 id: T-ios-offline-outbox
 title: iOS client outbox for offline-tolerant talk turns
 owner: codex
-status: ready-for-codex
+status: ready
 branch: -
 pillar: talk
 v1_pillar: talk

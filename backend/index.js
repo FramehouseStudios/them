@@ -2929,7 +2929,7 @@ function recordCreativeMemoryTriggersForRequest(req) {
 
 async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
   if (String(systemPrompt || "").includes(MEMORY_BLOCK_OPEN)) return systemPrompt;
-  const userId = req?.authUser?.id || req?.user?.id || req?.userId || req?.get?.("X-User-Id") || null;
+  const userId = req?.authUser?.id || req?.user?.id || req?.userId || null;
   if (!userId) return systemPrompt;
   const memory = await creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
   if (!memory) return systemPrompt;
@@ -3090,6 +3090,10 @@ const userAuth = createUserAuthSubsystem({
   requireUserAuth: REQUIRE_USER_AUTH,
 });
 app.use(userAuth.attachUserAuth);
+// Day 1 Backend Exposure Lock: paid-provider lane runs *before* the
+// optional REQUIRE_USER_AUTH gate so /realtime/* and /visual/context
+// cost-attached endpoints always require authenticated identity.
+app.use(userAuth.protectPaidProviderRoutes);
 app.use(userAuth.protectUserRoutes);
 // T07c: prefer adapter when it has data; fall back to legacy JSON-file load.
 const memoryLoadedFromAdapter = await loadUserMemoryStoreFromAdapter(userMemoryByIp, userMemoryByClientToken);
@@ -3136,7 +3140,7 @@ console.log(
 );
 
 function clientIp(req) {
-  const authenticatedUserId = String(req?.authUser?.id || req?.userId || req?.headers?.["x-user-id"] || "").trim();
+  const authenticatedUserId = String(req?.authUser?.id || req?.userId || "").trim();
   if (authenticatedUserId) {
     return normalizeClientIp("authuser:" + authenticatedUserId);
   }
@@ -4726,7 +4730,7 @@ function canReadTalkTurnMeta(req, meta) {
   }
   const sessionId = String(meta.sessionId || "").trim();
   const metaUserId = normalizeScreenplayOwnerValue(meta.userId, "user");
-  const requestUserId = normalizeScreenplayOwnerValue(req.authUser?.id || req.get("X-User-Id"), "user");
+  const requestUserId = normalizeScreenplayOwnerValue(req.authUser?.id || req.userId, "user");
   if (metaUserId && requestUserId && metaUserId === requestUserId) {
     return true;
   }
@@ -7806,8 +7810,15 @@ function normalizeScreenplayOwnerValue(value, prefix = "owner") {
 }
 
 function resolveScreenplayOwnerKey(req) {
-  const userId = normalizeScreenplayOwnerValue(req.get("X-User-Id"), "user");
-  if (userId) return userId;
+  // Day 1 Backend Exposure Lock: derive ownership from server-attached
+  // identity only (req.authUser.id / req.userId). Never read X-User-Id
+  // from request headers — client-supplied identity is impersonation
+  // surface.
+  const authUserId = normalizeScreenplayOwnerValue(
+    req.authUser?.id || req.userId,
+    "user"
+  );
+  if (authUserId) return authUserId;
   const clientToken = normalizeClientToken(req.get("X-Client-Token"));
   if (clientToken) return `token:${clientToken}`;
   const ip = normalizeClientIp(clientIp(req));
@@ -29233,7 +29244,7 @@ async function handleTalkRequest(req, res) {
         storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
-          userId: req.get("X-User-Id"),
+          userId: req.authUser?.id || req.userId,
           stateVersion: committedStateVersion,
           transcript,
           reply: talkReplyPreview,
@@ -30816,7 +30827,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
-          userId: req.get("X-User-Id"),
+          userId: req.authUser?.id || req.userId,
           stateVersion: committedStateVersion,
           transcript,
           reply: talkReplyPreview,

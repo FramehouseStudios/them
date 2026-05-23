@@ -10,7 +10,7 @@
 // at the `mountAccountRoutes` call site in index.js.
 
 const DEFAULT_SOFT_DELETE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const EXPORTABLE_DOMAINS = [
+const EXPORTABLE_DOMAINS = Object.freeze([
   "outbox",
   "user_memory",
   "screenplay",
@@ -22,7 +22,7 @@ const EXPORTABLE_DOMAINS = [
   "craft_loglines",
   "accepted_twists",
   "telemetry_first_page_written",
-];
+]);
 
 function mountAccountRoutes(app, deps) {
   if (!app || typeof app.post !== "function") {

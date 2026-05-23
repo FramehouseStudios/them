@@ -2,7 +2,7 @@
 id: T-ios-keychain-token-migration
 title: Migrate iOS auth tokens from UserDefaults to Keychain
 owner: codex
-status: ready-for-codex
+status: ready
 branch: -
 pillar: ios
 v1_pillar: ios

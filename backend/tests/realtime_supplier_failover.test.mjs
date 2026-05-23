@@ -53,6 +53,18 @@ async function createFailingRealtimeEndpoint() {
   };
 }
 
+// Day 1 Backend Exposure Lock: /realtime/* now requires authenticated
+// identity. Tests that hit the live failover route need a real bearer
+// token from a signup round-trip.
+async function signupAndGetToken(server, email = "realtime-failover@example.com") {
+  const signup = await apiRequest(server, "/auth/signup", {
+    method: "POST",
+    json: { email, password: "failover-password-123" },
+  });
+  assert.equal(signup.status, 201, "auth/signup should succeed");
+  return String(signup.json?.access_token || signup.json?.token || "");
+}
+
 // ---------- shouldAttemptFallback ----------
 
 test("[failover] shouldAttemptFallback returns false when allowFallback is false", () => {
@@ -234,8 +246,10 @@ test("[failover-route] unpinned provider falls back to stub when OpenAI mint fai
     },
   });
   try {
+    const token = await signupAndGetToken(server, "failover-unpinned@example.com");
     const r = await apiRequest(server, "/realtime/client_secret", {
       method: "POST",
+      headers: { Authorization: "Bearer " + token },
       json: { instructions: "Keep it spare.", voice: "marin" },
     });
     assert.equal(r.status, 201);
@@ -260,8 +274,10 @@ test("[failover-route] pinned provider does not fall back", async () => {
     },
   });
   try {
+    const token = await signupAndGetToken(server, "failover-pinned@example.com");
     const r = await apiRequest(server, "/realtime/client_secret", {
       method: "POST",
+      headers: { Authorization: "Bearer " + token },
       json: { provider: "openai", instructions: "Keep it spare." },
     });
     assert.equal(r.status, 500);

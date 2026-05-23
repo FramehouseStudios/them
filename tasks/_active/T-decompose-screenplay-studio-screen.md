@@ -2,7 +2,7 @@
 id: T-decompose-screenplay-studio-screen
 title: Decompose them/ScreenplayStudioScreen.swift (1.1 MB) into per-concern modules
 owner: codex
-status: ready-for-codex
+status: ready
 branch: -
 pillar: ios
 v1_pillar: infra
