@@ -134,6 +134,8 @@ import {
   loadUserStore,
 } from "./lib/user_store.js";
 import { createUserAuthSubsystem } from "./lib/user_auth.js";
+import { createRateLimiter } from "./lib/rate_limit.js";
+import { createProviderBudgetGuard } from "./lib/provider_budget.js";
 import {
   clampUnit,
   createRequestId,
@@ -181,8 +183,20 @@ const ALLOWED_REALTIME_VOICES = new Set([
   "verse",
 ]);
 
+app.set("trust proxy", 1);
+
 const TALK_RATE_LIMIT_MAX = parsePositiveInt(process.env.TALK_RATE_LIMIT_MAX, 40);
 const TALK_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.TALK_RATE_LIMIT_WINDOW_MS, 60_000);
+const AUTH_RATE_LIMIT_MAX = parsePositiveInt(process.env.AUTH_RATE_LIMIT_MAX, 30);
+const AUTH_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 60_000);
+const REALTIME_RATE_LIMIT_MAX = parsePositiveInt(process.env.REALTIME_RATE_LIMIT_MAX, 30);
+const REALTIME_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.REALTIME_RATE_LIMIT_WINDOW_MS, 60_000);
+const PROVIDER_RATE_LIMIT_MAX = parsePositiveInt(process.env.PROVIDER_RATE_LIMIT_MAX, 60);
+const PROVIDER_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.PROVIDER_RATE_LIMIT_WINDOW_MS, 60_000);
+const PROVIDER_DAILY_BUDGET_LIMIT = parsePositiveInt(process.env.PROVIDER_DAILY_BUDGET_LIMIT, 500);
+const PROVIDER_BUDGET_ENABLED = process.env.PROVIDER_BUDGET_ENABLED == null
+  ? true
+  : parseBool(process.env.PROVIDER_BUDGET_ENABLED);
 const TALK_MAX_IN_FLIGHT = parsePositiveInt(process.env.TALK_MAX_IN_FLIGHT, 3);
 const TALK_SESSION_SERIAL_ENABLED = process.env.TALK_SESSION_SERIAL_ENABLED == null
   ? true
@@ -3095,6 +3109,27 @@ app.use(userAuth.attachUserAuth);
 // cost-attached endpoints always require authenticated identity.
 app.use(userAuth.protectPaidProviderRoutes);
 app.use(userAuth.protectUserRoutes);
+
+const backendRateLimiter = createRateLimiter({
+  buckets: {
+    auth: { capacity: AUTH_RATE_LIMIT_MAX, windowMs: AUTH_RATE_LIMIT_WINDOW_MS },
+    realtime_mint: { capacity: REALTIME_RATE_LIMIT_MAX, windowMs: REALTIME_RATE_LIMIT_WINDOW_MS },
+    provider: { capacity: PROVIDER_RATE_LIMIT_MAX, windowMs: PROVIDER_RATE_LIMIT_WINDOW_MS },
+    default: { capacity: 120, windowMs: 60_000 },
+  },
+  isProduction: () => NODE_ENV === "production",
+});
+const providerBudgetGuard = createProviderBudgetGuard({
+  dailyLimit: PROVIDER_DAILY_BUDGET_LIMIT,
+  isEnabled: () => PROVIDER_BUDGET_ENABLED,
+  isProduction: () => NODE_ENV === "production",
+  resolveIdentity: (req) => {
+    const userId = String(req?.authUser?.id || req?.userId || "").trim();
+    if (userId) return `user:${userId}`;
+    return `ip:${normalizeClientIp(req?.ip || req?.socket?.remoteAddress || "unknown")}`;
+  },
+});
+
 // T07c: prefer adapter when it has data; fall back to legacy JSON-file load.
 const memoryLoadedFromAdapter = await loadUserMemoryStoreFromAdapter(userMemoryByIp, userMemoryByClientToken);
 if (!memoryLoadedFromAdapter) {
@@ -27548,6 +27583,11 @@ mountRealtimeRoutes(app, {
 // state — same as the original inline handler. See
 // docs/specs/T-decompose-backend-index.md and
 // docs/schemas/realtime-client-secret.md.
+app.use(
+  "/realtime/client_secret",
+  backendRateLimiter.middleware("realtime_mint"),
+  providerBudgetGuard.middleware("realtime_mint")
+);
 mountRealtimeClientSecretRoute(app, {
   getRealtimeSupplier: () => realtimeSupplier,
   createRealtimeSupplier,
@@ -27579,6 +27619,16 @@ mountRealtimeClientSecretRoute(app, {
 // the previous inline handlers. See
 // docs/specs/T-decompose-backend-index.md and design note
 // in tasks/_proposals/T-decompose-phase5b-realtime-design.md.
+app.use(
+  "/realtime/studio_render",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("realtime_render")
+);
+app.use(
+  "/realtime/studio_render_stream",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("realtime_render_stream")
+);
 mountRealtimeStudioRenderRoutes(app, {
   renderStudioRealtimeText,
   streamStudioRealtimeText,
@@ -27589,6 +27639,8 @@ mountRealtimeStudioRenderRoutes(app, {
 
 app.post(
   "/visual/context",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("visual_context"),
   requireClientTokenForTalk,
   express.json({ limit: "2mb" }),
   async (req, res) => {
@@ -27664,6 +27716,11 @@ app.post(
 // storeTalkTurnMeta call, same read-state headers. See
 // docs/specs/T-decompose-backend-index.md and the #227
 // design note.
+app.use(
+  "/realtime/turn_commit",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("realtime_turn_commit")
+);
 mountRealtimeTurnCommitRoute(app, {
   createRequestId,
   normalizeSnippet,
@@ -27693,6 +27750,11 @@ mountRealtimeTurnCommitRoute(app, {
 // passthrough/200 envelopes, same SDP body passthrough, same
 // response headers, same form encoding, same 15s timeout.
 // Closes the 5b decomp chain per #227 design note.
+app.use(
+  "/realtime/call",
+  backendRateLimiter.middleware("provider"),
+  providerBudgetGuard.middleware("realtime_call")
+);
 mountRealtimeCallRoute(app, {
   createRequestId,
   buildRealtimeSessionConfig,
@@ -31270,6 +31332,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
 
 const authJson = express.json({ limit: "256kb" });
 
+app.use("/auth", backendRateLimiter.middleware("auth"));
 app.post("/auth/signup", authJson, userAuth.handleAuthSignup);
 app.post("/auth/login", authJson, userAuth.handleAuthLogin);
 app.post("/auth/apple", authJson, userAuth.handleAuthApple);
@@ -31329,6 +31392,7 @@ const clearTalkIdempotencyPending = (req, opts) =>
 const captureTalkResponseHeaders = (res) =>
   talkIdempotencyHelpers.captureResponseHeaders(res);
 
+app.post("/talk", providerBudgetGuard.middleware("talk"));
 mountTalkPipelineRoutes(app, {
   talkRateLimitGuard,
   requireClientTokenForTalk,

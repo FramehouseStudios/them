@@ -74,7 +74,7 @@ function createRateLimiter({
   }
 
   function keyFor(req, routeClass) {
-    const userId = req?.userId || req?.user?.id || null;
+    const userId = req?.authUser?.id || req?.userId || req?.user?.id || null;
     if (userId) return `u:${userId}|${routeClass}`;
     // Trust the leftmost X-Forwarded-For entry when present (set by the
     // load balancer); fall back to the socket address.
