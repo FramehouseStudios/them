@@ -16,9 +16,11 @@ import {
 import {
   buildModelPrompt,
   buildModelPromptParts,
+  inferScreenplayTask,
   MEMORY_BLOCK_OPEN,
   MEMORY_BLOCK_CLOSE,
   BLOCK_SIGNAL_BLOCK_OPEN,
+  SCREENPLAY_TASK_BLOCK_OPEN,
 } from "../lib/prompt_assembly.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 
@@ -162,6 +164,25 @@ test("buildModelPrompt orders blocks: persona → memory → session → user", 
   const sessionIdx = out.indexOf("<session>");
   const userIdx = out.indexOf("USER-MARK");
   assert.ok(personaIdx >= 0 && memoryIdx > personaIdx && sessionIdx > memoryIdx && userIdx > sessionIdx);
+});
+
+test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs", () => {
+  assert.equal(inferScreenplayTask("Rewrite this scene with more subtext.").intent, "rewrite_scene");
+  assert.equal(inferScreenplayTask("Continue the script from this moment.").intent, "continue_script");
+  assert.equal(inferScreenplayTask("Give me scene doctor notes.").intent, "scene_doctor");
+  assert.equal(inferScreenplayTask("Punch up the dialogue.").intent, "dialogue_punchup");
+  assert.equal(inferScreenplayTask("Fix the emotional continuity.").intent, "emotional_continuity");
+});
+
+test("[screenplay-task] buildModelPrompt injects task block before user input", () => {
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    screenplayTask: inferScreenplayTask("Write a scene where June walks into the diner."),
+    userInput: "Write a scene where June walks into the diner.",
+  });
+  assert.ok(out.includes(SCREENPLAY_TASK_BLOCK_OPEN));
+  assert.ok(out.includes("intent: write_scene"));
+  assert.ok(out.indexOf(SCREENPLAY_TASK_BLOCK_OPEN) < out.indexOf("Write a scene where June"));
 });
 
 test("buildModelPrompt is deterministic (same inputs → same output)", () => {

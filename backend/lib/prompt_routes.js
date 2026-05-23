@@ -1,4 +1,4 @@
-import { buildModelPrompt } from "./prompt_assembly.js";
+import { buildModelPrompt, inferScreenplayTask } from "./prompt_assembly.js";
 
 const PROMPT_SCHEMA_VERSION = 1;
 
@@ -56,12 +56,14 @@ function mountPromptRoutes(app, {
     const sessionContext = sanitizeSessionContext(
       req.body?.session_context ?? req.body?.sessionContext
     );
+    const screenplayTask = inferScreenplayTask(userInput);
 
     let prompt = buildModelPrompt({
       persona,
       creativeMemory,
       userInput,
       sessionContext,
+      screenplayTask,
     });
 
     const includeCraftContext = Boolean(
@@ -90,6 +92,8 @@ function mountPromptRoutes(app, {
       session_context_applied: Boolean(sessionContext),
       craft_context_applied: craftContextApplied,
       craft_framework_id: includeCraftContext ? craftFrameworkId : "",
+      screenplay_task_intent: screenplayTask?.intent || "",
+      screenplay_task_label: screenplayTask?.label || "",
     });
   });
 }

@@ -76,11 +76,15 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.equal(body.session_context_applied, true);
       assert.equal(body.craft_context_applied, true);
       assert.equal(body.craft_framework_id, "story-circle");
+      assert.equal(body.screenplay_task_intent, "write_scene");
+      assert.equal(body.screenplay_task_label, "Write Scene");
       assert.equal(requestedMemoryUserId(), "user-prompt-1");
       assert.ok(body.prompt.includes("PERSONA"));
       assert.ok(body.prompt.includes(MEMORY_BLOCK_OPEN));
       assert.ok(body.prompt.includes("tone: dry"));
       assert.ok(body.prompt.includes("<session>"));
+      assert.ok(body.prompt.includes("<screenplay_task>"));
+      assert.ok(body.prompt.includes("intent: write_scene"));
       assert.ok(body.prompt.includes("project: proj-77"));
       assert.ok(body.prompt.includes("Write the all-is-lost beat."));
       assert.ok(body.prompt.includes("CRAFT CONTEXT (story-circle)"));

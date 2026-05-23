@@ -32,6 +32,8 @@ const BLOCK_SIGNAL_BLOCK_CLOSE = "</block_signal>";
 // reads last.
 const ACCEPTED_TWISTS_BLOCK_OPEN = "<accepted_twists>";
 const ACCEPTED_TWISTS_BLOCK_CLOSE = "</accepted_twists>";
+const SCREENPLAY_TASK_BLOCK_OPEN = "<screenplay_task>";
+const SCREENPLAY_TASK_BLOCK_CLOSE = "</screenplay_task>";
 
 function isNonEmptyObject(v) {
   return v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length > 0;
@@ -44,6 +46,82 @@ function isNonEmptyArray(v) {
 function trimToString(v) {
   if (v === null || v === undefined) return "";
   return String(v).trim();
+}
+
+function hasAny(text, patterns) {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function inferScreenplayTask(userInput = "") {
+  const text = trimToString(userInput);
+  const lower = text.toLowerCase();
+  if (!lower) return null;
+  const dialogueLike = hasAny(lower, [/\b(dialogue|line|voice|banter|monologue|subtext)\b/]);
+  const rewriteLike = hasAny(lower, [/\b(rewrite|revise|polish|make it better|do another pass)\b/])
+    || (hasAny(lower, [/\bpunch up\b/]) && !dialogueLike);
+
+  let intent = "general_story";
+  let label = "General Story Help";
+  let output = "Give specific, cinematic story guidance with one concrete next move.";
+
+  if (rewriteLike) {
+    intent = "rewrite_scene";
+    label = "Rewrite Scene";
+    output = "Return a revised scene or passage in clean screenplay/Fountain style, preserving story intent while improving specificity, rhythm, and emotional truth.";
+  } else if (hasAny(lower, [/\b(continue|keep going|next scene|what happens next|finish this scene|carry on)\b/])) {
+    intent = "continue_script";
+    label = "Continue Script";
+    output = "Continue from the current draft in screenplay/Fountain style, matching tone, character voice, and emotional continuity.";
+  } else if (hasAny(lower, [/\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/, /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/])) {
+    intent = "write_scene";
+    label = "Write Scene";
+    output = "Write usable screenplay pages in clean Fountain style with scene headings, action, character cues, dialogue, and restrained parentheticals.";
+  } else if (hasAny(lower, [/\b(scene doctor|doctor this|coverage|feedback|notes|diagnose|what'?s wrong|fix this scene)\b/])) {
+    intent = "scene_doctor";
+    label = "Scene Doctor";
+    output = "Give concise script-doctor notes: what works, what is not landing, and the highest-leverage fix. Include sample replacement lines only when useful.";
+  } else if (hasAny(lower, [/\b(outline|beat sheet|beats|act structure|three act|save the cat|story circle|hero'?s journey)\b/])) {
+    intent = "outline_structure";
+    label = "Outline And Structure";
+    output = "Shape the story into clear beats or structural moves with emotional cause-and-effect.";
+  } else if (hasAny(lower, [/\b(character|arc|motivation|want|need|flaw|relationship)\b/])) {
+    intent = "character_development";
+    label = "Character Development";
+    output = "Clarify character want, need, wound, contradiction, and behavior on the page. Keep suggestions playable, not abstract.";
+  } else if (dialogueLike) {
+    intent = "dialogue_punchup";
+    label = "Dialogue Punch-Up";
+    output = "Punch up dialogue with subtext, distinct voices, and rhythm. Prefer a few strong lines over a long explanation.";
+  } else if (hasAny(lower, [/\b(tone|emotional continuity|emotion|feeling|mood|vibe|heart)\b/])) {
+    intent = "emotional_continuity";
+    label = "Emotional Continuity";
+    output = "Track the emotional handoff from beat to beat and protect the scene's felt truth.";
+  } else if (hasAny(lower, [/\b(pacing|slow|dragging|too fast|momentum|length|tighten)\b/])) {
+    intent = "pacing_pass";
+    label = "Pacing Pass";
+    output = "Identify drag, compression points, escalation gaps, and page-level fixes that keep momentum alive.";
+  }
+
+  return { intent, label, output };
+}
+
+function buildScreenplayTaskBlock(screenplayTask) {
+  const task = screenplayTask && typeof screenplayTask === "object"
+    ? screenplayTask
+    : inferScreenplayTask(screenplayTask);
+  if (!task || !task.intent) return "";
+  const intent = trimToString(task.intent);
+  const label = trimToString(task.label) || intent;
+  const output = trimToString(task.output);
+  if (!intent) return "";
+  const lines = [
+    `intent: ${intent}`,
+    `label: ${label}`,
+    "role: Clementine is an elite cinematic writing partner, not a generic chatbot.",
+  ];
+  if (output) lines.push(`output: ${output}`);
+  lines.push("quality: Be emotionally intelligent, specific, film-literate, concise when possible, and directly useful on the page.");
+  return `${SCREENPLAY_TASK_BLOCK_OPEN}\n${lines.join("\n")}\n${SCREENPLAY_TASK_BLOCK_CLOSE}`;
 }
 
 function serializeStyle(style) {
@@ -152,6 +230,7 @@ function buildModelPrompt({
   sessionContext = null,
   blockCoaching = "",
   acceptedTwists = null,
+  screenplayTask = null,
 } = {}) {
   const parts = [];
   const personaText = trimToString(persona);
@@ -168,6 +247,9 @@ function buildModelPrompt({
   // the user input. Snapshot eval #112 pins this order.
   const acceptedTwistsBlock = buildAcceptedTwistsBlock(acceptedTwists);
   if (acceptedTwistsBlock) parts.push(acceptedTwistsBlock);
+
+  const screenplayTaskBlock = buildScreenplayTaskBlock(screenplayTask);
+  if (screenplayTaskBlock) parts.push(screenplayTaskBlock);
 
   const blockSignalBlock = buildBlockSignalBlock(blockCoaching);
   if (blockSignalBlock) parts.push(blockSignalBlock);
@@ -186,6 +268,7 @@ function buildModelPromptParts(args) {
     memoryBlock: buildMemoryBlock(args?.creativeMemory),
     sessionBlock: buildSessionContextBlock(args?.sessionContext),
     acceptedTwistsBlock: buildAcceptedTwistsBlock(args?.acceptedTwists),
+    screenplayTaskBlock: buildScreenplayTaskBlock(args?.screenplayTask),
     blockSignalBlock: buildBlockSignalBlock(args?.blockCoaching),
     userInput: trimToString(args?.userInput),
   };
@@ -194,10 +277,13 @@ function buildModelPromptParts(args) {
 export {
   buildModelPrompt,
   buildModelPromptParts,
+  inferScreenplayTask,
   MEMORY_BLOCK_OPEN,
   MEMORY_BLOCK_CLOSE,
   BLOCK_SIGNAL_BLOCK_OPEN,
   BLOCK_SIGNAL_BLOCK_CLOSE,
   ACCEPTED_TWISTS_BLOCK_OPEN,
   ACCEPTED_TWISTS_BLOCK_CLOSE,
+  SCREENPLAY_TASK_BLOCK_OPEN,
+  SCREENPLAY_TASK_BLOCK_CLOSE,
 };
