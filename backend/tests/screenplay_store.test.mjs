@@ -242,6 +242,27 @@ test("[screenplay-store] recalculateScreenplayProject computes derived counts", 
   assert.equal(project.storyScore, 0.5);
 });
 
+test("[screenplay-store] recalculateScreenplayProject resets stale active version to latest", () => {
+  resetStore();
+  configureScreenplayStore(buildDefaultDeps());
+  const project = {
+    id: "p_restore",
+    activeVersionId: "missing_version",
+    versions: [
+      { id: "v1", updatedAt: 100 },
+      { id: "v2", updatedAt: 200 },
+    ],
+    outline: { acts: [], scenes: [], beats: [] },
+    collaborators: [],
+    comments: [],
+  };
+
+  recalculateScreenplayProject(project);
+
+  assert.equal(project.lastVersionId, "v2");
+  assert.equal(project.activeVersionId, "v2");
+});
+
 test("[screenplay-store] markScreenplayOwnerDirty sorts projects by updatedAt desc", () => {
   resetStore();
   configureScreenplayStore(buildDefaultDeps());

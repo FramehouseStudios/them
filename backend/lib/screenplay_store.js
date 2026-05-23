@@ -163,7 +163,10 @@ function recalculateScreenplayProject(project) {
   project.versionCount = Array.isArray(project.versions) ? project.versions.length : 0;
   project.lastVersionId = latestVersion?.id || "";
   project.lastVersionAt = Math.max(0, Number(latestVersion?.updatedAt || latestVersion?.createdAt || 0));
-  project.activeVersionId = normalizeSnippet(project.activeVersionId, 64) || project.lastVersionId;
+  const activeVersionId = normalizeSnippet(project.activeVersionId, 64);
+  project.activeVersionId = Array.isArray(project.versions) && project.versions.some((version) => version.id === activeVersionId)
+    ? activeVersionId
+    : project.lastVersionId;
   project.lastPhase = normalizeSnippet(project.lastPhase, 48) || normalizeSnippet(latestVersion?.phase, 48) || "scene_draft";
   project.formatScore = Number(latestVersion?.formatScore || 0);
   project.storyScore = Number(latestVersion?.storyScore || 0);

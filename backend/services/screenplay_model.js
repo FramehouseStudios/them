@@ -1353,11 +1353,17 @@ function toScreenplayProjectPayload(project, options = {}) {
   const versionLimit = Math.max(1, Number(options.versionLimit || 24));
   const safeProject = recalculateScreenplayProject(project);
   const studioExportSettings = backfillScreenplayStudioExportSettings(safeProject);
+  const sortedVersions = [...(safeProject.versions || [])]
+    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+  const versionsForPayload = sortedVersions.slice(0, versionLimit);
+  if (includeVersions && safeProject.activeVersionId) {
+    const activeVersion = sortedVersions.find((item) => item.id === safeProject.activeVersionId);
+    if (activeVersion && !versionsForPayload.some((item) => item.id === activeVersion.id)) {
+      versionsForPayload.push(activeVersion);
+    }
+  }
   const versions = includeVersions
-    ? [...(safeProject.versions || [])]
-        .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0))
-        .slice(0, versionLimit)
-        .map((item) => toScreenplayVersionPayload(item, { includeDraft: includeDrafts }))
+    ? versionsForPayload.map((item) => toScreenplayVersionPayload(item, { includeDraft: includeDrafts }))
     : undefined;
   return {
     id: safeProject.id,
