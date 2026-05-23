@@ -4139,6 +4139,11 @@ final class BackendClient {
         guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
             return false
         }
+        #if !DEBUG
+        if isLoopbackHost(host) {
+            return false
+        }
+        #endif
         return true
     }
 
@@ -4146,7 +4151,7 @@ final class BackendClient {
         guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return url
         }
-        guard host == "localhost" || host == "::1" || host == "[::1]" else {
+        guard isLoopbackHost(host) else {
             return url
         }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -4154,6 +4159,14 @@ final class BackendClient {
         }
         components.host = "127.0.0.1"
         return components.url ?? url
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "localhost"
+            || normalized == "127.0.0.1"
+            || normalized == "::1"
+            || normalized == "[::1]"
     }
 
     private func looksLikeMP3(_ data: Data) -> Bool {

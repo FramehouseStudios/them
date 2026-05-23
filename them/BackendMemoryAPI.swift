@@ -2140,17 +2140,19 @@ nonisolated enum BackendAuthClient {
 
     private static func baseURL() -> URL {
         let fromDefaults = preferenceString(forKey: DefaultsKey.baseURL)
-        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults) {
+        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
            isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo) {
+           let url = URL(string: fromInfo),
+           isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_URL") as? String,
            isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo) {
+           let url = URL(string: fromInfo),
+           isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
         #if DEBUG
@@ -2164,7 +2166,7 @@ nonisolated enum BackendAuthClient {
         guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return url
         }
-        guard host == "localhost" || host == "::1" || host == "[::1]" else {
+        guard isLoopbackHost(host) else {
             return url
         }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -2172,6 +2174,29 @@ nonisolated enum BackendAuthClient {
         }
         components.host = "127.0.0.1"
         return components.url ?? url
+    }
+
+    private static func isUsableBackendURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
+            return false
+        }
+        #if !DEBUG
+        if isLoopbackHost(host) {
+            return false
+        }
+        #endif
+        return true
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "localhost"
+            || normalized == "127.0.0.1"
+            || normalized == "::1"
+            || normalized == "[::1]"
     }
 
     private static func appToken() -> String? {
@@ -5142,17 +5167,19 @@ actor BackendMemoryAPI {
             return baseURLOverride
         }
         let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
-        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults) {
+        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
            isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo) {
+           let url = URL(string: fromInfo),
+           isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_URL") as? String,
            isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo) {
+           let url = URL(string: fromInfo),
+           isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
 #if DEBUG
@@ -5166,7 +5193,7 @@ actor BackendMemoryAPI {
         guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return url
         }
-        guard host == "localhost" || host == "::1" || host == "[::1]" else {
+        guard isLoopbackHost(host) else {
             return url
         }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -5174,6 +5201,29 @@ actor BackendMemoryAPI {
         }
         components.host = "127.0.0.1"
         return components.url ?? url
+    }
+
+    private func isUsableBackendURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
+            return false
+        }
+        #if !DEBUG
+        if isLoopbackHost(host) {
+            return false
+        }
+        #endif
+        return true
+    }
+
+    private func isLoopbackHost(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "localhost"
+            || normalized == "127.0.0.1"
+            || normalized == "::1"
+            || normalized == "[::1]"
     }
 
     private func appToken() -> String? {
