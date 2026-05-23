@@ -44,6 +44,13 @@ private enum InspectorAutoScrollDirection {
     case down
 }
 
+struct ScreenplayLocalDraftRecoverySnapshot: Equatable {
+    let projectId: String
+    let draft: String
+    let baseVersionId: String
+    let savedAt: TimeInterval
+}
+
 struct ScreenplayLocalDraftRecoveryStore {
     static let defaultKey = "screenplay.studio.localDraftRecovery.v1"
 
@@ -90,6 +97,36 @@ struct ScreenplayLocalDraftRecoveryStore {
         var nextPayloads = payloads()
         nextPayloads.removeValue(forKey: normalizedProjectId)
         defaults.set(nextPayloads, forKey: key)
+    }
+
+    func recoverySnapshot(
+        projectId: String,
+        serverDraft: String,
+        fingerprint: (String) -> String
+    ) -> ScreenplayLocalDraftRecoverySnapshot? {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else { return nil }
+        guard let stored = payloads()[normalizedProjectId] else { return nil }
+
+        let storedDraft = String(describing: stored["draft"] ?? "")
+        let storedDirty = stored["dirty"] as? Bool ?? false
+        guard storedDirty, !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        let serverFingerprint = fingerprint(serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        let localFingerprint = fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard serverFingerprint != localFingerprint else {
+            clear(projectId: normalizedProjectId)
+            return nil
+        }
+
+        return ScreenplayLocalDraftRecoverySnapshot(
+            projectId: normalizedProjectId,
+            draft: storedDraft,
+            baseVersionId: String(describing: stored["baseVersionId"] ?? ""),
+            savedAt: stored["savedAt"] as? TimeInterval ?? 0
+        )
     }
 }
 
@@ -2868,8 +2905,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             conflictState = nil
             evaluateLocalDraftRecovery(
                 projectId: selectedProjectID,
-                serverDraft: draft,
-                serverVersionId: versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                serverDraft: draft
             )
             return
         }
@@ -2889,8 +2925,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         conflictState = nil
         evaluateLocalDraftRecovery(
             projectId: selectedProjectID,
-            serverDraft: draft,
-            serverVersionId: latestVersionID
+            serverDraft: draft
         )
         Task { await refreshDraftInsights() }
     }
@@ -3254,46 +3289,26 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     private func evaluateLocalDraftRecovery(
         projectId: String,
-        serverDraft: String,
-        serverVersionId: String
+        serverDraft: String
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             recoveryCandidate = nil
             return
         }
-        let payloads = draftRecoveryPayloads()
-        guard let stored = payloads[normalizedProjectId] else {
+        guard let snapshot = localDraftRecoveryStore.recoverySnapshot(
+            projectId: normalizedProjectId,
+            serverDraft: serverDraft,
+            fingerprint: { [weak self] value in self?.fingerprint(for: value) ?? value }
+        ) else {
             recoveryCandidate = nil
-            return
-        }
-        let storedDraft = String(describing: stored["draft"] ?? "")
-        let storedDirty = stored["dirty"] as? Bool ?? false
-        guard storedDirty, !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            recoveryCandidate = nil
-            return
-        }
-        let serverFingerprint = fingerprint(for: serverDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-        let localFingerprint = fingerprint(for: storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard serverFingerprint != localFingerprint else {
-            recoveryCandidate = nil
-            clearLocalDraftRecovery(projectId: normalizedProjectId)
-            return
-        }
-        let baseVersionId = String(describing: stored["baseVersionId"] ?? "")
-        let savedAt = stored["savedAt"] as? TimeInterval ?? 0
-        if !serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            baseVersionId == serverVersionId &&
-            !hasUnsavedDraftChanges {
-            recoveryCandidate = nil
-            clearLocalDraftRecovery(projectId: normalizedProjectId)
             return
         }
         recoveryCandidate = LocalDraftRecoveryCandidate(
-            projectId: normalizedProjectId,
-            draft: storedDraft,
-            baseVersionId: baseVersionId,
-            savedAt: savedAt
+            projectId: snapshot.projectId,
+            draft: snapshot.draft,
+            baseVersionId: snapshot.baseVersionId,
+            savedAt: snapshot.savedAt
         )
     }
 

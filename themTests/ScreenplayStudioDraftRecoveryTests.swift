@@ -52,4 +52,53 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertNil(payloads["project-a"])
         XCTAssertEqual(payloads["project-b"]?["draft"] as? String, "B")
     }
+
+    func testRecoverySnapshotPreservesUnsavedDraftBasedOnCurrentServerVersion() {
+        store.save(
+            projectId: "project-recovery",
+            draft: "INT. MOTEL ROOM - NIGHT\n\nShe adds the line she cannot forget.",
+            baseVersionId: "server-current",
+            dirty: true,
+            savedAt: 1_700_000_123
+        )
+
+        let snapshot = store.recoverySnapshot(
+            projectId: "project-recovery",
+            serverDraft: "INT. MOTEL ROOM - NIGHT",
+            fingerprint: stableFingerprint
+        )
+
+        XCTAssertEqual(snapshot?.projectId, "project-recovery")
+        XCTAssertEqual(snapshot?.baseVersionId, "server-current")
+        XCTAssertEqual(snapshot?.savedAt, 1_700_000_123)
+        XCTAssertEqual(snapshot?.draft, "INT. MOTEL ROOM - NIGHT\n\nShe adds the line she cannot forget.")
+    }
+
+    func testRecoverySnapshotClearsWhenStoredDraftMatchesServerDraft() {
+        store.save(
+            projectId: "project-recovery",
+            draft: "INT. MOTEL ROOM - NIGHT",
+            baseVersionId: "server-current",
+            dirty: true,
+            savedAt: 1_700_000_123
+        )
+
+        let snapshot = store.recoverySnapshot(
+            projectId: "project-recovery",
+            serverDraft: "INT. MOTEL ROOM - NIGHT",
+            fingerprint: stableFingerprint
+        )
+
+        XCTAssertNil(snapshot)
+        XCTAssertNil(store.payloads()["project-recovery"])
+    }
+
+    private func stableFingerprint(_ value: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
+    }
 }
