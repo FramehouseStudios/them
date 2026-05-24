@@ -1006,11 +1006,33 @@ enum BackendError: LocalizedError {
     case emptyAudio
     case invalidAudioType(String)
 
+    var requiresUserAuthentication: Bool {
+        switch self {
+        case let .stage(stage, message):
+            let normalizedStage = stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalizedStage == "auth_user" ||
+                normalizedMessage == "user_auth_required" ||
+                normalizedMessage == "expired_user_token" ||
+                normalizedMessage == "invalid_user_token" ||
+                normalizedMessage == "revoked_user_token"
+        case let .http(status, message):
+            return status == 401 && message.lowercased().contains("user_auth")
+        default:
+            return false
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case let .stage(stage, message):
+            if requiresUserAuthentication {
+                return "Sign in to use live writing, voice, and visual context."
+            }
             let label: String
             switch stage.lowercased() {
+            case "auth_client":
+                label = "Session"
             case "stt":
                 label = "Voice capture"
             case "chat":
@@ -1021,6 +1043,10 @@ enum BackendError: LocalizedError {
                 label = "Upload"
             case "session":
                 label = "Session"
+            case "studio_render":
+                label = "Studio render"
+            case "visual_context":
+                label = "Visual context"
             default:
                 label = stage.uppercased()
             }
@@ -1594,18 +1620,26 @@ final class BackendClient {
                 throw BackendError.http(-1, "Invalid screenplay prompt response.")
             }
             guard (200...299).contains(http.statusCode) else {
-                if http.statusCode == 401, allowClientTokenRefresh {
-                    clearSessionToken()
-                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
-                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
-                }
-                if let stageError = parseStageError(from: data) {
+                let parsedStageError = parseStageError(from: data)
+                if let stageError = parsedStageError {
+                    if allowClientTokenRefresh,
+                       isUserAuthStage(stageError.stage),
+                       await refreshUserAuthForRetryIfPossible() {
+                        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: false)
+                    }
                     if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                         clearSessionToken()
                         let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
                         return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                     }
                     throw BackendError.stage(stageError.stage, stageError.message)
+                }
+                if http.statusCode == 401,
+                   allowClientTokenRefresh,
+                   !isUserAuthStage(parsedStageError?.stage ?? "") {
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                 }
                 let raw = String(data: data, encoding: .utf8) ?? ""
                 throw BackendError.http(http.statusCode, raw)
@@ -1930,7 +1964,8 @@ final class BackendClient {
         isScreenplayMode: Bool = false,
         voice: String? = nil,
         model: String? = nil,
-        realtimeProvider: String? = nil
+        realtimeProvider: String? = nil,
+        allowAuthTokenRefresh: Bool = true
     ) async throws -> BackendRealtimeBootstrap {
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveUserID()
@@ -1966,6 +2001,19 @@ final class BackendClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if let stageError = parseStageError(from: data) {
+                if allowAuthTokenRefresh,
+                   isUserAuthStage(stageError.stage),
+                   await refreshUserAuthForRetryIfPossible() {
+                    return try await fetchRealtimeClientSecret(
+                        systemPrompt: systemPrompt,
+                        userName: userName,
+                        isScreenplayMode: isScreenplayMode,
+                        voice: voice,
+                        model: model,
+                        realtimeProvider: realtimeProvider,
+                        allowAuthTokenRefresh: false
+                    )
+                }
                 throw BackendError.stage(stageError.stage, stageError.message)
             }
             let raw = String(data: data, encoding: .utf8) ?? ""
@@ -2046,18 +2094,26 @@ final class BackendClient {
                 throw BackendError.http(-1, "Invalid Studio render response.")
             }
             guard (200...299).contains(http.statusCode) else {
-                if http.statusCode == 401, allowClientTokenRefresh {
-                    clearSessionToken()
-                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
-                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
-                }
-                if let stageError = parseStageError(from: data) {
+                let parsedStageError = parseStageError(from: data)
+                if let stageError = parsedStageError {
+                    if allowClientTokenRefresh,
+                       isUserAuthStage(stageError.stage),
+                       await refreshUserAuthForRetryIfPossible() {
+                        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: false)
+                    }
                     if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                         clearSessionToken()
                         let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
                         return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                     }
                     throw BackendError.stage(stageError.stage, stageError.message)
+                }
+                if http.statusCode == 401,
+                   allowClientTokenRefresh,
+                   !isUserAuthStage(parsedStageError?.stage ?? "") {
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                 }
                 let raw = String(data: data, encoding: .utf8) ?? ""
                 throw BackendError.http(http.statusCode, raw)
@@ -2127,18 +2183,26 @@ final class BackendClient {
             }
             guard (200...299).contains(http.statusCode) else {
                 let data = try await collectAsyncBytes(bytes)
-                if http.statusCode == 401, allowClientTokenRefresh {
-                    clearSessionToken()
-                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
-                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
-                }
-                if let stageError = parseStageError(from: data) {
+                let parsedStageError = parseStageError(from: data)
+                if let stageError = parsedStageError {
+                    if allowClientTokenRefresh,
+                       isUserAuthStage(stageError.stage),
+                       await refreshUserAuthForRetryIfPossible() {
+                        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: false)
+                    }
                     if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                         clearSessionToken()
                         let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
                         return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                     }
                     throw BackendError.stage(stageError.stage, stageError.message)
+                }
+                if http.statusCode == 401,
+                   allowClientTokenRefresh,
+                   !isUserAuthStage(parsedStageError?.stage ?? "") {
+                    clearSessionToken()
+                    let refreshed = try await refreshClientToken(for: resolvedBaseURL, userID: userID)
+                    return try await performRequest(clientToken: refreshed, allowClientTokenRefresh: false)
                 }
                 let raw = String(data: data, encoding: .utf8) ?? ""
                 throw BackendError.http(http.statusCode, raw)
@@ -2309,7 +2373,8 @@ final class BackendClient {
         transcript: String,
         appName: String,
         windowTitle: String,
-        isScreenplayMode: Bool
+        isScreenplayMode: Bool,
+        allowAuthTokenRefresh: Bool = true
     ) async throws -> BackendVisualContextEnvelope {
         guard !imageData.isEmpty else {
             throw BackendError.stage("visual_context", "Visual context image was empty.")
@@ -2351,6 +2416,19 @@ final class BackendClient {
         }
         guard (200...299).contains(http.statusCode) else {
             if let stageError = parseStageError(from: data) {
+                if allowAuthTokenRefresh,
+                   isUserAuthStage(stageError.stage),
+                   await refreshUserAuthForRetryIfPossible() {
+                    return try await summarizeVisualContext(
+                        imageData: imageData,
+                        mimeType: mimeType,
+                        transcript: transcript,
+                        appName: appName,
+                        windowTitle: windowTitle,
+                        isScreenplayMode: isScreenplayMode,
+                        allowAuthTokenRefresh: false
+                    )
+                }
                 throw BackendError.stage(stageError.stage, stageError.message)
             }
             let raw = String(data: data, encoding: .utf8) ?? ""
@@ -2900,7 +2978,51 @@ final class BackendClient {
         }
 
         guard statusCode == 200 else {
-            if statusCode == 401, allowClientTokenRefresh {
+            let parsedStageError = parseStageError(from: data)
+            if statusCode == 401,
+               allowClientTokenRefresh,
+               let stageError = parsedStageError,
+               isUserAuthStage(stageError.stage),
+               await refreshUserAuthForRetryIfPossible() {
+                print("POST /talk -> auth_user received, refreshed auth token and retrying once")
+                return try await performTalk(
+                    fileURL: fileURL,
+                    fileDataOverride: fileDataOverride,
+                    baseURL: baseURL,
+                    userID: userID,
+                    clientToken: clientToken,
+                    systemPrompt: systemPrompt,
+                    stage: stage,
+                    depthScore: depthScore,
+                    romanceTension: romanceTension,
+                    sessionCount: sessionCount,
+                    personaPreset: personaPreset,
+                    memoryCue: memoryCue,
+                    idempotencyKey: idempotencyKey,
+                    tailSilenceMs: tailSilenceMs,
+                    vadThreshold: vadThreshold,
+                    speechMs: speechMs,
+                    noiseFloorRms: noiseFloorRms,
+                    speechRms: speechRms,
+                    userName: userName,
+                    partialTranscriptHint: partialTranscriptHint,
+                    speculativeReuseKey: speculativeReuseKey,
+                    speculativePromptHash: speculativePromptHash,
+                    studioMetadata: studioMetadata,
+                    clientTranscriptOverride: clientTranscriptOverride,
+                    screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
+                    onResponseMetadataReady: onResponseMetadataReady,
+                    onFirstAudioSegmentReady: onFirstAudioSegmentReady,
+                    onTextReady: onTextReady,
+                    onDebugEvent: onDebugEvent,
+                    allowClientTokenRefresh: false,
+                    allowAudioValidationRetry: allowAudioValidationRetry,
+                    forceNoStreamAudio: forceNoStreamAudio
+                )
+            }
+            if statusCode == 401,
+               allowClientTokenRefresh,
+               !isUserAuthStage(parsedStageError?.stage ?? "") {
                 print("POST /talk -> 401 unauthorized, refreshing session token and retrying once")
                 clearSessionToken()
                 let refreshed = try await refreshClientToken(for: baseURL, userID: userID)
@@ -2951,7 +3073,7 @@ final class BackendClient {
                     throw BackendError.continueListening
                 }
             }
-            if let stageError = parseStageError(from: data) {
+            if let stageError = parsedStageError {
                 if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                     print("POST /talk -> auth_client received, refreshing session token and retrying once")
                     clearSessionToken()
@@ -3489,7 +3611,11 @@ final class BackendClient {
         return generated
     }
 
-    private func refreshClientToken(for baseURL: URL, userID: String) async throws -> String {
+    private func refreshClientToken(
+        for baseURL: URL,
+        userID: String,
+        allowAuthTokenRefresh: Bool = true
+    ) async throws -> String {
         var request = URLRequest(url: baseURL.appendingPathComponent("session"))
         request.httpMethod = "POST"
         request.timeoutInterval = 15
@@ -3521,6 +3647,15 @@ final class BackendClient {
 
         guard (200...299).contains(status) else {
             if let stageError = parseStageError(from: data) {
+                if allowAuthTokenRefresh,
+                   isUserAuthStage(stageError.stage),
+                   await refreshUserAuthForRetryIfPossible() {
+                    return try await refreshClientToken(
+                        for: baseURL,
+                        userID: userID,
+                        allowAuthTokenRefresh: false
+                    )
+                }
                 throw BackendError.stage(stageError.stage, stageError.message)
             }
             let raw = String(data: data, encoding: .utf8) ?? ""
@@ -4102,6 +4237,21 @@ final class BackendClient {
     private func attachAuthorizationHeader(to request: inout URLRequest) {
         guard let value = BackendAuthClient.authorizationHeaderValue(), !value.isEmpty else { return }
         request.setValue(value, forHTTPHeaderField: "Authorization")
+    }
+
+    private func isUserAuthStage(_ stage: String) -> Bool {
+        stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "auth_user"
+    }
+
+    private func refreshUserAuthForRetryIfPossible() async -> Bool {
+        let current = BackendAuthClient.currentAuthSessionState()
+        guard current.refreshTokenPresent else { return false }
+        do {
+            let refreshed = try await BackendAuthClient.refreshAuthSession(force: true)
+            return refreshed.isAuthenticated
+        } catch {
+            return false
+        }
     }
 
     private func redactedTokenInfo(_ token: String?) -> String {

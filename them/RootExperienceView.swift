@@ -6338,14 +6338,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
             finalizeDebugVoiceTurn(status: "error", error: "Talk request cancelled.")
 #endif
         } catch {
-            markBackendUnavailable(reason: error.localizedDescription)
-            lastIssueSummary = error.localizedDescription
+            let authRequiredMessage = noteAuthRequiredIfNeeded(error)
+            let failureReason = authRequiredMessage ?? error.localizedDescription
+            if authRequiredMessage == nil {
+                markBackendUnavailable(reason: failureReason)
+                lastIssueSummary = failureReason
+            }
             let committedSyncedFallback = commitSyncedVoiceFallbackIfNeeded(
                 trigger: "talk_or_playback_error",
                 markCompleted: true
             )
             if shouldUseSyncedStudioVoiceInsert, committedSyncedFallback == nil {
-                screenplayDraftBridge.failSyncedVoiceTurn(reason: error.localizedDescription)
+                screenplayDraftBridge.failSyncedVoiceTurn(reason: failureReason)
             }
             if didStartEarlyStudioDraftStream {
                 cancelRealtimeStudioDraftStream(
@@ -6358,10 +6362,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 orbAudio.stop()
             }
             voice.markRequestFailed()
-            HerLog.ui.error("playback error=\(error.localizedDescription, privacy: .public), resume mic")
+            HerLog.ui.error("playback error=\(failureReason, privacy: .public), resume mic")
             voice.resumeRecordingIfNeeded()
 #if DEBUG || os(macOS)
-            finalizeDebugVoiceTurn(status: "error", error: error.localizedDescription)
+            finalizeDebugVoiceTurn(status: "error", error: failureReason)
 #endif
         }
     }
@@ -6680,9 +6684,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
             realtimeStudioRenderUserMessage = ""
             realtimeStudioRenderedReply = ""
-            markBackendUnavailable(reason: error.localizedDescription)
-            lastIssueSummary = error.localizedDescription
-            return error.localizedDescription
+            if let authRequiredMessage = noteAuthRequiredIfNeeded(error) {
+                return authRequiredMessage
+            }
+            let failureReason = error.localizedDescription
+            markBackendUnavailable(reason: failureReason)
+            lastIssueSummary = failureReason
+            return failureReason
         }
     }
 
@@ -6845,6 +6853,33 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if backendFailureCount >= 1 {
             backendConnectionState = .reconnecting
         }
+    }
+
+    private func authRequiredMessageIfNeeded(for error: Error) -> String? {
+        if let backendError = error as? BackendError,
+           backendError.requiresUserAuthentication {
+            return backendError.localizedDescription
+        }
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = message.lowercased()
+        guard normalized.contains("user_auth_required") ||
+              normalized.contains("expired_user_token") ||
+              normalized.contains("invalid_user_token") ||
+              normalized.contains("revoked_user_token") else {
+            return nil
+        }
+        return "Sign in to use live writing, voice, and visual context."
+    }
+
+    @MainActor
+    @discardableResult
+    private func noteAuthRequiredIfNeeded(_ error: Error) -> String? {
+        guard let message = authRequiredMessageIfNeeded(for: error) else { return nil }
+        backendConnectionState = .up
+        backendFailureCount = 0
+        lastIssueSummary = message
+        screenplayDraftBridge.autoInsertStatusText = message
+        return message
     }
 
     @MainActor
@@ -8083,6 +8118,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             } catch is CancellationError {
                 return nil
             } catch {
+                if noteAuthRequiredIfNeeded(error) != nil {
+                    screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
+                    return nil
+                }
                 if shouldFallbackToNonStreamingStudioRender(for: error) {
                     let fallbackReply = sanitizedRealtimeStudioRenderReply(
                         (try? await backend.renderRealtimeStudioText(
@@ -8378,7 +8417,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             lastVisualContextError = ""
             return envelope
         } catch {
-            lastVisualContextError = error.localizedDescription
+            let authRequiredMessage = authRequiredMessageIfNeeded(for: error)
+            lastVisualContextError = authRequiredMessage ?? error.localizedDescription
+            if let authRequiredMessage {
+                backendConnectionState = .up
+                backendFailureCount = 0
+                lastIssueSummary = authRequiredMessage
+            }
             if let cached = lastVisualContextEnvelope,
                Date().timeIntervalSince(lastVisualContextCapturedAt) < 20 {
                 return cached
