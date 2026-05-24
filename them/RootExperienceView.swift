@@ -654,6 +654,7 @@ struct RootExperienceView: View {
     @State private var backendHydrationTask: Task<Void, Never>?
     @State private var backendConnectionState: BackendConnectionState = .checking
     @State private var backendFailureCount = 0
+    @State private var offlineTalkOutboxSnapshot = OfflineTalkOutboxSnapshot.empty
     @State private var isTurnSubmitting = false
     @State private var lastIssueSummary = ""
     @State private var lastHealthStatus: BackendHealthStatus?
@@ -1024,6 +1025,13 @@ struct RootExperienceView: View {
                 .onChange(of: scenePhase) { _, newPhase in
                     DispatchQueue.main.async {
                         handleScenePhaseChange(newPhase)
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)) { notification in
+                    let snapshot = OfflineTalkOutboxSnapshot(notification: notification)
+                    offlineTalkOutboxSnapshot = snapshot
+                    if let status = snapshot.userVisibleStatus, snapshot.hasWork {
+                        showOfflineTalkOutboxBanner(status)
                     }
                 }
                 .onChange(of: isStudioSurfaceActive) { _, newValue in
@@ -2012,6 +2020,7 @@ struct RootExperienceView: View {
         configureVoiceCallbacks()
         voice.isStudioMode = isStudioSurfaceActive
         configureRealtimeCallbacks()
+        startOfflineTalkOutbox()
         startBackendHealthMonitoring()
         scheduleBackendHydration()
         Task { @MainActor in
@@ -2250,6 +2259,7 @@ struct RootExperienceView: View {
 #if DEBUG || os(macOS)
         processPendingStudioDebugCommandsIfNeeded()
 #endif
+        retryOfflineTalkOutbox()
         scheduleBackendHydration()
         Task { @MainActor in
             await screenplayDraftBridge.hydrateBackendCompanionState(force: false)
@@ -6383,6 +6393,32 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: "Talk request cancelled.")
 #endif
+        } catch let queued as BackendTalkQueuedError {
+            backendConnectionState = .reconnecting
+            backendFailureCount = max(backendFailureCount, 1)
+            offlineTalkOutboxSnapshot = queued.snapshot
+            lastIssueSummary = queued.reason
+            isThinking = false
+            showOfflineTalkOutboxBanner(queued.localizedDescription)
+            if shouldUseSyncedStudioVoiceInsert {
+                screenplayDraftBridge.failSyncedVoiceTurn(reason: queued.localizedDescription)
+            }
+            if didStartEarlyStudioDraftStream {
+                cancelRealtimeStudioDraftStream(
+                    restorePreview: true,
+                    debugVoiceTurnToken: debugVoiceTurnToken,
+                    promptPreviewOverride: preparedPrompt.directorText
+                )
+            }
+            if didStartEarlyStreamPlayback {
+                orbAudio.stop()
+            }
+            voice.markRequestFailed()
+            HerLog.ui.info("talk request queued for offline retry")
+            voice.resumeRecordingIfNeeded()
+#if DEBUG || os(macOS)
+            finalizeDebugVoiceTurn(status: "queued", error: queued.localizedDescription)
+#endif
         } catch {
             let authRequiredMessage = noteAuthRequiredIfNeeded(error)
             let failureReason = authRequiredMessage ?? error.localizedDescription
@@ -6831,6 +6867,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     private func shouldRetryTalkOnce(for error: Error) -> Bool {
         if error is CancellationError { return false }
+        if error is BackendTalkQueuedError { return false }
         if case BackendError.continueListening = error { return false }
         if let urlError = error as? URLError {
             switch urlError.code {
@@ -6982,6 +7019,26 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func startOfflineTalkOutbox() {
+        Task { @MainActor in
+            await OfflineTalkOutbox.shared.startNetworkMonitoring()
+            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
+            if offlineTalkOutboxSnapshot.activeCount > 0 {
+                _ = await OfflineTalkOutbox.shared.drainDue()
+            }
+        }
+    }
+
+    @MainActor
+    private func retryOfflineTalkOutbox() {
+        Task { @MainActor in
+            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
+            guard offlineTalkOutboxSnapshot.activeCount > 0 else { return }
+            offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
+        }
+    }
+
+    @MainActor
     private func refreshBackendHealth() async {
         guard !IOThemRuntime.isRunningTests else { return }
         do {
@@ -6995,6 +7052,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 backendFailureCount = 0
                 await refreshOpsRouteManifestIfNeeded(force: false)
                 await refreshTalkDiagnostics(force: false)
+                offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
                 return
             }
 
@@ -7130,6 +7188,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
         transientTurnBannerTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 4_200_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.22)) {
+                transientTurnBannerText = nil
+            }
+        }
+    }
+
+    @MainActor
+    private func showOfflineTalkOutboxBanner(_ rawMessage: String) {
+        let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        transientTurnBannerTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            transientTurnBannerText = message
+        }
+        transientTurnBannerTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_400_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.22)) {
                 transientTurnBannerText = nil
@@ -8735,6 +8810,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private var connectionBannerText: String? {
+        if let outboxStatus = offlineTalkOutboxSnapshot.userVisibleStatus {
+            return outboxStatus
+        }
         switch backendConnectionState {
         case .up:
             return nil

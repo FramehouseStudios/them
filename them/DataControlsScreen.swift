@@ -6,6 +6,7 @@ import AppKit
 private enum DataControlAction: String, Identifiable {
     case clearHistory
     case clearMemories
+    case clearParkedOutbox
     case deleteAccount
 
     var id: String { rawValue }
@@ -16,6 +17,8 @@ private enum DataControlAction: String, Identifiable {
             return "Clear History"
         case .clearMemories:
             return "Delete All Memories"
+        case .clearParkedOutbox:
+            return "Delete Parked Turns"
         case .deleteAccount:
             return "Delete Account"
         }
@@ -27,6 +30,8 @@ private enum DataControlAction: String, Identifiable {
             return "This removes stored conversation history and transcript trail for this assistant context. This cannot be undone."
         case .clearMemories:
             return "This removes remembered names, themes, and continuity memory context. This cannot be undone."
+        case .clearParkedOutbox:
+            return "This deletes queued talk turns that could not be retried. This cannot be undone."
         case .deleteAccount:
             return "This requests deletion for your backend account, revokes signed-in sessions, and signs this device out. The backend may keep the account in its recovery window before hard deletion."
         }
@@ -38,6 +43,8 @@ private enum DataControlAction: String, Identifiable {
             return "Clear History"
         case .clearMemories:
             return "Delete Memories"
+        case .clearParkedOutbox:
+            return "Delete Parked Turns"
         case .deleteAccount:
             return "Delete Account"
         }
@@ -49,6 +56,8 @@ private enum DataControlAction: String, Identifiable {
             return "trash"
         case .clearMemories:
             return "trash"
+        case .clearParkedOutbox:
+            return "tray.and.arrow.down"
         case .deleteAccount:
             return "person.crop.circle.badge.xmark"
         }
@@ -67,6 +76,10 @@ struct DataControlsScreen: View {
     @State private var pendingAction: DataControlAction?
     @State private var runningAction: DataControlAction?
     @State private var isExporting = false
+    @State private var isRefreshingOutbox = false
+    @State private var isRetryingOutbox = false
+    @State private var offlineOutboxSnapshot = OfflineTalkOutboxSnapshot.empty
+    @State private var offlineOutboxEntries: [OfflineTalkOutboxEntry] = []
     @State private var isRefreshingMemoryStats = false
     @State private var memoryStats: BackendMemoryStatsResponse?
     @State private var memoryStatsError = ""
@@ -91,6 +104,7 @@ struct DataControlsScreen: View {
                 VStack(alignment: .leading, spacing: 20) {
                     header
                     storageExplanation
+                    offlineOutboxStatus
                     memoryStatus
                     voiceTransportSettings
                     realtimeProviderSettings
@@ -131,6 +145,13 @@ struct DataControlsScreen: View {
         }
         .task {
             await refreshMemoryStats(force: false)
+            await refreshOfflineOutbox(startMonitoring: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .themOfflineTalkOutboxUpdated)) { notification in
+            offlineOutboxSnapshot = OfflineTalkOutboxSnapshot(notification: notification)
+            Task { @MainActor in
+                await refreshOfflineOutbox(startMonitoring: false)
+            }
         }
     }
 
@@ -251,6 +272,86 @@ struct DataControlsScreen: View {
                 action: .deleteAccount
             )
         }
+    }
+
+    private var offlineOutboxStatus: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Queued Talk Turns")
+                    .font(.system(size: 18, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.92))
+                Spacer()
+                Button {
+                    Task { @MainActor in
+                        await retryOfflineOutbox()
+                    }
+                } label: {
+                    if isRetryingOutbox {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isBusy || isRetryingOutbox)
+                .accessibilityLabel("Retry queued talk turns")
+            }
+
+            Text(offlineOutboxSummary)
+                .font(.system(size: 14, weight: .regular, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.78))
+
+            let visibleEntries = offlineOutboxEntries.prefix(3)
+            if !visibleEntries.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(visibleEntries)) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: outboxIconName(for: entry.status))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(outboxColor(for: entry.status))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(outboxTitle(for: entry))
+                                    .font(.system(size: 13, weight: .semibold, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.86))
+                                if let detail = outboxDetail(for: entry) {
+                                    Text(detail)
+                                        .font(.system(size: 12, weight: .regular, design: .default))
+                                        .foregroundStyle(Color.herText.opacity(0.66))
+                                        .lineLimit(2)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+
+            if offlineOutboxSnapshot.parkedCount > 0 {
+                Button {
+                    pendingAction = .clearParkedOutbox
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "trash")
+                        Text("Delete parked turns")
+                    }
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.red.opacity(0.84))
+                }
+                .buttonStyle(.plain)
+                .disabled(isBusy)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.20))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+        )
     }
 
     private var voiceTransportSettings: some View {
@@ -465,7 +566,7 @@ struct DataControlsScreen: View {
     }
 
     private var isBusy: Bool {
-        runningAction != nil || isExporting
+        runningAction != nil || isExporting || isRefreshingOutbox || isRetryingOutbox
     }
 
     private var memoryStatsSummary: String {
@@ -473,6 +574,55 @@ struct DataControlsScreen: View {
             return "Memory shape unavailable: \(memoryStatsError)"
         }
         return memoryStats?.diagnosticsSummary ?? "Memory shape has not been refreshed yet."
+    }
+
+    private var offlineOutboxSummary: String {
+        if isRefreshingOutbox {
+            return "Refreshing queued turns..."
+        }
+        if let status = offlineOutboxSnapshot.userVisibleStatus {
+            return status
+        }
+        return "No talk turns are waiting on this device."
+    }
+
+    private func outboxTitle(for entry: OfflineTalkOutboxEntry) -> String {
+        switch entry.status {
+        case .pending:
+            return entry.retries == 0 ? "Waiting to retry" : "Retry \(entry.retries) scheduled"
+        case .inflight:
+            return "Sending now"
+        case .parked:
+            return "Parked after retry failure"
+        }
+    }
+
+    private func outboxDetail(for entry: OfflineTalkOutboxEntry) -> String? {
+        let error = (entry.lastError ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if entry.status == .pending, entry.nextAttemptAt > 0 {
+            let date = Date(timeIntervalSince1970: entry.nextAttemptAt)
+            let retryText = date > Date()
+                ? "Next retry \(date.formatted(date: .omitted, time: .shortened))"
+                : "Ready to retry"
+            return error.isEmpty ? retryText : "\(retryText). \(error)"
+        }
+        return error.isEmpty ? nil : error
+    }
+
+    private func outboxIconName(for status: OfflineTalkOutboxStatus) -> String {
+        switch status {
+        case .pending: return "tray"
+        case .inflight: return "paperplane"
+        case .parked: return "exclamationmark.triangle"
+        }
+    }
+
+    private func outboxColor(for status: OfflineTalkOutboxStatus) -> Color {
+        switch status {
+        case .pending: return Color.herText.opacity(0.68)
+        case .inflight: return Color.green.opacity(0.76)
+        case .parked: return Color.orange.opacity(0.86)
+        }
     }
 
     @MainActor
@@ -489,6 +639,28 @@ struct DataControlsScreen: View {
             memoryStatsError = error.localizedDescription
             memoryStatsRefreshedAt = Date()
         }
+    }
+
+    @MainActor
+    private func refreshOfflineOutbox(startMonitoring: Bool) async {
+        if isRefreshingOutbox { return }
+        isRefreshingOutbox = true
+        defer { isRefreshingOutbox = false }
+        if startMonitoring {
+            await OfflineTalkOutbox.shared.startNetworkMonitoring()
+        }
+        offlineOutboxSnapshot = await OfflineTalkOutbox.shared.snapshot()
+        offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
+    }
+
+    @MainActor
+    private func retryOfflineOutbox() async {
+        if isRetryingOutbox { return }
+        isRetryingOutbox = true
+        defer { isRetryingOutbox = false }
+        offlineOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
+        offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
+        statusMessage = offlineOutboxSnapshot.userVisibleStatus ?? "Queued turns are clear."
     }
 
     @MainActor
@@ -525,6 +697,10 @@ struct DataControlsScreen: View {
                         : "Account deletion requested. Hard deletion is scheduled for \(hardDelete) after the \(recovery). This device has been signed out."
                     memoryStats = nil
                     memoryStatsError = ""
+                case .clearParkedOutbox:
+                    offlineOutboxSnapshot = try await OfflineTalkOutbox.shared.deleteParkedEntries()
+                    offlineOutboxEntries = await OfflineTalkOutbox.shared.allEntries()
+                    statusMessage = "Parked queued turns deleted."
                 }
             } catch {
                 statusMessage = "Action failed: \(error.localizedDescription)"

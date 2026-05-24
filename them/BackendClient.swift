@@ -2959,6 +2959,9 @@ final class BackendClient {
                     errorDescription: error.localizedDescription
                 )
             )
+            if let queued = await enqueueOfflineTalkRequest(request, body: body, reason: error.localizedDescription) {
+                throw queued
+            }
             throw error
         }
         let http = response as? HTTPURLResponse
@@ -3107,6 +3110,16 @@ final class BackendClient {
                     throw BackendError.continueListening
                 }
             }
+            if shouldQueueTalkStatus(statusCode) {
+                if let queued = await enqueueOfflineTalkRequest(
+                    request,
+                    body: body,
+                    reason: "HTTP \(statusCode)"
+                ) {
+                    throw queued
+                }
+            }
+
             if let stageError = parsedStageError {
                 if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
                     print("POST /talk -> auth_client received, refreshing session token and retrying once")
@@ -4155,6 +4168,33 @@ final class BackendClient {
     private func shouldRetryTalk(for error: Error) -> Bool {
         guard let urlError = error as? URLError else { return false }
         return retryableURLErrors.contains(urlError.code)
+    }
+
+    private func shouldQueueTalkStatus(_ statusCode: Int) -> Bool {
+        retryableHTTPStatus.contains(statusCode) || statusCode == -1
+    }
+
+    private func enqueueOfflineTalkRequest(
+        _ request: URLRequest,
+        body: Data,
+        reason: String
+    ) async -> BackendTalkQueuedError? {
+        do {
+            let result = try await OfflineTalkOutbox.shared.enqueue(
+                request: request,
+                body: body,
+                reason: reason
+            )
+            print("POST /talk -> queued offline outbox entry \(result.entry.id)")
+            return BackendTalkQueuedError(
+                entryID: result.entry.id,
+                snapshot: result.snapshot,
+                reason: reason
+            )
+        } catch {
+            print("POST /talk -> offline outbox enqueue failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     private func shouldFallbackToPlainTalkTransport(for error: Error) -> Bool {

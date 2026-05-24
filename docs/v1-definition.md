@@ -94,7 +94,7 @@ Checklist:
       TestFlight handoff can proceed.
 - [x] iOS auth tokens migrated from UserDefaults to Keychain
       (`T-ios-keychain-token-migration`).
-- [ ] iOS offline outbox queues talk turns when offline
+- [x] iOS offline outbox queues talk turns when offline
       (`T-ios-offline-outbox`).
 - [ ] macOS scaffolding gated off the V1 TestFlight scheme
       (`T-macos-posture-cleanup`).
