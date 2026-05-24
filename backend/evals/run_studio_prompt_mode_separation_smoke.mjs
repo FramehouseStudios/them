@@ -242,7 +242,12 @@ function readStudioAskNoteHistoryMap() {
   return debugDefaults.readJSON("studio.ask.note.history.v2", {}) || {};
 }
 
-function readStudioSubmitResultPayload() {
+function readStudioSubmitResultPayload(token = 0) {
+  const tokenKey = Number(token) > 0 ? `studio_debug_submit_result_json_${Number(token)}` : "";
+  if (tokenKey) {
+    const tokenPayload = debugDefaults.readJSON(tokenKey, null);
+    if (tokenPayload) return tokenPayload;
+  }
   return debugDefaults.readJSON("studio_debug_submit_result_json", null);
 }
 
@@ -333,17 +338,37 @@ async function waitForStudioOpenAck(token) {
 }
 
 async function ensureStudioVisible(appPath) {
-  const openState = await ensureStudioVisibleWithOpenHandshake({
-    appPath,
-    helperPath: studioAppSessionHelperPath,
-    debugDefaults,
-    runOptional,
-    activateApp: () => activateApp(),
-    appHasWindow,
-    readDebugDiffState,
-    timeoutSeconds: Number(process.env.STUDIO_APP_SESSION_TIMEOUT_SECONDS || 20),
-    pollMillis: Number(process.env.STUDIO_APP_SESSION_POLL_MILLIS || 250),
-  });
+  let openState;
+  try {
+    openState = await ensureStudioVisibleWithOpenHandshake({
+      appPath,
+      helperPath: studioAppSessionHelperPath,
+      debugDefaults,
+      runOptional,
+      activateApp: () => activateApp(),
+      appHasWindow,
+      readDebugDiffState,
+      timeoutSeconds: Number(process.env.STUDIO_APP_SESSION_TIMEOUT_SECONDS || 20),
+      pollMillis: Number(process.env.STUDIO_APP_SESSION_POLL_MILLIS || 250),
+      startupTimeoutMs: Number(process.env.STUDIO_APP_STARTUP_TIMEOUT_MS || 45000),
+      ackTimeoutMs: Number(process.env.STUDIO_APP_OPEN_ACK_TIMEOUT_MS || 20000),
+      maxAttempts: Number(process.env.STUDIO_APP_OPEN_MAX_ATTEMPTS || 5),
+    });
+  } catch (error) {
+    await waitFor(
+      () => appIsRunning() && (Boolean(readDebugDiffState()) || appHasWindow()),
+      "degraded visible THEM window or Studio diff state after open",
+      Number(process.env.STUDIO_APP_DEGRADED_OPEN_TIMEOUT_MS || 30000),
+      250
+    ).catch(() => {
+      throw error;
+    });
+    openState = {
+      token: readDefaultInt("studio_debug_open_ack_token"),
+      degradedOpenHandshake: true,
+      appSession: { helperStatus: "degraded_open_fallback" },
+    };
+  }
   assertInteractionLifecycle({
     action: "studio_debug_open",
     actionReceived: true,
@@ -446,14 +471,43 @@ async function waitForSubmittedPromptResult(token, prompt, timeoutMs = 20000) {
   return { status, errorText };
 }
 
-async function waitForLatestThreadEntry(projectKey, requestID, prompt, timeoutMs = 25000) {
+async function waitForLatestThreadEntry(projectKey, requestID, prompt, token = 0, timeoutMs = 25000) {
   let latestEntry = null;
+  const matchingLatestDebugStatePayload = () => {
+    const state = readDebugDiffState() || {};
+    const sameToken = Number(token) > 0 && Number(state.submitAckToken || 0) === Number(token);
+    const cleanRequestID = String(requestID || "").trim().toLowerCase();
+    const sameRequest = cleanRequestID.length > 0 &&
+      String(state.latestThreadRequestID || "").trim().toLowerCase() === cleanRequestID;
+    const samePrompt = String(state.latestThreadPrompt || "").trim() === String(prompt || "").trim();
+    if (!sameToken && !sameRequest && !samePrompt) return null;
+    const outputValue = normalizeKey(state.latestThreadOutputValue || state.footerOutputValue || "");
+    const target = outputValue === "page" ? "page" : "voicePin";
+    const insertedText = String(state.latestThreadInsertedPreview || "").trim();
+    if (target === "page" && insertedText.length === 0) return null;
+    return {
+      requestID: state.latestThreadRequestID || requestID || "",
+      prompt: state.latestThreadPrompt || prompt || "",
+      target,
+      insertedText,
+      developmentText: target === "page" ? "" : String(state.latestThreadInsertedPreview || "").trim(),
+      noteTitle: target === "page" ? "Wrote to page" : "io.them Voice Pin",
+    };
+  };
   const matchingSubmitResultPayload = () => {
-    const payload = readStudioSubmitResultPayload();
-    const sameRequest = String(payload?.requestID || "").trim().toLowerCase() === String(requestID || "").trim().toLowerCase();
+    const payload = readStudioSubmitResultPayload(token);
+    const sameToken = Number(token) > 0 && Number(payload?.token || 0) === Number(token);
+    const cleanRequestID = String(requestID || "").trim().toLowerCase();
+    const sameRequest = cleanRequestID.length > 0 &&
+      String(payload?.requestID || "").trim().toLowerCase() === cleanRequestID;
     const samePrompt = String(payload?.prompt || "").trim() === String(prompt || "").trim();
     const status = String(payload?.status || "").trim().toLowerCase();
-    return payload && status === "ok" && (sameRequest || samePrompt) ? payload : null;
+    if (!payload || status !== "ok") return null;
+    const payloadTarget = normalizeKey(payload?.target || "");
+    const payloadInserted = String(payload?.insertedText || "").trim();
+    if (payloadTarget === "page" && payloadInserted.length === 0) return null;
+    if (sameToken || sameRequest) return payload;
+    return Number(token) <= 0 && samePrompt ? payload : null;
   };
   await waitFor(() => {
     const entries = recentThreadEntriesForProject(projectKey, 10);
@@ -469,6 +523,8 @@ async function waitForLatestThreadEntry(projectKey, requestID, prompt, timeoutMs
   if (latestEntry) return latestEntry;
   const submitPayload = matchingSubmitResultPayload();
   if (submitPayload) return submitPayload;
+  const debugPayload = matchingLatestDebugStatePayload();
+  if (debugPayload) return debugPayload;
   await waitFor(() => {
     const entries = recentThreadEntriesForProject(projectKey, 10);
     const entry = entries.find((candidate) => {
@@ -485,13 +541,23 @@ async function waitForLatestThreadEntry(projectKey, requestID, prompt, timeoutMs
       latestEntry = payload;
       return true;
     }
+    const debugStatePayload = matchingLatestDebugStatePayload();
+    if (debugStatePayload) {
+      latestEntry = debugStatePayload;
+      return true;
+    }
     return false;
   }, `latest Studio thread entry for: ${prompt}`, timeoutMs, 300).catch(() => {
     const payload = matchingSubmitResultPayload();
-    if (!payload) {
+    if (payload) {
+      latestEntry = payload;
+      return;
+    }
+    const debugStatePayload = matchingLatestDebugStatePayload();
+    if (!debugStatePayload) {
       throw new Error(`Timed out waiting for latest Studio thread entry for: ${prompt}`);
     }
-    latestEntry = payload;
+    latestEntry = debugStatePayload;
   });
   return latestEntry;
 }
@@ -506,6 +572,7 @@ async function sendStudioPrompt(prompt, routingMode, projectKey) {
   writeDefaultString("studio_debug_submit_text", prompt);
   writeDefaultString("studio_debug_submit_routing", routingMode);
   writeDefaultString("studio_debug_submit_replacement_mode", "none");
+  writeDefaultString(`studio_debug_submit_result_json_${token}`, "");
   writeDefaultInt("studio_debug_submit_token", token);
   await waitForSubmittedPromptCommandReceived(token, prompt, 45000);
   const requestID = await waitForSubmittedPrompt(token, prompt, routingMode, "none");
@@ -520,7 +587,7 @@ async function sendStudioPrompt(prompt, routingMode, projectKey) {
       `Studio debug-submit failed for "${prompt}": ${submitResult.errorText || "Unknown error"}; submit debug=${formatSubmitDebugState()}`
     );
   }
-  const entry = await waitForLatestThreadEntry(projectKey, requestID, prompt, 45000).catch((error) => {
+  const entry = await waitForLatestThreadEntry(projectKey, requestID, prompt, token, 45000).catch((error) => {
     throw new Error(`${error.message}; submit debug=${formatSubmitDebugState()}`);
   });
   const promptBuild = readPromptBuildState();
@@ -550,12 +617,14 @@ const COACHING_PATTERNS = [
   /\bDEVELOPMENT MOVES\b/i,
   /\bSTORY ENGINE\b/i,
   /\bwhat do you think\??/i,
-  /\bif you want\b/i,
-  /\bto deepen\b/i,
+  /\bif you want(?:,?\s+I can| me to|,?\s+we can| to try| to go)\b/i,
+  /\bto deepen (?:the|this|your|her|his|their|its) (?:scene|story|character|moment|conflict|arc|relationship|theme|emotion|tension)\b/i,
   /\byou could\b/i,
-  /\bconsider\b/i,
+  /\bconsider (?:replacing|making|cutting|adding|turning|moving|starting|ending|letting|having|using|trying)\b/i,
   /\boutline\s*:/i,
   /\bbeats\s*:/i,
+  /\bWHAT'?S NOT LANDING\b/i,
+  /\bHIGHEST[- ]LEVERAGE FIX\b/i,
 ];
 
 function containsCoachingLanguage(text) {
@@ -733,6 +802,7 @@ assertPromptIntent(sceneDoctorProbe, "scene_doctor", "Scene-doctor smoke");
 assert(normalizeKey(sceneDoctorEntry.target) === "voicepin", "Scene-doctor smoke did not land on Voice Pin");
 assert(sceneDoctorBody.length > 0, "Scene-doctor smoke did not persist development text");
 assert(sceneDoctorInserted.length === 0, "Scene-doctor smoke unexpectedly wrote text to the page");
+assert(!/page mode|write directly into the draft|say yes, write that/i.test(sceneDoctorBody), "Scene-doctor smoke persisted page-mode shell copy instead of feedback");
 
 const dialoguePunchupProbe = await sendStudioPrompt(dialoguePunchupPrompt, "automatic", projectKey);
 const dialoguePunchupEntry = dialoguePunchupProbe.entry || {};
@@ -742,6 +812,7 @@ assertPromptIntent(dialoguePunchupProbe, "dialogue_punchup", "Dialogue punch-up 
 assert(normalizeKey(dialoguePunchupEntry.target) === "page", "Dialogue punch-up smoke did not land on the page");
 assert(dialoguePunchupInserted.length > 0, "Dialogue punch-up smoke did not persist inserted page text");
 assert(dialoguePunchupDevelopment.length === 0, "Dialogue punch-up smoke unexpectedly persisted development text");
+assert(!containsCoachingLanguage(dialoguePunchupInserted), "Dialogue punch-up smoke leaked coaching language into the page output");
 
 const result = {
   ok: true,

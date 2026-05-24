@@ -794,8 +794,9 @@ struct RootExperienceView: View {
         shouldWriteToPage: Bool,
         isStudioSurfaceActive: Bool
     ) -> Bool {
+        _ = shouldWriteToPage
         _ = isStudioSurfaceActive
-        return shouldWriteToPage
+        return false
     }
 
     private func shouldUseStreamingStudioPageWriteTransport(
@@ -810,13 +811,13 @@ struct RootExperienceView: View {
     #if DEBUG || os(macOS)
     private static let studioPageWriteTransportRoutingChecked: Bool = {
         precondition(
-            shouldUseStreamingStudioPageWriteTransport(
+            !shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: true,
                 isStudioSurfaceActive: true
             )
         )
         precondition(
-            shouldUseStreamingStudioPageWriteTransport(
+            !shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: true,
                 isStudioSurfaceActive: false
             )
@@ -4751,7 +4752,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             preferredTarget: requestedPromptTarget == .page ? .page : .voicePin
         )
         let promptTarget: ScreenplayStudioUserPrompt.Target
-        if !cleanInsertedText.isEmpty {
+        if requestedPromptTarget == .voicePin {
+            promptTarget = .voicePin
+        } else if !cleanInsertedText.isEmpty {
             promptTarget = .page
         } else if memoryDomain == .companion {
             promptTarget = .voicePin
@@ -6615,7 +6618,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let shouldStreamStudioPageWrite = shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: shouldWriteToPage
             )
-            let studioRenderTimeoutSeconds = shouldWriteToPage ? 18.0 : 30.0
+            let studioRenderTimeoutSeconds = shouldWriteToPage ? 75.0 : 30.0
             if shouldStreamStudioPageWrite {
                 realtimeStudioRenderUserMessage = cleanPrompt
                 realtimeStudioRenderedReply = ""
@@ -6630,11 +6633,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 await MainActor.run {
                                     guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
                                     self.realtimeStudioRenderedReply = partial
-                                    guard self.shouldApplyRealtimeStudioDraftPreview(partial) else { return }
-                                    self.applyRealtimeStudioDraftPreview(
-                                        userMessage: cleanPrompt,
-                                        assistantMessage: partial
-                                    )
                                 }
                             }
                         )
@@ -6711,12 +6709,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 userMessage: cleanPrompt,
                 assistantMessage: cleanReply
             )
-            let insertedScreenplayText = applyLiveScreenplayPreview(
-                from: result,
-                promptSource: .typed,
-                memoryDomainOverride: memoryDomain,
-                preferredTargetOverride: shouldWriteToPage ? .page : .voicePin
-            )
+            let insertedScreenplayText = shouldWriteToPage
+                ? applyLiveScreenplayPreview(
+                    from: result,
+                    promptSource: .typed,
+                    memoryDomainOverride: memoryDomain,
+                    preferredTargetOverride: .page
+                )
+                : nil
+            if !shouldWriteToPage {
+                screenplayDraftBridge.updateLatestVoicePinReply(cleanReply, prompt: cleanPrompt)
+            }
             updateStudioAssistantPin(
                 from: result,
                 insertedText: insertedScreenplayText,
@@ -6829,6 +6832,30 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func shouldRetryTalkOnce(for error: Error) -> Bool {
         if error is CancellationError { return false }
         if case BackendError.continueListening = error { return false }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut,
+                 .networkConnectionLost,
+                 .cannotConnectToHost,
+                 .cannotFindHost,
+                 .dnsLookupFailed,
+                 .notConnectedToInternet:
+                return true
+            default:
+                break
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return [
+                NSURLErrorTimedOut,
+                NSURLErrorNetworkConnectionLost,
+                NSURLErrorCannotConnectToHost,
+                NSURLErrorCannotFindHost,
+                NSURLErrorDNSLookupFailed,
+                NSURLErrorNotConnectedToInternet
+            ].contains(nsError.code)
+        }
         guard let backendError = error as? BackendError else { return false }
         switch backendError {
         case let .http(status, _):
@@ -7724,6 +7751,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             for: userMessage,
             preferredTarget: effectivePreferredTarget
         )
+        if effectivePreferredTarget == .voicePin && screenplayOutput?.writesToPage != true {
+            return nil
+        }
         if effectiveMemoryDomain == .companion && screenplayOutput?.writesToPage != true {
             return nil
         }
@@ -8396,12 +8426,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
             let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanUser, preferredTarget: .automatic)
             let realtimeMemoryDomain = studioMemoryDomain(for: cleanUser, preferredTarget: .automatic)
-            let insertedScreenplayText = applyLiveScreenplayPreview(
-                from: realtimeStudioResult,
-                promptSource: .voice,
-                memoryDomainOverride: realtimeMemoryDomain,
-                preferredTargetOverride: shouldWriteToPage ? .page : .voicePin
-            )
+            let insertedScreenplayText = shouldWriteToPage
+                ? applyLiveScreenplayPreview(
+                    from: realtimeStudioResult,
+                    promptSource: .voice,
+                    memoryDomainOverride: realtimeMemoryDomain,
+                    preferredTargetOverride: .page
+                )
+                : nil
+            if !shouldWriteToPage {
+                screenplayDraftBridge.updateLatestVoicePinReply(resolvedReply, prompt: cleanUser)
+            }
             updateStudioAssistantPin(
                 from: realtimeStudioResult,
                 insertedText: insertedScreenplayText,
@@ -9400,7 +9435,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ? screenplayDraftBridge.lastCommittedWrite
             : nil
         let explicitPageWrite = targetOverride == .page && (hasInsertedTextOverride || latestCommittedWrite != nil)
-        let isPageWrite = pinMode == "page" || explicitPageWrite
+        let isPageWrite: Bool
+        if targetOverride == .voicePin {
+            isPageWrite = false
+        } else {
+            isPageWrite = pinMode == "page" || explicitPageWrite
+        }
         let committedWrite = isPageWrite ? latestCommittedWrite : nil
         let noteTitle: String
         let noteBody: String
@@ -9414,10 +9454,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
         } else {
             let cleanTitle = pin.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanBody = pin.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanFullBody = pin.fullBody.trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanActionSummary = pin.actionSummary.trimmingCharacters(in: .whitespacesAndNewlines)
             noteTitle = cleanTitle.isEmpty ? "io.them" : cleanTitle
             noteBody = clippedStudioAssistantText(
-                cleanBody.isEmpty ? cleanActionSummary : cleanBody,
+                cleanFullBody.isEmpty ? (cleanBody.isEmpty ? cleanActionSummary : cleanBody) : cleanFullBody,
                 limit: 280
             )
         }

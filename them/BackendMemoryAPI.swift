@@ -62,6 +62,15 @@ nonisolated struct BackendTurnCommittedEvent {
     let memoryUpdatedAt: TimeInterval
     let userMessage: String?
     let assistantMessage: String?
+    let screenplayTarget: String?
+    let screenplayPromptSource: String?
+    let screenplayWriteId: String?
+    let screenplayAnchorLine: Int?
+    let screenplayAnchorEndLine: Int?
+    let screenplayAnchorSceneLabel: String?
+    let screenplayNoteTitle: String?
+    let screenplayNoteBody: String?
+    let screenplayInsertedText: String?
     let screenplayReplacementApplied: Bool?
     let screenplayReplacedWriteId: String?
     let screenplayRevisedBlockText: String?
@@ -84,6 +93,26 @@ nonisolated struct BackendTurnCommittedEvent {
         self.memoryUpdatedAt = Double(String(describing: userInfo[BackendMemoryAPI.NotificationKey.memoryUpdatedAt] ?? "")) ?? 0
         self.userMessage = userInfo[BackendMemoryAPI.NotificationKey.userMessage] as? String
         self.assistantMessage = userInfo[BackendMemoryAPI.NotificationKey.assistantMessage] as? String
+        func cleanString(_ key: String) -> String? {
+            let value = String(describing: userInfo[key] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        func cleanInt(_ key: String) -> Int? {
+            if let value = userInfo[key] as? Int { return value }
+            let raw = String(describing: userInfo[key] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return raw.isEmpty ? nil : Int(raw)
+        }
+        self.screenplayTarget = cleanString(BackendMemoryAPI.NotificationKey.screenplayTarget)
+        self.screenplayPromptSource = cleanString(BackendMemoryAPI.NotificationKey.screenplayPromptSource)
+        self.screenplayWriteId = cleanString(BackendMemoryAPI.NotificationKey.screenplayWriteId)
+        self.screenplayAnchorLine = cleanInt(BackendMemoryAPI.NotificationKey.screenplayAnchorLine)
+        self.screenplayAnchorEndLine = cleanInt(BackendMemoryAPI.NotificationKey.screenplayAnchorEndLine)
+        self.screenplayAnchorSceneLabel = cleanString(BackendMemoryAPI.NotificationKey.screenplayAnchorSceneLabel)
+        self.screenplayNoteTitle = cleanString(BackendMemoryAPI.NotificationKey.screenplayNoteTitle)
+        self.screenplayNoteBody = cleanString(BackendMemoryAPI.NotificationKey.screenplayNoteBody)
+        self.screenplayInsertedText = cleanString(BackendMemoryAPI.NotificationKey.screenplayInsertedText)
         if let replacementApplied = userInfo[BackendMemoryAPI.NotificationKey.screenplayReplacementApplied] as? Bool {
             self.screenplayReplacementApplied = replacementApplied
         } else {
@@ -2290,6 +2319,15 @@ actor BackendMemoryAPI {
         static let memoryUpdatedAt = "memory_updated_at"
         static let userMessage = "user_message"
         static let assistantMessage = "assistant_message"
+        static let screenplayTarget = "screenplay_target"
+        static let screenplayPromptSource = "screenplay_prompt_source"
+        static let screenplayWriteId = "screenplay_write_id"
+        static let screenplayAnchorLine = "screenplay_anchor_line"
+        static let screenplayAnchorEndLine = "screenplay_anchor_end_line"
+        static let screenplayAnchorSceneLabel = "screenplay_anchor_scene_label"
+        static let screenplayNoteTitle = "screenplay_note_title"
+        static let screenplayNoteBody = "screenplay_note_body"
+        static let screenplayInsertedText = "screenplay_inserted_text"
         static let screenplayReplacementApplied = "screenplay_replacement_applied"
         static let screenplayReplacedWriteId = "screenplay_replaced_write_id"
         static let screenplayRevisedBlockText = "screenplay_revised_block_text"
@@ -5162,6 +5200,40 @@ actor BackendMemoryAPI {
             userInfo[NotificationKey.assistantMessage] = assistantMessage
         }
         if let studioMetadata {
+            let target = studioMetadata.screenplayTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !target.isEmpty {
+                userInfo[NotificationKey.screenplayTarget] = target
+            }
+            let promptSource = studioMetadata.screenplayPromptSource.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !promptSource.isEmpty {
+                userInfo[NotificationKey.screenplayPromptSource] = promptSource
+            }
+            let writeId = studioMetadata.screenplayWriteId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !writeId.isEmpty {
+                userInfo[NotificationKey.screenplayWriteId] = writeId
+            }
+            if let anchorLine = studioMetadata.screenplayAnchorLine {
+                userInfo[NotificationKey.screenplayAnchorLine] = anchorLine
+            }
+            if let anchorEndLine = studioMetadata.screenplayAnchorEndLine {
+                userInfo[NotificationKey.screenplayAnchorEndLine] = anchorEndLine
+            }
+            let anchorSceneLabel = studioMetadata.screenplayAnchorSceneLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !anchorSceneLabel.isEmpty {
+                userInfo[NotificationKey.screenplayAnchorSceneLabel] = anchorSceneLabel
+            }
+            let noteTitle = studioMetadata.screenplayNoteTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !noteTitle.isEmpty {
+                userInfo[NotificationKey.screenplayNoteTitle] = noteTitle
+            }
+            let noteBody = studioMetadata.screenplayNoteBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !noteBody.isEmpty {
+                userInfo[NotificationKey.screenplayNoteBody] = noteBody
+            }
+            let insertedText = studioMetadata.screenplayInsertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !insertedText.isEmpty {
+                userInfo[NotificationKey.screenplayInsertedText] = insertedText
+            }
             userInfo[NotificationKey.screenplayReplacementApplied] = studioMetadata.screenplayReplacementApplied
             let replacedWriteId = studioMetadata.screenplayReplacedWriteId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !replacedWriteId.isEmpty {

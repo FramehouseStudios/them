@@ -127,31 +127,39 @@ struct ScreenplayPromptBuilder {
             return Result(prompt: "", usedBackendAssembly: false, fallbackReason: "empty_persona")
         }
 
-        do {
-            let response = try await backend.buildScreenplayModelPrompt(
-                BackendScreenplayPromptBuildRequest(
-                    persona: persona,
-                    userInput: request.userInput.trimmingCharacters(in: .whitespacesAndNewlines),
-                    screenplayTaskHint: screenplayTaskHint(from: request),
-                    sessionContext: sessionContext(from: request),
-                    includeCraftContext: request.isScreenplayMode && request.shouldWriteToPage,
-                    craftFrameworkId: request.craftFrameworkId.trimmingCharacters(in: .whitespacesAndNewlines)
-                )
-            )
-            let prompt = response.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !prompt.isEmpty {
-                return Result(
-                    prompt: prompt,
-                    usedBackendAssembly: true,
-                    fallbackReason: "",
-                    screenplayTaskIntent: response.screenplayTaskIntent,
-                    screenplayTaskLabel: response.screenplayTaskLabel
-                )
+        let promptRequest = BackendScreenplayPromptBuildRequest(
+            persona: persona,
+            userInput: request.userInput.trimmingCharacters(in: .whitespacesAndNewlines),
+            screenplayTaskHint: screenplayTaskHint(from: request),
+            sessionContext: sessionContext(from: request),
+            includeCraftContext: request.isScreenplayMode && request.shouldWriteToPage,
+            craftFrameworkId: request.craftFrameworkId.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        var lastError: Error?
+        for attempt in 0..<2 {
+            if attempt > 0 {
+                try? await Task.sleep(nanoseconds: 180_000_000)
             }
-            return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: "empty_backend_prompt")
-        } catch {
-            return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: error.localizedDescription)
+            do {
+                let response = try await backend.buildScreenplayModelPrompt(
+                    promptRequest
+                )
+                let prompt = response.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !prompt.isEmpty {
+                    return Result(
+                        prompt: prompt,
+                        usedBackendAssembly: true,
+                        fallbackReason: "",
+                        screenplayTaskIntent: response.screenplayTaskIntent,
+                        screenplayTaskLabel: response.screenplayTaskLabel
+                    )
+                }
+                return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: "empty_backend_prompt")
+            } catch {
+                lastError = error
+            }
         }
+        return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: lastError?.localizedDescription ?? "prompt_build_failed")
     }
 
     private func screenplayTaskHint(from request: Request) -> String {

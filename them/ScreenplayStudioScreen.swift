@@ -15089,6 +15089,7 @@ private var projectsSidebarContent: some View {
     }
 
     private struct StudioDebugSubmitResultPayload: Codable, Equatable {
+        let token: Int
         let status: String
         let transport: String
         let requestID: String
@@ -19991,7 +19992,10 @@ Return revised screenplay lines only.
         noteBodyOverride: String? = nil,
         anchorLine: Int? = nil,
         anchorEndLine: Int? = nil,
-        anchorSceneLabel: String? = nil
+        anchorSceneLabel: String? = nil,
+        committedWriteOverride: ScreenplayCommittedWrite? = nil,
+        insertedTextOverride: String? = nil,
+        voicePinTextOverride: String? = nil
     ) {
         let pin = liveDraftBridge.assistantPin
         let noteTitle: String
@@ -20026,25 +20030,38 @@ Return revised screenplay lines only.
             resolvedDevelopmentText = target == .voicePin ? noteBodyOverride.trimmingCharacters(in: .whitespacesAndNewlines) : nil
             resolvedAnchorExcerpt = target == .page ? noteBodyForAnchor(noteBodyOverride) : nil
             resolvedAnchorMetadataExcerpt = resolvedAnchorExcerpt
-        } else if target == .page, let committedWrite = liveDraftBridge.lastCommittedWrite {
+        } else if target == .page,
+                  let committedWrite = committedWriteOverride ?? liveDraftBridge.lastCommittedWrite,
+                  !committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             noteTitle = "Wrote to page"
             noteBody = noteBodyForExchange(committedWrite.insertedText)
             resolvedAnchorExcerpt = noteBodyForAnchor(committedWrite.insertedText)
             resolvedAnchorMetadataExcerpt = resolvedAnchorExcerpt
+            resolvedInsertedText = committedWrite.insertedText
+            resolvedAnchorLine = anchorLine ?? committedWrite.startLine
+            resolvedAnchorEndLine = anchorEndLine ?? committedWrite.endLine
+            resolvedAnchorSceneLabel = anchorSceneLabel ?? sceneLabelForLine(committedWrite.startLine)
             if committedWrite.isAuthoritativeWrite {
                 resolvedWriteID = committedWrite.writeID
                 resolvedReplacedWriteID = committedWrite.replacedWriteID
-                resolvedInsertedText = committedWrite.insertedText
                 replacementApplied = committedWrite.replacementApplied
                 revisedBlockText = committedWrite.replacementApplied ? committedWrite.insertedText : nil
-                resolvedAnchorLine = anchorLine ?? committedWrite.startLine
-                resolvedAnchorEndLine = anchorEndLine ?? committedWrite.endLine
-                resolvedAnchorSceneLabel = anchorSceneLabel ?? sceneLabelForLine(committedWrite.startLine)
                 resolvedSluglineAnchorLine = sluglineLineReference(for: committedWrite)
             }
+        } else if target == .page {
+            let fallbackInsertedText = (insertedTextOverride ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            noteTitle = "Wrote to page"
+            noteBody = fallbackInsertedText.isEmpty
+                ? "The page write is still settling into the draft."
+                : noteBodyForExchange(fallbackInsertedText)
+            resolvedInsertedText = fallbackInsertedText.isEmpty ? nil : fallbackInsertedText
+            resolvedAnchorExcerpt = fallbackInsertedText.isEmpty ? nil : noteBodyForAnchor(fallbackInsertedText)
+            resolvedAnchorMetadataExcerpt = resolvedAnchorExcerpt
         } else {
             noteTitle = pin.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let bodySource = [
+                (voicePinTextOverride ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
                 pin.fullBody.trimmingCharacters(in: .whitespacesAndNewlines),
                 pin.body.trimmingCharacters(in: .whitespacesAndNewlines),
                 pin.actionSummary.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -20873,6 +20890,7 @@ Return revised screenplay lines only.
     ) {
         let resolvedExchange = exchange
         let payload = StudioDebugSubmitResultPayload(
+            token: token,
             status: status,
             transport: studioDebugSubmitTransportModeRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "live"
@@ -20893,9 +20911,11 @@ Return revised screenplay lines only.
            let encoded = String(data: data, encoding: .utf8) {
             studioDebugSubmitResultJSON = encoded
             mirrorStudioDebugString(encoded, forKey: "studio_debug_submit_result_json")
+            mirrorStudioDebugString(encoded, forKey: "studio_debug_submit_result_json_\(token)")
         } else {
             studioDebugSubmitResultJSON = ""
             mirrorStudioDebugString("", forKey: "studio_debug_submit_result_json")
+            mirrorStudioDebugString("", forKey: "studio_debug_submit_result_json_\(token)")
         }
         setStudioDebugSubmitResult(
             token: token,
@@ -21225,24 +21245,65 @@ Return revised screenplay lines only.
         _ event: BackendTurnCommittedEvent,
         to exchange: StudioAskNoteExchange
     ) -> StudioAskNoteExchange {
-        StudioAskNoteExchange(
+        let eventTargetRaw = (event.screenplayTarget ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let mergedTarget: StudioTarget
+        switch eventTargetRaw {
+        case "page":
+            mergedTarget = .page
+        case "voice_pin", "voicepin":
+            mergedTarget = .voicePin
+        default:
+            mergedTarget = exchange.target
+        }
+
+        let eventSourceRaw = (event.screenplayPromptSource ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let mergedSource = StudioPromptSource(rawValue: eventSourceRaw) ?? exchange.source
+        let eventInsertedText = (event.screenplayInsertedText ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let eventNoteBody = (event.screenplayNoteBody ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let eventNoteTitle = (event.screenplayNoteTitle ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let isPageWrite = mergedTarget == .page
+        let mergedNoteBody: String
+        if isPageWrite, !eventNoteBody.isEmpty {
+            mergedNoteBody = noteBodyForExchange(eventNoteBody)
+        } else if isPageWrite, !eventInsertedText.isEmpty {
+            mergedNoteBody = noteBodyForExchange(eventInsertedText)
+        } else {
+            mergedNoteBody = exchange.noteBody
+        }
+        let mergedAnchorExcerpt: String?
+        if isPageWrite, !eventInsertedText.isEmpty {
+            mergedAnchorExcerpt = noteBodyForAnchor(eventInsertedText)
+        } else if isPageWrite, !eventNoteBody.isEmpty {
+            mergedAnchorExcerpt = noteBodyForAnchor(eventNoteBody)
+        } else {
+            mergedAnchorExcerpt = exchange.anchorExcerpt
+        }
+
+        return StudioAskNoteExchange(
             id: exchange.id,
             backendThreadID: normalizedBackendThreadID(event.turnId),
             backendTurn: backendTurnNumber(from: event.turnId) ?? exchange.backendTurn,
             requestID: normalizedStudioRequestID(exchange.requestID).isEmpty ? normalizedStudioRequestID(event.requestId) : exchange.requestID,
             prompt: exchange.prompt,
-            target: exchange.target,
-            source: exchange.source,
-            noteTitle: exchange.noteTitle,
-            noteBody: exchange.noteBody,
-            developmentText: exchange.developmentText,
-            writeID: exchange.writeID,
+            target: mergedTarget,
+            source: mergedSource,
+            noteTitle: eventNoteTitle.isEmpty ? exchange.noteTitle : eventNoteTitle,
+            noteBody: mergedNoteBody,
+            developmentText: isPageWrite && !eventInsertedText.isEmpty ? nil : exchange.developmentText,
+            writeID: normalizedWriteID(exchange.writeID).isEmpty ? event.screenplayWriteId : exchange.writeID,
             replacedWriteID: normalizedWriteID(exchange.replacedWriteID).isEmpty ? event.screenplayReplacedWriteId : exchange.replacedWriteID,
-            anchorLine: exchange.anchorLine,
-            anchorEndLine: exchange.anchorEndLine,
-            anchorSceneLabel: exchange.anchorSceneLabel,
-            anchorExcerpt: exchange.anchorExcerpt,
-            insertedText: exchange.insertedText,
+            anchorLine: exchange.anchorLine ?? event.screenplayAnchorLine,
+            anchorEndLine: exchange.anchorEndLine ?? event.screenplayAnchorEndLine,
+            anchorSceneLabel: normalizedAnchorExcerpt(exchange.anchorSceneLabel).isEmpty ? event.screenplayAnchorSceneLabel : exchange.anchorSceneLabel,
+            anchorExcerpt: normalizedAnchorExcerpt(exchange.anchorExcerpt).isEmpty ? mergedAnchorExcerpt : exchange.anchorExcerpt,
+            insertedText: normalizedAnchorExcerpt(exchange.insertedText).isEmpty ? eventInsertedText : exchange.insertedText,
             replacementApplied: exchange.replacementApplied ?? event.screenplayReplacementApplied,
             revisedBlockText: normalizedAnchorExcerpt(exchange.revisedBlockText).isEmpty ? event.screenplayRevisedBlockText : exchange.revisedBlockText,
             resolvedAnchorExcerpt: normalizedAnchorExcerpt(exchange.resolvedAnchorExcerpt).isEmpty ? event.screenplayResolvedAnchorExcerpt : exchange.resolvedAnchorExcerpt,
@@ -21266,6 +21327,7 @@ Return revised screenplay lines only.
     private func handleStudioTurnCommittedEvent(_ event: BackendTurnCommittedEvent) {
         if let index = studioAskNoteHistory.firstIndex(where: { studioTurnEventMatchesExchange(event, exchange: $0) }) {
             studioAskNoteHistory[index] = applyingBackendTurnEvent(event, to: studioAskNoteHistory[index])
+            persistStudioAskNoteHistory(studioAskNoteHistory, for: activeStudioAskNoteHistoryKey)
             return
         }
         let prompt = normalizedAnchorExcerpt(event.userMessage)
@@ -22574,7 +22636,6 @@ Return revised screenplay lines only.
             if let committedWrite = liveDraftBridge.lastCommittedWrite {
                 let insertedText = committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !insertedText.isEmpty,
-                   committedWrite.isAuthoritativeWrite,
                    committedWrite.committedAt >= submittedAt.addingTimeInterval(-0.5) {
                     return committedWrite
                 }
@@ -22672,11 +22733,6 @@ Return revised screenplay lines only.
 #if DEBUG || os(macOS)
             if let effectiveDebugSubmitToken {
                 setStudioDebugSubmitStage("on_submit_finished", token: effectiveDebugSubmitToken, error: error ?? "")
-                setStudioDebugSubmitResult(
-                    token: effectiveDebugSubmitToken,
-                    status: (error?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? "error" : "ok",
-                    error: error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                )
             }
 #endif
             isSubmittingStudioPrompt = false
@@ -22704,10 +22760,46 @@ Return revised screenplay lines only.
                 studioPromptSeed = ""
             }
             let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
+            let committedPageWrite: ScreenplayCommittedWrite?
             if routesToPage {
-                _ = await waitForCommittedStudioPageWrite(submittedAt: submittedAt)
+                committedPageWrite = await waitForCommittedStudioPageWrite(submittedAt: submittedAt)
+            } else {
+                committedPageWrite = nil
             }
+            let pageInsertedTextFallback: String? = {
+                guard routesToPage else { return nil }
+                if let committedPageWrite {
+                    return committedPageWrite.insertedText
+                }
+                guard liveDraftBridge.lastUpdatedAt >= submittedAt.addingTimeInterval(-0.5) else { return nil }
+                let latest = liveDraftBridge.latestVoiceTurn.trimmingCharacters(in: .whitespacesAndNewlines)
+                return latest.isEmpty ? nil : latest
+            }()
             let promptSummary = (displayText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
+            let voicePinTextFallback: String? = {
+                guard !routesToPage else { return nil }
+                let defaults = UserDefaults.standard
+                let storedUpdatedAtSeconds = defaults.double(forKey: ScreenplayLiveDraftBridge.latestVoicePinReplyUpdatedAtStorageKey)
+                let storedUpdatedAt = storedUpdatedAtSeconds > 0
+                    ? Date(timeIntervalSince1970: storedUpdatedAtSeconds)
+                    : Date.distantPast
+                let latestUpdatedAt = max(liveDraftBridge.latestVoicePinReplyUpdatedAt, storedUpdatedAt)
+                guard latestUpdatedAt >= submittedAt.addingTimeInterval(-5.0) else { return nil }
+                let latestPrompt = {
+                    let bridgePrompt = liveDraftBridge.latestVoicePinPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !bridgePrompt.isEmpty { return bridgePrompt }
+                    return defaults.string(forKey: ScreenplayLiveDraftBridge.latestVoicePinPromptStorageKey)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                }()
+                guard latestPrompt.isEmpty || latestPrompt == text || latestPrompt == promptSummary else { return nil }
+                let latest = {
+                    let bridgeReply = liveDraftBridge.latestVoicePinReply.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !bridgeReply.isEmpty { return bridgeReply }
+                    return defaults.string(forKey: ScreenplayLiveDraftBridge.latestVoicePinReplyStorageKey)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                }()
+                return latest.isEmpty ? nil : latest
+            }()
             lastCommittedStudioPrompt = promptSummary
             lastCommittedStudioPromptTarget = resolvedTarget
             lastCommittedStudioPromptSource = source
@@ -22715,7 +22807,10 @@ Return revised screenplay lines only.
                 prompt: promptSummary,
                 target: resolvedTarget,
                 source: source,
-                requestID: requestID
+                requestID: requestID,
+                committedWriteOverride: committedPageWrite,
+                insertedTextOverride: pageInsertedTextFallback,
+                voicePinTextOverride: voicePinTextFallback
             )
 #if DEBUG || os(macOS)
             if let effectiveDebugSubmitToken {
@@ -22907,7 +23002,6 @@ The door closes softly. That is worse than a slam.
         isSubmittingStudioPrompt = false
         sendingVoicePinSuggestionID = nil
         completePerceivedSpeedResponse(requestID: requestID)
-        setStudioDebugSubmitResult(token: token, status: "ok", error: "")
         publishStudioDebugSubmitResultPayload(
             token: token,
             status: "ok",

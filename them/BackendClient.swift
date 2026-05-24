@@ -2208,7 +2208,6 @@ final class BackendClient {
                 throw BackendError.http(http.statusCode, raw)
             }
 
-            var pending = ""
             var eventName = "message"
             var dataLines: [String] = []
             var accumulated = ""
@@ -2311,40 +2310,55 @@ final class BackendClient {
                 }
             }
 
-            for try await chunk in bytes.allChunks(ofSize: 1024) {
-                pending += String(decoding: chunk, as: UTF8.self)
-                while let newlineRange = pending.range(of: "\n") {
-                    let rawLine = String(pending[..<newlineRange.lowerBound])
-                    pending.removeSubrange(pending.startIndex..<newlineRange.upperBound)
-                    let line = rawLine.replacingOccurrences(of: "\r", with: "")
-                    if line.isEmpty {
-                        try await dispatchEvent()
-                        if didReceiveDone {
-                            let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-                            guard !resolvedReply.isEmpty else {
-                                throw BackendError.stage("studio_render", "Studio render stream response was empty.")
-                            }
-                            return resolvedReply
+            for try await rawLine in bytes.lines {
+                let line = rawLine.replacingOccurrences(of: "\r", with: "")
+                if line.isEmpty {
+                    try await dispatchEvent()
+                    if didReceiveDone {
+                        let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
+                        guard !resolvedReply.isEmpty else {
+                            throw BackendError.stage("studio_render", "Studio render stream response was empty.")
                         }
-                        continue
+                        return resolvedReply
                     }
-                    if line.hasPrefix(":") {
-                        continue
-                    }
-                    if line.hasPrefix("event:") {
-                        eventName = line.dropFirst("event:".count).trimmingCharacters(in: .whitespacesAndNewlines)
-                        continue
-                    }
-                    if line.hasPrefix("data:") {
-                        dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines))
-                    }
+                    continue
                 }
-            }
-
-            if !pending.isEmpty {
-                let line = pending.replacingOccurrences(of: "\r", with: "")
+                if line.hasPrefix(":") {
+                    continue
+                }
+                if line.hasPrefix("event:") {
+                    eventName = line.dropFirst("event:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                    continue
+                }
                 if line.hasPrefix("data:") {
-                    dataLines.append(line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines))
+                    let payloadText = line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if eventName == "done" {
+                        let payloadData = Data(payloadText.utf8)
+                        let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
+                        if let onTrace,
+                           let trace = trace(from: payload, fallbackKind: "done") {
+                            await onTrace(trace)
+                        }
+                        let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !reply.isEmpty else {
+                            throw BackendError.stage("studio_render", "Studio render stream response was empty.")
+                        }
+                        if let onPartial, reply.count != lastPartialCallbackCharacterCount {
+                            lastPartialCallbackAt = Date()
+                            lastPartialCallbackCharacterCount = reply.count
+                            await onPartial(reply)
+                        }
+                        return reply
+                    }
+                    if eventName == "error" {
+                        let payloadData = Data(payloadText.utf8)
+                        let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
+                        let stage = (payload?.stage ?? "studio_render").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let message = (payload?.error ?? "Studio render stream failed.")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        throw BackendError.stage(stage.isEmpty ? "studio_render" : stage, message.isEmpty ? "Studio render stream failed." : message)
+                    }
+                    dataLines.append(payloadText)
                 }
             }
             try await dispatchEvent()

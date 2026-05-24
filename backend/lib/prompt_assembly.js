@@ -87,7 +87,7 @@ function inferScreenplayTask(userInput = "") {
   } else if (dialoguePunchupLike) {
     intent = "dialogue_punchup";
     label = "Dialogue Punch-Up";
-    output = "Punch up dialogue with subtext, distinct voices, and rhythm. Prefer a few strong lines over a long explanation.";
+    output = "Return only playable replacement screenplay text: character cues, dialogue, brief parentheticals, and any needed action lines in clean Fountain style. Add subtext, distinct voices, and rhythm. Do not diagnose, explain, use markdown, or include headings like WHAT'S NOT LANDING, HIGHEST-LEVERAGE FIX, or Consider replacing.";
   } else if (rewriteLike) {
     intent = "rewrite_scene";
     label = "Rewrite Scene";
@@ -119,7 +119,7 @@ function inferScreenplayTask(userInput = "") {
   } else if (dialogueLike) {
     intent = "dialogue_punchup";
     label = "Dialogue Punch-Up";
-    output = "Punch up dialogue with subtext, distinct voices, and rhythm. Prefer a few strong lines over a long explanation.";
+    output = "Return only playable replacement screenplay text: character cues, dialogue, brief parentheticals, and any needed action lines in clean Fountain style. Add subtext, distinct voices, and rhythm. Do not diagnose, explain, use markdown, or include headings like WHAT'S NOT LANDING, HIGHEST-LEVERAGE FIX, or Consider replacing.";
   } else if (hasAny(lower, [/\b(tone|emotional continuity|emotion|feeling|mood|vibe|heart)\b/])) {
     intent = "emotional_continuity";
     label = "Emotional Continuity";

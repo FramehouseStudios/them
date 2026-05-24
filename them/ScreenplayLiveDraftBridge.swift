@@ -1567,6 +1567,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             persistStudioRoutingDebugMirror()
         }
     }
+    @Published var latestVoicePinReply: String = ""
+    @Published var latestVoicePinPrompt: String = ""
+    @Published var latestVoicePinReplyUpdatedAt: Date = .distantPast
     @Published var projectRecentTurns: [ScreenplayConversationTurn] = [] {
         didSet {
             persistConversationTurns(projectRecentTurns, key: Self.projectRecentTurnsStorageKey)
@@ -1628,6 +1631,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             persistStudioRoutingDebugMirror()
         }
     }
+
+    static let latestVoicePinReplyStorageKey = "studio.latest_voice_pin_reply"
+    static let latestVoicePinPromptStorageKey = "studio.latest_voice_pin_prompt"
+    static let latestVoicePinReplyUpdatedAtStorageKey = "studio.latest_voice_pin_reply_updated_at"
 
     static let replySideCharacterMentionsEnabledKey = "memory.reply_character_mentions_enabled"
 
@@ -6145,6 +6152,18 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 }
             }
         }
+    }
+
+    func updateLatestVoicePinReply(_ text: String, prompt: String = "") {
+        let cleanReply = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let updatedAt = Date()
+        latestVoicePinReply = cleanReply
+        latestVoicePinPrompt = cleanPrompt
+        latestVoicePinReplyUpdatedAt = updatedAt
+        UserDefaults.standard.set(cleanReply, forKey: Self.latestVoicePinReplyStorageKey)
+        UserDefaults.standard.set(cleanPrompt, forKey: Self.latestVoicePinPromptStorageKey)
+        UserDefaults.standard.set(updatedAt.timeIntervalSince1970, forKey: Self.latestVoicePinReplyUpdatedAtStorageKey)
     }
 
     func restoreAssistantPin(_ pin: ScreenplayAssistantPinState) {
