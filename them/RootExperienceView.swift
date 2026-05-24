@@ -3424,7 +3424,15 @@ struct RootExperienceView: View {
     }
 
     private var shouldUseDebugStudioPromptStubTransport: Bool {
-        studioDebugSubmitTransportMode
+        UserDefaults.standard.synchronize()
+        let standardValue = UserDefaults.standard.string(forKey: "studio_debug_submit_transport_mode")
+        let bundleValue = Bundle.main.bundleIdentifier
+            .flatMap { UserDefaults.standard.persistentDomain(forName: $0)?["studio_debug_submit_transport_mode"] as? String }
+        let cfValue = CFPreferencesCopyAppValue(
+            "studio_debug_submit_transport_mode" as CFString,
+            kCFPreferencesCurrentApplication
+        ) as? String
+        return (cfValue ?? standardValue ?? bundleValue ?? studioDebugSubmitTransportMode)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() == "stub"
     }
@@ -6428,6 +6436,31 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if !shouldWriteToPage {
             screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
         }
+
+#if DEBUG || os(macOS)
+        if shouldUseDebugStudioPromptStubTransport {
+            let requestToken = requestID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? requestID!.trimmingCharacters(in: .whitespacesAndNewlines)
+                : "studio-stub-\(UUID().uuidString.lowercased())"
+            let stub = makeDebugStudioPromptStubReply(
+                prompt: cleanPrompt,
+                memoryDomain: memoryDomain,
+                shouldWriteToPage: shouldWriteToPage
+            )
+            applyDebugStudioPromptStubReply(
+                stub,
+                prompt: cleanPrompt,
+                requestID: requestToken,
+                memoryDomain: memoryDomain
+            )
+            self.transcript = cleanPrompt
+            livePartialTranscript = ""
+            lastNonEmptyPartialTranscriptHint = ""
+            speculativeTalk.cancel()
+            return nil
+        }
+#endif
+
         let promptContext = HerVoiceSpec.Context(
             stage: director.stage,
             depthScore: director.depth,
@@ -6498,30 +6531,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             shouldWriteToPage: shouldWriteToPage
         )
 
-#if DEBUG || os(macOS)
-        if shouldUseDebugStudioPromptStubTransport {
-            let requestToken = requestID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                ? requestID!.trimmingCharacters(in: .whitespacesAndNewlines)
-                : "studio-stub-\(UUID().uuidString.lowercased())"
-            let stub = makeDebugStudioPromptStubReply(
-                prompt: cleanPrompt,
-                memoryDomain: memoryDomain,
-                shouldWriteToPage: shouldWriteToPage
-            )
-            applyDebugStudioPromptStubReply(
-                stub,
-                prompt: cleanPrompt,
-                requestID: requestToken,
-                memoryDomain: memoryDomain
-            )
-            self.transcript = cleanPrompt
-            livePartialTranscript = ""
-            lastNonEmptyPartialTranscriptHint = ""
-            speculativeTalk.cancel()
-            return nil
-        }
-#endif
-
         do {
             HerLog.talk.info("STUDIO render text sending chars=\(renderTranscript.count)")
 
@@ -6537,7 +6546,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 realtimeStudioRenderedReply = ""
                 let requestRender = {
                     do {
-                        return try await backend.streamRealtimeStudioText(
+                        return try await withStudioRenderTimeout {
+                            try await backend.streamRealtimeStudioText(
                             transcript: renderTranscript,
                             systemPrompt: systemPrompt,
                             onPartial: { partial in
@@ -6551,14 +6561,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 }
                             }
                         )
+                        }
                     } catch {
                         guard shouldFallbackToNonStreamingStudioRender(for: error) else { throw error }
                         screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
                         HerLog.talk.info("STUDIO render stream empty -> fallback to one-shot render")
-                        return try await backend.renderRealtimeStudioText(
-                            transcript: renderTranscript,
-                            systemPrompt: systemPrompt
-                        )
+                        return try await withStudioRenderTimeout {
+                            try await backend.renderRealtimeStudioText(
+                                transcript: renderTranscript,
+                                systemPrompt: systemPrompt
+                            )
+                        }
                     }
                 }
                 do {
@@ -6572,10 +6585,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
             } else {
                 let requestRender = {
-                    try await backend.renderRealtimeStudioText(
-                        transcript: renderTranscript,
-                        systemPrompt: systemPrompt
-                    )
+                    try await withStudioRenderTimeout {
+                        try await backend.renderRealtimeStudioText(
+                            transcript: renderTranscript,
+                            systemPrompt: systemPrompt
+                        )
+                    }
                 }
 
                 do {
@@ -6713,6 +6728,27 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return true
         case .continueListening:
             return false
+        }
+    }
+
+    private func withStudioRenderTimeout<T>(
+        seconds: Double = 30,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let timeoutNanoseconds = UInt64(max(1, seconds) * 1_000_000_000)
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                throw BackendError.stage("studio_render", "Studio render timed out.")
+            }
+            guard let result = try await group.next() else {
+                throw BackendError.stage("studio_render", "Studio render timed out.")
+            }
+            group.cancelAll()
+            return result
         }
     }
 

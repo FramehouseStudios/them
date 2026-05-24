@@ -22233,6 +22233,31 @@ Return revised screenplay lines only.
 
         let focusToken = readMirroredStudioDebugPreferenceInt("studio_debug_focus_page_token")
         let focusAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_focus_page_ack_token")
+        let submitToken = readMirroredStudioDebugPreferenceInt("studio_debug_submit_token")
+        let submitText = readMirroredStudioDebugPreferenceString("studio_debug_submit_text")
+        let submitRouting = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_routing",
+            fallback: PromptRoutingMode.automatic.rawValue
+        )
+        let submitReplacementMode = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_replacement_mode",
+            fallback: "none"
+        )
+        let submitAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_submit_ack_token")
+        let submitAckText = readMirroredStudioDebugPreferenceString("studio_debug_submit_ack_text")
+        let submitAckRouting = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_ack_routing",
+            fallback: PromptRoutingMode.automatic.rawValue
+        )
+        let submitAckReplacementMode = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_ack_replacement_mode",
+            fallback: "none"
+        )
+        let submitAckRequestID = readMirroredStudioDebugPreferenceString("studio_debug_submit_ack_request_id")
+        let submitResultToken = readMirroredStudioDebugPreferenceInt("studio_debug_submit_result_token")
+        let submitResultStatus = readMirroredStudioDebugPreferenceString("studio_debug_submit_result_status")
+        let submitResultError = readMirroredStudioDebugPreferenceString("studio_debug_submit_result_error")
+        let submitResultJSON = readMirroredStudioDebugPreferenceString("studio_debug_submit_result_json")
         let manualEditToken = readMirroredStudioDebugPreferenceInt("studio_debug_manual_edit_token")
         let manualEditText = readMirroredStudioDebugPreferenceString("studio_debug_manual_edit_text")
         let manualEditAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_manual_edit_ack_token")
@@ -22253,6 +22278,58 @@ Return revised screenplay lines only.
         }
         if focusAckToken != studioDebugFocusPageAckToken {
             studioDebugFocusPageAckToken = focusAckToken
+            didChange = true
+        }
+        if submitToken != studioDebugSubmitToken {
+            studioDebugSubmitToken = submitToken
+            didChange = true
+        }
+        if submitText != studioDebugSubmitText {
+            studioDebugSubmitText = submitText
+            didChange = true
+        }
+        if submitRouting != studioDebugSubmitRoutingRaw {
+            studioDebugSubmitRoutingRaw = submitRouting
+            didChange = true
+        }
+        if submitReplacementMode != studioDebugSubmitReplacementMode {
+            studioDebugSubmitReplacementMode = submitReplacementMode
+            didChange = true
+        }
+        if submitAckToken != studioDebugSubmitAckToken {
+            studioDebugSubmitAckToken = submitAckToken
+            didChange = true
+        }
+        if submitAckText != studioDebugSubmitAckText {
+            studioDebugSubmitAckText = submitAckText
+            didChange = true
+        }
+        if submitAckRouting != studioDebugSubmitAckRoutingRaw {
+            studioDebugSubmitAckRoutingRaw = submitAckRouting
+            didChange = true
+        }
+        if submitAckReplacementMode != studioDebugSubmitAckReplacementMode {
+            studioDebugSubmitAckReplacementMode = submitAckReplacementMode
+            didChange = true
+        }
+        if submitAckRequestID != studioDebugSubmitAckRequestID {
+            studioDebugSubmitAckRequestID = submitAckRequestID
+            didChange = true
+        }
+        if submitResultToken != studioDebugSubmitResultToken {
+            studioDebugSubmitResultToken = submitResultToken
+            didChange = true
+        }
+        if submitResultStatus != studioDebugSubmitResultStatus {
+            studioDebugSubmitResultStatus = submitResultStatus
+            didChange = true
+        }
+        if submitResultError != studioDebugSubmitResultError {
+            studioDebugSubmitResultError = submitResultError
+            didChange = true
+        }
+        if submitResultJSON != studioDebugSubmitResultJSON {
+            studioDebugSubmitResultJSON = submitResultJSON
             didChange = true
         }
         if manualEditToken != studioDebugManualEditToken {
@@ -22395,6 +22472,7 @@ Return revised screenplay lines only.
                 _ = synchronizeMirroredStudioDebugInteractionState()
                 applyDebugLoadProjectIfNeeded()
                 applyDebugPreparedStudioPromptIfNeeded()
+                applyDebugSubmittedStudioPromptIfNeeded()
                 applyDebugFocusPageIfNeeded()
                 applyDebugManualDraftEditIfNeeded()
                 applyDebugAutosaveToggleIfNeeded()
@@ -22530,6 +22608,19 @@ Return revised screenplay lines only.
                 requestID: requestID
             )
             resetStudioDebugSubmitResult()
+            if shouldUseDebugStudioPromptStubTransportForLocalSubmit {
+                applyDebugStudioPromptStubSubmit(
+                    token: effectiveDebugSubmitToken,
+                    prompt: text,
+                    displayText: displayText,
+                    requestID: requestID,
+                    routingMode: routingMode,
+                    routesToPage: routesToPage,
+                    successMessage: successMessage,
+                    clearSeedOnSuccess: clearSeedOnSuccess
+                )
+                return
+            }
         }
 #endif
         publishDebugStudioDiffState()
@@ -22601,6 +22692,101 @@ Return revised screenplay lines only.
             }
         }
     }
+
+#if DEBUG || os(macOS)
+    private var shouldUseDebugStudioPromptStubTransportForLocalSubmit: Bool {
+        let mirrored = readMirroredStudioDebugPreferenceString(
+            "studio_debug_submit_transport_mode",
+            fallback: studioDebugSubmitTransportModeRaw
+        )
+        let resolved = mirrored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? studioDebugSubmitTransportModeRaw
+            : mirrored
+        return resolved.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "stub"
+    }
+
+    private func applyDebugStudioPromptStubSubmit(
+        token: Int,
+        prompt: String,
+        displayText: String?,
+        requestID: String,
+        routingMode: PromptRoutingMode,
+        routesToPage: Bool,
+        successMessage: String,
+        clearSeedOnSuccess: Bool
+    ) {
+        let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
+        let promptSummary = (displayText ?? prompt).trimmingCharacters(in: .whitespacesAndNewlines)
+        var matchingExchange: StudioAskNoteExchange?
+
+        if routesToPage {
+            let insertedText = """
+INT. KITCHEN - DAY
+
+LUCY reaches the threshold before FRANK can answer, taking the room's silence with her.
+
+FRANK
+Lucy--
+
+The door closes softly. That is worse than a slam.
+"""
+            let previousDraft = vm.fountainDraft
+            let separator = previousDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n"
+            let committedDraft = previousDraft + separator + insertedText
+            vm.fountainDraft = committedDraft
+            liveDraftBridge.draftText = committedDraft
+            liveDraftBridge.lastCommittedWrite = ScreenplayCommittedWrite(
+                id: UUID(),
+                writeID: normalizedStudioRequestID(requestID),
+                previousDraft: previousDraft,
+                committedDraft: committedDraft,
+                insertedText: insertedText,
+                replacementApplied: false,
+                replacedWriteID: nil,
+                startLine: max(1, previousDraft.components(separatedBy: .newlines).count + (separator.isEmpty ? 0 : 2)),
+                endLine: committedDraft.components(separatedBy: .newlines).count,
+                committedAt: Date()
+            )
+            liveDraftBridge.lastUpdatedAt = Date()
+            liveDraftBridge.clearPendingPageWriteReplacement()
+        } else {
+            liveDraftBridge.clearPendingPageWriteReplacement()
+        }
+
+        if clearSeedOnSuccess {
+            studioPromptSeed = ""
+        }
+        lastCommittedStudioPrompt = promptSummary
+        lastCommittedStudioPromptTarget = resolvedTarget
+        lastCommittedStudioPromptSource = .typed
+        appendStudioAskNoteHistory(
+            prompt: promptSummary,
+            target: resolvedTarget,
+            source: .typed,
+            requestID: requestID
+        )
+        matchingExchange = studioAskNoteHistory.first(where: {
+            normalizedStudioRequestID($0.requestID) == normalizedStudioRequestID(requestID)
+        }) ?? studioAskNoteHistory.first
+
+        isSubmittingStudioPrompt = false
+        sendingVoicePinSuggestionID = nil
+        completePerceivedSpeedResponse(requestID: requestID)
+        setStudioDebugSubmitResult(token: token, status: "ok", error: "")
+        publishStudioDebugSubmitResultPayload(
+            token: token,
+            status: "ok",
+            prompt: promptSummary,
+            requestID: requestID,
+            routingMode: routingMode,
+            target: resolvedTarget,
+            exchange: matchingExchange,
+            error: ""
+        )
+        vm.infoText = successMessage
+        publishDebugStudioDiffState()
+    }
+#endif
 
     private func prepareReplacementTargetForPromptIfNeeded(
         _ text: String,
