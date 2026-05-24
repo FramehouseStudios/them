@@ -15,6 +15,14 @@ QUALITY_GATE_SCRIPT="$ROOT/scripts/quality_gate.sh"
 # RUN_QUALITY_GATE=1 before invoking this script.
 RUN_QUALITY_GATE="${RUN_QUALITY_GATE:-0}"
 
+xcodebuild_overrides=(CODE_SIGNING_ALLOWED=NO)
+if [[ -n "${DEVELOPMENT_TEAM_ID:-}" ]]; then
+  xcodebuild_overrides+=(DEVELOPMENT_TEAM_ID="$DEVELOPMENT_TEAM_ID")
+fi
+if [[ -n "${APP_TOKEN_RELEASE:-}" ]]; then
+  xcodebuild_overrides+=(APP_TOKEN_RELEASE="$APP_TOKEN_RELEASE")
+fi
+
 fail_count=0
 warn_count=0
 
@@ -56,8 +64,9 @@ build_settings="$(
     -project "$PROJECT" \
     -scheme "$SCHEME" \
     -configuration Release \
-    -sdk macosx \
+    -sdk iphoneos \
     -derivedDataPath "$DERIVED_DATA_PATH" \
+    "${xcodebuild_overrides[@]}" \
     -showBuildSettings 2>&1 || true
 )"
 
@@ -81,8 +90,9 @@ app_token="$(trim_quotes "$(get_setting APP_TOKEN)")"
 privacy_url="$(trim_quotes "$(get_setting PRIVACY_POLICY_URL)")"
 support_email="$(trim_quotes "$(get_setting SUPPORT_EMAIL)")"
 code_sign_entitlements="$(trim_quotes "$(get_setting CODE_SIGN_ENTITLEMENTS)")"
-hardened_runtime="$(trim_quotes "$(get_setting ENABLE_HARDENED_RUNTIME)")"
 mic_desc_setting="$(trim_quotes "$(get_setting INFOPLIST_KEY_NSMicrophoneUsageDescription)")"
+supported_platforms="$(trim_quotes "$(get_setting SUPPORTED_PLATFORMS)")"
+targeted_device_family="$(trim_quotes "$(get_setting TARGETED_DEVICE_FAMILY)")"
 
 if [[ -z "$privacy_url" && -f "$RELEASE_PLIST_FILE" ]]; then
   privacy_url="$(plutil -extract PRIVACY_POLICY_URL raw -o - "$RELEASE_PLIST_FILE" 2>/dev/null || true)"
@@ -94,7 +104,12 @@ if [[ -z "$support_email" && -f "$RELEASE_PLIST_FILE" ]]; then
   support_email="$(trim_quotes "$support_email")"
 fi
 
-echo "=== App Store Preflight (macOS) ==="
+if [[ -z "$mic_desc_setting" && -f "$RELEASE_PLIST_FILE" ]]; then
+  mic_desc_setting="$(plutil -extract NSMicrophoneUsageDescription raw -o - "$RELEASE_PLIST_FILE" 2>/dev/null || true)"
+  mic_desc_setting="$(trim_quotes "$mic_desc_setting")"
+fi
+
+echo "=== App Store Preflight (iPhone TestFlight) ==="
 echo "Project: $PROJECT"
 echo "Scheme:  $SCHEME"
 echo
@@ -128,27 +143,30 @@ else
   fail "Development Team is not configured. Set DEVELOPMENT_TEAM_ID in Config.xcconfig."
 fi
 
-if [[ "$hardened_runtime" == "YES" ]]; then
-  ok "Hardened Runtime enabled for Release."
+if [[ "$supported_platforms" == *"iphoneos"* && "$supported_platforms" == *"iphonesimulator"* ]]; then
+  ok "Release supports iPhone device and simulator SDKs."
 else
-  fail "Hardened Runtime must be YES for Release."
+  fail "Release SUPPORTED_PLATFORMS must include iphoneos and iphonesimulator."
+fi
+
+if [[ "$supported_platforms" == *"macosx"* || "$supported_platforms" == *"xros"* || "$supported_platforms" == *"xrsimulator"* ]]; then
+  fail "Release SUPPORTED_PLATFORMS must be iPhone-only for V1, got: $supported_platforms"
+else
+  ok "Release excludes macOS and visionOS from the V1 TestFlight posture."
+fi
+
+if [[ "$targeted_device_family" == "1" ]]; then
+  ok "Release device family is iPhone only."
+else
+  fail "Release TARGETED_DEVICE_FAMILY must be 1 for iPhone-only V1, got: ${targeted_device_family:-unset}"
 fi
 
 if [[ -n "$code_sign_entitlements" ]]; then
   ok "Release entitlements wired: $code_sign_entitlements"
+elif [[ -f "$ENTITLEMENTS_FILE" ]]; then
+  warn "No iPhone Release CODE_SIGN_ENTITLEMENTS setting. If V1 needs Apple-managed capabilities, confirm them in the Apple developer portal before upload."
 else
-  fail "CODE_SIGN_ENTITLEMENTS is missing in Release build settings."
-fi
-
-if [[ -f "$ENTITLEMENTS_FILE" ]]; then
-  app_sandbox="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' "$ENTITLEMENTS_FILE" 2>/dev/null || true)"
-  net_client="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.network.client' "$ENTITLEMENTS_FILE" 2>/dev/null || true)"
-  audio_input="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "$ENTITLEMENTS_FILE" 2>/dev/null || true)"
-  [[ "$app_sandbox" == "true" || "$app_sandbox" == "1" ]] && ok "Entitlement com.apple.security.app-sandbox=true" || fail "Missing app sandbox entitlement."
-  [[ "$net_client" == "true" || "$net_client" == "1" ]] && ok "Entitlement com.apple.security.network.client=true" || fail "Missing network client entitlement."
-  [[ "$audio_input" == "true" || "$audio_input" == "1" ]] && ok "Entitlement com.apple.security.device.audio-input=true" || fail "Missing audio input entitlement."
-else
-  fail "Entitlements file missing: $ENTITLEMENTS_FILE"
+  warn "No entitlements file found for Release. Confirm Apple-managed capabilities before upload."
 fi
 
 if is_placeholder "$backend_url"; then
@@ -221,16 +239,17 @@ if xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME" \
   -configuration Release \
-  -sdk macosx \
-  -destination "platform=macOS" \
+  -sdk iphoneos \
+  -destination "generic/platform=iOS" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
+  "${xcodebuild_overrides[@]}" \
   -quiet build >/tmp/them_release_preflight_build.log 2>&1; then
-  ok "Release macOS build succeeds."
+  ok "Release iPhone build succeeds."
 else
   if rg -n "swift-plugin-server|sandbox_apply: Operation not permitted|CoreSimulatorService connection became invalid" /tmp/them_release_preflight_build.log >/dev/null 2>&1; then
     warn "Release build check hit local sandbox/tooling limits in this environment. Re-run locally in Xcode to confirm archive."
   else
-    fail "Release macOS build failed. See /tmp/them_release_preflight_build.log"
+    fail "Release iPhone build failed. See /tmp/them_release_preflight_build.log"
   fi
 fi
 

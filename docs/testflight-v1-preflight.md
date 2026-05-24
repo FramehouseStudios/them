@@ -26,14 +26,18 @@ The checked and parked V1 checklist items match docs/v1-definition.md.
 
 `docs/v1-build-test-readiness.md`
 
-The latest local app build and `themTests` result is recorded separately from
-the human smoke and signed-release checks.
+The latest local app build and themTests result is recorded separately from the human smoke and signed-release checks.
 
 ### Release preflight
 
-`scripts/appstore_preflight.sh`
+`DEVELOPMENT_TEAM_ID=<team-id> APP_TOKEN_RELEASE=<token> scripts/appstore_preflight.sh`
 
-Release settings, privacy manifest, entitlements, and macOS release build are ready for archive checks.
+Release settings, private signing/token inputs, privacy manifest, iPhone-only TestFlight posture, and the Release iPhone build are ready for archive checks.
+
+## Platform Posture
+
+- V1 is iPhone only.
+- macOS remains dormant scaffolding and is excluded from Release/TestFlight posture until a dedicated Mac shell ships.
 
 ## Manual App Flows
 

@@ -45,6 +45,26 @@ In:
 - Update the App Store listing checklist to read "iPhone only" until
   a real Mac shell ships.
 
+## Inventory (2026-05-24)
+
+`rg -n "#if os\(macOS\)|#elseif os\(macOS\)|#if DEBUG \|\| os\(macOS\)" them --glob '*.swift'`
+finds the dormant Mac scaffolding below.
+
+| File | Branches | Outcome | Reason |
+| --- | ---: | --- | --- |
+| `them/ContentView.swift` | 2 | Park behind `THEM_MAC_SHELL` | Mac launches show a clear V1 iPhone-only gate while the desktop shell flag is off. |
+| `them/themApp.swift` | 2 | Keep correct | Debug launch probes and AppKit bridge setup only compile on Mac and are not in Release/TestFlight posture. |
+| `them/AudioPlayer .swift` | 9 | Keep correct | `NSSound` fallback is required for dormant Mac audio playback to keep the scaffolding buildable. |
+| `them/BackendMemoryAPI.swift` | 5 | Keep correct | Platform headers and file-presentation helpers differ between iOS and dormant Mac scaffolding. |
+| `them/ClementineRealtimeWebViewBridge.swift` | 1 | Keep correct | `NSViewRepresentable` is the required WebKit host for a Mac build. |
+| `them/DataControlsScreen.swift` | 5 | Keep correct | Import/export presenters use AppKit only when compiling the dormant Mac build. |
+| `them/HerVoiceController.swift` | 1 | Keep correct | AppKit import is required only for Mac-specific voice scaffolding. |
+| `them/RootExperienceView.swift` | 94 | Keep correct | Debug helpers, visual context capture, pasteboard/share helpers, and platform labels are Mac-specific but no longer reachable as a V1 Release product. |
+| `them/ScreenplayLiveDraftBridge.swift` | 5 | Keep correct | AppKit drag/export helpers are Mac-only compatibility scaffolding. |
+| `them/ScreenplayLocalExport.swift` | 2 | Keep correct | Local PDF/FDX export uses AppKit/CoreText and remains Mac-only scaffolding. |
+| `them/ScreenplayStudioScreen.swift` | 95 | Keep correct | Debug helpers, import/export panels, document drops, and keyboard affordances are platform-specific scaffolding. |
+| `them/SyncEngine/PlaybackSyncCursor.swift` | 1 | Keep correct | Timer fallback is only needed for the dormant Mac build. |
+
 Out:
 - Building a real macOS shell. That's a separate spec (`T-macos-shell-v1.1`)
   and a separate ADR.

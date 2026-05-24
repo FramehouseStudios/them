@@ -28,12 +28,15 @@ test("[v1-manual-qa] --json emits the four V1 manual flows", () => {
   );
   assert.ok(payload.parked.some((p) => p.prs.includes("#94")));
   assert.ok(payload.automatedProof.some((p) => p.command.includes("eval:v1-smokes")));
+  assert.ok(payload.platformPosture.includes("V1 is iPhone only."));
 });
 
 test("[v1-manual-qa] markdown output names pass criteria and parked gates", () => {
   const r = run([]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /## Manual App Flows/);
+  assert.match(r.stdout, /## Platform Posture/);
+  assert.match(r.stdout, /V1 is iPhone only\./);
   assert.match(r.stdout, /Pass: Reply text is visible/);
   assert.match(r.stdout, /#212/);
 });

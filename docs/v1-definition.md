@@ -96,7 +96,7 @@ Checklist:
       (`T-ios-keychain-token-migration`).
 - [x] iOS offline outbox queues talk turns when offline
       (`T-ios-offline-outbox`).
-- [ ] macOS scaffolding gated off the V1 TestFlight scheme
+- [x] macOS scaffolding gated off the V1 TestFlight scheme
       (`T-macos-posture-cleanup`).
 - [x] Backend deploy manifest + Dockerfile in repo
       (`T-backend-deploy-image`).

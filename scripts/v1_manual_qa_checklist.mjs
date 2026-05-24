@@ -39,10 +39,19 @@ const artifact = {
       proves: "The checked and parked V1 checklist items match docs/v1-definition.md.",
     },
     {
-      name: "Release preflight",
-      command: "scripts/appstore_preflight.sh",
-      proves: "Release settings, privacy manifest, entitlements, and macOS release build are ready for archive checks.",
+      name: "Current app build and tests",
+      command: "docs/v1-build-test-readiness.md",
+      proves: "The latest local app build and themTests result is recorded separately from the human smoke and signed-release checks.",
     },
+    {
+      name: "Release preflight",
+      command: "DEVELOPMENT_TEAM_ID=<team-id> APP_TOKEN_RELEASE=<token> scripts/appstore_preflight.sh",
+      proves: "Release settings, private signing/token inputs, privacy manifest, iPhone-only TestFlight posture, and the Release iPhone build are ready for archive checks.",
+    },
+  ],
+  platformPosture: [
+    "V1 is iPhone only.",
+    "macOS remains dormant scaffolding and is excluded from Release/TestFlight posture until a dedicated Mac shell ships.",
   ],
   manualFlows: [
     {
@@ -127,6 +136,12 @@ function markdown(data) {
     lines.push(item.proves);
     lines.push("");
   }
+  lines.push("## Platform Posture");
+  lines.push("");
+  for (const line of data.platformPosture) {
+    lines.push(`- ${line}`);
+  }
+  lines.push("");
   lines.push("## Manual App Flows");
   lines.push("");
   for (const flow of data.manualFlows) {

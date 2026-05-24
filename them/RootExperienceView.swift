@@ -956,6 +956,7 @@ struct RootExperienceView: View {
         }
     }
 
+    #if DEBUG || os(macOS)
     private var bodyWithObservedChanges: AnyView {
         AnyView(
             rootBodyView
@@ -1008,6 +1009,11 @@ struct RootExperienceView: View {
                 }
         )
     }
+    #else
+    private var bodyWithObservedChanges: AnyView {
+        AnyView(rootBodyView)
+    }
+    #endif
 
     private var bodyWithLifecycleObservers: AnyView {
         AnyView(
@@ -5304,13 +5310,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
         }
 
+#endif
         let playbackObservationProvider: (@MainActor @Sendable () -> SegmentedPlaybackObservation?) = {
             resolvedDebugSyncedPlaybackObservation(from: syncedPlaybackClock.currentObservation)
         }
         let playbackTimeProvider: (@MainActor @Sendable () -> TimeInterval?) = {
             playbackObservationProvider()?.currentTime
         }
-#endif
 
         func beginSyncedPlaybackClockSegment(for url: URL) {
             let expectedDuration = audioDurationSeconds(at: url) ?? 0

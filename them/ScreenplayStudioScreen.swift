@@ -498,6 +498,50 @@ private func readMirroredStudioDebugPreferenceBool(_ key: String, fallback: Bool
     }
     return fallback
 }
+#else
+private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
+    UserDefaults.standard.set(value, forKey: key)
+}
+
+private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey key: String) {
+    UserDefaults.standard.set(value, forKey: key)
+}
+
+private func readMirroredStudioDebugPreferenceInt(_ key: String, fallback: Int = 0) -> Int {
+    if let number = UserDefaults.standard.object(forKey: key) as? NSNumber {
+        return number.intValue
+    }
+    if let string = UserDefaults.standard.string(forKey: key),
+       let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        return parsed
+    }
+    return fallback
+}
+
+private func readMirroredStudioDebugPreferenceString(_ key: String, fallback: String = "") -> String {
+    if let string = UserDefaults.standard.string(forKey: key) {
+        return string
+    }
+    if let number = UserDefaults.standard.object(forKey: key) as? NSNumber {
+        return number.stringValue
+    }
+    return fallback
+}
+
+private func readMirroredStudioDebugPreferenceBool(_ key: String, fallback: Bool = false) -> Bool {
+    if let bool = UserDefaults.standard.object(forKey: key) as? Bool {
+        return bool
+    }
+    if let number = UserDefaults.standard.object(forKey: key) as? NSNumber {
+        return number.boolValue
+    }
+    if let string = UserDefaults.standard.string(forKey: key) {
+        let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if ["1", "true", "yes"].contains(normalized) { return true }
+        if ["0", "false", "no"].contains(normalized) { return false }
+    }
+    return fallback
+}
 #endif
 #endif
 
@@ -4264,14 +4308,14 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio_debug_inspector_interaction_result_status") private var studioDebugInspectorInteractionResultStatus = ""
     @AppStorage("studio_debug_inspector_interaction_result_error") private var studioDebugInspectorInteractionResultError = ""
     @AppStorage("studio_debug_inspector_interaction_result_json") private var studioDebugInspectorInteractionResultJSON = ""
+    @State private var didRunStudioThreadViewStateRegressionSmoke = false
+#endif
     @State private var restoredStudioDebugStateSourceRaw = StudioThreadViewStateSource.none.rawValue
     @State private var restoredStudioDebugFocusedDiffSourceRaw = StudioThreadViewStateSource.none.rawValue
     @State private var restoredStudioDebugReopenedSourceRaw = StudioThreadViewStateSource.none.rawValue
     @State private var restoredStudioDebugFocusedDiffKey = ""
     @State private var restoredStudioDebugReopenedLineageKeys: [String] = []
     @State private var restoredStudioDebugLatestReopenedWriteID = ""
-    @State private var didRunStudioThreadViewStateRegressionSmoke = false
-#endif
     @FocusState private var studioPromptFocused: Bool
     @FocusState private var sceneQuickInsertFocused: Bool
     @FocusState private var sceneInspectorTitleFocused: Bool
@@ -4434,6 +4478,7 @@ Replace is best when this file should become the script you edit. Append is safe
             }
     }
 
+    #if DEBUG || os(macOS)
     private var studioLifecycleDebugPrimaryBoundView: some View {
         studioLifecycleTaskBoundView
             .onChange(of: studioDebugPrepareToken) { _, _ in
@@ -4514,6 +4559,11 @@ Replace is best when this file should become the script you edit. Append is safe
                 applyDebugShortcutIfNeeded()
             }
     }
+    #else
+    private var studioLifecycleDebugBoundView: some View {
+        studioLifecycleTaskBoundView
+    }
+    #endif
 
     private var studioLifecycleTaskBoundView: some View {
         studioStateBoundView
@@ -20729,14 +20779,12 @@ Return revised screenplay lines only.
             focusedPageDiffExchangeID = nil
             reopenedDiffExchangeKeys = []
             isRestoringReopenedDiffState = false
-#if DEBUG || os(macOS)
             restoredStudioDebugStateSourceRaw = StudioThreadViewStateSource.none.rawValue
             restoredStudioDebugFocusedDiffSourceRaw = StudioThreadViewStateSource.none.rawValue
             restoredStudioDebugReopenedSourceRaw = StudioThreadViewStateSource.none.rawValue
             restoredStudioDebugFocusedDiffKey = ""
             restoredStudioDebugReopenedLineageKeys = []
             restoredStudioDebugLatestReopenedWriteID = ""
-#endif
             return
         }
         let restoreResult = restoredFullThreadBrowseState(for: normalizedKey)
@@ -20762,14 +20810,12 @@ Return revised screenplay lines only.
         focusedPageDiffExchangeID = studioAskNoteHistory.first(where: {
             studioExchangePersistentActionKey($0) == focusedPageDiffPersistentKey
         })?.id
-#if DEBUG || os(macOS)
         restoredStudioDebugStateSourceRaw = restoreResult.source.rawValue
         restoredStudioDebugFocusedDiffSourceRaw = restoreResult.focusedDiffSource.rawValue
         restoredStudioDebugReopenedSourceRaw = restoreResult.reopenedSource.rawValue
         restoredStudioDebugFocusedDiffKey = record?.focusedDiffKey ?? ""
         restoredStudioDebugReopenedLineageKeys = record?.reopenedLineageKeys ?? []
         restoredStudioDebugLatestReopenedWriteID = record?.latestReopenedWriteID ?? ""
-#endif
     }
 
     private func currentVersionStudioWriteAnchors() -> [BackendScreenplayWriteAnchor] {
@@ -22185,9 +22231,9 @@ Return revised screenplay lines only.
 
     private func submitStudioPromptSeedFromKeyboardShortcut() {
         let text = studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines)
-        #if DEBUG || os(macOS)
         let debugReplacementMode = resolvedStudioDebugReplacementModeForSubmission(nil)
         var preparedTokenForSubmit: Int? = nil
+        #if DEBUG || os(macOS)
         if let preparedToken = matchingPreparedStudioDebugSubmitToken(
             text: text,
             routingMode: studioPromptRoutingMode,
