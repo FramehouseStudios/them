@@ -1102,11 +1102,7 @@ final class BackendClient {
     private let keychainService = "io.them.client"
     private let keychainTokenAccount = "session_client_token"
     private let keychainExpiryAccount = "session_client_token_expiry"
-    private let keychainUserIDAccount = "stable_user_id"
     private let sharedBackendBaseURLDefaultsKey = "backend_base_url"
-    private let sharedClientTokenDefaultsKey = "client_token"
-    private let sharedClientTokenExpiryDefaultsKey = "client_token_expiry"
-    private let sharedUserIDDefaultsKey = "user_id"
     private let personaFlowKey = "clementine"
 
     private var cachedClientToken: String?
@@ -3563,7 +3559,7 @@ final class BackendClient {
         let sharedToken = readSharedClientToken()
         let sharedExpiry: Date? = {
             guard
-                let raw = UserDefaults.standard.string(forKey: sharedClientTokenExpiryDefaultsKey),
+                let raw = readSharedClientTokenExpiry(),
                 let parsed = formatter.date(from: raw)
             else { return nil }
             return parsed
@@ -3619,7 +3615,7 @@ final class BackendClient {
 
         if
             let sharedToken = readSharedClientToken(),
-            let expiryRaw = UserDefaults.standard.string(forKey: sharedClientTokenExpiryDefaultsKey),
+            let expiryRaw = readSharedClientTokenExpiry(),
             let expiry = formatter.date(from: expiryRaw),
             expiry.timeIntervalSince(now) > sessionRefreshSkew
         {
@@ -3637,11 +3633,11 @@ final class BackendClient {
             writeSharedUserID(cached)
             return cached
         }
-        let fromDefaults = normalizeStoredUserID(readSharedUserID())
-        if !fromDefaults.isEmpty {
-            cachedUserID = fromDefaults
-            writeSharedUserID(fromDefaults)
-            return fromDefaults
+        let stored = normalizeStoredUserID(readSharedUserID())
+        if !stored.isEmpty {
+            cachedUserID = stored
+            writeSharedUserID(stored)
+            return stored
         }
         let generated = generateStableUserID()
         cachedUserID = generated
@@ -4242,24 +4238,24 @@ final class BackendClient {
     }
 
     private func appToken() -> String? {
-        let defaultsRaw = (UserDefaults.standard.string(forKey: "app_token") ?? "")
+        let keychainRaw = (BackendAuthClient.sharedAppToken() ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let plistRaw = (Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let envRaw = (ProcessInfo.processInfo.environment["APP_TOKEN"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let defaults = isUsableTokenValue(defaultsRaw) ? defaultsRaw : nil
+        let keychain = isUsableTokenValue(keychainRaw) ? keychainRaw : nil
         let plist = isUsableTokenValue(plistRaw) ? plistRaw : nil
         let env = isUsableTokenValue(envRaw) ? envRaw : nil
 
-        if let defaults, let plist, defaults != plist {
-            print("APP_TOKEN mismatch defaults/plist -> using defaults value")
+        if let keychain, let plist, keychain != plist {
+            print("APP_TOKEN mismatch keychain/plist -> using keychain value")
         } else if let plist, let env, plist != env {
             print("APP_TOKEN mismatch env/plist -> using plist value")
         }
 
-        if let defaults { return defaults }
+        if let keychain { return keychain }
         if let plist { return plist }
         if let env { return env }
         return devFallbackAppToken
@@ -4839,8 +4835,9 @@ final class BackendClient {
         )
     }
 
-    private func writeKeychainString(_ value: String, account: String) {
-        guard let data = value.data(using: .utf8) else { return }
+    @discardableResult
+    private func writeKeychainString(_ value: String, account: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -4852,8 +4849,8 @@ final class BackendClient {
 
         var item = query
         item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(item as CFDictionary, nil)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
     private func readKeychainString(account: String) -> String? {
@@ -4885,22 +4882,14 @@ final class BackendClient {
             writeSharedUserID(cached)
             return cached
         }
-        let fromKeychain = normalizeStoredUserID(readKeychainString(account: keychainUserIDAccount))
-        if !fromKeychain.isEmpty {
-            cachedUserID = fromKeychain
-            writeSharedUserID(fromKeychain)
-            return fromKeychain
-        }
-        let fromDefaults = normalizeStoredUserID(readSharedUserID())
-        if !fromDefaults.isEmpty {
-            cachedUserID = fromDefaults
-            writeKeychainString(fromDefaults, account: keychainUserIDAccount)
-            writeSharedUserID(fromDefaults)
-            return fromDefaults
+        let stored = normalizeStoredUserID(readSharedUserID())
+        if !stored.isEmpty {
+            cachedUserID = stored
+            writeSharedUserID(stored)
+            return stored
         }
         let generated = generateStableUserID()
         cachedUserID = generated
-        writeKeychainString(generated, account: keychainUserIDAccount)
         writeSharedUserID(generated)
         return generated
     }
@@ -4909,7 +4898,6 @@ final class BackendClient {
         let normalized = normalizeStoredUserID(userID)
         guard !normalized.isEmpty else { return }
         cachedUserID = normalized
-        writeKeychainString(normalized, account: keychainUserIDAccount)
         writeSharedUserID(normalized)
     }
 
@@ -4930,15 +4918,15 @@ final class BackendClient {
     }
 
     private func readSharedClientToken() -> String? {
-        let raw = UserDefaults.standard.string(forKey: sharedClientTokenDefaultsKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return raw.isEmpty ? nil : raw
+        BackendAuthClient.sharedClientToken()
+    }
+
+    private func readSharedClientTokenExpiry() -> String? {
+        BackendAuthClient.sharedClientTokenExpiry()
     }
 
     private func readSharedUserID() -> String? {
-        let raw = UserDefaults.standard.string(forKey: sharedUserIDDefaultsKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return raw.isEmpty ? nil : raw
+        BackendAuthClient.sharedUserID()
     }
 
     private func writeSharedClientToken(_ token: String, expiry: Date?) {
@@ -4947,22 +4935,18 @@ final class BackendClient {
             clearSharedClientToken()
             return
         }
-        UserDefaults.standard.set(trimmed, forKey: sharedClientTokenDefaultsKey)
-        if let expiry {
-            let raw = ISO8601DateFormatter().string(from: expiry)
-            UserDefaults.standard.set(raw, forKey: sharedClientTokenExpiryDefaultsKey)
-        }
+        let raw = expiry.map { ISO8601DateFormatter().string(from: $0) }
+        BackendAuthClient.persistSharedClientToken(trimmed, expiryRaw: raw)
     }
 
     private func clearSharedClientToken() {
-        UserDefaults.standard.removeObject(forKey: sharedClientTokenDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: sharedClientTokenExpiryDefaultsKey)
+        BackendAuthClient.clearSharedClientToken()
     }
 
     private func writeSharedUserID(_ userID: String) {
         let trimmed = userID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        UserDefaults.standard.set(trimmed, forKey: sharedUserIDDefaultsKey)
+        BackendAuthClient.persistSharedUserID(trimmed)
     }
 
     private func persistSharedBackendBaseURL(_ url: URL) {

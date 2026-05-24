@@ -92,7 +92,7 @@ Checklist:
 - [x] TestFlight preflight artifact names what is verified and what is parked.
 - [ ] Human signs off on the V1 manual smoke before external review and the
       TestFlight handoff can proceed.
-- [ ] iOS auth tokens migrated from UserDefaults to Keychain
+- [x] iOS auth tokens migrated from UserDefaults to Keychain
       (`T-ios-keychain-token-migration`).
 - [ ] iOS offline outbox queues talk turns when offline
       (`T-ios-offline-outbox`).

@@ -111,6 +111,104 @@ final class BackendAccountDataControlsTests: XCTestCase {
     }
 }
 
+final class BackendCredentialMigrationTests: XCTestCase {
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "io.them.BackendCredentialMigrationTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testReadMigratesLegacyDefaultsValueToKeychainAndClearsDefaults() {
+        defaults.set(" legacy-token ", forKey: "client_token")
+        var keychain: [String: String] = [:]
+
+        let value = BackendCredentialMigration.readString(
+            account: "session_client_token",
+            defaultsKey: "client_token",
+            defaults: defaults,
+            readKeychain: { keychain[$0] },
+            writeKeychain: { value, account in
+                keychain[account] = value
+                return true
+            }
+        )
+
+        XCTAssertEqual(value, "legacy-token")
+        XCTAssertNil(defaults.string(forKey: "client_token"))
+        XCTAssertEqual(keychain["session_client_token"], "legacy-token")
+    }
+
+    func testReadLeavesLegacyDefaultsWhenKeychainWriteFails() {
+        defaults.set("legacy-token", forKey: "client_token")
+
+        let value = BackendCredentialMigration.readString(
+            account: "session_client_token",
+            defaultsKey: "client_token",
+            defaults: defaults,
+            readKeychain: { _ in nil },
+            writeKeychain: { _, _ in false }
+        )
+
+        XCTAssertEqual(value, "legacy-token")
+        XCTAssertEqual(defaults.string(forKey: "client_token"), "legacy-token")
+    }
+
+    func testNewWritesUseKeychainAndRemoveDefaults() {
+        defaults.set("stale-user", forKey: "user_id")
+        var keychain: [String: String] = [:]
+
+        let wrote = BackendCredentialMigration.writeString(
+            " usr_new_value ",
+            account: "stable_user_id",
+            defaultsKey: "user_id",
+            defaults: defaults,
+            writeKeychain: { value, account in
+                keychain[account] = value
+                return true
+            },
+            deleteKeychain: { keychain.removeValue(forKey: $0) }
+        )
+
+        XCTAssertTrue(wrote)
+        XCTAssertNil(defaults.string(forKey: "user_id"))
+        XCTAssertEqual(keychain["stable_user_id"], "usr_new_value")
+    }
+
+    func testEmptyWritesClearKeychainAndDefaults() {
+        defaults.set("stale-expiry", forKey: "client_token_expiry")
+        var keychain = ["session_client_token_expiry": "stale-expiry"]
+
+        let wrote = BackendCredentialMigration.writeString(
+            "   ",
+            account: "session_client_token_expiry",
+            defaultsKey: "client_token_expiry",
+            defaults: defaults,
+            writeKeychain: { value, account in
+                keychain[account] = value
+                return true
+            },
+            deleteKeychain: { account in
+                keychain.removeValue(forKey: account)
+            }
+        )
+
+        XCTAssertFalse(wrote)
+        XCTAssertNil(defaults.string(forKey: "client_token_expiry"))
+        XCTAssertNil(keychain["session_client_token_expiry"])
+    }
+}
+
 private struct AccountDataControlsHTTPStub {
     let status: Int
     let headers: [String: String]

@@ -1704,6 +1704,72 @@ nonisolated enum BackendMemoryAPIError: LocalizedError {
     }
 }
 
+nonisolated enum BackendCredentialMigration {
+    static func normalizedNonEmpty(_ raw: String?) -> String {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "" : trimmed
+    }
+
+    static func readString(
+        account: String,
+        defaultsKey: String,
+        defaults: UserDefaults = .standard,
+        readKeychain: (String) -> String?,
+        writeKeychain: (String, String) -> Bool,
+        normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty
+    ) -> String? {
+        let existing = normalize(readKeychain(account))
+        if !existing.isEmpty {
+            defaults.removeObject(forKey: defaultsKey)
+            return existing
+        }
+
+        let legacy = normalize(defaults.string(forKey: defaultsKey))
+        guard !legacy.isEmpty else { return nil }
+        if writeKeychain(legacy, account) {
+            defaults.removeObject(forKey: defaultsKey)
+        }
+        return legacy
+    }
+
+    @discardableResult
+    static func writeString(
+        _ value: String,
+        account: String,
+        defaultsKey: String,
+        defaults: UserDefaults = .standard,
+        writeKeychain: (String, String) -> Bool,
+        deleteKeychain: (String) -> Void,
+        normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty
+    ) -> Bool {
+        let normalized = normalize(value)
+        guard !normalized.isEmpty else {
+            deleteString(
+                account: account,
+                defaultsKey: defaultsKey,
+                defaults: defaults,
+                deleteKeychain: deleteKeychain
+            )
+            return false
+        }
+        let wrote = writeKeychain(normalized, account)
+        if wrote {
+            defaults.removeObject(forKey: defaultsKey)
+        }
+        return wrote
+    }
+
+    static func deleteString(
+        account: String,
+        defaultsKey: String,
+        defaults: UserDefaults = .standard,
+        deleteKeychain: (String) -> Void
+    ) {
+        deleteKeychain(account)
+        defaults.removeObject(forKey: defaultsKey)
+    }
+}
+
 nonisolated enum BackendAuthClient {
     private enum DefaultsKey {
         static let baseURL = "backend_base_url"
@@ -1725,6 +1791,10 @@ nonisolated enum BackendAuthClient {
     private static let keychainService = "io.them.client"
     private static let authAccessTokenAccount = "auth_access_token"
     private static let authRefreshTokenAccount = "auth_refresh_token"
+    private static let appTokenAccount = "app_token"
+    private static let clientTokenAccount = "session_client_token"
+    private static let clientTokenExpiryAccount = "session_client_token_expiry"
+    private static let userIDAccount = "stable_user_id"
     private static let devFallbackAppToken: String? = {
 #if DEBUG
         "them-dev"
@@ -1978,15 +2048,12 @@ nonisolated enum BackendAuthClient {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
         if includeUserIdentity {
-            let userId = (UserDefaults.standard.string(forKey: DefaultsKey.userId) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !userId.isEmpty {
+            if let userId = sharedUserID(), !userId.isEmpty {
                 request.setValue(userId, forHTTPHeaderField: "X-User-Id")
             }
         }
         if includeClientToken {
-            let clientToken = preferenceString(forKey: "client_token")
-            if !clientToken.isEmpty {
+            if let clientToken = sharedClientToken(), !clientToken.isEmpty {
                 request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
             }
         }
@@ -2088,7 +2155,7 @@ nonisolated enum BackendAuthClient {
         }
         UserDefaults.standard.set(user.email, forKey: DefaultsKey.authUserEmail)
         UserDefaults.standard.set(user.emailVerified, forKey: DefaultsKey.authUserVerified)
-        UserDefaults.standard.set(user.userId, forKey: DefaultsKey.userId)
+        persistSharedUserID(user.userId)
         if user.emailVerified {
             UserDefaults.standard.set(false, forKey: DefaultsKey.authPendingEmailVerification)
             UserDefaults.standard.set(false, forKey: DefaultsKey.authVerificationRequired)
@@ -2108,8 +2175,8 @@ nonisolated enum BackendAuthClient {
         UserDefaults.standard.removeObject(forKey: DefaultsKey.authSignedIn)
         UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentSessionId)
         UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentFamilyId)
-        UserDefaults.standard.removeObject(forKey: "client_token")
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.userId)
+        clearSharedClientToken()
+        clearSharedUserID()
     }
 
     fileprivate static func accessToken() -> String? {
@@ -2144,8 +2211,9 @@ nonisolated enum BackendAuthClient {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func writeKeychainString(_ value: String, account: String) {
-        guard let data = value.data(using: .utf8) else { return }
+    @discardableResult
+    private static func writeKeychainString(_ value: String, account: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -2154,8 +2222,8 @@ nonisolated enum BackendAuthClient {
         SecItemDelete(query as CFDictionary)
         var item = query
         item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(item as CFDictionary, nil)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
     private static func readKeychainString(account: String) -> String? {
@@ -2179,6 +2247,15 @@ nonisolated enum BackendAuthClient {
             kSecAttrAccount as String: account,
         ]
         SecItemDelete(query as CFDictionary)
+    }
+
+    private static func normalizedStoredUserID(_ raw: String?) -> String {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        guard trimmed.count >= 8 && trimmed.count <= 128 else { return "" }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-")
+        if trimmed.rangeOfCharacter(from: allowed.inverted) != nil { return "" }
+        return trimmed
     }
 
     private static func preferenceDomains() -> [String] {
@@ -2337,9 +2414,8 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func appToken() -> String? {
-        let fromDefaults = preferenceString(forKey: DefaultsKey.appToken)
-        if isUsableConfigValue(fromDefaults) {
-            return fromDefaults
+        if let fromKeychain = sharedAppToken(), isUsableConfigValue(fromKeychain) {
+            return fromKeychain
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String,
            isUsableConfigValue(fromInfo) {
@@ -2350,6 +2426,107 @@ nonisolated enum BackendAuthClient {
             return envValue
         }
         return devFallbackAppToken
+    }
+
+    static func sharedAppToken() -> String? {
+        BackendCredentialMigration.readString(
+            account: appTokenAccount,
+            defaultsKey: DefaultsKey.appToken,
+            readKeychain: readKeychainString,
+            writeKeychain: writeKeychainString,
+            normalize: { raw in
+                let value = BackendCredentialMigration.normalizedNonEmpty(raw)
+                return isUsableConfigValue(value) ? value : ""
+            }
+        )
+    }
+
+    static func sharedClientToken() -> String? {
+        BackendCredentialMigration.readString(
+            account: clientTokenAccount,
+            defaultsKey: "client_token",
+            readKeychain: readKeychainString,
+            writeKeychain: writeKeychainString
+        )
+    }
+
+    static func sharedClientTokenExpiry() -> String? {
+        BackendCredentialMigration.readString(
+            account: clientTokenExpiryAccount,
+            defaultsKey: "client_token_expiry",
+            readKeychain: readKeychainString,
+            writeKeychain: writeKeychainString
+        )
+    }
+
+    @discardableResult
+    static func persistSharedClientToken(_ token: String, expiryRaw: String?) -> Bool {
+        let wroteToken = BackendCredentialMigration.writeString(
+            token,
+            account: clientTokenAccount,
+            defaultsKey: "client_token",
+            writeKeychain: writeKeychainString,
+            deleteKeychain: deleteKeychainString
+        )
+        if let expiryRaw {
+            _ = BackendCredentialMigration.writeString(
+                expiryRaw,
+                account: clientTokenExpiryAccount,
+                defaultsKey: "client_token_expiry",
+                writeKeychain: writeKeychainString,
+                deleteKeychain: deleteKeychainString
+            )
+        } else {
+            BackendCredentialMigration.deleteString(
+                account: clientTokenExpiryAccount,
+                defaultsKey: "client_token_expiry",
+                deleteKeychain: deleteKeychainString
+            )
+        }
+        return wroteToken
+    }
+
+    static func clearSharedClientToken() {
+        BackendCredentialMigration.deleteString(
+            account: clientTokenAccount,
+            defaultsKey: "client_token",
+            deleteKeychain: deleteKeychainString
+        )
+        BackendCredentialMigration.deleteString(
+            account: clientTokenExpiryAccount,
+            defaultsKey: "client_token_expiry",
+            deleteKeychain: deleteKeychainString
+        )
+    }
+
+    static func sharedUserID() -> String? {
+        BackendCredentialMigration.readString(
+            account: userIDAccount,
+            defaultsKey: DefaultsKey.userId,
+            readKeychain: readKeychainString,
+            writeKeychain: writeKeychainString,
+            normalize: normalizedStoredUserID
+        )
+    }
+
+    @discardableResult
+    static func persistSharedUserID(_ userID: String) -> Bool {
+        BackendCredentialMigration.writeString(
+            userID,
+            account: userIDAccount,
+            defaultsKey: DefaultsKey.userId,
+            writeKeychain: writeKeychainString,
+            deleteKeychain: deleteKeychainString,
+            normalize: normalizedStoredUserID
+        )
+    }
+
+    static func clearSharedUserID() {
+        BackendCredentialMigration.deleteString(
+            account: userIDAccount,
+            defaultsKey: DefaultsKey.userId,
+            deleteKeychain: deleteKeychainString
+        )
     }
 
     private static func isUsableConfigValue(_ raw: String) -> Bool {
@@ -2520,9 +2697,9 @@ actor BackendMemoryAPI {
     func invalidateResolvedSession(clearSharedUserID: Bool = false) {
         invalidateReadCaches(clearSyncState: true)
         lastForcedSessionRefreshAt = nil
-        UserDefaults.standard.removeObject(forKey: DefaultsKey.clientToken)
+        BackendAuthClient.clearSharedClientToken()
         if clearSharedUserID {
-            UserDefaults.standard.removeObject(forKey: DefaultsKey.userId)
+            BackendAuthClient.clearSharedUserID()
         }
     }
 
@@ -5659,9 +5836,8 @@ actor BackendMemoryAPI {
     }
 
     private func appToken() -> String? {
-        let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.appToken)
-        if isUsableConfigValue(fromDefaults) {
-            return fromDefaults
+        if let fromKeychain = BackendAuthClient.sharedAppToken(), isUsableConfigValue(fromKeychain) {
+            return fromKeychain
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String,
            isUsableConfigValue(fromInfo) {
@@ -5683,17 +5859,16 @@ actor BackendMemoryAPI {
     }
 
     private func clientToken() -> String? {
-        let token = BackendAuthClient.preferenceStringValues(forKey: DefaultsKey.clientToken).last ?? ""
-        return token.isEmpty ? nil : token
+        BackendAuthClient.sharedClientToken()
     }
 
     private func userID() -> String? {
-        let current = normalizedUserID(UserDefaults.standard.string(forKey: DefaultsKey.userId) ?? "")
+        let current = normalizedUserID(BackendAuthClient.sharedUserID() ?? "")
         if !current.isEmpty {
             return current
         }
         let generated = generatedUserID()
-        UserDefaults.standard.set(generated, forKey: DefaultsKey.userId)
+        BackendAuthClient.persistSharedUserID(generated)
         return generated
     }
 
@@ -5717,11 +5892,11 @@ actor BackendMemoryAPI {
         cachedSession = sessionPayload
         cachedSessionAt = Date()
 
-        UserDefaults.standard.set(sessionPayload.clientToken, forKey: DefaultsKey.clientToken)
+        BackendAuthClient.persistSharedClientToken(sessionPayload.clientToken, expiryRaw: nil)
         if let userId = sessionPayload.userId {
             let normalized = normalizedUserID(userId)
             if !normalized.isEmpty {
-                UserDefaults.standard.set(normalized, forKey: DefaultsKey.userId)
+                BackendAuthClient.persistSharedUserID(normalized)
             }
         }
         if let assistant = sessionPayload.assistantSelfName ?? sessionPayload.assistantName,
