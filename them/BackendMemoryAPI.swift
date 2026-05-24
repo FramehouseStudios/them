@@ -483,6 +483,12 @@ nonisolated struct BackendAccountDeletionResponse: Decodable, Equatable {
     let recoveryWindowDays: Int?
 }
 
+nonisolated struct BackendAccountExportArtifact: Equatable {
+    let filename: String
+    let contentType: String
+    let data: Data
+}
+
 nonisolated struct BackendMemoryStatsCounts: Decodable, Hashable {
     let characters: Int
     let charactersWithVoice: Int
@@ -2908,6 +2914,30 @@ actor BackendMemoryAPI {
 
     func clearMemories() async throws -> BackendReadResult<BackendDataControlResponse> {
         try await runDataControl(path: "/data/memories/clear")
+    }
+
+    func exportAccountData() async throws -> BackendAccountExportArtifact {
+        _ = try? await bootstrapSession(force: false)
+        var request = try makeRequest(path: "/account/export")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let contentType = headerValue(http, "Content-Type").trimmingCharacters(in: .whitespacesAndNewlines)
+        let disposition = headerValue(http, "Content-Disposition")
+        let filename = disposition.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "io-them-account-export.json"
+            : parseDispositionFilename(disposition, fallbackFormat: "json")
+        return BackendAccountExportArtifact(
+            filename: filename,
+            contentType: contentType.isEmpty ? "application/json" : contentType,
+            data: data
+        )
     }
 
     func requestAccountDeletion(reason: String = "") async throws -> BackendAccountDeletionResponse {

@@ -104,7 +104,7 @@ Checklist:
       (`assertProductionEnv`).
 - [x] Migrations runner applies all `backend/migrations/*.sql`
       (`scripts/apply_migrations.mjs`) — run it before first deploy.
-- [ ] `GET /account/export` + `DELETE /account` wired to real
+- [x] `GET /account/export` + `DELETE /account` wired to real
       persistence — **App Store reviewer blocker**
       (`T-account-deletion-and-export`).
 - [x] Security headers (HSTS/nosniff/frame-ancestors) set before

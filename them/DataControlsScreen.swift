@@ -205,10 +205,10 @@ struct DataControlsScreen: View {
             } label: {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Export Memory JSON")
+                        Text("Download My Data")
                             .font(.system(size: 15, weight: .semibold, design: .default))
                             .foregroundStyle(Color.herText.opacity(0.92))
-                        Text("Saves your current memory ledger to a JSON file.")
+                        Text("Saves your backend account archive as JSON.")
                             .font(.system(size: 13, weight: .regular, design: .default))
                             .foregroundStyle(Color.herText.opacity(0.72))
                     }
@@ -447,7 +447,7 @@ struct DataControlsScreen: View {
     private var statusRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             if isExporting {
-                Text("Exporting memory ledger...")
+                Text("Exporting account archive...")
                     .font(.system(size: 13, weight: .regular, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.82))
             }
@@ -541,13 +541,13 @@ struct DataControlsScreen: View {
         Task { @MainActor in
             defer { isExporting = false }
             do {
-                let result = try await BackendMemoryAPI.shared.exportMemories()
-                stateVersion = result.sync.stateVersion
+                let result = try await BackendMemoryAPI.shared.exportAccountData()
+                stateVersion = ""
                 let url = try writeExportFile(
-                    filename: result.payload.filename,
-                    json: result.payload.exportJson
+                    filename: result.filename,
+                    data: result.data
                 )
-                statusMessage = "Memory export saved: \(url.path)"
+                statusMessage = "Account export saved: \(url.path)"
                 #if os(macOS)
                 NSWorkspace.shared.activateFileViewerSelecting([url])
                 #endif
@@ -557,9 +557,9 @@ struct DataControlsScreen: View {
         }
     }
 
-    private func writeExportFile(filename: String, json: String) throws -> URL {
+    private func writeExportFile(filename: String, data: Data) throws -> URL {
         let safeName = filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "clementine_memory_export.json"
+            ? "io-them-account-export.json"
             : filename
         let directory: URL
         #if os(macOS)
@@ -570,13 +570,6 @@ struct DataControlsScreen: View {
             ?? FileManager.default.temporaryDirectory
         #endif
         let url = directory.appendingPathComponent(safeName)
-        guard let data = json.data(using: .utf8) else {
-            throw NSError(
-                domain: "DataControlsScreen",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not encode export payload."]
-            )
-        }
         try data.write(to: url, options: .atomic)
         return url
     }

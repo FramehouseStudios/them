@@ -9,6 +9,53 @@ final class BackendAccountDataControlsTests: XCTestCase {
         super.tearDown()
     }
 
+    func testExportAccountDataDownloadsBackendAccountArchive() async throws {
+        let recorder = AccountDataControlsRequestRecorder()
+        AccountDataControlsURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/account/export":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/json; charset=utf-8",
+                        "Content-Disposition": #"attachment; filename="io-them-export-user-1.json""#,
+                    ],
+                    body: Data(#"{ "schema": "io.them.account_export.v1", "domains": { "screenplay": [] } }"#.utf8)
+                )
+            default:
+                return AccountDataControlsHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountDataControlsURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://account-data-controls.test")!
+        )
+
+        let artifact = try await api.exportAccountData()
+
+        XCTAssertEqual(artifact.filename, "io-them-export-user-1.json")
+        XCTAssertEqual(artifact.contentType, "application/json; charset=utf-8")
+        XCTAssertTrue(String(data: artifact.data, encoding: .utf8)?.contains("account_export") == true)
+        let exportRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/account/export" })
+        XCTAssertEqual(exportRequest.method, "GET")
+        XCTAssertEqual(exportRequest.acceptHeader, "application/json")
+    }
+
     func testRequestAccountDeletionSendsDeleteToAccountRoute() async throws {
         let recorder = AccountDataControlsRequestRecorder()
         AccountDataControlsURLProtocolStub.handler = { request in
@@ -109,6 +156,7 @@ private final class AccountDataControlsURLProtocolStub: URLProtocol {
 private struct RecordedAccountDataControlsRequest {
     let method: String
     let path: String
+    let acceptHeader: String?
     let bodyObject: [String: Any]?
 }
 
@@ -128,6 +176,7 @@ private final class AccountDataControlsRequestRecorder: @unchecked Sendable {
         let record = RecordedAccountDataControlsRequest(
             method: request.httpMethod ?? "",
             path: request.url?.path ?? "",
+            acceptHeader: request.value(forHTTPHeaderField: "Accept"),
             bodyObject: bodyObject
         )
         lock.lock()
