@@ -182,15 +182,22 @@ private struct StudioDebugVoiceTurnResultSnapshot: Codable {
     let breadcrumbs: [StudioDebugVoiceDraftBreadcrumb]
 }
 
-#if os(macOS)
-private let studioDebugPreferencesDomain = "io.them.them" as CFString
-private let studioDebugLoadProjectRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_load_project_request.json")
-
 private struct StudioDebugLoadProjectRequest: Codable {
     let token: Int
     let projectID: String
     let versionID: String
 }
+
+private struct StudioDebugVoiceTurnRequest: Codable {
+    let token: Int
+    let prompt: String
+    let projectID: String
+}
+
+#if os(macOS)
+private let studioDebugPreferencesDomain = "io.them.them" as CFString
+private let studioDebugLoadProjectRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_load_project_request.json")
+private let studioDebugVoiceTurnRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_voice_turn_request.json")
 
 private func studioDebugPreferenceDomains() -> [String] {
     var domains: [String] = []
@@ -354,7 +361,7 @@ final class StudioDebugDefaultsBridge: ObservableObject {
     private static func readInt(forKey key: String, fallback: Int = 0) -> Int {
         for value in studioDebugPreferenceValues(forKey: key) {
             if let number = value as? NSNumber {
-                return number.intValue
+                return Int(number.int64Value)
             }
             if let string = value as? String,
                let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -1109,9 +1116,11 @@ struct RootExperienceView: View {
         setStudioDebugPreferenceInt(token, forKey: "studio_debug_voice_turn_command_received_token")
         studioDebugVoiceTurnAckToken = token
         setStudioDebugPreferenceInt(token, forKey: "studio_debug_voice_turn_ack_token")
-        let cleaned = (promptOverride ?? currentStudioDebugVoiceTurnTextFromDefaults())
+        let request = studioDebugVoiceTurnRequest(for: token)
+        let cleaned = (promptOverride ?? request?.prompt ?? currentStudioDebugVoiceTurnTextFromDefaults())
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt = cleaned.isEmpty ? "what if she leaves before he answers" : cleaned
+        let projectID = projectIDOverride ?? request?.projectID
         appendStudioDebugVoiceDraftBreadcrumb(
             event: "debug_turn_command_received",
             detail: "Studio debug voice turn command token consumed by the app.",
@@ -1122,7 +1131,7 @@ struct RootExperienceView: View {
             await runStudioDebugVoiceTurn(
                 token: token,
                 prompt: prompt,
-                projectIDOverride: projectIDOverride
+                projectIDOverride: projectID
             )
         }
         #endif
@@ -1168,11 +1177,23 @@ struct RootExperienceView: View {
 
     private func studioDebugPreferenceInt(_ key: String, fallback: Int = 0) -> Int {
         if let number = copyStudioDebugPreferenceValue(forKey: key) as? NSNumber {
-            return number.intValue
+            return Int(number.int64Value)
         }
         if let string = copyStudioDebugPreferenceValue(forKey: key) as? String,
            let value = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return value
+        }
+        return fallback
+    }
+
+    private func studioDebugPreferenceBool(_ key: String, fallback: Bool = false) -> Bool {
+        if let number = copyStudioDebugPreferenceValue(forKey: key) as? NSNumber {
+            return number.boolValue
+        }
+        if let string = copyStudioDebugPreferenceValue(forKey: key) as? String {
+            let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["1", "true", "yes", "on"].contains(normalized) { return true }
+            if ["0", "false", "no", "off"].contains(normalized) { return false }
         }
         return fallback
     }
@@ -1203,6 +1224,20 @@ struct RootExperienceView: View {
     private func currentStudioDebugVoiceTurnProjectIDFromDefaults() -> String {
         let value = studioDebugPreferenceString("studio_debug_voice_turn_project_id")
         return value.isEmpty ? studioDebugVoiceTurnProjectID : value
+    }
+
+    private func studioDebugVoiceTurnRequest(for token: Int) -> StudioDebugVoiceTurnRequest? {
+        #if os(macOS)
+        guard let data = try? Data(contentsOf: studioDebugVoiceTurnRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugVoiceTurnRequest.self, from: data),
+              request.token == token else {
+            return nil
+        }
+        try? FileManager.default.removeItem(at: studioDebugVoiceTurnRequestURL)
+        return request
+        #else
+        return nil
+        #endif
     }
 
     private func noteStudioDebugLifecycle(_ stage: String) {
@@ -1250,6 +1285,14 @@ struct RootExperienceView: View {
     private func processPendingStudioDebugCommandsIfNeeded() {
         guard !IOThemRuntime.isRunningTests else { return }
         handleStudioDebugLoadProjectRequestFileIfNeeded()
+
+        let autoInsertEnabled = studioDebugPreferenceBool(
+            "studio_auto_insert",
+            fallback: screenplayDraftBridge.autoInsertEnabled
+        )
+        if screenplayDraftBridge.autoInsertEnabled != autoInsertEnabled {
+            screenplayDraftBridge.autoInsertEnabled = autoInsertEnabled
+        }
 
         let openToken = studioDebugPreferenceInt("studio_debug_open_token")
         if openToken > 0 {
@@ -4958,6 +5001,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var didStartEarlyStreamPlayback = false
         var didRecordAssistantPlaybackStart = false
         var didStartSyncedVoiceInsert = false
+        var didInterruptSyncedVoiceInsert = false
         var didCommitSyncedVoiceFallback = false
         var didCommitEarlyStudioDraftPreviewFallback = false
         var pendingStreamRemainderURL: URL?
@@ -5490,6 +5534,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 #endif
         screenplayDraftBridge.onSyncedInsertLifecycleEvent = { event, plan, appliedCueCount, interruptionReason in
+            if event == "cancelled" {
+                didInterruptSyncedVoiceInsert = true
+            }
 #if DEBUG || os(macOS)
             guard let debugVoiceTurnToken else { return }
             let detail: String
@@ -5568,7 +5615,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         func startSyncedVoiceInsertIfPossible(trigger: String, audioURL: URL? = nil) {
             guard shouldUseSyncedStudioVoiceInsert else { return }
             guard !didStartSyncedVoiceInsert else { return }
+            guard !didInterruptSyncedVoiceInsert else { return }
             guard didRecordAssistantPlaybackStart else { return }
+            guard screenplayDraftBridge.syncedVoiceTurnState.interruptionReason == nil else { return }
             let cleanText = screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleanText.isEmpty else { return }

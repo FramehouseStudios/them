@@ -1506,6 +1506,7 @@ private func reconcileScreenplayParagraphElements(
 @MainActor
 final class ScreenplayLiveDraftBridge: ObservableObject {
     static let shared = ScreenplayLiveDraftBridge()
+    private static var globalSuppressSyncedVoiceInsertUntil: Date?
 
     private struct ProjectBindingContext {
         let projectID: String
@@ -1667,6 +1668,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private var activeSyncedVoiceLastPlaybackAdvanceAt: Date?
     private var activeSyncedVoiceLastObservedPlaybackTimeMs: Int = 0
     private var activeSyncedVoiceAnchorLineHint: Int?
+    private var suppressSyncedVoiceInsertUntil: Date?
     var onSyncedInsertLifecycleEvent: ((String, ScreenplayVoiceInsertPlan, Int, ScreenplaySyncedInsertInterruptionReason?) -> Void)?
 
 #if DEBUG
@@ -2996,6 +2998,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         playbackTimeProvider: @escaping @MainActor @Sendable () -> TimeInterval?,
         playbackObservationProvider: @escaping @MainActor @Sendable () -> SegmentedPlaybackObservation?
     ) -> ScreenplayVoiceInsertPlan? {
+        guard !isSyncedVoiceInsertSuppressedAfterManualInterruption() else { return nil }
         let cleanText = stagedSyncedVoiceTurnAuthoritativeText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else { return nil }
@@ -3114,6 +3117,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         playbackTimeProvider: @escaping @MainActor @Sendable () -> TimeInterval?,
         playbackObservationProvider: @escaping @MainActor @Sendable () -> SegmentedPlaybackObservation?
     ) -> ScreenplayVoiceInsertPlan? {
+        guard !isSyncedVoiceInsertSuppressedAfterManualInterruption() else { return nil }
+        if let activeSyncedVoiceInsertPlan {
+            return activeSyncedVoiceInsertPlan
+        }
         cancelStream()
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3235,6 +3242,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     func completeActiveSyncedVoiceInsertIfNeeded() {
         guard let plan = activeSyncedVoiceInsertPlan else { return }
+        if Self.isGlobalSyncedVoiceInsertSuppressedAfterManualInterruption() {
+            syncedVoiceInsertTask?.cancel()
+            syncedVoiceInsertTask = nil
+            activeSyncedVoiceInsertPlan = nil
+            activeSyncedVoiceAppliedCueCount = 0
+            activeSyncedVoiceVisibleUTF16Length = 0
+            activeSyncedVoiceActiveSegmentID = nil
+            activeSyncedVoiceAnchorLineHint = nil
+            streamingProgress = 0
+            autoInsertStatusText = ""
+            resetSyncedVoiceInsertWatchdog()
+            refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
+            return
+        }
         syncedVoiceInsertTask?.cancel()
         syncedVoiceInsertTask = nil
         activeSyncedVoiceAppliedCueCount = plan.cueCount
@@ -3412,6 +3433,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         allowRegression: Bool,
         finalizeIfComplete: Bool
     ) -> Bool {
+        if Self.isGlobalSyncedVoiceInsertSuppressedAfterManualInterruption() {
+            syncedVoiceInsertTask?.cancel()
+            syncedVoiceInsertTask = nil
+            activeSyncedVoiceInsertPlan = nil
+            activeSyncedVoiceAppliedCueCount = 0
+            activeSyncedVoiceVisibleUTF16Length = 0
+            activeSyncedVoiceActiveSegmentID = nil
+            activeSyncedVoiceAnchorLineHint = nil
+            streamingProgress = 0
+            autoInsertStatusText = ""
+            resetSyncedVoiceInsertWatchdog()
+            refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
+            return false
+        }
         let snapshot = plan.timeline.revealSnapshot(at: playbackTimeMs)
         let nextAppliedCount = min(snapshot.appliedRevealUnitCount, plan.cueCount)
         let nextVisibleUTF16Length = min(snapshot.visibleUTF16Length, (plan.fullText as NSString).length)
@@ -3464,6 +3499,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         reason: ScreenplaySyncedInsertInterruptionReason
     ) -> Bool {
         guard let plan = activeSyncedVoiceInsertPlan else { return false }
+        if reason == .manualTyping {
+            suppressSyncedVoiceInsertUntil = Date().addingTimeInterval(8)
+            Self.globalSuppressSyncedVoiceInsertUntil = suppressSyncedVoiceInsertUntil
+        }
         syncedVoiceInsertTask?.cancel()
         syncedVoiceInsertTask = nil
         if notifyCancellation {
@@ -3488,6 +3527,27 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
         return true
+    }
+
+    private func isSyncedVoiceInsertSuppressedAfterManualInterruption() -> Bool {
+        if Self.isGlobalSyncedVoiceInsertSuppressedAfterManualInterruption() {
+            return true
+        }
+        guard let suppressUntil = suppressSyncedVoiceInsertUntil else { return false }
+        if Date() < suppressUntil {
+            return true
+        }
+        suppressSyncedVoiceInsertUntil = nil
+        return false
+    }
+
+    private static func isGlobalSyncedVoiceInsertSuppressedAfterManualInterruption() -> Bool {
+        guard let suppressUntil = globalSuppressSyncedVoiceInsertUntil else { return false }
+        if Date() < suppressUntil {
+            return true
+        }
+        globalSuppressSyncedVoiceInsertUntil = nil
+        return false
     }
 
     private func shouldFallbackActiveSyncedVoiceInsert(

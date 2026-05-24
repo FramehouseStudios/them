@@ -320,6 +320,30 @@ private enum StudioDebugShortcutAction: String {
 
 #if os(macOS)
 private let studioDebugMirroredPreferencesDomain = "io.them.them" as CFString
+private let studioDebugLoadProjectRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_load_project_request.json")
+private let studioDebugManualEditRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_manual_edit_request.json")
+private let studioDebugAutosaveToggleRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_autosave_toggle_request.json")
+private let studioDebugSaveRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_save_request.json")
+
+private struct StudioDebugLoadProjectRequest: Decodable {
+    let token: Int
+    let projectID: String
+    let versionID: String
+}
+
+private struct StudioDebugManualEditRequest: Decodable {
+    let token: Int
+    let text: String
+}
+
+private struct StudioDebugAutosaveToggleRequest: Decodable {
+    let token: Int
+    let enabled: Bool
+}
+
+private struct StudioDebugSaveRequest: Decodable {
+    let token: Int
+}
 
 private func studioDebugMirroredDomains() -> [String] {
     var domains: [String] = []
@@ -448,6 +472,23 @@ private func readMirroredStudioDebugPreferenceString(_ key: String, fallback: St
         }
         if let number = value as? NSNumber {
             return number.stringValue
+        }
+    }
+    return fallback
+}
+
+private func readMirroredStudioDebugPreferenceBool(_ key: String, fallback: Bool = false) -> Bool {
+    for value in studioDebugMirroredPreferenceValues(forKey: key) {
+        if let bool = value as? Bool {
+            return bool
+        }
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+        if let string = value as? String {
+            let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["1", "true", "yes"].contains(normalized) { return true }
+            if ["0", "false", "no"].contains(normalized) { return false }
         }
     }
     return fallback
@@ -698,6 +739,16 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     func refresh() async {
         await load()
+    }
+
+    func refreshSelectedProjectForDebug() async {
+        await loadSelectedProjectOutline()
+    }
+
+    func markManualEditHydrateProtectedForDebugIfNeeded() {
+        guard isManualDraftEditing || hasUnsavedDraftChanges else { return }
+        autosaveStatusText = "Unsaved changes"
+        infoText = "Kept your manual edits on the page. Save when you're ready."
     }
 
     func refreshLiveDraftBridgeContext() {
@@ -2859,13 +2910,22 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             let debugRequestedProjectID = ScreenplayLiveDraftBridge.shared.debugRequestedProjectID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let shouldUseClientTokenOwner = !debugRequestedProjectID.isEmpty && debugRequestedProjectID == id
-            let detailResult = try await BackendMemoryAPI.shared.fetchScreenplayProject(
-                projectId: id,
-                includeDrafts: true,
-                versionLimit: 24,
-                includeUserIdentity: !shouldUseClientTokenOwner,
-                includeAuthToken: !shouldUseClientTokenOwner
-            )
+            let detailResult: BackendReadResult<BackendScreenplayProjectResponse>
+            do {
+                detailResult = try await BackendMemoryAPI.shared.fetchScreenplayProject(
+                    projectId: id,
+                    includeDrafts: true,
+                    versionLimit: 24,
+                    includeUserIdentity: !shouldUseClientTokenOwner,
+                    includeAuthToken: !shouldUseClientTokenOwner
+                )
+            } catch BackendMemoryAPIError.server(let status, _) where shouldUseClientTokenOwner && status == 404 {
+                detailResult = try await BackendMemoryAPI.shared.fetchScreenplayProject(
+                    projectId: id,
+                    includeDrafts: true,
+                    versionLimit: 24
+                )
+            }
             let outlineResult = try? await BackendMemoryAPI.shared.fetchScreenplayOutline(
                 projectId: id,
                 includeProject: true
@@ -3009,7 +3069,8 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         if localEditsNeedProtection {
             autosaveStatusText = "Unsaved changes"
             if infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                infoText == "Loaded latest draft" {
+                infoText == "Loaded latest draft" ||
+                infoText == "Project ready." {
                 infoText = "Kept your manual edits on the page. Save when you're ready."
             }
             conflictState = nil
@@ -3045,6 +3106,14 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let currentFingerprint = fingerprint(for: normalized)
         hasUnsavedDraftChanges = currentFingerprint != lastSavedDraftFingerprint
+        if hasUnsavedDraftChanges && isManualDraftEditing {
+            autosaveStatusText = "Unsaved changes"
+            if infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                infoText == "Project ready." ||
+                infoText == "Loaded latest draft" {
+                infoText = "Kept your manual edits on the page. Save when you're ready."
+            }
+        }
 
         await recomputePagination(for: draft)
         await recomputeRevision(for: draft)
@@ -22158,12 +22227,179 @@ Return revised screenplay lines only.
         return didChange
     }
 
+    @discardableResult
+    private func synchronizeMirroredStudioDebugInteractionState() -> Bool {
+        var didChange = false
+
+        let focusToken = readMirroredStudioDebugPreferenceInt("studio_debug_focus_page_token")
+        let focusAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_focus_page_ack_token")
+        let manualEditToken = readMirroredStudioDebugPreferenceInt("studio_debug_manual_edit_token")
+        let manualEditText = readMirroredStudioDebugPreferenceString("studio_debug_manual_edit_text")
+        let manualEditAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_manual_edit_ack_token")
+        let autosaveToggleToken = readMirroredStudioDebugPreferenceInt("studio_debug_autosave_toggle_token")
+        let autosaveEnabled = readMirroredStudioDebugPreferenceBool(
+            "studio_debug_autosave_enabled",
+            fallback: studioDebugAutosaveEnabled
+        )
+        let autosaveToggleAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_autosave_toggle_ack_token")
+        let forceHydrateToken = readMirroredStudioDebugPreferenceInt("studio_debug_force_hydrate_token")
+        let forceHydrateAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_force_hydrate_ack_token")
+        let saveToken = readMirroredStudioDebugPreferenceInt("studio_debug_save_token")
+        let saveAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_save_ack_token")
+
+        if focusToken != studioDebugFocusPageToken {
+            studioDebugFocusPageToken = focusToken
+            didChange = true
+        }
+        if focusAckToken != studioDebugFocusPageAckToken {
+            studioDebugFocusPageAckToken = focusAckToken
+            didChange = true
+        }
+        if manualEditToken != studioDebugManualEditToken {
+            studioDebugManualEditToken = manualEditToken
+            didChange = true
+        }
+        if manualEditText != studioDebugManualEditText {
+            studioDebugManualEditText = manualEditText
+            didChange = true
+        }
+        if manualEditAckToken != studioDebugManualEditAckToken {
+            studioDebugManualEditAckToken = manualEditAckToken
+            didChange = true
+        }
+        if autosaveToggleToken != studioDebugAutosaveToggleToken {
+            studioDebugAutosaveToggleToken = autosaveToggleToken
+            didChange = true
+        }
+        if autosaveEnabled != studioDebugAutosaveEnabled {
+            studioDebugAutosaveEnabled = autosaveEnabled
+            didChange = true
+        }
+        if autosaveToggleAckToken != studioDebugAutosaveToggleAckToken {
+            studioDebugAutosaveToggleAckToken = autosaveToggleAckToken
+            didChange = true
+        }
+        if forceHydrateToken != studioDebugForceHydrateToken {
+            studioDebugForceHydrateToken = forceHydrateToken
+            didChange = true
+        }
+        if forceHydrateAckToken != studioDebugForceHydrateAckToken {
+            studioDebugForceHydrateAckToken = forceHydrateAckToken
+            didChange = true
+        }
+        if saveToken != studioDebugSaveToken {
+            studioDebugSaveToken = saveToken
+            didChange = true
+        }
+        if saveAckToken != studioDebugSaveAckToken {
+            studioDebugSaveAckToken = saveAckToken
+            didChange = true
+        }
+
+        return didChange
+    }
+
+    private func handleStudioDebugManualEditRequestFileIfNeeded() {
+        guard let data = try? Data(contentsOf: studioDebugManualEditRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugManualEditRequest.self, from: data) else {
+            return
+        }
+        guard request.token > 0 else {
+            try? FileManager.default.removeItem(at: studioDebugManualEditRequestURL)
+            return
+        }
+        guard request.token != studioDebugManualEditAckToken,
+              request.token != lastAppliedStudioDebugManualEditToken else {
+            try? FileManager.default.removeItem(at: studioDebugManualEditRequestURL)
+            return
+        }
+        studioDebugManualEditText = request.text
+        studioDebugManualEditToken = request.token
+        writeMirroredStudioDebugPreferenceString(request.text, forKey: "studio_debug_manual_edit_text")
+        writeMirroredStudioDebugPreferenceInt(request.token, forKey: "studio_debug_manual_edit_token")
+        try? FileManager.default.removeItem(at: studioDebugManualEditRequestURL)
+    }
+
+    private func handleStudioDebugLoadProjectRequestFileIfNeeded() {
+        guard let data = try? Data(contentsOf: studioDebugLoadProjectRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {
+            return
+        }
+        guard request.token > 0 else {
+            try? FileManager.default.removeItem(at: studioDebugLoadProjectRequestURL)
+            return
+        }
+        guard request.token != studioDebugLoadProjectAckToken,
+              request.token != lastAppliedStudioDebugLoadProjectToken else {
+            try? FileManager.default.removeItem(at: studioDebugLoadProjectRequestURL)
+            return
+        }
+        studioDebugLoadProjectID = request.projectID
+        studioDebugLoadProjectVersionID = request.versionID
+        studioDebugLoadProjectToken = request.token
+        writeMirroredStudioDebugPreferenceString(request.projectID, forKey: "studio_debug_load_project_id")
+        writeMirroredStudioDebugPreferenceString(request.versionID, forKey: "studio_debug_load_project_version_id")
+        writeMirroredStudioDebugPreferenceInt(request.token, forKey: "studio_debug_load_project_token")
+        try? FileManager.default.removeItem(at: studioDebugLoadProjectRequestURL)
+    }
+
+    private func handleStudioDebugAutosaveToggleRequestFileIfNeeded() {
+        guard let data = try? Data(contentsOf: studioDebugAutosaveToggleRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugAutosaveToggleRequest.self, from: data) else {
+            return
+        }
+        guard request.token > 0 else {
+            try? FileManager.default.removeItem(at: studioDebugAutosaveToggleRequestURL)
+            return
+        }
+        guard request.token != studioDebugAutosaveToggleAckToken,
+              request.token != lastAppliedStudioDebugAutosaveToggleToken else {
+            try? FileManager.default.removeItem(at: studioDebugAutosaveToggleRequestURL)
+            return
+        }
+        studioDebugAutosaveEnabled = request.enabled
+        studioDebugAutosaveToggleToken = request.token
+        writeMirroredStudioDebugPreferenceInt(request.enabled ? 1 : 0, forKey: "studio_debug_autosave_enabled")
+        writeMirroredStudioDebugPreferenceInt(request.token, forKey: "studio_debug_autosave_toggle_token")
+        try? FileManager.default.removeItem(at: studioDebugAutosaveToggleRequestURL)
+    }
+
+    private func handleStudioDebugSaveRequestFileIfNeeded() {
+        guard let data = try? Data(contentsOf: studioDebugSaveRequestURL),
+              let request = try? JSONDecoder().decode(StudioDebugSaveRequest.self, from: data) else {
+            return
+        }
+        guard request.token > 0 else {
+            try? FileManager.default.removeItem(at: studioDebugSaveRequestURL)
+            return
+        }
+        guard request.token != studioDebugSaveAckToken,
+              request.token != lastAppliedStudioDebugSaveToken else {
+            try? FileManager.default.removeItem(at: studioDebugSaveRequestURL)
+            return
+        }
+        studioDebugSaveToken = request.token
+        writeMirroredStudioDebugPreferenceInt(request.token, forKey: "studio_debug_save_token")
+        try? FileManager.default.removeItem(at: studioDebugSaveRequestURL)
+    }
+
     private func startStudioDebugPreparePollingIfNeeded() {
         guard studioDebugPreparePollTask == nil else { return }
         studioDebugPreparePollTask = Task { @MainActor in
             while !Task.isCancelled {
+                handleStudioDebugLoadProjectRequestFileIfNeeded()
+                handleStudioDebugManualEditRequestFileIfNeeded()
+                handleStudioDebugAutosaveToggleRequestFileIfNeeded()
+                handleStudioDebugSaveRequestFileIfNeeded()
                 _ = synchronizeMirroredStudioDebugPrepareState()
+                _ = synchronizeMirroredStudioDebugInteractionState()
+                applyDebugLoadProjectIfNeeded()
                 applyDebugPreparedStudioPromptIfNeeded()
+                applyDebugFocusPageIfNeeded()
+                applyDebugManualDraftEditIfNeeded()
+                applyDebugAutosaveToggleIfNeeded()
+                applyDebugForceHydrateIfNeeded()
+                applyDebugManualSaveIfNeeded()
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
         }
@@ -22983,14 +23219,20 @@ Return revised screenplay lines only.
         let text = studioDebugManualEditText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             studioDebugManualEditAckToken = studioDebugManualEditToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(studioDebugManualEditToken, forKey: "studio_debug_manual_edit_ack_token")
+            #endif
             publishDebugStudioDiffState()
             return
         }
         let separator = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n"
         liveDraftBridge.requestEditorFocus()
-        vm.noteManualDraftEdit()
         vm.fountainDraft += separator + text
+        vm.noteManualDraftEdit()
         studioDebugManualEditAckToken = studioDebugManualEditToken
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(studioDebugManualEditToken, forKey: "studio_debug_manual_edit_ack_token")
+        #endif
         publishDebugStudioDiffState()
         #endif
     }
@@ -23003,6 +23245,9 @@ Return revised screenplay lines only.
         lastAppliedStudioDebugAutosaveToggleToken = studioDebugAutosaveToggleToken
         vm.autosaveEnabled = studioDebugAutosaveEnabled
         studioDebugAutosaveToggleAckToken = studioDebugAutosaveToggleToken
+        #if os(macOS)
+        writeMirroredStudioDebugPreferenceInt(studioDebugAutosaveToggleToken, forKey: "studio_debug_autosave_toggle_ack_token")
+        #endif
         publishDebugStudioDiffState()
         #endif
     }
@@ -23014,8 +23259,18 @@ Return revised screenplay lines only.
         guard studioDebugForceHydrateToken != lastAppliedStudioDebugForceHydrateToken else { return }
         lastAppliedStudioDebugForceHydrateToken = studioDebugForceHydrateToken
         Task { @MainActor in
-            await vm.refresh()
+            let requestedProjectID = liveDraftBridge.debugRequestedProjectID
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !requestedProjectID.isEmpty,
+               vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) != requestedProjectID {
+                await vm.selectProject(requestedProjectID)
+            }
+            await vm.refreshSelectedProjectForDebug()
+            vm.markManualEditHydrateProtectedForDebugIfNeeded()
             studioDebugForceHydrateAckToken = studioDebugForceHydrateToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(studioDebugForceHydrateToken, forKey: "studio_debug_force_hydrate_ack_token")
+            #endif
             publishDebugStudioDiffState()
         }
         #endif
@@ -23030,6 +23285,9 @@ Return revised screenplay lines only.
         Task { @MainActor in
             await vm.manualSaveDraft()
             studioDebugSaveAckToken = studioDebugSaveToken
+            #if os(macOS)
+            writeMirroredStudioDebugPreferenceInt(studioDebugSaveToken, forKey: "studio_debug_save_ack_token")
+            #endif
             publishDebugStudioDiffState()
         }
         #endif

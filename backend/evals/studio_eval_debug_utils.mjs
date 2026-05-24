@@ -188,8 +188,12 @@ export function createStudioDebugDefaultsTransport({
     writeKey(key, ["-bool", value ? "true" : "false"]);
   }
 
+  let tokenSeed = Date.now();
+
   function nextToken(...keys) {
-    return Math.max(1, ...keys.map((key) => readInt(key))) + 1;
+    const defaultValues = keys.map((key) => readInt(key));
+    tokenSeed = Math.max(tokenSeed + 1, Date.now(), ...defaultValues.map((value) => value + 1));
+    return tokenSeed;
   }
 
   return {
@@ -407,7 +411,7 @@ export async function ensureStudioVisibleWithOpenHandshake({
       helperError: error instanceof Error ? error.message : String(error || "unknown helper failure"),
       sessionMode: "fallback_open",
     };
-    runOptional("open", ["-na", appPath]);
+    runOptional("open", [appPath]);
     await sleepMs(900);
   }
 
@@ -448,7 +452,7 @@ export async function ensureStudioVisibleWithOpenHandshake({
       };
     } catch (error) {
       lastError = error;
-      runOptional("open", ["-na", appPath]);
+      runOptional("open", [appPath]);
       activateApp(appPath);
       await sleepMs(settleMs);
     }
