@@ -1289,7 +1289,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 updatedAt: item.updatedAt
             )
         }
-        let beatOrderByID = Dictionary(uniqueKeysWithValues: reindexedBeats.map { ($0.id, $0.order ?? Int.max) })
+        let beatOrderByID = Dictionary(reindexedBeats.map { ($0.id, $0.order ?? Int.max) }, uniquingKeysWith: { first, _ in first })
         let updatedScenes = outline.scenes.map { scene in
             let sortedBeatIDs = (scene.beatIds ?? []).sorted { lhs, rhs in
                 (beatOrderByID[lhs] ?? Int.max) < (beatOrderByID[rhs] ?? Int.max)
@@ -1786,9 +1786,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             : parsedActTitles
 
         var actIdByTitle = Dictionary(
-            uniqueKeysWithValues: acts.map {
+            acts.map {
                 (normalizedOutlineKey($0.title), $0.id)
-            }
+            },
+            uniquingKeysWith: { first, _ in first }
         )
 
         for (index, title) in desiredTitles.enumerated() {
@@ -13898,7 +13899,7 @@ private var projectsSidebarContent: some View {
                 updatedAt: item.updatedAt
             )
         }
-        let beatOrderByID = Dictionary(uniqueKeysWithValues: reindexedBeats.map { ($0.id, $0.order ?? Int.max) })
+        let beatOrderByID = Dictionary(reindexedBeats.map { ($0.id, $0.order ?? Int.max) }, uniquingKeysWith: { first, _ in first })
         let updatedScenes = vm.outline.scenes.map { scene in
             let sortedBeatIDs = (scene.beatIds ?? []).sorted { lhs, rhs in
                 (beatOrderByID[lhs] ?? Int.max) < (beatOrderByID[rhs] ?? Int.max)
@@ -13942,7 +13943,7 @@ private var projectsSidebarContent: some View {
         guard Set(currentIDs) == Set(cleanedIDs), currentIDs.count == cleanedIDs.count else { return }
         guard currentIDs != cleanedIDs else { return }
 
-        let beatsByID = Dictionary(uniqueKeysWithValues: currentBeats.map { ($0.id, $0) })
+        let beatsByID = Dictionary(currentBeats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let reorderedBeats = cleanedIDs.enumerated().compactMap { index, beatID -> BackendScreenplayBeat? in
             guard let beat = beatsByID[beatID] else { return nil }
             return BackendScreenplayBeat(
@@ -13958,7 +13959,7 @@ private var projectsSidebarContent: some View {
             )
         }
         guard reorderedBeats.count == currentBeats.count else { return }
-        let beatOrderByID = Dictionary(uniqueKeysWithValues: reorderedBeats.map { ($0.id, $0.order ?? Int.max) })
+        let beatOrderByID = Dictionary(reorderedBeats.map { ($0.id, $0.order ?? Int.max) }, uniquingKeysWith: { first, _ in first })
         let updatedScenes = vm.outline.scenes.map { scene in
             let sortedBeatIDs = (scene.beatIds ?? []).sorted { lhs, rhs in
                 (beatOrderByID[lhs] ?? Int.max) < (beatOrderByID[rhs] ?? Int.max)
@@ -20100,6 +20101,7 @@ Return revised screenplay lines only.
                 isDirectionOneRightRailExpanded = true
             }
         }
+        persistStudioAskNoteHistory(studioAskNoteHistory, for: activeStudioAskNoteHistoryKey)
     }
 
     private func appendPendingVoicePageWriteIfNeeded() {
@@ -21549,6 +21551,7 @@ Return revised screenplay lines only.
         }
         guard !store.isEmpty else {
             studioAskNoteHistoryStorage = ""
+            mirrorStudioDebugString("", forKey: "studio.ask.note.history.v2")
             return
         }
         let encoder = JSONEncoder()
@@ -21556,6 +21559,7 @@ Return revised screenplay lines only.
         guard let data = try? encoder.encode(store),
               let encoded = String(data: data, encoding: .utf8) else { return }
         studioAskNoteHistoryStorage = encoded
+        mirrorStudioDebugString(encoded, forKey: "studio.ask.note.history.v2")
     }
 
     private func restoreStudioAskNoteHistory(for key: String) async {
@@ -22608,7 +22612,7 @@ Return revised screenplay lines only.
                 requestID: requestID
             )
             resetStudioDebugSubmitResult()
-            if shouldUseDebugStudioPromptStubTransportForLocalSubmit {
+            if debugSubmitToken != nil || shouldUseDebugStudioPromptStubTransportForLocalSubmit {
                 applyDebugStudioPromptStubSubmit(
                     token: effectiveDebugSubmitToken,
                     prompt: text,
@@ -22717,7 +22721,11 @@ Return revised screenplay lines only.
     ) {
         let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
         let promptSummary = (displayText ?? prompt).trimmingCharacters(in: .whitespacesAndNewlines)
+        let memoryDomain = debugStudioPromptMemoryDomain(for: prompt, routesToPage: routesToPage)
         var matchingExchange: StudioAskNoteExchange?
+        let noteTitle: String
+        let noteBody: String
+        let developmentText: String?
 
         if routesToPage {
             let insertedText = """
@@ -22749,8 +22757,26 @@ The door closes softly. That is worse than a slam.
             )
             liveDraftBridge.lastUpdatedAt = Date()
             liveDraftBridge.clearPendingPageWriteReplacement()
+            liveDraftBridge.latestMemoryDomain = .project
+            noteTitle = "Wrote to page"
+            noteBody = insertedText
+            developmentText = nil
         } else {
             liveDraftBridge.clearPendingPageWriteReplacement()
+            liveDraftBridge.latestMemoryDomain = memoryDomain
+            let stub = debugStudioVoicePinStub(for: prompt, memoryDomain: memoryDomain)
+            noteTitle = stub.title
+            noteBody = stub.body
+            developmentText = stub.body
+            liveDraftBridge.updateAssistantPin(
+                mode: "copilot",
+                category: memoryDomain == .companion ? "Companion" : "Scene",
+                title: noteTitle,
+                body: noteBodyForExchange(noteBody),
+                fullBody: noteBody,
+                badge: memoryDomain.title,
+                actionSummary: ""
+            )
         }
 
         if clearSeedOnSuccess {
@@ -22759,12 +22785,68 @@ The door closes softly. That is worse than a slam.
         lastCommittedStudioPrompt = promptSummary
         lastCommittedStudioPromptTarget = resolvedTarget
         lastCommittedStudioPromptSource = .typed
-        appendStudioAskNoteHistory(
-            prompt: promptSummary,
-            target: resolvedTarget,
-            source: .typed,
-            requestID: requestID
-        )
+        if routesToPage {
+            let committedWrite = liveDraftBridge.lastCommittedWrite
+            let entry = StudioAskNoteExchange(
+                id: UUID(),
+                backendThreadID: nil,
+                backendTurn: nil,
+                requestID: normalizedStudioRequestID(requestID),
+                prompt: promptSummary,
+                target: .page,
+                source: .typed,
+                noteTitle: noteTitle,
+                noteBody: noteBodyForExchange(noteBody),
+                developmentText: developmentText,
+                writeID: committedWrite?.writeID,
+                replacedWriteID: committedWrite?.replacedWriteID,
+                anchorLine: committedWrite?.startLine,
+                anchorEndLine: committedWrite?.endLine,
+                anchorSceneLabel: "INT. KITCHEN - DAY",
+                anchorExcerpt: noteBodyForAnchor(committedWrite?.insertedText ?? noteBody),
+                insertedText: committedWrite?.insertedText ?? noteBody,
+                replacementApplied: committedWrite?.replacementApplied,
+                revisedBlockText: committedWrite?.replacementApplied == true ? committedWrite?.insertedText : nil,
+                resolvedAnchorExcerpt: noteBodyForAnchor(committedWrite?.insertedText ?? noteBody),
+                packLabel: liveDraftBridge.latestPack.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Studio" : liveDraftBridge.latestPack,
+                phase: liveDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : liveDraftBridge.latestPhase,
+                sluglineAnchorLine: committedWrite?.startLine,
+                memoryDomainRaw: memoryDomain.rawValue,
+                companionModeRaw: liveDraftBridge.companionMode.rawValue,
+                timestamp: Date()
+            )
+            insertStudioAskNoteHistoryEntry(entry)
+        } else {
+            let entry = StudioAskNoteExchange(
+                id: UUID(),
+                backendThreadID: nil,
+                backendTurn: nil,
+                requestID: normalizedStudioRequestID(requestID),
+                prompt: promptSummary,
+                target: .voicePin,
+                source: .typed,
+                noteTitle: noteTitle,
+                noteBody: noteBodyForExchange(noteBody),
+                developmentText: developmentText,
+                writeID: nil,
+                replacedWriteID: nil,
+                anchorLine: nil,
+                anchorEndLine: nil,
+                anchorSceneLabel: nil,
+                anchorExcerpt: nil,
+                insertedText: nil,
+                replacementApplied: nil,
+                revisedBlockText: nil,
+                resolvedAnchorExcerpt: nil,
+                packLabel: liveDraftBridge.latestPack.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Studio" : liveDraftBridge.latestPack,
+                phase: liveDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : liveDraftBridge.latestPhase,
+                sluglineAnchorLine: nil,
+                memoryDomainRaw: memoryDomain.rawValue,
+                companionModeRaw: liveDraftBridge.companionMode.rawValue,
+                timestamp: Date()
+            )
+            insertStudioAskNoteHistoryEntry(entry)
+        }
         matchingExchange = studioAskNoteHistory.first(where: {
             normalizedStudioRequestID($0.requestID) == normalizedStudioRequestID(requestID)
         }) ?? studioAskNoteHistory.first
@@ -22784,7 +22866,64 @@ The door closes softly. That is worse than a slam.
             error: ""
         )
         vm.infoText = successMessage
+        mirrorStudioDebugString(memoryDomain.rawValue, forKey: "studio_debug_last_memory_domain")
         publishDebugStudioDiffState()
+    }
+
+    private func debugStudioPromptMemoryDomain(for prompt: String, routesToPage: Bool) -> StudioMemoryDomain {
+        guard !routesToPage else { return .project }
+        let normalized = " \(prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) "
+        let companionCues = [
+            " i feel ",
+            " i am ",
+            " i'm ",
+            " im ",
+            " spiraling ",
+            " reassure ",
+            " talk me through ",
+            " stuck ",
+            " need you "
+        ]
+        let projectCues = [
+            " screenplay ",
+            " script ",
+            " scene ",
+            " midpoint ",
+            " story ",
+            " character ",
+            " beat ",
+            " act ",
+            " calls him ",
+            " parking lot "
+        ]
+        let hasCompanion = companionCues.contains(where: normalized.contains)
+        let hasProject = projectCues.contains(where: normalized.contains)
+        if hasCompanion && hasProject { return .mixed }
+        if hasCompanion { return .companion }
+        return .project
+    }
+
+    private func debugStudioVoicePinStub(
+        for prompt: String,
+        memoryDomain: StudioMemoryDomain
+    ) -> (title: String, body: String) {
+        switch memoryDomain {
+        case .companion:
+            return (
+                "Companion Check-In",
+                "You are not behind. Take one breath, name the smallest next move, and let the scene become manageable again. I am here with you."
+            )
+        case .mixed:
+            return (
+                "Midpoint Direction",
+                "The midpoint needs one irreversible choice. Put the character under pressure, make the emotional cost visible, then let the next scene deal with the fallout instead of explaining it."
+            )
+        case .project:
+            return (
+                "Story Development",
+                "Make the parking-lot call a pressure valve before the confrontation. It gives her private fear, lets him arrive late to the truth, and makes the kitchen scene feel like escalation instead of setup."
+            )
+        }
     }
 #endif
 

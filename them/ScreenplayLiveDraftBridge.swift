@@ -1834,10 +1834,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
 
         let actTitlesByID = Dictionary(
-            uniqueKeysWithValues: context.outline.acts.map { ($0.id, $0.title.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            context.outline.acts.map { ($0.id, $0.title.trimmingCharacters(in: .whitespacesAndNewlines)) },
+            uniquingKeysWith: { first, _ in first }
         )
         let beatLabelsByID = Dictionary(
-            uniqueKeysWithValues: context.outline.beats.map { ($0.id, $0.label.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            context.outline.beats.map { ($0.id, $0.label.trimmingCharacters(in: .whitespacesAndNewlines)) },
+            uniquingKeysWith: { first, _ in first }
         )
         let outlineScenes = context.outline.scenes
         var usedOutlineSceneIDs = Set<String>()
@@ -4529,7 +4531,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             return
         }
 
-        let draftScenesByID = Dictionary(uniqueKeysWithValues: structuredDraft.scenes.map { ($0.id, $0) })
+        let draftScenesByID = Dictionary(structuredDraft.scenes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let normalizedProjectCharacters = Set(context.projectCharacters.map(normalizedCharacterCue).filter { !$0.isEmpty })
 
         var continuityIssues: [ScreenplayIntelligenceIssue] = []

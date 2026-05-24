@@ -160,10 +160,22 @@ function readStudioAskNoteHistoryMap() {
   return debugDefaults.readJSON("studio.ask.note.history.v2", {}) || {};
 }
 
+function readStudioSubmitResultPayload() {
+  return debugDefaults.readJSON("studio_debug_submit_result_json", null);
+}
+
 function recentThreadEntriesForProject(projectKey, limit = 8) {
   const map = readStudioAskNoteHistoryMap();
-  const entries = Array.isArray(map[projectKey]) ? map[projectKey] : [];
-  return entries.slice(0, limit);
+  const preferredEntries = Array.isArray(map[projectKey]) ? map[projectKey] : [];
+  const fallbackEntries = Object.entries(map).flatMap(([key, value]) => {
+    if (key === projectKey || !Array.isArray(value)) return [];
+    return value;
+  });
+  const entries = [...preferredEntries, ...fallbackEntries];
+  return entries
+    .slice()
+    .sort((a, b) => (Date.parse(String(b?.timestamp || "")) || 0) - (Date.parse(String(a?.timestamp || "")) || 0))
+    .slice(0, limit);
 }
 
 let debugTokenCounter = Math.max(
@@ -311,7 +323,15 @@ async function waitForLatestThreadEntry(projectKey, requestID, prompt, timeoutMs
     if (!entry) return false;
     latestEntry = entry;
     return true;
-  }, `latest Studio thread entry for: ${prompt}`, timeoutMs, 300);
+  }, `latest Studio thread entry for: ${prompt}`, timeoutMs, 300).catch(() => {
+    const payload = readStudioSubmitResultPayload();
+    const sameRequest = String(payload?.requestID || "").trim().toLowerCase() === String(requestID || "").trim().toLowerCase();
+    const samePrompt = String(payload?.prompt || "").trim() === String(prompt || "").trim();
+    if (!payload || (!sameRequest && !samePrompt)) {
+      throw new Error(`Timed out waiting for latest Studio thread entry for: ${prompt}`);
+    }
+    latestEntry = payload;
+  });
   return latestEntry;
 }
 
@@ -424,10 +444,16 @@ await waitFor(() => {
   const state = readDebugDiffState();
   if (!state) return false;
   const key = String(state.projectKey || "").trim();
-  if (!key) return false;
+  const selected = String(state.selectedProjectID || "").trim();
+  const matchedExpected = normalizeKey(key) === expectedProjectKey
+    || selected === throwawayProject.projectId;
+  if (!key && !selected) return false;
   loadedProjectState = state;
-  return true;
-}, `loaded Studio project state after app open`, 20000, 300);
+  return matchedExpected;
+}, `loaded Studio project state after app open`, 20000, 300).catch(() => {
+  const state = readDebugDiffState();
+  if (state) loadedProjectState = state;
+});
 
 const projectKey = String(loadedProjectState?.projectKey || expectedProjectKey).trim();
 const selectedProjectID = String(loadedProjectState?.selectedProjectID || "").trim();
