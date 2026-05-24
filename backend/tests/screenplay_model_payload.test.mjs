@@ -39,6 +39,44 @@ test("[screenplay-model-payload] includes active version even beyond version lim
   assert.equal(payload.versions.find((version) => version.id === "v_old_active")?.draft, "INT. OLD ACTIVE - DAY");
 });
 
+test("[screenplay-model-payload] preserves active Clementine page write beyond version limit", () => {
+  const { toScreenplayProjectPayload } = services();
+  const generatedDraft = "FADE IN:\n\nINT. DINER - NIGHT\n\nClementine writes the room into focus.";
+  const project = {
+    id: "project-clementine-restore",
+    title: "Clementine Restore",
+    activeVersionId: "v_clementine_write",
+    lastVersionId: "v_clementine_write",
+    versions: [
+      {
+        id: "v_manual_newer",
+        updatedAt: 300,
+        draft: "INT. ROOM - DAY\n\nA manual draft sits above the generated one.",
+        source: "studio_manual",
+      },
+      {
+        id: "v_clementine_write",
+        updatedAt: 200,
+        draft: generatedDraft,
+        source: "studio_clementine_page_write",
+      },
+    ],
+    outline: { acts: [], scenes: [], beats: [] },
+  };
+
+  const payload = toScreenplayProjectPayload(project, {
+    includeVersions: true,
+    includeDrafts: true,
+    versionLimit: 1,
+  });
+
+  const restoredVersion = payload.versions.find((version) => version.id === "v_clementine_write");
+  assert.equal(payload.active_version_id, "v_clementine_write");
+  assert.deepEqual(payload.versions.map((version) => version.id), ["v_manual_newer", "v_clementine_write"]);
+  assert.equal(restoredVersion?.source, "studio_clementine_page_write");
+  assert.equal(restoredVersion?.draft, generatedDraft);
+});
+
 test("[screenplay-model-payload] outline payload removes orphan scene and beat references", () => {
   const { toScreenplayOutlinePayload } = services();
   const payload = toScreenplayOutlinePayload({
