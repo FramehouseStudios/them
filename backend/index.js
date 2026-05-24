@@ -80,6 +80,7 @@ import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase } from "./lib/system_prompt_trim.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -16297,41 +16298,12 @@ ${meta.join("\n")}
 }
 
 
-function fitSystemPromptForTurnLatency(
-  systemPrompt,
-  { turnPlanner, flags, routingLane, chatModelPlan } = {}
-) {
-  const normalized = String(systemPrompt || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
-  if (!normalized) return "";
-
-  const lane = String(routingLane || "normal_rotation");
-  const tier = String(chatModelPlan?.tier || "fast");
-  const needsRichBudget =
-    tier === "rich" ||
-    Boolean(turnPlanner?.requiresSubstantiveAnswer) ||
-    Boolean(flags?.therapeuticDepth) ||
-    Boolean(flags?.isVulnerable) ||
-    Boolean(flags?.isVenting) ||
-    Boolean(flags?.socialSpark) ||
-    lane === "high_distress_safety" ||
-    lane === "therapeutic_depth" ||
-    lane === "philosophical" ||
-    lane === "creative";
-
-  const budget = needsRichBudget
-    ? RICH_TURN_SYSTEM_PROMPT_MAX_CHARS
-    : FAST_TURN_SYSTEM_PROMPT_MAX_CHARS;
-  if (normalized.length <= budget) return normalized;
-
-  const headBudget = Math.max(900, Math.floor(budget * 0.58));
-  const tailBudget = Math.max(800, budget - headBudget - 5);
-  const head = normalized.slice(0, headBudget).trimEnd();
-  const tail = normalized.slice(Math.max(0, normalized.length - tailBudget)).trimStart();
-  return `${head}\n...\n${tail}`.slice(0, budget).trim();
+function fitSystemPromptForTurnLatency(systemPrompt, args = {}) {
+  return fitSystemPromptForTurnLatencyBase(systemPrompt, {
+    ...args,
+    fastMaxChars: FAST_TURN_SYSTEM_PROMPT_MAX_CHARS,
+    richMaxChars: RICH_TURN_SYSTEM_PROMPT_MAX_CHARS,
+  });
 }
 
 const TEXT_CONTAINS_MATCHER_CACHE = new Map();
