@@ -125,6 +125,52 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(selectedProjectId, "first-project")
     }
 
+    func testDraftRestorePolicyPrefersActiveClementinePageWriteBeyondNewerVersion() {
+        let generatedDraft = "FADE IN:\n\nINT. DINER - NIGHT\n\nClementine gives the silence a shape."
+        let project = projectSummary(
+            id: "project-page-write",
+            activeVersionId: "v_clementine",
+            lastVersionId: "v_clementine",
+            versions: [
+                version(
+                    id: "v_manual_newer",
+                    source: "studio_manual",
+                    updatedAt: 300,
+                    draft: "INT. ROOM - DAY\n\nThe manual draft is newer but inactive."
+                ),
+                version(
+                    id: "v_clementine",
+                    source: "studio_clementine_page_write",
+                    updatedAt: 200,
+                    draft: generatedDraft
+                ),
+            ]
+        )
+
+        let restored = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)
+
+        XCTAssertEqual(restored?.id, "v_clementine")
+        XCTAssertEqual(restored?.source, "studio_clementine_page_write")
+        XCTAssertEqual(restored?.draft, generatedDraft)
+    }
+
+    func testDraftRestorePolicyFallsBackToLastVersionWhenActiveVersionIsMissing() {
+        let project = projectSummary(
+            id: "project-active-missing",
+            activeVersionId: "v_active_missing",
+            lastVersionId: "v_last_saved",
+            versions: [
+                version(id: "v_newer_inactive", updatedAt: 300, draft: "INT. NEWER - DAY"),
+                version(id: "v_last_saved", updatedAt: 200, draft: "INT. LAST SAVED - NIGHT"),
+            ]
+        )
+
+        let restored = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)
+
+        XCTAssertEqual(restored?.id, "v_last_saved")
+        XCTAssertEqual(restored?.draft, "INT. LAST SAVED - NIGHT")
+    }
+
     func testUnconfirmedSaveRecoveryPolicyRequiresProjectAndDraft() {
         XCTAssertTrue(ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
             projectId: " project-a ",
@@ -148,7 +194,12 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertFalse(ScreenplaySceneSessionRestorePolicy.shouldClearSelection("   ", validIDs: validIDs))
     }
 
-    private func projectSummary(id: String) -> BackendScreenplayProjectSummary {
+    private func projectSummary(
+        id: String,
+        activeVersionId: String? = nil,
+        lastVersionId: String? = nil,
+        versions: [BackendScreenplayVersion]? = nil
+    ) -> BackendScreenplayProjectSummary {
         BackendScreenplayProjectSummary(
             id: id,
             title: id,
@@ -162,8 +213,8 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             updatedAt: nil,
             versionCount: nil,
             lastPhase: nil,
-            activeVersionId: nil,
-            lastVersionId: nil,
+            activeVersionId: activeVersionId,
+            lastVersionId: lastVersionId,
             lastVersionAt: nil,
             formatScore: nil,
             storyScore: nil,
@@ -181,8 +232,35 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             studioDiffAcknowledged: nil,
             collaborators: nil,
             comments: nil,
-            versions: nil,
+            versions: versions,
             outline: nil
+        )
+    }
+
+    private func version(
+        id: String,
+        source: String? = nil,
+        createdAt: TimeInterval? = nil,
+        updatedAt: TimeInterval? = nil,
+        draft: String? = nil
+    ) -> BackendScreenplayVersion {
+        BackendScreenplayVersion(
+            id: id,
+            projectId: "project",
+            phase: "scene_draft",
+            source: source,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            prompt: nil,
+            notes: nil,
+            formatScore: nil,
+            storyScore: nil,
+            confidenceClass: nil,
+            warnings: nil,
+            draft: draft,
+            draftExcerpt: nil,
+            studioWriteAnchors: nil,
+            screenplayBindings: nil
         )
     }
 

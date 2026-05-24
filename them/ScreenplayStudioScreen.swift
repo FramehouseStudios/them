@@ -70,6 +70,32 @@ struct ScreenplayProjectSelectionRestorePolicy {
     }
 }
 
+struct ScreenplayProjectDraftRestorePolicy {
+    static func preferredVersion(in project: BackendScreenplayProjectSummary) -> BackendScreenplayVersion? {
+        let versions = sortedVersions(in: project)
+        guard !versions.isEmpty else { return nil }
+        let preferredIDs = [
+            project.activeVersionId,
+            project.lastVersionId,
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        for id in preferredIDs {
+            if let version = versions.first(where: { $0.id == id }) {
+                return version
+            }
+        }
+        return versions.first
+    }
+
+    private static func sortedVersions(in project: BackendScreenplayProjectSummary) -> [BackendScreenplayVersion] {
+        (project.versions ?? []).sorted { lhs, rhs in
+            (lhs.updatedAt ?? lhs.createdAt ?? 0) > (rhs.updatedAt ?? rhs.createdAt ?? 0)
+        }
+    }
+}
+
 struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     static func shouldPersist(projectId: String, draft: String) -> Bool {
         !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -2945,12 +2971,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func hydrateDraft(from project: BackendScreenplayProjectSummary) {
-        let versions = (project.versions ?? []).sorted { lhs, rhs in
-            (lhs.updatedAt ?? lhs.createdAt ?? 0) > (rhs.updatedAt ?? rhs.createdAt ?? 0)
-        }
-        let preferredVersionId = (project.activeVersionId ?? project.lastVersionId ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let selectedVersion = versions.first(where: { $0.id == preferredVersionId }) ?? versions.first
+        let selectedVersion = ScreenplayProjectDraftRestorePolicy.preferredVersion(in: project)
         let nextDraft = (selectedVersion?.draft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         studioWriteAnchors = (selectedVersion?.studioWriteAnchors ?? []).filter { anchor in
             !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
