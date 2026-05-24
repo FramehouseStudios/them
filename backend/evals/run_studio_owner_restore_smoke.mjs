@@ -30,16 +30,26 @@ function jsonHeaders(extra = {}) {
   };
 }
 
-function userHeaders(userId) {
-  return jsonHeaders({ "x-user-id": userId });
-}
-
 function tokenHeaders(clientToken) {
   return jsonHeaders({ "x-client-token": clientToken });
 }
 
-function combinedHeaders(userId, clientToken) {
-  return jsonHeaders({ "x-user-id": userId, "x-client-token": clientToken });
+function authHeaders(token, extra = {}) {
+  return jsonHeaders({ authorization: `Bearer ${token}`, ...extra });
+}
+
+async function signupUser(email, password = "owner-restore-password-123") {
+  const { response, payload } = await readJson("http://127.0.0.1:3000/auth/signup", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ email, password }),
+  });
+  assert(response.status === 201 || response.ok, `Failed to signup owner user: ${response.status} ${JSON.stringify(payload)}`);
+  const token = String(payload?.access_token || payload?.token || "").trim();
+  const userId = String(payload?.user?.user_id || payload?.user_id || "").trim();
+  assert(token, "Signup did not return an access token");
+  assert(userId, "Signup did not return a user id");
+  return { token, userId };
 }
 
 async function upsertProject(projectId, title, headers, marker) {
@@ -102,14 +112,14 @@ await waitForHealth();
 
 const stamp = Date.now().toString(36);
 const projectId = `studio-owner-restore-${stamp}`;
-const userId = `usr_owner_${stamp}`;
 const clientToken = `studio-owner-token-${stamp}`;
+const user = await signupUser(`studio-owner-${stamp}@example.com`);
 
-await upsertProject(projectId, "Owner Smoke User", userHeaders(userId), "user");
+await upsertProject(projectId, "Owner Smoke User", authHeaders(user.token), "user");
 await upsertProject(projectId, "Owner Smoke Token", tokenHeaders(clientToken), "token");
-await upsertProject(projectId, "Owner Smoke User Priority", combinedHeaders(userId, clientToken), "user-priority");
+await upsertProject(projectId, "Owner Smoke User Priority", authHeaders(user.token, { "x-client-token": clientToken }), "user-priority");
 
-const userFetch = await fetchProject(projectId, userHeaders(userId));
+const userFetch = await fetchProject(projectId, authHeaders(user.token));
 assert(userFetch.response.ok, `User owner fetch failed: ${userFetch.response.status} ${JSON.stringify(userFetch.payload)}`);
 assertProjectShape(userFetch.payload, {
   projectId,
