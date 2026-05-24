@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { fetchStudioProjectMetadata } from "./studio_project_metadata_probe.mjs";
 import { createStudioRestoreFixture } from "./studio_restore_seed_helper.mjs";
@@ -93,6 +93,10 @@ function readDefaultInt(key) {
 
 function writeDefaultInt(key, value) {
   run("defaults", ["write", "io.them.them", key, "-int", String(value)]);
+}
+
+function synchronizeDefaults() {
+  runOptional("defaults", ["synchronize", "io.them.them"]);
 }
 
 function normalizeKey(value) {
@@ -380,6 +384,22 @@ function nextDebugToken() {
   return debugTokenCounter;
 }
 
+let loadProjectTokenCounter = Math.max(1, readDefaultInt("studio_debug_load_project_token"));
+function requestStudioProjectLoad(projectId, versionId = "") {
+  loadProjectTokenCounter += 1;
+  writeFileSync("/tmp/them_studio_debug_load_project_request.json", JSON.stringify({
+    token: loadProjectTokenCounter,
+    projectID: String(projectId || "").trim(),
+    versionID: String(versionId || "").trim(),
+  }), "utf8");
+  writeDefaultString("studio_debug_load_project_id", projectId);
+  writeDefaultString("studio_debug_load_project_version_id", versionId);
+  writeDefaultInt("studio_debug_load_project_ack_token", 0);
+  writeDefaultInt("studio_debug_load_project_token", loadProjectTokenCounter);
+  synchronizeDefaults();
+  return loadProjectTokenCounter;
+}
+
 async function ensureStudioVisible() {
   writeDefaultInt("studio_debug_open_token", nextDebugToken());
   await sleep(1200);
@@ -450,6 +470,7 @@ try {
   const askHistoryMap = readStudioAskNoteHistoryMap();
   askHistoryMap[seededRecord.projectKey] = seedFixture.reopenedHistory;
   writeDefaultString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
+  synchronizeDefaults();
   await postBackendProjectThreadState(
     projectIdFromHistoryKey(seededRecord.projectKey),
     seededRecord
@@ -472,6 +493,7 @@ try {
     `Expected backend reopened lineage overlap, got ${JSON.stringify(backendProbe.reopenedLineageKeys)}`
   );
 
+  requestStudioProjectLoad(projectIdFromHistoryKey(seededRecord.projectKey), backendProbe.activeVersionId);
   await relaunchApp(appPath);
 
   await waitFor(() => {
@@ -481,20 +503,35 @@ try {
     return Boolean(sessionID) && sessionID !== originalDebugSessionID;
   }, "fresh Studio debug session after relaunch", 25000, 300);
 
-  await waitFor(() => {
-    const state = readDebugDiffState();
-    if (!state) return false;
-    restoredState = state;
-    return normalizeKey(state.projectKey) === normalizeKey(seededRecord.projectKey)
-      && normalizeKey(state.restoredStateSource) === "merged"
-      && normalizeKey(state.restoredFocusedDiffSource) === "local"
-      && normalizeKey(state.restoredReopenedSource) === "backend"
-      && normalizeKey(state.restoredFocusedDiffKey) === seededRecord.focusedDiffKey
-      && Array.isArray(state.restoredReopenedLineageKeys)
-      && state.restoredReopenedLineageKeys.map((value) => normalizeKey(value)).some((value) => seededRecord.reopenedLineageKeys.includes(value))
-      && normalizeKey(state.restoredLatestReopenedWriteID) === seededRecord.latestReopenedWriteID
-      && Number(state.reopenedDiffCount || 0) > 0;
-  }, "merged-source reopened diff restore after relaunch", 25000, 300);
+  try {
+    await waitFor(() => {
+      const state = readDebugDiffState();
+      if (!state) return false;
+      restoredState = state;
+      return normalizeKey(state.projectKey) === normalizeKey(seededRecord.projectKey)
+        && normalizeKey(state.restoredStateSource) === "merged"
+        && normalizeKey(state.restoredFocusedDiffSource) === "local"
+        && normalizeKey(state.restoredReopenedSource) === "backend"
+        && normalizeKey(state.restoredFocusedDiffKey) === seededRecord.focusedDiffKey
+        && Array.isArray(state.restoredReopenedLineageKeys)
+        && state.restoredReopenedLineageKeys.map((value) => normalizeKey(value)).some((value) => seededRecord.reopenedLineageKeys.includes(value))
+        && normalizeKey(state.restoredLatestReopenedWriteID) === seededRecord.latestReopenedWriteID
+        && Number(state.reopenedDiffCount || 0) > 0;
+    }, "merged-source reopened diff restore after relaunch", 45000, 300);
+  } catch (error) {
+    restoredState = readDebugDiffState();
+    console.error(JSON.stringify({
+      ok: false,
+      failure: error?.message || String(error),
+      appPath,
+      throwawayProjectId: seedFixture?.projectId || "",
+      seededRecord,
+      backendProbe,
+      localThreadStateMap: readFullThreadBrowseStateMap(),
+      restoredState,
+    }, null, 2));
+    throw error;
+  }
 
   console.log(JSON.stringify({
     ok: true,

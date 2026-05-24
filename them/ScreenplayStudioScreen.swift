@@ -4327,6 +4327,13 @@ Replace is best when this file should become the script you edit. Append is safe
                 publishDebugStudioDiffState()
             }
             .onChange(of: rawBackendProjectMetadataDebugSignature(for: activeStudioAskNoteHistoryKey)) { _, _ in
+                let backendSignature = backendThreadViewRestoreSignature(for: activeStudioAskNoteHistoryKey)
+                if shouldRetryFullThreadBrowseStateRestore(
+                    for: activeStudioAskNoteHistoryKey,
+                    backendSignature: backendSignature
+                ) {
+                    restoreFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
+                }
                 publishDebugStudioDiffState()
             }
     }
@@ -14899,6 +14906,10 @@ private var projectsSidebarContent: some View {
         let restoredFocusedDiffKey: String
         let restoredReopenedLineageKeys: [String]
         let restoredLatestReopenedWriteID: String
+        let localThreadStateKeyPresent: Bool
+        let localThreadStateFocusedDiffKey: String
+        let localThreadStateReopenedLineageKeys: [String]
+        let localThreadStateLatestReopenedWriteID: String
         let latestAcknowledgedLineageKey: String
         let latestAcknowledgedWriteID: String
         let latestAcknowledgedFingerprint: String
@@ -20182,10 +20193,19 @@ Return revised screenplay lines only.
     }
 
     private func loadStudioFullThreadBrowseStateMap() -> [String: StudioFullThreadBrowseState] {
-        let stored = studioFullThreadStateStorage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !stored.isEmpty,
-              let data = stored.data(using: .utf8) else { return [:] }
-        return (try? JSONDecoder().decode([String: StudioFullThreadBrowseState].self, from: data)) ?? [:]
+        func decoded(_ raw: String) -> [String: StudioFullThreadBrowseState] {
+            let stored = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !stored.isEmpty,
+                  let data = stored.data(using: .utf8) else { return [:] }
+            return (try? JSONDecoder().decode([String: StudioFullThreadBrowseState].self, from: data)) ?? [:]
+        }
+
+        var merged = decoded(studioFullThreadStateStorage)
+        let direct = decoded(UserDefaults.standard.string(forKey: "studio.full.thread.state.v1") ?? "")
+        for (key, value) in direct {
+            merged[key] = value
+        }
+        return merged
     }
 
     private func persistAcknowledgedStudioDiffs(_ records: [String: String], for key: String) {
@@ -20383,8 +20403,12 @@ Return revised screenplay lines only.
         let needsReopened = reopenedDiffExchangeKeys.isEmpty
             && (!record.reopenedLineageKeys.isEmpty || !record.latestReopenedWriteID.isEmpty)
         let hasNoRecordedRestore = restoredStudioDebugStateSourceRaw == StudioThreadViewStateSource.none.rawValue
+        let localRecord = loadStudioFullThreadBrowseStateMap()[key]
+        let hasUnappliedLocalFocusedDiff =
+            restoredStudioDebugFocusedDiffSourceRaw != StudioThreadViewStateSource.local.rawValue
+            && !(localRecord?.focusedDiffKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
 
-        return hasNoRecordedRestore || needsFocusedDiff || needsReopened
+        return hasNoRecordedRestore || needsFocusedDiff || needsReopened || hasUnappliedLocalFocusedDiff
     }
 
     private func backendStoredAcknowledgedStudioDiffRecords(for key: String) -> [String: String] {
@@ -20548,6 +20572,17 @@ Return revised screenplay lines only.
         guard !normalizedKey.isEmpty else { return }
         var store = loadStudioFullThreadBrowseStateMap()
         let record = currentFullThreadBrowseStateRecord()
+        if store[normalizedKey] != nil
+            && shouldDeferBackendThreadViewPersist(for: normalizedKey)
+            && screenplayProjectIdFromHistoryKey(normalizedKey) != nil {
+            return
+        }
+        if store[normalizedKey] != nil
+            && restoredStudioDebugStateSourceRaw == StudioThreadViewStateSource.backend.rawValue
+            && restoredStudioDebugFocusedDiffSourceRaw != StudioThreadViewStateSource.local.rawValue
+            && screenplayProjectIdFromHistoryKey(normalizedKey) != nil {
+            return
+        }
         if !hasMeaningfulFullThreadBrowseState(record)
             && isAwaitingInitialFullThreadRestore
             && screenplayProjectIdFromHistoryKey(normalizedKey) != nil {
@@ -24193,6 +24228,7 @@ Look at the city.
         let listedBackendProject = activeProjectID.flatMap { projectID in
             vm.projects.first(where: { $0.id == projectID })
         }
+        let localThreadState = loadStudioFullThreadBrowseStateMap()[activeStudioAskNoteHistoryKey]
         let state = StudioDebugDiffState(
             debugSessionID: studioDebugSessionID,
             projectKey: activeStudioAskNoteHistoryKey,
@@ -24258,6 +24294,10 @@ Look at the city.
             restoredFocusedDiffKey: restoredStudioDebugFocusedDiffKey,
             restoredReopenedLineageKeys: restoredStudioDebugReopenedLineageKeys,
             restoredLatestReopenedWriteID: restoredStudioDebugLatestReopenedWriteID,
+            localThreadStateKeyPresent: localThreadState != nil,
+            localThreadStateFocusedDiffKey: localThreadState?.focusedDiffKey ?? "",
+            localThreadStateReopenedLineageKeys: localThreadState?.reopenedLineageKeys ?? [],
+            localThreadStateLatestReopenedWriteID: localThreadState?.latestReopenedWriteID ?? "",
             latestAcknowledgedLineageKey: latestAcknowledgedRecord?.lineageKey ?? "",
             latestAcknowledgedWriteID: latestAcknowledgedRecord?.acknowledgedWriteID ?? "",
             latestAcknowledgedFingerprint: latestAcknowledgedRecord?.acknowledgedFingerprint ?? "",

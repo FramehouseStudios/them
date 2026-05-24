@@ -103,6 +103,39 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(result.reopenedSource, .merged)
     }
 
+    func testResolveAttributesMirroredReopenedStateToBackend() throws {
+        let backend = StudioFullThreadBrowseState(
+            searchText: "",
+            selectedFilterRaw: "",
+            selectedSceneKey: "",
+            scrollTargetKey: "",
+            collapsedSectionKeys: [],
+            focusedDiffKey: "thread:backend",
+            reopenedLineageKeys: ["lineage:backend"],
+            latestReopenedWriteID: "write-backend"
+        )
+        let local = StudioFullThreadBrowseState(
+            searchText: "",
+            selectedFilterRaw: "",
+            selectedSceneKey: "",
+            scrollTargetKey: "",
+            collapsedSectionKeys: [],
+            focusedDiffKey: "thread:local",
+            reopenedLineageKeys: ["lineage:backend"],
+            latestReopenedWriteID: "write-backend"
+        )
+
+        let result = StudioFullThreadBrowseStateRestoreResult.resolve(local: local, backend: backend)
+        let record = try XCTUnwrap(result.record)
+
+        XCTAssertEqual(record.focusedDiffKey, "thread:local")
+        XCTAssertEqual(record.reopenedLineageKeys, ["lineage:backend"])
+        XCTAssertEqual(record.latestReopenedWriteID, "write-backend")
+        XCTAssertEqual(result.source, .merged)
+        XCTAssertEqual(result.focusedDiffSource, .local)
+        XCTAssertEqual(result.reopenedSource, .backend)
+    }
+
     func testBackendPayloadNormalizesFocusedAndReopenedKeys() {
         let state = StudioFullThreadBrowseState(
             searchText: " note ",
