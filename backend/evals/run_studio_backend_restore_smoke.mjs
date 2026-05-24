@@ -99,6 +99,10 @@ function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
 function normalizeAcknowledgedKey(value) {
   const normalized = normalizeKey(value);
   if (!normalized) return "";
@@ -117,12 +121,18 @@ function ownerHeaders() {
   const userId = readDefaultString("user_id");
   if (userId) {
     headers["X-User-Id"] = userId;
-    return headers;
   }
   const clientToken = readDefaultString("client_token");
   assert(clientToken, "Missing owner identity in io.them.them defaults");
   headers["X-Client-Token"] = clientToken;
   return headers;
+}
+
+function fallbackOwnerHeaders() {
+  return {
+    "Content-Type": "application/json",
+    "X-APP-TOKEN": "them-dev",
+  };
 }
 
 function projectIdFromHistoryKey(value) {
@@ -236,14 +246,14 @@ function readLocalDraftRecovery(projectId) {
   };
 }
 
-async function postBackendProjectThreadState(projectId, record) {
+async function postBackendProjectThreadState(projectId, record, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
   const focusedDiffKey = String(record?.focusedDiffKey || "").trim().toLowerCase();
   const acknowledgedLineageKey = normalizeAcknowledgedKey(record?.acknowledgedLineageKey);
   const acknowledgedWriteID = normalizeKey(record?.acknowledgedWriteID);
   const acknowledgedFingerprint = String(record?.acknowledgedFingerprint || "").trim();
-  const response = await fetch("http://127.0.0.1:3000/screenplay/projects", {
+  const response = await fetch(`${baseURL}/screenplay/projects`, {
     method: "POST",
-    headers: ownerHeaders(),
+    headers,
     body: JSON.stringify({
       project_id: projectId,
       title: "Studio Restore Smoke",
@@ -275,16 +285,16 @@ async function postBackendProjectThreadState(projectId, record) {
   return payload;
 }
 
-async function postBackendProjectVersion(projectId, recovery) {
+async function postBackendProjectVersion(projectId, recovery, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
   if (!recovery?.draft) return null;
-  const response = await fetch(`http://127.0.0.1:3000/screenplay/projects/${projectId}/version`, {
+  const response = await fetch(`${baseURL}/screenplay/projects/${projectId}/version`, {
     method: "POST",
-    headers: ownerHeaders(),
+    headers,
     body: JSON.stringify({
       draft: recovery.draft,
       title: "Studio Restore Smoke",
       phase: "scene_draft",
-      source: "studio_restore_seed",
+      source: "studio_clementine_page_write",
       base_version_id: recovery.baseVersionId || "",
     }),
   });
@@ -381,6 +391,16 @@ function nextDebugToken() {
   return debugTokenCounter;
 }
 
+let loadProjectTokenCounter = Math.max(1, readDefaultInt("studio_debug_load_project_token"));
+function requestStudioProjectLoad(projectId, versionId = "") {
+  loadProjectTokenCounter += 1;
+  writeDefaultString("studio_debug_load_project_id", projectId);
+  writeDefaultString("studio_debug_load_project_version_id", versionId);
+  writeDefaultInt("studio_debug_load_project_ack_token", 0);
+  writeDefaultInt("studio_debug_load_project_token", loadProjectTokenCounter);
+  return loadProjectTokenCounter;
+}
+
 async function ensureStudioVisible() {
   writeDefaultInt("studio_debug_open_token", nextDebugToken());
   await sleep(1200);
@@ -411,6 +431,11 @@ const originalLocalAckWriteStateRaw = readDefaultString("studio.diff.keep-curren
 const originalAskNoteHistoryRaw = readDefaultString("studio.ask.note.history.v2");
 const originalDebugDiffStateRaw = readDefaultString("studio_debug_diff_state_json");
 const originalReplacementTraceRaw = readDefaultString("studio_debug_replacement_trace_json");
+const originalClientTokenRaw = readDefaultString("client_token");
+const originalLoadProjectToken = readDefaultInt("studio_debug_load_project_token");
+const originalLoadProjectAckToken = readDefaultInt("studio_debug_load_project_ack_token");
+const originalLoadProjectID = readDefaultString("studio_debug_load_project_id");
+const originalLoadProjectVersionID = readDefaultString("studio_debug_load_project_version_id");
 
 let seedFixture = null;
 let seededRecord = null;
@@ -425,6 +450,8 @@ try {
 
   seedFixture = createStudioRestoreFixture("reopened");
   seededRecord = seedFixture.reopenedSeed;
+  const projectId = projectIdFromHistoryKey(seededRecord.projectKey);
+  writeDefaultString("client_token", `studio-smoke-${projectId}`);
 
   appPath = findDebugAppPath();
   await ensureAppStopped();
@@ -443,15 +470,19 @@ try {
   askHistoryMap[seededRecord.projectKey] = seedFixture.reopenedHistory;
   writeDefaultString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
   await postBackendProjectThreadState(
-    projectIdFromHistoryKey(seededRecord.projectKey),
+    projectId,
     seededRecord.rawRecord || {}
   );
   await postBackendProjectVersion(
-    projectIdFromHistoryKey(seededRecord.projectKey),
+    projectId,
     draftRecovery
   );
+  for (const baseURL of ["http://127.0.0.1:3000", "http://localhost:3000"]) {
+    await postBackendProjectThreadState(projectId, seededRecord.rawRecord || {}, fallbackOwnerHeaders(), baseURL);
+    await postBackendProjectVersion(projectId, draftRecovery, fallbackOwnerHeaders(), baseURL);
+  }
   const probe = await waitForBackendReopenedHydration(
-    projectIdFromHistoryKey(seededRecord.projectKey),
+    projectId,
     seededRecord
   );
   assert(probe.response.ok, `Backend project probe failed: ${probe.response.status} ${JSON.stringify(probe.payload)}`);
@@ -459,12 +490,22 @@ try {
   assert(backendProbe, "Backend project probe returned no project metadata.");
   assert(backendProbe.focusedDiffKey === seededRecord.focusedDiffKey, `Expected backend focused diff ${seededRecord.focusedDiffKey}, got ${backendProbe.focusedDiffKey}`);
   assert(backendProbe.latestReopenedWriteID === seededRecord.latestReopenedWriteID, `Expected backend latest reopened write ${seededRecord.latestReopenedWriteID}, got ${backendProbe.latestReopenedWriteID}`);
+  assert(backendProbe.activeVersion, "Backend project probe did not include an active version.");
+  assert(
+    backendProbe.activeVersion.source === "studio_clementine_page_write",
+    `Expected active version source studio_clementine_page_write, got ${backendProbe.activeVersion.source}`
+  );
+  assert(
+    normalizeText(backendProbe.activeVersion.draft) === normalizeText(draftRecovery.draft),
+    `Expected backend active draft to match seeded Clementine page write, got ${backendProbe.activeVersion.draft}`
+  );
   assert(
     seededRecord.reopenedLineageKeys.some((value) => backendProbe.reopenedLineageKeys.includes(value)),
     `Expected backend reopened lineage overlap, got ${JSON.stringify(backendProbe.reopenedLineageKeys)}`
   );
 
   await relaunchApp(appPath);
+  requestStudioProjectLoad(projectId, backendProbe.activeVersionId);
 
   await waitFor(() => {
     const state = readDebugDiffState();
@@ -484,6 +525,9 @@ try {
       && Array.isArray(state.backendSelectedReopenedLineageKeys)
       && state.backendSelectedReopenedLineageKeys.map((value) => normalizeKey(value)).some((value) => seededRecord.reopenedLineageKeys.includes(value))
       && normalizeKey(state.restoredLatestReopenedWriteID) === seededRecord.latestReopenedWriteID
+      && normalizeKey(state.selectedProjectID) === normalizeKey(projectId)
+      && normalizeKey(state.latestVersionID) === backendProbe.activeVersionId
+      && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes(normalizeText(draftRecovery.draft))
       && Number(state.reopenedDiffCount || 0) > 0;
   }, "backend-only reopened diff restore after relaunch", 25000, 300);
 
@@ -527,6 +571,11 @@ try {
   writeDefaultString("studio.ask.note.history.v2", originalAskNoteHistoryRaw);
   writeDefaultString("studio_debug_diff_state_json", originalDebugDiffStateRaw);
   writeDefaultString("studio_debug_replacement_trace_json", originalReplacementTraceRaw);
+  writeDefaultString("client_token", originalClientTokenRaw);
+  writeDefaultInt("studio_debug_load_project_token", originalLoadProjectToken);
+  writeDefaultInt("studio_debug_load_project_ack_token", originalLoadProjectAckToken);
+  writeDefaultString("studio_debug_load_project_id", originalLoadProjectID);
+  writeDefaultString("studio_debug_load_project_version_id", originalLoadProjectVersionID);
   if (thrownError) {
     throw thrownError;
   }

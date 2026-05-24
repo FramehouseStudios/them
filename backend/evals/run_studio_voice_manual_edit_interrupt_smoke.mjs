@@ -237,7 +237,6 @@ function ownerHeaders() {
   const userId = readIdentityString("user_id");
   if (userId) {
     headers["X-User-Id"] = userId;
-    return headers;
   }
   const clientToken = readIdentityString("client_token");
   assert(clientToken, "Missing owner identity in io.them.them defaults");

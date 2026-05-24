@@ -2,6 +2,17 @@ function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeVersion(version) {
+  if (!version || typeof version !== "object") return null;
+  return {
+    id: normalizeKey(version?.id),
+    source: String(version?.source || "").trim(),
+    draft: String(version?.draft || "").trim(),
+    draftExcerpt: String(version?.draftExcerpt || version?.draft_excerpt || "").trim(),
+    updatedAt: Number(version?.updatedAt ?? version?.updated_at ?? 0) || 0,
+  };
+}
+
 export function extractStudioProjectMetadata(payload) {
   const project = payload?.payload?.project || payload?.project || null;
   if (!project || typeof project !== "object") return null;
@@ -18,10 +29,18 @@ export function extractStudioProjectMetadata(payload) {
   const acknowledgedKeys = Array.isArray(diffAcknowledged?.keys)
     ? diffAcknowledged.keys.map((value) => normalizeKey(value)).filter(Boolean)
     : [];
+  const versions = Array.isArray(project?.versions)
+    ? project.versions.map(normalizeVersion).filter(Boolean)
+    : [];
+  const activeVersionId = normalizeKey(project?.activeVersionId || project?.active_version_id);
 
   return {
     projectId: normalizeKey(project?.id),
     title: String(project?.title || "").trim(),
+    activeVersionId,
+    lastVersionId: normalizeKey(project?.lastVersionId || project?.last_version_id),
+    activeVersion: versions.find((version) => version.id === activeVersionId) || null,
+    versions,
     focusedDiffKey: normalizeKey(threadViewState?.focusedDiffKey || threadViewState?.focused_diff_key),
     reopenedLineageKeys: Array.isArray(threadViewState?.reopenedLineageKeys || threadViewState?.reopened_lineage_keys)
       ? (threadViewState.reopenedLineageKeys || threadViewState.reopened_lineage_keys)
