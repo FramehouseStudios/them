@@ -2018,6 +2018,11 @@ nonisolated enum BackendAuthClient {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    static func authorizationHeaderValue() -> String? {
+        guard let token = accessToken(), !token.isEmpty else { return nil }
+        return "Bearer \(token)"
+    }
+
     private static func refreshToken() -> String? {
         guard !IOThemRuntime.isRunningTests else { return nil }
         let token = readKeychainString(account: authRefreshTokenAccount) ?? ""

@@ -1586,6 +1586,7 @@ final class BackendClient {
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
+            attachAuthorizationHeader(to: &request)
             request.httpBody = bodyData
 
             let (data, response) = try await urlSession.data(for: request)
@@ -1831,6 +1832,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let uploadMeta = uploadMetadata(for: audioURL, data: audioSnapshot)
         var body = Data()
@@ -1946,6 +1948,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let body = Self.realtimeClientSecretBody(
             systemPrompt: systemPrompt,
@@ -2035,6 +2038,7 @@ final class BackendClient {
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
+            attachAuthorizationHeader(to: &request)
             request.httpBody = requestBody
 
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -2114,6 +2118,7 @@ final class BackendClient {
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
+            attachAuthorizationHeader(to: &request)
             request.httpBody = requestBody
 
             let (bytes, response) = try await URLSession.shared.bytes(for: request)
@@ -2325,6 +2330,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let cleanMimeType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "image/jpeg"
@@ -2461,6 +2467,7 @@ final class BackendClient {
         if let token = appToken {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
         if let key = normalizedIdempotencyKey(idempotencyKey) {
             request.setValue(key, forHTTPHeaderField: "X-Idempotency-Key")
         }
@@ -3363,6 +3370,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -3495,6 +3503,7 @@ final class BackendClient {
         if let token = appToken {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
         request.httpBody = Data("{}".utf8)
 
         print("POST /session -> url=\(request.url?.absoluteString ?? "-") has_app_token=\(appToken != nil)")
@@ -4088,6 +4097,11 @@ final class BackendClient {
         // Protect against unresolved placeholders like "$(APP_TOKEN)".
         if value.hasPrefix("$("), value.hasSuffix(")") { return false }
         return true
+    }
+
+    private func attachAuthorizationHeader(to request: inout URLRequest) {
+        guard let value = BackendAuthClient.authorizationHeaderValue(), !value.isEmpty else { return }
+        request.setValue(value, forHTTPHeaderField: "Authorization")
     }
 
     private func redactedTokenInfo(_ token: String?) -> String {

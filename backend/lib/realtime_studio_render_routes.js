@@ -31,12 +31,11 @@
 //     for operators.
 //   - same body limit (512kb) per route.
 //
-// Access-control posture: SAFE-PUBLIC. Per the original inline
-// handlers, no bearer-token guard is wrapped around these
-// routes. The renderer body is the Studio-render text — no
-// user PII is echoed; transcripts come from the request body
-// and are not stored by these routes (talk pipeline stores
-// transcripts separately).
+// Access-control posture: AUTHENTICATED-PAID-PROVIDER.
+// `createUserAuthSubsystem().protectPaidProviderRoutes` gates
+// `/realtime/studio_render*` before these handlers are mounted in
+// backend/index.js. Keep this module focused on render behavior; the
+// app/client must send bearer auth plus the active client token.
 
 import express from "express";
 

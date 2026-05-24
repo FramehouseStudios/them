@@ -57,6 +57,20 @@ function buildHeaders(extra = {}) {
   return headers;
 }
 
+async function signupUser(email, password = "studio-render-password-123") {
+  const signup = await requestJson("/auth/signup", {
+    method: "POST",
+    headers: buildHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ email, password }),
+  });
+  assert(signup.response.status === 201 || signup.response.ok, `/auth/signup failed with ${signup.response.status}`);
+  const token = String(signup.json?.access_token || signup.json?.token || "").trim();
+  const userId = String(signup.json?.user?.user_id || signup.json?.user_id || "").trim();
+  assert(token, "Signup did not return an access token");
+  assert(userId, "Signup did not return a user_id");
+  return { token, userId };
+}
+
 const BASE_URL = process.env.THEM_BASE_URL?.trim() || "http://127.0.0.1:3000";
 const personaKey = process.env.THEM_PERSONA_KEY?.trim() || "clementine";
 const appToken = loadAppToken();
@@ -69,9 +83,10 @@ const systemPrompt = [
   "Respond immediately with a small but real screenplay continuation.",
 ].join("\n");
 
+const auth = await signupUser(`studio-render-${stamp}@example.com`);
 const sessionBootstrap = await requestJson("/session", {
   method: "POST",
-  headers: buildHeaders(),
+  headers: buildHeaders({ Authorization: `Bearer ${auth.token}` }),
 });
 assert(sessionBootstrap.response.status === 201, `/session bootstrap failed with ${sessionBootstrap.response.status}`);
 const clientToken = String(sessionBootstrap.json?.client_token || "").trim();
@@ -84,6 +99,7 @@ const response = await fetch(`${BASE_URL}/realtime/studio_render_stream`, {
     Accept: "text/event-stream",
     "Content-Type": "application/json",
     "X-Client-Token": clientToken,
+    Authorization: `Bearer ${auth.token}`,
   }),
   body: JSON.stringify({
     transcript,
@@ -249,6 +265,7 @@ console.log(JSON.stringify({
   ok: true,
   baseUrl: BASE_URL,
   forwardedIp,
+  userId: auth.userId,
   clientToken,
   headerRequestId,
   headerStudioRequestId,
