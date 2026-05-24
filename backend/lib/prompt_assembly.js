@@ -56,31 +56,55 @@ function inferScreenplayTask(userInput = "") {
   const text = trimToString(userInput);
   const lower = text.toLowerCase();
   if (!lower) return null;
-  const dialogueLike = hasAny(lower, [/\b(dialogue|line|voice|banter|monologue|subtext)\b/]);
-  const rewriteLike = hasAny(lower, [/\b(rewrite|revise|polish|make it better|do another pass)\b/])
-    || (hasAny(lower, [/\bpunch up\b/]) && !dialogueLike);
+  const sceneDoctorLike = hasAny(lower, [
+    /\b(scene doctor|doctor this|doctor the scene|coverage|feedback|notes|diagnose|what'?s wrong|what'?s not working|fix this scene|why isn'?t this working)\b/,
+  ]);
+  const dialogueLike = hasAny(lower, [
+    /\b(dialogue|line|lines|exchange|argument|conversation|voice|voices|banter|monologue|subtext)\b/,
+    /\b(what should (?:he|she|they) say|what does (?:he|she|they) say)\b/,
+  ]);
+  const rewriteLike = hasAny(lower, [
+    /\b(rewrite|revise|polish|replace|swap out|another pass|do another pass|make it better)\b/,
+    /\b(make (?:this|it|the scene|the line|the exchange) (?:shorter|tighter|sharper|cleaner|more cinematic|more emotional|less on[- ]the[- ]nose))\b/,
+  ]) || (hasAny(lower, [/\bpunch up\b/]) && !dialogueLike);
+  const explicitDialoguePunchupLike = dialogueLike && hasAny(lower, [
+    /\b(punch up|punch-up|sharpen|give .* subtext|more subtext|less on[- ]the[- ]nose)\b/,
+    /\bmake (?:the )?(?:dialogue|line|lines|exchange|argument|conversation|voices?) (?:sharper|tighter|cleaner)\b/,
+  ]);
+  const dialoguePunchupLike = explicitDialoguePunchupLike && (!rewriteLike || hasAny(lower, [/\bpunch[- ]up\b/]));
+  const continueLike = hasAny(lower, [
+    /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|finish this scene|from here)\b/,
+  ]);
 
   let intent = "general_story";
   let label = "General Story Help";
   let output = "Give specific, cinematic story guidance with one concrete next move.";
 
-  if (rewriteLike) {
+  if (sceneDoctorLike && !rewriteLike) {
+    intent = "scene_doctor";
+    label = "Scene Doctor";
+    output = "Give concise script-doctor notes: what works, what is not landing, and the highest-leverage fix. Include sample replacement lines only when useful.";
+  } else if (dialoguePunchupLike) {
+    intent = "dialogue_punchup";
+    label = "Dialogue Punch-Up";
+    output = "Punch up dialogue with subtext, distinct voices, and rhythm. Prefer a few strong lines over a long explanation.";
+  } else if (rewriteLike) {
     intent = "rewrite_scene";
     label = "Rewrite Scene";
-    output = "Return a revised scene or passage in clean screenplay/Fountain style, preserving story intent while improving specificity, rhythm, and emotional truth.";
+    output = "Return a revised scene or targeted passage in clean screenplay/Fountain style. Preserve story intent and continuity, replace only the requested span when the user names one, and improve specificity, rhythm, and emotional truth.";
   } else if (hasAny(lower, [/\b(finish|complete|help me finish|land the ending|ending)\b.*\b(feature|film|movie|script|screenplay|pilot)\b/, /\b(feature|film|movie|script|screenplay|pilot)\b.*\b(finish|complete|ending|finale)\b/])) {
     intent = "finish_feature";
     label = "Finish Feature";
     output = "Help the writer finish the larger script: identify the next highest-leverage pages, preserve emotional continuity, and move toward a playable ending.";
-  } else if (hasAny(lower, [/\b(continue|keep going|next scene|what happens next|finish this scene|carry on)\b/])) {
+  } else if (continueLike) {
     intent = "continue_script";
     label = "Continue Script";
-    output = "Continue from the current draft in screenplay/Fountain style, matching tone, character voice, and emotional continuity.";
+    output = "Continue from the current draft in screenplay/Fountain style, matching tone, character voice, pacing, and emotional continuity. Do not restart the scene unless the user asks.";
   } else if (hasAny(lower, [/\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/, /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/])) {
     intent = "write_scene";
     label = "Write Scene";
     output = "Write usable screenplay pages in clean Fountain style with scene headings, action, character cues, dialogue, and restrained parentheticals.";
-  } else if (hasAny(lower, [/\b(scene doctor|doctor this|coverage|feedback|notes|diagnose|what'?s wrong|fix this scene)\b/])) {
+  } else if (sceneDoctorLike) {
     intent = "scene_doctor";
     label = "Scene Doctor";
     output = "Give concise script-doctor notes: what works, what is not landing, and the highest-leverage fix. Include sample replacement lines only when useful.";

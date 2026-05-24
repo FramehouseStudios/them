@@ -175,6 +175,14 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
   assert.equal(inferScreenplayTask("Fix the emotional continuity.").intent, "emotional_continuity");
 });
 
+test("[screenplay-task] inferScreenplayTask handles targeted Clementine Studio modes", () => {
+  assert.equal(inferScreenplayTask("Replace that line with something sharper.").intent, "rewrite_scene");
+  assert.equal(inferScreenplayTask("Keep writing from here without restarting the scene.").intent, "continue_script");
+  assert.equal(inferScreenplayTask("Take it from here into the next page.").intent, "continue_script");
+  assert.equal(inferScreenplayTask("Scene doctor this kitchen confrontation and tell me what's not working.").intent, "scene_doctor");
+  assert.equal(inferScreenplayTask("Punch up this exchange so it has more subtext.").intent, "dialogue_punchup");
+});
+
 test("[screenplay-task] buildModelPrompt carries draft context for continuation and rewrite turns", () => {
   const out = buildModelPrompt({
     persona: "PERSONA",

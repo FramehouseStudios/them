@@ -154,6 +154,30 @@ test("POST /screenplay/prompt/build can infer task from hint without duplicating
   });
 });
 
+test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue task contracts", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const cases = [
+      ["Replace that line with something sharper.", "rewrite_scene", "replace only the requested span"],
+      ["Scene doctor this kitchen confrontation and tell me what's not working.", "scene_doctor", "highest-leverage fix"],
+      ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "distinct voices"],
+    ];
+
+    for (const [hint, expectedIntent, expectedContract] of cases) {
+      const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+        persona: "PERSONA",
+        user_input: "",
+        screenplay_task_hint: hint,
+      });
+
+      assert.equal(status, 200);
+      assert.equal(body.screenplay_task_intent, expectedIntent);
+      assert.ok(body.prompt.includes("<screenplay_task>"));
+      assert.ok(body.prompt.includes(`intent: ${expectedIntent}`));
+      assert.ok(body.prompt.includes(expectedContract));
+    }
+  });
+});
+
 test("POST /screenplay/prompt/build rejects empty prompt payloads", async () => {
   await withTestServer(async ({ baseURL }) => {
     const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {});
