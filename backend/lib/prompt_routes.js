@@ -1,3 +1,5 @@
+import express from "express";
+
 import { buildModelPrompt, inferScreenplayTask } from "./prompt_assembly.js";
 
 const PROMPT_SCHEMA_VERSION = 1;
@@ -42,7 +44,7 @@ function mountPromptRoutes(app, {
   creativeMemoryStore = null,
   buildCraftContextBlock = null,
 } = {}) {
-  app.post("/screenplay/prompt/build", async (req, res) => {
+  app.post("/screenplay/prompt/build", express.json({ limit: "256kb" }), async (req, res) => {
     const persona = trimToString(
       req.body?.persona ?? req.body?.system_prompt ?? req.body?.systemPrompt,
       16_000

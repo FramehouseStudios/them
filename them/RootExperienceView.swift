@@ -705,6 +705,8 @@ struct RootExperienceView: View {
     @State private var realtimeStudioRenderTask: Task<String?, Never>?
     @State private var realtimeStudioRenderUserMessage = ""
     @State private var realtimeStudioRenderedReply = ""
+    @State private var lastRealtimeStudioPreviewAt: Date = .distantPast
+    @State private var lastRealtimeStudioPreviewCharacterCount: Int = 0
     @State private var studioTypedPromptRoutingMode: ScreenplayStudioScreen.PromptRoutingMode = .automatic
     @AppStorage("show_live_script_preview") private var showLiveScriptPreview: Bool = true
     @AppStorage(ClementineVoiceSettings.voiceSpeedKey) private var clementineSpeakingPace: Double = 1.0
@@ -792,10 +794,8 @@ struct RootExperienceView: View {
         shouldWriteToPage: Bool,
         isStudioSurfaceActive: Bool
     ) -> Bool {
-        // Page writes should stream as soon as Studio is visible, regardless of
-        // whether voice conversation is in turn-based or realtime-preview mode.
-        shouldWriteToPage &&
-        isStudioSurfaceActive
+        _ = isStudioSurfaceActive
+        return shouldWriteToPage
     }
 
     private func shouldUseStreamingStudioPageWriteTransport(
@@ -816,7 +816,7 @@ struct RootExperienceView: View {
             )
         )
         precondition(
-            !shouldUseStreamingStudioPageWriteTransport(
+            shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: true,
                 isStudioSurfaceActive: false
             )
@@ -3083,7 +3083,12 @@ struct RootExperienceView: View {
             isSubmittingPrompt: isTurnSubmitting,
             typedReplyAudioEnabled: $studioTypedReplyAudioEnabled,
             onSubmitPrompt: { prompt, routingMode, requestID in
-                await submitStudioPrompt(prompt, routingMode: routingMode, requestID: requestID)
+#if DEBUG || os(macOS)
+                setStudioDebugPreferenceString("root_closure_started", forKey: "studio_debug_root_submit_stage")
+                setStudioDebugPreferenceString(prompt, forKey: "studio_debug_root_submit_prompt")
+                setStudioDebugPreferenceString(requestID, forKey: "studio_debug_root_submit_request_id")
+#endif
+                return await submitStudioPrompt(prompt, routingMode: routingMode, requestID: requestID)
             },
             shouldRoutePromptToPage: { prompt, routingMode in
                 shouldRouteStudioPromptToPage(prompt, preferredTarget: routingMode)
@@ -3358,11 +3363,18 @@ struct RootExperienceView: View {
             " i am stuck ",
             " i'm stuck ",
             " im stuck ",
+            " i am spiraling ",
+            " i'm spiraling ",
+            " im spiraling ",
+            " spiraling ",
             " talk me through ",
             " stay with me ",
             " encourage me ",
             " reassure me ",
+            " reassurance ",
             " calm me down ",
+            " overwhelmed ",
+            " anxious ",
             " check in with me ",
             " how are you ",
             " do you think i'm okay "
@@ -4249,10 +4261,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
             " rewrite this scene ",
             " continue the scene ",
             " continue this scene ",
+            " continue from here ",
+            " continue the script ",
             " draft the scene ",
             " draft a scene ",
             " draft the next scene ",
             " draft the next beat ",
+            " keep writing ",
+            " keep going from here ",
+            " carry this forward ",
+            " take it from here ",
             " rewrite it ",
             " rewrite this ",
             " rewrite that ",
@@ -4269,6 +4287,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             " more dialogue ",
             " more beats ",
             " more pages ",
+            " next page ",
             " put this on the page ",
             " put it on the page ",
             " put this in the scene ",
@@ -4328,6 +4347,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             " script this ",
             " continue the scene ",
             " continue this scene ",
+            " continue from here ",
+            " continue the script ",
+            " keep writing ",
+            " keep going from here ",
+            " carry this forward ",
+            " take it from here ",
+            " next page ",
             " put this on the page ",
             " put it on the page ",
             " give me the scene ",
@@ -6395,13 +6421,27 @@ Write this approved story direction directly into screenplay pages now. Maintain
     ) async -> String? {
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanPrompt.isEmpty else { return "Enter a Studio prompt first." }
-        guard !isTurnSubmitting else { return "io.them is already working on the current turn." }
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString("root_submit_started", forKey: "studio_debug_root_submit_stage")
+        setStudioDebugPreferenceString(cleanPrompt, forKey: "studio_debug_root_submit_prompt")
+        setStudioDebugPreferenceString(requestID ?? "", forKey: "studio_debug_root_submit_request_id")
+        setStudioDebugPreferenceString("", forKey: "studio_debug_root_submit_error")
+#endif
+        guard !isTurnSubmitting else {
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_busy", forKey: "studio_debug_root_submit_stage")
+#endif
+            return "io.them is already working on the current turn."
+        }
         let localCommand = runLocalStudioCommandIfNeeded(
             cleanPrompt,
             source: .typed,
             shouldSpeakConfirmation: false
         )
         if localCommand.handled {
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_local_command", forKey: "studio_debug_root_submit_stage")
+#endif
             return localCommand.error
         }
         if voiceTransportMode == .realtimePreview,
@@ -6421,6 +6461,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let store = HerEvolutionStore.shared
         let directorText = cleanPrompt
         let memoryDomain = studioMemoryDomain(for: cleanPrompt, preferredTarget: routingMode)
+        screenplayDraftBridge.latestMemoryDomain = memoryDomain
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString(memoryDomain.rawValue, forKey: "studio_debug_last_memory_domain")
+#endif
         if memoryDomain != .companion {
             HerEvolutionStore.shared.noteCreativeContext(from: cleanPrompt, isScreenplayMode: true)
         }
@@ -6448,12 +6492,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isScreenplayMode: true
         )
         let confirmedStudioStoryContext = confirmedStudioPageWriteContext(for: cleanPrompt)
+        let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanPrompt, preferredTarget: routingMode)
         let renderTranscript = studioRenderTranscript(
             for: cleanPrompt,
             confirmedContext: confirmedStudioStoryContext,
-            preferredTarget: routingMode
+            preferredTarget: shouldWriteToPage ? .page : routingMode
         )
-        let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanPrompt, preferredTarget: routingMode)
         if !shouldWriteToPage {
             screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
         }
@@ -6545,14 +6589,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
             companionInstruction: screenplayDraftBridge.companionMode.promptInstruction,
             companionSignals: companionSignals
         )
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString("root_prompt_build_started", forKey: "studio_debug_root_submit_stage")
+#endif
         let systemPrompt = await buildCanonicalModelPrompt(
             baseSystemPrompt,
             userMessage: cleanPrompt,
             isScreenplayMode: true,
             shouldWriteToPage: shouldWriteToPage
         )
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString("root_prompt_build_finished", forKey: "studio_debug_root_submit_stage")
+#endif
 
         do {
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_render_started", forKey: "studio_debug_root_submit_stage")
+#endif
             HerLog.talk.info("STUDIO render text sending chars=\(renderTranscript.count)")
 
             let renderedReply: String
@@ -6562,12 +6615,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let shouldStreamStudioPageWrite = shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: shouldWriteToPage
             )
+            let studioRenderTimeoutSeconds = shouldWriteToPage ? 18.0 : 30.0
             if shouldStreamStudioPageWrite {
                 realtimeStudioRenderUserMessage = cleanPrompt
                 realtimeStudioRenderedReply = ""
+                resetRealtimeStudioDraftPreviewThrottle()
                 let requestRender = {
                     do {
-                        return try await withStudioRenderTimeout {
+                        return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
                             try await backend.streamRealtimeStudioText(
                             transcript: renderTranscript,
                             systemPrompt: systemPrompt,
@@ -6575,6 +6630,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 await MainActor.run {
                                     guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
                                     self.realtimeStudioRenderedReply = partial
+                                    guard self.shouldApplyRealtimeStudioDraftPreview(partial) else { return }
                                     self.applyRealtimeStudioDraftPreview(
                                         userMessage: cleanPrompt,
                                         assistantMessage: partial
@@ -6584,10 +6640,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         )
                         }
                     } catch {
+                        let partialReply = sanitizedRealtimeStudioRenderReply(realtimeStudioRenderedReply)
+                        if shouldWriteToPage,
+                           isStudioRenderTimeout(error),
+                           !partialReply.isEmpty {
+#if DEBUG || os(macOS)
+                            setStudioDebugPreferenceString("root_render_stream_partial_timeout_recovered", forKey: "studio_debug_root_submit_stage")
+#endif
+                            return partialReply
+                        }
                         guard shouldFallbackToNonStreamingStudioRender(for: error) else { throw error }
                         screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
                         HerLog.talk.info("STUDIO render stream empty -> fallback to one-shot render")
-                        return try await withStudioRenderTimeout {
+                        return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
                             try await backend.renderRealtimeStudioText(
                                 transcript: renderTranscript,
                                 systemPrompt: systemPrompt
@@ -6606,7 +6671,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
             } else {
                 let requestRender = {
-                    try await withStudioRenderTimeout {
+                    try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
                         try await backend.renderRealtimeStudioText(
                             transcript: renderTranscript,
                             systemPrompt: systemPrompt
@@ -6627,6 +6692,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let cleanReply = sanitizedRealtimeStudioRenderReply(renderedReply)
             realtimeStudioRenderUserMessage = ""
             realtimeStudioRenderedReply = ""
+            resetRealtimeStudioDraftPreviewThrottle()
             guard !cleanReply.isEmpty else {
                 if shouldWriteToPage {
                     screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
@@ -6670,30 +6736,57 @@ Write this approved story direction directly into screenplay pages now. Maintain
             livePartialTranscript = ""
             lastNonEmptyPartialTranscriptHint = ""
             speculativeTalk.cancel()
-            await syncEvolutionForMemoryDomain(
-                userMessage: cleanPrompt,
-                memoryDomain: memoryDomain,
-                isScreenplayMode: true
-            )
-            await commitRealtimePreviewTurnIfNeeded(
-                userMessage: cleanPrompt,
-                assistantMessage: cleanReply,
-                promptSource: .typed,
-                requestId: requestID,
-                targetOverride: shouldWriteToPage ? .page : .voicePin,
-                insertedTextOverride: insertedScreenplayText
-            )
             if shouldWriteToPage {
-                await annotateLatestRealtimeStudioTurnIfNeeded(
+                let deferredPrompt = cleanPrompt
+                let deferredReply = cleanReply
+                let deferredMemoryDomain = memoryDomain
+                let deferredRequestID = requestID
+                let deferredInsertedText = insertedScreenplayText
+                Task { @MainActor in
+                    await syncEvolutionForMemoryDomain(
+                        userMessage: deferredPrompt,
+                        memoryDomain: deferredMemoryDomain,
+                        isScreenplayMode: true
+                    )
+                    await commitRealtimePreviewTurnIfNeeded(
+                        userMessage: deferredPrompt,
+                        assistantMessage: deferredReply,
+                        promptSource: .typed,
+                        requestId: deferredRequestID,
+                        targetOverride: .page,
+                        insertedTextOverride: deferredInsertedText
+                    )
+                    await annotateLatestRealtimeStudioTurnIfNeeded(
+                        promptSource: .typed,
+                        targetOverride: .page,
+                        insertedTextOverride: deferredInsertedText
+                    )
+                }
+            } else {
+                await syncEvolutionForMemoryDomain(
+                    userMessage: cleanPrompt,
+                    memoryDomain: memoryDomain,
+                    isScreenplayMode: true
+                )
+                await commitRealtimePreviewTurnIfNeeded(
+                    userMessage: cleanPrompt,
+                    assistantMessage: cleanReply,
                     promptSource: .typed,
-                    targetOverride: .page,
+                    requestId: requestID,
+                    targetOverride: .voicePin,
                     insertedTextOverride: insertedScreenplayText
                 )
             }
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_finished", forKey: "studio_debug_root_submit_stage")
+#endif
             return nil
         } catch BackendError.continueListening {
             backendConnectionState = .up
             backendFailureCount = 0
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_continue_listening", forKey: "studio_debug_root_submit_stage")
+#endif
             return "Try giving io.them a little more detail."
         } catch {
             if shouldWriteToPage {
@@ -6702,11 +6795,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             realtimeStudioRenderUserMessage = ""
             realtimeStudioRenderedReply = ""
             if let authRequiredMessage = noteAuthRequiredIfNeeded(error) {
+#if DEBUG || os(macOS)
+                setStudioDebugPreferenceString("root_submit_auth_required", forKey: "studio_debug_root_submit_stage")
+                setStudioDebugPreferenceString(authRequiredMessage, forKey: "studio_debug_root_submit_error")
+#endif
                 return authRequiredMessage
             }
             let failureReason = error.localizedDescription
             markBackendUnavailable(reason: failureReason)
             lastIssueSummary = failureReason
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_submit_error", forKey: "studio_debug_root_submit_stage")
+            setStudioDebugPreferenceString(failureReason, forKey: "studio_debug_root_submit_error")
+#endif
             return failureReason
         }
     }
@@ -6785,6 +6886,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 && message.lowercased().contains("stream response was empty")
         case let .http(status, message):
             return status == 502 && message.lowercased().contains("stream response was empty")
+        default:
+            return false
+        }
+    }
+
+    private func isStudioRenderTimeout(_ error: Error) -> Bool {
+        guard let backendError = error as? BackendError else { return false }
+        switch backendError {
+        case let .stage(stage, message):
+            return stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "studio_render"
+                && message.lowercased().contains("timed out")
+        case let .http(status, message):
+            return status == 408 || message.lowercased().contains("timed out")
         default:
             return false
         }
@@ -7878,6 +7992,36 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func resetRealtimeStudioDraftPreviewThrottle() {
+        lastRealtimeStudioPreviewAt = .distantPast
+        lastRealtimeStudioPreviewCharacterCount = 0
+    }
+
+    @MainActor
+    private func shouldApplyRealtimeStudioDraftPreview(
+        _ assistantMessage: String,
+        force: Bool = false
+    ) -> Bool {
+        let cleanReply = sanitizedRealtimeStudioRenderReply(assistantMessage)
+        guard !cleanReply.isEmpty else { return false }
+        if force {
+            lastRealtimeStudioPreviewAt = Date()
+            lastRealtimeStudioPreviewCharacterCount = cleanReply.count
+            return true
+        }
+        let now = Date()
+        let characterDelta = cleanReply.count - lastRealtimeStudioPreviewCharacterCount
+        guard lastRealtimeStudioPreviewCharacterCount == 0 ||
+                characterDelta >= 96 ||
+                now.timeIntervalSince(lastRealtimeStudioPreviewAt) >= 0.35 else {
+            return false
+        }
+        lastRealtimeStudioPreviewAt = now
+        lastRealtimeStudioPreviewCharacterCount = cleanReply.count
+        return true
+    }
+
+    @MainActor
     private func commitActiveRealtimeStudioDraftPreviewIfNeeded() -> String? {
         guard isStudioSurfaceActive else { return nil }
         guard screenplayDraftBridge.isStreamingDraftPreviewActive else { return nil }
@@ -7929,6 +8073,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimeStudioRenderTask = nil
         realtimeStudioRenderUserMessage = ""
         realtimeStudioRenderedReply = ""
+        resetRealtimeStudioDraftPreviewThrottle()
         if restorePreview {
             screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
         }
@@ -7969,6 +8114,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         )
         realtimeStudioRenderUserMessage = cleanUser
         realtimeStudioRenderedReply = ""
+        resetRealtimeStudioDraftPreviewThrottle()
 #if DEBUG || os(macOS)
         appendStudioDebugVoiceDraftBreadcrumb(
             event: "request_started",
@@ -8030,6 +8176,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 )
                             }
 #endif
+                            guard self.shouldApplyRealtimeStudioDraftPreview(partial) else { return }
                             self.applyRealtimeStudioDraftPreview(
                                 userMessage: cleanUser,
                                 assistantMessage: partial
@@ -8380,6 +8527,24 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 craftFrameworkId: ""
             )
         )
+#if DEBUG || os(macOS)
+        setStudioDebugPreferenceString(
+            result.screenplayTaskIntent,
+            forKey: "studio_debug_last_screenplay_task_intent"
+        )
+        setStudioDebugPreferenceString(
+            result.screenplayTaskLabel,
+            forKey: "studio_debug_last_screenplay_task_label"
+        )
+        setStudioDebugPreferenceString(
+            result.usedBackendAssembly ? "1" : "0",
+            forKey: "studio_debug_last_prompt_backend_assembly"
+        )
+        setStudioDebugPreferenceString(
+            result.fallbackReason,
+            forKey: "studio_debug_last_prompt_fallback_reason"
+        )
+#endif
         let canonicalPrompt = result.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? basePrompt
             : result.prompt

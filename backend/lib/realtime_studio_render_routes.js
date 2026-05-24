@@ -150,7 +150,8 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Connection", "keep-alive");
+    res.setHeader("Connection", "close");
+    res.setHeader("X-Accel-Buffering", "no");
     res.setHeader("X-Studio-Render-Request-Id", rid);
     if (typeof res.flushHeaders === "function") {
       res.flushHeaders();
@@ -168,6 +169,9 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       if (closed || res.writableEnded) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(payload || {})}\n\n`);
+      if (typeof res.flush === "function") {
+        res.flush();
+      }
     };
 
     try {

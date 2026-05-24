@@ -2213,6 +2213,9 @@ final class BackendClient {
             var dataLines: [String] = []
             var accumulated = ""
             var finalReply = ""
+            var didReceiveDone = false
+            var lastPartialCallbackAt = Date.distantPast
+            var lastPartialCallbackCharacterCount = 0
 
             func trace(
                 from payload: BackendRealtimeStudioRenderStreamEvent?,
@@ -2274,7 +2277,15 @@ final class BackendClient {
                     guard !delta.isEmpty else { return }
                     accumulated += delta
                     if let onPartial {
-                        await onPartial(accumulated)
+                        let now = Date()
+                        let characterDelta = accumulated.count - lastPartialCallbackCharacterCount
+                        if lastPartialCallbackCharacterCount == 0 ||
+                            characterDelta >= 96 ||
+                            now.timeIntervalSince(lastPartialCallbackAt) >= 0.25 {
+                            lastPartialCallbackAt = now
+                            lastPartialCallbackCharacterCount = accumulated.count
+                            await onPartial(accumulated)
+                        }
                     }
                 case "done":
                     if let onTrace,
@@ -2284,6 +2295,12 @@ final class BackendClient {
                     let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !reply.isEmpty else { return }
                     finalReply = reply
+                    if let onPartial, reply.count != lastPartialCallbackCharacterCount {
+                        lastPartialCallbackAt = Date()
+                        lastPartialCallbackCharacterCount = reply.count
+                        await onPartial(reply)
+                    }
+                    didReceiveDone = true
                 case "error":
                     let stage = (payload?.stage ?? "studio_render").trimmingCharacters(in: .whitespacesAndNewlines)
                     let message = (payload?.error ?? "Studio render stream failed.")
@@ -2302,6 +2319,13 @@ final class BackendClient {
                     let line = rawLine.replacingOccurrences(of: "\r", with: "")
                     if line.isEmpty {
                         try await dispatchEvent()
+                        if didReceiveDone {
+                            let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
+                            guard !resolvedReply.isEmpty else {
+                                throw BackendError.stage("studio_render", "Studio render stream response was empty.")
+                            }
+                            return resolvedReply
+                        }
                         continue
                     }
                     if line.hasPrefix(":") {

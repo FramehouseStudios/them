@@ -453,16 +453,21 @@ private func studioDebugMirroredPreferenceValues(forKey key: String) -> [Any] {
 }
 
 private func readMirroredStudioDebugPreferenceInt(_ key: String, fallback: Int = 0) -> Int {
+    var best: Int?
     for value in studioDebugMirroredPreferenceValues(forKey: key) {
+        let parsed: Int?
         if let number = value as? NSNumber {
-            return number.intValue
+            parsed = number.intValue
+        } else if let string = value as? String {
+            parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            parsed = nil
         }
-        if let string = value as? String,
-           let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return parsed
+        if let parsed {
+            best = max(best ?? parsed, parsed)
         }
     }
-    return fallback
+    return best ?? fallback
 }
 
 private func readMirroredStudioDebugPreferenceString(_ key: String, fallback: String = "") -> String {
@@ -3997,7 +4002,7 @@ struct ScreenplayStudioScreen: View {
     var debugVoicePartialStabilityWindowSeconds: Double
     var isSubmittingPrompt: Bool
     @Binding var typedReplyAudioEnabled: Bool
-    var onSubmitPrompt: (String, PromptRoutingMode, String) async -> String?
+    var onSubmitPrompt: @MainActor (String, PromptRoutingMode, String) async -> String?
     var shouldRoutePromptToPage: (String, PromptRoutingMode) -> Bool
 
     init(
@@ -4013,7 +4018,7 @@ struct ScreenplayStudioScreen: View {
         debugVoicePartialStabilityWindowSeconds: Double,
         isSubmittingPrompt: Bool,
         typedReplyAudioEnabled: Binding<Bool>,
-        onSubmitPrompt: @escaping (String, PromptRoutingMode, String) async -> String?,
+        onSubmitPrompt: @escaping @MainActor (String, PromptRoutingMode, String) async -> String?,
         shouldRoutePromptToPage: @escaping (String, PromptRoutingMode) -> Bool
     ) {
         self.onDone = onDone
@@ -22559,6 +22564,26 @@ Return revised screenplay lines only.
         perceivedSpeedState = completedState
     }
 
+    @MainActor
+    private func waitForCommittedStudioPageWrite(
+        submittedAt: Date,
+        timeoutMs: UInt64 = 8_000
+    ) async -> ScreenplayCommittedWrite? {
+        let deadline = Date().addingTimeInterval(TimeInterval(timeoutMs) / 1_000)
+        while Date() < deadline {
+            if let committedWrite = liveDraftBridge.lastCommittedWrite {
+                let insertedText = committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !insertedText.isEmpty,
+                   committedWrite.isAuthoritativeWrite,
+                   committedWrite.committedAt >= submittedAt.addingTimeInterval(-0.5) {
+                    return committedWrite
+                }
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return nil
+    }
+
     private func submitStudioPromptText(
         _ rawText: String,
         displayText: String? = nil,
@@ -22612,7 +22637,10 @@ Return revised screenplay lines only.
                 requestID: requestID
             )
             resetStudioDebugSubmitResult()
-            if debugSubmitToken != nil || shouldUseDebugStudioPromptStubTransportForLocalSubmit {
+            setStudioDebugSubmitStage("local_submit_accepted", token: effectiveDebugSubmitToken)
+            if shouldUseDebugStudioPromptStubTransportForLocalSubmit ||
+                (debugSubmitToken != nil && !shouldUseBackendStudioPromptTransportForDebugSubmit) {
+                setStudioDebugSubmitStage("stub_submit_started", token: effectiveDebugSubmitToken)
                 applyDebugStudioPromptStubSubmit(
                     token: effectiveDebugSubmitToken,
                     prompt: text,
@@ -22628,77 +22656,90 @@ Return revised screenplay lines only.
         }
 #endif
         publishDebugStudioDiffState()
-        Task {
+#if DEBUG || os(macOS)
+        if let effectiveDebugSubmitToken {
+            setStudioDebugSubmitStage("backend_task_enqueued", token: effectiveDebugSubmitToken)
+        }
+#endif
+        Task { @MainActor in
+#if DEBUG || os(macOS)
+            if let effectiveDebugSubmitToken {
+                setStudioDebugSubmitStage("on_submit_started", token: effectiveDebugSubmitToken)
+            }
+#endif
+            let submittedAt = Date()
             let error = await onSubmitPrompt(text, routingMode, requestID)
-            await MainActor.run {
 #if DEBUG || os(macOS)
-                if let effectiveDebugSubmitToken {
-                    setStudioDebugSubmitResult(
-                        token: effectiveDebugSubmitToken,
-                        status: (error?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? "error" : "ok",
-                        error: error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    )
-                }
-#endif
-                isSubmittingStudioPrompt = false
-                self.sendingVoicePinSuggestionID = nil
-                completePerceivedSpeedResponse(requestID: requestID)
-                if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-#if DEBUG || os(macOS)
-                    if let effectiveDebugSubmitToken {
-                        publishStudioDebugSubmitResultPayload(
-                            token: effectiveDebugSubmitToken,
-                            status: "error",
-                            prompt: text,
-                            requestID: requestID,
-                            routingMode: routingMode,
-                            target: routesToPage ? .page : .voicePin,
-                            exchange: nil,
-                            error: error
-                        )
-                    }
-#endif
-                    vm.infoText = error
-                    return
-                }
-                if clearSeedOnSuccess {
-                    studioPromptSeed = ""
-                }
-                let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
-                let promptSummary = (displayText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
-                lastCommittedStudioPrompt = promptSummary
-                lastCommittedStudioPromptTarget = resolvedTarget
-                lastCommittedStudioPromptSource = source
-                appendStudioAskNoteHistory(
-                    prompt: promptSummary,
-                    target: resolvedTarget,
-                    source: source,
-                    requestID: requestID
+            if let effectiveDebugSubmitToken {
+                setStudioDebugSubmitStage("on_submit_finished", token: effectiveDebugSubmitToken, error: error ?? "")
+                setStudioDebugSubmitResult(
+                    token: effectiveDebugSubmitToken,
+                    status: (error?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? "error" : "ok",
+                    error: error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 )
+            }
+#endif
+            isSubmittingStudioPrompt = false
+            self.sendingVoicePinSuggestionID = nil
+            completePerceivedSpeedResponse(requestID: requestID)
+            if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 #if DEBUG || os(macOS)
                 if let effectiveDebugSubmitToken {
-                    let matchingExchange = studioAskNoteHistory.first(where: {
-                        normalizedStudioRequestID($0.requestID) == normalizedStudioRequestID(requestID)
-                    }) ?? studioAskNoteHistory.first
                     publishStudioDebugSubmitResultPayload(
                         token: effectiveDebugSubmitToken,
-                        status: "ok",
-                        prompt: promptSummary,
+                        status: "error",
+                        prompt: text,
                         requestID: requestID,
                         routingMode: routingMode,
-                        target: resolvedTarget,
-                        exchange: matchingExchange,
-                        error: ""
+                        target: routesToPage ? .page : .voicePin,
+                        exchange: nil,
+                        error: error
                     )
                 }
 #endif
-                vm.infoText = successMessage
+                vm.infoText = error
+                return
             }
+            if clearSeedOnSuccess {
+                studioPromptSeed = ""
+            }
+            let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
+            if routesToPage {
+                _ = await waitForCommittedStudioPageWrite(submittedAt: submittedAt)
+            }
+            let promptSummary = (displayText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
+            lastCommittedStudioPrompt = promptSummary
+            lastCommittedStudioPromptTarget = resolvedTarget
+            lastCommittedStudioPromptSource = source
+            appendStudioAskNoteHistory(
+                prompt: promptSummary,
+                target: resolvedTarget,
+                source: source,
+                requestID: requestID
+            )
+#if DEBUG || os(macOS)
+            if let effectiveDebugSubmitToken {
+                let matchingExchange = studioAskNoteHistory.first(where: {
+                    normalizedStudioRequestID($0.requestID) == normalizedStudioRequestID(requestID)
+                }) ?? studioAskNoteHistory.first
+                publishStudioDebugSubmitResultPayload(
+                    token: effectiveDebugSubmitToken,
+                    status: "ok",
+                    prompt: promptSummary,
+                    requestID: requestID,
+                    routingMode: routingMode,
+                    target: resolvedTarget,
+                    exchange: matchingExchange,
+                    error: ""
+                )
+            }
+#endif
+            vm.infoText = successMessage
         }
     }
 
 #if DEBUG || os(macOS)
-    private var shouldUseDebugStudioPromptStubTransportForLocalSubmit: Bool {
+    private var debugStudioPromptSubmitTransportModeForLocalSubmit: String {
         let mirrored = readMirroredStudioDebugPreferenceString(
             "studio_debug_submit_transport_mode",
             fallback: studioDebugSubmitTransportModeRaw
@@ -22706,7 +22747,19 @@ Return revised screenplay lines only.
         let resolved = mirrored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? studioDebugSubmitTransportModeRaw
             : mirrored
-        return resolved.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "stub"
+        return resolved.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var shouldUseDebugStudioPromptStubTransportForLocalSubmit: Bool {
+        debugStudioPromptSubmitTransportModeForLocalSubmit == "stub"
+    }
+
+    private var shouldUseBackendStudioPromptTransportForDebugSubmit: Bool {
+        [
+            "backend",
+            "live-backend",
+            "live-submit"
+        ].contains(debugStudioPromptSubmitTransportModeForLocalSubmit)
     }
 
     private func applyDebugStudioPromptStubSubmit(
@@ -23171,6 +23224,20 @@ The door closes softly. That is worse than a slam.
         #endif
     }
 
+    private func setStudioDebugSubmitStage(
+        _ stage: String,
+        token: Int,
+        error: String = ""
+    ) {
+        #if DEBUG || os(macOS)
+        let cleanStage = stage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanStage.isEmpty else { return }
+        mirrorStudioDebugString(cleanStage, forKey: "studio_debug_submit_stage")
+        mirrorStudioDebugInt(token, forKey: "studio_debug_submit_stage_token")
+        mirrorStudioDebugString(error.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "studio_debug_submit_stage_error")
+        #endif
+    }
+
     private func resetStudioDebugSubmitResult() {
         #if DEBUG || os(macOS)
         studioDebugSubmitResultToken = 0
@@ -23181,6 +23248,9 @@ The door closes softly. That is worse than a slam.
         mirrorStudioDebugString("", forKey: "studio_debug_submit_result_status")
         mirrorStudioDebugString("", forKey: "studio_debug_submit_result_error")
         mirrorStudioDebugString("", forKey: "studio_debug_submit_result_json")
+        mirrorStudioDebugString("", forKey: "studio_debug_submit_stage")
+        mirrorStudioDebugInt(0, forKey: "studio_debug_submit_stage_token")
+        mirrorStudioDebugString("", forKey: "studio_debug_submit_stage_error")
         #endif
     }
 
@@ -24748,6 +24818,7 @@ Look at the city.
         }
         studioPromptFocused = true
         studioDebugSubmitCommandReceivedToken = studioDebugSubmitToken
+        mirrorStudioDebugInt(studioDebugSubmitToken, forKey: "studio_debug_submit_command_received_token")
         publishDebugStudioDiffState()
         lastAppliedStudioDebugSubmitToken = studioDebugSubmitToken
         let requestID = "studio-\(UUID().uuidString.lowercased())"

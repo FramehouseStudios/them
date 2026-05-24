@@ -36,6 +36,8 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(result.prompt, "BACKEND PROMPT")
         XCTAssertTrue(result.usedBackendAssembly)
         XCTAssertEqual(result.fallbackReason, "")
+        XCTAssertEqual(result.screenplayTaskIntent, "")
+        XCTAssertEqual(result.screenplayTaskLabel, "")
         XCTAssertEqual(backend.capturedRequest?.persona, "LOCAL PERSONA")
         XCTAssertEqual(backend.capturedRequest?.userInput, "Write the midpoint reversal.")
         XCTAssertEqual(backend.capturedRequest?.screenplayTaskHint, "Write the midpoint reversal.")
@@ -65,7 +67,7 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         ))
         let builder = ScreenplayPromptBuilder()
 
-        _ = await builder.buildModelPrompt(
+        let result = await builder.buildModelPrompt(
             backend: backend,
             request: ScreenplayPromptBuilder.Request(
                 persona: "LOCAL PERSONA",
@@ -76,6 +78,8 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
             )
         )
 
+        XCTAssertEqual(result.screenplayTaskIntent, "continue_script")
+        XCTAssertEqual(result.screenplayTaskLabel, "Continue Script")
         XCTAssertEqual(backend.capturedRequest?.userInput, "")
         XCTAssertEqual(backend.capturedRequest?.screenplayTaskHint, "Continue the diner scene.")
     }

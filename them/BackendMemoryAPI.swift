@@ -2012,6 +2012,19 @@ nonisolated enum BackendAuthClient {
     }
 
     fileprivate static func accessToken() -> String? {
+#if DEBUG
+        let debugAccessEnabled = preferenceStringValues(forKey: "auth_debug_access_token_enabled").contains { rawValue in
+            let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return ["1", "true", "yes", "on"].contains(normalized)
+        } || UserDefaults.standard.bool(forKey: "auth_debug_access_token_enabled")
+        if debugAccessEnabled {
+            let trimmedDebugToken = preferenceString(forKey: "auth_debug_access_token")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedDebugToken.isEmpty {
+                return trimmedDebugToken
+            }
+        }
+#endif
         guard !IOThemRuntime.isRunningTests else { return nil }
         let token = readKeychainString(account: authAccessTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)

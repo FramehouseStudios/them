@@ -14326,7 +14326,21 @@ function getValidSession(token) {
 // talkRateLimitGuard moved into backend/lib/talk_state.js (Phase 7a).
 // Created via createTalkRateLimitGuard(...) below.
 
+function requestHasReusableSessionToken(req) {
+  const requestedClientToken = normalizeClientToken(req.get("X-Client-Token"));
+  if (!requestedClientToken) return false;
+  const existingSession = getValidSession(requestedClientToken);
+  if (!existingSession) return false;
+  const authUserId = String(req.authUser?.id || "").trim();
+  const existingUserId = String(existingSession.userId || "").trim();
+  return !authUserId || existingUserId === authUserId;
+}
+
 function sessionRateLimitGuard(req, res, next) {
+  if (requestHasReusableSessionToken(req)) {
+    return next();
+  }
+
   const now = Date.now();
   cleanupSessionRateBuckets(now);
 

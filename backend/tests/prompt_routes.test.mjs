@@ -8,6 +8,10 @@ import express from "express";
 
 import { mountPromptRoutes } from "../lib/prompt_routes.js";
 import { MEMORY_BLOCK_OPEN } from "../lib/prompt_assembly.js";
+import {
+  apiRequest,
+  startBackend,
+} from "./helpers/backend_test_server.mjs";
 
 async function withTestServer(fn, {
   memory = null,
@@ -184,4 +188,31 @@ test("POST /screenplay/prompt/build rejects empty prompt payloads", async () => 
     assert.equal(status, 400);
     assert.equal(body.stage, "screenplay_prompt_build");
   });
+});
+
+test("POST /screenplay/prompt/build parses JSON in the full backend app", async () => {
+  const server = await startBackend({
+    env: {
+      REQUIRE_USER_AUTH: "0",
+    },
+  });
+
+  try {
+    const response = await apiRequest(server, "/screenplay/prompt/build", {
+      method: "POST",
+      json: {
+        persona: "You are Clementine, a cinematic story editor.",
+        screenplay_task_hint: "Keep writing from here.",
+        session_context: {
+          project_id: "prompt-json-smoke",
+          draft_excerpt: "INT. KITCHEN - NIGHT\n\nJUNE waits by the sink.",
+        },
+      },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.json?.ok, true);
+    assert.equal(response.json?.screenplay_task_intent, "continue_script");
+  } finally {
+    await server.stop();
+  }
 });

@@ -90,6 +90,8 @@ struct ScreenplayPromptBuilder {
         var prompt: String
         var usedBackendAssembly: Bool
         var fallbackReason: String
+        var screenplayTaskIntent: String = ""
+        var screenplayTaskLabel: String = ""
     }
 
     static func makeLocalPersonaPrompt(
@@ -138,7 +140,13 @@ struct ScreenplayPromptBuilder {
             )
             let prompt = response.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             if !prompt.isEmpty {
-                return Result(prompt: prompt, usedBackendAssembly: true, fallbackReason: "")
+                return Result(
+                    prompt: prompt,
+                    usedBackendAssembly: true,
+                    fallbackReason: "",
+                    screenplayTaskIntent: response.screenplayTaskIntent,
+                    screenplayTaskLabel: response.screenplayTaskLabel
+                )
             }
             return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: "empty_backend_prompt")
         } catch {
