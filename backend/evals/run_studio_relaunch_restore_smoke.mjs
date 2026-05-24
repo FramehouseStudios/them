@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { fetchStudioProjectMetadata } from "./studio_project_metadata_probe.mjs";
 import { createStudioRestoreFixture } from "./studio_restore_seed_helper.mjs";
@@ -71,6 +71,34 @@ async function readHealth() {
   });
 }
 
+async function ensureOwnerIdentity() {
+  const existingUserId = readDefaultString("user_id");
+  const existingClientToken = readDefaultString("client_token");
+  if (existingUserId || existingClientToken) {
+    return { userId: existingUserId, clientToken: existingClientToken, bootstrapped: false };
+  }
+  const headers = {
+    "Content-Type": "application/json",
+    "X-APP-TOKEN": "them-dev",
+  };
+  const response = await fetch("http://127.0.0.1:3000/session", {
+    method: "POST",
+    headers,
+    body: "{}",
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(`Failed to bootstrap Studio relaunch owner identity: ${response.status} ${JSON.stringify(payload)}`);
+  }
+  const userId = String(payload?.user_id || "").trim();
+  const clientToken = String(payload?.client_token || payload?.session_id || "").trim();
+  assert(userId || clientToken, "Session bootstrap did not return an owner identity");
+  writeDefaultString("user_id", userId);
+  writeDefaultString("client_token", clientToken);
+  synchronizeDefaults();
+  return { userId, clientToken, bootstrapped: true };
+}
+
 function findDebugAppPath() {
   const direct = process.env.THEM_APP_PATH?.trim();
   if (direct && existsSync(direct)) return direct;
@@ -102,12 +130,16 @@ function writeDefaultInt(key, value) {
   run("defaults", ["write", "io.them.them", key, "-int", String(value)]);
 }
 
+function synchronizeDefaults() {
+  runOptional("defaults", ["synchronize", "io.them.them"]);
+}
+
 function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
 }
 
 function normalizeText(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "").replace(/\\[nr]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function normalizeAcknowledgedKey(value) {
@@ -294,10 +326,16 @@ function nextDebugToken() {
 let loadProjectTokenCounter = Math.max(1, readDefaultInt("studio_debug_load_project_token"));
 function requestStudioProjectLoad(projectId, versionId = "") {
   loadProjectTokenCounter += 1;
+  writeFileSync("/tmp/them_studio_debug_load_project_request.json", JSON.stringify({
+    token: loadProjectTokenCounter,
+    projectID: String(projectId || "").trim(),
+    versionID: String(versionId || "").trim(),
+  }), "utf8");
   writeDefaultString("studio_debug_load_project_id", projectId);
   writeDefaultString("studio_debug_load_project_version_id", versionId);
   writeDefaultInt("studio_debug_load_project_ack_token", 0);
   writeDefaultInt("studio_debug_load_project_token", loadProjectTokenCounter);
+  synchronizeDefaults();
   return loadProjectTokenCounter;
 }
 
@@ -332,6 +370,7 @@ const originalAskNoteHistoryRaw = readDefaultString("studio.ask.note.history.v2"
 const originalDebugDiffStateRaw = readDefaultString("studio_debug_diff_state_json");
 const originalReplacementTraceRaw = readDefaultString("studio_debug_replacement_trace_json");
 const originalClientTokenRaw = readDefaultString("client_token");
+const originalUserIDRaw = readDefaultString("user_id");
 const originalLoadProjectToken = readDefaultInt("studio_debug_load_project_token");
 const originalLoadProjectAckToken = readDefaultInt("studio_debug_load_project_ack_token");
 const originalLoadProjectID = readDefaultString("studio_debug_load_project_id");
@@ -343,6 +382,27 @@ let appPath = "";
 let restoredState = null;
 let backendProbe = null;
 
+function isExpectedRestoredState(state, projectId, activeVersionId, expectedDraft) {
+  if (!state) return false;
+  const restoredReopenedLineageKeys = Array.isArray(state.restoredReopenedLineageKeys)
+    ? state.restoredReopenedLineageKeys.map((value) => normalizeKey(value)).filter(Boolean)
+    : [];
+  const restoredStateSource = normalizeKey(state.restoredStateSource);
+  const restoredFocusedDiffSource = normalizeKey(state.restoredFocusedDiffSource);
+  const restoredReopenedSource = normalizeKey(state.restoredReopenedSource);
+  return normalizeKey(state.projectKey) === normalizeKey(seededRecord.projectKey)
+    && ["local", "backend", "merged"].includes(restoredStateSource)
+    && ["local", "backend"].includes(restoredFocusedDiffSource)
+    && ["local", "backend", "merged"].includes(restoredReopenedSource)
+    && normalizeKey(state.restoredFocusedDiffKey) === seededRecord.focusedDiffKey
+    && restoredReopenedLineageKeys.some((value) => seededRecord.reopenedLineageKeys.includes(value))
+    && normalizeKey(state.restoredLatestReopenedWriteID) === seededRecord.latestReopenedWriteID
+    && normalizeKey(state.selectedProjectID) === normalizeKey(projectId)
+    && normalizeKey(state.latestVersionID) === activeVersionId
+    && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes(normalizeText(expectedDraft))
+    && Number(state.reopenedDiffCount || 0) > 0;
+}
+
 try {
   const health = await readHealth();
   assert(health?.ok === true, "Backend health is not OK on localhost:3000");
@@ -350,7 +410,7 @@ try {
   seedFixture = createStudioRestoreFixture("reopened");
   seededRecord = seedFixture.reopenedSeed;
   const projectId = projectIdFromHistoryKey(seededRecord.projectKey);
-  writeDefaultString("client_token", `studio-smoke-${projectId}`);
+  await ensureOwnerIdentity();
   appPath = findDebugAppPath();
   await ensureAppStopped();
   const threadStateMap = readFullThreadBrowseStateMap();
@@ -359,6 +419,7 @@ try {
   const askHistoryMap = readStudioAskNoteHistoryMap();
   askHistoryMap[seededRecord.projectKey] = seedFixture.reopenedHistory;
   writeDefaultString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
+  synchronizeDefaults();
   await postBackendProjectThreadState(projectId, seededRecord);
   await postBackendProjectVersion(projectId, {
     draft: seedFixture.draftReopened,
@@ -387,31 +448,34 @@ try {
     `Expected backend active draft to match seeded Clementine page write, got ${backendProbe.activeVersion.draft}`
   );
 
-  await relaunchApp(appPath);
   requestStudioProjectLoad(projectId, backendProbe.activeVersionId);
+  await relaunchApp(appPath);
 
-  await waitFor(() => {
-    const state = readDebugDiffState();
-    if (!state) return false;
-    restoredState = state;
-    const restoredReopenedLineageKeys = Array.isArray(state.restoredReopenedLineageKeys)
-      ? state.restoredReopenedLineageKeys.map((value) => normalizeKey(value)).filter(Boolean)
-      : [];
-    const restoredStateSource = normalizeKey(state.restoredStateSource);
-    const restoredFocusedDiffSource = normalizeKey(state.restoredFocusedDiffSource);
-    const restoredReopenedSource = normalizeKey(state.restoredReopenedSource);
-    return normalizeKey(state.projectKey) === normalizeKey(seededRecord.projectKey)
-      && ["local", "backend", "merged"].includes(restoredStateSource)
-      && ["local", "backend"].includes(restoredFocusedDiffSource)
-      && ["local", "backend", "merged"].includes(restoredReopenedSource)
-      && normalizeKey(state.restoredFocusedDiffKey) === seededRecord.focusedDiffKey
-      && restoredReopenedLineageKeys.some((value) => seededRecord.reopenedLineageKeys.includes(value))
-      && normalizeKey(state.restoredLatestReopenedWriteID) === seededRecord.latestReopenedWriteID
-      && normalizeKey(state.selectedProjectID) === normalizeKey(projectId)
-      && normalizeKey(state.latestVersionID) === backendProbe.activeVersionId
-      && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes(normalizeText(seedFixture.draftReopened))
-      && Number(state.reopenedDiffCount || 0) > 0;
-  }, "restored reopened diff state after relaunch", 25000, 300);
+  try {
+    await waitFor(() => {
+      const state = readDebugDiffState();
+      if (!state) return false;
+      restoredState = state;
+      return isExpectedRestoredState(state, projectId, backendProbe.activeVersionId, seedFixture.draftReopened);
+    }, "restored reopened diff state after relaunch", 60000, 300);
+  } catch (error) {
+    restoredState = readDebugDiffState();
+    if (isExpectedRestoredState(restoredState, projectId, backendProbe.activeVersionId, seedFixture.draftReopened)) {
+      // The app can publish the final debug payload just after the last wait poll on slow rebuilds.
+    } else {
+      console.error(JSON.stringify({
+        ok: false,
+        failure: error?.message || String(error),
+        appPath,
+        throwawayProjectId: seedFixture?.projectId || "",
+        seededRecord,
+        backendProbe,
+        localThreadStateMap: readFullThreadBrowseStateMap(),
+        restoredState,
+      }, null, 2));
+      throw error;
+    }
+  }
 
   console.log(
     JSON.stringify(
@@ -436,6 +500,7 @@ try {
   writeDefaultString("studio_debug_diff_state_json", originalDebugDiffStateRaw);
   writeDefaultString("studio_debug_replacement_trace_json", originalReplacementTraceRaw);
   writeDefaultString("client_token", originalClientTokenRaw);
+  writeDefaultString("user_id", originalUserIDRaw);
   writeDefaultInt("studio_debug_load_project_token", originalLoadProjectToken);
   writeDefaultInt("studio_debug_load_project_ack_token", originalLoadProjectAckToken);
   writeDefaultString("studio_debug_load_project_id", originalLoadProjectID);

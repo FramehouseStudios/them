@@ -2863,6 +2863,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 projectId: id,
                 includeDrafts: true,
                 versionLimit: 24,
+                includeUserIdentity: !shouldUseClientTokenOwner,
                 includeAuthToken: !shouldUseClientTokenOwner
             )
             let outlineResult = try? await BackendMemoryAPI.shared.fetchScreenplayOutline(

@@ -2904,6 +2904,7 @@ actor BackendMemoryAPI {
         projectId: String,
         includeDrafts: Bool = true,
         versionLimit: Int = 16,
+        includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true
     ) async throws -> BackendReadResult<BackendScreenplayProjectResponse> {
         _ = try? await bootstrapSession(force: false)
@@ -2918,6 +2919,9 @@ actor BackendMemoryAPI {
                 URLQueryItem(name: "version_limit", value: String(max(1, versionLimit))),
             ]
         )
+        if !includeUserIdentity {
+            request.setValue(nil, forHTTPHeaderField: "X-User-Id")
+        }
         if !includeAuthToken {
             request.setValue(nil, forHTTPHeaderField: "Authorization")
         }
