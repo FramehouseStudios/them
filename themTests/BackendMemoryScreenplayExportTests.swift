@@ -63,6 +63,146 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         XCTAssertEqual(exportRequest.bodyObject?["version_id"] as? String, "version-1")
     }
 
+    func testFDXExportUsesDedicatedBackendRouteAndReturnsFinalDraftArtifact() async throws {
+        let recorder = ScreenplayExportRequestRecorder()
+        ScreenplayExportURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/screenplay/export/fdx":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: [
+                        "Content-Type": "application/xml; charset=utf-8",
+                        "Content-Disposition": #"attachment; filename="Kitchen Scene.fdx""#,
+                    ],
+                    body: Data(#"<?xml version="1.0"?><FinalDraft><Content /></FinalDraft>"#.utf8)
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        let artifact = try await api.exportScreenplayDraft(
+            draft: """
+            INT. KITCHEN - NIGHT
+
+            Rain bruises the window.
+
+            JUNE
+            (quiet)
+            We are still here.
+
+            CUT TO:
+            """,
+            title: "Kitchen Scene",
+            format: "fdx",
+            projectId: "proj-1",
+            versionId: "version-1"
+        )
+
+        XCTAssertEqual(artifact.format, "fdx")
+        XCTAssertEqual(artifact.filename, "Kitchen Scene.fdx")
+        XCTAssertEqual(artifact.contentType, "application/xml; charset=utf-8")
+        XCTAssertTrue(String(data: artifact.data, encoding: .utf8)?.contains("<FinalDraft") == true)
+
+        let exportRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/screenplay/export/fdx" })
+        XCTAssertEqual(exportRequest.method, "POST")
+        XCTAssertEqual(exportRequest.acceptHeader, "application/xml")
+        XCTAssertNil(exportRequest.bodyObject?["draft"])
+        XCTAssertNil(exportRequest.bodyObject?["project_id"])
+        XCTAssertNil(exportRequest.bodyObject?["version_id"])
+        let title = try XCTUnwrap(exportRequest.bodyObject?["title"] as? [String: Any])
+        XCTAssertEqual(title["title"] as? String, "Kitchen Scene")
+        let scenes = try XCTUnwrap(exportRequest.bodyObject?["scenes"] as? [[String: Any]])
+        XCTAssertEqual(scenes.first?["heading"] as? String, "INT. KITCHEN - NIGHT")
+        let lines = try XCTUnwrap(scenes.first?["lines"] as? [[String: Any]])
+        XCTAssertEqual(lines.first?["kind"] as? String, "action")
+        XCTAssertEqual(lines.first?["text"] as? String, "Rain bruises the window.")
+        let character = try XCTUnwrap(lines.first { ($0["kind"] as? String) == "character" })
+        XCTAssertEqual(character["name"] as? String, "JUNE")
+        XCTAssertEqual(character["parenthetical"] as? String, "(quiet)")
+        XCTAssertEqual(character["dialogue"] as? [String], ["We are still here."])
+        XCTAssertTrue(recorder.requests.allSatisfy { $0.path != "/screenplay/export" })
+    }
+
+    func testPDFExportRejectionSurfacesMessageAndAlternatives() async throws {
+        ScreenplayExportURLProtocolStub.handler = { request in
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayExportHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/screenplay/export":
+                return ScreenplayExportHTTPStub(
+                    status: 400,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "stage": "screenplay_export",
+                          "error": "pdf_export_not_supported_locally",
+                          "message": "PDF export is not implemented on this backend.",
+                          "alternative_formats": ["fountain", "fdx", "md"],
+                          "docs_path": "/screenplay/export/formats"
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayExportHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-export.test")!
+        )
+
+        do {
+            _ = try await api.exportScreenplayDraft(
+                draft: "INT. KITCHEN - NIGHT\n",
+                title: "Kitchen Scene",
+                format: "pdf"
+            )
+            XCTFail("Expected PDF export to surface backend rejection alternatives.")
+        } catch BackendScreenplayExportError.rejected(let status, let payload) {
+            XCTAssertEqual(status, 400)
+            XCTAssertEqual(payload.error, "pdf_export_not_supported_locally")
+            XCTAssertEqual(payload.alternativeFormats, ["fountain", "fdx", "md"])
+            XCTAssertEqual(payload.docsPath, "/screenplay/export/formats")
+            XCTAssertTrue(payload.alternativesSummary.contains("Fountain"))
+            XCTAssertTrue(payload.alternativesSummary.contains("FDX"))
+            XCTAssertTrue(payload.alternativesSummary.contains("Markdown"))
+        }
+    }
+
     func testFetchScreenplayExportFormatsDecodesExtensionField() async throws {
         let recorder = ScreenplayExportRequestRecorder()
         ScreenplayExportURLProtocolStub.handler = { request in
@@ -334,6 +474,7 @@ private final class ScreenplayExportURLProtocolStub: URLProtocol {
 private struct RecordedScreenplayExportRequest {
     let method: String
     let path: String
+    let acceptHeader: String?
     let bodyObject: [String: Any]?
 }
 
@@ -353,6 +494,7 @@ private final class ScreenplayExportRequestRecorder: @unchecked Sendable {
         let record = RecordedScreenplayExportRequest(
             method: request.httpMethod ?? "",
             path: request.url?.path ?? "",
+            acceptHeader: request.value(forHTTPHeaderField: "Accept"),
             bodyObject: bodyObject
         )
         lock.lock()

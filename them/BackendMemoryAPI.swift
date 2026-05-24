@@ -1281,6 +1281,72 @@ nonisolated struct BackendScreenplayExportArtifact {
     let data: Data
 }
 
+nonisolated struct BackendScreenplayExportRejection: Decodable, Hashable {
+    let stage: String?
+    let error: String?
+    let message: String?
+    let alternativeFormats: [String]
+    let docsPath: String?
+
+    var displayMessage: String {
+        let cleanMessage = (message ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanMessage.isEmpty {
+            return cleanMessage
+        }
+        let cleanError = (error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanStage = (stage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanError.isEmpty, !cleanStage.isEmpty {
+            return "\(cleanStage): \(cleanError)"
+        }
+        if !cleanError.isEmpty {
+            return cleanError
+        }
+        return "Screenplay export failed."
+    }
+
+    var alternativesSummary: String {
+        let titles = alternativeFormats
+            .map(Self.displayName(for:))
+            .filter { !$0.isEmpty }
+        guard !titles.isEmpty else { return "" }
+        return "Try \(titles.joined(separator: ", "))."
+    }
+
+    private static func displayName(for format: String) -> String {
+        switch format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "fdx":
+            return "FDX"
+        case "md", "markdown":
+            return "Markdown"
+        case "fountain", "txt":
+            return "Fountain"
+        case "pdf":
+            return "PDF"
+        default:
+            return format.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        }
+    }
+}
+
+nonisolated enum BackendScreenplayExportError: LocalizedError {
+    case rejected(status: Int, payload: BackendScreenplayExportRejection)
+
+    var errorDescription: String? {
+        switch self {
+        case .rejected(let status, let payload):
+            let alternatives = payload.alternativesSummary
+            let docs = (payload.docsPath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let suffix = [
+                alternatives,
+                docs.isEmpty ? "" : "See \(docs).",
+            ]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            return "Backend error \(status): \(payload.displayMessage)\(suffix.isEmpty ? "" : " \(suffix)")"
+        }
+    }
+}
+
 nonisolated struct BackendScreenplayExportFormat: Decodable, Hashable, Identifiable {
     let format: String
     let fileExtension: String
@@ -3827,11 +3893,19 @@ actor BackendMemoryAPI {
         targetPages: Int? = nil
     ) async throws -> BackendScreenplayExportArtifact {
         _ = try? await bootstrapSession(force: false)
+        let normalizedFormat = format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedFormat == "fdx" {
+            return try await exportFinalDraftXML(
+                draft: draft,
+                title: title,
+                format: normalizedFormat
+            )
+        }
         var request = try makeWriteRequest(path: "/screenplay/export")
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
-            "format": format,
+            "format": normalizedFormat.isEmpty ? format : normalizedFormat,
         ]
         if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["title"] = title
@@ -3852,21 +3926,173 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.invalidResponse
         }
         guard (200...299).contains(http.statusCode) else {
-            let message = decodeErrorMessage(from: data)
-            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+            throw decodeScreenplayExportError(status: http.statusCode, data: data)
         }
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         updateSyncState(headerSync, emitTurnEvent: false)
         let contentType = headerValue(http, "Content-Type").trimmingCharacters(in: .whitespacesAndNewlines)
         let disposition = headerValue(http, "Content-Disposition")
-        let filename = parseDispositionFilename(disposition, fallbackFormat: format)
+        let filename = parseDispositionFilename(disposition, fallbackFormat: normalizedFormat.isEmpty ? format : normalizedFormat)
         let resolvedFormat = headerValue(http, "x-screenplay-format").trimmingCharacters(in: .whitespacesAndNewlines)
         return BackendScreenplayExportArtifact(
-            format: resolvedFormat.isEmpty ? format : resolvedFormat,
+            format: resolvedFormat.isEmpty ? (normalizedFormat.isEmpty ? format : normalizedFormat) : resolvedFormat,
             filename: filename,
             contentType: contentType.isEmpty ? "application/octet-stream" : contentType,
             data: data
         )
+    }
+
+    private func exportFinalDraftXML(
+        draft: String,
+        title: String,
+        format: String
+    ) async throws -> BackendScreenplayExportArtifact {
+        var request = try makeWriteRequest(path: "/screenplay/export/fdx")
+        request.setValue("application/xml", forHTTPHeaderField: "Accept")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: screenplayExportDocumentPayload(draft: draft, title: title),
+            options: []
+        )
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw decodeScreenplayExportError(status: http.statusCode, data: data)
+        }
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(headerSync, emitTurnEvent: false)
+        let contentType = headerValue(http, "Content-Type").trimmingCharacters(in: .whitespacesAndNewlines)
+        let filename = parseDispositionFilename(
+            headerValue(http, "Content-Disposition"),
+            fallbackFormat: format
+        )
+        return BackendScreenplayExportArtifact(
+            format: "fdx",
+            filename: filename,
+            contentType: contentType.isEmpty ? "application/xml; charset=utf-8" : contentType,
+            data: data
+        )
+    }
+
+    private func screenplayExportDocumentPayload(draft: String, title: String) -> [String: Any] {
+        var payload: [String: Any] = [:]
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanTitle.isEmpty {
+            payload["title"] = ["title": cleanTitle]
+        }
+        payload["scenes"] = screenplayExportScenes(from: draft)
+        return payload
+    }
+
+    private func screenplayExportScenes(from draft: String) -> [[String: Any]] {
+        let rawLines = draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+        var scenes: [[String: Any]] = []
+        var heading = ""
+        var exportLines: [[String: Any]] = []
+
+        func flushScene() {
+            guard !heading.isEmpty || !exportLines.isEmpty else { return }
+            var scene: [String: Any] = [:]
+            if !heading.isEmpty {
+                scene["heading"] = heading
+            }
+            scene["lines"] = exportLines
+            scenes.append(scene)
+            heading = ""
+            exportLines = []
+        }
+
+        var index = rawLines.startIndex
+        while index < rawLines.endIndex {
+            let trimmed = rawLines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                index += 1
+                continue
+            }
+
+            if isScreenplayExportSceneHeading(trimmed) {
+                flushScene()
+                heading = trimmed
+                index += 1
+                continue
+            }
+
+            if isScreenplayExportTransition(trimmed) {
+                exportLines.append(["kind": "transition", "text": trimmed])
+                index += 1
+                continue
+            }
+
+            if isScreenplayExportCharacterCue(trimmed) {
+                var parenthetical = ""
+                var dialogue: [String] = []
+                var cursor = index + 1
+                while cursor < rawLines.endIndex {
+                    let next = rawLines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
+                    if next.isEmpty { break }
+                    if isScreenplayExportSceneHeading(next)
+                        || isScreenplayExportTransition(next)
+                        || isScreenplayExportCharacterCue(next) {
+                        break
+                    }
+                    if parenthetical.isEmpty, isScreenplayExportParenthetical(next) {
+                        parenthetical = next
+                    } else {
+                        dialogue.append(next)
+                    }
+                    cursor += 1
+                }
+                if !dialogue.isEmpty {
+                    var line: [String: Any] = [
+                        "kind": "character",
+                        "name": trimmed,
+                        "dialogue": dialogue,
+                    ]
+                    if !parenthetical.isEmpty {
+                        line["parenthetical"] = parenthetical
+                    }
+                    exportLines.append(line)
+                    index = max(cursor, index + 1)
+                    continue
+                }
+            }
+
+            exportLines.append(["kind": "action", "text": trimmed])
+            index += 1
+        }
+
+        flushScene()
+        return scenes
+    }
+
+    private func isScreenplayExportSceneHeading(_ text: String) -> Bool {
+        text.range(
+            of: #"^(INT|EXT|EST|INT/EXT|I/E)\."#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func isScreenplayExportTransition(_ text: String) -> Bool {
+        text.range(
+            of: #"^(CUT TO:|DISSOLVE TO:|SMASH CUT TO:|MATCH CUT TO:|WIPE TO:|INTERCUT WITH:|FADE IN:|FADE IN ON:|FADE OUT:|FADE OUT\.|FADE TO BLACK:|FADE TO BLACK\.|SMASH TO BLACK:|THE END)$"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func isScreenplayExportParenthetical(_ text: String) -> Bool {
+        text.hasPrefix("(") && text.hasSuffix(")") && text.count <= 80
+    }
+
+    private func isScreenplayExportCharacterCue(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 32 else { return false }
+        guard trimmed == trimmed.uppercased() else { return false }
+        guard trimmed.rangeOfCharacter(from: .letters) != nil else { return false }
+        return !trimmed.contains(":") && !trimmed.contains(".")
     }
 
     func fetchScreenplayExportFormats() async throws -> BackendScreenplayExportFormatsResponse {
@@ -5327,6 +5553,15 @@ actor BackendMemoryAPI {
             }
         }
         return String(data: data, encoding: .utf8) ?? "Request failed."
+    }
+
+    private func decodeScreenplayExportError(status: Int, data: Data) -> Error {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        if let payload = try? decoder.decode(BackendScreenplayExportRejection.self, from: data) {
+            return BackendScreenplayExportError.rejected(status: status, payload: payload)
+        }
+        return BackendMemoryAPIError.server(status: status, message: decodeErrorMessage(from: data))
     }
 
     private func baseURL() -> URL {
