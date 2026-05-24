@@ -128,6 +128,13 @@ function ownerHeaders() {
   return headers;
 }
 
+function fallbackOwnerHeaders() {
+  return {
+    "Content-Type": "application/json",
+    "X-APP-TOKEN": "them-dev",
+  };
+}
+
 function projectIdFromHistoryKey(value) {
   const clean = String(value || "").trim();
   return clean.startsWith("project:") ? clean.slice("project:".length) : clean;
@@ -239,14 +246,14 @@ function readLocalDraftRecovery(projectId) {
   };
 }
 
-async function postBackendProjectThreadState(projectId, record) {
+async function postBackendProjectThreadState(projectId, record, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
   const focusedDiffKey = String(record?.focusedDiffKey || "").trim().toLowerCase();
   const acknowledgedLineageKey = normalizeAcknowledgedKey(record?.acknowledgedLineageKey);
   const acknowledgedWriteID = normalizeKey(record?.acknowledgedWriteID);
   const acknowledgedFingerprint = String(record?.acknowledgedFingerprint || "").trim();
-  const response = await fetch("http://127.0.0.1:3000/screenplay/projects", {
+  const response = await fetch(`${baseURL}/screenplay/projects`, {
     method: "POST",
-    headers: ownerHeaders(),
+    headers,
     body: JSON.stringify({
       project_id: projectId,
       title: "Studio Restore Smoke",
@@ -278,11 +285,11 @@ async function postBackendProjectThreadState(projectId, record) {
   return payload;
 }
 
-async function postBackendProjectVersion(projectId, recovery) {
+async function postBackendProjectVersion(projectId, recovery, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
   if (!recovery?.draft) return null;
-  const response = await fetch(`http://127.0.0.1:3000/screenplay/projects/${projectId}/version`, {
+  const response = await fetch(`${baseURL}/screenplay/projects/${projectId}/version`, {
     method: "POST",
-    headers: ownerHeaders(),
+    headers,
     body: JSON.stringify({
       draft: recovery.draft,
       title: "Studio Restore Smoke",
@@ -430,6 +437,11 @@ const originalLocalAckWriteStateRaw = readDefaultString("studio.diff.keep-curren
 const originalAskNoteHistoryRaw = readDefaultString("studio.ask.note.history.v2");
 const originalDebugDiffStateRaw = readDefaultString("studio_debug_diff_state_json");
 const originalReplacementTraceRaw = readDefaultString("studio_debug_replacement_trace_json");
+const originalClientTokenRaw = readDefaultString("client_token");
+const originalLoadProjectToken = readDefaultInt("studio_debug_load_project_token");
+const originalLoadProjectAckToken = readDefaultInt("studio_debug_load_project_ack_token");
+const originalLoadProjectID = readDefaultString("studio_debug_load_project_id");
+const originalLoadProjectVersionID = readDefaultString("studio_debug_load_project_version_id");
 
 let seedFixture = null;
 let seededRecord = null;
@@ -443,6 +455,9 @@ try {
 
   seedFixture = createStudioRestoreFixture("reopened");
   seededRecord = seedFixture.reopenedSeed;
+  const projectId = projectIdFromHistoryKey(seededRecord.projectKey);
+  writeDefaultString("client_token", `studio-smoke-${projectId}`);
+  synchronizeDefaults();
 
   appPath = findDebugAppPath();
   await ensureAppStopped();
@@ -472,15 +487,19 @@ try {
   writeDefaultString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
   synchronizeDefaults();
   await postBackendProjectThreadState(
-    projectIdFromHistoryKey(seededRecord.projectKey),
+    projectId,
     seededRecord
   );
   await postBackendProjectVersion(
-    projectIdFromHistoryKey(seededRecord.projectKey),
+    projectId,
     draftRecovery
   );
+  for (const baseURL of ["http://127.0.0.1:3000", "http://localhost:3000"]) {
+    await postBackendProjectThreadState(projectId, seededRecord, fallbackOwnerHeaders(), baseURL);
+    await postBackendProjectVersion(projectId, draftRecovery, fallbackOwnerHeaders(), baseURL);
+  }
   const probe = await waitForBackendReopenedHydration(
-    projectIdFromHistoryKey(seededRecord.projectKey),
+    projectId,
     seededRecord
   );
   assert(probe.response.ok, `Backend project probe failed: ${probe.response.status} ${JSON.stringify(probe.payload)}`);
@@ -493,7 +512,7 @@ try {
     `Expected backend reopened lineage overlap, got ${JSON.stringify(backendProbe.reopenedLineageKeys)}`
   );
 
-  requestStudioProjectLoad(projectIdFromHistoryKey(seededRecord.projectKey), backendProbe.activeVersionId);
+  requestStudioProjectLoad(projectId, backendProbe.activeVersionId);
   await relaunchApp(appPath);
 
   await waitFor(() => {
@@ -549,4 +568,9 @@ try {
   writeDefaultString("studio.ask.note.history.v2", originalAskNoteHistoryRaw);
   writeDefaultString("studio_debug_diff_state_json", originalDebugDiffStateRaw);
   writeDefaultString("studio_debug_replacement_trace_json", originalReplacementTraceRaw);
+  writeDefaultString("client_token", originalClientTokenRaw);
+  writeDefaultInt("studio_debug_load_project_token", originalLoadProjectToken);
+  writeDefaultInt("studio_debug_load_project_ack_token", originalLoadProjectAckToken);
+  writeDefaultString("studio_debug_load_project_id", originalLoadProjectID);
+  writeDefaultString("studio_debug_load_project_version_id", originalLoadProjectVersionID);
 }

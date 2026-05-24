@@ -158,6 +158,46 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(payload.latestReopenedWriteID, "write:xyz")
     }
 
+    func testFocusRestorePolicyPreservesPersistentKeyDuringProjectRestore() {
+        let restoring = StudioThreadViewPersistDeferralContext(
+            hasProjectKey: true,
+            isRestoringFullThreadBrowseState: true,
+            isAwaitingInitialFullThreadRestore: false,
+            isAwaitingInitialAcknowledgedDiffHydration: false,
+            isRestoringReopenedDiffState: false
+        )
+        let awaitingAcknowledgementHydration = StudioThreadViewPersistDeferralContext(
+            hasProjectKey: true,
+            isRestoringFullThreadBrowseState: false,
+            isAwaitingInitialFullThreadRestore: false,
+            isAwaitingInitialAcknowledgedDiffHydration: true,
+            isRestoringReopenedDiffState: false
+        )
+
+        XCTAssertFalse(StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(restoring))
+        XCTAssertFalse(StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(awaitingAcknowledgementHydration))
+    }
+
+    func testFocusRestorePolicyClearsPersistentKeyAfterRestoreSettles() {
+        let settledProject = StudioThreadViewPersistDeferralContext(
+            hasProjectKey: true,
+            isRestoringFullThreadBrowseState: false,
+            isAwaitingInitialFullThreadRestore: false,
+            isAwaitingInitialAcknowledgedDiffHydration: false,
+            isRestoringReopenedDiffState: false
+        )
+        let liveDraft = StudioThreadViewPersistDeferralContext(
+            hasProjectKey: false,
+            isRestoringFullThreadBrowseState: true,
+            isAwaitingInitialFullThreadRestore: true,
+            isAwaitingInitialAcknowledgedDiffHydration: true,
+            isRestoringReopenedDiffState: true
+        )
+
+        XCTAssertTrue(StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(settledProject))
+        XCTAssertTrue(StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(liveDraft))
+    }
+
     func testRenderedCharacterMentionExtractorFindsDialogueCues() {
         let screenplay = """
         INT. MOTEL - NIGHT

@@ -4806,7 +4806,16 @@ Replace is best when this file should become the script you edit. Append is safe
                     expandFullThreadSectionIfNeeded(for: exchange)
                 } else {
                     isFocusedPageDiffOverlayPresented = false
-                    focusedPageDiffPersistentKey = ""
+                    let clearContext = StudioThreadViewPersistDeferralContext(
+                        hasProjectKey: screenplayProjectIdFromHistoryKey(activeStudioAskNoteHistoryKey) != nil,
+                        isRestoringFullThreadBrowseState: isRestoringFullThreadBrowseState,
+                        isAwaitingInitialFullThreadRestore: isAwaitingInitialFullThreadRestore,
+                        isAwaitingInitialAcknowledgedDiffHydration: isAwaitingInitialAcknowledgedDiffHydration,
+                        isRestoringReopenedDiffState: isRestoringReopenedDiffState
+                    )
+                    if StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(clearContext) {
+                        focusedPageDiffPersistentKey = ""
+                    }
                 }
                 syncFocusedPageDiffAnchorRequest()
                 persistFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)

@@ -131,6 +131,14 @@ enum StudioThreadViewPersistPolicy {
     }
 }
 
+enum StudioThreadFocusRestorePolicy {
+    static func shouldClearPersistentFocusKey(
+        _ context: StudioThreadViewPersistDeferralContext
+    ) -> Bool {
+        !StudioThreadViewPersistPolicy.shouldDeferBackendPersist(context)
+    }
+}
+
 struct StudioFullThreadBrowseState: Codable, Equatable {
     let searchText: String
     let selectedFilterRaw: String
