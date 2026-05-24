@@ -109,7 +109,7 @@ Checklist:
       (`T-account-deletion-and-export`).
 - [x] Security headers (HSTS/nosniff/frame-ancestors) set before
       external review (`T-backend-security-headers`).
-- [ ] Auth + realtime routes rate-limited
+- [x] Auth + realtime routes rate-limited
       (`T-backend-rate-limit` Phase 1–2).
 
 ## PR Rule

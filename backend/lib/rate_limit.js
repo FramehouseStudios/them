@@ -1,9 +1,9 @@
 // Token-bucket rate limiter — Phase 0 of T-backend-rate-limit.
 //
 // See docs/specs/T-backend-rate-limit.md for the contract. This
-// module ships the helper + tests. Wiring into specific routes
-// (/auth/*, /realtime/call, default class) happens in follow-up PRs
-// so each adoption can be reviewed in isolation.
+// module ships the helper + tests. The V1 auth and realtime
+// paid-provider routes are wired in backend/index.js; future
+// broad-route adoption can keep using the same classed middleware.
 //
 // In-memory only — single-instance V1 deployment. If the backend
 // scales out, this becomes T-rate-limit-redis-followup.
