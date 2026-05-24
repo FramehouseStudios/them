@@ -7251,6 +7251,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     conflictStrategy: cleanBaseVersion.isEmpty ? "append" : "reject_if_stale"
                 )
                 guard !Task.isCancelled else { return }
+                let conflictDetected = (result.payload.conflict ?? false)
+                    || (result.payload.status?.localizedCaseInsensitiveContains("conflict") ?? false)
+                if conflictDetected {
+                    if screenplayDraftBridge.draftText != committedWrite.committedDraft {
+                        screenplayDraftBridge.draftText = committedWrite.committedDraft
+                    }
+                    lastPersistedStudioWriteKey = ""
+                    screenplayDraftBridge.autoInsertStatusText = "Studio project changed; local draft kept"
+                    return
+                }
                 let nextProjectID = (result.payload.project?.id ?? cleanProject)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let nextVersionID = (result.payload.versionId ?? result.payload.version?.id ?? "")
