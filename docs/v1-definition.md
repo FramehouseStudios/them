@@ -107,7 +107,7 @@ Checklist:
 - [ ] `GET /account/export` + `DELETE /account` wired to real
       persistence — **App Store reviewer blocker**
       (`T-account-deletion-and-export`).
-- [ ] Security headers (HSTS/nosniff/frame-ancestors) set before
+- [x] Security headers (HSTS/nosniff/frame-ancestors) set before
       external review (`T-backend-security-headers`).
 - [ ] Auth + realtime routes rate-limited
       (`T-backend-rate-limit` Phase 1–2).

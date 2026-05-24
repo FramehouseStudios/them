@@ -1,4 +1,5 @@
 import { APP_TOKEN, CORS_ALLOW_ORIGIN, REQUIRE_APP_TOKEN } from "../config.js";
+import { securityHeadersMiddleware } from "../lib/security_headers.js";
 import { createRequestId } from "../lib/utils.js";
 
 function requestIdMiddleware(req, res, next) {
@@ -72,6 +73,7 @@ function appTokenMiddleware(req, res, next) {
 
 function applyAppMiddleware(app) {
   app.use(requestIdMiddleware);
+  app.use(securityHeadersMiddleware);
   app.use(corsMiddleware);
   app.use(requestLoggerMiddleware);
   app.use(appTokenMiddleware);
@@ -84,4 +86,5 @@ export {
   corsMiddleware,
   requestIdMiddleware,
   requestLoggerMiddleware,
+  securityHeadersMiddleware,
 };
