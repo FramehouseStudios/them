@@ -2856,14 +2856,18 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         do {
-            let outlineResult = try await BackendMemoryAPI.shared.fetchScreenplayOutline(
-                projectId: id,
-                includeProject: true
-            )
+            let debugRequestedProjectID = ScreenplayLiveDraftBridge.shared.debugRequestedProjectID
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let shouldUseClientTokenOwner = !debugRequestedProjectID.isEmpty && debugRequestedProjectID == id
             let detailResult = try await BackendMemoryAPI.shared.fetchScreenplayProject(
                 projectId: id,
                 includeDrafts: true,
-                versionLimit: 24
+                versionLimit: 24,
+                includeAuthToken: !shouldUseClientTokenOwner
+            )
+            let outlineResult = try? await BackendMemoryAPI.shared.fetchScreenplayOutline(
+                projectId: id,
+                includeProject: true
             )
             if let project = detailResult.payload.project {
                 selectedProject = project
@@ -2871,7 +2875,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 upsertProject(project)
                 hydrateDraft(from: project)
                 hydrateCollaboration(from: project)
-            } else if let project = outlineResult.payload.project {
+            } else if let project = outlineResult?.payload.project {
                 selectedProject = project
                 selectedProjectID = project.id
                 upsertProject(project)
@@ -2880,7 +2884,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             } else {
                 selectedProject = projects.first(where: { $0.id == id })
             }
-            outline = outlineResult.payload.outline ?? .empty
+            outline = outlineResult?.payload.outline ?? detailResult.payload.project?.outline ?? .empty
             reconcileSceneSessionState(with: outline)
             await refreshCollaborationData()
             errorText = ""
@@ -22775,9 +22779,13 @@ Return revised screenplay lines only.
 
         let resolvedProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedErrorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedDetail = cleanVersionID.isEmpty
             ? "Project selection resolved to \(resolvedProjectID.isEmpty ? "none" : resolvedProjectID)."
             : "Project selection resolved to \(resolvedProjectID.isEmpty ? "none" : resolvedProjectID) with version \(resolvedVersionID.isEmpty ? "none" : resolvedVersionID)."
+        let resolvedDetailWithError = resolvedErrorText.isEmpty
+            ? resolvedDetail
+            : "\(resolvedDetail) Error: \(resolvedErrorText)"
         updateTrackedStudioDebugProjectLoadState(
             token: token,
             requestedProjectID: cleanProjectID,
@@ -22788,7 +22796,7 @@ Return revised screenplay lines only.
         appendStudioDebugProjectLoadBreadcrumb(
             token: token,
             event: "project_resolved",
-            detail: resolvedDetail,
+            detail: resolvedDetailWithError,
             requestedProjectID: cleanProjectID,
             requestedVersionID: cleanVersionID
         )

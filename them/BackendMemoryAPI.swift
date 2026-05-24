@@ -2137,17 +2137,23 @@ nonisolated enum BackendAuthClient {
     }
 
     fileprivate static func preferenceString(forKey key: String, fallback: String = "") -> String {
-        for value in preferenceValues(forKey: key) {
-            if let string = value as? String {
-                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            } else if let number = value as? NSNumber {
-                return number.stringValue
-            }
+        for value in preferenceStringValues(forKey: key) {
+            return value
         }
         return fallback
+    }
+
+    fileprivate static func preferenceStringValues(forKey key: String) -> [String] {
+        preferenceValues(forKey: key).compactMap { value in
+            if let string = value as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            if let number = value as? NSNumber {
+                return number.stringValue
+            }
+            return nil
+        }
     }
 
     private static func baseURL() -> URL {
@@ -2897,20 +2903,24 @@ actor BackendMemoryAPI {
     func fetchScreenplayProject(
         projectId: String,
         includeDrafts: Bool = true,
-        versionLimit: Int = 16
+        versionLimit: Int = 16,
+        includeAuthToken: Bool = true
     ) async throws -> BackendReadResult<BackendScreenplayProjectResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/screenplay/projects/\(normalizedProjectId)",
             extraQueryItems: [
                 URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
                 URLQueryItem(name: "version_limit", value: String(max(1, versionLimit))),
             ]
         )
+        if !includeAuthToken {
+            request.setValue(nil, forHTTPHeaderField: "Authorization")
+        }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
@@ -5314,7 +5324,7 @@ actor BackendMemoryAPI {
     }
 
     private func clientToken() -> String? {
-        let token = UserDefaults.standard.string(forKey: DefaultsKey.clientToken) ?? ""
+        let token = BackendAuthClient.preferenceStringValues(forKey: DefaultsKey.clientToken).last ?? ""
         return token.isEmpty ? nil : token
     }
 

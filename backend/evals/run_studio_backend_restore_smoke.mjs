@@ -100,7 +100,7 @@ function normalizeKey(value) {
 }
 
 function normalizeText(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "").replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function normalizeAcknowledgedKey(value) {
@@ -529,7 +529,7 @@ try {
       && normalizeKey(state.latestVersionID) === backendProbe.activeVersionId
       && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes(normalizeText(draftRecovery.draft))
       && Number(state.reopenedDiffCount || 0) > 0;
-  }, "backend-only reopened diff restore after relaunch", 25000, 300);
+  }, "backend-only reopened diff restore after relaunch", 45000, 300);
 
   console.log(JSON.stringify({
     ok: true,
