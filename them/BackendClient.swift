@@ -5057,7 +5057,7 @@ final class BackendClient {
             return
         }
         let raw = expiry.map { ISO8601DateFormatter().string(from: $0) }
-        BackendAuthClient.persistSharedClientToken(trimmed, expiryRaw: raw)
+        BackendAuthClient.persistSharedClientToken(trimmed, expiryRaw: raw, baseURLRaw: baseURL.absoluteString)
     }
 
     private func clearSharedClientToken() {

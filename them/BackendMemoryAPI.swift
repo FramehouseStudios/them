@@ -1785,6 +1785,8 @@ nonisolated enum BackendAuthClient {
         static let authCurrentSessionId = "auth_current_session_id"
         static let authCurrentFamilyId = "auth_current_family_id"
         static let authSignedIn = "auth_signed_in"
+        static let clientTokenCachedAt = "client_token_cached_at"
+        static let clientTokenBaseURL = "client_token_base_url"
     }
 
     private static let personaFlowKey = "clementine"
@@ -2486,8 +2488,24 @@ nonisolated enum BackendAuthClient {
         )
     }
 
+    static func sharedClientTokenCachedAt(defaults: UserDefaults = .standard) -> Date? {
+        let raw = defaults.double(forKey: DefaultsKey.clientTokenCachedAt)
+        guard raw > 0 else { return nil }
+        return Date(timeIntervalSince1970: raw)
+    }
+
+    static func sharedClientTokenBaseURL(defaults: UserDefaults = .standard) -> String? {
+        let raw = defaults.string(forKey: DefaultsKey.clientTokenBaseURL) ?? ""
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
     @discardableResult
-    static func persistSharedClientToken(_ token: String, expiryRaw: String?) -> Bool {
+    static func persistSharedClientToken(
+        _ token: String,
+        expiryRaw: String?,
+        baseURLRaw: String? = nil
+    ) -> Bool {
         let wroteToken = BackendCredentialMigration.writeString(
             token,
             account: clientTokenAccount,
@@ -2510,6 +2528,15 @@ nonisolated enum BackendAuthClient {
                 deleteKeychain: deleteKeychainString
             )
         }
+        if wroteToken {
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: DefaultsKey.clientTokenCachedAt)
+            let normalizedBaseURL = (baseURLRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedBaseURL.isEmpty {
+                UserDefaults.standard.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
+            } else {
+                UserDefaults.standard.set(normalizedBaseURL, forKey: DefaultsKey.clientTokenBaseURL)
+            }
+        }
         return wroteToken
     }
 
@@ -2524,6 +2551,8 @@ nonisolated enum BackendAuthClient {
             defaultsKey: "client_token_expiry",
             deleteKeychain: deleteKeychainString
         )
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.clientTokenCachedAt)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.clientTokenBaseURL)
     }
 
     static func sharedUserID() -> String? {
@@ -2704,6 +2733,8 @@ actor BackendMemoryAPI {
     private let baseURLOverride: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
+    private var sessionBootstrapTask: (id: Int, task: Task<SessionBootstrapHTTPResult, Error>)?
+    private var nextSessionBootstrapTaskID: Int = 0
     private var syncState: BackendSyncState = .empty
     private var historyCacheByLimit: [Int: HistoryCacheEntry] = [:]
     private var memoriesCacheByLimit: [Int: MemoriesCacheEntry] = [:]
@@ -2711,6 +2742,15 @@ actor BackendMemoryAPI {
     private var inFlightStateVersions: Set<String> = []
     private var lastForcedSessionRefreshAt: Date?
     private let forcedSessionRefreshCooldown: TimeInterval = 8
+    private let sessionCacheTTL: TimeInterval = 90
+    private let storedSessionRefreshSkew: TimeInterval = 30
+
+    private struct SessionBootstrapHTTPResult: @unchecked Sendable {
+        let data: Data
+        let statusCode: Int
+        let responsePersonaKey: String
+        let path: String
+    }
 
     init(session: URLSession = .shared, baseURL: URL? = nil) {
         self.session = session
@@ -2788,6 +2828,7 @@ actor BackendMemoryAPI {
     }
 
     func bootstrapSession(force: Bool = false) async throws -> BackendSessionResponse {
+        let now = Date()
         if force {
             cachedSession = nil
             cachedSessionAt = nil
@@ -2795,15 +2836,119 @@ actor BackendMemoryAPI {
         if !force,
            let cachedSession,
            let cachedSessionAt,
-           Date().timeIntervalSince(cachedSessionAt) < 90 {
+           now.timeIntervalSince(cachedSessionAt) < sessionCacheTTL {
             return cachedSession
+        }
+        if !force, let storedSession = storedSessionFromRecentSharedToken(now: now) {
+            cachedSession = storedSession
+            cachedSessionAt = now
+            return storedSession
+        }
+        if let sessionBootstrapTask {
+            return try await completeSessionBootstrap(sessionBootstrapTask.task, id: sessionBootstrapTask.id)
         }
         var request = try makeRequest(path: "/session")
         request.httpMethod = "POST"
-        let payload = try await run(request, as: BackendSessionResponse.self)
-        cacheSession(payload)
-        updateSyncState(syncFromSession(payload), emitTurnEvent: false)
-        return payload
+        let urlSession = session
+        let requestPath = request.url?.path ?? "/session"
+        nextSessionBootstrapTaskID += 1
+        let taskID = nextSessionBootstrapTaskID
+        let task = Task { () throws -> SessionBootstrapHTTPResult in
+            let (data, response) = try await urlSession.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            return SessionBootstrapHTTPResult(
+                data: data,
+                statusCode: http.statusCode,
+                responsePersonaKey: http.value(forHTTPHeaderField: "x-persona-key") ?? "",
+                path: requestPath
+            )
+        }
+        sessionBootstrapTask = (id: taskID, task: task)
+        return try await completeSessionBootstrap(task, id: taskID)
+    }
+
+    private func completeSessionBootstrap(
+        _ task: Task<SessionBootstrapHTTPResult, Error>,
+        id taskID: Int
+    ) async throws -> BackendSessionResponse {
+        do {
+            let result = try await task.value
+            if sessionBootstrapTask?.id == taskID {
+                sessionBootstrapTask = nil
+            }
+            validatePersonaContract(responsePersonaKey: result.responsePersonaKey, path: result.path)
+            guard (200...299).contains(result.statusCode) else {
+                let message = decodeErrorMessage(from: result.data)
+                throw BackendMemoryAPIError.server(status: result.statusCode, message: message)
+            }
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let payload = try decoder.decode(BackendSessionResponse.self, from: result.data)
+            cacheSession(payload)
+            updateSyncState(syncFromSession(payload), emitTurnEvent: false)
+            return payload
+        } catch {
+            if sessionBootstrapTask?.id == taskID {
+                sessionBootstrapTask = nil
+            }
+            throw error
+        }
+    }
+
+    private func storedSessionFromRecentSharedToken(now: Date) -> BackendSessionResponse? {
+        guard let token = clientToken(), !token.isEmpty else { return nil }
+        guard let cachedAt = BackendAuthClient.sharedClientTokenCachedAt(),
+              now.timeIntervalSince(cachedAt) < sessionCacheTTL else {
+            return nil
+        }
+        guard BackendAuthClient.sharedClientTokenBaseURL() == baseURL().absoluteString else {
+            return nil
+        }
+
+        let formatter = ISO8601DateFormatter()
+        guard let expiryRaw = BackendAuthClient.sharedClientTokenExpiry(),
+              let expiry = formatter.date(from: expiryRaw) else {
+            return nil
+        }
+        let secondsRemaining = expiry.timeIntervalSince(now)
+        guard secondsRemaining > storedSessionRefreshSkew else { return nil }
+
+        return BackendSessionResponse(
+            userId: BackendAuthClient.sharedUserID(),
+            authenticated: nil,
+            clientToken: token,
+            sessionId: nil,
+            expiresIn: Int(max(60, secondsRemaining.rounded(.down))),
+            assistantName: UserDefaults.standard.string(forKey: DefaultsKey.assistantName),
+            assistantSelfName: UserDefaults.standard.string(forKey: DefaultsKey.assistantName),
+            userName: UserDefaults.standard.string(forKey: DefaultsKey.userName),
+            rememberedNames: [],
+            lastConversationRecap: nil,
+            lastConversationSnapshot: nil,
+            lastConversationAt: nil,
+            stateVersion: nil,
+            lastUpdatedAt: nil,
+            historyUpdatedAt: nil,
+            memoryUpdatedAt: nil,
+            lastTurnId: nil,
+            schemaVersion: nil,
+            backendBuild: nil,
+            backendBootId: nil,
+            evolutionSync: nil
+        )
+    }
+
+    private func validatePersonaContract(responsePersonaKey: String, path: String) {
+        let responsePersona = responsePersonaKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if !responsePersona.isEmpty, responsePersona != personaFlowKey {
+            print(
+                "[BackendMemoryAPI] persona contract mismatch path=\(path) response=\(responsePersona) expected=\(personaFlowKey)"
+            )
+        }
     }
 
     func fetchHealth() async throws -> BackendHealthStatus {
@@ -5597,6 +5742,8 @@ actor BackendMemoryAPI {
     private func invalidateReadCaches(clearSyncState: Bool) {
         cachedSession = nil
         cachedSessionAt = nil
+        sessionBootstrapTask?.task.cancel()
+        sessionBootstrapTask = nil
         historyCacheByLimit.removeAll()
         memoriesCacheByLimit.removeAll()
         inFlightStateVersions.removeAll()
@@ -5920,7 +6067,13 @@ actor BackendMemoryAPI {
         cachedSessionAt = Date()
 
         if !BackendAuthClient.isStudioDebugClientTokenOverrideActive() {
-            BackendAuthClient.persistSharedClientToken(sessionPayload.clientToken, expiryRaw: nil)
+            let expiry = Date().addingTimeInterval(TimeInterval(max(60, sessionPayload.expiresIn)))
+            let expiryRaw = ISO8601DateFormatter().string(from: expiry)
+            BackendAuthClient.persistSharedClientToken(
+                sessionPayload.clientToken,
+                expiryRaw: expiryRaw,
+                baseURLRaw: baseURL().absoluteString
+            )
         }
         if let userId = sessionPayload.userId {
             let normalized = normalizedUserID(userId)

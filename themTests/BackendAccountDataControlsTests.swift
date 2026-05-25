@@ -2,9 +2,20 @@ import XCTest
 @testable import them
 
 final class BackendAccountDataControlsTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        BackendAuthClient.clearSharedClientToken()
+        UserDefaults.standard.removeObject(forKey: "client_token")
+        UserDefaults.standard.removeObject(forKey: "client_token_cached_at")
+        UserDefaults.standard.removeObject(forKey: "client_token_base_url")
+    }
+
     override func tearDown() {
         AccountDataControlsURLProtocolStub.handler = nil
+        BackendAuthClient.clearSharedClientToken()
         UserDefaults.standard.removeObject(forKey: "client_token")
+        UserDefaults.standard.removeObject(forKey: "client_token_cached_at")
+        UserDefaults.standard.removeObject(forKey: "client_token_base_url")
         UserDefaults.standard.removeObject(forKey: "user_id")
         super.tearDown()
     }
@@ -108,6 +119,96 @@ final class BackendAccountDataControlsTests: XCTestCase {
         let accountRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/account" })
         XCTAssertEqual(accountRequest.method, "DELETE")
         XCTAssertEqual(accountRequest.bodyObject?["reason"] as? String, "Leaving")
+    }
+
+    func testBootstrapSessionCoalescesConcurrentInFlightRequests() async throws {
+        BackendAuthClient.clearSharedClientToken()
+        let recorder = AccountDataControlsRequestRecorder()
+        AccountDataControlsURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                Thread.sleep(forTimeInterval: 0.05)
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-coalesced", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            default:
+                return AccountDataControlsHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountDataControlsURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://account-data-controls.test")!
+        )
+
+        let tokens = try await withThrowingTaskGroup(of: String.self) { group in
+            for _ in 0..<6 {
+                group.addTask {
+                    try await api.bootstrapSession().clientToken
+                }
+            }
+            var values: [String] = []
+            for try await value in group {
+                values.append(value)
+            }
+            return values
+        }
+
+        XCTAssertEqual(Set(tokens), ["client-coalesced"])
+        XCTAssertEqual(recorder.requests.filter { $0.path == "/session" }.count, 1)
+        XCTAssertNotNil(BackendAuthClient.sharedClientTokenExpiry())
+        XCTAssertNotNil(BackendAuthClient.sharedClientTokenCachedAt())
+    }
+
+    func testBootstrapSessionReusesRecentlyPersistedSharedTokenAcrossAPIInstances() async throws {
+        BackendAuthClient.clearSharedClientToken()
+        let recorder = AccountDataControlsRequestRecorder()
+        AccountDataControlsURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-shared", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            default:
+                return AccountDataControlsHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountDataControlsURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let firstAPI = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://account-data-controls.test")!
+        )
+        let secondAPI = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://account-data-controls.test")!
+        )
+
+        let first = try await firstAPI.bootstrapSession()
+        let second = try await secondAPI.bootstrapSession()
+
+        XCTAssertEqual(first.clientToken, "client-shared")
+        XCTAssertEqual(second.clientToken, "client-shared")
+        XCTAssertEqual(recorder.requests.filter { $0.path == "/session" }.count, 1)
     }
 }
 
