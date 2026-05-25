@@ -675,6 +675,58 @@ final class BackendClientCraftAPITests: XCTestCase {
         )
     }
 
+    func testRealtimeDegradedErrorUsesTypedUnavailableEnvelope() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/client_secret"):
+                return .json(#"""
+                {
+                  "stage": "realtime_auth",
+                  "code": "realtime_supplier_request_failed",
+                  "realtime_provider": "openai",
+                  "fallback": false,
+                  "degraded": true,
+                  "error": "OpenAI mint failed"
+                }
+                """#, status: 503)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        do {
+            _ = try await client.fetchRealtimeClientSecret(
+                systemPrompt: "Stay cinematic.",
+                userName: "June",
+                isScreenplayMode: true,
+                realtimeProvider: ClementineRealtimeSupplierMode.openAI.providerParameter
+            )
+            XCTFail("Expected realtime unavailable error")
+        } catch BackendError.realtimeUnavailable(let unavailable) {
+            XCTAssertEqual(unavailable.statusCode, 503)
+            XCTAssertEqual(unavailable.stage, "realtime_auth")
+            XCTAssertEqual(unavailable.code, "realtime_supplier_request_failed")
+            XCTAssertEqual(unavailable.realtimeProvider, "openai")
+            XCTAssertEqual(unavailable.fallback, false)
+            XCTAssertEqual(unavailable.degraded, true)
+            XCTAssertEqual(unavailable.message, "OpenAI mint failed")
+            XCTAssertEqual(unavailable.userMessage, "Realtime preview is temporarily unavailable. Standard voice still works.")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertTrue(recorder.methodsAndPaths.contains("POST /realtime/client_secret"))
+        let realtimeBody = try XCTUnwrap(
+            recorder.requests.first(where: { $0.path == "/realtime/client_secret" })?.bodyObject
+        )
+        XCTAssertEqual(realtimeBody["realtime_provider"] as? String, "openai")
+        XCTAssertEqual(realtimeBody["system_prompt"] as? String, "Stay cinematic.")
+        XCTAssertEqual(realtimeBody["is_screenplay_mode"] as? Bool, true)
+    }
+
     func testCraftUnavailableErrorUsesTypedEnvelope() async throws {
         let client = makeClient(recorder: CraftRequestRecorder()) { _ in
             .json(#"{ "error": "craft_runtime_unavailable" }"#, status: 503)

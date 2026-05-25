@@ -883,6 +883,49 @@ struct BackendRealtimeBootstrapPayload: Decodable {
     }
 }
 
+struct BackendRealtimeUnavailable: Equatable {
+    let statusCode: Int
+    let stage: String
+    let code: String
+    let realtimeProvider: String?
+    let fallback: Bool?
+    let degraded: Bool
+    let message: String
+
+    var userMessage: String {
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedCode == "realtime_stub_disabled_in_production" {
+            return "Realtime preview is unavailable with the stub provider in production. Switch to Server Default or OpenAI, or use Standard voice."
+        }
+        if degraded {
+            return "Realtime preview is temporarily unavailable. Standard voice still works."
+        }
+        let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanMessage.isEmpty {
+            return "Realtime preview is unavailable. Standard voice still works."
+        }
+        return "Realtime preview is unavailable: \(cleanMessage)"
+    }
+}
+
+private struct BackendRealtimeUnavailablePayload: Decodable {
+    let stage: String?
+    let code: String?
+    let realtimeProvider: String?
+    let fallback: Bool?
+    let degraded: Bool?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case stage
+        case code
+        case realtimeProvider = "realtime_provider"
+        case fallback
+        case degraded
+        case error
+    }
+}
+
 struct BackendRealtimeStudioRenderPayload: Decodable {
     let ok: Bool
     let action: String?
@@ -1002,6 +1045,7 @@ struct BackendTaskAction {
 enum BackendError: LocalizedError {
     case stage(String, String)
     case http(Int, String)
+    case realtimeUnavailable(BackendRealtimeUnavailable)
     case continueListening
     case emptyAudio
     case invalidAudioType(String)
@@ -1018,6 +1062,8 @@ enum BackendError: LocalizedError {
                 normalizedMessage == "revoked_user_token"
         case let .http(status, message):
             return status == 401 && message.lowercased().contains("user_auth")
+        case .realtimeUnavailable:
+            return false
         default:
             return false
         }
@@ -1053,6 +1099,8 @@ enum BackendError: LocalizedError {
             return "\(label) error: \(message)"
         case let .http(status, message):
             return "HTTP \(status): \(message)"
+        case let .realtimeUnavailable(unavailable):
+            return unavailable.userMessage
         case .continueListening:
             return "Continue listening."
         case .emptyAudio:
@@ -1996,6 +2044,7 @@ final class BackendClient {
             throw BackendError.http(-1, "Invalid realtime session response.")
         }
         guard (200...299).contains(http.statusCode) else {
+            let realtimeUnavailable = parseRealtimeUnavailable(from: data, statusCode: http.statusCode)
             if let stageError = parseStageError(from: data) {
                 if allowAuthTokenRefresh,
                    isUserAuthStage(stageError.stage),
@@ -2010,7 +2059,14 @@ final class BackendClient {
                         allowAuthTokenRefresh: false
                     )
                 }
+                if let realtimeUnavailable,
+                   stageError.stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "realtime_auth" {
+                    throw BackendError.realtimeUnavailable(realtimeUnavailable)
+                }
                 throw BackendError.stage(stageError.stage, stageError.message)
+            }
+            if let realtimeUnavailable {
+                throw BackendError.realtimeUnavailable(realtimeUnavailable)
             }
             let raw = String(data: data, encoding: .utf8) ?? ""
             throw BackendError.http(http.statusCode, raw)
@@ -3933,6 +3989,31 @@ final class BackendClient {
         }
 
         return (stage, "Unknown error")
+    }
+
+    private func parseRealtimeUnavailable(from data: Data, statusCode: Int) -> BackendRealtimeUnavailable? {
+        guard let payload = try? JSONDecoder().decode(BackendRealtimeUnavailablePayload.self, from: data) else {
+            return nil
+        }
+        let stage = (payload.stage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let code = (payload.code ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = (payload.realtimeProvider ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let degraded = payload.degraded == true
+        let hasRealtimeSignal = stage.lowercased() == "realtime_auth" ||
+            degraded ||
+            !code.isEmpty ||
+            !provider.isEmpty
+        guard hasRealtimeSignal else { return nil }
+        let message = (payload.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return BackendRealtimeUnavailable(
+            statusCode: statusCode,
+            stage: stage.isEmpty ? "realtime_auth" : stage,
+            code: code.isEmpty ? "realtime_unavailable" : code,
+            realtimeProvider: provider.isEmpty ? nil : provider,
+            fallback: payload.fallback,
+            degraded: degraded,
+            message: message
+        )
     }
 
     private func dataForTalkRequest(

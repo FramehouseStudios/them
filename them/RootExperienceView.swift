@@ -693,6 +693,7 @@ struct RootExperienceView: View {
     @State private var lastPersistedStudioWriteKey = ""
     @State private var studioWritePersistenceTask: Task<Void, Never>?
     @State private var realtimeBridgeRequest: URLRequest?
+    @State private var realtimePreviewStandardFallbackActive = false
     @State private var realtimePendingUserTranscript = ""
     @State private var realtimeAssistantTranscriptFallbackTask: Task<Void, Never>?
     @State private var lastRealtimeAssistantTextAt: Date = .distantPast
@@ -859,6 +860,9 @@ struct RootExperienceView: View {
     }
 
     private var realtimePreviewStatusText: String {
+        if realtimePreviewStandardFallbackActive {
+            return "Realtime unavailable · \(standardVoiceFallbackStatusText)"
+        }
         if case .failed = realtimeVoice.status {
             return realtimeVoice.statusText
         }
@@ -866,6 +870,21 @@ struct RootExperienceView: View {
             return realtimeTransport.statusText
         }
         return realtimeVoice.statusText
+    }
+
+    private var standardVoiceFallbackStatusText: String {
+        switch voice.mode {
+        case .capturingSpeech:
+            return "Standard voice listening"
+        case .assistantSpeaking:
+            return "Standard voice speaking"
+        case .armedListening:
+            return "Standard voice ready"
+        case .muted:
+            return "Standard voice muted"
+        case .idle:
+            return "Standard voice standby"
+        }
     }
 
     private var activeCompanionSignals: CreativeCompanionSignalState {
@@ -2306,6 +2325,7 @@ struct RootExperienceView: View {
 
     private func handleVoiceTransportModeChange(_ newValue: String) {
         let mode = ClementineVoiceTransportMode(rawValue: newValue) ?? .turnBased
+        realtimePreviewStandardFallbackActive = false
         if mode == .realtimePreview {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
@@ -2319,6 +2339,7 @@ struct RootExperienceView: View {
 
     private func handleRealtimeSupplierModeChange(_ newValue: String) {
         _ = ClementineRealtimeSupplierMode.normalized(rawValue: newValue)
+        realtimePreviewStandardFallbackActive = false
         realtimeVoice.clear()
         realtimeTransport.disconnect()
         realtimeBridgeRequest = nil
@@ -6999,6 +7020,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return true
         case .invalidAudioType:
             return true
+        case .realtimeUnavailable:
+            return true
         case .continueListening:
             return false
         }
@@ -8833,6 +8856,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     @MainActor
     private func prewarmRealtimeIfNeeded(isScreenplayMode: Bool) async {
         guard voiceTransportMode == .realtimePreview else {
+            realtimePreviewStandardFallbackActive = false
             realtimeVoice.clear()
             realtimeTransport.disconnect()
             realtimeBridgeRequest = nil
@@ -8851,6 +8875,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isScreenplayMode: isScreenplayMode,
             supplierMode: realtimeSupplierMode
         )
+        if case .ready = realtimeVoice.status {
+            realtimePreviewStandardFallbackActive = false
+        }
     }
 
     private func buildRealtimeBootstrapSystemPrompt(isScreenplayMode: Bool) async -> String {
@@ -9405,7 +9432,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func startConversationLoopIfNeeded() {
         conversationLoopEnabled = true
         pendingGoodbyeStopAfterPlayback = false
-        if voiceTransportMode == .realtimePreview {
+        if voiceTransportMode == .realtimePreview,
+           !realtimePreviewStandardFallbackActive {
             Task { @MainActor in
                 await startRealtimePreviewConversationIfNeeded()
             }
@@ -9431,11 +9459,27 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimePendingUserTranscript = ""
 
         await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
-        guard let realtimeBridgeRequest, let bootstrap = realtimeVoice.latestBootstrap else { return }
+        guard let realtimeBridgeRequest, let bootstrap = realtimeVoice.latestBootstrap else {
+            activateRealtimePreviewStandardFallback()
+            return
+        }
+        realtimePreviewStandardFallbackActive = false
         realtimeTransport.connect(
             bootstrap: bootstrap,
             bridgeRequest: realtimeBridgeRequest
         )
+    }
+
+    @MainActor
+    private func activateRealtimePreviewStandardFallback() {
+        realtimePreviewStandardFallbackActive = true
+        realtimeTransport.disconnect()
+        showStudioCommandNotice("Realtime is unavailable. Standard voice is listening.")
+        if voice.mode == .idle {
+            voice.armOnce()
+        } else {
+            voice.resumeRecordingIfNeeded()
+        }
     }
 
     @MainActor
@@ -9928,6 +9972,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return "Thinking…"
         }
         if voiceTransportMode == .realtimePreview {
+            if realtimePreviewStandardFallbackActive {
+                switch voice.mode {
+                case .capturingSpeech:
+                    return "Listening…"
+                case .assistantSpeaking:
+                    return "Speaking…"
+                case .armedListening:
+                    return "Ready"
+                case .muted:
+                    return "Muted"
+                case .idle:
+                    return "Standby"
+                }
+            }
             switch realtimeTransport.status {
             case .idle:
                 return "Standby"
@@ -9959,6 +10017,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     private var studioTalkIsActive: Bool {
         if voiceTransportMode == .realtimePreview {
+            if realtimePreviewStandardFallbackActive {
+                switch voice.mode {
+                case .capturingSpeech, .assistantSpeaking, .armedListening:
+                    return true
+                case .idle, .muted:
+                    return false
+                }
+            }
             switch realtimeTransport.status {
             case .ready, .connecting, .live:
                 return true
