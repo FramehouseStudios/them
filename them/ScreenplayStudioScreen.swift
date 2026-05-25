@@ -320,7 +320,20 @@ private enum StudioDebugShortcutAction: String {
 
 #if os(macOS)
 private let studioDebugMirroredPreferencesDomain = "io.them.them" as CFString
-private let studioDebugLoadProjectRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_load_project_request.json")
+private let studioDebugLoadProjectRequestFilename = "them_studio_debug_load_project_request.json"
+private let studioDebugLoadProjectRequestURLs: [URL] = {
+    let fileManager = FileManager.default
+    let hardcodedURL = URL(fileURLWithPath: "/tmp").appendingPathComponent(studioDebugLoadProjectRequestFilename)
+    let temporaryURL = fileManager.temporaryDirectory.appendingPathComponent(studioDebugLoadProjectRequestFilename)
+    let homeTemporaryURL = fileManager.homeDirectoryForCurrentUser
+        .appendingPathComponent("tmp")
+        .appendingPathComponent(studioDebugLoadProjectRequestFilename)
+    var seen: Set<String> = []
+    return [hardcodedURL, temporaryURL, homeTemporaryURL].filter { url in
+        seen.insert(url.path).inserted
+    }
+}()
+private let studioDebugLoadProjectRequestURL = studioDebugLoadProjectRequestURLs[0]
 private let studioDebugManualEditRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_manual_edit_request.json")
 private let studioDebugAutosaveToggleRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_autosave_toggle_request.json")
 private let studioDebugSaveRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_save_request.json")
@@ -382,6 +395,51 @@ private func studioDebugMirroredPlistURLs(for domain: String) -> [URL] {
     ]
 }
 
+private enum StudioDebugMirroredPreferenceSnapshot {
+    private static let refreshInterval: TimeInterval = 0.35
+    private static var cachedAt: TimeInterval = 0
+    private static var cachedPlistValues: [String: [Any]] = [:]
+
+    static func invalidate() {
+        cachedAt = 0
+        cachedPlistValues = [:]
+    }
+
+    static func plistValues(forKey key: String) -> [Any] {
+        let now = Date().timeIntervalSinceReferenceDate
+        if cachedAt == 0 || now - cachedAt > refreshInterval {
+            cachedAt = now
+            cachedPlistValues = buildPlistValues()
+        }
+        return cachedPlistValues[key] ?? []
+    }
+
+    private static func buildPlistValues() -> [String: [Any]] {
+        var values: [String: [Any]] = [:]
+        var seenFingerprints: [String: Set<String>] = [:]
+
+        func append(_ value: Any, forKey key: String) {
+            let fingerprint = "\(type(of: value))::\(String(describing: value))"
+            var seen = seenFingerprints[key] ?? []
+            guard seen.insert(fingerprint).inserted else { return }
+            seenFingerprints[key] = seen
+            values[key, default: []].append(value)
+        }
+
+        for domain in studioDebugMirroredDomains() {
+            for url in studioDebugMirroredPlistURLs(for: domain) {
+                guard let dictionary = NSDictionary(contentsOf: url) else { continue }
+                for (rawKey, value) in dictionary {
+                    guard let key = rawKey as? String else { continue }
+                    append(value, forKey: key)
+                }
+            }
+        }
+
+        return values
+    }
+}
+
 private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, domain: String) {
     for url in studioDebugMirroredPlistURLs(for: domain) {
         let directoryURL = url.deletingLastPathComponent()
@@ -405,6 +463,7 @@ private func writeMirroredStudioDebugPreferenceInt(_ value: Int, forKey key: Str
         mirrorStudioDebugPreferenceValue(NSNumber(value: value), forKey: key, domain: domain)
     }
     UserDefaults.standard.synchronize()
+    StudioDebugMirroredPreferenceSnapshot.invalidate()
 }
 
 private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey key: String) {
@@ -420,6 +479,7 @@ private func writeMirroredStudioDebugPreferenceString(_ value: String, forKey ke
         mirrorStudioDebugPreferenceValue(value as NSString, forKey: key, domain: domain)
     }
     UserDefaults.standard.synchronize()
+    StudioDebugMirroredPreferenceSnapshot.invalidate()
 }
 
 private func studioDebugMirroredPreferenceValues(forKey key: String) -> [Any] {
@@ -433,12 +493,11 @@ private func studioDebugMirroredPreferenceValues(forKey key: String) -> [Any] {
         values.append(value)
     }
 
+    for value in StudioDebugMirroredPreferenceSnapshot.plistValues(forKey: key) {
+        append(value)
+    }
+
     for domain in studioDebugMirroredDomains() {
-        for url in studioDebugMirroredPlistURLs(for: domain) {
-            if let dictionary = NSDictionary(contentsOf: url) {
-                append(dictionary[key])
-            }
-        }
         if let suite = studioDebugMirroredSuiteDefaults(for: domain) {
             suite.synchronize()
             append(suite.object(forKey: key))
@@ -735,6 +794,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     private var lastManualDraftEditAt: Date = .distantPast
     private let localDraftRecoveryStore = ScreenplayLocalDraftRecoveryStore()
     private let craftClient = BackendClient()
+    private let projectSelectionAPI = BackendMemoryAPI()
 
     init() {
         draftDebounceCancellable = $fountainDraft
@@ -2962,7 +3022,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             let shouldUseClientTokenOwner = !debugRequestedProjectID.isEmpty && debugRequestedProjectID == id
             let detailResult: BackendReadResult<BackendScreenplayProjectResponse>
             do {
-                detailResult = try await BackendMemoryAPI.shared.fetchScreenplayProject(
+                detailResult = try await projectSelectionAPI.fetchScreenplayProject(
                     projectId: id,
                     includeDrafts: true,
                     versionLimit: 24,
@@ -2970,13 +3030,13 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                     includeAuthToken: !shouldUseClientTokenOwner
                 )
             } catch BackendMemoryAPIError.server(let status, _) where shouldUseClientTokenOwner && status == 404 {
-                detailResult = try await BackendMemoryAPI.shared.fetchScreenplayProject(
+                detailResult = try await projectSelectionAPI.fetchScreenplayProject(
                     projectId: id,
                     includeDrafts: true,
                     versionLimit: 24
                 )
             }
-            let outlineResult = try? await BackendMemoryAPI.shared.fetchScreenplayOutline(
+            let outlineResult = try? await projectSelectionAPI.fetchScreenplayOutline(
                 projectId: id,
                 includeProject: true
             )
@@ -2997,9 +3057,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             }
             outline = outlineResult?.payload.outline ?? detailResult.payload.project?.outline ?? .empty
             reconcileSceneSessionState(with: outline)
-            await refreshCollaborationData()
             errorText = ""
             syncLiveDraftBridgeProjectContext()
+            Task { [weak self] in
+                await self?.refreshCollaborationData()
+            }
         } catch {
             clearTransientProjectStateForSelectionChange(to: id)
             selectedProject = projects.first(where: { $0.id == id })
@@ -3014,7 +3076,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         let normalizedProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectID.isEmpty else { return }
         do {
-            let result = try await BackendMemoryAPI.shared.activateScreenplayProject(projectId: normalizedProjectID)
+            let result = try await projectSelectionAPI.activateScreenplayProject(projectId: normalizedProjectID)
             if let project = result.payload.project {
                 upsertProject(project)
                 if selectedProjectID == project.id {
@@ -4576,7 +4638,9 @@ Replace is best when this file should become the script you edit. Append is safe
                 isSceneQuickInsertVisible = false
                 clearWriteCommitUI()
                 #if os(macOS)
-                stopStudioDebugPreparePolling()
+                if IOThemRuntime.isRunningTests {
+                    stopStudioDebugPreparePolling()
+                }
                 removeStudioCommandReturnKeyMonitor()
                 #endif
             }
@@ -22350,6 +22414,10 @@ Return revised screenplay lines only.
             "studio_debug_prepare_ack_replacement_mode",
             fallback: "none"
         )
+        let loadProjectToken = readMirroredStudioDebugPreferenceInt("studio_debug_load_project_token")
+        let loadProjectID = readMirroredStudioDebugPreferenceString("studio_debug_load_project_id")
+        let loadProjectVersionID = readMirroredStudioDebugPreferenceString("studio_debug_load_project_version_id")
+        let loadProjectAckToken = readMirroredStudioDebugPreferenceInt("studio_debug_load_project_ack_token")
 
         if prepareToken != studioDebugPrepareToken {
             studioDebugPrepareToken = prepareToken
@@ -22381,6 +22449,22 @@ Return revised screenplay lines only.
         }
         if prepareAckReplacementMode != studioDebugPrepareAckReplacementMode {
             studioDebugPrepareAckReplacementMode = prepareAckReplacementMode
+            didChange = true
+        }
+        if loadProjectToken != studioDebugLoadProjectToken {
+            studioDebugLoadProjectToken = loadProjectToken
+            didChange = true
+        }
+        if loadProjectID != studioDebugLoadProjectID {
+            studioDebugLoadProjectID = loadProjectID
+            didChange = true
+        }
+        if loadProjectVersionID != studioDebugLoadProjectVersionID {
+            studioDebugLoadProjectVersionID = loadProjectVersionID
+            didChange = true
+        }
+        if loadProjectAckToken != studioDebugLoadProjectAckToken {
+            studioDebugLoadProjectAckToken = loadProjectAckToken
             didChange = true
         }
 
@@ -22558,17 +22642,27 @@ Return revised screenplay lines only.
     }
 
     private func handleStudioDebugLoadProjectRequestFileIfNeeded() {
-        guard let data = try? Data(contentsOf: studioDebugLoadProjectRequestURL),
-              let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {
+        guard let match = studioDebugLoadProjectRequestURLs.lazy.compactMap({ url -> (StudioDebugLoadProjectRequest, URL)? in
+            guard let data = try? Data(contentsOf: url),
+                  let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {
+                return nil
+            }
+            return (request, url)
+        }).first else {
             return
         }
+        let request = match.0
         guard request.token > 0 else {
-            try? FileManager.default.removeItem(at: studioDebugLoadProjectRequestURL)
+            for url in studioDebugLoadProjectRequestURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
             return
         }
         guard request.token != studioDebugLoadProjectAckToken,
               request.token != lastAppliedStudioDebugLoadProjectToken else {
-            try? FileManager.default.removeItem(at: studioDebugLoadProjectRequestURL)
+            for url in studioDebugLoadProjectRequestURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
             return
         }
         studioDebugLoadProjectID = request.projectID
@@ -22577,7 +22671,9 @@ Return revised screenplay lines only.
         writeMirroredStudioDebugPreferenceString(request.projectID, forKey: "studio_debug_load_project_id")
         writeMirroredStudioDebugPreferenceString(request.versionID, forKey: "studio_debug_load_project_version_id")
         writeMirroredStudioDebugPreferenceInt(request.token, forKey: "studio_debug_load_project_token")
-        try? FileManager.default.removeItem(at: studioDebugLoadProjectRequestURL)
+        for url in studioDebugLoadProjectRequestURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private func handleStudioDebugAutosaveToggleRequestFileIfNeeded() {
@@ -22623,6 +22719,8 @@ Return revised screenplay lines only.
     private func startStudioDebugPreparePollingIfNeeded() {
         guard studioDebugPreparePollTask == nil else { return }
         studioDebugPreparePollTask = Task { @MainActor in
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 250_000_000)
             while !Task.isCancelled {
                 handleStudioDebugLoadProjectRequestFileIfNeeded()
                 handleStudioDebugManualEditRequestFileIfNeeded()
@@ -23572,7 +23670,8 @@ The door closes softly. That is worse than a slam.
         }
         return isStudioDebugProjectLoadReady(
             projectID: projectID,
-            versionID: versionID
+            versionID: versionID,
+            requireEditorFocusConsumption: false
         )
         #else
         return false
@@ -23669,6 +23768,8 @@ The door closes softly. That is worse than a slam.
         await vm.selectProject(cleanProjectID)
 
         let resolvedProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedLoadedProjectID = (vm.selectedProject?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedLoadedDraftProjectID = vm.debugLoadedDraftProjectID
         let resolvedVersionID = vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedErrorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedDetail = cleanVersionID.isEmpty
@@ -23691,6 +23792,48 @@ The door closes softly. That is worse than a slam.
             requestedProjectID: cleanProjectID,
             requestedVersionID: cleanVersionID
         )
+
+        let resolvedRequestedProject = resolvedProjectID == cleanProjectID
+            && resolvedLoadedProjectID == cleanProjectID
+            && resolvedLoadedDraftProjectID == cleanProjectID
+        let resolvedRequestedVersion = cleanVersionID.isEmpty || resolvedVersionID == cleanVersionID
+        if !resolvedRequestedProject || !resolvedRequestedVersion || !resolvedErrorText.isEmpty {
+            let failureDetail = [
+                "Could not resolve requested debug project after selection.",
+                "selected=\(resolvedProjectID.isEmpty ? "none" : resolvedProjectID)",
+                "loaded=\(resolvedLoadedProjectID.isEmpty ? "none" : resolvedLoadedProjectID)",
+                "draftProject=\(resolvedLoadedDraftProjectID.isEmpty ? "none" : resolvedLoadedDraftProjectID)",
+                "version=\(resolvedVersionID.isEmpty ? "none" : resolvedVersionID)",
+                resolvedErrorText.isEmpty ? "" : "error=\(resolvedErrorText)",
+            ]
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            updateTrackedStudioDebugProjectLoadState(
+                token: token,
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID,
+                stage: "project_resolve_failed",
+                ready: false,
+                error: failureDetail
+            )
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "project_resolve_failed",
+                detail: failureDetail,
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+            setStudioDebugLoadProjectAckToken(token)
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "acknowledged_failed_request",
+                detail: "Published project-load acknowledgment for a terminal failed debug request so later requests can proceed.",
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+            publishDebugStudioDiffState()
+            return
+        }
 
         liveDraftBridge.requestEditorFocus()
         updateTrackedStudioDebugProjectLoadState(

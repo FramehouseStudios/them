@@ -196,7 +196,20 @@ private struct StudioDebugVoiceTurnRequest: Codable {
 
 #if os(macOS)
 private let studioDebugPreferencesDomain = "io.them.them" as CFString
-private let studioDebugLoadProjectRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_load_project_request.json")
+private let studioDebugLoadProjectRequestFilename = "them_studio_debug_load_project_request.json"
+private let studioDebugLoadProjectRequestURLs: [URL] = {
+    let fileManager = FileManager.default
+    let hardcodedURL = URL(fileURLWithPath: "/tmp").appendingPathComponent(studioDebugLoadProjectRequestFilename)
+    let temporaryURL = fileManager.temporaryDirectory.appendingPathComponent(studioDebugLoadProjectRequestFilename)
+    let homeTemporaryURL = fileManager.homeDirectoryForCurrentUser
+        .appendingPathComponent("tmp")
+        .appendingPathComponent(studioDebugLoadProjectRequestFilename)
+    var seen: Set<String> = []
+    return [hardcodedURL, temporaryURL, homeTemporaryURL].filter { url in
+        seen.insert(url.path).inserted
+    }
+}()
+private let studioDebugLoadProjectRequestURL = studioDebugLoadProjectRequestURLs[0]
 private let studioDebugVoiceTurnRequestURL = URL(fileURLWithPath: "/tmp/them_studio_debug_voice_turn_request.json")
 
 private func studioDebugPreferenceDomains() -> [String] {
@@ -235,6 +248,51 @@ private func studioDebugPreferencePlistURLs(for domain: String) -> [URL] {
     ]
 }
 
+private enum StudioDebugPreferenceSnapshot {
+    private static let refreshInterval: TimeInterval = 0.35
+    private static var cachedAt: TimeInterval = 0
+    private static var cachedPlistValues: [String: [Any]] = [:]
+
+    static func invalidate() {
+        cachedAt = 0
+        cachedPlistValues = [:]
+    }
+
+    static func plistValues(forKey key: String) -> [Any] {
+        let now = Date().timeIntervalSinceReferenceDate
+        if cachedAt == 0 || now - cachedAt > refreshInterval {
+            cachedAt = now
+            cachedPlistValues = buildPlistValues()
+        }
+        return cachedPlistValues[key] ?? []
+    }
+
+    private static func buildPlistValues() -> [String: [Any]] {
+        var values: [String: [Any]] = [:]
+        var seenFingerprints: [String: Set<String>] = [:]
+
+        func append(_ value: Any, forKey key: String) {
+            let fingerprint = "\(type(of: value))::\(String(describing: value))"
+            var seen = seenFingerprints[key] ?? []
+            guard seen.insert(fingerprint).inserted else { return }
+            seenFingerprints[key] = seen
+            values[key, default: []].append(value)
+        }
+
+        for domain in studioDebugPreferenceDomains() {
+            for url in studioDebugPreferencePlistURLs(for: domain) {
+                guard let dictionary = NSDictionary(contentsOf: url) else { continue }
+                for (rawKey, value) in dictionary {
+                    guard let key = rawKey as? String else { continue }
+                    append(value, forKey: key)
+                }
+            }
+        }
+
+        return values
+    }
+}
+
 private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
     var values: [Any] = []
     var seenFingerprints: Set<String> = []
@@ -246,12 +304,11 @@ private func studioDebugPreferenceValues(forKey key: String) -> [Any] {
         values.append(value)
     }
 
+    for value in StudioDebugPreferenceSnapshot.plistValues(forKey: key) {
+        append(value)
+    }
+
     for domain in studioDebugPreferenceDomains() {
-        for url in studioDebugPreferencePlistURLs(for: domain) {
-            if let dictionary = NSDictionary(contentsOf: url) {
-                append(dictionary[key])
-            }
-        }
         if let suite = studioDebugSuiteDefaults(for: domain) {
             suite.synchronize()
             append(suite.object(forKey: key))
@@ -278,6 +335,7 @@ private func writeStudioDebugPreferenceInt(_ value: Int, forKey key: String) {
         mirrorStudioDebugPreferenceValue(NSNumber(value: value), forKey: key, domain: domain)
     }
     UserDefaults.standard.synchronize()
+    StudioDebugPreferenceSnapshot.invalidate()
 }
 
 private func writeStudioDebugPreferenceString(_ value: String, forKey key: String) {
@@ -293,6 +351,7 @@ private func writeStudioDebugPreferenceString(_ value: String, forKey key: Strin
         mirrorStudioDebugPreferenceValue(value as NSString, forKey: key, domain: domain)
     }
     UserDefaults.standard.synchronize()
+    StudioDebugPreferenceSnapshot.invalidate()
 }
 
 private func mirrorStudioDebugPreferenceValue(_ value: Any, forKey key: String, domain: String) {
@@ -359,16 +418,19 @@ final class StudioDebugDefaultsBridge: ObservableObject {
     }
 
     private static func readInt(forKey key: String, fallback: Int = 0) -> Int {
+        var bestValue: Int?
         for value in studioDebugPreferenceValues(forKey: key) {
             if let number = value as? NSNumber {
-                return Int(number.int64Value)
+                let parsed = Int(number.int64Value)
+                bestValue = max(bestValue ?? parsed, parsed)
+                continue
             }
             if let string = value as? String,
                let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                return parsed
+                bestValue = max(bestValue ?? parsed, parsed)
             }
         }
-        return fallback
+        return bestValue ?? fallback
     }
 }
 #else
@@ -1219,14 +1281,19 @@ struct RootExperienceView: View {
     }
 
     private func studioDebugPreferenceInt(_ key: String, fallback: Int = 0) -> Int {
-        if let number = copyStudioDebugPreferenceValue(forKey: key) as? NSNumber {
-            return Int(number.int64Value)
+        var bestValue: Int?
+        for value in studioDebugPreferenceValues(forKey: key) {
+            if let number = value as? NSNumber {
+                let parsed = Int(number.int64Value)
+                bestValue = max(bestValue ?? parsed, parsed)
+                continue
+            }
+            if let string = value as? String,
+               let parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                bestValue = max(bestValue ?? parsed, parsed)
+            }
         }
-        if let string = copyStudioDebugPreferenceValue(forKey: key) as? String,
-           let value = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return value
-        }
-        return fallback
+        return bestValue ?? fallback
     }
 
     private func studioDebugPreferenceBool(_ key: String, fallback: Bool = false) -> Bool {
@@ -1357,15 +1424,23 @@ struct RootExperienceView: View {
 
     private func handleStudioDebugLoadProjectRequestFileIfNeeded() {
         #if os(macOS)
-        guard let data = try? Data(contentsOf: studioDebugLoadProjectRequestURL),
-              let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {
+        guard let match = studioDebugLoadProjectRequestURLs.lazy.compactMap({ url -> (StudioDebugLoadProjectRequest, URL)? in
+            guard let data = try? Data(contentsOf: url),
+                  let request = try? JSONDecoder().decode(StudioDebugLoadProjectRequest.self, from: data) else {
+                return nil
+            }
+            return (request, url)
+        }).first else {
             return
         }
+        let request = match.0
         guard request.token > 0 else { return }
         guard request.token != lastHandledStudioDebugLoadProjectRequestToken else { return }
         lastHandledStudioDebugLoadProjectRequestToken = request.token
         noteStudioDebugLifecycle("load_request_file_consumed")
-        try? FileManager.default.removeItem(at: studioDebugLoadProjectRequestURL)
+        for url in studioDebugLoadProjectRequestURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
         let debugProjectID = request.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let debugVersionID = request.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
         if !debugProjectID.isEmpty {
@@ -1391,6 +1466,8 @@ struct RootExperienceView: View {
         studioDebugCommandPollTask?.cancel()
         noteStudioDebugLifecycle("polling_started")
         studioDebugCommandPollTask = Task { @MainActor in
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 250_000_000)
             while !Task.isCancelled {
                 processPendingStudioDebugCommandsIfNeeded()
                 try? await Task.sleep(nanoseconds: 200_000_000)
@@ -2274,7 +2351,9 @@ struct RootExperienceView: View {
     private func handleContentViewDisappear() {
 #if DEBUG || os(macOS)
         #if os(macOS)
-        stopStudioDebugCommandPolling()
+        if IOThemRuntime.isRunningTests {
+            stopStudioDebugCommandPolling()
+        }
         #endif
 #endif
         backendHydrationTask?.cancel()

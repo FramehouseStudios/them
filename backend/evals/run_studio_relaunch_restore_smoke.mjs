@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import http from "node:http";
+import {
+  createStudioEvalDebugContext,
+  ensureStudioProjectLoadedWithDebugHook,
+  ensureStudioVisibleWithOpenHandshake,
+  stageStudioProjectLoadDebugRequest,
+} from "./studio_eval_debug_utils.mjs";
 import { fetchStudioProjectMetadata } from "./studio_project_metadata_probe.mjs";
 import { createStudioRestoreFixture } from "./studio_restore_seed_helper.mjs";
 
@@ -112,26 +118,30 @@ function findDebugAppPath() {
   return discovered;
 }
 
+const studioDebug = createStudioEvalDebugContext({ run, runOptional });
+
 function readDefaultString(key) {
-  const result = runOptional("defaults", ["read", "io.them.them", key]);
-  return result.status === 0 ? result.stdout.trim() : "";
+  return studioDebug.readDefaultString(key);
 }
 
 function writeDefaultString(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-string", String(value)]);
+  studioDebug.writeDefaultString(key, value);
 }
 
 function readDefaultInt(key) {
-  const value = Number(readDefaultString(key));
-  return Number.isFinite(value) ? value : 0;
+  return studioDebug.readDefaultInt(key);
 }
 
 function writeDefaultInt(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-int", String(value)]);
+  studioDebug.writeDefaultInt(key, value);
 }
 
 function synchronizeDefaults() {
   runOptional("defaults", ["synchronize", "io.them.them"]);
+  for (const plistPath of studioDebug.defaults.plistTargets || []) {
+    const target = plistPath.endsWith(".plist") ? plistPath.slice(0, -".plist".length) : plistPath;
+    runOptional("defaults", ["synchronize", target]);
+  }
 }
 
 function normalizeKey(value) {
@@ -175,13 +185,7 @@ function fallbackOwnerHeaders() {
 }
 
 function readDebugDiffState() {
-  const raw = readDefaultString("studio_debug_diff_state_json");
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  return studioDebug.readDebugDiffState(null);
 }
 
 function readFullThreadBrowseStateMap() {
@@ -306,55 +310,18 @@ function appIsRunning() {
 }
 
 function activateApp() {
-  osascript(['tell application "them" to activate']);
-}
-
-function launchApp(appPath) {
-  run("open", ["-na", appPath]);
+  runOptional("osascript", ["-e", 'tell application "them" to activate'], {
+    timeout: 2000,
+  });
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application \"them\" to quit', "-e", "end try"]);
-}
-
-let debugTokenCounter = Math.max(1, readDefaultInt("studio_debug_open_token"));
-function nextDebugToken() {
-  debugTokenCounter += 1;
-  return debugTokenCounter;
-}
-
-let loadProjectTokenCounter = Math.max(1, readDefaultInt("studio_debug_load_project_token"));
-function requestStudioProjectLoad(projectId, versionId = "") {
-  loadProjectTokenCounter += 1;
-  writeFileSync("/tmp/them_studio_debug_load_project_request.json", JSON.stringify({
-    token: loadProjectTokenCounter,
-    projectID: String(projectId || "").trim(),
-    versionID: String(versionId || "").trim(),
-  }), "utf8");
-  writeDefaultString("studio_debug_load_project_id", projectId);
-  writeDefaultString("studio_debug_load_project_version_id", versionId);
-  writeDefaultInt("studio_debug_load_project_ack_token", 0);
-  writeDefaultInt("studio_debug_load_project_token", loadProjectTokenCounter);
-  synchronizeDefaults();
-  return loadProjectTokenCounter;
-}
-
-async function ensureStudioVisible() {
-  writeDefaultInt("studio_debug_open_token", nextDebugToken());
-  await sleep(1200);
-  activateApp();
-  await waitFor(() => appHasWindow(), "visible THEM window after Studio open");
-}
-
-async function relaunchApp(appPath) {
-  if (appIsRunning()) {
-    quitApp();
-    await waitFor(() => !appIsRunning(), "THEM process to quit", 15000, 300);
-  }
-  launchApp(appPath);
-  await waitFor(() => appIsRunning(), "THEM process after relaunch", 20000, 300);
-  activateApp();
-  await ensureStudioVisible();
+  runOptional("osascript", ["-e", "try", "-e", 'tell application \"them\" to quit', "-e", "end try"], {
+    timeout: 2000,
+  });
+  runOptional("killall", ["them"], {
+    timeout: 2000,
+  });
 }
 
 async function ensureAppStopped() {
@@ -381,6 +348,7 @@ let seededRecord = null;
 let appPath = "";
 let restoredState = null;
 let backendProbe = null;
+let stagedProjectLoadRequest = null;
 
 function isExpectedRestoredState(state, projectId, activeVersionId, expectedDraft) {
   if (!state) return false;
@@ -413,6 +381,15 @@ try {
   await ensureOwnerIdentity();
   appPath = findDebugAppPath();
   await ensureAppStopped();
+  const staleLoadProjectToken = Math.max(
+    readDefaultInt("studio_debug_load_project_token"),
+    readDefaultInt("studio_debug_load_project_ack_token")
+  );
+  writeDefaultInt("studio_debug_load_project_token", staleLoadProjectToken);
+  writeDefaultInt("studio_debug_load_project_ack_token", staleLoadProjectToken);
+  writeDefaultString("studio_debug_load_project_id", "");
+  writeDefaultString("studio_debug_load_project_version_id", "");
+  writeDefaultString("studio_debug_project_load_trace_json", "[]");
   const threadStateMap = readFullThreadBrowseStateMap();
   threadStateMap[seededRecord.projectKey] = seededRecord.rawRecord;
   writeDefaultString("studio.full.thread.state.v1", JSON.stringify(threadStateMap));
@@ -448,8 +425,29 @@ try {
     `Expected backend active draft to match seeded Clementine page write, got ${backendProbe.activeVersion.draft}`
   );
 
-  requestStudioProjectLoad(projectId, backendProbe.activeVersionId);
-  await relaunchApp(appPath);
+  stagedProjectLoadRequest = stageStudioProjectLoadDebugRequest({
+    debugDefaults: studioDebug.defaults,
+    projectId,
+    versionId: backendProbe.activeVersionId,
+  });
+
+  await ensureStudioVisibleWithOpenHandshake({
+    appPath,
+    debugDefaults: studioDebug.defaults,
+    runOptional,
+    activateApp,
+    appHasWindow,
+    readDebugDiffState,
+  });
+
+  await ensureStudioProjectLoadedWithDebugHook({
+    debugDefaults: studioDebug.defaults,
+    projectId,
+    versionId: backendProbe.activeVersionId,
+    readDebugDiffState,
+    timeoutMs: 45000,
+    stagedRequest: stagedProjectLoadRequest,
+  });
 
   try {
     await waitFor(() => {

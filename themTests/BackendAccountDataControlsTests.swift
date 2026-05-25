@@ -164,6 +164,29 @@ final class BackendCredentialMigrationTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "client_token"), "legacy-token")
     }
 
+    func testStudioDebugProjectLoadUsesDefaultsClientTokenOverride() {
+        defaults.set(" studio-smoke-project ", forKey: "client_token")
+        defaults.set("project-123", forKey: "studio_debug_load_project_id")
+        defaults.set(101, forKey: "studio_debug_load_project_token")
+        defaults.set(100, forKey: "studio_debug_load_project_ack_token")
+
+        XCTAssertTrue(BackendAuthClient.isStudioDebugClientTokenOverrideActive(defaults: defaults))
+        XCTAssertEqual(
+            BackendAuthClient.studioDebugClientTokenOverride(defaults: defaults),
+            "studio-smoke-project"
+        )
+    }
+
+    func testStudioDebugProjectLoadOverrideClearsAfterAck() {
+        defaults.set("studio-smoke-project", forKey: "client_token")
+        defaults.set("project-123", forKey: "studio_debug_load_project_id")
+        defaults.set(101, forKey: "studio_debug_load_project_token")
+        defaults.set(101, forKey: "studio_debug_load_project_ack_token")
+
+        XCTAssertFalse(BackendAuthClient.isStudioDebugClientTokenOverrideActive(defaults: defaults))
+        XCTAssertNil(BackendAuthClient.studioDebugClientTokenOverride(defaults: defaults))
+    }
+
     func testNewWritesUseKeychainAndRemoveDefaults() {
         defaults.set("stale-user", forKey: "user_id")
         var keychain: [String: String] = [:]

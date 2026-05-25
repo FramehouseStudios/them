@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import http from "node:http";
+import {
+  createStudioEvalDebugContext,
+  ensureStudioProjectLoadedWithDebugHook,
+  ensureStudioVisibleWithOpenHandshake,
+  stageStudioProjectLoadDebugRequest,
+} from "./studio_eval_debug_utils.mjs";
 import { fetchStudioProjectMetadata } from "./studio_project_metadata_probe.mjs";
 import { createStudioRestoreFixture } from "./studio_restore_seed_helper.mjs";
 
@@ -77,22 +83,22 @@ function findDebugAppPath() {
   return discovered;
 }
 
+const studioDebug = createStudioEvalDebugContext({ run, runOptional });
+
 function readDefaultString(key) {
-  const result = runOptional("defaults", ["read", "io.them.them", key]);
-  return result.status === 0 ? result.stdout.trim() : "";
+  return studioDebug.readDefaultString(key);
 }
 
 function writeDefaultString(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-string", String(value)]);
+  studioDebug.writeDefaultString(key, value);
 }
 
 function readDefaultInt(key) {
-  const value = Number(readDefaultString(key));
-  return Number.isFinite(value) ? value : 0;
+  return studioDebug.readDefaultInt(key);
 }
 
 function writeDefaultInt(key, value) {
-  run("defaults", ["write", "io.them.them", key, "-int", String(value)]);
+  studioDebug.writeDefaultInt(key, value);
 }
 
 function normalizeKey(value) {
@@ -141,13 +147,7 @@ function projectIdFromHistoryKey(value) {
 }
 
 function readDebugDiffState() {
-  const raw = readDefaultString("studio_debug_diff_state_json");
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  return studioDebug.readDebugDiffState(null);
 }
 
 function readFullThreadBrowseStateMap() {
@@ -374,49 +374,18 @@ function appIsRunning() {
 }
 
 function activateApp() {
-  osascript(['tell application "them" to activate']);
-}
-
-function launchApp(appPath) {
-  run("open", ["-na", appPath]);
+  runOptional("osascript", ["-e", 'tell application "them" to activate'], {
+    timeout: 2000,
+  });
 }
 
 function quitApp() {
-  runOptional("osascript", ["-e", "try", "-e", 'tell application \"them\" to quit', "-e", "end try"]);
-}
-
-let debugTokenCounter = Math.max(1, readDefaultInt("studio_debug_open_token"));
-function nextDebugToken() {
-  debugTokenCounter += 1;
-  return debugTokenCounter;
-}
-
-let loadProjectTokenCounter = Math.max(1, readDefaultInt("studio_debug_load_project_token"));
-function requestStudioProjectLoad(projectId, versionId = "") {
-  loadProjectTokenCounter += 1;
-  writeDefaultString("studio_debug_load_project_id", projectId);
-  writeDefaultString("studio_debug_load_project_version_id", versionId);
-  writeDefaultInt("studio_debug_load_project_ack_token", 0);
-  writeDefaultInt("studio_debug_load_project_token", loadProjectTokenCounter);
-  return loadProjectTokenCounter;
-}
-
-async function ensureStudioVisible() {
-  writeDefaultInt("studio_debug_open_token", nextDebugToken());
-  await sleep(1200);
-  activateApp();
-  await waitFor(() => appHasWindow(), "visible THEM window after Studio open");
-}
-
-async function relaunchApp(appPath) {
-  if (appIsRunning()) {
-    quitApp();
-    await waitFor(() => !appIsRunning(), "THEM process to quit", 15000, 300);
-  }
-  launchApp(appPath);
-  await waitFor(() => appIsRunning(), "THEM process after relaunch", 20000, 300);
-  activateApp();
-  await ensureStudioVisible();
+  runOptional("osascript", ["-e", "try", "-e", 'tell application \"them\" to quit', "-e", "end try"], {
+    timeout: 2000,
+  });
+  runOptional("killall", ["them"], {
+    timeout: 2000,
+  });
 }
 
 async function ensureAppStopped() {
@@ -443,6 +412,7 @@ let restoredState = null;
 let backendProbe = null;
 let appPath = "";
 let thrownError = null;
+let stagedProjectLoadRequest = null;
 
 try {
   const health = await readHealth();
@@ -455,6 +425,15 @@ try {
 
   appPath = findDebugAppPath();
   await ensureAppStopped();
+  const staleLoadProjectToken = Math.max(
+    readDefaultInt("studio_debug_load_project_token"),
+    readDefaultInt("studio_debug_load_project_ack_token")
+  );
+  writeDefaultInt("studio_debug_load_project_token", staleLoadProjectToken);
+  writeDefaultInt("studio_debug_load_project_ack_token", staleLoadProjectToken);
+  writeDefaultString("studio_debug_load_project_id", "");
+  writeDefaultString("studio_debug_load_project_version_id", "");
+  writeDefaultString("studio_debug_project_load_trace_json", "[]");
   const draftRecovery = {
     draft: seedFixture.draftReopened,
     baseVersionId: "",
@@ -504,8 +483,20 @@ try {
     `Expected backend reopened lineage overlap, got ${JSON.stringify(backendProbe.reopenedLineageKeys)}`
   );
 
-  await relaunchApp(appPath);
-  requestStudioProjectLoad(projectId, backendProbe.activeVersionId);
+  stagedProjectLoadRequest = stageStudioProjectLoadDebugRequest({
+    debugDefaults: studioDebug.defaults,
+    projectId,
+    versionId: backendProbe.activeVersionId,
+  });
+
+  await ensureStudioVisibleWithOpenHandshake({
+    appPath,
+    debugDefaults: studioDebug.defaults,
+    runOptional,
+    activateApp,
+    appHasWindow,
+    readDebugDiffState,
+  });
 
   await waitFor(() => {
     const state = readDebugDiffState();
@@ -513,6 +504,15 @@ try {
     const sessionID = normalizeKey(state.debugSessionID);
     return Boolean(sessionID) && sessionID !== originalDebugSessionID;
   }, "fresh Studio debug session after relaunch", 25000, 300);
+
+  await ensureStudioProjectLoadedWithDebugHook({
+    debugDefaults: studioDebug.defaults,
+    projectId,
+    versionId: backendProbe.activeVersionId,
+    readDebugDiffState,
+    timeoutMs: 45000,
+    stagedRequest: stagedProjectLoadRequest,
+  });
 
   await waitFor(() => {
     const state = readDebugDiffState();

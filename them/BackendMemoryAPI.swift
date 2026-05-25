@@ -2442,12 +2442,39 @@ nonisolated enum BackendAuthClient {
     }
 
     static func sharedClientToken() -> String? {
-        BackendCredentialMigration.readString(
+        #if DEBUG
+        if let debugOverride = studioDebugClientTokenOverride() {
+            return debugOverride
+        }
+        #endif
+        return BackendCredentialMigration.readString(
             account: clientTokenAccount,
             defaultsKey: "client_token",
             readKeychain: readKeychainString,
             writeKeychain: writeKeychainString
         )
+    }
+
+    static func studioDebugClientTokenOverride(defaults: UserDefaults = .standard) -> String? {
+        #if DEBUG
+        guard isStudioDebugClientTokenOverrideActive(defaults: defaults) else { return nil }
+        let token = BackendCredentialMigration.normalizedNonEmpty(defaults.string(forKey: "client_token"))
+        return token.isEmpty ? nil : token
+        #else
+        return nil
+        #endif
+    }
+
+    static func isStudioDebugClientTokenOverrideActive(defaults: UserDefaults = .standard) -> Bool {
+        #if DEBUG
+        let token = BackendCredentialMigration.normalizedNonEmpty(defaults.string(forKey: "client_token"))
+        let projectID = BackendCredentialMigration.normalizedNonEmpty(defaults.string(forKey: "studio_debug_load_project_id"))
+        let loadToken = defaults.integer(forKey: "studio_debug_load_project_token")
+        let ackToken = defaults.integer(forKey: "studio_debug_load_project_ack_token")
+        return !token.isEmpty && !projectID.isEmpty && loadToken > 0 && loadToken != ackToken
+        #else
+        return false
+        #endif
     }
 
     static func sharedClientTokenExpiry() -> String? {
@@ -5892,7 +5919,9 @@ actor BackendMemoryAPI {
         cachedSession = sessionPayload
         cachedSessionAt = Date()
 
-        BackendAuthClient.persistSharedClientToken(sessionPayload.clientToken, expiryRaw: nil)
+        if !BackendAuthClient.isStudioDebugClientTokenOverrideActive() {
+            BackendAuthClient.persistSharedClientToken(sessionPayload.clientToken, expiryRaw: nil)
+        }
         if let userId = sessionPayload.userId {
             let normalized = normalizedUserID(userId)
             if !normalized.isEmpty {
