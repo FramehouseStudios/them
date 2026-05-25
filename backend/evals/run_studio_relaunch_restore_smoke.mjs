@@ -273,6 +273,68 @@ async function postBackendProjectVersion(projectId, recovery, headers = ownerHea
   return payload;
 }
 
+async function postBackendCollaborator(projectId, collaboratorEmail, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
+  const response = await fetch(`${baseURL}/screenplay/projects/${projectId}/collaborators`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      email: collaboratorEmail,
+      action: "approve",
+      note: "Seeded before Studio relaunch restore.",
+      invited_by: "studio-relaunch-restore-smoke",
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(`Failed to seed backend collaborator: ${response.status} ${JSON.stringify(payload)}`);
+  }
+  return payload;
+}
+
+async function postBackendComment(projectId, body, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
+  const response = await fetch(`${baseURL}/screenplay/projects/${projectId}/comments`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(`Failed to seed backend comment: ${response.status} ${JSON.stringify(payload)}`);
+  }
+  return payload;
+}
+
+async function seedBackendCollaboration(projectId, collaboratorEmail, commentText, versionId = "", headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
+  const collaboratorPayload = await postBackendCollaborator(projectId, collaboratorEmail, headers, baseURL);
+  const commentPayload = await postBackendComment(projectId, {
+    text: commentText,
+    author_email: collaboratorEmail,
+    author_name: "Studio Relaunch Smoke",
+    actor_email: collaboratorEmail,
+    anchor_line: 1,
+    version_id: versionId,
+    type: "text",
+    action: "create",
+  }, headers, baseURL);
+  const commentId = String(commentPayload?.comment?.id || commentPayload?.comment_id || "").trim();
+  assert(commentId, `Seeded backend comment did not return an id: ${JSON.stringify(commentPayload)}`);
+  const resolvePayload = await postBackendComment(projectId, {
+    action: "resolve",
+    comment_id: commentId,
+    actor_email: collaboratorEmail,
+    author_email: collaboratorEmail,
+  }, headers, baseURL);
+  return {
+    collaboratorEmail,
+    commentText,
+    commentId,
+    versionId,
+    collaboratorPayload,
+    commentPayload,
+    resolvePayload,
+  };
+}
+
 async function waitForBackendReopenedHydration(projectId, seededRecord, minimumVersionCount = 1) {
   let latestProbe = null;
   await waitFor(async () => {
@@ -349,8 +411,29 @@ let appPath = "";
 let restoredState = null;
 let backendProbe = null;
 let stagedProjectLoadRequest = null;
+let seededCollaboration = null;
 
-function isExpectedRestoredState(state, projectId, activeVersionId, expectedDraft) {
+function isExpectedCollaborationState(state, expectedCollaboration) {
+  if (!expectedCollaboration) return true;
+  const approvedEmails = Array.isArray(state.approvedEmails)
+    ? state.approvedEmails.map((value) => normalizeKey(value)).filter(Boolean)
+    : [];
+  const collaboratorCount = Number(state.collaboratorCount ?? state.collaborator_count ?? 0);
+  const commentCount = Number(state.commentCount ?? state.comment_count ?? 0);
+  const latestCommentText = normalizeText(state.latestCommentText ?? state.latest_comment_text ?? "");
+  const latestCommentAuthor = normalizeKey(state.latestCommentAuthor ?? state.latest_comment_author ?? "");
+  const latestCommentResolved = Boolean(state.latestCommentResolved ?? state.latest_comment_resolved);
+  const latestCommentDeleted = Boolean(state.latestCommentDeleted ?? state.latest_comment_deleted);
+  return collaboratorCount >= 1
+    && approvedEmails.includes(normalizeKey(expectedCollaboration.collaboratorEmail))
+    && commentCount >= 1
+    && latestCommentText === normalizeText(expectedCollaboration.commentText)
+    && latestCommentAuthor === normalizeKey(expectedCollaboration.collaboratorEmail)
+    && latestCommentResolved === true
+    && latestCommentDeleted === false;
+}
+
+function isExpectedRestoredState(state, projectId, activeVersionId, expectedDraft, expectedCollaboration = null) {
   if (!state) return false;
   const restoredReopenedLineageKeys = Array.isArray(state.restoredReopenedLineageKeys)
     ? state.restoredReopenedLineageKeys.map((value) => normalizeKey(value)).filter(Boolean)
@@ -371,7 +454,8 @@ function isExpectedRestoredState(state, projectId, activeVersionId, expectedDraf
     && normalizeKey(state.loadProjectStage) === "editor_ready"
     && !normalizeKey(state.loadProjectError)
     && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes(normalizeText(expectedDraft))
-    && Number(state.reopenedDiffCount || 0) > 0;
+    && Number(state.reopenedDiffCount || 0) > 0
+    && isExpectedCollaborationState(state, expectedCollaboration);
 }
 
 try {
@@ -401,16 +485,22 @@ try {
   writeDefaultString("studio.ask.note.history.v2", JSON.stringify(askHistoryMap));
   synchronizeDefaults();
   await postBackendProjectThreadState(projectId, seededRecord);
-  await postBackendProjectVersion(projectId, {
+  const ownerVersionPayload = await postBackendProjectVersion(projectId, {
     draft: seedFixture.draftReopened,
     baseVersionId: "",
   });
+  const ownerVersionId = String(ownerVersionPayload?.version_id || ownerVersionPayload?.server_version_id || "").trim();
+  const collaboratorEmail = `relaunch-collab-${projectId}@example.com`.toLowerCase();
+  const commentText = `Relaunch collaboration restore note ${projectId}`;
+  seededCollaboration = await seedBackendCollaboration(projectId, collaboratorEmail, commentText, ownerVersionId);
   for (const baseURL of ["http://127.0.0.1:3000", "http://localhost:3000"]) {
     await postBackendProjectThreadState(projectId, seededRecord, fallbackOwnerHeaders(), baseURL);
-    await postBackendProjectVersion(projectId, {
+    const fallbackVersionPayload = await postBackendProjectVersion(projectId, {
       draft: seedFixture.draftReopened,
       baseVersionId: "",
     }, fallbackOwnerHeaders(), baseURL);
+    const fallbackVersionId = String(fallbackVersionPayload?.version_id || fallbackVersionPayload?.server_version_id || "").trim();
+    await seedBackendCollaboration(projectId, collaboratorEmail, commentText, fallbackVersionId, fallbackOwnerHeaders(), baseURL);
   }
   const probe = await waitForBackendReopenedHydration(projectId, seededRecord);
   assert(probe.response.ok, `Backend project probe failed: ${probe.response.status} ${JSON.stringify(probe.payload)}`);
@@ -457,11 +547,11 @@ try {
       const state = readDebugDiffState();
       if (!state) return false;
       restoredState = state;
-      return isExpectedRestoredState(state, projectId, backendProbe.activeVersionId, seedFixture.draftReopened);
+      return isExpectedRestoredState(state, projectId, backendProbe.activeVersionId, seedFixture.draftReopened, seededCollaboration);
     }, "restored reopened diff state after relaunch", 60000, 300);
   } catch (error) {
     restoredState = readDebugDiffState();
-    if (isExpectedRestoredState(restoredState, projectId, backendProbe.activeVersionId, seedFixture.draftReopened)) {
+    if (isExpectedRestoredState(restoredState, projectId, backendProbe.activeVersionId, seedFixture.draftReopened, seededCollaboration)) {
       // The app can publish the final debug payload just after the last wait poll on slow rebuilds.
     } else {
       console.error(JSON.stringify({
@@ -470,6 +560,7 @@ try {
         appPath,
         throwawayProjectId: seedFixture?.projectId || "",
         seededRecord,
+        seededCollaboration,
         backendProbe,
         localThreadStateMap: readFullThreadBrowseStateMap(),
         restoredState,
@@ -485,6 +576,7 @@ try {
         appPath,
         throwawayProjectId: seedFixture?.projectId || "",
         seededRecord,
+        seededCollaboration,
         backendProbe,
         restoredState,
       },

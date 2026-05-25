@@ -15382,6 +15382,14 @@ private var projectsSidebarContent: some View {
         let pageWriteToastPreview: String
         let voicePinTurnCount: Int
         let voicePinEmpty: Bool
+        let collaboratorCount: Int
+        let approvedEmails: [String]
+        let commentCount: Int
+        let latestCommentID: String
+        let latestCommentText: String
+        let latestCommentAuthor: String
+        let latestCommentResolved: Bool
+        let latestCommentDeleted: Bool
         let collaboratorInspectorCompact: Bool
         let themCompanionMode: String
         let themUnifiedSurface: Bool
@@ -25780,6 +25788,14 @@ Look at the city.
             pageWriteToastPreview: currentPageWritePreview,
             voicePinTurnCount: voicePinTurns.count,
             voicePinEmpty: voicePinTurns.isEmpty,
+            collaboratorCount: vm.collaborators.count,
+            approvedEmails: vm.approvedEmails,
+            commentCount: vm.comments.count,
+            latestCommentID: vm.comments.first?.id ?? "",
+            latestCommentText: vm.comments.first?.text ?? "",
+            latestCommentAuthor: vm.comments.first?.authorEmail ?? "",
+            latestCommentResolved: vm.comments.first?.resolved ?? false,
+            latestCommentDeleted: vm.comments.first?.isDeleted ?? false,
             collaboratorInspectorCompact: true,
             themCompanionMode: liveDraftBridge.companionMode.rawValue,
             themUnifiedSurface: true,
