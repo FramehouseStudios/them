@@ -1,6 +1,8 @@
 name: quality-gate
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       run_eval:
@@ -87,13 +89,13 @@ jobs:
     runs-on: macos-latest
     env:
       RUN_SERVER: 1
-      RUN_EVAL: ${{ inputs.run_eval && '1' || '0' }}
-      RUN_CANON: ${{ inputs.run_canon && '1' || '0' }}
-      RUN_SPECULATIVE_REUSE_GATE: ${{ inputs.run_speculative_reuse_gate && '1' || '0' }}
-      RUN_SMOKE: ${{ inputs.run_smoke && '1' || '0' }}
-      RUN_TALK_RECOVERY_GATE: ${{ inputs.run_talk_recovery_gate && '1' || '0' }}
-      RUN_ALERT: ${{ inputs.run_alert && '1' || '0' }}
-      RUN_LOAD: ${{ inputs.run_load && '1' || '0' }}
+      RUN_EVAL: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_eval && '1' || '0') }}
+      RUN_CANON: ${{ github.event_name == 'pull_request' && '1' || (inputs.run_canon && '1' || '0') }}
+      RUN_SPECULATIVE_REUSE_GATE: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_speculative_reuse_gate && '1' || '0') }}
+      RUN_SMOKE: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_smoke && '1' || '0') }}
+      RUN_TALK_RECOVERY_GATE: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_talk_recovery_gate && '1' || '0') }}
+      RUN_ALERT: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_alert && '1' || '0') }}
+      RUN_LOAD: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_load && '1' || '0') }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       APP_TOKEN: ${{ secrets.APP_TOKEN }}
     steps:

@@ -1,0 +1,1 @@
+{"at":"2026-05-25T00:08:36.457Z","by":"codex","kind":"product_state","comment":"Day 5 CI merge safety: quality-gate now runs on pull_request with secret-backed gates disabled by default; auto-merge refuses risky release/auth/privacy paths and requires non-author cross-agent approval. Verified static CI safety test, workflow YAML parse, strict preflight, and diff check."}
