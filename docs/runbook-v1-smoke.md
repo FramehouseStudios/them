@@ -12,8 +12,17 @@ npm run eval:canon
 ```
 
 → All canon evals + all 4 V1 smokes pass. Exit 0 means V1 is safe
-to ship from a deterministic-tripwire perspective. (It does not
-mean iOS works — that's a human manual smoke.)
+to ship from a deterministic-tripwire perspective.
+
+For the iOS golden path:
+
+```
+xcodebuild -project them.xcodeproj -scheme them -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:themUITests test
+```
+
+→ The five `themUITests` smoke tests cover the V1 UI contracts.
+Manual smoke remains the source of truth for visual polish,
+microphone/audio quality, and signed release hardware behavior.
 
 ## Where this fits
 
@@ -204,11 +213,28 @@ node scripts/v1_status.mjs --pillar=talk
 Reads `docs/v1-definition.md` and emits per-pillar completion %
 and remaining items.
 
+## iOS V1 UI smoke
+
+The `themUITests` target runs five thin XCUITests against a DEBUG
+launch mode:
+
+- `test_first_run_onboarding_unlocks_companion`
+- `test_record_voice_turn_round_trips_to_screenplay`
+- `test_screenplay_export_returns_a_file`
+- `test_memory_recall_includes_a_mentioned_character`
+- `test_realtime_fallback_does_not_crash_companion`
+
+The app receives `--ui-testing` launch arguments, resets local
+defaults for isolation, skips real provider calls through the existing
+Studio stub transport, and uses deterministic screenplay/export data.
+CI runs this as a soft gate in `quality-gate.yml` until it has enough
+green history to promote to a hard gate.
+
 ## What this runbook does NOT cover
 
-- iOS-side manual smokes (record voice → reply → save → reopen).
-  Those are human-in-the-loop and tracked in
-  `docs/v1-definition.md`'s "Manual smoke" lines.
+- Visual polish and hardware-only iOS release proof. The five
+  `themUITests` cover the UI contracts; a human still signs off
+  microphone/audio feel and final TestFlight behavior.
 - LLM behavior. The V1 smokes deliberately avoid LLM calls — they
   pin shape and ordering, not semantics. LLM regression lives in
   the nightly regression eval (`eval:regression`).

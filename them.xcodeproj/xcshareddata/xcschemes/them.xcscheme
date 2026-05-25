@@ -35,6 +35,20 @@
                ReferencedContainer = "container:them.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "C0D09A222F5A000100000022"
+               BuildableName = "themUITests.xctest"
+               BlueprintName = "themUITests"
+               ReferencedContainer = "container:them.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -51,6 +65,16 @@
                BlueprintIdentifier = "A1B2C3082F50000100AAA001"
                BuildableName = "themTests.xctest"
                BlueprintName = "themTests"
+               ReferencedContainer = "container:them.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "C0D09A222F5A000100000022"
+               BuildableName = "themUITests.xctest"
+               BlueprintName = "themUITests"
                ReferencedContainer = "container:them.xcodeproj">
             </BuildableReference>
          </TestableReference>

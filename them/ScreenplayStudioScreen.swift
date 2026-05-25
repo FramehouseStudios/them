@@ -4345,6 +4345,7 @@ struct ScreenplayStudioScreen: View {
     @State private var lastAppliedStudioDebugPageWriteToastInteractionToken: Int = 0
     @State private var lastAppliedStudioDebugShortcutToken: Int = 0
     @State private var lastAppliedStudioDebugInspectorInteractionToken: Int = 0
+    @State private var didApplyUITestLaunchActions = false
     @State private var trackedStudioDebugProjectLoadToken: Int = 0
     @State private var trackedStudioDebugProjectLoadRequestedProjectID = ""
     @State private var trackedStudioDebugProjectLoadRequestedVersionID = ""
@@ -4360,6 +4361,8 @@ struct ScreenplayStudioScreen: View {
 
     var body: some View {
         studioConfiguredView
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("studio.surface")
     }
 
     private var studioConfiguredView: some View {
@@ -4616,6 +4619,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 applyDebugRouteMetadataSeedIfNeeded()
                 applyDebugIntelligenceQueueIfNeeded()
                 applyDebugShortcutIfNeeded()
+                applyUITestLaunchActionsIfNeeded()
                 publishDebugStudioDiffState()
             }
     }
@@ -6219,6 +6223,10 @@ Replace is best when this file should become the script you edit. Append is safe
                     .textFieldStyle(.plain)
                     .focused($studioPromptFocused)
                     .lineLimit(1...4)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        submitStudioPromptSeed()
+                    }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
                     .background(
@@ -6730,6 +6738,10 @@ Replace is best when this file should become the script you edit. Append is safe
                     .textFieldStyle(.plain)
                     .focused($studioPromptFocused)
                     .lineLimit(1...3)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        submitStudioPromptSeed()
+                    }
                     .accessibilityIdentifier("studio.prompt.field")
 
                     Button(isSubmittingStudioPrompt || isSubmittingPrompt ? "Sending…" : "Send") {
@@ -10862,6 +10874,7 @@ private var projectsSidebarContent: some View {
                         Button(item.title) {
                             Task { await exportCurrentDraft(format: item.format) }
                         }
+                        .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
                     }
                     Divider()
                     Button("Refresh Formats") {
@@ -10875,6 +10888,7 @@ private var projectsSidebarContent: some View {
                         .font(.system(size: 12, weight: .semibold, design: .default))
                 }
                 .buttonStyle(.bordered)
+                .accessibilityIdentifier("studio.export.menu")
 
                 Spacer(minLength: 0)
 
@@ -14336,6 +14350,10 @@ private var projectsSidebarContent: some View {
                     .textFieldStyle(.plain)
                     .focused($studioPromptFocused)
                     .lineLimit(1...3)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        submitStudioPromptSeed()
+                    }
                     .accessibilityIdentifier("studio.prompt.field")
 
                     Button(isSubmittingStudioPrompt || isSubmittingPrompt ? "Sending…" : "Send") {
@@ -15686,6 +15704,7 @@ private var projectsSidebarContent: some View {
             exchange.insertedText,
             exchange.revisedBlockText,
             exchange.resolvedAnchorExcerpt,
+            exchange.developmentText,
             exchange.noteBody
         ]
         for candidate in candidates {
@@ -18360,6 +18379,20 @@ Current draft version:
         .animation(.easeInOut(duration: 0.20), value: isDraftingPreviewActive)
         .animation(.easeInOut(duration: 0.20), value: isCommitNoticeVisible)
         .animation(.easeOut(duration: 0.22), value: isDirectionOnePageFocusTransitionVisible)
+        .overlay(alignment: .bottomLeading) {
+            #if DEBUG
+            if IOThemRuntime.isRunningUITests {
+                Text(vm.fountainDraft.isEmpty ? "EMPTY_DRAFT" : String(vm.fountainDraft.prefix(1_000)))
+                    .font(.system(size: 1))
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .accessibilityIdentifier("studio.draft.snapshot")
+            }
+            #endif
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.draft.surface")
+        .accessibilityValue(String(vm.fountainDraft.prefix(1_000)))
     }
 
     private var screenplayCurrentElementLabel: some View {
@@ -19084,6 +19117,7 @@ Current draft version:
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier(systemImage.hasPrefix("exclamationmark") ? "studio.error.text" : "studio.info.text")
     }
 
     private func draftRecoveryBanner(
@@ -22738,11 +22772,21 @@ Return revised screenplay lines only.
             liveDraftBridge.clearPendingPageWriteReplacement()
         }
         let debugReplacementMode = resolvedStudioDebugReplacementModeForSubmission(debugSubmitReplacementMode)
-        let effectiveDebugSubmitToken = debugSubmitToken ?? matchingPreparedStudioDebugSubmitToken(
+        let preparedDebugSubmitToken = matchingPreparedStudioDebugSubmitToken(
             text: text,
             routingMode: routingMode,
             replacementMode: debugReplacementMode
         )
+        #if DEBUG || os(macOS)
+        let shouldForceLocalStubSubmit = IOThemRuntime.isRunningUITests ||
+            shouldUseDebugStudioPromptStubTransportForLocalSubmit
+        let generatedDebugStubSubmitToken = shouldForceLocalStubSubmit
+            ? Int(Date().timeIntervalSince1970 * 1_000)
+            : nil
+        let effectiveDebugSubmitToken = debugSubmitToken ?? preparedDebugSubmitToken ?? generatedDebugStubSubmitToken
+        #else
+        let effectiveDebugSubmitToken = debugSubmitToken ?? preparedDebugSubmitToken
+        #endif
 #if DEBUG || os(macOS)
         if let effectiveDebugSubmitToken {
             setStudioDebugSubmitAck(
@@ -22754,7 +22798,7 @@ Return revised screenplay lines only.
             )
             resetStudioDebugSubmitResult()
             setStudioDebugSubmitStage("local_submit_accepted", token: effectiveDebugSubmitToken)
-            if shouldUseDebugStudioPromptStubTransportForLocalSubmit ||
+            if shouldForceLocalStubSubmit ||
                 (debugSubmitToken != nil && !shouldUseBackendStudioPromptTransportForDebugSubmit) {
                 setStudioDebugSubmitStage("stub_submit_started", token: effectiveDebugSubmitToken)
                 applyDebugStudioPromptStubSubmit(
@@ -23105,25 +23149,56 @@ The door closes softly. That is worse than a slam.
         return .project
     }
 
+    private func debugMentionedCharacterName(from prompt: String) -> String? {
+        let knownNames = ["mara", "lucy", "frank", "jess"]
+        let lowercasedPrompt = prompt.lowercased()
+        if let known = knownNames.first(where: { lowercasedPrompt.contains($0) }) {
+            return known.capitalized
+        }
+
+        let ignoredWords: Set<String> = [
+            "Remember",
+            "Scene",
+            "Story",
+            "Screenplay",
+            "Script",
+            "Give",
+            "Tell",
+            "Make",
+            "Write",
+            "Rewrite",
+            "Continue"
+        ]
+        let words = prompt.components(separatedBy: CharacterSet.alphanumerics.inverted)
+        for word in words {
+            guard word.count >= 3, !ignoredWords.contains(word) else { continue }
+            if word.first?.isUppercase == true {
+                return word
+            }
+        }
+        return nil
+    }
+
     private func debugStudioVoicePinStub(
         for prompt: String,
         memoryDomain: StudioMemoryDomain
     ) -> (title: String, body: String) {
+        let characterContext = debugMentionedCharacterName(from: prompt)
         switch memoryDomain {
         case .companion:
             return (
                 "Companion Check-In",
-                "You are not behind. Take one breath, name the smallest next move, and let the scene become manageable again. I am here with you."
+                "You are not behind. Take one breath, name the smallest next move, and let the scene become manageable again. I am here with you.\(characterContext.map { " For \($0), keep the emotional tell simple enough that the page can hold it." } ?? "")"
             )
         case .mixed:
             return (
                 "Midpoint Direction",
-                "The midpoint needs one irreversible choice. Put the character under pressure, make the emotional cost visible, then let the next scene deal with the fallout instead of explaining it."
+                "The midpoint needs one irreversible choice. Put the character under pressure, make the emotional cost visible, then let the next scene deal with the fallout instead of explaining it.\(characterContext.map { " For \($0), a joke can hide fear, but the scene should still let us feel the fear under it." } ?? "")"
             )
         case .project:
             return (
                 "Story Development",
-                "Make the parking-lot call a pressure valve before the confrontation. It gives her private fear, lets him arrive late to the truth, and makes the kitchen scene feel like escalation instead of setup."
+                "Make the parking-lot call a pressure valve before the confrontation. It gives her private fear, lets him arrive late to the truth, and makes the kitchen scene feel like escalation instead of setup.\(characterContext.map { " For \($0), keep the wit as armor instead of decoration." } ?? "")"
             )
         }
     }
@@ -24042,6 +24117,61 @@ Look at the city.
         publishDebugStudioDiffState()
         #endif
     }
+
+    private func applyUITestLaunchActionsIfNeeded() {
+        #if DEBUG
+        guard IOThemRuntime.isRunningUITests else { return }
+        guard !didApplyUITestLaunchActions else { return }
+        didApplyUITestLaunchActions = true
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--ui-route-page") {
+            studioPromptRoutingMode = .page
+        } else if arguments.contains("--ui-route-voice-pin") {
+            studioPromptRoutingMode = .voicePin
+        }
+        if arguments.contains("--ui-open-export-tools") {
+            openDraftInspector()
+            selectedDraftToolsSection = .pages
+        }
+        if arguments.contains("--ui-open-commandbar") {
+            openStudioCommandBar()
+        }
+        if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-page-prompt", in: arguments) {
+            studioPromptRoutingMode = .page
+            submitStudioPromptText(
+                prompt,
+                displayText: prompt,
+                source: .typed,
+                routingMode: .page,
+                successMessage: "Prompt sent to io.them.",
+                clearSeedOnSuccess: true,
+                sendingSuggestionID: nil
+            )
+        }
+        if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-voice-pin-prompt", in: arguments) {
+            studioPromptRoutingMode = .voicePin
+            submitStudioPromptText(
+                prompt,
+                displayText: prompt,
+                source: .typed,
+                routingMode: .voicePin,
+                successMessage: "Prompt sent to io.them.",
+                clearSeedOnSuccess: true,
+                sendingSuggestionID: nil
+            )
+        }
+        #endif
+    }
+
+    #if DEBUG
+    private func uiTestLaunchArgumentValue(_ key: String, in arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: key) else { return nil }
+        let valueIndex = arguments.index(after: index)
+        guard arguments.indices.contains(valueIndex) else { return nil }
+        return arguments[valueIndex]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    #endif
 
     private func applyDebugDraftInspectorIfNeeded() {
         #if DEBUG || os(macOS)
@@ -26423,6 +26553,12 @@ Look at the city.
             let artifact: BackendScreenplayExportArtifact
             #if os(macOS)
             artifact = try localExportArtifact(format: format)
+            #elseif DEBUG
+            if IOThemRuntime.isRunningUITests {
+                artifact = try uiTestExportArtifact(format: format)
+            } else {
+                artifact = try await vm.exportArtifact(format: format)
+            }
             #else
             artifact = try await vm.exportArtifact(format: format)
             #endif
@@ -26439,6 +26575,44 @@ Look at the city.
             vm.errorText = error.localizedDescription
         }
     }
+
+    #if DEBUG && !os(macOS)
+    private func uiTestExportArtifact(format: String) throws -> BackendScreenplayExportArtifact {
+        let cleanDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanDraft.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "Draft is empty.")
+        }
+        let cleanTitle = (vm.selectedProject?.title ?? "UITest Screenplay")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeTitle = cleanTitle.isEmpty ? "UITest-Screenplay" : cleanTitle
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        let normalizedFormat = format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedFormat == "fdx" {
+            let xml = """
+<?xml version="1.0" encoding="UTF-8"?>
+<FinalDraft DocumentType="Script" Template="No" Version="1">
+  <Content>
+    <Paragraph Type="Scene Heading"><Text>\(cleanDraft.components(separatedBy: .newlines).first ?? "INT. ROOM - DAY")</Text></Paragraph>
+  </Content>
+</FinalDraft>
+"""
+            return BackendScreenplayExportArtifact(
+                format: "fdx",
+                filename: "\(safeTitle).fdx",
+                contentType: "application/xml",
+                data: Data(xml.utf8)
+            )
+        }
+        return BackendScreenplayExportArtifact(
+            format: normalizedFormat == "markdown" ? "md" : normalizedFormat,
+            filename: "\(safeTitle).md",
+            contentType: "text/markdown; charset=utf-8",
+            data: Data("# \(cleanTitle.isEmpty ? "UITest Screenplay" : cleanTitle)\n\n\(cleanDraft)\n".utf8)
+        )
+    }
+    #endif
 
     #if os(macOS)
     private func localExportArtifact(format: String) throws -> BackendScreenplayExportArtifact {

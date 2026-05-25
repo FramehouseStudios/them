@@ -5,6 +5,10 @@ import os
 @main
 struct themApp: App {
     init() {
+        #if DEBUG
+        UITestLaunchConfiguration.applyIfNeeded()
+        #endif
+
         #if DEBUG || os(macOS)
         #if os(macOS)
         let launchProbeValue = String(Int(Date().timeIntervalSince1970 * 1000))

@@ -622,6 +622,7 @@ struct RootExperienceView: View {
     @State private var showingNotes = false
     @State private var showingTasks = false
     @State private var primarySurface: PrimarySurface = .home
+    @State private var uiTestForceStudioSurface = false
     @State private var showingEmailComposer = false
     @State private var showingRecap = false
     @State private var showingVoiceSettings = false
@@ -784,7 +785,7 @@ struct RootExperienceView: View {
     }
 
     private var isStudioSurfaceActive: Bool {
-        primarySurface == .studio
+        primarySurface == .studio || uiTestForceStudioSurface
     }
 
     private var usesRealtimePreviewTransport: Bool {
@@ -2027,16 +2028,23 @@ struct RootExperienceView: View {
         voice.isStudioMode = isStudioSurfaceActive
         configureRealtimeCallbacks()
         startOfflineTalkOutbox()
-        startBackendHealthMonitoring()
-        scheduleBackendHydration()
-        Task { @MainActor in
-            await screenplayDraftBridge.hydrateBackendCompanionState(force: false)
-        }
-        if voiceTransportMode == .realtimePreview {
+
+        if !IOThemRuntime.isRunningUITests {
+            startBackendHealthMonitoring()
+            scheduleBackendHydration()
             Task { @MainActor in
-                await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
+                await screenplayDraftBridge.hydrateBackendCompanionState(force: false)
+            }
+            if voiceTransportMode == .realtimePreview {
+                Task { @MainActor in
+                    await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
+                }
             }
         }
+
+        #if DEBUG
+        openUITestLaunchSurfaceIfNeeded()
+        #endif
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
             withAnimation(.easeInOut(duration: 2)) {
@@ -2046,6 +2054,22 @@ struct RootExperienceView: View {
 
         installMacKeyMonitorIfNeeded()
     }
+
+    #if DEBUG
+    private func openUITestLaunchSurfaceIfNeeded() {
+        guard IOThemRuntime.isRunningUITests else { return }
+        guard !evolution.needsOnboardingName else { return }
+        let arguments = ProcessInfo.processInfo.arguments
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if arguments.contains("--ui-open-data-controls") {
+                showingDataControls = true
+            } else if arguments.contains("--ui-open-studio") {
+                uiTestForceStudioSurface = true
+                openStudio()
+            }
+        }
+    }
+    #endif
 
     private func configureVoiceCallbacks() {
         voice.stopAssistantPlayback = {
@@ -2599,6 +2623,7 @@ struct RootExperienceView: View {
                         .buttonStyle(.plain)
                         .opacity(canStartTalk ? 1.0 : 0.55)
                         .allowsHitTesting(canStartTalk)
+                        .accessibilityIdentifier("home.talk.button")
                         .simultaneousGesture(
                             LongPressGesture(minimumDuration: 0.08, maximumDistance: 80).onEnded { _ in
                                 guard canStartTalk else { return }
@@ -3019,6 +3044,7 @@ struct RootExperienceView: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.open-data-controls")
 
                     Button {
                         openURL(privacyPolicyURL)
@@ -3074,6 +3100,7 @@ struct RootExperienceView: View {
             }
             .allowsHitTesting(!evolution.needsOnboardingName)
         }
+        .accessibilityIdentifier("home.surface")
     }
 
     private var studioSurface: some View {
@@ -3144,6 +3171,7 @@ struct RootExperienceView: View {
                                 onboardingSceneFocused = true
                             }
                         }
+                        .accessibilityIdentifier("onboarding.name.field")
 
                     TextField("A detective finds a letter under a motel door...", text: $onboardingSceneSeed, axis: .vertical)
                         .font(.system(size: 16, weight: .regular, design: .default))
@@ -3154,6 +3182,7 @@ struct RootExperienceView: View {
                         .onSubmit {
                             startMagicMomentOnboarding()
                         }
+                        .accessibilityIdentifier("onboarding.scene.field")
                 }
 
                 HStack(spacing: 10) {
@@ -3176,6 +3205,7 @@ struct RootExperienceView: View {
                             .stroke(Color.white.opacity(0.18), lineWidth: 1)
                     )
                     .disabled(!canStartMagicMoment)
+                    .accessibilityIdentifier("onboarding.voice-to-scene")
 
                     Button {
                         startMagicMomentOnboarding()
@@ -3196,6 +3226,7 @@ struct RootExperienceView: View {
                             .stroke(Color.white.opacity(0.24), lineWidth: 1)
                     )
                     .disabled(!canStartMagicMoment)
+                    .accessibilityIdentifier("onboarding.start-page")
                 }
 
                 if !magicMomentOnboardingError.isEmpty {
@@ -3298,6 +3329,11 @@ struct RootExperienceView: View {
             realtimeTransport.disconnect()
         }
         evolution.markAsScreenwriter()
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests {
+            uiTestForceStudioSurface = true
+        }
+        #endif
         let evo = evolution
         Task {
             await BackendMemoryAPI.shared.syncEvolutionState(
@@ -3330,6 +3366,7 @@ struct RootExperienceView: View {
         if realtimeTransport.isLive || realtimeTransport.isBusy {
             realtimeTransport.disconnect()
         }
+        uiTestForceStudioSurface = false
         withAnimation(.easeInOut(duration: 0.28)) {
             primarySurface = .home
         }
@@ -3591,6 +3628,36 @@ struct RootExperienceView: View {
         )
     }
 
+    private func debugMentionedCharacterName(from prompt: String) -> String? {
+        let knownNames = ["mara", "lucy", "frank", "jess"]
+        let lowercasedPrompt = prompt.lowercased()
+        if let known = knownNames.first(where: { lowercasedPrompt.contains($0) }) {
+            return known.capitalized
+        }
+
+        let ignoredWords: Set<String> = [
+            "Remember",
+            "Scene",
+            "Story",
+            "Screenplay",
+            "Script",
+            "Give",
+            "Tell",
+            "Make",
+            "Write",
+            "Rewrite",
+            "Continue"
+        ]
+        let words = prompt.components(separatedBy: CharacterSet.alphanumerics.inverted)
+        for word in words {
+            guard word.count >= 3, !ignoredWords.contains(word) else { continue }
+            if word.first?.isUppercase == true {
+                return word
+            }
+        }
+        return nil
+    }
+
     private func makeDebugStudioPromptStubReply(
         prompt: String,
         memoryDomain: StudioMemoryDomain,
@@ -3649,9 +3716,7 @@ FRANK looks up, finally forced to meet her.
                 projectID: projectID,
                 versionID: versionID,
                 noteTitle: "Story Development",
-                noteBody: """
-Put the call in the parking lot if you want the scene to begin with emotional exposure instead of domestic routine. It buys you urgency, isolates her before she crosses the threshold, and lets the kitchen confrontation land as escalation instead of setup.
-""",
+                noteBody: "Put the call in the parking lot if you want the scene to begin with emotional exposure instead of domestic routine. It buys you urgency, isolates her before she crosses the threshold, and lets the kitchen confrontation land as escalation instead of setup.\(debugMentionedCharacterName(from: prompt).map { "\n\nFor \($0), keep the private fear visible before the clever line; that makes the wit feel like armor, not decoration." } ?? "")",
                 insertedText: ""
             )
         case .companion:
@@ -3675,9 +3740,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
                 projectID: projectID,
                 versionID: versionID,
                 noteTitle: "Companion + Craft",
-                noteBody: """
-You're carrying both the scene problem and the pressure around it. For the midpoint, give the scene one irreversible choice, then let the emotional fallout arrive in the next beat instead of solving everything at once.
-""",
+                noteBody: "You're carrying both the scene problem and the pressure around it. For the midpoint, give the scene one irreversible choice, then let the emotional fallout arrive in the next beat instead of solving everything at once.\(debugMentionedCharacterName(from: prompt).map { "\n\nFor \($0), keep the emotional tell consistent: a joke can hide fear, but the page should still let us feel the fear under it." } ?? "")",
                 insertedText: ""
             )
         }

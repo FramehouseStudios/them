@@ -7,4 +7,8 @@ nonisolated enum IOThemRuntime {
             environment["XCTestBundlePath"] != nil ||
             NSClassFromString("XCTest.XCTestCase") != nil
     }
+
+    static var isRunningUITests: Bool {
+        ProcessInfo.processInfo.arguments.contains("--ui-testing")
+    }
 }

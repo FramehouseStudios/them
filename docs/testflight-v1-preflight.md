@@ -28,6 +28,12 @@ The checked and parked V1 checklist items match docs/v1-definition.md.
 
 The latest local app build and themTests result is recorded separately from the human smoke and signed-release checks.
 
+### iOS V1 UI smoke
+
+`xcodebuild -project them.xcodeproj -scheme them -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:themUITests test`
+
+The five XCUITests cover onboarding, talk-to-screenplay UI flow, export, memory recall, and realtime stub fallback before human visual/audio signoff.
+
 ### Release preflight
 
 `DEVELOPMENT_TEAM_ID=<team-id> APP_TOKEN_RELEASE=<token> scripts/appstore_preflight.sh`

@@ -153,6 +153,7 @@ struct DataControlsScreen: View {
                 await refreshOfflineOutbox(startMonitoring: false)
             }
         }
+        .accessibilityIdentifier("data.controls.screen")
     }
 
     private var header: some View {
@@ -366,6 +367,7 @@ struct DataControlsScreen: View {
                 }
             }
             .pickerStyle(.segmented)
+            .accessibilityIdentifier("data.voice.transport.picker")
 
             let selectedMode = ClementineVoiceTransportMode(rawValue: voiceTransportModeRaw) ?? .turnBased
             Text(selectedMode.subtitle)
@@ -395,6 +397,7 @@ struct DataControlsScreen: View {
                 }
             }
             .pickerStyle(.segmented)
+            .accessibilityIdentifier("data.realtime.provider.picker")
 
             let selectedMode = ClementineRealtimeSupplierMode.normalized(rawValue: realtimeSupplierModeRaw)
             Text(selectedMode.subtitle)
