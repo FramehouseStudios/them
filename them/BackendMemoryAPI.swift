@@ -2460,7 +2460,7 @@ nonisolated enum BackendAuthClient {
     static func studioDebugClientTokenOverride(defaults: UserDefaults = .standard) -> String? {
         #if DEBUG
         guard isStudioDebugClientTokenOverrideActive(defaults: defaults) else { return nil }
-        let token = BackendCredentialMigration.normalizedNonEmpty(defaults.string(forKey: "client_token"))
+        let token = studioDebugPreferenceString(forKey: "client_token", defaults: defaults)
         return token.isEmpty ? nil : token
         #else
         return nil
@@ -2469,15 +2469,47 @@ nonisolated enum BackendAuthClient {
 
     static func isStudioDebugClientTokenOverrideActive(defaults: UserDefaults = .standard) -> Bool {
         #if DEBUG
-        let token = BackendCredentialMigration.normalizedNonEmpty(defaults.string(forKey: "client_token"))
-        let projectID = BackendCredentialMigration.normalizedNonEmpty(defaults.string(forKey: "studio_debug_load_project_id"))
-        let loadToken = defaults.integer(forKey: "studio_debug_load_project_token")
-        let ackToken = defaults.integer(forKey: "studio_debug_load_project_ack_token")
+        let token = studioDebugPreferenceString(forKey: "client_token", defaults: defaults)
+        let projectID = studioDebugPreferenceString(forKey: "studio_debug_load_project_id", defaults: defaults)
+        let loadToken = studioDebugPreferenceInt(forKey: "studio_debug_load_project_token", defaults: defaults)
+        let ackToken = studioDebugPreferenceInt(forKey: "studio_debug_load_project_ack_token", defaults: defaults)
         return !token.isEmpty && !projectID.isEmpty && loadToken > 0 && loadToken != ackToken
         #else
         return false
         #endif
     }
+
+    #if DEBUG
+    private static func studioDebugPreferenceString(
+        forKey key: String,
+        defaults: UserDefaults
+    ) -> String {
+        if defaults !== UserDefaults.standard {
+            return BackendCredentialMigration.normalizedNonEmpty(defaults.string(forKey: key))
+        }
+        return preferenceString(forKey: key)
+    }
+
+    private static func studioDebugPreferenceInt(
+        forKey key: String,
+        defaults: UserDefaults
+    ) -> Int {
+        if defaults !== UserDefaults.standard {
+            return defaults.integer(forKey: key)
+        }
+        return preferenceValues(forKey: key).reduce(0) { best, value in
+            let parsed: Int
+            if let number = value as? NSNumber {
+                parsed = number.intValue
+            } else if let string = value as? String {
+                parsed = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            } else {
+                parsed = 0
+            }
+            return max(best, parsed)
+        }
+    }
+    #endif
 
     static func sharedClientTokenExpiry() -> String? {
         BackendCredentialMigration.readString(

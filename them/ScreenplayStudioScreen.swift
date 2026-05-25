@@ -23797,7 +23797,7 @@ The door closes softly. That is worse than a slam.
             && resolvedLoadedProjectID == cleanProjectID
             && resolvedLoadedDraftProjectID == cleanProjectID
         let resolvedRequestedVersion = cleanVersionID.isEmpty || resolvedVersionID == cleanVersionID
-        if !resolvedRequestedProject || !resolvedRequestedVersion || !resolvedErrorText.isEmpty {
+        if !resolvedRequestedProject || !resolvedRequestedVersion {
             let failureDetail = [
                 "Could not resolve requested debug project after selection.",
                 "selected=\(resolvedProjectID.isEmpty ? "none" : resolvedProjectID)",
@@ -23833,6 +23833,16 @@ The door closes softly. That is worse than a slam.
             )
             publishDebugStudioDiffState()
             return
+        }
+        if !resolvedErrorText.isEmpty {
+            vm.errorText = ""
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "selection_warning_cleared",
+                detail: "Ignored stale selection error after the requested project and version resolved: \(resolvedErrorText)",
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
         }
 
         liveDraftBridge.requestEditorFocus()
@@ -23935,6 +23945,15 @@ The door closes softly. That is worse than a slam.
         let requestedVersionID = liveDraftBridge.debugRequestedVersionID
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedProjectID.isEmpty else { return }
+        if token > 0,
+           token == lastAppliedBridgeDebugProjectLoadToken,
+           isStudioDebugProjectLoadReady(
+               projectID: requestedProjectID,
+               versionID: requestedVersionID,
+               requireEditorFocusConsumption: false
+           ) {
+            return
+        }
         if token > 0 {
             guard force || token != lastAppliedBridgeDebugProjectLoadToken else { return }
             lastAppliedBridgeDebugProjectLoadToken = token

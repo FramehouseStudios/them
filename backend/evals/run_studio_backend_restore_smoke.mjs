@@ -527,6 +527,9 @@ try {
       && normalizeKey(state.restoredLatestReopenedWriteID) === seededRecord.latestReopenedWriteID
       && normalizeKey(state.selectedProjectID) === normalizeKey(projectId)
       && normalizeKey(state.latestVersionID) === backendProbe.activeVersionId
+      && state.loadProjectReady === true
+      && normalizeKey(state.loadProjectStage) === "editor_ready"
+      && !normalizeKey(state.loadProjectError)
       && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes(normalizeText(draftRecovery.draft))
       && Number(state.reopenedDiffCount || 0) > 0;
   }, "backend-only reopened diff restore after relaunch", 45000, 300);

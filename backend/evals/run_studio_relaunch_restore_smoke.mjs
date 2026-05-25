@@ -367,6 +367,9 @@ function isExpectedRestoredState(state, projectId, activeVersionId, expectedDraf
     && normalizeKey(state.restoredLatestReopenedWriteID) === seededRecord.latestReopenedWriteID
     && normalizeKey(state.selectedProjectID) === normalizeKey(projectId)
     && normalizeKey(state.latestVersionID) === activeVersionId
+    && state.loadProjectReady === true
+    && normalizeKey(state.loadProjectStage) === "editor_ready"
+    && !normalizeKey(state.loadProjectError)
     && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes(normalizeText(expectedDraft))
     && Number(state.reopenedDiffCount || 0) > 0;
 }

@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 export function runCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -198,8 +200,48 @@ export function createStudioDebugDefaultsTransport({
       }
     }
     if (!wrote) {
+      const plistWrite = writeKeyToPlistTargets(key, args);
+      wrote = plistWrite.wrote;
+      lastError = plistWrite.lastError || lastError;
+    }
+    if (!wrote) {
       throw new Error(`Unable to write defaults key ${key}: ${lastError || "unknown defaults write failure"}`);
     }
+  }
+
+  function writeKeyToPlistTargets(key, args) {
+    let wrote = false;
+    let lastError = "";
+    const [type, rawValue] = args;
+    for (const target of debugPlistTargets) {
+      try {
+        mkdirSync(dirname(target.plistPath), { recursive: true });
+        const plist = readPlistObject(target.plistPath);
+        if (type === "-int") {
+          plist[key] = Number.parseInt(String(rawValue), 10) || 0;
+        } else if (type === "-bool") {
+          const normalized = String(rawValue).trim().toLowerCase();
+          plist[key] = normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+        } else {
+          plist[key] = String(rawValue ?? "");
+        }
+        const tempDir = mkdtempSync(join(tmpdir(), "them-defaults-"));
+        const tempJSONPath = join(tempDir, "preferences.json");
+        writeFileSync(tempJSONPath, JSON.stringify(plist), "utf8");
+        const result = runOptional("plutil", ["-convert", "binary1", "-o", target.plistPath, tempJSONPath], {
+          timeout: 3000,
+          maxBuffer: 64 * 1024 * 1024,
+        });
+        if (result.status === 0) {
+          wrote = true;
+        } else {
+          lastError = result.stderr || result.stdout || lastError;
+        }
+      } catch (error) {
+        lastError = error?.message || lastError;
+      }
+    }
+    return { wrote, lastError };
   }
 
   function writeString(key, value) {
