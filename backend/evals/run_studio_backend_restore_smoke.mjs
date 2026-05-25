@@ -101,6 +101,10 @@ function writeDefaultInt(key, value) {
   studioDebug.writeDefaultInt(key, value);
 }
 
+function readJsonDefaultValue(key, fallback = null) {
+  return studioDebug.readJsonDefault(key, fallback);
+}
+
 function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -305,6 +309,92 @@ async function postBackendProjectVersion(projectId, recovery, headers = ownerHea
   return payload;
 }
 
+async function fetchBackendJSON(path, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
+  const response = await fetch(`${baseURL}${path}`, { headers });
+  const payload = await response.json().catch(() => ({}));
+  return { response, payload };
+}
+
+async function performInspectorInteraction(action, primary = "", secondary = "") {
+  const token = studioDebug.nextToken(
+    "studio_debug_inspector_interaction_token",
+    "studio_debug_inspector_interaction_ack_token",
+    "studio_debug_inspector_interaction_result_token"
+  );
+  writeDefaultString("studio_debug_inspector_interaction_action", action);
+  writeDefaultString("studio_debug_inspector_interaction_primary", primary);
+  writeDefaultString("studio_debug_inspector_interaction_secondary", secondary);
+  writeDefaultString("studio_debug_inspector_interaction_result_status", "");
+  writeDefaultString("studio_debug_inspector_interaction_result_error", "");
+  writeDefaultString("studio_debug_inspector_interaction_result_json", "{}");
+  writeDefaultInt("studio_debug_inspector_interaction_ack_token", 0);
+  writeDefaultInt("studio_debug_inspector_interaction_result_token", 0);
+  await sleep(250);
+  writeDefaultInt("studio_debug_inspector_interaction_token", token);
+  await waitFor(
+    () => readDefaultInt("studio_debug_inspector_interaction_ack_token") === token,
+    `inspector interaction ack ${action} ${token}`,
+    15000,
+    150
+  );
+  await waitFor(
+    () => readDefaultInt("studio_debug_inspector_interaction_result_token") === token,
+    `inspector interaction result ${action} ${token}`,
+    30000,
+    150
+  );
+  const payload = readJsonDefaultValue("studio_debug_inspector_interaction_result_json", {}) || {};
+  const status = String(payload.status || "").trim().toLowerCase();
+  const error = String(payload.error || payload.vm_error_text || "").trim();
+  assert(
+    status === "handled" || status === "ok" || status === "success",
+    `Inspector interaction ${action} failed: status=${status || "missing"} error=${error || "none"} payload=${JSON.stringify(payload)}`
+  );
+  return payload;
+}
+
+async function verifyBackendCollaborationSnapshot(projectId, collaboratorEmail, commentText) {
+  const collaboratorsProbe = await fetchBackendJSON(`/screenplay/projects/${projectId}/collaborators`);
+  assert(
+    collaboratorsProbe.response.ok,
+    `Backend collaborators probe failed: ${collaboratorsProbe.response.status} ${JSON.stringify(collaboratorsProbe.payload)}`
+  );
+  const approvedEmails = Array.isArray(collaboratorsProbe.payload?.approved_emails)
+    ? collaboratorsProbe.payload.approved_emails.map((value) => String(value || "").trim().toLowerCase())
+    : [];
+  assert(
+    approvedEmails.includes(collaboratorEmail),
+    `Expected backend approved emails to include ${collaboratorEmail}, got ${JSON.stringify(approvedEmails)}`
+  );
+  const collaborator = (collaboratorsProbe.payload?.collaborators || []).find((item) =>
+    String(item?.email || "").trim().toLowerCase() === collaboratorEmail
+  );
+  assert(collaborator, `Expected backend collaborator ${collaboratorEmail}`);
+  assert(
+    String(collaborator.status || "").trim().toLowerCase() === "approved",
+    `Expected backend collaborator ${collaboratorEmail} approved, got ${collaborator.status}`
+  );
+
+  const commentsPath = `/screenplay/projects/${projectId}/comments?actor_email=${encodeURIComponent(collaboratorEmail)}&limit=160`;
+  const commentsProbe = await fetchBackendJSON(commentsPath);
+  assert(
+    commentsProbe.response.ok,
+    `Backend comments probe failed: ${commentsProbe.response.status} ${JSON.stringify(commentsProbe.payload)}`
+  );
+  const comment = (commentsProbe.payload?.comments || []).find((item) =>
+    normalizeText(item?.text || "") === normalizeText(commentText)
+  );
+  assert(comment, `Expected backend comment text ${commentText}`);
+  assert(comment.resolved === true, `Expected backend comment to be resolved: ${JSON.stringify(comment)}`);
+  assert(comment.can_edit === true, `Expected actor email to mark comment editable: ${JSON.stringify(comment)}`);
+  return {
+    collaborator,
+    comment,
+    collaboratorsPayload: collaboratorsProbe.payload,
+    commentsPayload: commentsProbe.payload,
+  };
+}
+
 async function waitForBackendReopenedHydration(projectId, seededRecord, minimumVersionCount = 1) {
   let latestProbe = null;
   await waitFor(async () => {
@@ -410,6 +500,7 @@ let seedFixture = null;
 let seededRecord = null;
 let restoredState = null;
 let backendProbe = null;
+let collaborationSnapshot = null;
 let appPath = "";
 let thrownError = null;
 let stagedProjectLoadRequest = null;
@@ -534,12 +625,50 @@ try {
       && Number(state.reopenedDiffCount || 0) > 0;
   }, "backend-only reopened diff restore after relaunch", 45000, 300);
 
+  const collaboratorEmail = `collab-${projectId}@example.com`.toLowerCase();
+  const commentText = `Restored owner context collaboration note ${projectId}`;
+  const collaboratorResult = await performInspectorInteraction(
+    "approve_collaborator",
+    collaboratorEmail,
+    "Approved by restored Studio owner smoke."
+  );
+  assert(
+    Array.isArray(collaboratorResult.approved_emails) && collaboratorResult.approved_emails.includes(collaboratorEmail),
+    `Expected app collaboration payload to approve ${collaboratorEmail}: ${JSON.stringify(collaboratorResult)}`
+  );
+  const commentResult = await performInspectorInteraction(
+    "add_comment",
+    collaboratorEmail,
+    commentText
+  );
+  assert(
+    Number(commentResult.comment_count || 0) >= 1,
+    `Expected app comment payload to include a saved comment: ${JSON.stringify(commentResult)}`
+  );
+  const commentId = String(commentResult.latest_comment_id || "").trim();
+  assert(commentId, `Expected app comment payload to include latest_comment_id: ${JSON.stringify(commentResult)}`);
+  const resolveResult = await performInspectorInteraction(
+    "resolve_first_comment",
+    commentId,
+    ""
+  );
+  assert(
+    resolveResult.latest_comment_resolved === true,
+    `Expected app comment payload to resolve the comment: ${JSON.stringify(resolveResult)}`
+  );
+  collaborationSnapshot = await verifyBackendCollaborationSnapshot(
+    projectId,
+    collaboratorEmail,
+    commentText
+  );
+
   console.log(JSON.stringify({
     ok: true,
     appPath,
     throwawayProjectId: seedFixture?.projectId || "",
     seededRecord,
     backendProbe,
+    collaborationSnapshot,
     restoredState,
   }, null, 2));
   console.log("studio-backend-restore-smoke: ok");

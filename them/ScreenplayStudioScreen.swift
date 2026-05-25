@@ -294,6 +294,12 @@ private enum StudioDebugInspectorInteractionAction: String {
     case moveSelectedBeatToEnd = "move_selected_beat_to_end"
     case seedBeatDraft = "seed_beat_draft"
     case restoreWorkspace = "restore_workspace"
+    case refreshCollaboration = "refresh_collaboration"
+    case approveCollaborator = "approve_collaborator"
+    case addComment = "add_comment"
+    case resolveFirstComment = "resolve_first_comment"
+    case unresolveFirstComment = "unresolve_first_comment"
+    case deleteFirstComment = "delete_first_comment"
 }
 
 private enum StudioDebugPageWriteToastMode: String {
@@ -25236,6 +25242,7 @@ Look at the city.
         guard studioDebugInspectorInteractionToken != lastAppliedStudioDebugInspectorInteractionToken else { return }
         lastAppliedStudioDebugInspectorInteractionToken = studioDebugInspectorInteractionToken
         studioDebugInspectorInteractionAckToken = studioDebugInspectorInteractionToken
+        mirrorStudioDebugInt(studioDebugInspectorInteractionToken, forKey: "studio_debug_inspector_interaction_ack_token")
 
         let requestedAction = StudioDebugInspectorInteractionAction(
             rawValue: studioDebugInspectorInteractionActionRaw
@@ -25382,6 +25389,120 @@ Look at the city.
                 vm.newBeatLabel = primary
                 vm.newBeatSummary = secondary
                 vm.infoText = "Loaded a draft beat into the composer."
+            case .refreshCollaboration:
+                directionOneRightPanelTab = .draft
+                selectedInspectorSection = .comments
+                vm.errorText = ""
+                await vm.refreshCollaborationData()
+                if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    status = "error"
+                    errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            case .approveCollaborator:
+                directionOneRightPanelTab = .draft
+                selectedInspectorSection = .collaborators
+                let email = primary.lowercased()
+                guard !email.isEmpty else {
+                    status = "error"
+                    errorText = "collaborator_email_missing"
+                    vm.infoText = "Enter a collaborator email."
+                    break
+                }
+                vm.errorText = ""
+                vm.collaboratorEmail = email
+                vm.collaboratorNote = secondary
+                vm.collaboratorInvitedBy = "studio-debug"
+                await vm.approveCollaborator()
+                if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    status = "error"
+                    errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else if !vm.approvedEmails.contains(email) {
+                    status = "error"
+                    errorText = "collaborator_not_approved"
+                }
+            case .addComment:
+                directionOneRightPanelTab = .draft
+                selectedInspectorSection = .comments
+                let fallbackAuthor = vm.approvedEmails.first ?? ""
+                let authorEmail = primary.isEmpty ? fallbackAuthor : primary.lowercased()
+                let commentBody = secondary.isEmpty
+                    ? "Clementine should keep this emotional beat alive on the next pass."
+                    : secondary
+                guard !commentBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    status = "error"
+                    errorText = "comment_text_missing"
+                    vm.infoText = "Add comment text or voice note details."
+                    break
+                }
+                vm.errorText = ""
+                vm.commentText = commentBody
+                vm.commentAuthorEmail = authorEmail
+                vm.commentActorEmail = authorEmail
+                vm.commentAuthorName = "Studio Debug"
+                vm.commentAnchorLine = "1"
+                vm.commentType = "text"
+                vm.commentVoiceURL = ""
+                vm.commentVoiceTranscript = ""
+                vm.commentVoiceDurationMs = ""
+                vm.commentReplyToID = ""
+                vm.commentEditID = ""
+                await vm.addComment()
+                let normalizedCommentBody = commentBody.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    status = "error"
+                    errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else if !vm.comments.contains(where: {
+                    ($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == normalizedCommentBody
+                }) {
+                    status = "error"
+                    errorText = "comment_not_saved"
+                }
+            case .resolveFirstComment, .unresolveFirstComment, .deleteFirstComment:
+                directionOneRightPanelTab = .draft
+                selectedInspectorSection = .comments
+                vm.errorText = ""
+                let requestedCommentID = primary.trimmingCharacters(in: .whitespacesAndNewlines)
+                let targetComment = vm.comments.first(where: { comment in
+                    let id = comment.id.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return !requestedCommentID.isEmpty && id == requestedCommentID
+                }) ?? vm.comments.first(where: { !($0.isDeleted ?? false) })
+                guard let targetComment else {
+                    status = "error"
+                    errorText = "comment_not_found"
+                    vm.infoText = "Select a comment first."
+                    break
+                }
+                switch requestedAction {
+                case .resolveFirstComment:
+                    await vm.setCommentResolved(targetComment, resolved: true)
+                    if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        status = "error"
+                        errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if vm.comments.first(where: { $0.id == targetComment.id })?.resolved != true {
+                        status = "error"
+                        errorText = "comment_not_resolved"
+                    }
+                case .unresolveFirstComment:
+                    await vm.setCommentResolved(targetComment, resolved: false)
+                    if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        status = "error"
+                        errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if vm.comments.first(where: { $0.id == targetComment.id })?.resolved == true {
+                        status = "error"
+                        errorText = "comment_not_reopened"
+                    }
+                case .deleteFirstComment:
+                    await vm.deleteComment(targetComment)
+                    if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        status = "error"
+                        errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if vm.comments.first(where: { $0.id == targetComment.id })?.isDeleted != true {
+                        status = "error"
+                        errorText = "comment_not_deleted"
+                    }
+                default:
+                    break
+                }
             case .restoreWorkspace:
                 isRestoringInspectorWorkspaceState = true
                 directionOneRightPanelTab = .draft
@@ -25423,13 +25544,29 @@ Look at the city.
                 "beat_draft_label": vm.newBeatLabel,
                 "beat_draft_summary": vm.newBeatSummary,
                 "highlighted_scene_key": highlightedSceneInspectorKey,
+                "collaborator_count": vm.collaborators.count,
+                "approved_emails": vm.approvedEmails,
+                "comment_count": vm.comments.count,
+                "comment_ids": vm.comments.map(\.id),
+                "latest_comment_id": vm.comments.first?.id ?? "",
+                "latest_comment_text": vm.comments.first?.text ?? "",
+                "latest_comment_author": vm.comments.first?.authorEmail ?? "",
+                "latest_comment_resolved": vm.comments.first?.resolved ?? false,
+                "latest_comment_deleted": vm.comments.first?.isDeleted ?? false,
+                "selected_project_id": vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines),
+                "latest_version_id": vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
                 "latest_info_text": vm.infoText,
+                "vm_error_text": vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines),
             ]
             let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
             studioDebugInspectorInteractionResultToken = studioDebugInspectorInteractionToken
             studioDebugInspectorInteractionResultStatus = status
             studioDebugInspectorInteractionResultError = errorText
             studioDebugInspectorInteractionResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            mirrorStudioDebugInt(studioDebugInspectorInteractionToken, forKey: "studio_debug_inspector_interaction_result_token")
+            mirrorStudioDebugString(status, forKey: "studio_debug_inspector_interaction_result_status")
+            mirrorStudioDebugString(errorText, forKey: "studio_debug_inspector_interaction_result_error")
+            mirrorStudioDebugString(studioDebugInspectorInteractionResultJSON, forKey: "studio_debug_inspector_interaction_result_json")
             publishDebugStudioDiffState()
         }
         #endif
