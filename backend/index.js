@@ -27742,6 +27742,7 @@ mountRealtimeClientSecretRoute(app, {
   OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
   OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
   getRealtimeProviderEnv: () => process.env.REALTIME_PROVIDER,
+  isProduction: () => NODE_ENV === "production",
 });
 
 // T-decompose-phase5b2-studio-render: two routes moved to

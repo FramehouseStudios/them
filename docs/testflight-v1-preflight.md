@@ -86,14 +86,15 @@ Pass: The app recalls useful character context and keeps support/debug surfaces 
 
 ### Realtime
 
-Goal: primary mint works; forced primary failure shows fallback
+Goal: primary mint works; failures surface as local fallback or production degraded state
 
 1. Set realtime supplier to the primary provider.
 2. Start a realtime session and confirm the primary session is minted.
 3. Force the primary provider to fail or run with a known failing primary config.
-4. Confirm the app shows the fallback/degraded state and does not strand the writer.
+4. In local/test, confirm deterministic stub fallback is visible and usable.
+5. In production, confirm the app shows degraded/unavailable state with no synthetic client secret.
 
-Pass: Primary succeeds when healthy; fallback is visible and usable when primary fails.
+Pass: Primary succeeds when healthy; local/test fallback remains visible; production failures never report stub as a successful realtime session.
 
 ## Parked Before V1 External Review
 

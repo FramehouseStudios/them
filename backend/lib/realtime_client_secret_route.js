@@ -59,6 +59,7 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
     clientIp,
     getAssistantSelfNameForIp,
     normalizeSnippet,
+    isProduction = () => false,
     // Constants
     OPENAI_API_KEY,
     OPENAI_REALTIME_MODEL,
@@ -90,6 +91,21 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
   }
   if (typeof OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS !== "number") {
     throw new Error("mountRealtimeClientSecretRoute: OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS must be a number");
+  }
+  if (typeof isProduction !== "function") {
+    throw new Error("mountRealtimeClientSecretRoute: isProduction must be a function");
+  }
+
+  function realtimeProductionMode() {
+    try {
+      return Boolean(isProduction());
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  function supplierKind(value) {
+    return String(value?.kind || value || "unknown").trim().toLowerCase();
   }
 
   app.post("/realtime/client_secret", express.json({ limit: CLIENT_SECRET_BODY_LIMIT }), async (req, res) => {
@@ -130,8 +146,23 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
       }
     }
 
-    const allowFallback = !requestedProvider
-      && String(supplier?.kind || "").toLowerCase() !== "stub";
+    const productionMode = realtimeProductionMode();
+    const currentSupplierKind = supplierKind(supplier);
+    if (productionMode && currentSupplierKind === "stub") {
+      incrementErrorCounter("realtime_stub_disabled_in_production");
+      return res.status(503).json({
+        stage: "realtime_auth",
+        code: "realtime_stub_disabled_in_production",
+        realtime_provider: "stub",
+        fallback: false,
+        degraded: true,
+        error: "Stub realtime provider is disabled in production.",
+      });
+    }
+
+    const allowFallback = !productionMode
+      && !requestedProvider
+      && currentSupplierKind !== "stub";
     const mintParams = {
       instructions: requestedPrompt,
       voice: requestedVoice || OPENAI_REALTIME_VOICE,
@@ -168,10 +199,12 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
           error: String(cause?.message || cause || "Realtime supplier request failed."),
         });
       }
-      return res.status(Number(err?.status || 502)).json({
+      const status = productionMode ? 503 : Number(err?.status || 502);
+      return res.status(status).json({
         stage: "realtime_auth",
         code: err?.code || "realtime_supplier_request_failed",
         realtime_provider: primarySupplierKind,
+        ...(productionMode ? { fallback: false, degraded: true } : {}),
         error: String(err?.message || err || "Realtime supplier request failed."),
       });
     }

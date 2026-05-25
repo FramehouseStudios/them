@@ -289,3 +289,34 @@ test("[failover-route] pinned provider does not fall back", async () => {
     await upstream.close();
   }
 });
+
+test("[failover-route] production primary failure returns degraded 503 without stub success", async () => {
+  const upstream = await createFailingRealtimeEndpoint();
+  const server = await startBackend({
+    env: {
+      NODE_ENV: "production",
+      DATABASE_URL: "postgres://user:pass@127.0.0.1:1/them",
+      SCALE_BACKPLANE_ENABLED: "0",
+      OPENAI_API_KEY: "test-openai-key",
+      OPENAI_REALTIME_ENDPOINT: upstream.url,
+      REALTIME_PROVIDER: "openai",
+    },
+  });
+  try {
+    const token = await signupAndGetToken(server, "failover-production@example.com");
+    const r = await apiRequest(server, "/realtime/client_secret", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      json: { instructions: "Keep it spare.", voice: "marin" },
+    });
+    assert.equal(r.status, 503);
+    assert.equal(r.json?.realtime_provider, "openai");
+    assert.equal(r.json?.code, "realtime_supplier_request_failed");
+    assert.equal(r.json?.fallback, false);
+    assert.equal(r.json?.degraded, true);
+    assert.equal(r.json?.client_secret, undefined);
+  } finally {
+    await server.stop();
+    await upstream.close();
+  }
+});

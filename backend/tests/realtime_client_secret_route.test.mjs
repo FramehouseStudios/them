@@ -145,6 +145,87 @@ test("[realtime-client-secret] primary_fail_fallback_ok: 201 with fallback keys"
   });
 });
 
+test("[realtime-client-secret] production primary failure returns degraded 503 without stub fallback", async () => {
+  const primaryErr = Object.assign(new Error("OpenAI mint failed"), {
+    code: "realtime_supplier_request_failed",
+    status: 502,
+  });
+  let seenAllowFallback = null;
+  let stubLoaded = false;
+  const deps = defaultDeps({
+    isProduction: () => true,
+    mintWithFailover: async ({ allowFallback }) => {
+      seenAllowFallback = allowFallback;
+      throw primaryErr;
+    },
+    loadStubSupplier: async () => {
+      stubLoaded = true;
+      return fakeSupplier({ kind: "stub" });
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", { instructions: "hi" });
+    assert.equal(r.status, 503);
+    assert.equal(seenAllowFallback, false);
+    assert.equal(stubLoaded, false);
+    assert.equal(r.body.code, "realtime_supplier_request_failed");
+    assert.equal(r.body.realtime_provider, "openai");
+    assert.equal(r.body.fallback, false);
+    assert.equal(r.body.degraded, true);
+    assert.equal(r.body.client_secret, undefined);
+    assert.deepEqual(deps._calls.incrementErrorCounter, ["realtime_supplier_request_failed"]);
+  });
+});
+
+test("[realtime-client-secret] production env-selected stub is refused before mint", async () => {
+  let mintCalled = false;
+  const deps = defaultDeps({
+    isProduction: () => true,
+    mintWithFailover: async () => {
+      mintCalled = true;
+      throw new Error("should not mint");
+    },
+  });
+  deps._setSupplier(fakeSupplier({ kind: "stub" }));
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", { instructions: "hi" });
+    assert.equal(r.status, 503);
+    assert.equal(mintCalled, false);
+    assert.equal(r.body.code, "realtime_stub_disabled_in_production");
+    assert.equal(r.body.realtime_provider, "stub");
+    assert.equal(r.body.fallback, false);
+    assert.equal(r.body.degraded, true);
+    assert.equal(r.body.client_secret, undefined);
+    assert.deepEqual(deps._calls.incrementErrorCounter, ["realtime_stub_disabled_in_production"]);
+  });
+});
+
+test("[realtime-client-secret] production request-pinned stub is refused before mint", async () => {
+  let mintCalled = false;
+  const deps = defaultDeps({
+    isProduction: () => true,
+    createRealtimeSupplier: async ({ provider }) => fakeSupplier({ kind: provider }),
+    mintWithFailover: async () => {
+      mintCalled = true;
+      throw new Error("should not mint");
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/client_secret", {
+      instructions: "hi",
+      realtime_provider: "stub",
+    });
+    assert.equal(r.status, 503);
+    assert.equal(mintCalled, false);
+    assert.equal(r.body.code, "realtime_stub_disabled_in_production");
+    assert.equal(r.body.realtime_provider, "stub");
+    assert.equal(r.body.fallback, false);
+    assert.equal(r.body.degraded, true);
+    assert.equal(r.body.client_secret, undefined);
+    assert.deepEqual(deps._calls.incrementErrorCounter, ["realtime_stub_disabled_in_production"]);
+  });
+});
+
 test("[realtime-client-secret] primary_fail_fallback_fail: 502 with fallback_attempted", async () => {
   const wrapped = Object.assign(new Error("stub also failed"), {
     code: "supplier_fallback_failed",

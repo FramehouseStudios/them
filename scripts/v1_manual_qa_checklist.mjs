@@ -44,11 +44,17 @@ const artifact = {
       proves: "The latest local app build and themTests result is recorded separately from the human smoke and signed-release checks.",
     },
     {
+      name: "iOS V1 UI smoke",
+      command: "xcodebuild -project them.xcodeproj -scheme them -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:themUITests test",
+      proves: "The five XCUITests cover onboarding, talk-to-screenplay UI flow, export, memory recall, and realtime stub fallback before human visual/audio signoff.",
+    },
+    {
       name: "Release preflight",
       command: "DEVELOPMENT_TEAM_ID=<team-id> APP_TOKEN_RELEASE=<token> scripts/appstore_preflight.sh",
       proves: "Release settings, private signing/token inputs, privacy manifest, iPhone-only TestFlight posture, and the Release iPhone build are ready for archive checks.",
     },
   ],
+  currentLocalProof: "Current local proof, 2026-05-24 America/Los_Angeles: `scripts/appstore_preflight.sh` was run without paid/private release inputs. Privacy manifest, release plist, hosted backend URL, iPhone-only posture, and the unsigned Release iPhone build passed. The command correctly remains red with `fail=2 warn=1`: missing `DEVELOPMENT_TEAM_ID`, missing release `APP_TOKEN`, and a Release entitlements warning that must be confirmed before upload.",
   platformPosture: [
     "V1 is iPhone only.",
     "macOS remains dormant scaffolding and is excluded from Release/TestFlight posture until a dedicated Mac shell ships.",
@@ -91,14 +97,15 @@ const artifact = {
     },
     {
       pillar: "Realtime",
-      goal: "primary mint works; forced primary failure shows fallback",
+      goal: "primary mint works; failures surface as local fallback or production degraded state",
       steps: [
         "Set realtime supplier to the primary provider.",
         "Start a realtime session and confirm the primary session is minted.",
         "Force the primary provider to fail or run with a known failing primary config.",
-        "Confirm the app shows the fallback/degraded state and does not strand the writer.",
+        "In local/test, confirm deterministic stub fallback is visible and usable.",
+        "In production, confirm the app shows degraded/unavailable state with no synthetic client secret.",
       ],
-      passCriteria: "Primary succeeds when healthy; fallback is visible and usable when primary fails.",
+      passCriteria: "Primary succeeds when healthy; local/test fallback remains visible; production failures never report stub as a successful realtime session.",
     },
   ],
   parked: [
@@ -134,6 +141,10 @@ function markdown(data) {
     lines.push(`\`${item.command}\``);
     lines.push("");
     lines.push(item.proves);
+    lines.push("");
+  }
+  if (data.currentLocalProof) {
+    lines.push(data.currentLocalProof);
     lines.push("");
   }
   lines.push("## Platform Posture");
