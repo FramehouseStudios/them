@@ -1545,6 +1545,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var debugProjectLoadToken: Int = 0
     @Published var debugRequestedProjectID: String = ""
     @Published var debugRequestedVersionID: String = ""
+    private var debugClientTokenOwnedProjectIDs: Set<String> = []
+    private var debugClientTokenOwnerTokensByProjectID: [String: String] = [:]
     @Published var structuredDraft: ScreenplayStructuredDraft = .empty {
         didSet {
             persistStructuredDraft()
@@ -1641,6 +1643,29 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     static func replySideCharacterMentionsFeatureEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: Self.replySideCharacterMentionsEnabledKey) != nil else { return true }
         return defaults.bool(forKey: Self.replySideCharacterMentionsEnabledKey)
+    }
+
+    func rememberDebugClientTokenOwnedProjectID(_ projectID: String, clientToken: String? = nil) {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return }
+        debugClientTokenOwnedProjectIDs.insert(cleanProjectID)
+        let cleanClientToken = (clientToken ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanClientToken.isEmpty {
+            debugClientTokenOwnerTokensByProjectID[cleanProjectID] = cleanClientToken
+        }
+    }
+
+    func usesDebugClientTokenOwner(forProjectID projectID: String) -> Bool {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return false }
+        return debugClientTokenOwnedProjectIDs.contains(cleanProjectID)
+            || debugClientTokenOwnerTokensByProjectID[cleanProjectID] != nil
+    }
+
+    func debugClientTokenOwnerToken(forProjectID projectID: String) -> String? {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return nil }
+        return debugClientTokenOwnerTokensByProjectID[cleanProjectID]
     }
 
     private var lastIngestKey: String = ""

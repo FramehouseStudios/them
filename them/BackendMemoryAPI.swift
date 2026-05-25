@@ -3438,7 +3438,8 @@ actor BackendMemoryAPI {
         includeDrafts: Bool = true,
         versionLimit: Int = 16,
         includeUserIdentity: Bool = true,
-        includeAuthToken: Bool = true
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayProjectResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3452,12 +3453,12 @@ actor BackendMemoryAPI {
                 URLQueryItem(name: "version_limit", value: String(max(1, versionLimit))),
             ]
         )
-        if !includeUserIdentity {
-            request.setValue(nil, forHTTPHeaderField: "X-User-Id")
-        }
-        if !includeAuthToken {
-            request.setValue(nil, forHTTPHeaderField: "Authorization")
-        }
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
@@ -3518,18 +3519,27 @@ actor BackendMemoryAPI {
 
     func fetchScreenplayOutline(
         projectId: String,
-        includeProject: Bool = true
+        includeProject: Bool = true,
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayOutlineResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/screenplay/projects/\(normalizedProjectId)/outline",
             extraQueryItems: [
                 URLQueryItem(name: "include_project", value: includeProject ? "1" : "0"),
             ]
+        )
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
         )
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -3626,7 +3636,10 @@ actor BackendMemoryAPI {
     }
 
     func activateScreenplayProject(
-        projectId: String
+        projectId: String,
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3634,6 +3647,12 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/activate")
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
         request.httpBody = Data("{}".utf8)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -3837,14 +3856,23 @@ actor BackendMemoryAPI {
     }
 
     func fetchScreenplayCollaborators(
-        projectId: String
+        projectId: String,
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayCollaboratorsResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        let request = try makeRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        var request = try makeRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
@@ -3877,7 +3905,10 @@ actor BackendMemoryAPI {
         email: String,
         action: String = "approve",
         note: String = "",
-        invitedBy: String = ""
+        invitedBy: String = "",
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayCollaboratorsResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3889,6 +3920,12 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "valid_email_required")
         }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
         let payload: [String: Any] = [
             "email": normalizedEmail,
             "action": action,
@@ -3926,7 +3963,10 @@ actor BackendMemoryAPI {
     func fetchScreenplayComments(
         projectId: String,
         limit: Int = 120,
-        actorEmail: String = ""
+        actorEmail: String = "",
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayCommentsResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3938,10 +3978,16 @@ actor BackendMemoryAPI {
         if !normalizedActorEmail.isEmpty {
             query.append(URLQueryItem(name: "actor_email", value: normalizedActorEmail))
         }
-        let request = try makeRequest(
+        var request = try makeRequest(
             path: "/screenplay/projects/\(normalizedProjectId)/comments",
             limit: max(1, limit),
             extraQueryItems: query
+        )
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
         )
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -3984,7 +4030,10 @@ actor BackendMemoryAPI {
         action: String = "upsert",
         commentId: String = "",
         parentCommentId: String = "",
-        actorEmail: String = ""
+        actorEmail: String = "",
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayCommentsResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4001,6 +4050,12 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "comment_or_voice_required")
         }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/comments")
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
         var payload: [String: Any] = [
             "text": text,
             "author_email": authorEmail,
@@ -5349,6 +5404,25 @@ actor BackendMemoryAPI {
             request.setValue(clientBuildHeaderValue, forHTTPHeaderField: "X-Them-Client-Build")
         }
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
+    }
+
+    private func applyProjectOwnerHeaders(
+        to request: inout URLRequest,
+        includeUserIdentity: Bool,
+        includeAuthToken: Bool,
+        clientTokenOverride: String?
+    ) {
+        if !includeUserIdentity {
+            request.setValue(nil, forHTTPHeaderField: "X-User-Id")
+        }
+        if !includeAuthToken {
+            request.setValue(nil, forHTTPHeaderField: "Authorization")
+        }
+        let cleanClientToken = (clientTokenOverride ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanClientToken.isEmpty {
+            request.setValue(cleanClientToken, forHTTPHeaderField: "X-Client-Token")
+        }
     }
 
     private func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {

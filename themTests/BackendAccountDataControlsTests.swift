@@ -5,18 +5,27 @@ final class BackendAccountDataControlsTests: XCTestCase {
     override func setUp() {
         super.setUp()
         BackendAuthClient.clearSharedClientToken()
+        BackendAuthClient.clearSharedUserID()
         UserDefaults.standard.removeObject(forKey: "client_token")
+        UserDefaults.standard.removeObject(forKey: "client_token_expiry")
         UserDefaults.standard.removeObject(forKey: "client_token_cached_at")
         UserDefaults.standard.removeObject(forKey: "client_token_base_url")
+        UserDefaults.standard.removeObject(forKey: "user_id")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token_enabled")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token")
     }
 
     override func tearDown() {
         AccountDataControlsURLProtocolStub.handler = nil
         BackendAuthClient.clearSharedClientToken()
+        BackendAuthClient.clearSharedUserID()
         UserDefaults.standard.removeObject(forKey: "client_token")
+        UserDefaults.standard.removeObject(forKey: "client_token_expiry")
         UserDefaults.standard.removeObject(forKey: "client_token_cached_at")
         UserDefaults.standard.removeObject(forKey: "client_token_base_url")
         UserDefaults.standard.removeObject(forKey: "user_id")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token_enabled")
+        UserDefaults.standard.removeObject(forKey: "auth_debug_access_token")
         super.tearDown()
     }
 
@@ -210,6 +219,128 @@ final class BackendAccountDataControlsTests: XCTestCase {
         XCTAssertEqual(second.clientToken, "client-shared")
         XCTAssertEqual(recorder.requests.filter { $0.path == "/session" }.count, 1)
     }
+
+    func testProjectCollaborationRequestsCanUseClientTokenOwnerWithoutAccountIdentityAfterTokenRotation() async throws {
+        BackendAuthClient.clearSharedClientToken()
+        BackendAuthClient.clearSharedUserID()
+        let baseURL = "https://account-data-controls.test"
+        let expiry = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
+        _ = BackendAuthClient.persistSharedClientToken(
+            "client-rotated",
+            expiryRaw: expiry,
+            baseURLRaw: baseURL
+        )
+        _ = BackendAuthClient.persistSharedUserID("usr-auth")
+        UserDefaults.standard.set("client-rotated", forKey: "client_token")
+        UserDefaults.standard.set(expiry, forKey: "client_token_expiry")
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "client_token_cached_at")
+        UserDefaults.standard.set(baseURL, forKey: "client_token_base_url")
+        UserDefaults.standard.set("usr-auth", forKey: "user_id")
+        UserDefaults.standard.set(true, forKey: "auth_debug_access_token_enabled")
+        UserDefaults.standard.set("access-test", forKey: "auth_debug_access_token")
+        let projectOwnerClientToken = "client-owner"
+
+        let recorder = AccountDataControlsRequestRecorder()
+        AccountDataControlsURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/screenplay/projects/project-1/collaborators":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "stage": "screenplay_collaborators",
+                          "status": "ok",
+                          "project_id": "project-1",
+                          "collaborator_count": 0,
+                          "approved_emails": [],
+                          "collaborators": []
+                        }
+                        """#.utf8
+                    )
+                )
+            case "/screenplay/projects/project-1/comments":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "stage": "screenplay_comments",
+                          "status": "ok",
+                          "project_id": "project-1",
+                          "comment_count": 0,
+                          "comments": []
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return AccountDataControlsHTTPStub(
+                    status: 500,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "unexpected_route" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountDataControlsURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: baseURL)!
+        )
+
+        _ = try await api.fetchScreenplayCollaborators(
+            projectId: "project-1",
+            includeUserIdentity: false,
+            includeAuthToken: false,
+            clientTokenOverride: projectOwnerClientToken
+        )
+        _ = try await api.fetchScreenplayComments(
+            projectId: "project-1",
+            limit: 160,
+            includeUserIdentity: false,
+            includeAuthToken: false,
+            clientTokenOverride: projectOwnerClientToken
+        )
+        _ = try await api.upsertScreenplayCollaborator(
+            projectId: "project-1",
+            email: "writer@example.com",
+            includeUserIdentity: false,
+            includeAuthToken: false,
+            clientTokenOverride: projectOwnerClientToken
+        )
+        _ = try await api.upsertScreenplayComment(
+            projectId: "project-1",
+            text: "Tighten the reveal.",
+            includeUserIdentity: false,
+            includeAuthToken: false,
+            clientTokenOverride: projectOwnerClientToken
+        )
+
+        let projectRequests = recorder.requests.filter {
+            $0.path.hasPrefix("/screenplay/projects/project-1/")
+        }
+        XCTAssertEqual(projectRequests.count, 4)
+        XCTAssertEqual(recorder.requests.filter { $0.path == "/session" }.count, 0)
+        for request in projectRequests {
+            XCTAssertEqual(request.clientTokenHeader, "client-owner")
+            XCTAssertNil(request.userIDHeader)
+            XCTAssertNil(request.authorizationHeader)
+        }
+        let collaboratorWrite = try XCTUnwrap(projectRequests.first {
+            $0.method == "POST" && $0.path.hasSuffix("/collaborators")
+        })
+        XCTAssertEqual(collaboratorWrite.bodyObject?["email"] as? String, "writer@example.com")
+        let commentWrite = try XCTUnwrap(projectRequests.first {
+            $0.method == "POST" && $0.path.hasSuffix("/comments")
+        })
+        XCTAssertEqual(commentWrite.bodyObject?["text"] as? String, "Tighten the reveal.")
+    }
 }
 
 final class BackendCredentialMigrationTests: XCTestCase {
@@ -399,6 +530,9 @@ private struct RecordedAccountDataControlsRequest {
     let method: String
     let path: String
     let acceptHeader: String?
+    let userIDHeader: String?
+    let clientTokenHeader: String?
+    let authorizationHeader: String?
     let bodyObject: [String: Any]?
 }
 
@@ -419,6 +553,9 @@ private final class AccountDataControlsRequestRecorder: @unchecked Sendable {
             method: request.httpMethod ?? "",
             path: request.url?.path ?? "",
             acceptHeader: request.value(forHTTPHeaderField: "Accept"),
+            userIDHeader: request.value(forHTTPHeaderField: "X-User-Id"),
+            clientTokenHeader: request.value(forHTTPHeaderField: "X-Client-Token"),
+            authorizationHeader: request.value(forHTTPHeaderField: "Authorization"),
             bodyObject: bodyObject
         )
         lock.lock()

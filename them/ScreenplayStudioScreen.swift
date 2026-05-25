@@ -795,6 +795,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     private let localDraftRecoveryStore = ScreenplayLocalDraftRecoveryStore()
     private let craftClient = BackendClient()
     private let projectSelectionAPI = BackendMemoryAPI()
+    private var clientTokenOwnedProjectIDs: Set<String> = []
 
     init() {
         draftDebounceCancellable = $fountainDraft
@@ -2095,13 +2096,28 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         defer { isSaving = false }
         errorText = ""
         do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayCollaborator(
-                projectId: project.id,
-                email: email,
-                action: "approve",
-                note: collaboratorNote,
-                invitedBy: collaboratorInvitedBy
-            )
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
+            let result: BackendReadResult<BackendScreenplayCollaboratorsResponse>
+            do {
+                result = try await projectSelectionAPI.upsertScreenplayCollaborator(
+                    projectId: project.id,
+                    email: email,
+                    action: "approve",
+                    note: collaboratorNote,
+                    invitedBy: collaboratorInvitedBy,
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                result = try await projectSelectionAPI.upsertScreenplayCollaborator(
+                    projectId: project.id,
+                    email: email,
+                    action: "approve",
+                    note: collaboratorNote,
+                    invitedBy: collaboratorInvitedBy
+                )
+            }
             applyCollaboratorsPayload(result.payload)
             collaboratorEmail = ""
             collaboratorNote = ""
@@ -2123,11 +2139,24 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         defer { isSaving = false }
         errorText = ""
         do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayCollaborator(
-                projectId: project.id,
-                email: normalizedEmail,
-                action: "revoke"
-            )
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
+            let result: BackendReadResult<BackendScreenplayCollaboratorsResponse>
+            do {
+                result = try await projectSelectionAPI.upsertScreenplayCollaborator(
+                    projectId: project.id,
+                    email: normalizedEmail,
+                    action: "revoke",
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                result = try await projectSelectionAPI.upsertScreenplayCollaborator(
+                    projectId: project.id,
+                    email: normalizedEmail,
+                    action: "revoke"
+                )
+            }
             applyCollaboratorsPayload(result.payload)
             infoText = "Collaborator removed."
         } catch {
@@ -2161,22 +2190,46 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         defer { isSaving = false }
         errorText = ""
         do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayComment(
-                projectId: project.id,
-                text: text,
-                authorEmail: authorEmail,
-                authorName: commentAuthorName,
-                anchorLine: anchorLine,
-                versionId: latestVersionID,
-                voiceURL: voiceURL,
-                voiceTranscript: voiceTranscript,
-                voiceDurationMs: durationMs,
-                type: normalizedCommentType(),
-                action: commentEditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "create" : "update",
-                commentId: commentEditID,
-                parentCommentId: commentReplyToID,
-                actorEmail: actorEmail
-            )
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
+            let result: BackendReadResult<BackendScreenplayCommentsResponse>
+            do {
+                result = try await projectSelectionAPI.upsertScreenplayComment(
+                    projectId: project.id,
+                    text: text,
+                    authorEmail: authorEmail,
+                    authorName: commentAuthorName,
+                    anchorLine: anchorLine,
+                    versionId: latestVersionID,
+                    voiceURL: voiceURL,
+                    voiceTranscript: voiceTranscript,
+                    voiceDurationMs: durationMs,
+                    type: normalizedCommentType(),
+                    action: commentEditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "create" : "update",
+                    commentId: commentEditID,
+                    parentCommentId: commentReplyToID,
+                    actorEmail: actorEmail,
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                result = try await projectSelectionAPI.upsertScreenplayComment(
+                    projectId: project.id,
+                    text: text,
+                    authorEmail: authorEmail,
+                    authorName: commentAuthorName,
+                    anchorLine: anchorLine,
+                    versionId: latestVersionID,
+                    voiceURL: voiceURL,
+                    voiceTranscript: voiceTranscript,
+                    voiceDurationMs: durationMs,
+                    type: normalizedCommentType(),
+                    action: commentEditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "create" : "update",
+                    commentId: commentEditID,
+                    parentCommentId: commentReplyToID,
+                    actorEmail: actorEmail
+                )
+            }
             applyCommentsPayload(result.payload)
             clearCommentComposer()
             infoText = "Comment saved."
@@ -2197,22 +2250,46 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         errorText = ""
         do {
             let actorEmail = resolvedCommentActorEmail()
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayComment(
-                projectId: project.id,
-                text: "",
-                authorEmail: comment.authorEmail ?? "",
-                authorName: comment.authorName ?? "",
-                anchorLine: comment.anchorLine,
-                versionId: comment.versionId ?? latestVersionID,
-                voiceURL: "",
-                voiceTranscript: "",
-                voiceDurationMs: 0,
-                type: comment.type ?? "text",
-                action: "delete",
-                commentId: id,
-                parentCommentId: comment.parentCommentId ?? "",
-                actorEmail: actorEmail
-            )
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
+            let result: BackendReadResult<BackendScreenplayCommentsResponse>
+            do {
+                result = try await projectSelectionAPI.upsertScreenplayComment(
+                    projectId: project.id,
+                    text: "",
+                    authorEmail: comment.authorEmail ?? "",
+                    authorName: comment.authorName ?? "",
+                    anchorLine: comment.anchorLine,
+                    versionId: comment.versionId ?? latestVersionID,
+                    voiceURL: "",
+                    voiceTranscript: "",
+                    voiceDurationMs: 0,
+                    type: comment.type ?? "text",
+                    action: "delete",
+                    commentId: id,
+                    parentCommentId: comment.parentCommentId ?? "",
+                    actorEmail: actorEmail,
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                result = try await projectSelectionAPI.upsertScreenplayComment(
+                    projectId: project.id,
+                    text: "",
+                    authorEmail: comment.authorEmail ?? "",
+                    authorName: comment.authorName ?? "",
+                    anchorLine: comment.anchorLine,
+                    versionId: comment.versionId ?? latestVersionID,
+                    voiceURL: "",
+                    voiceTranscript: "",
+                    voiceDurationMs: 0,
+                    type: comment.type ?? "text",
+                    action: "delete",
+                    commentId: id,
+                    parentCommentId: comment.parentCommentId ?? "",
+                    actorEmail: actorEmail
+                )
+            }
             applyCommentsPayload(result.payload)
             if commentEditID == id {
                 clearCommentComposer()
@@ -2235,22 +2312,46 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         errorText = ""
         do {
             let actorEmail = resolvedCommentActorEmail()
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayComment(
-                projectId: project.id,
-                text: "",
-                authorEmail: comment.authorEmail ?? "",
-                authorName: comment.authorName ?? "",
-                anchorLine: comment.anchorLine,
-                versionId: comment.versionId ?? latestVersionID,
-                voiceURL: "",
-                voiceTranscript: "",
-                voiceDurationMs: 0,
-                type: comment.type ?? "text",
-                action: resolved ? "resolve" : "unresolve",
-                commentId: id,
-                parentCommentId: comment.parentCommentId ?? "",
-                actorEmail: actorEmail
-            )
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
+            let result: BackendReadResult<BackendScreenplayCommentsResponse>
+            do {
+                result = try await projectSelectionAPI.upsertScreenplayComment(
+                    projectId: project.id,
+                    text: "",
+                    authorEmail: comment.authorEmail ?? "",
+                    authorName: comment.authorName ?? "",
+                    anchorLine: comment.anchorLine,
+                    versionId: comment.versionId ?? latestVersionID,
+                    voiceURL: "",
+                    voiceTranscript: "",
+                    voiceDurationMs: 0,
+                    type: comment.type ?? "text",
+                    action: resolved ? "resolve" : "unresolve",
+                    commentId: id,
+                    parentCommentId: comment.parentCommentId ?? "",
+                    actorEmail: actorEmail,
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                result = try await projectSelectionAPI.upsertScreenplayComment(
+                    projectId: project.id,
+                    text: "",
+                    authorEmail: comment.authorEmail ?? "",
+                    authorName: comment.authorName ?? "",
+                    anchorLine: comment.anchorLine,
+                    versionId: comment.versionId ?? latestVersionID,
+                    voiceURL: "",
+                    voiceTranscript: "",
+                    voiceDurationMs: 0,
+                    type: comment.type ?? "text",
+                    action: resolved ? "resolve" : "unresolve",
+                    commentId: id,
+                    parentCommentId: comment.parentCommentId ?? "",
+                    actorEmail: actorEmail
+                )
+            }
             applyCommentsPayload(result.payload)
             infoText = resolved ? "Comment resolved." : "Comment reopened."
         } catch {
@@ -3017,18 +3118,20 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         do {
-            let debugRequestedProjectID = ScreenplayLiveDraftBridge.shared.debugRequestedProjectID
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let shouldUseClientTokenOwner = !debugRequestedProjectID.isEmpty && debugRequestedProjectID == id
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: id)
+            let shouldUseClientTokenOwner = ownerHeaders.usesDebugClientTokenOwner
             let detailResult: BackendReadResult<BackendScreenplayProjectResponse>
+            var detailLoadedWithClientTokenOwner = false
             do {
                 detailResult = try await projectSelectionAPI.fetchScreenplayProject(
                     projectId: id,
                     includeDrafts: true,
                     versionLimit: 24,
                     includeUserIdentity: !shouldUseClientTokenOwner,
-                    includeAuthToken: !shouldUseClientTokenOwner
+                    includeAuthToken: !shouldUseClientTokenOwner,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
                 )
+                detailLoadedWithClientTokenOwner = shouldUseClientTokenOwner
             } catch BackendMemoryAPIError.server(let status, _) where shouldUseClientTokenOwner && status == 404 {
                 detailResult = try await projectSelectionAPI.fetchScreenplayProject(
                     projectId: id,
@@ -3036,9 +3139,18 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                     versionLimit: 24
                 )
             }
+            updateClientTokenOwnerContext(
+                forProjectID: id,
+                loadedWithClientTokenOwner: detailLoadedWithClientTokenOwner,
+                clientToken: ownerHeaders.clientTokenOverride
+            )
+            let refreshedOwnerHeaders = projectOwnerHeaderOptions(forProjectID: id)
             let outlineResult = try? await projectSelectionAPI.fetchScreenplayOutline(
                 projectId: id,
-                includeProject: true
+                includeProject: true,
+                includeUserIdentity: refreshedOwnerHeaders.includeUserIdentity,
+                includeAuthToken: refreshedOwnerHeaders.includeAuthToken,
+                clientTokenOverride: refreshedOwnerHeaders.clientTokenOverride
             )
             if let project = detailResult.payload.project {
                 selectedProject = project
@@ -3076,7 +3188,18 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         let normalizedProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectID.isEmpty else { return }
         do {
-            let result = try await projectSelectionAPI.activateScreenplayProject(projectId: normalizedProjectID)
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: normalizedProjectID)
+            let result: BackendReadResult<BackendScreenplayProjectMutationResponse>
+            do {
+                result = try await projectSelectionAPI.activateScreenplayProject(
+                    projectId: normalizedProjectID,
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                result = try await projectSelectionAPI.activateScreenplayProject(projectId: normalizedProjectID)
+            }
             if let project = result.payload.project {
                 upsertProject(project)
                 if selectedProjectID == project.id {
@@ -3423,7 +3546,18 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     private func loadCollaborators(projectId: String) async {
         do {
-            let result = try await BackendMemoryAPI.shared.fetchScreenplayCollaborators(projectId: projectId)
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
+            let result: BackendReadResult<BackendScreenplayCollaboratorsResponse>
+            do {
+                result = try await projectSelectionAPI.fetchScreenplayCollaborators(
+                    projectId: projectId,
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                result = try await projectSelectionAPI.fetchScreenplayCollaborators(projectId: projectId)
+            }
             applyCollaboratorsPayload(result.payload)
         } catch {
             if errorText.isEmpty {
@@ -3434,16 +3568,79 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     private func loadComments(projectId: String) async {
         do {
-            let result = try await BackendMemoryAPI.shared.fetchScreenplayComments(
-                projectId: projectId,
-                limit: 160,
-                actorEmail: resolvedCommentActorEmail()
-            )
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
+            let result: BackendReadResult<BackendScreenplayCommentsResponse>
+            do {
+                result = try await projectSelectionAPI.fetchScreenplayComments(
+                    projectId: projectId,
+                    limit: 160,
+                    actorEmail: resolvedCommentActorEmail(),
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                result = try await projectSelectionAPI.fetchScreenplayComments(
+                    projectId: projectId,
+                    limit: 160,
+                    actorEmail: resolvedCommentActorEmail()
+                )
+            }
             applyCommentsPayload(result.payload)
         } catch {
             if errorText.isEmpty {
                 errorText = error.localizedDescription
             }
+        }
+    }
+
+    private func projectOwnerHeaderOptions(
+        forProjectID projectID: String
+    ) -> (
+        includeUserIdentity: Bool,
+        includeAuthToken: Bool,
+        usesDebugClientTokenOwner: Bool,
+        clientTokenOverride: String?
+    ) {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let liveDraftBridge = ScreenplayLiveDraftBridge.shared
+        let debugRequestedProjectID = liveDraftBridge.debugRequestedProjectID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let matchesPendingDebugRequest = !cleanProjectID.isEmpty
+            && !debugRequestedProjectID.isEmpty
+            && cleanProjectID == debugRequestedProjectID
+        let usesDebugClientTokenOwner = matchesPendingDebugRequest
+            || liveDraftBridge.usesDebugClientTokenOwner(forProjectID: cleanProjectID)
+            || clientTokenOwnedProjectIDs.contains(cleanProjectID)
+        let debugClientTokenOverride = matchesPendingDebugRequest
+            ? BackendAuthClient.studioDebugClientTokenOverride()
+            : nil
+        let clientTokenOverride = (
+            debugClientTokenOverride
+                ?? liveDraftBridge.debugClientTokenOwnerToken(forProjectID: cleanProjectID)
+        )?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (
+            includeUserIdentity: !usesDebugClientTokenOwner,
+            includeAuthToken: !usesDebugClientTokenOwner,
+            usesDebugClientTokenOwner: usesDebugClientTokenOwner,
+            clientTokenOverride: (clientTokenOverride?.isEmpty ?? true) ? nil : clientTokenOverride
+        )
+    }
+
+    private func updateClientTokenOwnerContext(
+        forProjectID projectID: String,
+        loadedWithClientTokenOwner: Bool,
+        clientToken: String?
+    ) {
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return }
+        if loadedWithClientTokenOwner {
+            clientTokenOwnedProjectIDs.insert(cleanProjectID)
+            ScreenplayLiveDraftBridge.shared.rememberDebugClientTokenOwnedProjectID(
+                cleanProjectID,
+                clientToken: clientToken ?? BackendAuthClient.studioDebugClientTokenOverride()
+            )
         }
     }
 
