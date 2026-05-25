@@ -130,11 +130,6 @@ function normalizeText(value) {
 }
 
 async function ensureOwnerIdentity() {
-  const existingUserId = readDefaultString("user_id");
-  const existingClientToken = readDefaultString("client_token");
-  if (existingClientToken) {
-    return { userId: existingUserId, clientToken: existingClientToken, bootstrapped: false };
-  }
   const response = await fetch("http://127.0.0.1:3000/session", {
     method: "POST",
     headers: {
@@ -152,6 +147,12 @@ async function ensureOwnerIdentity() {
   assert(userId || clientToken, "Session bootstrap did not return an owner identity");
   writeDefaultString("user_id", userId);
   writeDefaultString("client_token", clientToken);
+  writeDefaultInt("client_token_cached_at", Math.floor(Date.now() / 1000));
+  writeDefaultString("client_token_base_url", "http://127.0.0.1:3000");
+  const expiresIn = Number(payload?.expires_in || 0);
+  if (Number.isFinite(expiresIn) && expiresIn > 0) {
+    writeDefaultString("client_token_expiry", new Date(Date.now() + expiresIn * 1000).toISOString());
+  }
   return { userId, clientToken, bootstrapped: true };
 }
 
@@ -302,9 +303,15 @@ async function performManualEdit(text) {
   writeDefaultInt("studio_debug_manual_edit_ack_token", 0);
   writeDefaultInt("studio_debug_manual_edit_token", token);
   await waitFor(
-    () => readDefaultInt("studio_debug_manual_edit_ack_token") === token,
+    () => {
+      if (readDefaultInt("studio_debug_manual_edit_ack_token") === token) return true;
+      const state = readDebugDiffState();
+      const visibleDraft = `${state?.draftPreview || ""} ${state?.draftTailPreview || ""}`;
+      return visibleDraft.includes(text)
+        && (Boolean(state?.hasUnsavedDraftChanges) || Boolean(state?.isManualDraftEditing));
+    },
     `Studio manual edit ack ${token}`,
-    12000,
+    20000,
     150
   );
 }
@@ -323,6 +330,48 @@ async function requestManualSave() {
     30000,
     150
   );
+}
+
+async function requestManualSaveAndWaitForConflict({
+  projectId: expectedProjectId,
+  serverVersionId: expectedServerVersionId,
+  localMarker: expectedLocalMarker,
+  initialVersionId: expectedInitialVersionId,
+  description,
+  timeoutMs = 30000,
+}) {
+  let lastState = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await requestManualSave();
+      await waitForState((state) => {
+        lastState = state;
+        return normalizeKey(state.selectedProjectID) === normalizeKey(expectedProjectId)
+          && state.conflictPresent === true
+          && normalizeKey(state.conflictServerVersionID) === normalizeKey(expectedServerVersionId)
+          && String(state.draftTailPreview || "").includes(expectedLocalMarker)
+          && normalizeKey(state.latestVersionID) === normalizeKey(expectedInitialVersionId)
+          && /conflict/i.test(String(state.autosaveStatusText || ""))
+          && /collaborator updated/i.test(String(state.infoText || ""));
+      }, `${description} attempt ${attempt}`, attempt === 1 ? 12000 : timeoutMs, 200);
+      return lastState;
+    } catch (error) {
+      lastError = error;
+      lastState = readDebugDiffState();
+      const errorText = String(lastState?.errorText || "");
+      const statusText = String(lastState?.autosaveStatusText || "");
+      const retryable = /network connection was lost|timed out|network/i.test(errorText)
+        || /autosave failed|saving/i.test(statusText)
+        || Boolean(lastState?.isSaving)
+        || /manual save ack|timed out/i.test(String(error?.message || ""));
+      if (!retryable || attempt === 3) {
+        throw error;
+      }
+      await sleep(1200);
+    }
+  }
+  throw lastError || new Error(`Timed out waiting for ${description}`);
 }
 
 async function performInspectorInteraction(action, primary = "", secondary = "") {
@@ -423,6 +472,19 @@ async function fetchBackendComments(projectId, collaboratorEmail) {
   return Array.isArray(result.payload?.comments) ? result.payload.comments : [];
 }
 
+function approvedEmailsFromState(state) {
+  return Array.isArray(state?.approvedEmails)
+    ? state.approvedEmails.map((value) => normalizeKey(value)).filter(Boolean)
+    : [];
+}
+
+function stateHasCollaboration(state, collaboratorEmail, commentText) {
+  return approvedEmailsFromState(state).includes(normalizeKey(collaboratorEmail))
+    && Number(state?.commentCount || 0) >= 1
+    && normalizeText(state?.latestCommentText) === normalizeText(commentText)
+    && state?.latestCommentResolved === true;
+}
+
 const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const projectId = `studio-conflict-collab-${stamp}`;
 const title = `Studio Conflict Collaboration Smoke ${stamp}`;
@@ -436,6 +498,18 @@ const serverMarker = `REMOTE-CONFLICT-${Date.now().toString(36).toUpperCase()}`;
 const serverDraft = `${initialDraft}\n\n${serverMarker}`;
 const collaboratorEmail = `conflict-collab-${projectId}@example.com`.toLowerCase();
 const commentText = `Conflict collaboration restore note ${projectId}`;
+const serverChoiceProjectId = `studio-conflict-server-${stamp}`;
+const serverChoiceTitle = `Studio Conflict Server Choice Smoke ${stamp}`;
+const serverChoiceInitialDraft = [
+  "INT. SOUNDSTAGE - DAWN",
+  "",
+  "MARA stands in the dust, hearing applause that is not there.",
+].join("\n");
+const serverChoiceLocalMarker = `LOCAL-SERVER-CHOICE-${Date.now().toString(36).toUpperCase()}`;
+const serverChoiceServerMarker = `REMOTE-SERVER-CHOICE-${Date.now().toString(36).toUpperCase()}`;
+const serverChoiceServerDraft = `${serverChoiceInitialDraft}\n\n${serverChoiceServerMarker}`;
+const serverChoiceCollaboratorEmail = `server-choice-collab-${serverChoiceProjectId}@example.com`.toLowerCase();
+const serverChoiceCommentText = `Server choice restore note ${serverChoiceProjectId}`;
 
 let appPath = "";
 let initialVersionId = "";
@@ -447,6 +521,16 @@ let conflictState = null;
 let resolvedState = null;
 let backendProject = null;
 let backendComments = [];
+let serverChoiceInitialVersionId = "";
+let serverChoiceServerVersionId = "";
+let serverChoiceLoadedState = null;
+let serverChoiceEditedState = null;
+let serverChoiceCollaborationState = null;
+let serverChoiceConflictState = null;
+let serverChoiceResolvedState = null;
+let serverChoiceRelaunchState = null;
+let serverChoiceBackendProject = null;
+let serverChoiceBackendComments = [];
 
 try {
   clearDebugCommandState();
@@ -509,16 +593,10 @@ try {
   await performInspectorInteraction("resolve_first_comment", commentId);
   await waitForState((state) => {
     collaborationState = state;
-    const approvedEmails = Array.isArray(state.approvedEmails)
-      ? state.approvedEmails.map((value) => normalizeKey(value))
-      : [];
     return normalizeKey(state.selectedProjectID) === normalizeKey(projectId)
       && String(state.draftTailPreview || "").includes(localMarker)
       && (Boolean(state.hasUnsavedDraftChanges) || Boolean(state.isManualDraftEditing))
-      && approvedEmails.includes(collaboratorEmail)
-      && Number(state.commentCount || 0) >= 1
-      && normalizeText(state.latestCommentText) === normalizeText(commentText)
-      && state.latestCommentResolved === true;
+      && stateHasCollaboration(state, collaboratorEmail, commentText);
   }, "dirty local draft after collaboration writes", 20000, 150);
 
   const remotePayload = await postBackendProjectVersion(
@@ -532,34 +610,24 @@ try {
   assert(serverVersionId, `Remote version id missing: ${JSON.stringify(remotePayload)}`);
   assert(serverVersionId !== initialVersionId, "Remote version did not advance active draft version");
 
-  await requestManualSave();
-  await waitForState((state) => {
-    conflictState = state;
-    return normalizeKey(state.selectedProjectID) === normalizeKey(projectId)
-      && state.conflictPresent === true
-      && normalizeKey(state.conflictServerVersionID) === normalizeKey(serverVersionId)
-      && String(state.draftTailPreview || "").includes(localMarker)
-      && normalizeKey(state.latestVersionID) === normalizeKey(initialVersionId)
-      && /conflict/i.test(String(state.autosaveStatusText || ""))
-      && /collaborator updated/i.test(String(state.infoText || ""));
-  }, "stale local save conflict after collaborator update", 30000, 200);
+  conflictState = await requestManualSaveAndWaitForConflict({
+    projectId,
+    serverVersionId,
+    localMarker,
+    initialVersionId,
+    description: "stale local save conflict after collaborator update",
+  });
 
   await performInspectorInteraction("keep_local_conflict");
   await waitForState((state) => {
     resolvedState = state;
-    const approvedEmails = Array.isArray(state.approvedEmails)
-      ? state.approvedEmails.map((value) => normalizeKey(value))
-      : [];
     return normalizeKey(state.selectedProjectID) === normalizeKey(projectId)
       && state.conflictPresent === false
       && !Boolean(state.hasUnsavedDraftChanges)
       && String(state.draftTailPreview || "").includes(localMarker)
       && normalizeKey(state.latestVersionID) !== normalizeKey(initialVersionId)
       && normalizeKey(state.latestVersionID) !== normalizeKey(serverVersionId)
-      && approvedEmails.includes(collaboratorEmail)
-      && Number(state.commentCount || 0) >= 1
-      && normalizeText(state.latestCommentText) === normalizeText(commentText)
-      && state.latestCommentResolved === true;
+      && stateHasCollaboration(state, collaboratorEmail, commentText);
   }, "keep-local conflict resolution with collaboration preserved", 45000, 250);
 
   backendProject = await fetchBackendProject(projectId);
@@ -587,6 +655,192 @@ try {
   assert(restoredComment.resolved === true, `Expected backend comment to remain resolved: ${JSON.stringify(restoredComment)}`);
   assert(restoredComment.can_edit === true, `Expected actor email to keep comment editable: ${JSON.stringify(restoredComment)}`);
 
+  await ensureAppStopped();
+  clearDebugCommandState();
+  await postBackendProject(serverChoiceProjectId, serverChoiceTitle);
+  const serverChoiceSeedPayload = await postBackendProjectVersion(
+    serverChoiceProjectId,
+    serverChoiceTitle,
+    serverChoiceInitialDraft,
+    "",
+    "studio_conflict_server_seed"
+  );
+  serverChoiceInitialVersionId = projectVersionIdFromPayload(serverChoiceSeedPayload);
+  assert(serverChoiceInitialVersionId, `Server-choice initial version id missing: ${JSON.stringify(serverChoiceSeedPayload)}`);
+
+  const stagedServerChoiceLoadRequest = stageStudioProjectLoadDebugRequest({
+    debugDefaults: studioDebug.defaults,
+    projectId: serverChoiceProjectId,
+    versionId: serverChoiceInitialVersionId,
+  });
+
+  await ensureStudioVisibleWithOpenHandshake({
+    appPath,
+    debugDefaults: studioDebug.defaults,
+    runOptional,
+    activateApp,
+    appHasWindow,
+    readDebugDiffState,
+  });
+
+  await ensureStudioProjectLoadedWithDebugHook({
+    debugDefaults: studioDebug.defaults,
+    projectId: serverChoiceProjectId,
+    versionId: serverChoiceInitialVersionId,
+    readDebugDiffState,
+    timeoutMs: 45000,
+    stagedRequest: stagedServerChoiceLoadRequest,
+  });
+
+  await waitForState((state) => {
+    serverChoiceLoadedState = state;
+    return normalizeKey(state.selectedProjectID) === normalizeKey(serverChoiceProjectId)
+      && normalizeKey(state.latestVersionID) === normalizeKey(serverChoiceInitialVersionId)
+      && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes("INT. SOUNDSTAGE - DAWN")
+      && state.loadProjectReady === true;
+  }, "server-choice initial Studio project load", 30000, 250);
+
+  await setAutosaveEnabled(false);
+  await performManualEdit(serverChoiceLocalMarker);
+  await waitForState((state) => {
+    serverChoiceEditedState = state;
+    return normalizeKey(state.selectedProjectID) === normalizeKey(serverChoiceProjectId)
+      && String(state.draftTailPreview || "").includes(serverChoiceLocalMarker)
+      && (Boolean(state.hasUnsavedDraftChanges) || Boolean(state.isManualDraftEditing));
+  }, "server-choice dirty local draft", 15000, 150);
+
+  await performInspectorInteraction("approve_collaborator", serverChoiceCollaboratorEmail, "Approved during server-choice smoke.");
+  const serverChoiceCommentPayload = await performInspectorInteraction(
+    "add_comment",
+    serverChoiceCollaboratorEmail,
+    serverChoiceCommentText
+  );
+  const serverChoiceCommentId = String(serverChoiceCommentPayload.latest_comment_id || "").trim();
+  assert(
+    serverChoiceCommentId,
+    `Expected server-choice comment payload to include latest_comment_id: ${JSON.stringify(serverChoiceCommentPayload)}`
+  );
+  await performInspectorInteraction("resolve_first_comment", serverChoiceCommentId);
+  await waitForState((state) => {
+    serverChoiceCollaborationState = state;
+    return normalizeKey(state.selectedProjectID) === normalizeKey(serverChoiceProjectId)
+      && String(state.draftTailPreview || "").includes(serverChoiceLocalMarker)
+      && (Boolean(state.hasUnsavedDraftChanges) || Boolean(state.isManualDraftEditing))
+      && stateHasCollaboration(state, serverChoiceCollaboratorEmail, serverChoiceCommentText);
+  }, "server-choice dirty draft after collaboration writes", 20000, 150);
+
+  const serverChoiceRemotePayload = await postBackendProjectVersion(
+    serverChoiceProjectId,
+    serverChoiceTitle,
+    serverChoiceServerDraft,
+    serverChoiceInitialVersionId,
+    "external_collaborator_server_revision"
+  );
+  serverChoiceServerVersionId = projectVersionIdFromPayload(serverChoiceRemotePayload);
+  assert(serverChoiceServerVersionId, `Server-choice remote version id missing: ${JSON.stringify(serverChoiceRemotePayload)}`);
+  assert(
+    serverChoiceServerVersionId !== serverChoiceInitialVersionId,
+    "Server-choice remote version did not advance active draft version"
+  );
+
+  serverChoiceConflictState = await requestManualSaveAndWaitForConflict({
+    projectId: serverChoiceProjectId,
+    serverVersionId: serverChoiceServerVersionId,
+    localMarker: serverChoiceLocalMarker,
+    initialVersionId: serverChoiceInitialVersionId,
+    description: "server-choice stale local save conflict",
+  });
+
+  await performInspectorInteraction("load_server_conflict");
+  await waitForState((state) => {
+    serverChoiceResolvedState = state;
+    const restoredText = `${state.draftPreview || ""} ${state.draftTailPreview || ""}`;
+    return normalizeKey(state.selectedProjectID) === normalizeKey(serverChoiceProjectId)
+      && state.conflictPresent === false
+      && !Boolean(state.hasUnsavedDraftChanges)
+      && normalizeKey(state.latestVersionID) === normalizeKey(serverChoiceServerVersionId)
+      && restoredText.includes(serverChoiceServerMarker)
+      && !restoredText.includes(serverChoiceLocalMarker)
+      && stateHasCollaboration(state, serverChoiceCollaboratorEmail, serverChoiceCommentText);
+  }, "load-server conflict resolution with collaboration preserved", 30000, 200);
+
+  serverChoiceBackendProject = await fetchBackendProject(serverChoiceProjectId);
+  const serverChoiceActiveVersionId = String(
+    serverChoiceBackendProject.active_version_id || serverChoiceBackendProject.activeVersionId || ""
+  ).trim();
+  const serverChoiceVersions = Array.isArray(serverChoiceBackendProject.versions)
+    ? serverChoiceBackendProject.versions
+    : [];
+  const serverChoiceActiveVersion =
+    serverChoiceVersions.find((version) => String(version.id || "").trim() === serverChoiceActiveVersionId)
+    || serverChoiceVersions[0]
+    || {};
+  assert(
+    normalizeKey(serverChoiceActiveVersionId) === normalizeKey(serverChoiceServerVersionId),
+    `Expected backend active server-choice version ${serverChoiceServerVersionId}, got ${serverChoiceActiveVersionId}`
+  );
+  assert(
+    String(serverChoiceActiveVersion.draft || "").includes(serverChoiceServerMarker),
+    `Expected backend active draft to keep server marker ${serverChoiceServerMarker}: ${JSON.stringify(serverChoiceActiveVersion)}`
+  );
+  assert(
+    !String(serverChoiceActiveVersion.draft || "").includes(serverChoiceLocalMarker),
+    `Expected server-choice resolution to discard local marker ${serverChoiceLocalMarker}: ${JSON.stringify(serverChoiceActiveVersion)}`
+  );
+
+  serverChoiceBackendComments = await fetchBackendComments(serverChoiceProjectId, serverChoiceCollaboratorEmail);
+  const serverChoiceRestoredComment = serverChoiceBackendComments.find((comment) =>
+    normalizeText(comment?.text || "") === normalizeText(serverChoiceCommentText)
+  );
+  assert(serverChoiceRestoredComment, `Expected server-choice backend comment text ${serverChoiceCommentText}`);
+  assert(
+    serverChoiceRestoredComment.resolved === true,
+    `Expected server-choice backend comment to remain resolved: ${JSON.stringify(serverChoiceRestoredComment)}`
+  );
+  assert(
+    serverChoiceRestoredComment.can_edit === true,
+    `Expected server-choice actor email to keep comment editable: ${JSON.stringify(serverChoiceRestoredComment)}`
+  );
+
+  await ensureAppStopped();
+  clearDebugCommandState();
+  const stagedServerChoiceRelaunchRequest = stageStudioProjectLoadDebugRequest({
+    debugDefaults: studioDebug.defaults,
+    projectId: serverChoiceProjectId,
+    versionId: serverChoiceServerVersionId,
+  });
+
+  await ensureStudioVisibleWithOpenHandshake({
+    appPath,
+    debugDefaults: studioDebug.defaults,
+    runOptional,
+    activateApp,
+    appHasWindow,
+    readDebugDiffState,
+  });
+
+  await ensureStudioProjectLoadedWithDebugHook({
+    debugDefaults: studioDebug.defaults,
+    projectId: serverChoiceProjectId,
+    versionId: serverChoiceServerVersionId,
+    readDebugDiffState,
+    timeoutMs: 45000,
+    stagedRequest: stagedServerChoiceRelaunchRequest,
+  });
+
+  await waitForState((state) => {
+    serverChoiceRelaunchState = state;
+    const restoredText = `${state.draftPreview || ""} ${state.draftTailPreview || ""}`;
+    return normalizeKey(state.selectedProjectID) === normalizeKey(serverChoiceProjectId)
+      && normalizeKey(state.latestVersionID) === normalizeKey(serverChoiceServerVersionId)
+      && state.loadProjectReady === true
+      && state.conflictPresent === false
+      && !Boolean(state.hasUnsavedDraftChanges)
+      && restoredText.includes(serverChoiceServerMarker)
+      && !restoredText.includes(serverChoiceLocalMarker)
+      && stateHasCollaboration(state, serverChoiceCollaboratorEmail, serverChoiceCommentText);
+  }, "server-choice relaunch restore after conflict choice", 60000, 300);
+
   console.log(JSON.stringify({
     ok: true,
     appPath,
@@ -605,6 +859,21 @@ try {
     resolvedState,
     backendProject,
     backendComments,
+    serverChoiceProjectId,
+    serverChoiceInitialVersionId,
+    serverChoiceServerVersionId,
+    serverChoiceLocalMarker,
+    serverChoiceServerMarker,
+    serverChoiceCollaboratorEmail,
+    serverChoiceCommentText,
+    serverChoiceLoadedState,
+    serverChoiceEditedState,
+    serverChoiceCollaborationState,
+    serverChoiceConflictState,
+    serverChoiceResolvedState,
+    serverChoiceRelaunchState,
+    serverChoiceBackendProject,
+    serverChoiceBackendComments,
   }, null, 2));
   console.log("studio-conflict-collaboration-restore-smoke: ok");
 } finally {

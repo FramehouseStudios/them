@@ -199,11 +199,9 @@ export function createStudioDebugDefaultsTransport({
         lastError = result.stderr || result.stdout || lastError;
       }
     }
-    if (!wrote) {
-      const plistWrite = writeKeyToPlistTargets(key, args);
-      wrote = plistWrite.wrote;
-      lastError = plistWrite.lastError || lastError;
-    }
+    const plistWrite = writeKeyToPlistTargets(key, args);
+    wrote = wrote || plistWrite.wrote;
+    lastError = plistWrite.lastError || lastError;
     if (!wrote) {
       throw new Error(`Unable to write defaults key ${key}: ${lastError || "unknown defaults write failure"}`);
     }

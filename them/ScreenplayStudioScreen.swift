@@ -15295,6 +15295,8 @@ private var projectsSidebarContent: some View {
         let latestVersionID: String
         let studioSurfaceActive: Bool
         let selectedProjectPresent: Bool
+        let errorText: String
+        let isSaving: Bool
         let loadedDraftProjectID: String
         let loadProjectToken: Int
         let loadProjectAckToken: Int
@@ -25740,6 +25742,8 @@ Look at the city.
             latestVersionID: vm.latestVersionID,
             studioSurfaceActive: true,
             selectedProjectPresent: vm.selectedProject != nil,
+            errorText: vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines),
+            isSaving: vm.isSaving,
             loadedDraftProjectID: vm.debugLoadedDraftProjectID,
             loadProjectToken: trackedStudioDebugProjectLoadToken,
             loadProjectAckToken: studioDebugLoadProjectAckToken,
