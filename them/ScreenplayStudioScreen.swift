@@ -300,6 +300,8 @@ private enum StudioDebugInspectorInteractionAction: String {
     case resolveFirstComment = "resolve_first_comment"
     case unresolveFirstComment = "unresolve_first_comment"
     case deleteFirstComment = "delete_first_comment"
+    case keepLocalConflict = "keep_local_conflict"
+    case loadServerConflict = "load_server_conflict"
 }
 
 private enum StudioDebugPageWriteToastMode: String {
@@ -3412,19 +3414,41 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         isSaving = true
         defer { isSaving = false }
         do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                projectId: project.id,
-                draft: fountainDraft,
-                title: project.title,
-                phase: project.lastPhase ?? "scene_draft",
-                notes: notes,
-                source: source,
-                studioWriteAnchors: studioWriteAnchors,
-                screenplayBindings: screenplayBindings,
-                baseVersionId: (baseVersionOverride ?? latestVersionID)
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                conflictStrategy: "reject_if_stale"
-            )
+            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: project.id)
+            let baseVersionId = (baseVersionOverride ?? latestVersionID)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let result: BackendReadResult<BackendScreenplayVersionMutationResponse>
+            do {
+                result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
+                    projectId: project.id,
+                    draft: fountainDraft,
+                    title: project.title,
+                    phase: project.lastPhase ?? "scene_draft",
+                    notes: notes,
+                    source: source,
+                    studioWriteAnchors: studioWriteAnchors,
+                    screenplayBindings: screenplayBindings,
+                    baseVersionId: baseVersionId,
+                    conflictStrategy: "reject_if_stale",
+                    includeUserIdentity: ownerHeaders.includeUserIdentity,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
+                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                )
+            } catch BackendMemoryAPIError.server(let status, _)
+                        where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
+                    projectId: project.id,
+                    draft: fountainDraft,
+                    title: project.title,
+                    phase: project.lastPhase ?? "scene_draft",
+                    notes: notes,
+                    source: source,
+                    studioWriteAnchors: studioWriteAnchors,
+                    screenplayBindings: screenplayBindings,
+                    baseVersionId: baseVersionId,
+                    conflictStrategy: "reject_if_stale"
+                )
+            }
             let conflictDetected = (result.payload.conflict ?? false)
                 || (result.payload.status?.localizedCaseInsensitiveContains("conflict") ?? false)
             if conflictDetected {
@@ -15348,6 +15372,11 @@ private var projectsSidebarContent: some View {
         let hasUnsavedDraftChanges: Bool
         let autosaveEnabled: Bool
         let autosaveStatusText: String
+        let conflictPresent: Bool
+        let conflictProjectID: String
+        let conflictBaseVersionID: String
+        let conflictServerVersionID: String
+        let conflictServerDraftPreview: String
         let leftSidebarVisible: Bool
         let sidebarSection: String
         let draftInspectorPresented: Bool
@@ -25511,6 +25540,42 @@ Look at the city.
                 default:
                     break
                 }
+            case .keepLocalConflict:
+                directionOneRightPanelTab = .draft
+                selectedDraftToolsSection = .pages
+                guard vm.conflictState != nil else {
+                    status = "error"
+                    errorText = "conflict_not_present"
+                    vm.infoText = "No save conflict is active."
+                    break
+                }
+                vm.errorText = ""
+                await vm.keepLocalDraftAfterConflict()
+                if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    status = "error"
+                    errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else if vm.conflictState != nil {
+                    status = "error"
+                    errorText = "conflict_not_cleared"
+                } else if vm.hasUnsavedDraftChanges {
+                    status = "error"
+                    errorText = "local_conflict_save_still_dirty"
+                }
+            case .loadServerConflict:
+                directionOneRightPanelTab = .draft
+                selectedDraftToolsSection = .pages
+                guard vm.conflictState != nil else {
+                    status = "error"
+                    errorText = "conflict_not_present"
+                    vm.infoText = "No save conflict is active."
+                    break
+                }
+                vm.errorText = ""
+                vm.applyServerVersionFromConflict()
+                if vm.conflictState != nil {
+                    status = "error"
+                    errorText = "conflict_not_cleared"
+                }
             case .restoreWorkspace:
                 isRestoringInspectorWorkspaceState = true
                 directionOneRightPanelTab = .draft
@@ -25667,6 +25732,7 @@ Look at the city.
             vm.projects.first(where: { $0.id == projectID })
         }
         let localThreadState = loadStudioFullThreadBrowseStateMap()[activeStudioAskNoteHistoryKey]
+        let conflict = vm.conflictState
         let state = StudioDebugDiffState(
             debugSessionID: studioDebugSessionID,
             projectKey: activeStudioAskNoteHistoryKey,
@@ -25754,6 +25820,11 @@ Look at the city.
             hasUnsavedDraftChanges: vm.hasUnsavedDraftChanges,
             autosaveEnabled: vm.autosaveEnabled,
             autosaveStatusText: vm.autosaveStatusText,
+            conflictPresent: conflict != nil,
+            conflictProjectID: conflict?.projectId ?? "",
+            conflictBaseVersionID: conflict?.baseVersionId ?? "",
+            conflictServerVersionID: conflict?.serverVersionId ?? "",
+            conflictServerDraftPreview: noteBodyForAnchor(conflict?.serverDraftExcerpt ?? conflict?.serverDraft ?? ""),
             leftSidebarVisible: isDirectionOneSidebarVisible,
             sidebarSection: selectedSidebarSection.rawValue,
             draftInspectorPresented: draftInspectorIsPresented,

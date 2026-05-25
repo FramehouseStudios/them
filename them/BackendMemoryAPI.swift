@@ -4124,7 +4124,10 @@ actor BackendMemoryAPI {
         studioWriteAnchors: [BackendScreenplayWriteAnchor] = [],
         screenplayBindings: [BackendScreenplayBindingRecord] = [],
         baseVersionId: String = "",
-        conflictStrategy: String = "reject_if_stale"
+        conflictStrategy: String = "reject_if_stale",
+        includeUserIdentity: Bool = true,
+        includeAuthToken: Bool = true,
+        clientTokenOverride: String? = nil
     ) async throws -> BackendReadResult<BackendScreenplayVersionMutationResponse> {
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4137,6 +4140,12 @@ actor BackendMemoryAPI {
         }
 
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
+        applyProjectOwnerHeaders(
+            to: &request,
+            includeUserIdentity: includeUserIdentity,
+            includeAuthToken: includeAuthToken,
+            clientTokenOverride: clientTokenOverride
+        )
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
