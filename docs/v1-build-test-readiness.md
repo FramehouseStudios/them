@@ -5,20 +5,22 @@ the V1 release-readiness checklist item in `docs/v1-definition.md`.
 
 ## Last Verified
 
-2026-05-14 17:56 America/Los_Angeles on branch
-`codex/T118-v1-readiness-proof`.
+2026-05-24 17:15 America/Los_Angeles on branch
+`claude/backend-post-v1-audit`.
 
 ## Commands
 
 ```sh
-xcodebuild build -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+xcodebuild build -project them.xcodeproj -scheme them -configuration Release -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
+scripts/appstore_preflight.sh
 ```
 
 ## Results
 
-- App build: passed (`** BUILD SUCCEEDED **`).
-- `themTests`: passed (`** TEST SUCCEEDED **`), 99 tests, 0 failures.
+- Release iOS Simulator build: passed (`** BUILD SUCCEEDED **`).
+- App Store preflight: expected red without private release inputs (`fail=2 warn=1`).
+- Preflight passed privacy manifest, release plist, hosted backend URL, iPhone-only posture, and unsigned Release iPhone build checks.
+- Remaining release blockers: missing `DEVELOPMENT_TEAM_ID`, missing release `APP_TOKEN`, and a Release entitlements confirmation warning.
 
 ## Boundaries
 
