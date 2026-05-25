@@ -784,6 +784,14 @@ struct RootExperienceView: View {
         ClementineRealtimeSupplierMode.normalized(rawValue: realtimeSupplierModeRaw)
     }
 
+    private var supportDiagnosticsEnabled: Bool {
+        #if DEBUG || os(macOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     private var isStudioSurfaceActive: Bool {
         primarySurface == .studio || uiTestForceStudioSurface
     }
@@ -2457,28 +2465,34 @@ struct RootExperienceView: View {
                     NumberedChoiceActionButton(number: "1", title: "Email Summary") {
                         reportProblem()
                     }
-                    NumberedChoiceActionButton(
-                        number: "2",
-                        title: "Talk Diagnostics",
-                        prominence: .prominent
-                    ) {
-                        showingTalkDiagnostics = true
-                        Task { @MainActor in
-                            await refreshTalkDiagnostics(force: true)
+                    if supportDiagnosticsEnabled {
+                        NumberedChoiceActionButton(
+                            number: "2",
+                            title: "Talk Diagnostics",
+                            prominence: .prominent
+                        ) {
+                            showingTalkDiagnostics = true
+                            Task { @MainActor in
+                                await refreshTalkDiagnostics(force: true)
+                            }
                         }
-                    }
-                    NumberedChoiceActionButton(
-                        number: "3",
-                        title: "Send Debug Bundle",
-                        prominence: .prominent
-                    ) {
-                        Task { @MainActor in
-                            await sendDebugBundle()
+                        NumberedChoiceActionButton(
+                            number: "3",
+                            title: "Send Debug Bundle",
+                            prominence: .prominent
+                        ) {
+                            Task { @MainActor in
+                                await sendDebugBundle()
+                            }
                         }
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("Choose what to send to support. Press 1 for an email summary, 2 for talk diagnostics, or 3 for a debug bundle.")
+                    Text(
+                        supportDiagnosticsEnabled
+                            ? "Choose what to send to support. Press 1 for an email summary, 2 for talk diagnostics, or 3 for a debug bundle."
+                            : "Choose what to send to support. Press 1 for an email summary."
+                    )
                 }
                 .sheet(isPresented: $showingTalkDiagnostics) {
                     TalkDiagnosticsSheet(
@@ -7120,7 +7134,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 backendConnectionState = .up
                 backendFailureCount = 0
                 await refreshOpsRouteManifestIfNeeded(force: false)
-                await refreshTalkDiagnostics(force: false)
+                if supportDiagnosticsEnabled {
+                    await refreshTalkDiagnostics(force: false)
+                }
                 offlineTalkOutboxSnapshot = await OfflineTalkOutbox.shared.drainDue()
                 return
             }
@@ -7187,6 +7203,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func refreshTalkDiagnostics(force: Bool) async {
+        guard supportDiagnosticsEnabled else { return }
         guard !IOThemRuntime.isRunningTests else { return }
         let now = Date()
         if !force,
@@ -9054,6 +9071,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func sendDebugBundle() async {
+        guard supportDiagnosticsEnabled else { return }
         do {
             let bundleURL = try await buildDebugBundleFile()
             #if os(iOS)

@@ -15,6 +15,9 @@ Last updated: 2026-03-27
 ## 3. Privacy + Policy
 - Publish the privacy policy page at `https://them.io/privacy` (or update plist URL first).
 - Ensure App Store Connect Privacy answers match `/Users/halfmutantfilms/Desktop/io.them/them/them/PrivacyInfo.xcprivacy`.
+- Include Audio Data, User Content, and Email Address as app-functionality data types.
+- Confirm the privacy policy names the active AI provider paths: OpenAI and, when enabled, ElevenLabs.
+- Confirm Contacts permission is explained as Quick Email recipient suggestions and remains user-initiated.
 - Confirm in-app data controls work: clear history and clear memories.
 
 ## 4. Build + Preflight
@@ -88,5 +91,6 @@ RUN_QUALITY_GATE=1 ./scripts/appstore_preflight.sh
 
 ## 7. App Review Notes (recommended)
 - Explain microphone use in one sentence.
-- Explain that voice/audio and text are processed by AI providers to deliver app functionality.
+- Explain that voice/audio, text, and screenplay content are processed by OpenAI and optionally ElevenLabs to deliver app functionality.
+- Explain that Contacts access is optional and only used for Quick Email recipient suggestions.
 - Provide a demo account only if your app requires login.
