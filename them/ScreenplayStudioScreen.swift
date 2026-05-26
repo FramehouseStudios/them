@@ -15463,6 +15463,12 @@ private var projectsSidebarContent: some View {
         let conflictBaseVersionID: String
         let conflictServerVersionID: String
         let conflictServerDraftPreview: String
+        let recoveryPresent: Bool
+        let recoveryProjectID: String
+        let recoveryBaseVersionID: String
+        let recoverySavedAt: TimeInterval
+        let recoveryDraftPreview: String
+        let recoveryMatchesCurrentDraft: Bool
         let leftSidebarVisible: Bool
         let sidebarSection: String
         let draftInspectorPresented: Bool
@@ -25837,6 +25843,8 @@ Look at the city.
         }
         let localThreadState = loadStudioFullThreadBrowseStateMap()[activeStudioAskNoteHistoryKey]
         let conflict = vm.conflictState
+        let recovery = vm.recoveryCandidate
+        let recoveryDraft = recovery?.draft.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let state = StudioDebugDiffState(
             debugSessionID: studioDebugSessionID,
             projectKey: activeStudioAskNoteHistoryKey,
@@ -25931,6 +25939,12 @@ Look at the city.
             conflictBaseVersionID: conflict?.baseVersionId ?? "",
             conflictServerVersionID: conflict?.serverVersionId ?? "",
             conflictServerDraftPreview: noteBodyForAnchor(conflict?.serverDraftExcerpt ?? conflict?.serverDraft ?? ""),
+            recoveryPresent: recovery != nil,
+            recoveryProjectID: recovery?.projectId ?? "",
+            recoveryBaseVersionID: recovery?.baseVersionId ?? "",
+            recoverySavedAt: recovery?.savedAt ?? 0,
+            recoveryDraftPreview: noteBodyForAnchor(recovery?.draft ?? ""),
+            recoveryMatchesCurrentDraft: !recoveryDraft.isEmpty && recoveryDraft == normalizedDraft,
             leftSidebarVisible: isDirectionOneSidebarVisible,
             sidebarSection: selectedSidebarSection.rawValue,
             draftInspectorPresented: draftInspectorIsPresented,
