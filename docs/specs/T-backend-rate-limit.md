@@ -1,23 +1,23 @@
 # Spec: T-backend-rate-limit
 
-**Status**: ready (Claude can implement).
+**Status**: implemented for the V1 launch lane.
 **Owner**: claude (backend scope).
 **V1 pillar**: infra (enables all)
 **V1 effect**: closes a V1 production-readiness gap — today the
-backend has no global rate limiting. A single misbehaving client (or
+backend previously had no global rate limiting. A single misbehaving client (or
 a malicious one) can exhaust the OpenAI budget or crash the
-single-instance deployment. The `talk_rate_limit_route.js` module
-exists for the talk path, but no other route is protected.
+single-instance deployment.
 
 ## Problem
 
-`backend/lib/talk_turn_rate_limit_route.js` rate-limits talk turns.
-Every other public route is unbounded:
-- `/auth/signup` and `/auth/login` — no anti-brute-force.
-- `/realtime/call` — minting a realtime session calls OpenAI; an
-  attacker can burn budget by hammering it.
-- `/screenplay/projects/*` — unbounded writes/reads.
-- `/memories/*` — unbounded.
+`backend/lib/talk_turn_rate_limit_route.js` rate-limits talk turn reads,
+and the main `/talk` pipeline has its own guard. The V1 exposure lane now
+also wires a shared limiter onto auth and paid-provider surfaces:
+- `/auth/*` — anti-brute-force protection.
+- `/realtime/client_secret`, `/realtime/call`, `/realtime/turn_commit`,
+  `/realtime/studio_render`, `/realtime/studio_render_stream` — bounds
+  realtime/provider cost.
+- `/visual/context` — bounds visual-provider cost.
 
 V1 will not survive even a curious user with a script.
 
@@ -29,7 +29,8 @@ In:
 - Per-route-class budgets (configurable via env), with sane defaults:
   - `auth`: 5 req / minute / ip (signup/login/password reset)
   - `realtime_mint`: 20 req / minute / user
-  - `talk`: keep the existing helper (do not duplicate)
+  - `talk`: keep the existing helper, keyed by authenticated user when present
+    and trusted Express `req.ip` otherwise
   - `default`: 120 req / minute / user
 - 429 response with `Retry-After` header on limit.
 - Exempt header for tests: `X-Test-Bypass-Rate-Limit` honored only
@@ -53,6 +54,9 @@ API:
 const limiter = createRateLimiter({ buckets: { auth: {n:5, windowMs:60_000}, ... } });
 app.post("/auth/signup", limiter.middleware("auth"), signupHandler);
 ```
+
+`backend/index.js` sets `app.set("trust proxy", 1)`, and the shared limiter
+uses Express `req.ip` rather than parsing raw `X-Forwarded-For` headers.
 
 ## Acceptance
 

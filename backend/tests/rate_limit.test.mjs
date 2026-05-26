@@ -156,3 +156,13 @@ test("[rate_limit] user-id keying takes precedence over IP", () => {
   assert.equal(limiter.consume(limiter.keyFor(reqAlice, "auth"), "auth").allowed, false);
   assert.equal(limiter.consume(limiter.keyFor(reqBob, "auth"), "auth").allowed, true);
 });
+
+test("[rate_limit] unauthenticated keying uses trusted req.ip instead of raw x-forwarded-for", () => {
+  const { limiter } = makeLimiter();
+  const req = {
+    ip: "203.0.113.8",
+    headers: { "x-forwarded-for": "198.51.100.99" },
+    socket: { remoteAddress: "192.0.2.10" },
+  };
+  assert.equal(limiter.keyFor(req, "auth"), "ip:203.0.113.8|auth");
+});

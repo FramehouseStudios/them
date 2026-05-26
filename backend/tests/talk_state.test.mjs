@@ -159,6 +159,35 @@ test("rate-limit guard burst within limit allowed", () => {
   }
 });
 
+test("rate-limit guard isolates authenticated users sharing an IP", () => {
+  resetState();
+  const guard = createTalkRateLimitGuard({
+    clientIp: () => "10.0.0.9",
+    talkRateLimitWindowMs: 60_000,
+    talkRateLimitMax: 1,
+    now: () => 2_500_000,
+  });
+
+  const alice = stubRequest();
+  alice.authUser = { id: "alice" };
+  const bob = stubRequest();
+  bob.authUser = { id: "bob" };
+
+  guard(alice, stubResponse(), () => {});
+
+  const deniedAlice = stubResponse();
+  let deniedAliceNext = false;
+  guard(alice, deniedAlice, () => { deniedAliceNext = true; });
+  assert.equal(deniedAliceNext, false);
+  assert.equal(deniedAlice._recorded.statusCode, 429);
+
+  const allowedBob = stubResponse();
+  let allowedBobNext = false;
+  guard(bob, allowedBob, () => { allowedBobNext = true; });
+  assert.equal(allowedBobNext, true, "bob should not share alice's talk bucket");
+  assert.equal(allowedBob._recorded.sent, false);
+});
+
 test("rate-limit guard over-limit returns 429 with Retry-After", () => {
   resetState();
   const guard = createTalkRateLimitGuard({

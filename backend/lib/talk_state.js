@@ -143,7 +143,8 @@ export function createTalkRateLimitGuard({
     const t = now();
     cleanupRateBuckets(t);
 
-    const key = `ip:${clientIp(req)}`;
+    const userId = String(req?.authUser?.id || req?.userId || req?.user?.id || "").trim();
+    const key = userId ? `user:${userId}` : `ip:${clientIp(req)}`;
     const bucket = talkRateBuckets.get(key);
 
     if (!bucket || bucket.resetAt <= t) {

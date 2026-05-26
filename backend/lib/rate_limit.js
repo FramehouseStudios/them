@@ -1,9 +1,9 @@
 // Token-bucket rate limiter — Phase 0 of T-backend-rate-limit.
 //
 // See docs/specs/T-backend-rate-limit.md for the contract. This
-// module ships the helper + tests. The V1 auth and realtime
-// paid-provider routes are wired in backend/index.js; future
-// broad-route adoption can keep using the same classed middleware.
+// module ships the helper + tests. The V1 auth, realtime, and visual
+// paid-provider routes are wired in backend/index.js; future broad-route
+// adoption can keep using the same classed middleware.
 //
 // In-memory only — single-instance V1 deployment. If the backend
 // scales out, this becomes T-rate-limit-redis-followup.
@@ -74,14 +74,12 @@ function createRateLimiter({
   }
 
   function keyFor(req, routeClass) {
-    const userId = req?.authUser?.id || req?.userId || req?.user?.id || null;
+    const userId = String(req?.authUser?.id || req?.userId || req?.user?.id || "").trim();
     if (userId) return `u:${userId}|${routeClass}`;
-    // Trust the leftmost X-Forwarded-For entry when present (set by the
-    // load balancer); fall back to the socket address.
-    const xff = req?.headers?.["x-forwarded-for"];
-    const ip = (typeof xff === "string" && xff.length > 0)
-      ? xff.split(",")[0].trim()
-      : (req?.ip || req?.socket?.remoteAddress || "unknown");
+    // backend/index.js sets Express trust proxy before this middleware runs,
+    // so req.ip is the canonical trusted client IP. Do not parse inbound
+    // X-Forwarded-For here; raw forwarding headers are client-spoofable.
+    const ip = String(req?.ip || req?.socket?.remoteAddress || "unknown").trim() || "unknown";
     return `ip:${ip}|${routeClass}`;
   }
 
