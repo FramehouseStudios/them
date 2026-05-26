@@ -73,36 +73,56 @@ async function readHealth() {
       });
     });
     req.on("error", reject);
-    req.setTimeout(4000, () => req.destroy(new Error("health request timed out")));
+    req.setTimeout(10000, () => req.destroy(new Error("health request timed out")));
   });
 }
 
 async function ensureOwnerIdentity() {
   const existingUserId = readDefaultString("user_id");
   const existingClientToken = readDefaultString("client_token");
-  if (existingUserId || existingClientToken) {
+  if (existingClientToken) {
     return { userId: existingUserId, clientToken: existingClientToken, bootstrapped: false };
   }
   const headers = {
     "Content-Type": "application/json",
     "X-APP-TOKEN": "them-dev",
+    Connection: "close",
   };
-  const response = await fetch("http://127.0.0.1:3000/session", {
-    method: "POST",
-    headers,
-    body: "{}",
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(`Failed to bootstrap Studio relaunch owner identity: ${response.status} ${JSON.stringify(payload)}`);
+  let lastStatus = 0;
+  let lastPayload = {};
+  let lastError = null;
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    try {
+      const response = await fetch("http://127.0.0.1:3000/session", {
+        method: "POST",
+        headers,
+        body: "{}",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) {
+        const userId = String(payload?.user_id || "").trim();
+        const clientToken = String(payload?.client_token || payload?.session_id || "").trim();
+        assert(userId || clientToken, "Session bootstrap did not return an owner identity");
+        writeDefaultString("user_id", userId);
+        writeDefaultString("client_token", clientToken);
+        synchronizeDefaults();
+        return { userId, clientToken, bootstrapped: true };
+      }
+      lastStatus = response.status;
+      lastPayload = payload;
+      if (response.status !== 429 && response.status < 500) break;
+      const retryAfterMs = Math.max(0, Number(response.headers.get("retry-after") || 0)) * 1000;
+      await sleep(Math.max(retryAfterMs, 1000 * attempt));
+    } catch (error) {
+      lastError = error;
+      if (attempt === 6) break;
+      await sleep(500 * attempt);
+    }
   }
-  const userId = String(payload?.user_id || "").trim();
-  const clientToken = String(payload?.client_token || payload?.session_id || "").trim();
-  assert(userId || clientToken, "Session bootstrap did not return an owner identity");
-  writeDefaultString("user_id", userId);
-  writeDefaultString("client_token", clientToken);
-  synchronizeDefaults();
-  return { userId, clientToken, bootstrapped: true };
+  if (lastError && !lastStatus) {
+    throw new Error(`Failed to bootstrap Studio relaunch owner identity: ${lastError?.message || lastError}`);
+  }
+  throw new Error(`Failed to bootstrap Studio relaunch owner identity: ${lastStatus} ${JSON.stringify(lastPayload)}`);
 }
 
 function findDebugAppPath() {

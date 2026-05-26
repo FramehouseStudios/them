@@ -61,7 +61,7 @@ async function readHealth() {
       });
     });
     req.on("error", reject);
-    req.setTimeout(4000, () => req.destroy(new Error("health request timed out")));
+    req.setTimeout(10000, () => req.destroy(new Error("health request timed out")));
   });
 }
 

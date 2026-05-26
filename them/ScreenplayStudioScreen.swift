@@ -5034,6 +5034,9 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 publishDebugStudioDiffState()
             }
+            .onChange(of: vm.isSaving) { _, _ in
+                publishDebugStudioDiffState()
+            }
             .onChange(of: vm.isManualDraftEditing) { _, _ in
                 publishDebugStudioDiffState()
             }

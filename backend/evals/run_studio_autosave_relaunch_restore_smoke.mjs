@@ -81,7 +81,7 @@ async function readHealth() {
       });
     });
     req.on("error", reject);
-    req.setTimeout(4000, () => req.destroy(new Error("health request timed out")));
+    req.setTimeout(10000, () => req.destroy(new Error("health request timed out")));
   });
 }
 
@@ -132,30 +132,56 @@ function normalizeText(value) {
 }
 
 async function ensureOwnerIdentity() {
-  const response = await fetch("http://127.0.0.1:3000/session", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-APP-TOKEN": "them-dev",
-    },
-    body: "{}",
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(`Failed to bootstrap Studio owner identity: ${response.status} ${JSON.stringify(payload)}`);
+  const existingUserId = readDefaultString("user_id");
+  const existingClientToken = readDefaultString("client_token");
+  if (existingClientToken) {
+    return { userId: existingUserId, clientToken: existingClientToken, bootstrapped: false };
   }
-  const userId = String(payload?.user_id || "").trim();
-  const clientToken = String(payload?.client_token || payload?.session_id || "").trim();
-  assert(userId || clientToken, "Session bootstrap did not return an owner identity");
-  writeDefaultString("user_id", userId);
-  writeDefaultString("client_token", clientToken);
-  writeDefaultInt("client_token_cached_at", Math.floor(Date.now() / 1000));
-  writeDefaultString("client_token_base_url", "http://127.0.0.1:3000");
-  const expiresIn = Number(payload?.expires_in || 0);
-  if (Number.isFinite(expiresIn) && expiresIn > 0) {
-    writeDefaultString("client_token_expiry", new Date(Date.now() + expiresIn * 1000).toISOString());
+
+  let lastStatus = 0;
+  let lastPayload = {};
+  let lastError = null;
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    try {
+      const response = await fetch("http://127.0.0.1:3000/session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-APP-TOKEN": "them-dev",
+          Connection: "close",
+        },
+        body: "{}",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) {
+        const userId = String(payload?.user_id || "").trim();
+        const clientToken = String(payload?.client_token || payload?.session_id || "").trim();
+        assert(userId || clientToken, "Session bootstrap did not return an owner identity");
+        writeDefaultString("user_id", userId);
+        writeDefaultString("client_token", clientToken);
+        writeDefaultInt("client_token_cached_at", Math.floor(Date.now() / 1000));
+        writeDefaultString("client_token_base_url", "http://127.0.0.1:3000");
+        const expiresIn = Number(payload?.expires_in || 0);
+        if (Number.isFinite(expiresIn) && expiresIn > 0) {
+          writeDefaultString("client_token_expiry", new Date(Date.now() + expiresIn * 1000).toISOString());
+        }
+        return { userId, clientToken, bootstrapped: true };
+      }
+      lastStatus = response.status;
+      lastPayload = payload;
+      if (response.status !== 429 && response.status < 500) break;
+      const retryAfterMs = Math.max(0, Number(response.headers.get("retry-after") || 0)) * 1000;
+      await sleep(Math.max(retryAfterMs, 1000 * attempt));
+    } catch (error) {
+      lastError = error;
+      if (attempt === 6) break;
+      await sleep(500 * attempt);
+    }
   }
-  return { userId, clientToken };
+  if (lastError && !lastStatus) {
+    throw new Error(`Failed to bootstrap Studio owner identity: ${lastError?.message || lastError}`);
+  }
+  throw new Error(`Failed to bootstrap Studio owner identity: ${lastStatus} ${JSON.stringify(lastPayload)}`);
 }
 
 function ownerHeaders() {
@@ -172,13 +198,27 @@ function ownerHeaders() {
 }
 
 async function fetchBackendJSON(path, { method = "GET", body = null, headers = ownerHeaders() } = {}) {
-  const response = await fetch(`http://127.0.0.1:3000${path}`, {
-    method,
-    headers,
-    body: body == null ? undefined : JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  return { response, payload };
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:3000${path}`, {
+        method,
+        headers: {
+          ...headers,
+          Connection: "close",
+        },
+        body: body == null ? undefined : JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({}));
+      return { response, payload };
+    } catch (error) {
+      lastError = error;
+      const retryable = /ECONNRESET|fetch failed|socket|network/i.test(String(error?.message || error));
+      if (!retryable || attempt === 3) break;
+      await sleep(400 * attempt);
+    }
+  }
+  throw lastError || new Error(`Backend request failed for ${method} ${path}`);
 }
 
 async function postBackendProject(projectId, title) {

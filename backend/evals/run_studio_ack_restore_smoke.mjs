@@ -1,6 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import http from "node:http";
+import {
+  createStudioEvalDebugContext,
+  ensureStudioProjectLoadedWithDebugHook,
+  stageStudioProjectLoadDebugRequest,
+} from "./studio_eval_debug_utils.mjs";
 import { fetchStudioProjectMetadata } from "./studio_project_metadata_probe.mjs";
 import { createStudioRestoreFixture } from "./studio_restore_seed_helper.mjs";
 
@@ -25,6 +30,8 @@ function runOptional(command, args, options = {}) {
   };
 }
 
+const studioDebug = createStudioEvalDebugContext({ run, runOptional });
+
 function osascript(lines) {
   const args = [];
   for (const line of lines) args.push("-e", line);
@@ -44,6 +51,18 @@ async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 2
   throw new Error(`Timed out waiting for ${description}`);
 }
 
+async function waitForDebugState(predicate, description, timeoutMs = 20000, intervalMs = 250) {
+  try {
+    await waitFor(() => {
+      const state = readDebugDiffState();
+      return Boolean(state && predicate(state));
+    }, description, timeoutMs, intervalMs);
+  } catch (error) {
+    const state = readDebugDiffState();
+    throw new Error(`${error?.message || error}\nLatest Studio debug state: ${JSON.stringify(state, null, 2)}`);
+  }
+}
+
 async function readHealth() {
   return await new Promise((resolve, reject) => {
     const req = http.get("http://127.0.0.1:3000/health", (res) => {
@@ -59,7 +78,7 @@ async function readHealth() {
       });
     });
     req.on("error", reject);
-    req.setTimeout(4000, () => req.destroy(new Error("health request timed out")));
+    req.setTimeout(10000, () => req.destroy(new Error("health request timed out")));
   });
 }
 
@@ -460,16 +479,25 @@ try {
 
   await relaunchApp(appPath);
 
-  await waitFor(() => {
-    const state = readDebugDiffState();
-    if (!state) return false;
+  await waitForDebugState((state) => {
     const sessionID = normalizeKey(state.debugSessionID);
     return Boolean(sessionID) && sessionID !== originalDebugSessionID;
   }, "fresh Studio debug session after relaunch", 25000, 300);
 
-  await waitFor(() => {
-    const state = readDebugDiffState();
-    if (!state) return false;
+  const seededProjectId = projectIdFromHistoryKey(seededRecord.projectKey);
+  const stagedProjectLoadRequest = stageStudioProjectLoadDebugRequest({
+    debugDefaults: studioDebug.defaults,
+    projectId: seededProjectId,
+  });
+  await ensureStudioProjectLoadedWithDebugHook({
+    debugDefaults: studioDebug.defaults,
+    projectId: seededProjectId,
+    readDebugDiffState,
+    timeoutMs: 45000,
+    stagedRequest: stagedProjectLoadRequest,
+  });
+
+  await waitForDebugState((state) => {
     restoredState = state;
     return normalizeKey(state.projectKey) === normalizeKey(seededRecord.projectKey)
       && Number(state.acknowledgedDiffCount || 0) > 0
