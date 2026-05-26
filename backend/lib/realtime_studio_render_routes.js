@@ -13,14 +13,15 @@
 // (docs/v1-definition.md line 68) by continuing the
 // realtime extraction chain.
 //
-// Behavior is byte-identical with the previous inline
-// handlers:
+// Behavior preserves the previous inline handlers:
 //   - same 503 envelope when OPENAI_API_KEY is missing,
 //   - same 400 envelope on empty transcript,
 //   - same 200 success envelope for sync (`/studio_render`),
 //   - same SSE event stream for streaming
 //     (`/studio_render_stream`) — meta + trace + delta +
 //     done + error events with the same payload shapes,
+//     while explicitly keeping the connection alive for
+//     SSE clients,
 //   - same diagnostic lines (chars_u / chars_a /
 //     first_delta_ms / delta_chunks / total_ms). Note:
 //     console.log in the inline source → console.warn here.
@@ -150,7 +151,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
 
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Connection", "close");
+    res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     res.setHeader("X-Studio-Render-Request-Id", rid);
     if (typeof res.flushHeaders === "function") {

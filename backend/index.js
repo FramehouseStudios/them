@@ -27746,8 +27746,7 @@ mountRealtimeClientSecretRoute(app, {
 });
 
 // T-decompose-phase5b2-studio-render: two routes moved to
-// lib/realtime_studio_render_routes.js. Byte-identical with
-// the previous inline handlers. See
+// lib/realtime_studio_render_routes.js. See
 // docs/specs/T-decompose-backend-index.md and design note
 // in tasks/_proposals/T-decompose-phase5b-realtime-design.md.
 app.use(

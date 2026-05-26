@@ -1755,8 +1755,10 @@ nonisolated enum BackendCredentialMigration {
         let wrote = writeKeychain(normalized, account)
         if wrote {
             defaults.removeObject(forKey: defaultsKey)
+        } else {
+            defaults.set(normalized, forKey: defaultsKey)
         }
-        return wrote
+        return true
     }
 
     static func deleteString(
