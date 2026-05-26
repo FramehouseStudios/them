@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts/release_config_status.mjs");
+const wrapper = path.join(repoRoot, "scripts/run_release_preflight.sh");
 
 function run(args, env = {}) {
   return spawnSync(process.execPath, [script, ...args], {
@@ -58,4 +59,42 @@ test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN
   assert.equal(tokenCheck.secret.present, true);
   assert.equal(tokenCheck.secret.length, "super-secret-release-token-123456".length);
   assert.doesNotMatch(r.stdout, /super-secret-release-token-123456/);
+});
+
+test("[run-release-preflight] stops at config status without leaking sourced token", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-wrapper-"));
+  const envFile = path.join(dir, "Release.local.env");
+  const secret = "wrapped-secret-release-token-abcdef";
+  fs.writeFileSync(
+    envFile,
+    [
+      "BACKEND_URL=https://api.them.io",
+      `APP_TOKEN_RELEASE=${secret}`,
+      "",
+    ].join("\n"),
+  );
+
+  const binDir = path.join(dir, "bin");
+  fs.mkdirSync(binDir);
+  const xcodebuild = path.join(binDir, "xcodebuild");
+  fs.writeFileSync(xcodebuild, "#!/usr/bin/env bash\nexit 1\n");
+  fs.chmodSync(xcodebuild, 0o755);
+
+  const r = spawnSync("bash", [wrapper], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      PATH: `${binDir}${path.delimiter}${process.env.PATH || ""}`,
+      RELEASE_ENV_FILE: envFile,
+      DEVELOPMENT_TEAM_ID: "",
+      BACKEND_URL: "",
+      APP_TOKEN_RELEASE: "",
+    },
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stdout, /Release Config Status/);
+  assert.match(r.stdout, /Apple Development Team ID is missing/);
+  assert.doesNotMatch(`${r.stdout}\n${r.stderr}`, new RegExp(secret));
+  assert.doesNotMatch(r.stdout, /App Store Preflight/);
 });
