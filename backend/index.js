@@ -31481,6 +31481,7 @@ mountAccountRoutes(app, {
   exportUserData: exportAuthenticatedUserData,
   lifecycleStore: accountLifecycleStore,
   revokeAllSessions: async (userId) => revokeAllAuthSessionsForUser(userId, Date.now()),
+  verifyReauthProof: userAuth.verifyReauthProof,
   auditLog: accountAuditLog,
 });
 

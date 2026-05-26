@@ -46,10 +46,23 @@ test("[account-wiring] export reads real persistence and delete revokes sessions
       "account export should include the user's persisted screenplay project"
     );
 
+    const deniedDelete = await apiRequest(server, "/account", {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + token },
+      json: { reason: "missing reauth proof" },
+    });
+    assert.equal(deniedDelete.status, 403, "delete should require a fresh reauth proof");
+    assert.equal(deniedDelete.json?.error, "reauth_required");
+
+    const stillSignedIn = await apiRequest(server, "/auth/sessions", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    assert.equal(stillSignedIn.status, 200, "failed delete must not revoke the active session");
+
     const deleted = await apiRequest(server, "/account", {
       method: "DELETE",
       headers: { Authorization: "Bearer " + token },
-      json: { reason: "test cleanup" },
+      json: { reason: "test cleanup", password: "account-wiring-password-123" },
     });
     assert.equal(deleted.status, 202, deleted.text);
     assert.equal(deleted.json?.status, "pending_deletion");

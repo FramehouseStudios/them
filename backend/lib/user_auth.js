@@ -388,6 +388,27 @@ function createUserAuthSubsystem(options = {}) {
     };
   }
 
+  async function verifyReauthProof(req, user) {
+    const normalizedUserId = String(user?.id || "").trim();
+    if (!normalizedUserId) return false;
+    const password = String(
+      req?.body?.password ?? req?.body?.current_password ?? req?.body?.currentPassword ?? ""
+    );
+    if (password) {
+      const authenticated = authenticateUser(normalizeEmail(user?.email), password);
+      return Boolean(authenticated?.ok && String(authenticated?.user?.id || "").trim() === normalizedUserId);
+    }
+    const identityToken = String(
+      req?.body?.identity_token ?? req?.body?.apple_identity_token ?? req?.body?.appleIdentityToken ?? ""
+    ).trim();
+    const appleSubject = String(user?.appleSubject || "").trim();
+    if (identityToken && appleSubject) {
+      const verified = await verifyAppleIdentityToken(identityToken, req?.body || {});
+      return Boolean(verified?.ok && String(verified.subject || "").trim() === appleSubject);
+    }
+    return false;
+  }
+
   function normalizeAppleJwksPayload(payload) {
     const keys = Array.isArray(payload?.keys) ? payload.keys : [];
     return keys
@@ -936,6 +957,7 @@ function createUserAuthSubsystem(options = {}) {
     handleAuthVerifyEmail,
     protectPaidProviderRoutes,
     protectUserRoutes,
+    verifyReauthProof,
   };
 }
 

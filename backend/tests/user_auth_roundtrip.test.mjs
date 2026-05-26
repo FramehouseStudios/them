@@ -259,6 +259,26 @@ test("[user-auth-roundtrip] logout invalidates the refresh token", async () => {
   assert.notEqual(refreshAfterLogout._status, 200);
 });
 
+test("[user-auth-roundtrip] verifyReauthProof accepts only the current user's password", async () => {
+  const auth = setupSubsystem();
+  await auth.handleAuthSignup(makeReq({ email: "reauth@example.com", password: "validpass123" }), makeRes());
+  const user = usersByEmail.get("reauth@example.com");
+  assert.ok(user, "user should exist");
+
+  assert.equal(
+    await auth.verifyReauthProof(makeReq({ password: "validpass123" }), user),
+    true,
+  );
+  assert.equal(
+    await auth.verifyReauthProof(makeReq({ password: "wrong-password" }), user),
+    false,
+  );
+  assert.equal(
+    await auth.verifyReauthProof(makeReq({}), user),
+    false,
+  );
+});
+
 // ---------- password reset ----------
 
 test("[user-auth-roundtrip] request_password_reset issues a debug token in non-production", async () => {
