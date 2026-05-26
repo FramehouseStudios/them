@@ -22,6 +22,9 @@ fi
 if [[ -n "${APP_TOKEN_RELEASE:-}" ]]; then
   xcodebuild_overrides+=(APP_TOKEN_RELEASE="$APP_TOKEN_RELEASE")
 fi
+if [[ -n "${BACKEND_URL:-}" ]]; then
+  xcodebuild_overrides+=(BACKEND_URL="$BACKEND_URL")
+fi
 
 fail_count=0
 warn_count=0
