@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { createHash, createPublicKey } from "node:crypto";
 
 import {
   authenticateUser,
@@ -66,6 +67,15 @@ function normalizeBoolean(value, fallback = false) {
 
 function sanitizeText(value, maxLength = 160) {
   return String(value || "").trim().replace(/\s+/g, " ").slice(0, Math.max(1, Number(maxLength || 160)));
+}
+
+function sha256Base64Url(value) {
+  return createHash("sha256")
+    .update(String(value || ""), "utf8")
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 function buildPublicUser(user) {
@@ -136,9 +146,16 @@ function createUserAuthSubsystem(options = {}) {
   const appleAudience = sanitizeText(options.appleAudience || "", 120);
   const appleTestJwtSecret = String(options.appleTestJwtSecret || "").trim();
   const appleJwtPublicKey = String(options.appleJwtPublicKey || "").trim();
+  const appleJwksUrl = sanitizeText(options.appleJwksUrl || "https://appleid.apple.com/auth/keys", 240);
+  const appleJwks = options.appleJwks && typeof options.appleJwks === "object" ? options.appleJwks : null;
+  const fetchAppleJwks = typeof options.fetchAppleJwks === "function" ? options.fetchAppleJwks : null;
+  const appleJwksCacheTtlMs = Math.max(60_000, Number(options.appleJwksCacheTtlMs || 6 * 60 * 60 * 1000));
   const signingSecret = String(options.jwtSecret || "").trim() || (nodeEnv === "production" ? "" : "them-dev-user-jwt-secret");
   const authConfigured = Boolean(signingSecret);
   const allowDebugTokens = nodeEnv !== "production";
+  const allowAppleTestJwtSecret = nodeEnv !== "production" && Boolean(appleTestJwtSecret);
+  const allowStaticApplePublicKey = nodeEnv !== "production" && Boolean(appleJwtPublicKey);
+  let appleJwksCache = { fetchedAt: 0, keys: [] };
 
   function authMisconfigured(res, stage = "auth_user") {
     return res.status(503).json({ stage, error: "user_auth_not_configured" });
@@ -371,12 +388,86 @@ function createUserAuthSubsystem(options = {}) {
     };
   }
 
-  function verifyAppleIdentityToken(identityToken) {
+  function normalizeAppleJwksPayload(payload) {
+    const keys = Array.isArray(payload?.keys) ? payload.keys : [];
+    return keys
+      .filter((key) => key && typeof key === "object")
+      .filter((key) => String(key.kid || "").trim() && String(key.kty || "").trim().toUpperCase() === "RSA");
+  }
+
+  async function fetchAppleJwksDefault(url) {
+    if (typeof fetch !== "function") {
+      throw new Error("fetch_unavailable");
+    }
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+    });
+    if (!response || !response.ok) {
+      throw new Error(`apple_jwks_http_${response?.status || "unknown"}`);
+    }
+    return await response.json();
+  }
+
+  async function loadAppleJwks() {
+    if (appleJwks) {
+      return normalizeAppleJwksPayload(appleJwks);
+    }
+    const now = Date.now();
+    if (appleJwksCache.keys.length && (now - appleJwksCache.fetchedAt) < appleJwksCacheTtlMs) {
+      return appleJwksCache.keys;
+    }
+    const payload = fetchAppleJwks
+      ? await fetchAppleJwks(appleJwksUrl)
+      : await fetchAppleJwksDefault(appleJwksUrl);
+    const keys = normalizeAppleJwksPayload(payload);
+    appleJwksCache = { fetchedAt: now, keys };
+    return keys;
+  }
+
+  function applePublicKeyFromJwk(jwk) {
+    return createPublicKey({ key: jwk, format: "jwk" });
+  }
+
+  function expectedAppleNonceCandidates(body = {}) {
+    const direct = sanitizeText(
+      body.nonce ?? body.expected_nonce ?? body.expectedNonce ?? "",
+      256
+    );
+    const hash = sanitizeText(
+      body.nonce_sha256 ?? body.nonceHash ?? body.nonce_hash ?? "",
+      256
+    );
+    const raw = sanitizeText(
+      body.raw_nonce ?? body.rawNonce ?? "",
+      256
+    );
+    const candidates = new Set();
+    if (direct) {
+      candidates.add(direct);
+      candidates.add(sha256Base64Url(direct));
+    }
+    if (hash) candidates.add(hash);
+    if (raw) candidates.add(sha256Base64Url(raw));
+    return [...candidates].filter(Boolean);
+  }
+
+  function verifyAppleNonce(payload, candidates) {
+    const payloadNonce = sanitizeText(payload?.nonce || "", 256);
+    if (candidates.length > 0) {
+      return Boolean(payloadNonce && candidates.includes(payloadNonce));
+    }
+    if (nodeEnv === "production") {
+      return false;
+    }
+    return true;
+  }
+
+  async function verifyAppleIdentityToken(identityToken, body = {}) {
     const token = String(identityToken || "").trim();
     if (!token) {
       return { ok: false, status: 400, error: "identity_token_required" };
     }
-    if (!appleTestJwtSecret && !appleJwtPublicKey) {
+    if (!allowAppleTestJwtSecret && !allowStaticApplePublicKey && nodeEnv !== "production" && !fetchAppleJwks && !appleJwks) {
       return { ok: false, status: 503, error: "apple_sign_in_not_configured" };
     }
     const verifyOptions = {
@@ -386,12 +477,41 @@ function createUserAuthSubsystem(options = {}) {
       verifyOptions.audience = appleAudience;
     }
     try {
-      const payload = appleTestJwtSecret
-        ? jwt.verify(token, appleTestJwtSecret, { ...verifyOptions, algorithms: ["HS256"] })
-        : jwt.verify(token, appleJwtPublicKey, { ...verifyOptions, algorithms: ["RS256"] });
+      const nonceCandidates = expectedAppleNonceCandidates(body);
+      const decoded = jwt.decode(token, { complete: true });
+      const header = decoded && typeof decoded === "object" ? decoded.header : null;
+      const alg = String(header?.alg || "").trim();
+      const kid = String(header?.kid || "").trim();
+      let payload = null;
+      if (allowAppleTestJwtSecret) {
+        payload = jwt.verify(token, appleTestJwtSecret, { ...verifyOptions, algorithms: ["HS256"] });
+      } else if (allowStaticApplePublicKey) {
+        payload = jwt.verify(token, appleJwtPublicKey, { ...verifyOptions, algorithms: ["RS256"] });
+      } else {
+        if (alg !== "RS256" || !kid) {
+          return { ok: false, status: 401, error: "invalid_apple_identity_token" };
+        }
+        const keys = await loadAppleJwks();
+        const jwk = keys.find((key) => {
+          const keyKid = String(key?.kid || "").trim();
+          const keyAlg = String(key?.alg || "RS256").trim();
+          return keyKid === kid && (!keyAlg || keyAlg === "RS256");
+        });
+        if (!jwk) {
+          return { ok: false, status: 401, error: "invalid_apple_identity_token" };
+        }
+        payload = jwt.verify(token, applePublicKeyFromJwk(jwk), { ...verifyOptions, algorithms: ["RS256"] });
+      }
       const subject = String(payload?.sub || "").trim();
       if (!subject) {
         return { ok: false, status: 401, error: "invalid_apple_identity_token" };
+      }
+      if (!verifyAppleNonce(payload, nonceCandidates)) {
+        return {
+          ok: false,
+          status: nonceCandidates.length ? 401 : 400,
+          error: nonceCandidates.length ? "invalid_apple_nonce" : "apple_nonce_required",
+        };
       }
       return {
         ok: true,
@@ -399,7 +519,10 @@ function createUserAuthSubsystem(options = {}) {
         email: normalizeEmail(payload?.email),
         emailVerified: normalizeBoolean(payload?.email_verified, false),
       };
-    } catch (_) {
+    } catch (error) {
+      if (String(error?.message || "").startsWith("apple_jwks_http_") || String(error?.message || "") === "fetch_unavailable") {
+        return { ok: false, status: 503, error: "apple_jwks_unavailable" };
+      }
       return { ok: false, status: 401, error: "invalid_apple_identity_token" };
     }
   }
@@ -479,9 +602,9 @@ function createUserAuthSubsystem(options = {}) {
     }));
   }
 
-  function handleAuthApple(req, res) {
+  async function handleAuthApple(req, res) {
     if (!authConfigured) return authMisconfigured(res, "auth_apple");
-    const verified = verifyAppleIdentityToken(req.body?.identity_token);
+    const verified = await verifyAppleIdentityToken(req.body?.identity_token, req.body || {});
     if (!verified.ok) {
       return res.status(verified.status || 401).json({
         stage: "auth_apple",

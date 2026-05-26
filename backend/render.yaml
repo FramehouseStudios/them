@@ -35,8 +35,6 @@ services:
         sync: false
       - key: AUTH_APPLE_AUDIENCE
         sync: false
-      - key: AUTH_APPLE_JWT_PUBLIC_KEY
-        sync: false
       # Optional tuning — safe defaults; override in dashboard if needed.
       - key: CORS_ALLOW_ORIGIN
         value: ""

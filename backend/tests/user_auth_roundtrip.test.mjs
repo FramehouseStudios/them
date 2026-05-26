@@ -13,6 +13,7 @@
 // real HS256 JWT secret. No mocks for crypto.
 
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -93,6 +94,43 @@ function makeReq(body = {}) {
     get: () => undefined,
     headers: {},
   };
+}
+
+function sha256Base64Url(value) {
+  return createHash("sha256")
+    .update(String(value || ""), "utf8")
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function buildAppleRs256Fixture({
+  kid = "apple-kid-1",
+  subject = "apple-prod-user",
+  email = "apple-prod@example.com",
+  nonce = "nonce-123",
+} = {}) {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = publicKey.export({ format: "jwk" });
+  jwk.kid = kid;
+  jwk.alg = "RS256";
+  jwk.use = "sig";
+  const now = Math.floor(Date.now() / 1000);
+  const token = jwt.sign({
+    iss: "https://appleid.apple.com",
+    aud: "io.them.them",
+    sub: subject,
+    email,
+    email_verified: true,
+    nonce,
+    iat: now,
+    exp: now + 3600,
+  }, privateKey, {
+    algorithm: "RS256",
+    keyid: kid,
+  });
+  return { jwk, token };
 }
 
 // ---------- signup ----------
@@ -277,4 +315,102 @@ test("[user-auth-roundtrip] request + verify_email flips the user's emailVerifie
   const verifyRes = makeRes();
   await auth.handleAuthVerifyEmail(makeReq({ token: tokenInline }), verifyRes);
   assert.ok(verifyRes._status >= 200 && verifyRes._status < 300);
+});
+
+// ---------- Apple Sign In ----------
+
+test("[user-auth-roundtrip] production Apple sign-in verifies JWKS kid and nonce", async () => {
+  const fixture = buildAppleRs256Fixture({
+    kid: "apple-prod-kid",
+    subject: "apple-prod-subject",
+    email: "apple-prod@example.com",
+    nonce: "nonce-from-client",
+  });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.them",
+    fetchAppleJwks: async () => ({ keys: [fixture.jwk] }),
+  });
+
+  const res = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: fixture.token,
+    nonce: "nonce-from-client",
+  }), res);
+  assert.equal(res._status, 201);
+  assert.equal(res._body.user.email, "apple-prod@example.com");
+  assert.equal(res._body.user.auth_provider, "apple");
+});
+
+test("[user-auth-roundtrip] production Apple sign-in accepts raw nonce by comparing its SHA-256 claim", async () => {
+  const rawNonce = "raw-client-nonce";
+  const fixture = buildAppleRs256Fixture({
+    kid: "apple-raw-nonce-kid",
+    nonce: sha256Base64Url(rawNonce),
+  });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.them",
+    fetchAppleJwks: async () => ({ keys: [fixture.jwk] }),
+  });
+
+  const res = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: fixture.token,
+    raw_nonce: rawNonce,
+  }), res);
+  assert.equal(res._status, 201);
+});
+
+test("[user-auth-roundtrip] production Apple sign-in rejects mismatched nonce", async () => {
+  const fixture = buildAppleRs256Fixture({
+    kid: "apple-prod-kid",
+    nonce: "expected-nonce",
+  });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.them",
+    fetchAppleJwks: async () => ({ keys: [fixture.jwk] }),
+  });
+
+  const res = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: fixture.token,
+    nonce: "wrong-nonce",
+  }), res);
+  assert.equal(res._status, 401);
+  assert.equal(res._body.error, "invalid_apple_nonce");
+});
+
+test("[user-auth-roundtrip] production Apple sign-in ignores AUTH_APPLE_TEST_JWT_SECRET", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const token = jwt.sign({
+    iss: "https://appleid.apple.com",
+    aud: "io.them.them",
+    sub: "apple-hmac-subject",
+    nonce: "nonce-from-client",
+    iat: now,
+    exp: now + 3600,
+  }, "apple-test-secret", {
+    algorithm: "HS256",
+    keyid: "test",
+  });
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+    appleAudience: "io.them.them",
+    appleTestJwtSecret: "apple-test-secret",
+    fetchAppleJwks: async () => ({ keys: [] }),
+  });
+
+  const res = makeRes();
+  await auth.handleAuthApple(makeReq({
+    identity_token: token,
+    nonce: "nonce-from-client",
+  }), res);
+  assert.equal(res._status, 401);
+  assert.equal(res._body.error, "invalid_apple_identity_token");
 });

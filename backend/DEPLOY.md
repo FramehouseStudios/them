@@ -42,8 +42,11 @@ runtime requires the env vars enforced by `assertProductionEnv()` in
 | `PORT` | Listen port. Defaults to 3000. |
 
 Optional but commonly set: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`,
-`AUTH_APPLE_AUDIENCE`, `AUTH_APPLE_JWT_PUBLIC_KEY`, `CORS_ALLOW_ORIGIN`,
+`AUTH_APPLE_AUDIENCE`, `CORS_ALLOW_ORIGIN`,
 `API_SCHEMA_VERSION`, `REQUIRE_USER_AUTH`, `AUTH_REQUIRE_EMAIL_VERIFIED`.
+Production Apple Sign In verifies identity tokens against Apple's JWKS by
+`kid`; `AUTH_APPLE_JWT_PUBLIC_KEY` and `AUTH_APPLE_TEST_JWT_SECRET` are
+non-production fixture fallbacks.
 
 The boot will throw a multi-line error listing every missing var; the
 process will not start.
