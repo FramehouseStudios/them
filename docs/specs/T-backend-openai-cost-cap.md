@@ -1,6 +1,7 @@
 # Spec: T-backend-openai-cost-cap
 
-**Status**: ready (Claude can implement).
+**Status**: post-V1 for dollar metering. V1 ships the simpler
+`backend/lib/provider_budget.js` daily provider-usage guard.
 **Owner**: claude.
 **V1 pillar**: infra (enables all)
 **V1 effect**: closes the V1 "one user with a script can burn the
@@ -12,12 +13,30 @@ complementary.
 
 The backend calls OpenAI on `/talk`, `/realtime/call`, and several
 craft routes. The cost per call ranges from cents (text completion)
-to dollars (realtime session minutes). Today there is no spend cap,
-no daily budget, and no alert. A misconfigured client, a runaway
-loop, or an LLM jailbreak that triggers infinite tool calls can
-exhaust the budget overnight.
+to dollars (realtime session minutes). V1 now has a daily provider
+usage guard for the paid launch paths, but not full dollar metering,
+billing reconciliation, or an ops cost dashboard.
 
-## Scope
+## Current V1 Guard
+
+`backend/lib/provider_budget.js` tracks daily usage per resolved identity,
+route class, and UTC day. `backend/index.js` mounts it on:
+
+- `/talk`
+- `/realtime/client_secret`
+- `/realtime/call`
+- `/realtime/turn_commit`
+- `/realtime/studio_render`
+- `/realtime/studio_render_stream`
+- `/visual/context`
+
+The cap is configured with `PROVIDER_DAILY_BUDGET_LIMIT`. Capped requests
+return a support-safe `429` envelope with `stage: "provider_budget"` and do
+not echo transcripts, screenplay text, user IDs, memory, or provider secrets.
+
+The full dollar-metering design below remains a post-V1 follow-up.
+
+## Post-V1 Scope
 
 In:
 - `lib/cost_meter.js`: an in-memory counter keyed by
