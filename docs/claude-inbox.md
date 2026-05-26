@@ -26,21 +26,21 @@ the next incomplete day-task automatically unless Codex has posted a blocker,
 review request, or emergency smoke failure. The human must not be used as a
 copy-paste bridge for the next-day instruction.
 
-Current V1 state: `npm run v1:status` is 20/25 after Codex PRs #319, #320,
-and #321. Phase 7b talk-handler extraction is merged in PR #335. Phase 7c
-talk supplier-glue extraction is merged in PR #354. Phase 6.1a is merged in
-PR #358. PR #33 is merged; GitHub `evaluate` and `eval:gate against Postgres`
-passed on 2026-05-17 after Codex fixed fragile eval response guards and the
-speculative reuse header path. PR #359 is also merged; the eval-quality repair
-for knowledge routing and playful banter passed GitHub `evaluate`,
-`eval:gate against Postgres`, local `node scripts/pre_flight.mjs --strict`,
-focused `talk_routing_quality_guard` 5/5, and backend `npm test` 1208 pass /
-0 fail / 1 skipped. Do not reopen the eval-quality lane unless Codex posts a
-new concrete regression.
-The launch lane is still blocked by real release configuration:
+Current V1 state: `cd backend && npm run v1:status` is 28/34 after the Day 14
+release switch-flip tooling. The code-owned gates are green or expected-red
+only for private/external release inputs: strict pre-flight passes, deterministic
+V1 smokes pass, backend tests pass, iOS unit/UI tests passed on iPhone 17 Pro,
+and the Release iPhone build inside App Store preflight passes. Do not reopen
+eval-quality, decomposition, or schema-doc lanes unless Codex posts a concrete
+regression.
+The launch lane is still blocked by private release configuration:
 no `them/Release.local.env` exists in the current worktree, the environment
-lacks `DEVELOPMENT_TEAM_ID`, release `BACKEND_URL`, and release `APP_TOKEN`,
-and `scripts/appstore_preflight.sh` still fails with `fail=3 warn=1`.
+lacks `DEVELOPMENT_TEAM_ID` and release `APP_TOKEN_RELEASE`, and
+`scripts/appstore_preflight.sh` remains expected-red with `fail=2 warn=1`.
+Release `BACKEND_URL` is hosted as `https://api.them.io`. Day 14 repo tooling
+now exists: `node scripts/release_config_status.mjs` reports missing private
+inputs without printing secrets, and `scripts/run_release_preflight.sh` fails
+closed at config status until those inputs are present.
 Launch Doctor now tracks the fifth V1 gate as `iOS Release Readiness`, so
 manual smoke proof is incomplete until Talk, Studio, Memory, Realtime, and
 release readiness are all recorded from the actual release path.
@@ -53,7 +53,6 @@ passes when local loopback binding is allowed.
 1. Run:
 
    ```bash
-   node scripts/v1_launch_room.mjs --role=claude
    node scripts/agent_next.mjs --role=claude
    node scripts/coordination_state.mjs read
    node scripts/agent_event.mjs tail --n=20
