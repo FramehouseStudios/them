@@ -186,6 +186,61 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testSaveFailurePresentationDistinguishesManualAutosaveAndSnapshot() {
+        XCTAssertEqual(
+            ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: "studio_manual"),
+            "Save failed"
+        )
+        XCTAssertEqual(
+            ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: "studio_conflict_resolve"),
+            "Save failed"
+        )
+        XCTAssertEqual(
+            ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: "studio_snapshot"),
+            "Snapshot failed"
+        )
+        XCTAssertEqual(
+            ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: "studio_autosave"),
+            "Autosave failed"
+        )
+    }
+
+    func testSaveFailurePresentationExplainsLocalRecoveryAndRetry() {
+        let manualInfo = ScreenplayDraftSaveRecoveryPresentationPolicy.recoveryInfo(source: "studio_manual")
+        XCTAssertTrue(manualInfo.contains("local draft is preserved"))
+        XCTAssertTrue(manualInfo.contains("retry Save"))
+
+        let autosaveInfo = ScreenplayDraftSaveRecoveryPresentationPolicy.recoveryInfo(source: "studio_autosave")
+        XCTAssertTrue(autosaveInfo.contains("local draft is preserved"))
+        XCTAssertTrue(autosaveInfo.contains("next edit"))
+
+        XCTAssertEqual(
+            ScreenplayDraftSaveRecoveryPresentationPolicy.failureError(
+                source: "studio_manual",
+                underlying: "The network connection was lost."
+            ),
+            "Save failed: The network connection was lost."
+        )
+    }
+
+    func testSuccessfulSaveClearsStaleRecoveryGuidance() {
+        XCTAssertTrue(
+            ScreenplayDraftSaveRecoveryPresentationPolicy.shouldClearInfoAfterSuccessfulSave(
+                "Autosave did not finish. Your local draft is preserved; it will retry on the next edit or you can press Save."
+            )
+        )
+        XCTAssertTrue(
+            ScreenplayDraftSaveRecoveryPresentationPolicy.shouldClearInfoAfterSuccessfulSave(
+                "Kept your manual edits on the page. Save when you're ready."
+            )
+        )
+        XCTAssertFalse(
+            ScreenplayDraftSaveRecoveryPresentationPolicy.shouldClearInfoAfterSuccessfulSave(
+                "Project ready."
+            )
+        )
+    }
+
     func testSceneSessionRestorePolicyClearsOnlyMissingSelections() {
         let validIDs: Set<String> = ["scene-a", "scene-b"]
 

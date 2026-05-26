@@ -103,6 +103,50 @@ struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     }
 }
 
+struct ScreenplayDraftSaveRecoveryPresentationPolicy {
+    static func failureStatus(source: String) -> String {
+        switch normalizedSource(source) {
+        case "studio_manual", "studio_conflict_resolve":
+            return "Save failed"
+        case "studio_snapshot":
+            return "Snapshot failed"
+        default:
+            return "Autosave failed"
+        }
+    }
+
+    static func recoveryInfo(source: String) -> String {
+        switch normalizedSource(source) {
+        case "studio_manual":
+            return "Save did not finish. Your local draft is preserved; retry Save when the connection is back."
+        case "studio_conflict_resolve":
+            return "Keep Mine did not finish. Your local draft is preserved; retry when the connection is back."
+        case "studio_snapshot":
+            return "Snapshot did not finish. Your current draft is preserved; retry Snapshot when the connection is back."
+        default:
+            return "Autosave did not finish. Your local draft is preserved; it will retry on the next edit or you can press Save."
+        }
+    }
+
+    static func failureError(source: String, underlying: String) -> String {
+        let cleaned = underlying.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return failureStatus(source: source) }
+        return "\(failureStatus(source: source)): \(cleaned)"
+    }
+
+    static func shouldClearInfoAfterSuccessfulSave(_ info: String) -> Bool {
+        let normalized = info.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        return normalized.contains("did not finish") ||
+            normalized.contains("local draft is preserved") ||
+            normalized == "kept your manual edits on the page. save when you're ready."
+    }
+
+    private static func normalizedSource(_ source: String) -> String {
+        source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
 struct ScreenplaySceneSessionRestorePolicy {
     static func shouldClearSelection(_ selection: String, validIDs: Set<String>) -> Bool {
         let normalized = selection.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2489,6 +2533,20 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         infoText = "Using latest server draft."
     }
 
+    func discardLocalRecoveryCopy() {
+        guard let projectId = recoveryCandidate?.projectId else { return }
+        guard ScreenplayProjectScopedState.matches(projectId, selectedProjectId: selectedProjectID) else {
+            recoveryCandidate = nil
+            return
+        }
+        recoveryCandidate = nil
+        clearLocalDraftRecovery(projectId: projectId)
+        autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Recovery dismissed"
+        infoText = hasUnsavedDraftChanges
+            ? "Local recovery copy discarded. The current page is still unsaved."
+            : "Local recovery copy discarded."
+    }
+
     func applyServerVersionFromConflict() {
         guard let conflict = conflictState else { return }
         guard ScreenplayProjectScopedState.matches(conflict.projectId, selectedProjectId: selectedProjectID) else {
@@ -3470,7 +3528,8 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 persistRecoveryForUnconfirmedSave(
                     projectId: project.id,
                     draft: fountainDraft,
-                    baseVersionId: baseVersionId.isEmpty ? latestVersionID : baseVersionId
+                    baseVersionId: baseVersionId.isEmpty ? latestVersionID : baseVersionId,
+                    surfaceCandidate: false
                 )
                 return
             }
@@ -3505,6 +3564,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 infoText = "Draft saved."
             } else if source == "studio_snapshot" {
                 infoText = "Snapshot saved."
+            } else if source == "studio_conflict_resolve" {
+                infoText = "Local draft saved."
+            } else if ScreenplayDraftSaveRecoveryPresentationPolicy.shouldClearInfoAfterSuccessfulSave(infoText) {
+                infoText = ""
             }
             if source == "studio_snapshot" || source == "studio_conflict_resolve" {
                 await loadSelectedProjectOutline()
@@ -3526,8 +3589,12 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 draft: fountainDraft,
                 baseVersionId: latestVersionID
             )
-            autosaveStatusText = "Autosave failed"
-            errorText = error.localizedDescription
+            autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: source)
+            infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.recoveryInfo(source: source)
+            errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureError(
+                source: source,
+                underlying: error.localizedDescription
+            )
         }
     }
 
@@ -3845,7 +3912,8 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         projectId: String,
         draft: String,
         baseVersionId: String,
-        dirty: Bool
+        dirty: Bool,
+        savedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
@@ -3853,30 +3921,46 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             projectId: normalizedProjectId,
             draft: draft,
             baseVersionId: baseVersionId,
-            dirty: dirty
+            dirty: dirty,
+            savedAt: savedAt
         )
         if !dirty {
             recoveryCandidate = nil
         }
     }
 
+    @discardableResult
     private func persistRecoveryForUnconfirmedSave(
         projectId: String,
         draft: String,
-        baseVersionId: String
-    ) {
+        baseVersionId: String,
+        surfaceCandidate: Bool = true
+    ) -> LocalDraftRecoveryCandidate? {
         guard ScreenplayUnconfirmedSaveRecoveryPolicy.shouldPersist(
             projectId: projectId,
             draft: draft
         ) else {
-            return
+            return nil
         }
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let savedAt = Date().timeIntervalSince1970
         persistLocalDraftRecovery(
-            projectId: projectId,
+            projectId: normalizedProjectId,
             draft: draft,
             baseVersionId: baseVersionId,
-            dirty: true
+            dirty: true,
+            savedAt: savedAt
         )
+        let candidate = LocalDraftRecoveryCandidate(
+            projectId: normalizedProjectId,
+            draft: draft,
+            baseVersionId: baseVersionId,
+            savedAt: savedAt
+        )
+        if surfaceCandidate {
+            recoveryCandidate = candidate
+        }
+        return candidate
     }
 
     private func clearLocalDraftRecovery(projectId: String) {
@@ -10003,7 +10087,7 @@ private var directionOneThemPanel: some View {
                         }
                         .buttonStyle(.borderedProminent)
                         Button("Discard") {
-                            vm.keepServerDraft()
+                            vm.discardLocalRecoveryCopy()
                         }
                         .buttonStyle(.bordered)
                     }
@@ -19429,22 +19513,40 @@ Current draft version:
     private func draftRecoveryBanner(
         _ recovery: ScreenplayStudioViewModel.LocalDraftRecoveryCandidate
     ) -> some View {
-        draftAlertBanner(
-            title: "Unsaved local draft found",
-            message: "Saved \(relativeTimestamp(dateFromTimestamp(recovery.savedAt) ?? .now)). Recover it or keep the server draft.",
-            hint: "Press 1 to recover local or 2 to keep the server draft.",
+        let currentDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recoveryDraft = recovery.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recoveryAlreadyOnPage = vm.hasUnsavedDraftChanges &&
+            !currentDraft.isEmpty &&
+            currentDraft == recoveryDraft
+        let savedText = relativeTimestamp(dateFromTimestamp(recovery.savedAt) ?? .now)
+
+        return draftAlertBanner(
+            title: recoveryAlreadyOnPage ? "Local draft protected" : "Unsaved local draft found",
+            message: recoveryAlreadyOnPage
+                ? "Saved locally \(savedText). Retry Save when the connection is back, or discard the recovery copy."
+                : "Saved \(savedText). Recover it or keep the server draft.",
+            hint: recoveryAlreadyOnPage
+                ? "Press 1 to keep the local draft on the page or 2 to discard the recovery copy."
+                : "Press 1 to recover local or 2 to keep the server draft.",
             tint: Color.orange.opacity(0.88),
             excerpt: nil
         ) {
             NumberedChoiceActionButton(
                 number: "1",
-                title: "Recover Local",
+                title: recoveryAlreadyOnPage ? "Keep Local" : "Recover Local",
                 prominence: .prominent
             ) {
                 vm.restoreDraftFromRecovery()
             }
-            NumberedChoiceActionButton(number: "2", title: "Keep Server") {
-                vm.keepServerDraft()
+            NumberedChoiceActionButton(
+                number: "2",
+                title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Server"
+            ) {
+                if recoveryAlreadyOnPage {
+                    vm.discardLocalRecoveryCopy()
+                } else {
+                    vm.keepServerDraft()
+                }
             }
         }
     }
