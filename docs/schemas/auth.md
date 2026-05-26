@@ -69,8 +69,9 @@ user object before it reaches this envelope.
   - `email_delivery`: object `{ status, transport }`
   - `debug_email_verification_token` (only when `allowDebugTokens` is true)
 - `/auth/request_password_reset` adds:
-  - `debug_password_reset_token` (debug only)
-  - `delivery`: object
+  - `password_reset_requested`: boolean
+  - `email_delivery`: object
+  - `debug_password_reset_token` (test/development/local only)
 - `/auth/reset_password` adds:
   - `revoked_sessions`: int (count of sessions invalidated on success)
 - `/auth/request_email_verification` adds:
@@ -95,7 +96,8 @@ user object before it reaches this envelope.
 | `auth_logout` | `refresh_token_required` | 400 |
 | `auth_sessions` | `unauthenticated` | 401 |
 | `auth_sessions_revoke` | `session_id_required`, `session_not_found` | 400 / 404 |
-| `auth_password_reset` | `email_required`, `token_invalid_or_expired` | 400 |
+| `auth_request_password_reset` | `email_required` | 400 |
+| `auth_reset_password` | `token_required`, `invalid_reset_token`, `password_too_short`, `password_reset_failed` | 400 / 404 |
 | `auth_email_verification` | `user_required`, `token_invalid_or_expired` | 400 |
 | any | `auth_unconfigured` | 503 (when JWT secret missing) |
 

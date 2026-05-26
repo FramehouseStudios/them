@@ -268,8 +268,42 @@ test("[user-auth-roundtrip] request_password_reset issues a debug token in non-p
   const requestRes = makeRes();
   await auth.handleAuthRequestPasswordReset(makeReq({ email: "reset@example.com" }), requestRes);
   assert.ok(requestRes._status >= 200 && requestRes._status < 300);
+  assert.equal(requestRes._body.user, null);
   // In non-production mode (nodeEnv=test), the debug token should appear.
   assert.ok(requestRes._body.debug_password_reset_token, `expected debug token in non-production, got: ${JSON.stringify(requestRes._body)}`);
+});
+
+test("[user-auth-roundtrip] production request_password_reset response does not reveal account existence", async () => {
+  const auth = setupSubsystem({
+    nodeEnv: "production",
+    jwtSecret: "production-jwt-secret-for-test",
+  });
+  await auth.handleAuthSignup(makeReq({ email: "known-reset@example.com", password: "validpass123" }), makeRes());
+
+  const known = makeRes();
+  await auth.handleAuthRequestPasswordReset(makeReq({ email: "known-reset@example.com" }), known);
+  const unknown = makeRes();
+  await auth.handleAuthRequestPasswordReset(makeReq({ email: "unknown-reset@example.com" }), unknown);
+
+  assert.equal(known._status, 200);
+  assert.equal(unknown._status, 200);
+  assert.deepEqual(known._body, unknown._body);
+  assert.equal(known._body.user, null);
+  assert.equal(known._body.debug_password_reset_token, undefined);
+});
+
+test("[user-auth-roundtrip] staging request_password_reset does not expose debug reset tokens", async () => {
+  const auth = setupSubsystem({
+    nodeEnv: "staging",
+    jwtSecret: "staging-jwt-secret-for-test",
+  });
+  await auth.handleAuthSignup(makeReq({ email: "staging-reset@example.com", password: "validpass123" }), makeRes());
+
+  const res = makeRes();
+  await auth.handleAuthRequestPasswordReset(makeReq({ email: "staging-reset@example.com" }), res);
+  assert.equal(res._status, 200);
+  assert.equal(res._body.debug_password_reset_token, undefined);
+  assert.equal(res._body.user, null);
 });
 
 test("[user-auth-roundtrip] reset_password consumes the token and revokes all sessions", async () => {
@@ -288,6 +322,7 @@ test("[user-auth-roundtrip] reset_password consumes the token and revokes all se
   const resetRes = makeRes();
   await auth.handleAuthResetPassword(makeReq({ token: resetToken, new_password: "newpass987" }), resetRes);
   assert.ok(resetRes._status >= 200 && resetRes._status < 300, `expected 2xx, got ${resetRes._status} body=${JSON.stringify(resetRes._body)}`);
+  assert.ok(Number(resetRes._body.revoked_sessions || 0) >= 1);
 
   // The original refresh token must no longer rotate.
   const stale = makeRes();

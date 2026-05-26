@@ -152,7 +152,7 @@ function createUserAuthSubsystem(options = {}) {
   const appleJwksCacheTtlMs = Math.max(60_000, Number(options.appleJwksCacheTtlMs || 6 * 60 * 60 * 1000));
   const signingSecret = String(options.jwtSecret || "").trim() || (nodeEnv === "production" ? "" : "them-dev-user-jwt-secret");
   const authConfigured = Boolean(signingSecret);
-  const allowDebugTokens = nodeEnv !== "production";
+  const allowDebugTokens = new Set(["test", "development", "local"]).has(String(nodeEnv || "").trim().toLowerCase());
   const allowAppleTestJwtSecret = nodeEnv !== "production" && Boolean(appleTestJwtSecret);
   const allowStaticApplePublicKey = nodeEnv !== "production" && Boolean(appleJwtPublicKey);
   let appleJwksCache = { fetchedAt: 0, keys: [] };
@@ -780,30 +780,24 @@ function createUserAuthSubsystem(options = {}) {
       });
     }
     const user = getUserByEmail(email);
-    if (!user) {
-      return res.status(200).json(buildAuthEnvelope({
-        extra: {
-          password_reset_requested: true,
-          email_delivery: buildEmailDelivery("noop", "none"),
-        },
-      }));
-    }
-    const issued = issuePasswordResetToken({
-      userId: user.id,
-      ttlMs: passwordResetTtlSeconds * 1000,
-    }, Date.now());
+    const issued = user
+      ? issuePasswordResetToken({
+          userId: user.id,
+          ttlMs: passwordResetTtlSeconds * 1000,
+        }, Date.now())
+      : null;
+    const debugResetToken = allowDebugTokens && issued ? issued.token : "";
     const extra = {
-      password_reset_requested: Boolean(issued),
+      password_reset_requested: true,
       email_delivery: buildEmailDelivery(
-        allowDebugTokens && issued ? "token_in_response" : "queued",
-        allowDebugTokens && issued ? "inline_debug" : "none"
+        debugResetToken ? "token_in_response" : "queued",
+        debugResetToken ? "inline_debug" : "none"
       ),
     };
-    if (allowDebugTokens && issued) {
-      extra.debug_password_reset_token = issued.token;
+    if (debugResetToken) {
+      extra.debug_password_reset_token = debugResetToken;
     }
     return res.status(200).json(buildAuthEnvelope({
-      user,
       extra,
     }));
   }
@@ -832,11 +826,12 @@ function createUserAuthSubsystem(options = {}) {
         error: updated.status || "password_reset_failed",
       });
     }
-    revokeAllAuthSessionsForUser(updated.user.id, Date.now());
+    const revoked = revokeAllAuthSessionsForUser(updated.user.id, Date.now());
     return res.status(200).json(buildAuthEnvelope({
       user: updated.user,
       extra: {
         password_reset: true,
+        revoked_sessions: revoked.length,
       },
     }));
   }
