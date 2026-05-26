@@ -44,6 +44,19 @@ test("[release-config-status] release env template stays secret-free and complet
   assert.doesNotMatch(body, /sk-|super-secret|wrapped-secret|Bearer\s+/i);
 });
 
+test("[release-docs] operator docs point at the iPhone release wrapper", () => {
+  const checklist = fs.readFileSync(path.join(repoRoot, "them/APP_STORE_SUBMISSION_CHECKLIST.md"), "utf8");
+  const runbook = fs.readFileSync(path.join(repoRoot, "them/RELEASE_RUNBOOK.md"), "utf8");
+  const combined = `${checklist}\n${runbook}`;
+  assert.match(checklist, /^# io\.them iPhone TestFlight Submission Checklist/);
+  assert.match(combined, /scripts\/run_release_preflight\.sh/);
+  assert.match(combined, /them\/Release\.local\.env\.example/);
+  assert.doesNotMatch(combined, /macOS App Store|macOS preflight/);
+  assert.doesNotMatch(combined, /Desktop\/io\.them\/them\/scripts/);
+  assert.doesNotMatch(combined, /Set `(?:DEVELOPMENT_TEAM_ID|APP_TOKEN_RELEASE)` in .*Config\.xcconfig/);
+  assert.match(combined, /Do not put production tokens in tracked `Config\.xcconfig`/);
+});
+
 test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN_RELEASE", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-config-"));
   const envFile = path.join(dir, "Release.local.env");

@@ -1,36 +1,52 @@
 # io.them Release Runbook
 
-Last updated: 2026-03-27
+Last updated: 2026-05-26
 
 ## Operator Quick Path
+- Prepare ignored local release config:
+
+```bash
+cd /Users/halfmutantfilms/Desktop/io.them
+cp them/Release.local.env.example them/Release.local.env
+```
+
+- Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE` in `them/Release.local.env`.
+- Check secret-safe release config status:
+
+```bash
+cd /Users/halfmutantfilms/Desktop/io.them
+node scripts/release_config_status.mjs
+```
+
+- Local release preflight:
+
+```bash
+cd /Users/halfmutantfilms/Desktop/io.them
+scripts/run_release_preflight.sh
+```
+
 - Smoke tag trigger:
 
 ```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them && TAG="rc-smoke-$(date +%Y%m%d-%H%M%S)" && git tag "$TAG" && git push origin "$TAG"
+cd /Users/halfmutantfilms/Desktop/io.them && TAG="rc-smoke-$(date +%Y%m%d-%H%M%S)" && git tag "$TAG" && git push origin "$TAG"
 ```
 
 - Delete smoke tag:
 
 ```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them && git push origin ":refs/tags/$TAG" && git tag -d "$TAG"
-```
-
-- Local gated preflight:
-
-```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them && RUN_QUALITY_GATE=1 ./scripts/appstore_preflight.sh
+cd /Users/halfmutantfilms/Desktop/io.them && git push origin ":refs/tags/$TAG" && git tag -d "$TAG"
 ```
 
 ## Release-Candidate Tag Policy
 - Use `rc-*` tags for release candidates.
-- `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml` runs automatically when an `rc-*` tag is pushed.
+- `/Users/halfmutantfilms/Desktop/io.them/.github/workflows/release-preflight.yml` runs automatically when an `rc-*` tag is pushed.
 - Keep `workflow_dispatch` and `workflow_call` for dry runs or manual retries, but treat pushed `rc-*` tags as the canonical automated preflight trigger.
 
 ## Workflow Guide
 | Workflow | Primary use | Trigger | Notes |
 | --- | --- | --- | --- |
-| `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/quality-gate.yml` | Manual smoke or reusable backend/app regression gate | `workflow_dispatch`, `workflow_call` | Best for interactive validation or a parent workflow that wants to skip some expensive sections. |
-| `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml` | Release-candidate preflight | push tag `rc-*`, `workflow_dispatch`, `workflow_call` | Enforces `RUN_QUALITY_GATE=1` before macOS preflight. |
+| `/Users/halfmutantfilms/Desktop/io.them/.github/workflows/quality-gate.yml` | Manual smoke or reusable backend/app regression gate | `workflow_dispatch`, `workflow_call` | Best for interactive validation or a parent workflow that wants to skip some expensive sections. |
+| `/Users/halfmutantfilms/Desktop/io.them/.github/workflows/release-preflight.yml` | Release-candidate preflight | push tag `rc-*`, `workflow_dispatch`, `workflow_call` | Enforces `RUN_QUALITY_GATE=1` before iPhone preflight. |
 | `rc-smoke-*` disposable tag | One-off trigger smoke | temporary pushed tag | Use only for validating the automated release-preflight trigger path, then delete it. |
 
 ## Repo Settings Checklist
@@ -42,9 +58,9 @@ cd /Users/halfmutantfilms/Desktop/io.them/them && RUN_QUALITY_GATE=1 ./scripts/a
 - Confirm Actions permissions are sufficient for artifact upload and summary output.
 
 ## Release Sequence
-1. Confirm local build and config are ready.
-2. Run `/Users/halfmutantfilms/Desktop/io.them/them/scripts/quality_gate.sh` locally when you want a human-controlled preflight before tagging.
-3. Push an `rc-*` tag to trigger `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml`.
+1. Confirm local build and config are ready with `node scripts/release_config_status.mjs`.
+2. Run `/Users/halfmutantfilms/Desktop/io.them/scripts/run_release_preflight.sh` locally.
+3. Push an `rc-*` tag to trigger `/Users/halfmutantfilms/Desktop/io.them/.github/workflows/release-preflight.yml`.
 4. Review the Actions summary and any uploaded failure artifacts:
    - `/tmp/them-quality-gate-backend.log`
    - `/tmp/them_release_preflight_build.log`
@@ -55,7 +71,7 @@ cd /Users/halfmutantfilms/Desktop/io.them/them && RUN_QUALITY_GATE=1 ./scripts/a
 - Example:
 
 ```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them
+cd /Users/halfmutantfilms/Desktop/io.them
 TAG="rc-smoke-$(date +%Y%m%d-%H%M%S)"
 git tag "$TAG"
 git push origin "$TAG"
@@ -64,7 +80,7 @@ git push origin "$TAG"
 - After the workflow starts and you have what you need, remove the test tag from the remote and your local clone:
 
 ```bash
-cd /Users/halfmutantfilms/Desktop/io.them/them
+cd /Users/halfmutantfilms/Desktop/io.them
 git push origin ":refs/tags/$TAG"
 git tag -d "$TAG"
 ```
@@ -72,13 +88,17 @@ git tag -d "$TAG"
 - Do not reuse a previous smoke tag name. A fresh tag keeps the release-preflight run history easy to read.
 
 ## Commit And Release Checklist
-1. Stage the scoped gate/release files you intend to ship.
-2. Push an `rc-*` tag, or use the disposable `rc-smoke-*` path if you are only testing automation.
-3. Open the workflow `Summary` tab first, then inspect uploaded artifacts if the run is red.
-4. If you used a disposable smoke tag, delete it from the remote and your local clone after verification.
+1. Confirm `git status` does not include `them/Release.local.env`.
+2. Run `scripts/run_release_preflight.sh`.
+3. Push an `rc-*` tag, or use the disposable `rc-smoke-*` path if you are only testing automation.
+4. Open the workflow `Summary` tab first, then inspect uploaded artifacts if the run is red.
+5. If you used a disposable smoke tag, delete it from the remote and your local clone after verification.
 
 ## Related Files
-- `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/quality-gate.yml`
-- `/Users/halfmutantfilms/Desktop/io.them/them/.github/workflows/release-preflight.yml`
+- `/Users/halfmutantfilms/Desktop/io.them/.github/workflows/quality-gate.yml`
+- `/Users/halfmutantfilms/Desktop/io.them/.github/workflows/release-preflight.yml`
+- `/Users/halfmutantfilms/Desktop/io.them/them/Release.local.env.example`
+- `/Users/halfmutantfilms/Desktop/io.them/scripts/release_config_status.mjs`
+- `/Users/halfmutantfilms/Desktop/io.them/scripts/run_release_preflight.sh`
 - `/Users/halfmutantfilms/Desktop/io.them/them/QUALITY_GATE.md`
 - `/Users/halfmutantfilms/Desktop/io.them/them/APP_STORE_SUBMISSION_CHECKLIST.md`
