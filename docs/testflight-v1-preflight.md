@@ -40,7 +40,7 @@ The five XCUITests cover onboarding, talk-to-screenplay UI flow, export, memory 
 
 Release settings, private signing/token inputs, privacy manifest, iPhone-only TestFlight posture, and the Release iPhone build are ready for archive checks.
 
-Current local proof, 2026-05-26 America/Los_Angeles: `scripts/appstore_preflight.sh` was run without paid/private release inputs. Privacy manifest, release plist, hosted backend URL, iPhone-only posture, and the unsigned Release iPhone build passed. The command correctly remains red with `fail=2 warn=1`: missing `DEVELOPMENT_TEAM_ID`, missing release `APP_TOKEN`, and a Release entitlements warning that must be confirmed before upload. `scripts/release_config_status.mjs` and `scripts/run_release_preflight.sh` now make the private release switch-flip path explicit without printing secrets.
+Current local proof, 2026-05-26 America/Los_Angeles: `scripts/appstore_preflight.sh` was run without paid/private release inputs. Privacy manifest, release plist, hosted backend URL, iPhone-only posture, and the unsigned Release iPhone build passed. The command correctly remains red with `fail=2 warn=1`: missing `DEVELOPMENT_TEAM_ID`, missing release `APP_TOKEN`, and a Release entitlements warning that must be confirmed before upload. `them/Release.local.env.example`, `scripts/release_config_status.mjs`, and `scripts/run_release_preflight.sh` now make the private release switch-flip path explicit without printing secrets.
 
 ## Platform Posture
 

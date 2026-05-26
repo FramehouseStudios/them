@@ -10,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts/release_config_status.mjs");
 const wrapper = path.join(repoRoot, "scripts/run_release_preflight.sh");
+const template = path.join(repoRoot, "them/Release.local.env.example");
 
 function run(args, env = {}) {
   return spawnSync(process.execPath, [script, ...args], {
@@ -28,9 +29,19 @@ test("[release-config-status] reports missing private release inputs without pri
   assert.equal(r.status, 1, r.stderr);
   const payload = JSON.parse(r.stdout);
   assert.equal(payload.ok, false);
+  assert.equal(payload.envFile.exampleExists, true);
+  assert.equal(payload.envFile.examplePath, "them/Release.local.env.example");
   assert.ok(payload.blockers.some((line) => /Development Team ID/.test(line)));
   assert.ok(payload.blockers.some((line) => /APP_TOKEN/.test(line)));
   assert.doesNotMatch(r.stdout, /super-secret-release-token/);
+});
+
+test("[release-config-status] release env template stays secret-free and complete", () => {
+  const body = fs.readFileSync(template, "utf8");
+  assert.match(body, /^DEVELOPMENT_TEAM_ID=/m);
+  assert.match(body, /^BACKEND_URL=https:\/\/api\.them\.io$/m);
+  assert.match(body, /^APP_TOKEN_RELEASE=/m);
+  assert.doesNotMatch(body, /sk-|super-secret|wrapped-secret|Bearer\s+/i);
 });
 
 test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN_RELEASE", () => {

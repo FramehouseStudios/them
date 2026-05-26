@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const defaultEnvFile = path.join(repoRoot, "them", "Release.local.env");
+const defaultEnvExampleFile = path.join(repoRoot, "them", "Release.local.env.example");
 const projectPath = path.join(repoRoot, "them.xcodeproj");
 
 function parseArgs(argv) {
@@ -172,6 +173,7 @@ function buildStatus(opts) {
   const envFileValues = parseEnvFile(envFile);
   const envFileExists = fs.existsSync(envFile);
   const defaultEnvFileIgnored = gitCheckIgnore(defaultEnvFile);
+  const defaultEnvExampleExists = fs.existsSync(defaultEnvExampleFile);
 
   const teamInput = valueFrom("DEVELOPMENT_TEAM_ID", envFileValues, envFile);
   const backendInput = valueFrom("BACKEND_URL", envFileValues, envFile);
@@ -296,6 +298,8 @@ function buildStatus(opts) {
       path: rel(envFile),
       exists: envFileExists,
       defaultPathIgnored: defaultEnvFileIgnored,
+      examplePath: rel(defaultEnvExampleFile),
+      exampleExists: defaultEnvExampleExists,
     },
     checks,
     blockers,
@@ -307,7 +311,7 @@ function buildStatus(opts) {
 function printText(status) {
   console.log("=== Release Config Status ===");
   console.log(`Generated: ${status.generatedAt}`);
-  console.log(`Env file: ${status.envFile.path} (${status.envFile.exists ? "present" : "missing"}, default ignored: ${status.envFile.defaultPathIgnored ? "yes" : "no"})`);
+  console.log(`Env file: ${status.envFile.path} (${status.envFile.exists ? "present" : "missing"}, default ignored: ${status.envFile.defaultPathIgnored ? "yes" : "no"}, template: ${status.envFile.exampleExists ? status.envFile.examplePath : "missing"})`);
   console.log("");
   for (const check of status.checks) {
     const prefix = check.ok ? "[OK]" : "[FAIL]";

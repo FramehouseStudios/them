@@ -24,7 +24,7 @@ scripts/run_release_preflight.sh
 - Release iPhone build inside App Store preflight: passed.
 - App Store preflight: expected red without private release inputs (`fail=2 warn=1`).
 - Preflight passed privacy manifest, release plist, hosted backend URL, iPhone-only posture, and unsigned Release iPhone build checks.
-- Release config status: expected red, with `them/Release.local.env` ignored by git, hosted Release `BACKEND_URL` present, and missing private `DEVELOPMENT_TEAM_ID` / `APP_TOKEN_RELEASE`.
+- Release config status: expected red, with `them/Release.local.env` ignored by git, a tracked secret-free `them/Release.local.env.example`, hosted Release `BACKEND_URL` present, and missing private `DEVELOPMENT_TEAM_ID` / `APP_TOKEN_RELEASE`.
 - `scripts/run_release_preflight.sh`: expected red before App Store preflight until the private release env values exist.
 - Remaining release blockers: missing `DEVELOPMENT_TEAM_ID`, missing release `APP_TOKEN_RELEASE`, and a Release entitlements confirmation warning.
 
