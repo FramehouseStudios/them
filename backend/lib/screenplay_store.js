@@ -13,6 +13,16 @@ function screenplayStoreDeps() {
   return configuredDeps;
 }
 
+function toScreenplayOwnerPersistencePayload(owner, now, normalizeStoredScreenplayCompanionState) {
+  return {
+    ownerKey: owner.ownerKey,
+    activeProjectId: owner.activeProjectId,
+    updatedAt: Math.max(0, Number(owner.updatedAt || now)),
+    companionState: normalizeStoredScreenplayCompanionState(owner.companionState),
+    projects: Array.isArray(owner.projects) ? owner.projects : [],
+  };
+}
+
 function loadScreenplayStore(target = screenplayStoreByOwner) {
   const {
     SCREENPLAY_STORE_PATH,
@@ -35,7 +45,7 @@ function loadScreenplayStore(target = screenplayStoreByOwner) {
   }
 }
 
-function saveScreenplayStore(now = Date.now()) {
+function saveScreenplayStore(now = Date.now(), { adapterOwnerKeys = null } = {}) {
   const deps = screenplayStoreDeps();
   const {
     SCREENPLAY_STORE_PATH,
@@ -43,13 +53,9 @@ function saveScreenplayStore(now = Date.now()) {
     writeJsonFileAtomic,
     persistence,
   } = deps;
-  const owners = [...screenplayStoreByOwner.values()].map((owner) => ({
-    ownerKey: owner.ownerKey,
-    activeProjectId: owner.activeProjectId,
-    updatedAt: Math.max(0, Number(owner.updatedAt || now)),
-    companionState: normalizeStoredScreenplayCompanionState(owner.companionState),
-    projects: Array.isArray(owner.projects) ? owner.projects : [],
-  }));
+  const owners = [...screenplayStoreByOwner.values()].map((owner) => (
+    toScreenplayOwnerPersistencePayload(owner, now, normalizeStoredScreenplayCompanionState)
+  ));
   const payload = {
     version: 1,
     updatedAt: now,
@@ -57,22 +63,50 @@ function saveScreenplayStore(now = Date.now()) {
   };
   // Existing JSON file path remains canonical until T07 migration completes.
   // Adapter writes run in parallel (dual-write) so Postgres state stays
-  // consistent with the file. Adapter errors are logged but do not block
-  // the in-memory save; the JSON file remains source-of-truth on disk.
-  writeJsonFileAtomic(SCREENPLAY_STORE_PATH, payload, "screenplay_store");
+  // consistent with the file. Callers can inspect/await persistencePromise
+  // when a route must make save failure visible before responding.
+  const fileOk = writeJsonFileAtomic(SCREENPLAY_STORE_PATH, payload, "screenplay_store");
+  const result = {
+    ok: Boolean(fileOk),
+    fileOk: Boolean(fileOk),
+    persistenceKind: persistence?.kind || "",
+    persistenceStatus: "not_configured",
+    persistenceOwnerCount: 0,
+    persistenceFailureCount: 0,
+    persistencePromise: null,
+  };
+  if (!fileOk) return result;
   if (persistence && typeof persistence.put === "function") {
-    // Fire-and-forget per-owner upserts. saveScreenplayStore stays sync to
-    // preserve every existing call site; adapter errors log to console.
-    for (const owner of owners) {
-      void Promise.resolve(persistence.put({
+    const adapterKeySet = Array.isArray(adapterOwnerKeys)
+      ? new Set(adapterOwnerKeys.map((key) => String(key || "").trim()).filter(Boolean))
+      : null;
+    const adapterOwners = adapterKeySet
+      ? owners.filter((owner) => adapterKeySet.has(owner.ownerKey))
+      : owners;
+    result.persistenceStatus = "pending";
+    result.persistenceOwnerCount = adapterOwners.length;
+    result.persistencePromise = Promise.allSettled(adapterOwners.map((owner) => (
+      Promise.resolve().then(() => persistence.put({
         domain: "screenplay",
         key: owner.ownerKey,
         value: owner,
-      })).catch((err) => {
-        console.error(`[screenplay_store] adapter put failed for ${owner.ownerKey}:`, err?.message || err);
-      });
-    }
+      }))
+    ))).then((settled) => {
+      const failures = settled.filter((item) => item.status === "rejected");
+      for (const item of failures) {
+        console.error("[screenplay_store] adapter put failed:", item.reason?.message || item.reason);
+      }
+      return {
+        ok: failures.length === 0,
+        persistenceKind: result.persistenceKind,
+        persistenceStatus: failures.length === 0 ? "ok" : "failed",
+        persistenceOwnerCount: adapterOwners.length,
+        persistenceFailureCount: failures.length,
+      };
+    });
+    void result.persistencePromise;
   }
+  return result;
 }
 
 // T07b: load owners from the persistence adapter (when configured).
@@ -195,7 +229,7 @@ function markScreenplayOwnerDirty(ownerRecord, now = Date.now()) {
     ownerRecord.activeProjectId = ownerRecord.projects[0]?.id || "";
   }
   screenplayStoreByOwner.set(ownerRecord.ownerKey, ownerRecord);
-  saveScreenplayStore(now);
+  return saveScreenplayStore(now, { adapterOwnerKeys: [ownerRecord.ownerKey] });
 }
 
 export {

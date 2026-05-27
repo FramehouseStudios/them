@@ -26465,9 +26465,10 @@ function escapeXmlText(value) {
 // T-decompose-phase2-screenplay-projects: all 12 /screenplay/projects/*
 // routes (5 GET + 7 write) are now in lib/screenplay_projects_routes.js.
 // Phase 2a (PR #192) extracted the GETs. Phase 2b extracts the writes
-// (POST + version). Behavior is byte-identical with the previous
-// inline handlers. Helpers are passed as deps so the route file is
-// independently testable. See docs/specs/T-decompose-backend-index.md.
+// (POST + version). Routes now enforce trusted auth at the extracted
+// boundary because project content is per-user private data. Helpers
+// are passed as deps so the route file is independently testable.
+// See docs/specs/T-decompose-backend-index.md.
 mountScreenplayProjectsRoutes(app, {
   getOrCreateScreenplayOwnerRecord,
   getScreenplayProjectRecord,

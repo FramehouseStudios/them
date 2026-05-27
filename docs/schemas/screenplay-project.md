@@ -26,7 +26,13 @@ field that appears inside `POST /screenplay/projects` /
 ## Access-control posture
 
 **PER-USER**. The owner record is resolved from the request; reads
-+ writes are scoped to that owner.
+and writes are scoped to that owner. Trusted auth identity is required
+for every `/screenplay/projects*` request. Caller-supplied
+`X-User-Id` is ignored; unauthenticated callers receive HTTP 401:
+
+```json
+{ "stage": "screenplay_projects", "error": "user_auth_required" }
+```
 
 ## Project object shape
 
@@ -114,7 +120,16 @@ field that appears inside `POST /screenplay/projects` /
 - Field type narrowing (e.g. `string | null` → `string`) is v2.
 - iOS decoders must tolerate unknown keys (drop them, don't fail).
 
+## Error responses
+
+| Code | HTTP | Notes |
+| --- | --- | --- |
+| `user_auth_required` | 401 | Missing trusted auth identity; `X-User-Id` is ignored. |
+| `screenplay_persistence_failed` | 503 | A project write could not be durably saved. |
+
 ## Changelog
 
+- 2026-05-27 — Screenplay project routes require trusted auth
+  identity and surface write persistence failures.
 - 2026-05-14 — Doc created. Reflects shape produced by
   `mountScreenplayProjectsRoutes` (PR #192, #197).

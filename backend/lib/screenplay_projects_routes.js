@@ -32,17 +32,16 @@
 // limit the inline handler used (matches Codex #90's rule and the
 // pre-flight `route-needs-own-parser` check).
 //
-// Access-control posture: PER-USER. Every handler resolves an
-// owner record from the request (cookie / token / X-Client-Token),
-// then reads/writes only that owner's projects. The response
-// carries project content (titles, outlines, draft excerpts,
-// comments) so this is NOT safe-public. The /screenplay/projects/*
-// routes are already mounted unauthenticated in the existing
-// inline code, keyed off the owner record's client-token / IP —
-// this PR preserves that exact behavior (no change to access
-// control; only a code-organization change).
+// Access-control posture: PER-USER. These routes carry project
+// content (titles, outlines, drafts, comments), so every handler
+// requires trusted server-attached user identity before resolving an
+// owner record. Caller-supplied X-User-Id is never trusted.
 
 import express from "express";
+import {
+  defaultResolveScreenplayUserId,
+  requireScreenplayUserId,
+} from "./screenplay_route_auth.js";
 
 function mountScreenplayProjectsRoutes(app, deps = {}) {
   if (!app || typeof app.get !== "function") {
@@ -52,6 +51,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     // Owner / project resolution
     getOrCreateScreenplayOwnerRecord,
     getScreenplayProjectRecord,
+    resolveScreenplayUserId = defaultResolveScreenplayUserId,
     // Owner mutation helpers (writes)
     markScreenplayOwnerDirty,
     createScreenplayId,
@@ -129,9 +129,49 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       throw new Error(`mountScreenplayProjectsRoutes: ${key} is required`);
     }
   }
+  if (typeof resolveScreenplayUserId !== "function") {
+    throw new Error("mountScreenplayProjectsRoutes: resolveScreenplayUserId must be a function");
+  }
+
+  function getAuthorizedScreenplayOwner(req, res, stage) {
+    const userId = requireScreenplayUserId(req, res, {
+      resolveUserId: resolveScreenplayUserId,
+      stage,
+    });
+    if (!userId) return null;
+    if (!req.userId) req.userId = userId;
+    return getOrCreateScreenplayOwnerRecord(req, { create: true });
+  }
+
+  async function persistScreenplayOwnerOrFail(res, owner, now, stage) {
+    const result = markScreenplayOwnerDirty(owner, now);
+    if (result === false || result?.ok === false) {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(503).json({
+        stage,
+        error: "screenplay_persistence_failed",
+      });
+      return false;
+    }
+    if (result?.persistencePromise) {
+      const persisted = await result.persistencePromise;
+      if (persisted?.ok === false) {
+        res.setHeader("Cache-Control", "no-store");
+        res.status(503).json({
+          stage,
+          error: "screenplay_persistence_failed",
+          persistence: persisted.persistenceKind || result.persistenceKind || "unknown",
+          persistence_failure_count: persisted.persistenceFailureCount || 1,
+        });
+        return false;
+      }
+    }
+    return true;
+  }
 
   app.get("/screenplay/projects", (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_projects");
+    if (!owner) return;
     const includeVersions = parseBool(req.query?.include_versions);
     const includeDrafts = parseBool(req.query?.include_drafts);
     const limit = Math.max(1, Math.min(96, parsePositiveInt(req.query?.limit, 24)));
@@ -156,7 +196,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
   });
 
   app.get("/screenplay/projects/:projectId", (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_project");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const includeDrafts = parseBool(req.query?.include_drafts);
     const versionLimit = Math.max(1, Math.min(64, parsePositiveInt(req.query?.version_limit, 24)));
@@ -180,7 +221,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
   });
 
   app.get("/screenplay/projects/:projectId/outline", (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_outline");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const includeProject = req.query?.include_project == null ? true : parseBool(req.query?.include_project);
     const project = getScreenplayProjectRecord(owner, projectId);
@@ -200,8 +242,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
-  app.post("/screenplay/projects/:projectId/activate", express.json({ limit: "64kb" }), (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  app.post("/screenplay/projects/:projectId/activate", express.json({ limit: "64kb" }), async (req, res) => {
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_project_activate");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const project = getScreenplayProjectRecord(owner, projectId);
     if (!project) {
@@ -210,7 +253,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const now = Date.now();
     owner.activeProjectId = project.id;
     project.updatedAt = now;
-    markScreenplayOwnerDirty(owner, now);
+    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_project_activate"))) return;
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     return res.status(200).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_project_activate",
@@ -230,7 +273,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
   });
 
   app.get("/screenplay/projects/:projectId/collaborators", (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_collaborators");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const project = getScreenplayProjectRecord(owner, projectId);
     if (!project) {
@@ -249,7 +293,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
   });
 
   app.get("/screenplay/projects/:projectId/comments", (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_comments");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const project = getScreenplayProjectRecord(owner, projectId);
     if (!project) {
@@ -274,8 +319,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
 
   // ---------- Phase 2b: write routes ----------
 
-  app.post("/screenplay/projects", express.json({ limit: "512kb" }), (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  app.post("/screenplay/projects", express.json({ limit: "512kb" }), async (req, res) => {
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_project");
+    if (!owner) return;
     const now = Date.now();
     const requestedProjectId = normalizeSnippet(req.body?.project_id, 64);
     const title = normalizeSnippet(req.body?.title, 160);
@@ -353,7 +399,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     if (activate || !owner.activeProjectId) {
       owner.activeProjectId = project.id;
     }
-    markScreenplayOwnerDirty(owner, now);
+    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_project"))) return;
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     return res.status(created ? 201 : 200).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_project",
@@ -374,8 +420,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
-  app.post("/screenplay/projects/:projectId/outline", express.json({ limit: "1mb" }), (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  app.post("/screenplay/projects/:projectId/outline", express.json({ limit: "1mb" }), async (req, res) => {
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_outline");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const project = getScreenplayProjectRecord(owner, projectId);
     if (!project) {
@@ -389,7 +436,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }
     project.lastPhase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);
     owner.activeProjectId = owner.activeProjectId || project.id;
-    markScreenplayOwnerDirty(owner, now);
+    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_outline"))) return;
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     return res.status(200).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_outline",
@@ -410,8 +457,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
-  app.post("/screenplay/projects/:projectId/scenes", express.json({ limit: "512kb" }), (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  app.post("/screenplay/projects/:projectId/scenes", express.json({ limit: "512kb" }), async (req, res) => {
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_scene");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const project = getScreenplayProjectRecord(owner, projectId);
     if (!project) {
@@ -427,7 +475,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }
     project.lastPhase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);
     owner.activeProjectId = owner.activeProjectId || project.id;
-    markScreenplayOwnerDirty(owner, now);
+    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_scene"))) return;
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     return res.status(200).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_scene",
@@ -440,8 +488,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
-  app.post("/screenplay/projects/:projectId/beats", express.json({ limit: "512kb" }), (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  app.post("/screenplay/projects/:projectId/beats", express.json({ limit: "512kb" }), async (req, res) => {
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_beat");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const project = getScreenplayProjectRecord(owner, projectId);
     if (!project) {
@@ -457,7 +506,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }
     project.lastPhase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);
     owner.activeProjectId = owner.activeProjectId || project.id;
-    markScreenplayOwnerDirty(owner, now);
+    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_beat"))) return;
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     return res.status(200).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_beat",
@@ -470,8 +519,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
-  app.post("/screenplay/projects/:projectId/collaborators", express.json({ limit: "256kb" }), (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  app.post("/screenplay/projects/:projectId/collaborators", express.json({ limit: "256kb" }), async (req, res) => {
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_collaborators");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const project = getScreenplayProjectRecord(owner, projectId);
     if (!project) {
@@ -502,7 +552,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       project.collaborators.unshift(collaborator);
     }
     project.updatedAt = now;
-    markScreenplayOwnerDirty(owner, now);
+    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_collaborators"))) return;
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     return res.status(200).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_collaborators",
@@ -516,8 +566,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
-  app.post("/screenplay/projects/:projectId/comments", express.json({ limit: "512kb" }), (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  app.post("/screenplay/projects/:projectId/comments", express.json({ limit: "512kb" }), async (req, res) => {
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_comments");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const project = getScreenplayProjectRecord(owner, projectId);
     if (!project) {
@@ -591,7 +642,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }
 
     project.updatedAt = now;
-    markScreenplayOwnerDirty(owner, now);
+    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_comments"))) return;
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     const payloadComments = [...(project.comments || [])]
       .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0))
@@ -607,8 +658,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
-  app.post("/screenplay/projects/:projectId/version", express.json({ limit: "2mb" }), (req, res) => {
-    const owner = getOrCreateScreenplayOwnerRecord(req, { create: true });
+  app.post("/screenplay/projects/:projectId/version", express.json({ limit: "2mb" }), async (req, res) => {
+    const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_version");
+    if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
     const project = getScreenplayProjectRecord(owner, projectId);
     if (!project) {
@@ -679,7 +731,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }
     project.updatedAt = now;
     owner.activeProjectId = project.id;
-    markScreenplayOwnerDirty(owner, now);
+    if (!(await persistScreenplayOwnerOrFail(res, owner, now, "screenplay_version"))) return;
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
     return res.status(201).json(buildScreenplayEnvelope(req, owner, {
       stage: "screenplay_version",

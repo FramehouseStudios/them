@@ -108,8 +108,15 @@ function defaultDeps(overrides = {}) {
   };
 }
 
-async function withTestServer(deps, fn) {
+async function withTestServer(deps, fn, { authenticated = true, userId = "screenplay-route-test-user" } = {}) {
   const app = express();
+  if (authenticated) {
+    app.use((req, _res, next) => {
+      req.authUser = { id: userId };
+      req.userId = userId;
+      next();
+    });
+  }
   mountScreenplayProjectsRoutes(app, deps);
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
@@ -178,6 +185,35 @@ test("[screenplay-projects-routes] mount fails when required deps are missing", 
       `should reject missing ${key}`,
     );
   }
+});
+
+test("[screenplay-projects-routes] mount rejects invalid custom auth resolver", () => {
+  const app = express();
+  assert.throws(
+    () => mountScreenplayProjectsRoutes(app, defaultDeps({ resolveScreenplayUserId: "bad" })),
+    /resolveScreenplayUserId/,
+  );
+});
+
+test("[screenplay-projects-routes] unauthenticated requests return 401 and do not create an owner", async () => {
+  let ownerLookups = 0;
+  const deps = defaultDeps({
+    getOrCreateScreenplayOwnerRecord: () => {
+      ownerLookups += 1;
+      return defaultOwner();
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await fetch(`${baseURL}/screenplay/projects`, {
+      headers: { "X-User-Id": "spoofed-user" },
+    });
+    const body = await r.json();
+    assert.equal(r.status, 401);
+    assert.equal(body.error, "user_auth_required");
+    assert.equal(body.stage, "screenplay_projects");
+    assert.equal(ownerLookups, 0);
+  }, { authenticated: false });
 });
 
 test("[screenplay-projects-routes] GET /screenplay/projects lists projects, newest first", async () => {
@@ -317,6 +353,17 @@ test("[screenplay-projects-routes] POST /screenplay/projects rejects empty title
     const r = await postJson(baseURL, "/screenplay/projects", { title: "" });
     assert.equal(r.status, 400);
     assert.equal(r.body.error, "title_required");
+  });
+});
+
+test("[screenplay-projects-routes] POST /screenplay/projects surfaces store write failure", async () => {
+  await withTestServer(defaultDeps({
+    markScreenplayOwnerDirty: () => ({ ok: false, fileOk: false }),
+  }), async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects", { title: "Cannot Persist" });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.error, "screenplay_persistence_failed");
+    assert.equal(r.body.stage, "screenplay_project");
   });
 });
 
@@ -463,6 +510,29 @@ test("[screenplay-projects-routes] POST /version saves a draft and returns 201",
     assert.equal(r.body.status, "saved");
     assert.ok(r.body.version_id);
     assert.equal(r.body.conflict, false);
+  });
+});
+
+test("[screenplay-projects-routes] POST /version surfaces adapter persistence failure", async () => {
+  await withTestServer(defaultDeps({
+    markScreenplayOwnerDirty: () => ({
+      ok: true,
+      fileOk: true,
+      persistenceKind: "postgres",
+      persistencePromise: Promise.resolve({
+        ok: false,
+        persistenceKind: "postgres",
+        persistenceFailureCount: 1,
+      }),
+    }),
+  }), async (baseURL) => {
+    const r = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "FADE IN:\n\nINT. ROOM - DAY\n\nAction.",
+    });
+    assert.equal(r.status, 503);
+    assert.equal(r.body.error, "screenplay_persistence_failed");
+    assert.equal(r.body.persistence, "postgres");
+    assert.equal(r.body.persistence_failure_count, 1);
   });
 });
 

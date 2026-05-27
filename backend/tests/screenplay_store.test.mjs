@@ -320,6 +320,44 @@ test("[screenplay-store] loadScreenplayStore is a no-op when file is missing", (
   assert.equal(screenplayStoreByOwner.size, 0);
 });
 
+test("[screenplay-store] saveScreenplayStore reports disk write failure", () => {
+  resetStore();
+  configureScreenplayStore(buildDefaultDeps({
+    writeJsonFileAtomic: () => false,
+  }));
+  const owner = getOrCreateScreenplayOwnerRecord({ ownerKey: "fail-write" }, { create: true });
+  owner.projects.push({ id: "p1", versions: [], outline: { acts: [], scenes: [], beats: [] }, comments: [] });
+
+  const result = saveScreenplayStore(4000);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.fileOk, false);
+  assert.equal(result.persistencePromise, null);
+});
+
+test("[screenplay-store] markScreenplayOwnerDirty exposes adapter persistence failures", async () => {
+  resetStore();
+  configureScreenplayStore(buildDefaultDeps({
+    persistence: {
+      kind: "postgres",
+      async put() {
+        throw new Error("postgres down");
+      },
+    },
+  }));
+  const owner = getOrCreateScreenplayOwnerRecord({ ownerKey: "adapter-fail" }, { create: true });
+  owner.projects.push({ id: "p1", versions: [], outline: { acts: [], scenes: [], beats: [] }, comments: [] });
+
+  const result = markScreenplayOwnerDirty(owner, 5000);
+  const persisted = await result.persistencePromise;
+
+  assert.equal(result.ok, true);
+  assert.equal(result.fileOk, true);
+  assert.equal(result.persistenceKind, "postgres");
+  assert.equal(persisted.ok, false);
+  assert.equal(persisted.persistenceFailureCount, 1);
+});
+
 // ---------- adapter path ----------
 
 test("[screenplay-store] loadScreenplayStoreFromAdapter returns false when no records", async () => {
