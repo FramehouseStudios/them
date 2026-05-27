@@ -476,16 +476,25 @@ test(
   "talk forced runtime failure returns recovered audio contract",
   { timeout: 120_000, skip: !FORCED_FAILURE_TEST_ENABLED },
   async () => {
+    const secretTranscript = "SECRET_TALK_DIAG_RUNTIME_TRANSCRIPT";
     const { res, audio, headers } = await postTalk(
-      "forced failure contract test",
+      secretTranscript,
       { headers: { "X-Debug-Force-Error": "server" } }
     );
     assert.equal(res.status, 200, `POST /talk forced-error status=${res.status}`);
     assert.equal(String(headers["content-type"] || "").toLowerCase().startsWith("audio/mpeg"), true);
     assert.ok(audio.length > 1024, `recovery audio too small: ${audio.length}`);
     assert.equal(String(headers["x-turn-status"] || "").trim(), "error_recovered");
-    assert.equal(String(headers["x-turn-error-stage"] || "").trim().toLowerCase(), "server");
-    assert.ok(String(headers["x-turn-error-message"] || "").trim().length > 0, "missing x-turn-error-message");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-stage"]).toLowerCase(), "server");
+    assert.equal(decodeHeaderValue(headers["x-turn-provider-stage"]).toLowerCase(), "server");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-class"]).toLowerCase(), "talk_server_error");
+    assert.equal(decodeHeaderValue(headers["x-talk-error-class"]).toLowerCase(), "talk_server_error");
+    assert.ok(decodeHeaderValue(headers["x-request-id"]).length > 0, "missing x-request-id");
+    assert.ok(decodeHeaderValue(headers["x-turn-error-message"]).includes("Reference"), "missing support reference");
+    if (serverProc) {
+      const logs = `${serverProc.stdout.join("")}\n${serverProc.stderr.join("")}`;
+      assert.ok(!logs.includes(secretTranscript), "talk failure logs must not include transcript text");
+    }
   }
 );
 
@@ -493,15 +502,24 @@ test(
   "talk forced tts failure returns recovered audio contract",
   { timeout: 120_000, skip: !FORCED_FAILURE_TEST_ENABLED },
   async () => {
+    const secretTranscript = "SECRET_TALK_DIAG_TTS_TRANSCRIPT";
     const { res, audio, headers } = await postTalk(
-      "forced tts failure contract test",
+      secretTranscript,
       { headers: { "X-Debug-Force-Error": "tts" } }
     );
     assert.equal(res.status, 200, `POST /talk forced-tts-error status=${res.status}`);
     assert.equal(String(headers["content-type"] || "").toLowerCase().startsWith("audio/mpeg"), true);
     assert.ok(audio.length > 1024, `recovery audio too small: ${audio.length}`);
     assert.equal(String(headers["x-turn-status"] || "").trim(), "error_recovered");
-    assert.equal(String(headers["x-turn-error-stage"] || "").trim().toLowerCase(), "tts");
-    assert.ok(String(headers["x-turn-error-message"] || "").trim().length > 0, "missing x-turn-error-message");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-stage"]).toLowerCase(), "tts");
+    assert.equal(decodeHeaderValue(headers["x-turn-provider-stage"]).toLowerCase(), "tts");
+    assert.equal(decodeHeaderValue(headers["x-turn-error-class"]).toLowerCase(), "provider_unavailable");
+    assert.equal(decodeHeaderValue(headers["x-talk-error-class"]).toLowerCase(), "provider_unavailable");
+    assert.ok(decodeHeaderValue(headers["x-request-id"]).length > 0, "missing x-request-id");
+    assert.ok(decodeHeaderValue(headers["x-turn-error-message"]).includes("Reference"), "missing support reference");
+    if (serverProc) {
+      const logs = `${serverProc.stdout.join("")}\n${serverProc.stderr.join("")}`;
+      assert.ok(!logs.includes(secretTranscript), "talk failure logs must not include transcript text");
+    }
   }
 );
