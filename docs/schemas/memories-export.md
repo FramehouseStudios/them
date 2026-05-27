@@ -26,16 +26,20 @@ not carry a separate schema-version field today.
 
 ## Access-control posture
 
-**PER-USER**. Memory record resolved via
-`selectMemoryRecordForRead`. Scope matches `memories-list.md`:
-`X-Client-Token` session or token alias when present, otherwise
-the normalized requester IP. The inline handler does not enforce
-an auth-only export gate today.
+**PER-USER**. The route requires trusted authenticated identity
+before resolving memory. Scope matches `memories-list.md`:
+auth user scope or auth-bound session only. Caller-supplied
+`X-User-Id` and unauthenticated IP ownership are not accepted.
+Unauthenticated callers receive HTTP 401:
+
+```json
+{ "stage": "memories_export", "error": "user_auth_required" }
+```
 
 ## Query parameters
 
-None today. The export is unconditional for the resolved
-session/token/IP memory context.
+None today. The export is unconditional for the authenticated
+memory context.
 
 ## Response shape
 
@@ -149,3 +153,5 @@ additively (extra opt-in fields) without breaking the contract.
   the inline `app.get("/memories/export", ...)` handler in
   `backend/index.js`. Will be amended when Phase 6 extracts the
   route to `backend/lib/memories_route.js`.
+- 2026-05-26 — Auth/privacy hardening: export now requires
+  trusted auth identity and no longer falls back to IP memory.

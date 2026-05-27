@@ -118,6 +118,11 @@ function deps(overrides = {}) {
 
 async function withServer(d, fn) {
   const app = express();
+  app.use((req, _res, next) => {
+    req.authUser = { id: "user_memories_deeper" };
+    req.userId = "user_memories_deeper";
+    next();
+  });
   mountMemoriesRoutes(app, d);
   const server = app.listen(0);
   await new Promise((r) => server.once("listening", r));

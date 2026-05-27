@@ -24902,6 +24902,35 @@ function applyReadStateHeaders(res, meta) {
 function selectMemoryRecordForRead(req, now = Date.now()) {
   cleanupUserMemoryStore(now);
   const clientToken = normalizeClientToken(req.get("X-Client-Token"));
+  const authenticatedUserId = String(req?.authUser?.id || req?.userId || "").trim();
+  if (authenticatedUserId) {
+    const authMemoryKey = normalizeClientIp(`authuser:${authenticatedUserId}`);
+    const session = clientToken ? getValidSession(clientToken) : null;
+    if (
+      session?.memory &&
+      typeof session.memory === "object" &&
+      String(session.userId || "").trim() === authenticatedUserId
+    ) {
+      return {
+        ip: authMemoryKey || "unknown",
+        source: "session",
+        memory: sanitizePersistedSessionMemory(session.memory),
+      };
+    }
+    const authMemory = getPersistedUserMemoryForIp(authMemoryKey, now);
+    if (authMemory) {
+      return {
+        ip: authMemoryKey || "unknown",
+        source: "auth_user",
+        memory: sanitizePersistedSessionMemory(authMemory),
+      };
+    }
+    return {
+      ip: authMemoryKey || "unknown",
+      source: "auth_user_empty",
+      memory: createEmptyEmotionMemory(),
+    };
+  }
   if (clientToken) {
     const session = getValidSession(clientToken);
     if (session?.memory && typeof session.memory === "object") {
@@ -26056,12 +26085,24 @@ function buildDailyRecapPayload(memory, historyThreads = [], nowTs = Date.now(),
 function resolveWritableMemoryContext(req, nowTs = Date.now()) {
   const requesterIp = normalizeClientIp(clientIp(req));
   const clientToken = normalizeClientToken(req.get("X-Client-Token"));
-  const activeSession = clientToken ? getValidSession(clientToken) : null;
+  const authenticatedUserId = String(req?.authUser?.id || req?.userId || "").trim();
+  const activeSessionCandidate = clientToken ? getValidSession(clientToken) : null;
+  const activeSession = activeSessionCandidate && (
+    !authenticatedUserId ||
+    String(activeSessionCandidate.userId || "").trim() === authenticatedUserId
+  )
+    ? activeSessionCandidate
+    : null;
   const tokenIp = clientToken ? getPersistedIpForClientToken(clientToken, nowTs) : "";
-  const sessionIp = normalizeClientIp(activeSession?.ip || tokenIp || requesterIp);
-  const persistedMemory = clientToken
-    ? (getPersistedUserMemoryForClientToken(clientToken, nowTs) || getPersistedUserMemoryForIp(sessionIp, nowTs))
-    : getPersistedUserMemoryForIp(sessionIp, nowTs);
+  const authMemoryKey = authenticatedUserId ? normalizeClientIp(`authuser:${authenticatedUserId}`) : "";
+  const sessionIp = authenticatedUserId
+    ? authMemoryKey
+    : normalizeClientIp(activeSession?.ip || tokenIp || requesterIp);
+  const persistedMemory = authenticatedUserId
+    ? getPersistedUserMemoryForIp(sessionIp, nowTs)
+    : (clientToken
+      ? (getPersistedUserMemoryForClientToken(clientToken, nowTs) || getPersistedUserMemoryForIp(sessionIp, nowTs))
+      : getPersistedUserMemoryForIp(sessionIp, nowTs));
   const candidateMemory = activeSession?.memory && typeof activeSession.memory === "object"
     ? activeSession.memory
     : persistedMemory;

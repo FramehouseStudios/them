@@ -6,7 +6,7 @@ Canonical shape for `GET /memory/stats`.
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| GET | `/memory/stats` | memory-stats envelope (200) |
+| GET | `/memory/stats` | memory-stats envelope (200), auth error (401) |
 
 ## Schema version
 
@@ -22,13 +22,19 @@ Canonical shape for `GET /memory/stats`.
 **PER-USER, CONTENT-FREE**. The endpoint resolves the caller's
 memory record but returns counts only: no character names, no
 traits, no phrases, no themes, and no per-project content.
+Trusted authenticated identity is required; caller-supplied
+`X-User-Id` is ignored. Unauthenticated callers receive HTTP 401:
+
+```json
+{ "stage": "memory_stats", "error": "user_auth_required" }
+```
 
 ## Fields
 
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `schemaVersion` | int | yes (`1`) | |
-| `hasMemory` | boolean | yes | false for cold or unauthenticated users |
+| `hasMemory` | boolean | yes | false for cold authenticated users |
 | `counts` | object | yes | content-free memory shape counts |
 | `lastUpdatedMs` | int \| null | yes | epoch ms of the memory record's update time |
 | `error` | string | optional | present only when summarization fails; zero envelope still returned |
@@ -71,3 +77,5 @@ traits, no phrases, no themes, and no per-project content.
 
 - 2026-05-14 — Corrected to match
   `backend/lib/creative_memory_stats_route.js`.
+- 2026-05-26 — Auth/privacy hardening: unauthenticated reads now
+  return 401 instead of a zero envelope.

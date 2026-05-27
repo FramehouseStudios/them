@@ -16,20 +16,12 @@
 //     oldestAt: 1715... | null
 //   }
 //
-// Unauthenticated → 200 + zero envelope (same posture as
-// /memory/block-signal).
+// Unauthenticated requests return 401. Caller-supplied X-User-Id is
+// never trusted for ownership.
+
+import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
 
 const BLOCK_SIGNAL_HISTORY_SCHEMA_VERSION = 1;
-
-function defaultResolveUserId(req) {
-  return (
-    (req && req.user && req.user.id) ||
-    (req && req.authUser && req.authUser.id) ||
-    (req && req.userId) ||
-    (req && typeof req.get === "function" ? req.get("X-User-Id") : null) ||
-    null
-  );
-}
 
 function zeroEnvelope() {
   return {
@@ -69,7 +61,7 @@ function summarizeHistory(rawHistory) {
 
 function mountBlockSignalHistoryRoute(app, {
   creativeMemoryStore,
-  resolveUserId = defaultResolveUserId,
+  resolveUserId = defaultResolveMemoryUserId,
 } = {}) {
   if (!app || typeof app.get !== "function") {
     throw new Error("mountBlockSignalHistoryRoute requires an Express app");
@@ -82,7 +74,7 @@ function mountBlockSignalHistoryRoute(app, {
     res.setHeader("Cache-Control", "no-store");
     const userId = resolveUserId(req);
     if (!userId) {
-      return res.status(200).json(zeroEnvelope());
+      return res.status(401).json(memoryAuthRequired("memory_block_signal_history"));
     }
     try {
       const habits = await creativeMemoryStore.getHabitsForUser(userId);

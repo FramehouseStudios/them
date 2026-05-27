@@ -141,8 +141,15 @@ function defaultDeps(overrides = {}) {
   };
 }
 
-async function withTestServer(deps, fn) {
+async function withTestServer(deps, fn, { authenticated = true } = {}) {
   const app = express();
+  if (authenticated) {
+    app.use((req, _res, next) => {
+      req.authUser = { id: "user_memories_test" };
+      req.userId = "user_memories_test";
+      next();
+    });
+  }
   mountMemoriesRoutes(app, deps);
   const server = app.listen(0);
   await new Promise((r) => server.once("listening", r));
@@ -219,6 +226,19 @@ test("[memories] GET /memories: full envelope on happy path", async () => {
   });
 });
 
+test("[memories] GET /memories requires authenticated user and does not read memory on spoofed header", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const r = await fetch(`${baseURL}/memories`, {
+      headers: { "X-User-Id": "spoofed-user" },
+    });
+    const body = await r.json();
+    assert.equal(r.status, 401);
+    assert.equal(body.error, "user_auth_required");
+    assert.equal(deps._calls.selectMemoryRecordForRead, 0);
+  }, { authenticated: false });
+});
+
 test("[memories] GET /memories?sinceVersion=v9 → delta-no-change envelope", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await getJson(baseURL, "/memories?sinceVersion=v9");
@@ -279,6 +299,16 @@ test("[memories] POST /memories/update: 200 with updated card on success", async
     assert.ok(r.body.memory_card);
     assert.ok(deps._calls.logs.some((line) => line.includes("memories_update status=updated")));
   });
+});
+
+test("[memories] POST /memories/update requires authenticated user and does not resolve writable context", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/update", { card_id: "card_1" });
+    assert.equal(r.status, 401);
+    assert.equal(r.body.error, "user_auth_required");
+    assert.equal(deps._calls.resolveWritableMemoryContext, 0);
+  }, { authenticated: false });
 });
 
 test("[memories] POST /memories/update: 400 when mutation fails", async () => {

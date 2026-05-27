@@ -224,10 +224,10 @@ async function withTestServer(fn, { userId = "user-trait" } = {}) {
   }
 }
 
-async function postJson(baseURL, path, body) {
+async function postJson(baseURL, path, body, headers = {}) {
   const r = await fetch(`${baseURL}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   const json = await r.json().catch(() => null);
@@ -332,16 +332,33 @@ test("[trait-library] GET /memory/character-traits filters to one character when
   });
 });
 
-test("[trait-library] unauthenticated POST returns 200 + action=skipped (matches other /memory routes)", async () => {
+test("[trait-library] unauthenticated POST returns 401 and ignores spoofed X-User-Id", async () => {
   await withTestServer(
     async ({ baseURL }) => {
-      const { status, body } = await postJson(baseURL, "/memory/character-trait", {
-        character_name: "JUNE",
-        traits: { keywords: ["weary"] },
-      });
-      assert.equal(status, 200);
+      const { status, body } = await postJson(
+        baseURL,
+        "/memory/character-trait",
+        {
+          character_name: "JUNE",
+          traits: { keywords: ["weary"] },
+        },
+        { "X-User-Id": "spoofed-user" },
+      );
+      assert.equal(status, 401);
       assert.equal(body.ok, false);
-      assert.equal(body.action, "skipped");
+      assert.equal(body.action, "rejected");
+      assert.equal(body.error, "user_auth_required");
+    },
+    { userId: null },
+  );
+});
+
+test("[trait-library] unauthenticated GET returns 401", async () => {
+  await withTestServer(
+    async ({ baseURL }) => {
+      const { status, body } = await get(baseURL, "/memory/character-traits");
+      assert.equal(status, 401);
+      assert.equal(body.error, "user_auth_required");
     },
     { userId: null },
   );

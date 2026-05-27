@@ -289,13 +289,12 @@ test("[block-detector] GET /memory/block-signal returns the computed signal afte
   );
 });
 
-test("[block-detector] unauthenticated request returns the empty snapshot, not 401", async () => {
+test("[block-detector] unauthenticated request returns 401", async () => {
   await withTestServer(
     async ({ baseURL }) => {
       const { status, body } = await get(baseURL, "/memory/block-signal");
-      assert.equal(status, 200);
-      assert.equal(body.level, "low");
-      assert.equal(body.score, 0);
+      assert.equal(status, 401);
+      assert.equal(body.error, "user_auth_required");
     },
     { userId: null },
   );

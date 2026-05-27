@@ -38,8 +38,9 @@
 //
 // Access-control posture: PER-USER. Memory record resolved via
 // `selectMemoryRecordForRead` (read) or
-// `resolveWritableMemoryContext` (write). Same scope rules as
-// the existing per-user surface.
+// `resolveWritableMemoryContext` (write) only after trusted auth
+// identity resolves. Caller-supplied X-User-Id is never trusted for
+// ownership.
 //
 // Per the #238 invariant inheritance: this lib does NOT mutate
 // any module-level state. The shared per-IP persistence call
@@ -49,6 +50,7 @@
 // new setter.
 
 import express from "express";
+import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
 
 const MEMORIES_MUTATION_BODY_LIMIT = "256kb";
 
@@ -62,6 +64,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     createRequestId,
     normalizeSnippet,
     clampUnit,
+    resolveUserId = defaultResolveMemoryUserId,
     // ---------- memory context resolution ----------
     selectMemoryRecordForRead,
     resolveWritableMemoryContext,
@@ -132,8 +135,17 @@ function mountMemoriesRoutes(app, deps = {}) {
     throw new Error("mountMemoriesRoutes: USER_MEMORY_REMEMBERED_PEOPLE_MAX must be a number");
   }
 
+  function requireMemoryUser(req, res, stage) {
+    const userId = String(resolveUserId(req) || "").trim();
+    if (userId) return userId;
+    res.setHeader("Cache-Control", "no-store");
+    res.status(401).json(memoryAuthRequired(stage));
+    return "";
+  }
+
   // ============== GET /memories ==============
   app.get("/memories", (req, res) => {
+    if (!requireMemoryUser(req, res, "memories")) return;
     const limit = parseQueryLimit(req.query?.limit, 24, 120);
     const sinceVersion = String(req.query?.sinceVersion || "").trim();
     const selected = selectMemoryRecordForRead(req, Date.now());
@@ -223,6 +235,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
   // ============== GET /memories/export ==============
   app.get("/memories/export", (req, res) => {
+    if (!requireMemoryUser(req, res, "memories_export")) return;
     const selected = selectMemoryRecordForRead(req, Date.now());
     const memory = sanitizePersistedSessionMemory(selected.memory);
     const readMeta = buildReadStateMeta(req, memory, selected.ip);
@@ -291,6 +304,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
   // ============== POST /memories/update ==============
   app.post("/memories/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+    if (!requireMemoryUser(req, res, "memories_update")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
     const context = resolveWritableMemoryContext(req, nowTs);
@@ -344,6 +358,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
   // ============== POST /memories/forget ==============
   app.post("/memories/forget", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+    if (!requireMemoryUser(req, res, "memories_forget")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
     const context = resolveWritableMemoryContext(req, nowTs);
@@ -389,6 +404,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
   // ============== POST /memories/promote ==============
   app.post("/memories/promote", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+    if (!requireMemoryUser(req, res, "memories_promote")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
     const context = resolveWritableMemoryContext(req, nowTs);
@@ -443,6 +459,7 @@ function mountMemoriesRoutes(app, deps = {}) {
 
   // ============== POST /memories/feedback ==============
   app.post("/memories/feedback", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
+    if (!requireMemoryUser(req, res, "memories_feedback")) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
     const context = resolveWritableMemoryContext(req, nowTs);

@@ -47,10 +47,10 @@ async function withTestServer(fn, { userId = "user-test-1" } = {}) {
   }
 }
 
-async function postJson(baseURL, body) {
+async function postJson(baseURL, body, headers = {}) {
   const r = await fetch(`${baseURL}/memory/record-character-mention`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   const json = await r.json().catch(() => null);
@@ -226,18 +226,21 @@ test("[T30] missing optional metadata fields does not fail the request", async (
   });
 });
 
-// ---------- unauthenticated request returns typed skip, not 401 ----------
+// ---------- unauthenticated request is rejected ----------
 
-test("[T30] unauthenticated request returns 200 + action=skipped (matches existing memory-write semantics)", async () => {
+test("[T30] unauthenticated request returns 401 and ignores spoofed X-User-Id", async () => {
   await withTestServer(
     async ({ baseURL }) => {
-      const { status, body } = await postJson(baseURL, {
-        character_name: "JUNE",
-      });
-      assert.equal(status, 200);
+      const { status, body } = await postJson(
+        baseURL,
+        { character_name: "JUNE" },
+        { "X-User-Id": "spoofed-user" },
+      );
+      assert.equal(status, 401);
       assert.equal(body.ok, false);
-      assert.equal(body.action, "skipped");
+      assert.equal(body.action, "rejected");
       assert.equal(body.characterName, "JUNE");
+      assert.equal(body.error, "user_auth_required");
     },
     { userId: null },
   );

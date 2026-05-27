@@ -27,14 +27,12 @@
 //       characterName: string, source: string }
 //
 // Auth: the route resolves `userId` via the supplied `resolveUserId`
-// callback. In production this reads the auth middleware's `req.user.id`
-// (same pattern as `recordCreativeMemoryTriggersForRequest` in
-// `backend/index.js`). Tests can inject any callback. When no user
-// resolves, the response still returns `ok: false, action: "skipped"`
-// rather than 401 — matches the existing creative-memory write triggers
-// which silently no-op for unauthenticated turns.
+// callback. Production reads the auth middleware's trusted identity.
+// Unauthenticated requests return 401; caller-supplied X-User-Id is
+// never trusted for ownership.
 
 import express from "express";
+import { defaultResolveMemoryUserId } from "./memory_route_auth.js";
 
 const MAX_NAME_LENGTH = 64;
 const MAX_SOURCE_LENGTH = 64;
@@ -117,19 +115,9 @@ function sanitizeMetadata({ rawMetadata, writeId, line, source }) {
   return Object.keys(meta).length ? meta : null;
 }
 
-function defaultResolveUserId(req) {
-  return (
-    (req && req.user && req.user.id) ||
-    (req && req.authUser && req.authUser.id) ||
-    (req && req.userId) ||
-    (req && typeof req.get === "function" ? req.get("X-User-Id") : null) ||
-    null
-  );
-}
-
 function mountMemoryCharacterMentionRoute(app, {
   creativeMemoryStore,
-  resolveUserId = defaultResolveUserId,
+  resolveUserId = defaultResolveMemoryUserId,
 } = {}) {
   if (!app || typeof app.post !== "function") {
     throw new Error("mountMemoryCharacterMentionRoute requires an Express app");
@@ -175,14 +163,12 @@ function mountMemoryCharacterMentionRoute(app, {
     res.setHeader("Cache-Control", "no-store");
 
     if (!userId) {
-      // Match the existing creative-memory write triggers: never 401 a
-      // best-effort memory write. Return a typed receipt so iOS can log
-      // and move on.
-      return res.status(200).json({
+      return res.status(401).json({
         ok: false,
-        action: "skipped",
+        action: "rejected",
         characterName,
         source,
+        error: "user_auth_required",
       });
     }
 
