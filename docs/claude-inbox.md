@@ -34,12 +34,10 @@ V1 smokes pass, backend tests pass, iOS unit/UI tests passed on iPhone 17 Pro,
 and the Release iPhone build inside App Store preflight passes. Do not reopen
 eval-quality, decomposition, or schema-doc lanes unless Codex posts a concrete
 regression.
-Release branch sync is now also a shipping blocker:
-`claude/backend-post-v1-audit` is 90 commits ahead and 56 commits behind
-`main`, and a dry-run merge conflicts in 22 files spanning backend,
-release scripts, V1 proof docs, Xcode, Data Controls, and Studio. See
-`docs/v1-branch-sync-status.md`. Do not claim TestFlight/release branch
-readiness until that sync is resolved and verified.
+Release branch sync is current with `origin/main` as of 2026-05-28: the active
+release branch merged the two newer main protocol commits, and the previous
+90/56 dry-run conflict note is resolved. See `docs/v1-branch-sync-status.md`
+for the latest sync proof.
 The launch lane is still blocked by private release configuration:
 no `them/Release.local.env` exists in the current worktree, the environment
 lacks `DEVELOPMENT_TEAM_ID` and release `APP_TOKEN_RELEASE`, and
@@ -60,14 +58,16 @@ passes when local loopback binding is allowed.
 1. Run:
 
    ```bash
+   node scripts/v1_launch_room.mjs --role=claude
    node scripts/agent_next.mjs --role=claude
    node scripts/coordination_state.mjs read
    node scripts/agent_event.mjs tail --n=20
    ```
 
-2. Treat this inbox and `agent_next` as the first screen. The next
-   Claude-owned work is the first incomplete day in
-   `docs/claude-backend-two-week-plan.md`. Do not open any other backend work.
+2. Treat this inbox and `agent_next` as the first screen. The Claude backend
+   sprint is complete through Day 14 in the event lane; Claude is support-only
+   for exact V1 smoke, release, or backend regression failures unless Codex
+   assigns a new post-V1 lane.
 3. Do not open coordination-refresh PRs. Append event-lane updates after PR
    open, rebase, blocker clear, and ready-for-review transitions.
 4. Every PR description must include:
@@ -106,9 +106,9 @@ These are ordered by app-visible V1 impact, not by backend curiosity.
 
 | Priority | Request | Why it matters | Expected shape |
 | --- | --- | --- | --- |
-| 1 | Execute Claude backend two-week plan | Backend audit blockers now gate V1 safety, App Review readiness, and provider-cost risk. | Read `docs/claude-backend-two-week-plan.md`. Start with the first incomplete day-task. When a day is complete, append proof, check Launch Room/agent_next, and automatically continue to the next incomplete day unless Codex has posted a blocker/review/emergency smoke failure. |
-| 2 | Day 1 Backend Exposure Lock | Audit found header-trusted identity and cost-attached realtime/visual exposure. | Expected files: `backend/lib/user_auth.js`, `backend/index.js`, realtime route libs, visual context mount path, and focused backend tests. Require user auth for paid/provider/user-data paths, strip inbound `X-User-Id`, stop rewriting the header, replace screenplay owner resolution with `req.authUser.id` / `req.userId`, add IDOR and protected-route tests, run strict pre-flight, append event, and stop only if Codex review is needed. |
-| 3 | Support V1 manual smoke failures | Release config/manual smoke are still blockers, but security/App Review audit blockers now rank first. | If Codex posts a Talk/Studio/Realtime/Memory smoke failure, pause scheduled work and fix that exact backend failure first. |
+| 1 | Support V1 manual smoke failures | Talk, Studio, Memory, Realtime, and iOS Release Readiness still need human release-path proof. | If Codex posts a concrete smoke failure, pause all other work and fix that exact backend failure first. |
+| 2 | Support release config/preflight failures | Private Apple/team/token inputs are the remaining switch-flip blockers. | Do not create or commit secrets. If private inputs are supplied and preflight fails for a repo-owned reason, fix that specific failure. |
+| 3 | Emergency backend regression only | The Day 1-14 backend sprint is complete and new backend scope adds release risk. | Open backend work only for a reproducible V1 regression or a Codex-assigned post-V1 task. |
 
 ## Decomposition Rules
 
