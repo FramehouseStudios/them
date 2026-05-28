@@ -34,6 +34,12 @@ V1 smokes pass, backend tests pass, iOS unit/UI tests passed on iPhone 17 Pro,
 and the Release iPhone build inside App Store preflight passes. Do not reopen
 eval-quality, decomposition, or schema-doc lanes unless Codex posts a concrete
 regression.
+Release branch sync is now also a shipping blocker:
+`claude/backend-post-v1-audit` is 90 commits ahead and 56 commits behind
+`main`, and a dry-run merge conflicts in 22 files spanning backend,
+release scripts, V1 proof docs, Xcode, Data Controls, and Studio. See
+`docs/v1-branch-sync-status.md`. Do not claim TestFlight/release branch
+readiness until that sync is resolved and verified.
 The launch lane is still blocked by private release configuration:
 no `them/Release.local.env` exists in the current worktree, the environment
 lacks `DEVELOPMENT_TEAM_ID` and release `APP_TOKEN_RELEASE`, and
