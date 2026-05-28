@@ -131,11 +131,11 @@ to a payload object. The decoded payload contains:
 ## V1 alignment
 
 V1 line 54: "Human privacy decision is made for full memory
-export/delete." The export route ships; the policy decision is
-about what data classes (if any) should be redacted before
-serializing into `export_json`. The schema doc canonicalizes
-the current shape so a future redaction layer can be added
-additively (extra opt-in fields) without breaking the contract.
+export/delete." `D-creative-memory-export-approval` and
+`D-creative-memory-delete-scope` were resolved on 2026-05-14. The
+export route ships as the V1 data-control surface; delete remains
+scoped to the approved V1 creative-memory-only semantics if Codex
+assigns that implementation before post-V1 cleanup.
 
 ## Compatibility rules
 

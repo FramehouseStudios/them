@@ -27,6 +27,7 @@ test("[v1-manual-qa] --json emits the four V1 manual flows", () => {
     ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime"],
   );
   assert.ok(payload.parked.some((p) => p.prs.includes("#94")));
+  assert.ok(payload.parked.some((p) => /core memory export is approved/.test(p.reason)));
   assert.ok(payload.automatedProof.some((p) => p.command.includes("eval:v1-smokes")));
   assert.ok(payload.platformPosture.includes("V1 is iPhone only."));
   assert.match(payload.currentLocalProof, /2026-05-28/);

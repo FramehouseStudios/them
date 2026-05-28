@@ -26,8 +26,9 @@ the next incomplete day-task automatically unless Codex has posted a blocker,
 review request, or emergency smoke failure. The human must not be used as a
 copy-paste bridge for the next-day instruction.
 
-Current V1 state: `cd backend && npm run v1:status` is 28/34 after the Day 14
-release switch-flip tooling. The code-owned gates are green or expected-red
+Current V1 state: `cd backend && npm run v1:status` is 29/34 after the Day 14
+release switch-flip tooling and the resolved memory privacy decision refresh.
+The code-owned gates are green or expected-red
 only for private/external release inputs: strict pre-flight passes, deterministic
 V1 smokes pass, backend tests pass, iOS unit/UI tests passed on iPhone 17 Pro,
 and the Release iPhone build inside App Store preflight passes. Do not reopen
@@ -80,8 +81,9 @@ passes when local loopback binding is allowed.
    note. PR #299 was also closed as out-of-lane schema-only. PR #335 merged
    Phase 7b, so implementation is no longer the backend lane.
 8. Do not ask the human to inspect old PR bodies for #94/#99. Use
-   `docs/memory-export-delete-decision-packet.md` as the privacy/data-control
-   record: #94 is done, #99 is post-V1.
+   `docs/decisions-queue.md` as the privacy/data-control record:
+   `D-creative-memory-export-approval` and `D-creative-memory-delete-scope`
+   are resolved; #99 is post-V1 unless Codex assigns it.
 9. Phase 7b dependency-boundary decision: use `acorn` and `acorn-walk` as
    backend devDependencies to compute the extracted talk-handler closure
    deterministically. Do not ask for human-in-the-loop dependency convergence,

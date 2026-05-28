@@ -110,9 +110,9 @@ const artifact = {
   ],
   parked: [
     {
-      item: "Full creative-memory export/delete",
+      item: "Creative-memory delete implementation",
       prs: ["#94", "#99"],
-      reason: "Needs explicit human privacy/data-control approval before merge.",
+      reason: "Privacy decision is resolved; core memory export is approved/tracked in #94, while #99 delete implementation remains post-V1 unless Codex assigns it.",
     },
     {
       item: "Postgres eval gate",
