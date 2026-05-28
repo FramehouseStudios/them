@@ -31,9 +31,32 @@ test("[release-config-status] reports missing private release inputs without pri
   assert.equal(payload.ok, false);
   assert.equal(payload.envFile.exampleExists, true);
   assert.equal(payload.envFile.examplePath, "them/Release.local.env.example");
+  assert.ok(payload.blockers.some((line) => /missing local release config/.test(line)));
   assert.ok(payload.blockers.some((line) => /Development Team ID/.test(line)));
   assert.ok(payload.blockers.some((line) => /APP_TOKEN/.test(line)));
+  assert.ok(payload.missingInputs.includes("them/Release.local.env"));
+  assert.ok(payload.missingInputs.includes("DEVELOPMENT_TEAM_ID"));
+  assert.ok(payload.missingInputs.includes("APP_TOKEN_RELEASE"));
+  assert.ok(payload.nextSteps.some((line) => /Create them\/Release\.local\.env/.test(line)));
+  const tokenCheck = payload.checks.find((check) => check.id === "app-token-release");
+  assert.equal(tokenCheck.secret.present, false);
+  assert.equal(tokenCheck.secret.placeholder, true);
   assert.doesNotMatch(r.stdout, /super-secret-release-token/);
+});
+
+test("[release-config-status] text output gives the first env-file recovery steps", () => {
+  const r = run(["--no-xcodebuild"], {
+    DEVELOPMENT_TEAM_ID: "",
+    BACKEND_URL: "",
+    APP_TOKEN_RELEASE: "",
+  });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stdout, /Release setup still missing or invalid:/);
+  assert.match(r.stdout, /- them\/Release\.local\.env/);
+  assert.match(r.stdout, /Next steps:/);
+  assert.match(r.stdout, /Create them\/Release\.local\.env from them\/Release\.local\.env\.example/);
+  assert.match(r.stdout, /chmod 600 them\/Release\.local\.env/);
+  assert.match(r.stdout, /Fill missing private inputs: DEVELOPMENT_TEAM_ID, BACKEND_URL, APP_TOKEN_RELEASE/);
 });
 
 test("[release-config-status] release env template stays secret-free and complete", () => {
@@ -81,6 +104,7 @@ test("[release-config-status] accepts an explicit env file and redacts APP_TOKEN
   assert.equal(payload.ok, true);
   const tokenCheck = payload.checks.find((check) => check.id === "app-token-release");
   assert.equal(tokenCheck.secret.present, true);
+  assert.equal(tokenCheck.secret.placeholder, false);
   assert.equal(tokenCheck.secret.length, "super-secret-release-token-123456".length);
   assert.doesNotMatch(r.stdout, /super-secret-release-token-123456/);
 });

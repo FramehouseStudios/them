@@ -90,8 +90,10 @@ function isLocalhostUrl(value) {
 
 function describeSecret(value, source) {
   const v = trimQuotes(value);
+  const placeholder = isPlaceholder(v);
   return {
-    present: Boolean(v),
+    present: Boolean(v) && !placeholder,
+    placeholder,
     source,
     length: v.length,
   };
@@ -204,7 +206,7 @@ function buildStatus(opts) {
     envFileExists || directPrivateValuesAvailable,
     envFileExists
       ? `Release env file exists at ${rel(envFile)}.`
-      : "No release env file found; using shell environment only if required private values are exported.",
+      : `missing local release config: ${rel(envFile)}. Create it from ${rel(defaultEnvExampleFile)} or export required private values in the shell.`,
     {
       path: rel(envFile),
       exists: envFileExists,
@@ -229,7 +231,7 @@ function buildStatus(opts) {
       ? "Apple Development Team ID is configured."
       : "Apple Development Team ID is missing or not a 10-character team id.",
     {
-      value: releaseTeam ? `${releaseTeam.slice(0, 3)}...${releaseTeam.slice(-2)}` : "",
+      value: teamOk ? `${releaseTeam.slice(0, 3)}...${releaseTeam.slice(-2)}` : "",
       source: teamInput.source,
     },
   ));
@@ -291,6 +293,23 @@ function buildStatus(opts) {
     warnings.push("xcodebuild -showBuildSettings was unavailable, so release config status used the checked-in project file fallback. scripts/run_release_preflight.sh still runs the real Xcode preflight.");
   }
   const blockers = checks.filter((check) => !check.ok).map((check) => check.message);
+  const failedIds = new Set(checks.filter((check) => !check.ok).map((check) => check.id));
+  const missingInputs = [
+    failedIds.has("release-env-file") ? rel(envFile) : "",
+    failedIds.has("development-team") ? "DEVELOPMENT_TEAM_ID" : "",
+    failedIds.has("backend-url") ? "BACKEND_URL" : "",
+    failedIds.has("app-token-release") ? "APP_TOKEN_RELEASE" : "",
+  ].filter(Boolean);
+  const nextSteps = [];
+  if (failedIds.has("release-env-file")) {
+    nextSteps.push(`Create ${rel(envFile)} from ${rel(defaultEnvExampleFile)}.`);
+    nextSteps.push(`Set permissions with: chmod 600 ${rel(envFile)}`);
+  }
+  if (missingInputs.some((input) => input !== rel(envFile))) {
+    nextSteps.push(`Fill missing private inputs: ${missingInputs.filter((input) => input !== rel(envFile)).join(", ")}.`);
+  }
+  nextSteps.push("Run scripts/run_release_preflight.sh.");
+
   return {
     ok: blockers.length === 0,
     generatedAt: new Date().toISOString(),
@@ -304,7 +323,9 @@ function buildStatus(opts) {
     checks,
     blockers,
     warnings,
-    nextCommand: "scripts/run_release_preflight.sh",
+    missingInputs,
+    nextSteps,
+    nextCommand: nextSteps[0],
   };
 }
 
@@ -323,16 +344,10 @@ function printText(status) {
   console.log("");
   console.log(`Summary: ${status.ok ? "ready" : "blocked"} (${status.blockers.length} blocker${status.blockers.length === 1 ? "" : "s"})`);
   if (!status.ok) {
-    const failedIds = new Set(status.checks.filter((check) => !check.ok).map((check) => check.id));
-    const missingInputs = [
-      failedIds.has("development-team") ? "DEVELOPMENT_TEAM_ID" : "",
-      failedIds.has("backend-url") ? "BACKEND_URL" : "",
-      failedIds.has("app-token-release") ? "APP_TOKEN_RELEASE" : "",
-    ].filter(Boolean);
     console.log("");
-    if (missingInputs.length > 0) {
-      console.log("Required private release inputs still missing or invalid:");
-      for (const input of missingInputs) {
+    if (status.missingInputs.length > 0) {
+      console.log("Release setup still missing or invalid:");
+      for (const input of status.missingInputs) {
         console.log(`- ${input}`);
       }
     } else {
@@ -340,7 +355,10 @@ function printText(status) {
     }
   }
   console.log("");
-  console.log(`Next: ${status.nextCommand}`);
+  console.log("Next steps:");
+  for (const step of status.nextSteps) {
+    console.log(`- ${step}`);
+  }
 }
 
 try {
