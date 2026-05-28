@@ -1,9 +1,9 @@
 # App Store Privacy Mapping (io.them)
 
-Last updated: 2026-05-24
+Last updated: 2026-05-28
 
 ## Data Collected (current manifest)
-Source: `/Users/halfmutantfilms/Desktop/io.them/them/them/PrivacyInfo.xcprivacy`
+Source: `them/PrivacyInfo.xcprivacy`
 
 1. Audio Data
 - Linked to user: Yes

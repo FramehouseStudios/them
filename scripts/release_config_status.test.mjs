@@ -70,12 +70,16 @@ test("[release-config-status] release env template stays secret-free and complet
 test("[release-docs] operator docs point at the iPhone release wrapper", () => {
   const checklist = fs.readFileSync(path.join(repoRoot, "them/APP_STORE_SUBMISSION_CHECKLIST.md"), "utf8");
   const runbook = fs.readFileSync(path.join(repoRoot, "them/RELEASE_RUNBOOK.md"), "utf8");
-  const combined = `${checklist}\n${runbook}`;
+  const qualityGate = fs.readFileSync(path.join(repoRoot, "them/QUALITY_GATE.md"), "utf8");
+  const privacyMapping = fs.readFileSync(path.join(repoRoot, "them/APP_STORE_PRIVACY_MAPPING.md"), "utf8");
+  const combined = `${checklist}\n${runbook}\n${qualityGate}\n${privacyMapping}`;
   assert.match(checklist, /^# io\.them iPhone TestFlight Submission Checklist/);
   assert.match(combined, /scripts\/run_release_preflight\.sh/);
   assert.match(combined, /them\/Release\.local\.env\.example/);
+  assert.match(combined, /Keep `BACKEND_URL=https:\/\/api\.them\.io`/);
   assert.doesNotMatch(combined, /macOS App Store|macOS preflight/);
-  assert.doesNotMatch(combined, /Desktop\/io\.them\/them\/scripts/);
+  assert.doesNotMatch(combined, /\/Users\/halfmutantfilms\/Desktop\/io\.them/);
+  assert.doesNotMatch(combined, /Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`/);
   assert.doesNotMatch(combined, /Set `(?:DEVELOPMENT_TEAM_ID|APP_TOKEN_RELEASE)` in .*Config\.xcconfig/);
   assert.match(combined, /Do not put production tokens in tracked `Config\.xcconfig`/);
 });

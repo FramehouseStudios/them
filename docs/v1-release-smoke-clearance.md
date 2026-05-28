@@ -31,7 +31,7 @@ with 0 failed flows and no manual pass claimed.
   human release signoff remaining.
 - iOS V1 UI smoke: `scripts/run_v1_ui_smoke.sh` passed 5/5 on the available
   `iPhone 17 Pro` simulator.
-- Release preflight: still failed with `fail=3 warn=1`.
+- Release preflight: still failed with `fail=3 warn=2`.
 - Signed Release preflight with real secrets: not run, because the real values
   are not present and this machine has no valid code signing identities.
 
@@ -41,23 +41,21 @@ No permanent release values were configured in the repository. The audit found
 no real values for:
 
 - `DEVELOPMENT_TEAM_ID`
-- `BACKEND_URL`
-- `APP_TOKEN`
 - `APP_TOKEN_RELEASE`
-- `RELEASE_BACKEND_URL`
 
-The checked-in placeholders remain placeholders, and no secrets were committed.
+Release `BACKEND_URL` is now configured as hosted HTTPS through the checked-in
+Release build settings fallback: `https://api.them.io`. No secrets were
+committed.
 
 ## Release Path Audit
 
-- `them/Config.xcconfig` still has `APP_TOKEN_RELEASE =
-  REPLACE_WITH_PROD_APP_TOKEN` and an empty `DEVELOPMENT_TEAM_ID`.
 - `them.xcodeproj/project.pbxproj` maps Release `APP_TOKEN` through
-  `APP_TOKEN_RELEASE`, Release `BACKEND_URL` through `RELEASE_BACKEND_URL`, and
-  `DEVELOPMENT_TEAM` through `DEVELOPMENT_TEAM_ID`.
+  `APP_TOKEN_RELEASE` and `DEVELOPMENT_TEAM` through `DEVELOPMENT_TEAM_ID`.
+- `them/Release.local.env.example` carries the hosted
+  `BACKEND_URL=https://api.them.io` default and leaves only private values blank.
 - `scripts/appstore_preflight.sh` accepts runtime overrides for
-  `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, `APP_TOKEN`, `APP_TOKEN_RELEASE`, and
-  `RELEASE_BACKEND_URL`, then rejects placeholders/localhost Release values.
+  `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`, then rejects
+  placeholders/localhost Release values.
 - `scripts/run_release_preflight.sh` loads the ignored
   `them/Release.local.env` file and passes those values into the existing
   preflight gate without committing secrets.
@@ -65,12 +63,6 @@ The checked-in placeholders remain placeholders, and no secrets were committed.
   into the app environment.
 
 ## Commands And Results
-
-```sh
-zsh -lc 'for k in DEVELOPMENT_TEAM_ID BACKEND_URL APP_TOKEN APP_TOKEN_RELEASE RELEASE_BACKEND_URL OPENAI_API_KEY; do if [[ -n ${(P)k} ]]; then print "$k=present"; else print "$k=missing"; fi; done'
-```
-
-Result: all listed values were missing.
 
 ```sh
 security find-identity -v -p codesigning
@@ -100,18 +92,20 @@ Result: passed, `** BUILD SUCCEEDED **`.
 scripts/appstore_preflight.sh
 ```
 
-Result: failed, `fail=3 warn=1`.
+Result: failed, `fail=3 warn=2`.
 
 Blocking failures:
 
+- Missing ignored `them/Release.local.env`.
 - Development Team is not configured.
-- Release `BACKEND_URL` is placeholder or unset.
-- Release `APP_TOKEN` is placeholder or unset.
+- Release `APP_TOKEN_RELEASE` is placeholder or unset.
 
 Warning:
 
-- Signed Release macOS build was skipped because `DEVELOPMENT_TEAM_ID` is not
-  configured.
+- Signing identity and App Store Connect archive validation are not proven by
+  the secret-safe config status script.
+- `xcodebuild -showBuildSettings` was unavailable locally, so release config
+  status used the checked-in project fallback.
 
 ```sh
 cd backend
@@ -131,8 +125,8 @@ Result: refreshed `docs/v1-launch-doctor.latest.json` and
 ## Manual V1 Smoke
 
 The manual V1 app smoke was not completed in this pass. A passing result would
-be false without the intended release backend URL, production app token,
-Apple signing setup, and an actual app run through:
+be false without the production app token, Apple signing setup, and an actual
+app run through:
 
 - Talk Pipeline: record voice -> get reply -> hear reply -> saved turn.
 - Screenplay Studio: create project -> write scene -> save -> export -> reopen.
@@ -144,14 +138,14 @@ Apple signing setup, and an actual app run through:
 ## Remaining Blockers
 
 1. Provide the Apple `DEVELOPMENT_TEAM_ID` and a valid signing identity.
-2. Provide the hosted release `BACKEND_URL`.
-3. Provide the production `APP_TOKEN`.
+2. Provide the production `APP_TOKEN_RELEASE`.
+3. Keep `BACKEND_URL=https://api.them.io` unless the release backend changes.
 4. Rerun:
 
    ```sh
    cp them/Release.local.env.example them/Release.local.env
    chmod 600 them/Release.local.env
-   # Fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN.
+   # Fill in DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE.
    scripts/run_release_preflight.sh
    ```
 

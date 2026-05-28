@@ -33,6 +33,11 @@ test("[v1-manual-qa] --json emits the five V1 manual gates", () => {
   assert.match(payload.currentLocalProof, /2026-05-28/);
   assert.match(payload.currentLocalProof, /authenticated backend smoke/);
   assert.match(payload.currentLocalProof, /APP_TOKEN_RELEASE/);
+  const releaseFlow = payload.manualFlows.find((f) => f.pillar === "iOS Release Readiness");
+  assert.ok(releaseFlow);
+  assert.ok(releaseFlow.steps.some((step) => /Apple Development Team ID and production app token/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /https:\/\/api\.them\.io/.test(step)));
+  assert.ok(!releaseFlow.steps.some((step) => /hosted backend URL, and production app token/.test(step)));
 });
 
 test("[v1-manual-qa] markdown output names pass criteria and parked gates", () => {

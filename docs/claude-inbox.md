@@ -15,9 +15,9 @@ Active schedule: `docs/v1-two-week-free-first-schedule.md`. The 2026-05-17
 audit is now a launch input. When the human says `continue`, Codex starts at
 the earliest incomplete day in that schedule. Claude reads that file and works
 only on the current Codex-assigned deep task. Paid/external release inputs are
-last unless already free/available: Apple team/signing, hosted release
-`BACKEND_URL`, production `APP_TOKEN`, and real provider keys for final
-Talk/Realtime proof.
+last unless already free/available: Apple team/signing, production
+`APP_TOKEN_RELEASE`, and real provider keys for final Talk/Realtime proof.
+Release `BACKEND_URL` is already hosted as `https://api.them.io`.
 
 Claude's backend sprint plan is `docs/claude-backend-two-week-plan.md`.
 Claude must execute it day by day. When a full day-task is complete, Claude
