@@ -115,11 +115,6 @@ const artifact = {
       reason: "Privacy decision is resolved; core memory export is approved/tracked in #94, while #99 delete implementation remains post-V1 unless Codex assigns it.",
     },
     {
-      item: "Postgres eval gate",
-      prs: ["#33"],
-      reason: "Needs the GitHub Actions OPENAI_API_KEY secret fixed by a human.",
-    },
-    {
       item: "Auth route extraction",
       prs: ["#212"],
       reason: "Tier-3 auth work remains do-not-merge until explicitly cleared.",

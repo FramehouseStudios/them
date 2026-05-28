@@ -25,8 +25,18 @@ function tempRepo({
   withMountFile,
   withOutboxSource,
   withOutboxDoc,
+  withV1ManualQaGenerator,
+  withV1ManualQaDoc,
 } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-preflight-"));
+  fs.writeFileSync(path.join(tmp, ".gitignore"), [
+    ".env",
+    ".env.*",
+    "*.env",
+    "them/Release.local.env",
+    "them/Release.local.xcconfig",
+    "",
+  ].join("\n"));
   fs.mkdirSync(path.join(tmp, "scripts"));
   fs.mkdirSync(path.join(tmp, "backend", "lib"), { recursive: true });
   fs.mkdirSync(path.join(tmp, "backend", "tests"), { recursive: true });
@@ -59,6 +69,12 @@ function tempRepo({
   }
   if (withOutboxDoc) {
     fs.writeFileSync(path.join(tmp, "docs", "schemas", "outbox-event.md"), withOutboxDoc);
+  }
+  if (withV1ManualQaGenerator) {
+    fs.writeFileSync(path.join(tmp, "scripts", "v1_manual_qa_checklist.mjs"), withV1ManualQaGenerator);
+  }
+  if (withV1ManualQaDoc) {
+    fs.writeFileSync(path.join(tmp, "docs", "testflight-v1-preflight.md"), withV1ManualQaDoc);
   }
   return tmp;
 }
@@ -120,6 +136,19 @@ test("[pre-flight] clean repo with no lib/ → exit 0, no findings", () => {
   const r = runIn(tmp);
   assert.equal(r.status, 0);
   assert.match(r.stdout, /pre-flight: OK/);
+});
+
+test("[pre-flight] flags tracked provider secrets without printing the value", () => {
+  const tmp = tempRepo();
+  const fakeSecret = "sk-proj-" + "A".repeat(48);
+  fs.writeFileSync(path.join(tmp, "backend", "config.js"), `export const key = "${fakeSecret}";\n`);
+  initGitWithOriginMain(tmp);
+  const r = runIn(tmp, ["--strict"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /secret-hygiene/);
+  assert.match(r.stderr, /backend\/config\.js:1/);
+  assert.match(r.stderr, /openai-project-key/);
+  assert.doesNotMatch(r.stderr, new RegExp(fakeSecret));
 });
 
 // ---------- route-needs-own-parser ----------
@@ -1189,6 +1218,70 @@ test("[pre-flight] schema-doc-missing-endpoint: skips INDEX.md and README.md", (
 `);
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /schema-doc-missing-endpoint/);
+});
+
+// ---------- generated V1 manual QA checklist drift ----------
+
+test("[pre-flight] flags stale generated TestFlight checklist", () => {
+  const generator = `
+console.log("# io.them V1 TestFlight Preflight");
+console.log("");
+console.log("fresh five-flow checklist");
+`;
+  const tmp = tempRepo({
+    withV1ManualQaGenerator: generator,
+    withV1ManualQaDoc: "# io.them V1 TestFlight Preflight\n\nstale four-flow checklist\n",
+  });
+  const r = runIn(tmp);
+  assert.match(r.stderr, /generated-v1-manual-qa-drift/);
+  assert.match(r.stderr, /v1_manual_qa_checklist\.mjs --write=docs\/testflight-v1-preflight\.md/);
+});
+
+test("[pre-flight] current generated TestFlight checklist is NOT flagged", () => {
+  const generator = `
+console.log("# io.them V1 TestFlight Preflight");
+console.log("");
+console.log("fresh five-flow checklist");
+`;
+  const tmp = tempRepo({
+    withV1ManualQaGenerator: generator,
+    withV1ManualQaDoc: "# io.them V1 TestFlight Preflight\n\nfresh five-flow checklist\n",
+  });
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /generated-v1-manual-qa-drift/);
+});
+
+// ---------- stale V1 launch handoff instructions ----------
+
+test("[pre-flight] flags stale V1 launch handoff instructions", () => {
+  const tmp = tempRepo();
+  fs.writeFileSync(
+    path.join(tmp, "docs", "v1-release-smoke-clearance.md"),
+    "Claude should fix PR #33's eval-quality failures first. Launch Doctor result: 0/4 flows passed.\n",
+  );
+  fs.writeFileSync(
+    path.join(tmp, "scripts", "v1_launch_room.mjs"),
+    "Records the Talk, Studio, Memory, and Realtime smoke result as JSON/Markdown launch proof.\n",
+  );
+  const r = runIn(tmp);
+  assert.match(r.stderr, /stale-v1-launch-handoff/);
+  assert.match(r.stderr, /PR #33\/#359 are merged/);
+  assert.match(r.stderr, /five V1 gates/);
+  assert.match(r.stderr, /include iOS Release Readiness/);
+});
+
+test("[pre-flight] current V1 launch handoff instructions are NOT flagged", () => {
+  const tmp = tempRepo();
+  fs.writeFileSync(
+    path.join(tmp, "docs", "v1-release-smoke-clearance.md"),
+    "Claude should stay in V1 manual-smoke support mode. Launch Doctor result: not_started, 0/5 flows passed.\n",
+  );
+  fs.writeFileSync(
+    path.join(tmp, "scripts", "v1_launch_room.mjs"),
+    "Records Talk, Studio, Memory, Realtime, and iOS Release Readiness as JSON/Markdown launch proof.\n",
+  );
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /stale-v1-launch-handoff/);
 });
 
 test("[pre-flight] schema-doc-missing-endpoint: handles multiple endpoints per doc", () => {

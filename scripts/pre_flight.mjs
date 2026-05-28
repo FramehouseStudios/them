@@ -72,6 +72,27 @@ function changedFilesAgainstOriginMain() {
   return [...files].sort();
 }
 
+function gitOutputRaw(args) {
+  try {
+    return execFileSync("git", ["-C", repoRoot, ...args], {
+      encoding: "buffer",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return Buffer.alloc(0);
+  }
+}
+
+function trackedFiles() {
+  const raw = gitOutputRaw(["ls-files", "-z"]);
+  if (!raw.length) return [];
+  return raw.toString("utf8").split("\0").filter(Boolean);
+}
+
+function isGitRepo() {
+  return gitOutput(["rev-parse", "--is-inside-work-tree"]) === "true";
+}
+
 function claudeInboxBlocksSchemaDocOnly() {
   const inboxPath = path.join(repoRoot, "docs", "claude-inbox.md");
   if (!fs.existsSync(inboxPath)) return false;
@@ -121,6 +142,162 @@ function checkSchemaDocOnlyLane() {
     null,
     "current Claude inbox says schema docs should be paired with code or explicitly requested; this branch changes schema docs without implementation files",
   );
+}
+
+function checkGeneratedV1ManualQaChecklistCurrent() {
+  // docs/testflight-v1-preflight.md is generated from
+  // scripts/v1_manual_qa_checklist.mjs. If it drifts, humans and
+  // agents get stale launch instructions (for example, a four-flow
+  // checklist after Launch Doctor moved to five gates).
+  const generator = path.join(repoRoot, "scripts", "v1_manual_qa_checklist.mjs");
+  const target = path.join(repoRoot, "docs", "testflight-v1-preflight.md");
+  if (!fs.existsSync(generator) || !fs.existsSync(target)) return;
+  let expected = "";
+  try {
+    expected = execFileSync(
+      process.execPath,
+      [generator],
+      { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+  } catch {
+    return;
+  }
+  const actual = fs.readFileSync(target, "utf8");
+  if (actual.trimEnd() !== expected.trimEnd()) {
+    add(
+      "generated-v1-manual-qa-drift",
+      "docs/testflight-v1-preflight.md",
+      null,
+      "generated checklist is stale. Run `node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md` and commit the result.",
+    );
+  }
+}
+
+function checkSecretHygiene() {
+  if (!isGitRepo()) return;
+  const forbiddenTrackedFiles = [
+    "backend/.env",
+    "backend/.env.production",
+    "backend/.env.local",
+    "them/Release.local.env",
+    "them/Release.local.xcconfig",
+  ];
+  const tracked = new Set(trackedFiles());
+  for (const file of forbiddenTrackedFiles) {
+    if (tracked.has(file)) {
+      add(
+        "secret-hygiene",
+        file,
+        null,
+        "local secret/config file is tracked; remove it from git and keep values in ignored local env, Render, or a password manager",
+      );
+    }
+  }
+
+  for (const file of forbiddenTrackedFiles) {
+    const ignoreOutput = gitOutput(["check-ignore", "-v", file]);
+    const ignored = ignoreOutput
+      .split("\n")
+      .some((line) => line.trim().split(/\s+/).at(-1) === file);
+    if (!ignored) {
+      add(
+        "secret-hygiene",
+        ".gitignore",
+        null,
+        `${file} is not covered by gitignore; add an ignore rule before creating local release or provider config`,
+      );
+    }
+  }
+
+  const secretPatterns = [
+    ["openai-project-key", /\bsk-proj-[A-Za-z0-9_-]{20,}\b/g],
+    ["openai-secret-key", /\bsk-[A-Za-z0-9_-]{32,}\b/g],
+    ["elevenlabs-secret-key", /\bsk_[A-Za-z0-9A-Za-z_-]{32,}\b/g],
+  ];
+  const scanExtensions = new Set([
+    ".js", ".mjs", ".cjs", ".ts", ".tsx", ".swift", ".sh", ".yml", ".yaml",
+    ".json", ".md", ".plist", ".xcconfig", ".pbxproj",
+  ]);
+  const skipFiles = new Set([
+    "backend/package-lock.json",
+    "package-lock.json",
+  ]);
+  for (const file of tracked) {
+    if (skipFiles.has(file)) continue;
+    const ext = path.extname(file);
+    if (!scanExtensions.has(ext)) continue;
+    const fullPath = path.join(repoRoot, file);
+    if (!fs.existsSync(fullPath)) continue;
+    const text = fs.readFileSync(fullPath, "utf8");
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i += 1) {
+      for (const [name, pattern] of secretPatterns) {
+        pattern.lastIndex = 0;
+        if (pattern.test(lines[i])) {
+          add(
+            "secret-hygiene",
+            file,
+            i + 1,
+            `tracked file appears to contain a ${name}; rotate the value if real and remove it without printing it`,
+          );
+        }
+      }
+    }
+  }
+}
+
+function checkV1LaunchHandoffHasNoStaleInstructions() {
+  // These files are the launch-room handoff path that Codex, Claude,
+  // and the human read first. Once a blocker/lane closes, stale text
+  // here sends the next agent back into already-merged work. Keep the
+  // patterns narrow and source-of-truth based; historical event logs
+  // are intentionally not scanned.
+  const checks = [
+    {
+      file: "docs/testflight-v1-preflight.md",
+      patterns: [
+        [/Postgres eval gate/i, "PR #33/#359 eval work is merged; do not list a Postgres eval gate as parked V1 work"],
+        [/OPENAI_API_KEY secret fixed by a human/i, "GitHub OPENAI_API_KEY is no longer the active V1 handoff blocker"],
+        [/\b0\/4\b|four-flow/i, "Launch Doctor has five V1 gates, not four"],
+      ],
+    },
+    {
+      file: "docs/v1-release-smoke-clearance.md",
+      patterns: [
+        [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "PR #33/#359 are merged; Claude should not be told to repair that lane"],
+        [/\b0\/4\b|four-flow/i, "Launch Doctor has five V1 gates, not four"],
+      ],
+    },
+    {
+      file: "docs/v1-six-week-launch-plan.md",
+      patterns: [
+        [/Launch Doctor report says Talk, Studio, Memory, and Realtime are\s+passed/i, "Launch Doctor gate text must include iOS Release Readiness"],
+      ],
+    },
+    {
+      file: "docs/claude-inbox.md",
+      patterns: [
+        [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "Claude inbox must not reopen merged #33/#359 eval-quality work"],
+        [/\b0\/4\b|four-flow/i, "Claude inbox must describe the five-gate Launch Doctor state"],
+      ],
+    },
+    {
+      file: "scripts/v1_launch_room.mjs",
+      patterns: [
+        [/Talk, Studio, Memory, and Realtime smoke result/i, "launch room human option must include iOS Release Readiness"],
+      ],
+    },
+  ];
+  for (const { file, patterns } of checks) {
+    const fullPath = path.join(repoRoot, file);
+    if (!fs.existsSync(fullPath)) continue;
+    const text = fs.readFileSync(fullPath, "utf8");
+    for (const [pattern, message] of patterns) {
+      if (pattern.test(text)) {
+        add("stale-v1-launch-handoff", file, null, message);
+      }
+    }
+  }
 }
 
 // ---------- code-pattern checks ----------
@@ -865,6 +1042,9 @@ checkSchemaDocBackendDrift();
 checkSchemaDocMissingEndpoint();
 checkGeneratedTestFlightPreflight();
 checkSchemaDocOnlyLane();
+checkGeneratedV1ManualQaChecklistCurrent();
+checkV1LaunchHandoffHasNoStaleInstructions();
+checkSecretHygiene();
 checkMountRequiredDepsGuard();
 checkLibHasTest();
 checkTaskV1Pillar();

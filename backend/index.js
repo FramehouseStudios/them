@@ -368,7 +368,7 @@ const USER_NAME_MENTION_EVERY_TURNS = Math.max(
 );
 const CHAT_MODEL_FAST = String(process.env.CHAT_MODEL_FAST || "gpt-4o-mini").trim();
 const CHAT_MODEL_RICH = String(process.env.CHAT_MODEL_RICH || "gpt-4o").trim();
-const CHAT_MODEL_KNOWLEDGE = String(process.env.CHAT_MODEL_KNOWLEDGE || CHAT_MODEL_FAST).trim();
+const CHAT_MODEL_KNOWLEDGE = String(process.env.CHAT_MODEL_KNOWLEDGE || CHAT_MODEL_RICH).trim();
 const VISUAL_CONTEXT_MODEL = String(process.env.VISUAL_CONTEXT_MODEL || CHAT_MODEL_FAST).trim();
 const VISUAL_CONTEXT_TIMEOUT_MS = parsePositiveInt(process.env.VISUAL_CONTEXT_TIMEOUT_MS, 7_500);
 const VISUAL_CONTEXT_SUMMARY_MAX_CHARS = parsePositiveInt(
@@ -20044,6 +20044,7 @@ function buildTurnPlanner({
   else if (lane === "knowledge" || asksKnowledge || explicitKnowledgeAsk) intent = "knowledge_answer";
   else if (needsTherapeuticDepth) intent = "therapeutic_depth_processing";
   else if (Boolean(flags?.socialSpark)) intent = "social_spark_story";
+  else if (Boolean(flags?.isPlayful)) intent = "playful_banter";
   else if (motivationMode) intent = "motivation_coaching";
   else if (Boolean(flags?.isVenting)) intent = "vent_container";
   else if ((asksPractical || Boolean(flags?.isDirect)) && !adviceOptOut) intent = "practical_action";
@@ -20067,6 +20068,7 @@ function buildTurnPlanner({
   else if (motivationMode) emotionToMatch = "energizing_grounded";
   else if (Boolean(flags?.isVenting) || Boolean(flags?.isVulnerable)) emotionToMatch = "warm_attuned";
   else if (Boolean(flags?.socialSpark)) emotionToMatch = "bright_playful";
+  else if (Boolean(flags?.isPlayful)) emotionToMatch = "bright_playful";
   else if ((Boolean(flags?.isDirect) || asksPractical) && !adviceOptOut) emotionToMatch = "clear_confident";
   else if (asksKnowledge) emotionToMatch = "clear_curious";
 
@@ -20075,6 +20077,7 @@ function buildTurnPlanner({
   else if (intent === "idea_development") questionPolicy = "exactly_one";
   else if (needsTherapeuticDepth) questionPolicy = "one_or_none_deep";
   else if (motivationMode) questionPolicy = "one_or_none";
+  else if (intent === "playful_banter") questionPolicy = "none";
   else if ((Boolean(flags?.isDirect) || asksPractical || asksKnowledge) && !adviceOptOut) {
     questionPolicy = "none_or_one_if_needed";
   }
@@ -20092,6 +20095,7 @@ function buildTurnPlanner({
     nextBestMove = "acknowledge_drag_then_confidence_reframe_then_one_tiny_action";
   }
   else if (intent === "social_spark_story") nextBestMove = "mirror_excitement_then_one_vivid_story_door";
+  else if (intent === "playful_banter") nextBestMove = "witty_playful_turn_back";
   else if (intent === "vent_container") nextBestMove = "mirror_then_one_open_door_before_advice";
   else if (intent === "practical_action") nextBestMove = "direct_answer_then_one_precise_next_step";
   else if (intent === "knowledge_answer") nextBestMove = "baseline_fact_then_one_deeper_layer_then_concrete_example";
@@ -22920,18 +22924,18 @@ function knowledgeDomainFallbackTriplet(domain = "general") {
     case "art_history":
       return {
         baseline:
-          "Renaissance art aims for balanced clarity through perspective and proportion, while Baroque art pushes movement, contrast, and emotional force.",
+          "Renaissance art uses perspective and proportion for balanced clarity; Baroque art uses movement, contrast, and emotional force.",
         deeper:
-          "The shift tracks social context: Counter-Reformation messaging, court spectacle, and a new demand for art that moves the viewer, not just instructs.",
+          "Why it matters: Baroque art was built to move viewers, not just instruct them.",
         example:
-          "Concrete example: compare Raphael's calm geometry with Caravaggio's theatrical light and moral tension.",
+          "Concrete example: Raphael feels measured; Caravaggio feels theatrical.",
       };
     case "philosophy":
       return {
         baseline:
           "Stoicism in plain English: focus on what you can control, and train your response to what you cannot.",
         deeper:
-          "A serious criticism is that strict Stoic detachment can underweight social injustice or flatten emotions that carry real moral information.",
+          "One deeper philosophical criticism is that strict Stoic detachment can underweight social injustice or flatten emotions that carry real moral information.",
         example:
           "Concrete example: after rejection, Stoicism says regulate your reaction first, then act on values instead of impulse.",
       };
@@ -23001,9 +23005,9 @@ function knowledgeDomainFallbackTriplet(domain = "general") {
     case "learning":
       return {
         baseline:
-          "Fast, sustainable learning uses deliberate practice on one subskill at a time with clear feedback loops.",
+          "The fastest evidence-based way to learn a hard skill is deliberate practice on one subskill at a time with clear feedback.",
         deeper:
-          "Retention improves when you combine retrieval practice and spaced repetition instead of long cramming blocks.",
+          "Burnout drops when you combine retrieval practice, spaced repetition, rest, and small feedback loops instead of long cramming blocks.",
         example:
           "Concrete example: run 3 x 20-minute focused reps this week, then do a next-day recall check and log one correction each rep.",
       };
@@ -23270,7 +23274,15 @@ function ensureKnowledgeStructure(text, { transcript = "" } = {}) {
     .map((chunk) => stripKnowledgeHeadingPrefix(chunk))
     .filter((chunk) => countWords(chunk) >= 4);
 
-  if (!looksLikeMetaScaffold && usableChunks.length) {
+  const sourceLower = cleanedSource.toLowerCase();
+  const sourceWordCount = countWords(cleanedSource);
+  const shouldUseFallback =
+    sourceWordCount < 24 ||
+    (domain === "philosophy" && !textContainsAny(sourceLower, ["philosophical criticism", "serious criticism", "critique"])) ||
+    (domain === "learning" && !textContainsAny(sourceLower, ["evidence-based", "evidence based"]) && !textContainsAny(sourceLower, ["burnout", "burning out"])) ||
+    (domain === "art_history" && !textContainsAny(sourceLower, ["why", "context", "matters", "counter-reformation", "caravaggio"]));
+
+  if (!looksLikeMetaScaffold && usableChunks.length && !shouldUseFallback) {
     let out = usableChunks.slice(0, 3).join("\n\n");
     out = enforceQuestionRange(out, 0);
     out = enforceExclamationRange(out, 0);
@@ -23452,10 +23464,10 @@ function ensurePlayfulBanterStructure(text, { transcript = "" } = {}) {
   let tease = `You are making ${anchor} do a lot of emotional labor.`;
 
   if (textContainsAny(t, ["roast me gently", "roast me"])) {
-    opener = "Heh. Rereading one text five times before sending is not proofreading.";
-    tease = "It is emotional tax law for punctuation.";
+    opener = "That risky text has you overthinking everything lol, which is painfully human.";
+    tease = "Rereading one text five times before sending is not proofreading; it is emotional tax law for punctuation.";
   } else if (textContainsAny(t, ["risky text", "texted", "overthinking"])) {
-    opener = "Heh. That is a very human spiral.";
+    opener = "That risky text has you overthinking everything lol, which is painfully human.";
     tease = "One risky text and suddenly your brain opens seventeen tabs.";
   }
 

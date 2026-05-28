@@ -812,8 +812,24 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     var screenplayExportMenuItems: [ScreenplayExportMenuItem] {
-        ScreenplayExportFormatMenu.items(from: screenplayExportFormats)
+        ScreenplayExportFormatMenu.items(
+            from: screenplayExportFormats,
+            localPDFSupported: Self.localPDFExportSupported
+        )
     }
+
+    var screenplayExportPDFUnavailableText: String {
+        ScreenplayExportFormatMenu.pdfUnavailableText(
+            from: screenplayExportFormats,
+            localPDFSupported: Self.localPDFExportSupported
+        )
+    }
+
+    #if os(macOS)
+    private static let localPDFExportSupported = true
+    #else
+    private static let localPDFExportSupported = false
+    #endif
 
     @Published var newProjectTitle: String = ""
     @Published var newSceneSlugline: String = ""
@@ -11285,6 +11301,7 @@ private var projectsSidebarContent: some View {
                             Task { await exportCurrentDraft(format: item.format) }
                         }
                         .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
+                        .disabled(!item.isEnabled)
                     }
                     Divider()
                     Button("Refresh Formats") {
@@ -11314,6 +11331,18 @@ private var projectsSidebarContent: some View {
                 .foregroundStyle(Color.herText.opacity(0.66))
                 .textCase(.uppercase)
                 .tracking(0.5)
+
+            if !vm.screenplayExportFormatsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(vm.screenplayExportFormatsErrorText)
+                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .foregroundStyle(Color.orange.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !vm.screenplayExportPDFUnavailableText.isEmpty {
+                Text(vm.screenplayExportPDFUnavailableText)
+                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(14)
         .background(
@@ -27305,7 +27334,7 @@ Look at the city.
                 }
             }
         } catch {
-            vm.errorText = error.localizedDescription
+            vm.errorText = ScreenplayExportFormatMenu.displayMessage(for: error, format: format)
         }
     }
 

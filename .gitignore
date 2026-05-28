@@ -2,6 +2,8 @@
 .env
 .env.*
 *.env
+them/Release.local.env
+them/Release.local.xcconfig
 # Keep documented, secret-free templates tracked.
 !.env.example
 !**/.env.example

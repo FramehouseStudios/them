@@ -207,7 +207,12 @@ function isDone(pr) {
 }
 
 function isHumanGated(pr) {
-  return pr.tier === 3 || HUMAN_STATUSES.has(pr.status) || /human/i.test(pr.blocker || "");
+  if (HUMAN_STATUSES.has(pr.status) || /human/i.test(pr.blocker || "")) return true;
+  if (pr.tier !== 3) return false;
+  // Tier-3 still needs human/Codex merge clearance, but it may also carry
+  // concrete Claude-owned repair work. Do not park those PRs as "human"
+  // when the blocker metadata says the next action is an engineering fix.
+  return !["needs_test_fix", "needs_rebase", "needs_scope_narrowing"].includes(pr.blocker_kind || "");
 }
 
 function isBlocked(pr) {
@@ -270,7 +275,7 @@ function buildNext(state, { limit, recentEvents = [], claudeInbox = null, checko
       pr: pr.number,
       title: pr.title,
       reason: "clear-blocker",
-      action: pr.blocker || "Clear blocker and request Codex review.",
+      action: pr.expected_action || pr.blocker || "Clear blocker and request Codex review.",
     }));
   if (claude.length === 0 && claudeInboxBacklog.length > 0) {
     for (const item of claudeInboxBacklog.slice(0, limit)) {

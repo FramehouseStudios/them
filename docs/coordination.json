@@ -1,8 +1,123 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-14T20:28:41.861Z",
-  "updatedBy": "codex",
+  "updatedAt": "2026-05-18T00:20:06.203Z",
+  "updatedBy": "unknown",
   "openPullRequests": [
+    {
+      "number": 354,
+      "title": "T150: take over Phase 7c talk supplier glue",
+      "owner": "codex",
+      "tier": 2,
+      "status": "merged",
+      "branch": "codex/T150-phase7c-takeover",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Codex took over the unclaimed Phase 7c lane. Local verification passed: strict pre-flight, talk tests 127/127, backend npm test 1194 pass / 1 skipped / 0 fail on rerun, task-frontmatter strict eval, and diff check."
+    },
+    {
+      "number": 94,
+      "title": "T-creative-memory-export: GET /memory/export — V1 core-only",
+      "owner": "claude",
+      "tier": 3,
+      "status": "merged",
+      "branch": "claude/T-creative-memory-export",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after the V1 contract was narrowed to core-only. Codex rebased over PR #212, resolved the decisions-queue conflict, verified no projectIds/loglineHistory/acceptedTwists export path remains, ran pre_flight, focused memory-export tests 7/7, backend npm test 1188 pass / 1 skipped, and confirmed GitHub evaluate green."
+    },
+    {
+      "number": 212,
+      "title": "T-decompose-phase4-auth-routes: extract 11 /auth/* routes",
+      "owner": "claude",
+      "tier": 3,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase4-auth-routes",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after one-time human auth clearance and Codex auth/security review. Byte-identical extraction only: same 256kb parser on POST routes, GET /auth/sessions parser-free, existing userAuth handlers injected unchanged. Local focused auth tests passed 44/44; backend npm test passed 1181 pass / 1 skipped."
+    },
+    {
+      "number": 345,
+      "title": "T143: record core-only memory export decision",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T143-memory-export-core-decision",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Makes core-only the V1 decision for PR #94 and records the needs_scope_narrowing blocker for Claude."
+    },
+    {
+      "number": 343,
+      "title": "T141: add safe local release config handoff",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T141-release-config-local-runbook",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Adds ignored local release config template and runner so real Development Team, release BACKEND_URL, and APP_TOKEN can be supplied without committing secrets. Does not clear the missing real values by itself."
+    },
+    {
+      "number": 341,
+      "title": "T139: record V1 release smoke clearance",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T139-v1-release-smoke-clearance",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Records T139 launch evidence: app build/tests and generic unsigned iOS build are green; Launch Doctor report exists but is intentionally not_started; release preflight still blocks on missing Development Team, Release BACKEND_URL, and Release APP_TOKEN. No secrets committed."
+    },
+    {
+      "number": 335,
+      "title": "Phase 7b: extract handleTalkRequest into lib/talk_handler.js (createTalkHandler)",
+      "owner": "claude",
+      "tier": 2,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase7b-talk-handler",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex under D005 after rebase repair. Local proof: pre_flight passed, talk tests 121/121 passed, backend npm test 1171 pass / 1 skipped / 0 fail, git diff --check passed, and live local /talk dispatch smoke returned 200 with fixture audio. Full human/TestFlight app smoke remains a V1 release gate, not claimed here."
+    },
+    {
+      "number": 336,
+      "title": "T134: record Phase 7b PR blocker",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T134-phase7b-blocker-refresh",
+      "blocker": null
+    },
+    {
+      "number": 334,
+      "title": "T133: refresh after T132 merge",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T133-refresh-after-t132",
+      "blocker": null
+    },
+    {
+      "number": 333,
+      "title": "T132: codify Phase 7b scope-tool decision",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T132-phase7b-scope-tool-handoff",
+      "blocker": null
+    },
+    {
+      "number": 331,
+      "title": "T130: clear noisy release preflight blockers",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T130-release-preflight-clearance",
+      "blocker": null
+    },
+    {
+      "number": 329,
+      "title": "T128: add in-app V1 Launch Doctor",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T128-v1-launch-doctor",
+      "blocker": null
+    },
     {
       "number": 202,
       "title": "T-snapshot-eval-accepted-twists",
@@ -166,15 +281,6 @@
       "blocker": null
     },
     {
-      "number": 99,
-      "title": "T-creative-memory-delete-endpoint",
-      "owner": "claude",
-      "tier": 3,
-      "status": "needs-human",
-      "branch": "claude/T-creative-memory-delete-endpoint",
-      "blocker": "human: memory deletion is privacy/data-control work; needs explicit product approval before merge"
-    },
-    {
       "number": 97,
       "title": "T-talk-turn-meta-stats",
       "owner": "claude",
@@ -182,15 +288,6 @@
       "status": "merged",
       "branch": "claude/T-talk-turn-meta-stats",
       "blocker": null
-    },
-    {
-      "number": 94,
-      "title": "T-creative-memory-export",
-      "owner": "claude",
-      "tier": 3,
-      "status": "needs-human",
-      "branch": "claude/T-creative-memory-export",
-      "blocker": "human: full creative-memory export requires privacy/data-control approval before merge"
     },
     {
       "number": 92,
@@ -329,15 +426,6 @@
       "blocker_kind": "policy_gated",
       "reviewer_note": "Codex closed PR #63 as stale policy after confirming D005/D006 already record the current supervisor authority.",
       "expected_action": "Do not reopen or merge stale trust-tier policy unless the human asks for a fresh policy change."
-    },
-    {
-      "number": 33,
-      "title": "T07 eval gate",
-      "owner": "claude",
-      "tier": 3,
-      "status": "blocked",
-      "branch": "claude/T07-eval-gate-postgres",
-      "blocker": "human: replace malformed OPENAI_API_KEY Actions secret"
     },
     {
       "number": 133,
@@ -943,18 +1031,6 @@
       "blocker": null
     },
     {
-      "number": 212,
-      "title": "T-decompose-phase4-auth-routes",
-      "owner": "claude",
-      "tier": 3,
-      "status": "blocked",
-      "branch": "claude/T-decompose-phase4-auth-routes",
-      "blocker": "Codex design review passed against #221, but branch must rebase on current main and auth route stays tier-3/do-not-merge until explicitly cleared.",
-      "reviewer_note": "Reviewed backend/lib/auth_routes.js, auth tests, mount wiring, parser limits, route list, and response surface against merged design note #221; local auth tests passed after installing deps.",
-      "expected_action": "Claude rebases on current main after #273, reruns backend auth tests, and keeps do-not-merge/tier-3 until human auth-route clearance.",
-      "blocker_kind": "needs_rebase"
-    },
-    {
       "number": 223,
       "title": "T-decompose-phase7-talk-pipeline-design",
       "owner": "claude",
@@ -1448,47 +1524,146 @@
       "status": "closed",
       "branch": "claude/T-session-schema-doc",
       "blocker": "closed-out-of-lane-schema-doc-only-pr"
+    },
+    {
+      "number": 319,
+      "title": "T118: prove V1 build and test readiness",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T118-v1-build-test-readiness-proof",
+      "blocker": null
+    },
+    {
+      "number": 320,
+      "title": "T119: close Screenplay Studio export UX gap",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T119-screenplay-export-ux",
+      "blocker": null
+    },
+    {
+      "number": 321,
+      "title": "T120: document memory export/delete decision packet",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T120-memory-privacy-decision-packet",
+      "blocker": null
+    },
+    {
+      "number": 322,
+      "title": "T121: refresh V1 handoff after Codex merges",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T121-post-v1-progress-refresh",
+      "blocker": null
+    },
+    {
+      "number": 323,
+      "title": "T122: reprove current app build and tests",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T122-current-app-test-proof",
+      "blocker": null
+    },
+    {
+      "number": 324,
+      "title": "T123: add one-command V1 smoke prompt",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T123-v1-smoke-prompt",
+      "blocker": null
+    },
+    {
+      "number": 325,
+      "title": "T124: refresh after V1 smoke prompt merge",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T124-refresh-after-v1-smoke-prompt",
+      "blocker": null
+    },
+    {
+      "number": 326,
+      "title": "T125: record deterministic V1 smoke proof",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T125-deterministic-v1-smoke-proof",
+      "blocker": null
+    },
+    {
+      "number": 327,
+      "title": "T126: record release preflight blockers",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T126-release-preflight-proof",
+      "blocker": null
+    },
+    {
+      "number": 338,
+      "title": "T136: add Launch Doctor CLI proof recorder",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T136-v1-launch-doctor-cli",
+      "blocker": null,
+      "reviewer_note": "Merged under D005. Adds Launch Doctor CLI proof recorder and docs; missing flows stay not_started; launch_room can read generated proof."
+    },
+    {
+      "number": 339,
+      "title": "T137: refresh deterministic V1 smoke proof",
+      "owner": "codex",
+      "tier": 1,
+      "status": "merged",
+      "branch": "codex/T137-post-phase7b-v1-smoke-proof",
+      "blocker": null,
+      "reviewer_note": "Merged under D005 after deterministic V1 smoke pack passed on current main-derived branch; updates docs/v1-deterministic-smoke-proof.md."
+    },
+    {
+      "number": 349,
+      "title": "Phase 7c design note — talk supplier glue",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase7c-design",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex after review. Design note only; approves the 3-factory Phase 7c implementation shape but does not pre-approve the implementation merge."
+    },
+    {
+      "number": 358,
+      "title": "Phase 6.1a: extract /outbox/*, /state, /data/* routes",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T-decompose-phase6-1a-outbox-data-state",
+      "blocker": null
+    },
+    {
+      "number": 359,
+      "title": "eval-quality repair: fix knowledge + playful routing root causes",
+      "owner": "claude",
+      "tier": 1,
+      "status": "merged",
+      "branch": "claude/T07-eval-quality-repair",
+      "blocker": null,
+      "reviewer_note": "Merged by Codex after GitHub evaluate and eval:gate against Postgres passed, local strict pre-flight passed, focused talk_routing_quality_guard passed 5/5, backend npm test passed 1208/0/1, and review confirmed no scorecard threshold weakening or auth/privacy/data-access change."
     }
   ],
   "blockers": [
     {
-      "id": "openai-api-key-secret",
+      "id": "v1-release-preflight-config",
       "owner": "human",
-      "summary": "Repository Actions secret OPENAI_API_KEY is malformed. Replace with the literal OpenAI key. Blocks PR #33.",
-      "since": "2026-05-10"
-    },
-    {
-      "id": "creative-memory-export-privacy",
-      "owner": "human",
-      "summary": "Claude PR #94 exposes full creative-memory export and PR #99 deletes creative memory. Memory export/delete surfaces need explicit privacy/data-control approval before merge.",
-      "since": "2026-05-11"
-    },
-    {
-      "id": "auth-route-tier3",
-      "owner": "codex",
-      "summary": "Claude PR #212 extracts auth routes. Keep do-not-merge/tier-3 until Codex reviews it against design note #221 and auth guardrails are explicitly cleared.",
-      "since": "2026-05-14"
+      "summary": "Release preflight fails until signing/configuration values in docs/v1-release-preflight-proof.md are cleared.",
+      "since": "2026-05-15"
     }
   ],
-  "decisionsPending": [
-    {
-      "id": "creative-memory-export-approval",
-      "question": "May Claude merge PR #94 to expose full creative-memory export, assuming the route remains authenticated and documented as privacy/data-control work?",
-      "ownerNeeds": "human",
-      "since": "2026-05-14"
-    },
-    {
-      "id": "creative-memory-delete-scope",
-      "question": "For PR #99, should V1 allow DELETE /memory/forget to delete only creative_memory, or should it also delete project-scoped screenplay artifacts and derived memories?",
-      "ownerNeeds": "human",
-      "since": "2026-05-14"
-    },
-    {
-      "id": "auth-route-extraction-clearance",
-      "question": "After Claude rebases PR #212 and tests are green, may Codex clear the tier-3 auth gate and merge the byte-identical /auth route extraction under D005?",
-      "ownerNeeds": "human",
-      "since": "2026-05-14"
-    }
-  ],
+  "decisionsPending": [],
   "endpointsAwaitingIosConsumer": []
 }
