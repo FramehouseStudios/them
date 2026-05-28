@@ -17,14 +17,14 @@ function run(args) {
   });
 }
 
-test("[v1-manual-qa] --json emits the four V1 manual flows", () => {
+test("[v1-manual-qa] --json emits the five V1 manual gates", () => {
   const r = run(["--json"]);
   assert.equal(r.status, 0, r.stderr);
   const payload = JSON.parse(r.stdout);
-  assert.equal(payload.manualFlows.length, 4);
+  assert.equal(payload.manualFlows.length, 5);
   assert.deepEqual(
     payload.manualFlows.map((f) => f.pillar),
-    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime"],
+    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime", "iOS Release Readiness"],
   );
   assert.ok(payload.parked.some((p) => p.prs.includes("#94")));
   assert.ok(payload.parked.some((p) => /core memory export is approved/.test(p.reason)));

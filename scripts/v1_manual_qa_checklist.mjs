@@ -107,6 +107,18 @@ const artifact = {
       ],
       passCriteria: "Primary succeeds when healthy; local/test fallback remains visible; production failures never report stub as a successful realtime session.",
     },
+    {
+      pillar: "iOS Release Readiness",
+      goal: "real release config -> green preflight -> exported Launch Doctor proof -> human signoff",
+      steps: [
+        "Create the ignored Release.local.env from the checked-in template.",
+        "Fill in the Apple Development Team ID, hosted backend URL, and production app token.",
+        "Run the release preflight and confirm it is green.",
+        "Export Launch Doctor JSON/Markdown from the app or CLI fallback.",
+        "Record final human signoff before TestFlight or external review.",
+      ],
+      passCriteria: "Release config is real, preflight is green, Launch Doctor proof is exported, and human sign-off is recorded before TestFlight/external review.",
+    },
   ],
   parked: [
     {
@@ -179,7 +191,6 @@ function markdown(data) {
 
 function promptBlock(data) {
   const flowNames = data.manualFlows.map((flow) => flow.pillar);
-  flowNames.push("iOS Release Readiness");
   const lines = [
     "Overall V1 manual smoke: PASS/FAIL - <notes>",
     ...flowNames.map((name) => `${name}: PASS/FAIL/IN PROGRESS/NOT STARTED - <notes>`),

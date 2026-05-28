@@ -96,6 +96,18 @@ Goal: primary mint works; failures surface as local fallback or production degra
 
 Pass: Primary succeeds when healthy; local/test fallback remains visible; production failures never report stub as a successful realtime session.
 
+### iOS Release Readiness
+
+Goal: real release config -> green preflight -> exported Launch Doctor proof -> human signoff
+
+1. Create the ignored Release.local.env from the checked-in template.
+2. Fill in the Apple Development Team ID, hosted backend URL, and production app token.
+3. Run the release preflight and confirm it is green.
+4. Export Launch Doctor JSON/Markdown from the app or CLI fallback.
+5. Record final human signoff before TestFlight or external review.
+
+Pass: Release config is real, preflight is green, Launch Doctor proof is exported, and human sign-off is recorded before TestFlight/external review.
+
 ## Parked Before V1 External Review
 
 - Creative-memory delete implementation (#94, #99): Privacy decision is resolved; core memory export is approved/tracked in #94, while #99 delete implementation remains post-V1 unless Codex assigns it.
