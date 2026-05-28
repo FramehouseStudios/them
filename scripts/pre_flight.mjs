@@ -22,6 +22,7 @@
 // any finding. Run from repo root.
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -799,6 +800,59 @@ function checkSchemaDocMissingEndpoint() {
   }
 }
 
+function checkGeneratedTestFlightPreflight() {
+  const generator = path.join(repoRoot, "scripts", "v1_manual_qa_checklist.mjs");
+  const artifact = path.join(repoRoot, "docs", "testflight-v1-preflight.md");
+  if (!fs.existsSync(generator) && !fs.existsSync(artifact)) return;
+  if (!fs.existsSync(generator)) {
+    add(
+      "generated-testflight-preflight-drift",
+      "scripts/v1_manual_qa_checklist.mjs",
+      null,
+      "generated TestFlight checklist artifact exists but the generator is missing",
+    );
+    return;
+  }
+  if (!fs.existsSync(artifact)) {
+    add(
+      "generated-testflight-preflight-drift",
+      "docs/testflight-v1-preflight.md",
+      null,
+      "generated TestFlight checklist artifact is missing; run node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md",
+    );
+    return;
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-v1-manual-qa-"));
+  const generatedPath = path.join(tmpDir, "testflight-v1-preflight.md");
+  try {
+    execFileSync(process.execPath, [generator, `--write=${generatedPath}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const expected = fs.readFileSync(generatedPath, "utf8");
+    const actual = fs.readFileSync(artifact, "utf8");
+    if (expected !== actual) {
+      add(
+        "generated-testflight-preflight-drift",
+        "docs/testflight-v1-preflight.md",
+        null,
+        "generated TestFlight checklist has drifted from scripts/v1_manual_qa_checklist.mjs; run node scripts/v1_manual_qa_checklist.mjs --write=docs/testflight-v1-preflight.md",
+      );
+    }
+  } catch (error) {
+    add(
+      "generated-testflight-preflight-drift",
+      "scripts/v1_manual_qa_checklist.mjs",
+      null,
+      `could not regenerate TestFlight checklist: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 // ---------- orchestration ----------
 
 checkRouteJsonParsers();
@@ -809,6 +863,7 @@ checkEvalDeterminismCoverage();
 checkSchemaVersionedEnvelopes();
 checkSchemaDocBackendDrift();
 checkSchemaDocMissingEndpoint();
+checkGeneratedTestFlightPreflight();
 checkSchemaDocOnlyLane();
 checkMountRequiredDepsGuard();
 checkLibHasTest();

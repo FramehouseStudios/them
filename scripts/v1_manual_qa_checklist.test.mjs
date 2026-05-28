@@ -29,6 +29,9 @@ test("[v1-manual-qa] --json emits the four V1 manual flows", () => {
   assert.ok(payload.parked.some((p) => p.prs.includes("#94")));
   assert.ok(payload.automatedProof.some((p) => p.command.includes("eval:v1-smokes")));
   assert.ok(payload.platformPosture.includes("V1 is iPhone only."));
+  assert.match(payload.currentLocalProof, /2026-05-28/);
+  assert.match(payload.currentLocalProof, /authenticated backend smoke/);
+  assert.match(payload.currentLocalProof, /APP_TOKEN_RELEASE/);
 });
 
 test("[v1-manual-qa] markdown output names pass criteria and parked gates", () => {

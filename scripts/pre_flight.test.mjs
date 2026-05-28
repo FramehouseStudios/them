@@ -68,6 +68,26 @@ function writeTaskFile(tmp, name, body) {
   fs.writeFileSync(path.join(tmp, "tasks", "_active", name), body);
 }
 
+function writeManualQaGenerator(tmp, body) {
+  const escapedBody = JSON.stringify(body);
+  fs.writeFileSync(
+    path.join(tmp, "scripts", "v1_manual_qa_checklist.mjs"),
+    `#!/usr/bin/env node
+import fs from "node:fs";
+import path from "node:path";
+const body = ${escapedBody};
+const writeArg = process.argv.find((arg) => arg.startsWith("--write="));
+if (writeArg) {
+  const target = writeArg.slice("--write=".length);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, body);
+} else {
+  process.stdout.write(body);
+}
+`,
+  );
+}
+
 function runIn(tmp, extraArgs = []) {
   return spawnSync("node", [path.join(tmp, "scripts", "pre_flight.mjs"), ...extraArgs], { encoding: "utf8" });
 }
@@ -437,6 +457,28 @@ test("[pre-flight] accepts outbox schema docs matching the canonical store shape
   });
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /schema-doc-backend-drift/);
+});
+
+// ---------- generated-testflight-preflight-drift ----------
+
+test("[pre-flight] flags generated TestFlight preflight drift", () => {
+  const tmp = tempRepo();
+  writeManualQaGenerator(tmp, "# io.them V1 TestFlight Preflight\n\nfresh\n");
+  fs.mkdirSync(path.join(tmp, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "docs", "testflight-v1-preflight.md"), "# io.them V1 TestFlight Preflight\n\nstale\n");
+  const r = runIn(tmp);
+  assert.match(r.stderr, /generated-testflight-preflight-drift/);
+  assert.match(r.stderr, /v1_manual_qa_checklist\.mjs --write=docs\/testflight-v1-preflight\.md/);
+});
+
+test("[pre-flight] accepts generated TestFlight preflight artifact in sync", () => {
+  const tmp = tempRepo();
+  const body = "# io.them V1 TestFlight Preflight\n\nfresh\n";
+  writeManualQaGenerator(tmp, body);
+  fs.mkdirSync(path.join(tmp, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "docs", "testflight-v1-preflight.md"), body);
+  const r = runIn(tmp);
+  assert.doesNotMatch(r.stderr, /generated-testflight-preflight-drift/);
 });
 
 // ---------- schema-doc-only-out-of-lane ----------
