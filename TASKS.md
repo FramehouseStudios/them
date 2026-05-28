@@ -3316,7 +3316,7 @@ Launch Doctor evidence, and document exact results.
 - `xcodebuild build -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed.
 - `xcodebuild test -project them.xcodeproj -scheme them -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed, 108 tests, 0 failures.
 - `xcodebuild build -project them.xcodeproj -scheme them -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO` passed.
-- `scripts/appstore_preflight.sh` failed with the expected real release blockers: missing Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`; signed Release build skipped because `DEVELOPMENT_TEAM_ID` is not configured.
+- Current truth: Release `BACKEND_URL` is hosted as `https://api.them.io`; remaining private blockers are missing Development Team/signing, `APP_TOKEN_RELEASE`, and human manual smoke. The historical T139 preflight output predated that hosted-backend fix.
 - `cd backend && npm run v1:status` reported 19/25 V1 checklist items complete.
 - `node scripts/v1_launch_doctor_report.mjs --talk=not-started --studio=not-started --memory=not-started --realtime=not-started --write-docs` wrote the blocked Launch Doctor report.
 
@@ -3355,9 +3355,11 @@ merged so agent prompts stop treating T139 as an open review item.
 ## Scope
 
 Make the release configuration path safer and faster after T139 proved the
-remaining blocker is missing real release inputs. Add a local-only release
-config template and documentation so the Apple team ID, hosted backend URL, and
-production app token can be supplied without editing tracked project files.
+remaining blocker is missing private release inputs. Add a local-only release
+config template and documentation so the Apple team ID and `APP_TOKEN_RELEASE`
+can be supplied without editing tracked project files. Keep Release
+`BACKEND_URL` hosted as `https://api.them.io` unless the release backend
+changes.
 
 ## Done When
 
@@ -3434,8 +3436,9 @@ concrete backend failure.
 
 - `scripts/run_release_preflight.sh` failed before preflight because
   `them/Release.local.env` is missing.
-- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
-  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
+- Current truth: Release `BACKEND_URL` is hosted as `https://api.them.io`; the
+  remaining preflight blockers are missing local release config, Development
+  Team/signing, and `APP_TOKEN_RELEASE`.
 - `cd backend && npm run eval:v1-smokes` passed all four deterministic V1
   smokes.
 - `env TEST_SPAWN_BACKEND=1 node --test tests/talk.integration.test.mjs`
@@ -3604,8 +3607,9 @@ are still absent locally.
   and `playful_banter_humor` missed case minima.
 - `scripts/run_release_preflight.sh` failed before preflight because
   `them/Release.local.env` is missing.
-- `scripts/appstore_preflight.sh` failed with `fail=3 warn=1`: missing
-  Development Team, Release `BACKEND_URL`, and Release `APP_TOKEN`.
+- Current truth: Release `BACKEND_URL` is hosted as `https://api.them.io`; the
+  remaining preflight blockers are missing local release config, Development
+  Team/signing, and `APP_TOKEN_RELEASE`.
 - `security find-identity -v -p codesigning` reported `0 valid identities
   found`.
 - `node scripts/release_config_status.mjs` reported missing local release

@@ -1264,6 +1264,20 @@ test("[pre-flight] flags stale V1 launch handoff instructions", () => {
     ].join("\n"),
   );
   fs.writeFileSync(
+    path.join(tmp, "docs", "coordination.json"),
+    JSON.stringify({
+      openPullRequests: [
+        {
+          reviewer_note: "release preflight still blocks on missing Development Team, Release BACKEND_URL, and Release APP_TOKEN.",
+        },
+      ],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(tmp, "TASKS.md"),
+    "Add a template so the Apple team ID, hosted backend URL, and production app token can be supplied.\n",
+  );
+  fs.writeFileSync(
     path.join(tmp, "scripts", "v1_launch_room.mjs"),
     "Records the Talk, Studio, Memory, and Realtime smoke result as JSON/Markdown launch proof.\n",
   );
@@ -1282,6 +1296,8 @@ test("[pre-flight] flags stale V1 launch handoff instructions", () => {
   assert.match(r.stderr, /five V1 gates/);
   assert.match(r.stderr, /include iOS Release Readiness/);
   assert.match(r.stderr, /BACKEND_URL is already hosted/);
+  assert.match(r.stderr, /coordination state must treat release BACKEND_URL as hosted/);
+  assert.match(r.stderr, /task handoff text must treat release BACKEND_URL as hosted/);
   assert.match(r.stderr, /repo-relative paths/);
   assert.match(r.stderr, /DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE only/);
 });
@@ -1291,6 +1307,20 @@ test("[pre-flight] current V1 launch handoff instructions are NOT flagged", () =
   fs.writeFileSync(
     path.join(tmp, "docs", "v1-release-smoke-clearance.md"),
     "Claude should stay in V1 manual-smoke support mode. Launch Doctor result: not_started, 0/5 flows passed.\n",
+  );
+  fs.writeFileSync(
+    path.join(tmp, "docs", "coordination.json"),
+    JSON.stringify({
+      openPullRequests: [
+        {
+          reviewer_note: "Release BACKEND_URL is hosted as https://api.them.io; missing private inputs are DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE.",
+        },
+      ],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(tmp, "TASKS.md"),
+    "Release `BACKEND_URL` is hosted as `https://api.them.io`; fill `DEVELOPMENT_TEAM_ID` and `APP_TOKEN_RELEASE`.\n",
   );
   fs.writeFileSync(
     path.join(tmp, "scripts", "v1_launch_room.mjs"),

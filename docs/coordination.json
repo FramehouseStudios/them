@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-05-18T00:20:06.203Z",
-  "updatedBy": "unknown",
+  "updatedAt": "2026-05-28T22:02:00.000Z",
+  "updatedBy": "codex",
   "openPullRequests": [
     {
       "number": 354,
@@ -51,7 +51,7 @@
       "status": "merged",
       "branch": "codex/T141-release-config-local-runbook",
       "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Adds ignored local release config template and runner so real Development Team, release BACKEND_URL, and APP_TOKEN can be supplied without committing secrets. Does not clear the missing real values by itself."
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Adds ignored local release config template and runner so real Development Team and APP_TOKEN_RELEASE can be supplied without committing secrets. Release BACKEND_URL is hosted as https://api.them.io unless the release backend changes. Does not clear the missing private values by itself."
     },
     {
       "number": 341,
@@ -61,7 +61,7 @@
       "status": "merged",
       "branch": "codex/T139-v1-release-smoke-clearance",
       "blocker": null,
-      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Records T139 launch evidence: app build/tests and generic unsigned iOS build are green; Launch Doctor report exists but is intentionally not_started; release preflight still blocks on missing Development Team, Release BACKEND_URL, and Release APP_TOKEN. No secrets committed."
+      "reviewer_note": "Merged by Codex under D005 after GitHub evaluate passed. Records T139 launch evidence: app build/tests and generic unsigned iOS build are green; Launch Doctor report exists but is intentionally not_started; release preflight still blocks on missing Development Team, APP_TOKEN_RELEASE, signing, and human manual smoke. Release BACKEND_URL is hosted as https://api.them.io. No secrets committed."
     },
     {
       "number": 335,

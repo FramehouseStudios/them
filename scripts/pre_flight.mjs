@@ -299,6 +299,18 @@ function checkV1LaunchHandoffHasNoStaleInstructions() {
       ],
     },
     {
+      file: "docs/coordination.json",
+      patterns: [
+        [/release BACKEND_URL, and APP_TOKEN|Release BACKEND_URL, and Release APP_TOKEN/i, "coordination state must treat release BACKEND_URL as hosted and name APP_TOKEN_RELEASE explicitly"],
+      ],
+    },
+    {
+      file: "TASKS.md",
+      patterns: [
+        [/hosted backend URL, and\s+production app token|Release `?BACKEND_URL`?, and Release `?APP_TOKEN`?/i, "task handoff text must treat release BACKEND_URL as hosted and name APP_TOKEN_RELEASE explicitly"],
+      ],
+    },
+    {
       file: "scripts/v1_launch_room.mjs",
       patterns: [
         [/Talk, Studio, Memory, and Realtime smoke result/i, "launch room human option must include iOS Release Readiness"],
