@@ -101,7 +101,7 @@ Pass: Primary succeeds when healthy; local/test fallback remains visible; produc
 Goal: real release config -> green preflight -> exported Launch Doctor proof -> human signoff
 
 1. Create the ignored Release.local.env from the checked-in template.
-2. Fill in the Apple Development Team ID and production app token.
+2. Fill in the Apple Development Team ID and production APP_TOKEN_RELEASE.
 3. Keep the hosted backend URL at https://api.them.io unless the release backend changes.
 4. Run the release preflight and confirm it is green.
 5. Export Launch Doctor JSON/Markdown from the app or CLI fallback.

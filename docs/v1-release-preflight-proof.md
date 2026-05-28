@@ -62,8 +62,8 @@ Failed: `fail=3`, `warn=2`.
   `them/Release.local.env.example`.
 - Development Team is not configured. Provide `DEVELOPMENT_TEAM_ID` through
   release config, environment, or an `xcodebuild` build setting.
-- `APP_TOKEN` is placeholder or unset for Release. Provide the production
-  `APP_TOKEN_RELEASE` value through the ignored release config or environment.
+- `APP_TOKEN_RELEASE` is placeholder or unset for Release. Provide the
+  production value through the ignored release config or environment.
 
 ## Warning
 

@@ -125,8 +125,8 @@ Result: refreshed `docs/v1-launch-doctor.latest.json` and
 ## Manual V1 Smoke
 
 The manual V1 app smoke was not completed in this pass. A passing result would
-be false without the production app token, Apple signing setup, and an actual
-app run through:
+be false without production `APP_TOKEN_RELEASE`, Apple signing setup, and an
+actual app run through:
 
 - Talk Pipeline: record voice -> get reply -> hear reply -> saved turn.
 - Screenplay Studio: create project -> write scene -> save -> export -> reopen.

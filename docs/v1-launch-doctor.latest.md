@@ -53,4 +53,4 @@ Next proof is the in-app realtime manual smoke using primary provider plus force
 - Pass criteria: Release config is real, preflight is green, Launch Doctor proof is exported, and human sign-off is recorded before TestFlight/external review.
 - Evidence: 2026-05-28 V1 status is 29/34. Deterministic V1 smokes passed and scripts/run_v1_ui_smoke.sh passed 5/5 on iPhone 17 Pro after replacing the stale iPhone 15 destination. Remaining blockers are the four manual app smokes plus final human release signoff/private release inputs.
 
-Release signoff remains intentionally unpassed until Apple team/signing, hosted backend URL, production app token, exported Launch Doctor proof, and human approval are present.
+Release signoff remains intentionally unpassed until Apple team/signing, production APP_TOKEN_RELEASE, exported Launch Doctor proof, and human approval are present.

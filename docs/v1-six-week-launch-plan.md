@@ -10,4 +10,5 @@ Use that file when the human says `continue`.
 
 This older six-week plan is intentionally superseded because the paid/external
 release inputs should come last unless they are already free/available:
-Apple team/signing, hosted release backend URL, and production app token.
+Apple team/signing and production `APP_TOKEN_RELEASE`. The hosted release
+backend URL is already `https://api.them.io` unless the release backend changes.

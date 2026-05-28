@@ -265,8 +265,8 @@ function buildStatus(opts) {
     "app-token-release",
     tokenOk,
     tokenOk
-      ? "Release APP_TOKEN is configured."
-      : "Release APP_TOKEN is missing, placeholder, or too short for production.",
+      ? "Release APP_TOKEN_RELEASE is configured."
+      : "Release APP_TOKEN_RELEASE is missing, placeholder, or too short for production.",
     { secret: describeSecret(releaseAppToken, tokenInput.source) },
   ));
 

@@ -33,7 +33,8 @@ test("[release-config-status] reports missing private release inputs without pri
   assert.equal(payload.envFile.examplePath, "them/Release.local.env.example");
   assert.ok(payload.blockers.some((line) => /missing local release config/.test(line)));
   assert.ok(payload.blockers.some((line) => /Development Team ID/.test(line)));
-  assert.ok(payload.blockers.some((line) => /APP_TOKEN/.test(line)));
+  assert.ok(payload.blockers.some((line) => /APP_TOKEN_RELEASE/.test(line)));
+  assert.ok(!payload.blockers.some((line) => /Release APP_TOKEN is missing/.test(line)));
   assert.ok(payload.missingInputs.includes("them/Release.local.env"));
   assert.ok(payload.missingInputs.includes("DEVELOPMENT_TEAM_ID"));
   assert.ok(payload.missingInputs.includes("APP_TOKEN_RELEASE"));
@@ -81,6 +82,7 @@ test("[release-docs] operator docs point at the iPhone release wrapper", () => {
   assert.doesNotMatch(combined, /\/Users\/halfmutantfilms\/Desktop\/io\.them/);
   assert.doesNotMatch(combined, /Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`/);
   assert.doesNotMatch(combined, /Set `(?:DEVELOPMENT_TEAM_ID|APP_TOKEN_RELEASE)` in .*Config\.xcconfig/);
+  assert.doesNotMatch(combined, /Release APP_TOKEN is missing/);
   assert.match(combined, /Do not put production tokens in tracked `Config\.xcconfig`/);
 });
 

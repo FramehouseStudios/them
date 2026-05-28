@@ -112,7 +112,7 @@ const artifact = {
       goal: "real release config -> green preflight -> exported Launch Doctor proof -> human signoff",
       steps: [
         "Create the ignored Release.local.env from the checked-in template.",
-        "Fill in the Apple Development Team ID and production app token.",
+        "Fill in the Apple Development Team ID and production APP_TOKEN_RELEASE.",
         "Keep the hosted backend URL at https://api.them.io unless the release backend changes.",
         "Run the release preflight and confirm it is green.",
         "Export Launch Doctor JSON/Markdown from the app or CLI fallback.",

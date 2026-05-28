@@ -181,9 +181,9 @@ else
 fi
 
 if is_placeholder "$app_token"; then
-  fail "APP_TOKEN is placeholder/unset for Release."
+  fail "APP_TOKEN_RELEASE/APP_TOKEN is placeholder/unset for Release."
 else
-  ok "Release APP_TOKEN is configured."
+  ok "Release APP_TOKEN_RELEASE/APP_TOKEN is configured."
 fi
 
 if is_placeholder "$privacy_url"; then
