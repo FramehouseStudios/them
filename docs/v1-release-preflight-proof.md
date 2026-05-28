@@ -6,37 +6,33 @@ manifest changes, or App Store metadata.
 
 ## Last Run
 
-2026-05-17 14:31 America/Los_Angeles on branch
-`codex/T152-clear-eval-secret-and-release-gap`.
+2026-05-28 America/Los_Angeles on branch
+`codex/talk-handler-live-parity`.
 
 ## Configuration Audit
 
-No real release values were available in the worktree or shell environment, and
-`them/Release.local.env` did not exist. No release secrets were committed or
-substituted into project files. The repository GitHub Actions
-`OPENAI_API_KEY` secret was fixed separately and verified by rerunning PR #33;
-that is no longer a release-preflight credential blocker.
+`them/Release.local.env` does not exist in the worktree. No release secrets
+were committed or substituted into project files. The checked-in Release build
+settings provide the hosted backend URL, so `BACKEND_URL` is no longer a local
+private-input blocker; `DEVELOPMENT_TEAM_ID` and `APP_TOKEN_RELEASE` still are.
 
 ```sh
-zsh -lc 'for k in DEVELOPMENT_TEAM_ID BACKEND_URL APP_TOKEN APP_TOKEN_RELEASE RELEASE_BACKEND_URL OPENAI_API_KEY; do if [[ -n ${(P)k} ]]; then print "$k=present"; else print "$k=missing"; fi; done'
-security find-identity -v -p codesigning
+node scripts/release_config_status.mjs
+scripts/run_release_preflight.sh
 ```
 
 Result:
 
+- `them/Release.local.env`: missing.
 - `DEVELOPMENT_TEAM_ID`: missing.
-- `BACKEND_URL`: missing.
-- `APP_TOKEN`: missing.
 - `APP_TOKEN_RELEASE`: missing.
-- `RELEASE_BACKEND_URL`: missing.
-- `OPENAI_API_KEY`: missing locally; GitHub Actions has it configured.
-- Code signing identities: `0 valid identities found` on this machine.
+- `BACKEND_URL`: configured as hosted HTTPS (`https://api.them.io`) through
+  project Release build settings fallback.
 
 ## Command Run
 
 ```sh
 scripts/run_release_preflight.sh
-scripts/appstore_preflight.sh
 ```
 
 ## Result
@@ -44,13 +40,12 @@ scripts/appstore_preflight.sh
 `scripts/run_release_preflight.sh` failed before running release preflight
 because `them/Release.local.env` is missing.
 
-Failed: `fail=3`, `warn=1`.
-
-Direct `scripts/appstore_preflight.sh` produced `fail=3 warn=1`.
+Failed: `fail=3`, `warn=2`.
 
 ## Passing Checks
 
 - Bundle identifier is set: `io.them.them`.
+- Release `BACKEND_URL` is hosted and HTTPS: `https://api.them.io`.
 - Hardened Runtime is enabled for Release.
 - Release entitlements are wired: `them/them.entitlements`.
 - Sandbox, network client, and audio input entitlements are present.
@@ -63,18 +58,20 @@ Direct `scripts/appstore_preflight.sh` produced `fail=3 warn=1`.
 
 ## Blocking Checks
 
+- Missing local release config: create ignored `them/Release.local.env` from
+  `them/Release.local.env.example`.
 - Development Team is not configured. Provide `DEVELOPMENT_TEAM_ID` through
   release config, environment, or an `xcodebuild` build setting.
-- `BACKEND_URL` is placeholder or unset for Release. Provide a hosted API URL
-  through release config, environment, or an `xcodebuild` build setting.
-- `APP_TOKEN` is placeholder or unset for Release. Provide the production app
-  token through release config, environment, or an `xcodebuild` build setting.
+- `APP_TOKEN` is placeholder or unset for Release. Provide the production
+  `APP_TOKEN_RELEASE` value through the ignored release config or environment.
 
 ## Warning
 
-- Signed Release macOS build was skipped because `DEVELOPMENT_TEAM_ID` is not
-  configured. This avoids double-counting the missing team as both a
-  configuration failure and a signing failure.
+- Signing identity and App Store Connect archive validation are not proven by
+  this status script; run the signed archive/upload path after config preflight
+  is green.
+- `xcodebuild -showBuildSettings` was unavailable in this local check, so
+  release config status used the checked-in project file fallback.
 
 ## Final Preflight Command Shape
 
@@ -83,7 +80,7 @@ When release credentials exist locally, prefer the ignored local env file:
 ```sh
 cp them/Release.local.env.example them/Release.local.env
 chmod 600 them/Release.local.env
-# Fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN.
+# Fill in DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE.
 node scripts/release_config_status.mjs
 scripts/run_release_preflight.sh
 ```
@@ -92,20 +89,18 @@ When release credentials exist in CI or a one-off shell, run:
 
 ```sh
 DEVELOPMENT_TEAM_ID=<apple-team-id> \
-BACKEND_URL=<hosted-api-url> \
-APP_TOKEN=<production-app-token> \
-scripts/appstore_preflight.sh
+APP_TOKEN_RELEASE=<production-app-token> \
+scripts/run_release_preflight.sh
 ```
 
 Do not commit those values.
 
 ## Build Log
 
-No signed Release build log was produced in this run because the signed build
-step is skipped until `DEVELOPMENT_TEAM_ID` is present. This machine also has
-`0 valid identities found` for code signing, so a signed Release build cannot be
-truthfully completed here until the Apple team/signing setup exists. Earlier
-T126 proof saw this duplicate signing error:
+No signed Release build log was produced in this run because the release wrapper
+stops before App Store preflight until private release inputs exist. A signed
+Release build cannot be truthfully completed here until the Apple team/signing
+setup exists. Earlier T126 proof saw this duplicate signing error:
 
 ```text
 "them" has entitlements that require signing with a development certificate.
@@ -116,7 +111,6 @@ T126 proof saw this duplicate signing error:
 These blockers are release-configuration and signing/deploy-secrets issues.
 They do not invalidate the current Debug app build/test proof in
 `docs/v1-build-test-readiness.md`, and they do not replace the human V1 manual
-smoke. The T139 clearance pass did not find real values to configure; the next
-concrete action is to provide `DEVELOPMENT_TEAM_ID`, a hosted release
-`BACKEND_URL`, `APP_TOKEN`, and a valid Apple signing identity, then rerun the
-final preflight command above.
+smoke. The next concrete action is to create ignored `them/Release.local.env`,
+provide `DEVELOPMENT_TEAM_ID`, provide production `APP_TOKEN_RELEASE`, confirm
+Apple signing, and rerun the final preflight command above.

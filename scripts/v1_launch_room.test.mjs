@@ -36,8 +36,9 @@ test("[v1-launch-room] --json exposes V1 status and launch lanes", () => {
   assert.ok(payload.humanOptions.some((option) => option.why.includes("iOS Release Readiness")));
   assert.equal(payload.launchDoctor.status, "missing");
   assert.ok(Array.isArray(payload.release.blockers));
-  assert.match(payload.release.result, /fail=3, warn=1/);
+  assert.match(payload.release.result, /fail=3, warn=2/);
   assert.ok(payload.release.blockers.some((blocker) => blocker.includes("DEVELOPMENT_TEAM_ID")));
+  assert.ok(!payload.release.blockers.some((blocker) => blocker.includes("BACKEND_URL")));
   assert.equal(payload.releaseLocalConfig.overall, "missing");
   assert.ok(payload.releaseLocalConfig.blockers.some((blocker) => blocker.includes("missing local release config")));
   assert.ok(!payload.humanGated.some((pr) => pr.status === "closed"));

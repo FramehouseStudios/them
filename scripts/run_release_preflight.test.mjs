@@ -24,6 +24,8 @@ test("[run-release-preflight] fails clearly when local release config is missing
   assert.equal(r.status, 1);
   assert.match(r.stderr, /Missing local release config/);
   assert.match(r.stderr, /Release\.local\.env\.example/);
+  assert.match(r.stderr, /DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE/);
+  assert.doesNotMatch(r.stderr, /fill in DEVELOPMENT_TEAM_ID, BACKEND_URL, and APP_TOKEN_RELEASE/i);
 });
 
 test("[run-release-preflight] rejects placeholder local release config before preflight", () => {
@@ -34,6 +36,7 @@ test("[run-release-preflight] rejects placeholder local release config before pr
 
   const r = run({ RELEASE_ENV_FILE: envPath });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /missing real value\(s\): DEVELOPMENT_TEAM_ID APP_TOKEN_RELEASE/);
+  assert.match(r.stderr, /missing real private value\(s\): DEVELOPMENT_TEAM_ID APP_TOKEN_RELEASE/);
+  assert.doesNotMatch(r.stderr, /BACKEND_URL/);
   assert.doesNotMatch(r.stdout, /App Store Preflight/);
 });
