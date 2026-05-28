@@ -10,6 +10,14 @@ and release-preflight path after those merges. The release/manual-smoke blockers
 below remain unchanged because no local Release config or signing identity
 exists.
 
+T154 refresh, 2026-05-28 12:45 America/Los_Angeles: after the extracted
+`/talk` handler became the live route and the inline handler was removed,
+Codex reran the deterministic V1 smoke pack. Voice-to-page prompt assembly,
+screenplay Fountain export, creative-memory recall, and realtime failover all
+passed. The Launch Doctor latest report now records the current state as
+`not_started` for all five human/manual gates, with 0 failed flows and no
+manual pass claimed.
+
 ## Status
 
 - Automated app build/tests: passed.
@@ -17,6 +25,8 @@ exists.
   `docs/v1-launch-doctor.latest.md`.
 - Launch Doctor result: `not_started`, 0/5 flows passed, because the real V1
   manual app smoke has not been performed.
+- V1 checklist status: 29/34, with only the four manual app smokes plus final
+  human release signoff remaining.
 - Release preflight: still failed with `fail=3 warn=1`.
 - Signed Release preflight with real secrets: not run, because the real values
   are not present and this machine has no valid code signing identities.
@@ -104,7 +114,7 @@ cd backend
 npm run v1:status
 ```
 
-Result: 20/25 V1 checklist items complete. Remaining items are the manual Talk,
+Result: 29/34 V1 checklist items complete. Remaining items are the manual Talk,
 Screenplay, Memory, Realtime, and final iOS release signoff checks.
 
 ```sh
