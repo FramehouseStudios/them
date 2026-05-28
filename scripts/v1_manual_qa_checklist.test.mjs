@@ -45,6 +45,18 @@ test("[v1-manual-qa] markdown output names pass criteria and parked gates", () =
   assert.match(r.stdout, /#212/);
 });
 
+test("[v1-manual-qa] --prompt emits a Launch Doctor result block template", () => {
+  const r = run(["--prompt"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^Overall V1 manual smoke: PASS\/FAIL - <notes>/);
+  assert.match(r.stdout, /^Talk Pipeline: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^Screenplay Studio: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^Creative Memory: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^Realtime: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^iOS Release Readiness: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.doesNotMatch(r.stdout, /## Manual App Flows/);
+});
+
 test("[v1-manual-qa] --write creates a reusable markdown artifact", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-v1-manual-qa-"));
   const out = path.join(tmpDir, "preflight.md");

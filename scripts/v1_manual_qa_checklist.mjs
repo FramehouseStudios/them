@@ -177,10 +177,21 @@ function markdown(data) {
   return lines.join("\n");
 }
 
+function promptBlock(data) {
+  const flowNames = data.manualFlows.map((flow) => flow.pillar);
+  flowNames.push("iOS Release Readiness");
+  const lines = [
+    "Overall V1 manual smoke: PASS/FAIL - <notes>",
+    ...flowNames.map((name) => `${name}: PASS/FAIL/IN PROGRESS/NOT STARTED - <notes>`),
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
 function parseArgs(argv) {
   const out = {};
   for (const arg of argv) {
     if (arg === "--json") out.json = true;
+    if (arg === "--prompt") out.prompt = true;
     const writePrefix = "--write=";
     if (arg.startsWith(writePrefix)) out.write = arg.slice(writePrefix.length);
   }
@@ -188,7 +199,9 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2));
-if (args.json) {
+if (args.prompt) {
+  process.stdout.write(promptBlock(artifact));
+} else if (args.json) {
   console.log(JSON.stringify(artifact, null, 2));
 } else {
   const body = markdown(artifact);
