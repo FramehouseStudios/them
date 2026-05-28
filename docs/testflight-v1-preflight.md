@@ -30,7 +30,7 @@ The latest local app build and themTests result is recorded separately from the 
 
 ### iOS V1 UI smoke
 
-`xcodebuild -project them.xcodeproj -scheme them -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:themUITests test`
+`scripts/run_v1_ui_smoke.sh`
 
 The five XCUITests cover onboarding, talk-to-screenplay UI flow, export, memory recall, and realtime stub fallback before human visual/audio signoff.
 

@@ -17,7 +17,7 @@ to ship from a deterministic-tripwire perspective.
 For the iOS golden path:
 
 ```
-xcodebuild -project them.xcodeproj -scheme them -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:themUITests test
+scripts/run_v1_ui_smoke.sh
 ```
 
 → The five `themUITests` smoke tests cover the V1 UI contracts.

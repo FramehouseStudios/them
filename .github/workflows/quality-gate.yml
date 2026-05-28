@@ -166,15 +166,7 @@ jobs:
 
       - name: Run iOS V1 UI smoke tests (soft gate)
         continue-on-error: true
-        run: |
-          xcodebuild \
-            -project them.xcodeproj \
-            -scheme them \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,name=iPhone 15" \
-            -only-testing:themUITests \
-            CODE_SIGNING_ALLOWED=NO \
-            test
+        run: scripts/run_v1_ui_smoke.sh
 
       - name: Workflow inputs summary
         if: always()

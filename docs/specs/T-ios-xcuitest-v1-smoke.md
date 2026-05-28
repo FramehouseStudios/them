@@ -56,7 +56,7 @@ Test isolation:
 
 ## Acceptance
 
-- `xcodebuild -scheme them -destination 'platform=iOS Simulator,name=iPhone 15' test` runs
+- `scripts/run_v1_ui_smoke.sh` runs
   the five UI tests and they pass on a clean simulator.
 - A new GitHub Actions step (or addition to `quality-gate.yml`) runs
   the same on every iOS-touching PR.

@@ -45,7 +45,7 @@ const artifact = {
     },
     {
       name: "iOS V1 UI smoke",
-      command: "xcodebuild -project them.xcodeproj -scheme them -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 15' -only-testing:themUITests test",
+      command: "scripts/run_v1_ui_smoke.sh",
       proves: "The five XCUITests cover onboarding, talk-to-screenplay UI flow, export, memory recall, and realtime stub fallback before human visual/audio signoff.",
     },
     {
