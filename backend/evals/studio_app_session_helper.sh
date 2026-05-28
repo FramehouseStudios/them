@@ -38,18 +38,28 @@ if [[ -z "$APP_PATH" ]]; then
   LAST_STAGE="arg_validation_failed"
 fi
 
-current_pids() {
-  local raw
-  raw="$(pgrep -x "$PROCESS_NAME" 2>/dev/null || true)"
-  if [[ -n "$raw" ]]; then
-    printf '%s\n' "$raw"
+resolve_app_executable() {
+  local clean_path="${APP_PATH%/}"
+  local bundled_executable="${clean_path}/Contents/MacOS/${PROCESS_NAME}"
+  if [[ -x "$bundled_executable" ]]; then
+    printf '%s' "$bundled_executable"
     return 0
   fi
+  if [[ -x "$clean_path" ]]; then
+    printf '%s' "$clean_path"
+    return 0
+  fi
+  return 1
+}
 
-  # Some environments return an empty list from pgrep (or fail to query sysmond)
-  # even when the app is running. Fall back to ps/awk discovery so relaunch
-  # teardown remains deterministic.
-  ps -Ao pid=,command= 2>/dev/null | awk -v proc="$PROCESS_NAME" '
+current_pids() {
+  {
+    pgrep -x "$PROCESS_NAME" 2>/dev/null || true
+
+    # Some environments return an incomplete list from pgrep (or fail to query
+    # sysmond) even when duplicate app instances are running. Merge pgrep with
+    # ps and System Events discovery so relaunch teardown remains deterministic.
+    ps -Ao pid=,command= 2>/dev/null | awk -v proc="$PROCESS_NAME" '
     {
       pid = $1
       $1 = ""
@@ -66,7 +76,15 @@ current_pids() {
         print pid
       }
     }
-  ' || true
+    ' || true
+
+    osascript \
+      -e 'try' \
+      -e "tell application \"System Events\" to get unix id of every process whose name is \"$PROCESS_NAME\"" \
+      -e 'on error' \
+      -e 'return ""' \
+      -e 'end try' 2>/dev/null | tr ',' '\n' | tr -d ' ' || true
+  } | awk 'NF && $1 ~ /^[0-9]+$/ { print $1 }' | sort -u
 }
 
 read_pid_array() {
@@ -214,10 +232,21 @@ fi
 
 if [[ -z "$ERROR_MESSAGE" ]]; then
   LAST_STAGE="launch_requested"
-  open -na "$APP_PATH" >/dev/null 2>&1 || {
+  APP_EXECUTABLE="$(resolve_app_executable || true)"
+  if [[ -z "$APP_EXECUTABLE" ]]; then
     LAST_STAGE="launch_failed"
-    ERROR_MESSAGE="open -na failed for app path"
-  }
+    ERROR_MESSAGE="Could not resolve executable for app path"
+  fi
+fi
+
+if [[ -z "$ERROR_MESSAGE" ]]; then
+  nohup "$APP_EXECUTABLE" >/tmp/them_studio_app_session.out 2>/tmp/them_studio_app_session.err &
+  FRESH_PID="$!"
+  disown "$FRESH_PID" >/dev/null 2>&1 || true
+  if [[ -z "$FRESH_PID" || "$FRESH_PID" == "0" ]]; then
+    LAST_STAGE="launch_failed"
+    ERROR_MESSAGE="direct executable launch failed for app path"
+  fi
 fi
 
 if [[ -z "$ERROR_MESSAGE" ]]; then

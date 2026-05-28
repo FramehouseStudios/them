@@ -54,13 +54,32 @@ export function extractStudioProjectMetadata(payload) {
 }
 
 export async function fetchStudioProjectMetadata(projectId, headers) {
-  const response = await fetch(`http://127.0.0.1:3000/screenplay/projects/${projectId}?include_drafts=1`, {
-    headers,
-  });
-  const payload = await response.json().catch(() => ({}));
-  return {
-    response,
-    payload,
-    metadata: extractStudioProjectMetadata(payload),
-  };
+  let lastError = null;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:3000/screenplay/projects/${projectId}?include_drafts=1`, {
+        headers: {
+          ...headers,
+          Connection: "close",
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      return {
+        response,
+        payload,
+        metadata: extractStudioProjectMetadata(payload),
+      };
+    } catch (error) {
+      lastError = error;
+      const material = [
+        error?.message,
+        error?.cause?.message,
+        error?.cause?.code,
+        error?.code,
+      ].filter(Boolean).join(" ");
+      if (!/ECONNRESET|fetch failed|socket|network|terminated/i.test(material) || attempt === 4) break;
+      await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
+    }
+  }
+  throw lastError || new Error(`Failed to fetch Studio project metadata for ${projectId}`);
 }

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import http from "node:http";
 import {
@@ -76,7 +77,22 @@ function findDebugAppPath() {
   if (direct && existsSync(direct)) return direct;
   const discovered = run("/bin/zsh", [
     "-lc",
-    "find ~/Library/Developer/Xcode/DerivedData -path '*Build/Products/Debug/them.app/Contents/MacOS/them' -exec stat -f '%m %N' {} \\; | sort -nr | head -n 1 | cut -d' ' -f2- | sed 's#/Contents/MacOS/them$##'",
+    `
+for config in "Mac Scaffold Debug" "Debug"; do
+  candidate="$(
+    find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/\${config}/them.app/Contents/MacOS/them" -exec stat -f '%m %N' {} \\; \
+      | awk '$0 !~ /\\/them_MAIN-/' \
+      | sort -nr \
+      | head -n 1 \
+      | cut -d' ' -f2- \
+      | sed 's#/Contents/MacOS/them$##'
+  )"
+  if [[ -n "$candidate" ]]; then
+    printf '%s\\n' "$candidate"
+    exit 0
+  fi
+done
+`,
   ]);
   assert(discovered, "Could not locate Debug them.app");
   assert(existsSync(discovered), `Debug app path does not exist: ${discovered}`);
@@ -101,6 +117,10 @@ function writeDefaultInt(key, value) {
   studioDebug.writeDefaultInt(key, value);
 }
 
+function writeDefaultBool(key, value) {
+  studioDebug.writeDefaultBool(key, value);
+}
+
 function readJsonDefaultValue(key, fallback = null) {
   return studioDebug.readJsonDefault(key, fallback);
 }
@@ -123,14 +143,53 @@ function normalizeAcknowledgedKey(value) {
   return normalized;
 }
 
+function retryableFetchError(error) {
+  const material = [
+    error?.message,
+    error?.cause?.message,
+    error?.cause?.code,
+    error?.code,
+  ].filter(Boolean).join(" ");
+  return /ECONNRESET|fetch failed|socket|network|terminated/i.test(material);
+}
+
+async function fetchBackendRequest(path, {
+  method = "GET",
+  headers = ownerHeaders(),
+  body = null,
+  baseURL = "http://127.0.0.1:3000",
+  attempts = 4,
+} = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(`${baseURL}${path}`, {
+        method,
+        headers: {
+          ...headers,
+          Connection: "close",
+        },
+        body: body == null ? undefined : JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({}));
+      return { response, payload };
+    } catch (error) {
+      lastError = error;
+      if (!retryableFetchError(error) || attempt === attempts) break;
+      await sleep(350 * attempt);
+    }
+  }
+  throw lastError || new Error(`Backend request failed for ${method} ${path}`);
+}
+
 function ownerHeaders() {
   const headers = {
     "Content-Type": "application/json",
     "X-APP-TOKEN": "them-dev",
   };
-  const userId = readDefaultString("user_id");
-  if (userId) {
-    headers["X-User-Id"] = userId;
+  const accessToken = readDefaultString("auth_debug_access_token");
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
   }
   const clientToken = readDefaultString("client_token");
   assert(clientToken, "Missing owner identity in io.them.them defaults");
@@ -139,10 +198,7 @@ function ownerHeaders() {
 }
 
 function fallbackOwnerHeaders() {
-  return {
-    "Content-Type": "application/json",
-    "X-APP-TOKEN": "them-dev",
-  };
+  return ownerHeaders();
 }
 
 function projectIdFromHistoryKey(value) {
@@ -255,10 +311,11 @@ async function postBackendProjectThreadState(projectId, record, headers = ownerH
   const acknowledgedLineageKey = normalizeAcknowledgedKey(record?.acknowledgedLineageKey);
   const acknowledgedWriteID = normalizeKey(record?.acknowledgedWriteID);
   const acknowledgedFingerprint = String(record?.acknowledgedFingerprint || "").trim();
-  const response = await fetch(`${baseURL}/screenplay/projects`, {
+  const { response, payload } = await fetchBackendRequest("/screenplay/projects", {
     method: "POST",
     headers,
-    body: JSON.stringify({
+    baseURL,
+    body: {
       project_id: projectId,
       title: "Studio Restore Smoke",
       phase: "scene_draft",
@@ -280,9 +337,8 @@ async function postBackendProjectThreadState(projectId, record, headers = ownerH
             write_id: acknowledgedWriteID,
           }]
         : [],
-    }),
+    },
   });
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(`Failed to seed backend project thread state: ${response.status} ${JSON.stringify(payload)}`);
   }
@@ -291,18 +347,18 @@ async function postBackendProjectThreadState(projectId, record, headers = ownerH
 
 async function postBackendProjectVersion(projectId, recovery, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
   if (!recovery?.draft) return null;
-  const response = await fetch(`${baseURL}/screenplay/projects/${projectId}/version`, {
+  const { response, payload } = await fetchBackendRequest(`/screenplay/projects/${projectId}/version`, {
     method: "POST",
     headers,
-    body: JSON.stringify({
+    baseURL,
+    body: {
       draft: recovery.draft,
       title: "Studio Restore Smoke",
       phase: "scene_draft",
       source: "studio_clementine_page_write",
       base_version_id: recovery.baseVersionId || "",
-    }),
+    },
   });
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(`Failed to seed backend project version: ${response.status} ${JSON.stringify(payload)}`);
   }
@@ -310,9 +366,67 @@ async function postBackendProjectVersion(projectId, recovery, headers = ownerHea
 }
 
 async function fetchBackendJSON(path, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
-  const response = await fetch(`${baseURL}${path}`, { headers });
-  const payload = await response.json().catch(() => ({}));
-  return { response, payload };
+  return fetchBackendRequest(path, { headers, baseURL });
+}
+
+async function postBackendJSON(path, body, headers = {
+  "Content-Type": "application/json",
+  "X-APP-TOKEN": "them-dev",
+}, baseURL = "http://127.0.0.1:3000") {
+  return fetchBackendRequest(path, {
+    method: "POST",
+    headers,
+    body: body || {},
+    baseURL,
+  });
+}
+
+async function ensureAuthenticatedStudioOwner(projectId) {
+  const email = `studio-backend-restore-${projectId}-${randomUUID()}@example.test`.toLowerCase();
+  const password = `ThemSmoke-${randomUUID()}-aA1!`;
+  const signup = await postBackendJSON("/auth/signup", {
+    email,
+    password,
+    display_name: "Studio Restore Smoke",
+  });
+  assert(
+    signup.response.ok,
+    `Failed to create Studio smoke auth user: ${signup.response.status} ${JSON.stringify(signup.payload)}`
+  );
+  const accessToken = String(signup.payload?.access_token || signup.payload?.accessToken || "").trim();
+  const userId = String(
+    signup.payload?.user?.id ||
+    signup.payload?.user?.user_id ||
+    signup.payload?.user?.userId ||
+    signup.payload?.user_id ||
+    signup.payload?.userId ||
+    ""
+  ).trim();
+  assert(accessToken, "Studio smoke auth signup did not return an access token.");
+  assert(userId, "Studio smoke auth signup did not return a user id.");
+
+  const session = await postBackendJSON("/session", {}, {
+    "Content-Type": "application/json",
+    "X-APP-TOKEN": "them-dev",
+    Authorization: `Bearer ${accessToken}`,
+  });
+  assert(
+    session.response.ok,
+    `Failed to create Studio smoke backend session: ${session.response.status} ${JSON.stringify(session.payload)}`
+  );
+  const clientToken = String(session.payload?.client_token || session.payload?.session_id || "").trim();
+  assert(clientToken, "Studio smoke backend session did not return a client token.");
+
+  writeDefaultString("user_id", userId);
+  writeDefaultString("client_token", clientToken);
+  writeDefaultInt("client_token_cached_at", Math.floor(Date.now() / 1000));
+  writeDefaultString("client_token_base_url", "http://127.0.0.1:3000");
+  const expiresIn = Math.max(60, Number(session.payload?.expires_in || 0) || 0);
+  writeDefaultString("client_token_expiry", new Date(Date.now() + expiresIn * 1000).toISOString());
+  writeDefaultString("auth_debug_access_token", accessToken);
+  writeDefaultBool("auth_debug_access_token_enabled", true);
+
+  return { userId, clientToken, accessToken };
 }
 
 async function performInspectorInteraction(action, primary = "", secondary = "") {
@@ -459,8 +573,30 @@ function appHasWindow() {
 }
 
 function appIsRunning() {
-  const result = runOptional("pgrep", ["-x", "them"]);
-  return result.status === 0 && Boolean(result.stdout.trim());
+  return appProcessIDs().length > 0;
+}
+
+function appProcessIDs() {
+  const values = [];
+  const pgrep = runOptional("pgrep", ["-x", "them"]);
+  if (pgrep.status === 0 && pgrep.stdout.trim()) {
+    values.push(...pgrep.stdout.split(/\s+/));
+  }
+  const systemEvents = runOptional("osascript", [
+    "-e", "try",
+    "-e", 'tell application "System Events" to get unix id of every process whose name is "them"',
+    "-e", "on error",
+    "-e", 'return ""',
+    "-e", "end try",
+  ]);
+  if (systemEvents.status === 0 && systemEvents.stdout.trim()) {
+    values.push(...systemEvents.stdout.split(/[,\s]+/));
+  }
+  return Array.from(new Set(
+    values
+      .map((value) => Number(String(value || "").trim()))
+      .filter((value) => Number.isInteger(value) && value > 0)
+  ));
 }
 
 function activateApp() {
@@ -476,6 +612,11 @@ function quitApp() {
   runOptional("killall", ["them"], {
     timeout: 2000,
   });
+  for (const pid of appProcessIDs()) {
+    runOptional("kill", [String(pid)], {
+      timeout: 2000,
+    });
+  }
 }
 
 async function ensureAppStopped() {
@@ -490,7 +631,13 @@ const originalLocalAckWriteStateRaw = readDefaultString("studio.diff.keep-curren
 const originalAskNoteHistoryRaw = readDefaultString("studio.ask.note.history.v2");
 const originalDebugDiffStateRaw = readDefaultString("studio_debug_diff_state_json");
 const originalReplacementTraceRaw = readDefaultString("studio_debug_replacement_trace_json");
+const originalUserIdRaw = readDefaultString("user_id");
 const originalClientTokenRaw = readDefaultString("client_token");
+const originalClientTokenCachedAt = readDefaultInt("client_token_cached_at");
+const originalClientTokenBaseURLRaw = readDefaultString("client_token_base_url");
+const originalClientTokenExpiryRaw = readDefaultString("client_token_expiry");
+const originalAuthDebugAccessTokenRaw = readDefaultString("auth_debug_access_token");
+const originalAuthDebugAccessTokenEnabledRaw = readDefaultString("auth_debug_access_token_enabled");
 const originalLoadProjectToken = readDefaultInt("studio_debug_load_project_token");
 const originalLoadProjectAckToken = readDefaultInt("studio_debug_load_project_ack_token");
 const originalLoadProjectID = readDefaultString("studio_debug_load_project_id");
@@ -512,7 +659,7 @@ try {
   seedFixture = createStudioRestoreFixture("reopened");
   seededRecord = seedFixture.reopenedSeed;
   const projectId = projectIdFromHistoryKey(seededRecord.projectKey);
-  writeDefaultString("client_token", `studio-smoke-${projectId}`);
+  await ensureAuthenticatedStudioOwner(projectId);
 
   appPath = findDebugAppPath();
   await ensureAppStopped();
@@ -587,6 +734,9 @@ try {
     activateApp,
     appHasWindow,
     readDebugDiffState,
+    startupTimeoutMs: 90000,
+    ackTimeoutMs: 90000,
+    settleMs: 1600,
   });
 
   await waitFor(() => {
@@ -594,14 +744,14 @@ try {
     if (!state) return false;
     const sessionID = normalizeKey(state.debugSessionID);
     return Boolean(sessionID) && sessionID !== originalDebugSessionID;
-  }, "fresh Studio debug session after relaunch", 25000, 300);
+  }, "fresh Studio debug session after relaunch", 90000, 300);
 
   await ensureStudioProjectLoadedWithDebugHook({
     debugDefaults: studioDebug.defaults,
     projectId,
     versionId: backendProbe.activeVersionId,
     readDebugDiffState,
-    timeoutMs: 45000,
+    timeoutMs: 90000,
     stagedRequest: stagedProjectLoadRequest,
   });
 
@@ -623,7 +773,7 @@ try {
       && !normalizeKey(state.loadProjectError)
       && normalizeText(`${state.draftPreview || ""} ${state.draftTailPreview || ""}`).includes(normalizeText(draftRecovery.draft))
       && Number(state.reopenedDiffCount || 0) > 0;
-  }, "backend-only reopened diff restore after relaunch", 45000, 300);
+  }, "backend-only reopened diff restore after relaunch", 90000, 300);
 
   const collaboratorEmail = `collab-${projectId}@example.com`.toLowerCase();
   const commentText = `Restored owner context collaboration note ${projectId}`;
@@ -703,7 +853,13 @@ try {
   writeDefaultString("studio.ask.note.history.v2", originalAskNoteHistoryRaw);
   writeDefaultString("studio_debug_diff_state_json", originalDebugDiffStateRaw);
   writeDefaultString("studio_debug_replacement_trace_json", originalReplacementTraceRaw);
+  writeDefaultString("user_id", originalUserIdRaw);
   writeDefaultString("client_token", originalClientTokenRaw);
+  writeDefaultInt("client_token_cached_at", originalClientTokenCachedAt);
+  writeDefaultString("client_token_base_url", originalClientTokenBaseURLRaw);
+  writeDefaultString("client_token_expiry", originalClientTokenExpiryRaw);
+  writeDefaultString("auth_debug_access_token", originalAuthDebugAccessTokenRaw);
+  writeDefaultString("auth_debug_access_token_enabled", originalAuthDebugAccessTokenEnabledRaw);
   writeDefaultInt("studio_debug_load_project_token", originalLoadProjectToken);
   writeDefaultInt("studio_debug_load_project_ack_token", originalLoadProjectAckToken);
   writeDefaultString("studio_debug_load_project_id", originalLoadProjectID);

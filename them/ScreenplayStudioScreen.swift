@@ -656,6 +656,38 @@ private func readMirroredStudioDebugPreferenceBool(_ key: String, fallback: Bool
 #endif
 #endif
 
+private func studioDebugJSONSafeValue(_ value: Any) -> Any {
+    let mirror = Mirror(reflecting: value)
+    if mirror.displayStyle == .optional {
+        guard let child = mirror.children.first else { return NSNull() }
+        return studioDebugJSONSafeValue(child.value)
+    }
+    if value is NSNull { return value }
+    if let string = value as? String { return string }
+    if let bool = value as? Bool { return bool }
+    if let int = value as? Int { return int }
+    if let double = value as? Double { return double.isFinite ? double : 0 }
+    if let float = value as? Float { return float.isFinite ? Double(float) : 0 }
+    if let number = value as? NSNumber { return number }
+    if let array = value as? [Any] {
+        return array.map(studioDebugJSONSafeValue)
+    }
+    if let dictionary = value as? [String: Any] {
+        return dictionary.mapValues(studioDebugJSONSafeValue)
+    }
+    return String(describing: value)
+}
+
+private func studioDebugJSONString(from payload: [String: Any]) -> String {
+    let safePayload = payload.mapValues(studioDebugJSONSafeValue)
+    guard JSONSerialization.isValidJSONObject(safePayload),
+          let data = try? JSONSerialization.data(withJSONObject: safePayload, options: [.sortedKeys]),
+          let encoded = String(data: data, encoding: .utf8) else {
+        return "{}"
+    }
+    return encoded
+}
+
 private struct StudioMoveCommandModifier: ViewModifier {
     let handler: (StudioMoveDirection) -> Void
 
@@ -3194,7 +3226,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                     includeDrafts: true,
                     versionLimit: 24,
                     includeUserIdentity: !shouldUseClientTokenOwner,
-                    includeAuthToken: !shouldUseClientTokenOwner,
+                    includeAuthToken: ownerHeaders.includeAuthToken,
                     clientTokenOverride: ownerHeaders.clientTokenOverride
                 )
                 detailLoadedWithClientTokenOwner = shouldUseClientTokenOwner
@@ -3719,7 +3751,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (
             includeUserIdentity: !usesDebugClientTokenOwner,
-            includeAuthToken: !usesDebugClientTokenOwner,
+            includeAuthToken: true,
             usesDebugClientTokenOwner: usesDebugClientTokenOwner,
             clientTokenOverride: (clientTokenOverride?.isEmpty ?? true) ? nil : clientTokenOverride
         )
@@ -25019,14 +25051,13 @@ Look at the city.
                 "draft_preview": String(vm.fountainDraft.prefix(220)),
                 "draft_tail_preview": String(vm.fountainDraft.suffix(220)),
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
             studioDebugLocalCommandAckToken = studioDebugLocalCommandToken
             studioDebugLocalCommandResultToken = studioDebugLocalCommandToken
             studioDebugLocalCommandResultStatus = feedback == nil
                 ? "unhandled"
                 : (feedback?.isError == true ? "error" : "handled")
             studioDebugLocalCommandResultError = feedback?.isError == true ? (feedback?.confirmation ?? "local_command_failed") : ""
-            studioDebugLocalCommandResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugLocalCommandResultJSON = studioDebugJSONString(from: payload)
             publishDebugStudioDiffState()
         }
         #endif
@@ -25129,12 +25160,11 @@ Look at the city.
                 "last_batch_applied_fix_count": lastAppliedIntelligenceFixBatch?.appliedFixIDs.count ?? 0,
                 "latest_info_text": vm.infoText,
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
             studioDebugIntelligenceQueueAckToken = studioDebugIntelligenceQueueToken
             studioDebugIntelligenceQueueResultToken = studioDebugIntelligenceQueueToken
             studioDebugIntelligenceQueueResultStatus = status
             studioDebugIntelligenceQueueResultError = errorText
-            studioDebugIntelligenceQueueResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugIntelligenceQueueResultJSON = studioDebugJSONString(from: payload)
             publishDebugStudioDiffState()
         }
         #endif
@@ -25300,11 +25330,10 @@ Look at the city.
                 "current_cursor_line": liveDraftBridge.currentCursorLine,
                 "latest_info_text": vm.infoText,
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
             studioDebugPageWriteToastInteractionResultToken = studioDebugPageWriteToastInteractionToken
             studioDebugPageWriteToastInteractionResultStatus = status
             studioDebugPageWriteToastInteractionResultError = errorText
-            studioDebugPageWriteToastInteractionResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugPageWriteToastInteractionResultJSON = studioDebugJSONString(from: payload)
             publishDebugStudioDiffState()
         }
         #endif
@@ -25374,12 +25403,11 @@ Look at the city.
                 "selection_end_line": liveDraftBridge.editorSelection?.endLine ?? 0,
                 "latest_info_text": vm.infoText,
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
             studioDebugShortcutAckToken = studioDebugShortcutToken
             studioDebugShortcutResultToken = studioDebugShortcutToken
             studioDebugShortcutResultStatus = status
             studioDebugShortcutResultError = errorText
-            studioDebugShortcutResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugShortcutResultJSON = studioDebugJSONString(from: payload)
             publishDebugStudioDiffState()
         }
         #endif
@@ -25744,11 +25772,10 @@ Look at the city.
                 "latest_info_text": vm.infoText,
                 "vm_error_text": vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines),
             ]
-            let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
             studioDebugInspectorInteractionResultToken = studioDebugInspectorInteractionToken
             studioDebugInspectorInteractionResultStatus = status
             studioDebugInspectorInteractionResultError = errorText
-            studioDebugInspectorInteractionResultJSON = data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            studioDebugInspectorInteractionResultJSON = studioDebugJSONString(from: payload)
             mirrorStudioDebugInt(studioDebugInspectorInteractionToken, forKey: "studio_debug_inspector_interaction_result_token")
             mirrorStudioDebugString(status, forKey: "studio_debug_inspector_interaction_result_status")
             mirrorStudioDebugString(errorText, forKey: "studio_debug_inspector_interaction_result_error")
