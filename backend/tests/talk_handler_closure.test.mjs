@@ -33,9 +33,14 @@ const LIB = path.join(HERE, "..", "lib", "talk_handler.js");
 const ALLOWED_MODULE_BINDINGS = new Set([
   "randomUUID",
   "REQUIRED_DEPS",
+  "applyTalkFailureHeaders",
+  "buildTalkFailureBody",
+  "buildTalkFailureDiagnostics",
   "createChatSupplier",
   "createSttSupplier",
   "createTtsSupplier",
+  "createTalkFailureError",
+  "incrementErrorCounter",
 ]);
 
 test("[phase7b] createTalkHandler dependency boundary is complete", () => {
@@ -79,6 +84,22 @@ test("[phase7b] createTalkHandler enforces required deps at construction", async
   assert.throws(
     () => createTalkHandler(null),
     /requires a deps object/
+  );
+});
+
+test("[phase7c] extracted talk handler uses support-safe provider diagnostics", () => {
+  const src = fs.readFileSync(LIB, "utf8");
+  assert.match(src, /buildTalkFailureBody\(diagnostic\)/);
+  assert.match(src, /applyTalkFailureHeaders\(res, diagnostic\)/);
+  assert.doesNotMatch(
+    src,
+    /return\s+res\.status\([^)]*\)\.json\(\{\s*stage:\s*"(?:stt|chat|tts)"/,
+    "provider failures must flow through talk_failure_diagnostics, not raw stage/error JSON"
+  );
+  assert.doesNotMatch(
+    src,
+    /return\s+res\.status\([^)]*\)\.json\(\{\s*stage,\s*error:\s*message/,
+    "provider failures must not bypass diagnostic headers with raw stage/message JSON"
   );
 });
 

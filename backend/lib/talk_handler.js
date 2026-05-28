@@ -33,6 +33,13 @@ import {
   createSttSupplier,
   createTtsSupplier,
 } from "./talk_supplier_glue.js";
+import { incrementErrorCounter } from "./talk_error_counter.js";
+import {
+  applyTalkFailureHeaders,
+  buildTalkFailureBody,
+  buildTalkFailureDiagnostics,
+  createTalkFailureError,
+} from "./talk_failure_diagnostics.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","setPersistedUserMemoryForIp","clientIp","commitTalkIdempotencySuccess"]);
 
@@ -492,18 +499,45 @@ function createTalkHandler(deps) {
           modelName: STT_MODEL_PRIMARY,
         });
       } catch (err) {
-        const status = Number(err?.status || 500);
-        const message = String(err?.message || "Transcription failed.");
-        return res.status(status).json({ stage: "stt", error: message });
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "stt",
+          status: Number(err?.status || 500),
+          message: String(err?.message || "Transcription failed."),
+        });
       }
       sttMs = Date.now() - sttStart;
 
       if (!sttResult.response.ok) {
-        logger.log(`[${rid}] STT failed model=${sttResult.model}:`, sttResult.rawText);
-        return res.status(sttResult.response.status).json({ stage: "stt", error: sttResult.rawText });
+        const diagnostic = buildTalkFailureDiagnostics(
+          { stage: "stt", status: sttResult.response.status, rawBody: sttResult.rawText },
+          {
+            requestId: rid,
+            providerStage: "stt",
+            status: sttResult.response.status,
+            rawBody: sttResult.rawText,
+          }
+        );
+        logger.log(`[${rid}] STT failed model=${sttResult.model} ${diagnostic.supportMessage}`);
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "stt",
+          status: sttResult.response.status,
+          rawBody: sttResult.rawText,
+        });
       }
 
-      sttJson = JSON.parse(sttResult.rawText);
+      try {
+        sttJson = JSON.parse(sttResult.rawText);
+      } catch (_) {
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "stt",
+          status: 502,
+          message: "Transcription response was invalid JSON.",
+          errorClass: "response_invalid",
+        });
+      }
       transcript = String(sttJson?.text || "").trim();
       sttModelUsed = sttResult.model;
       sttUsedLanguageHint = true;
@@ -539,8 +573,17 @@ function createTalkHandler(deps) {
             });
             sttMs += Math.max(0, Number(fallbackResult.elapsedMs || 0));
             if (!fallbackResult.response.ok) {
+              const fallbackDiagnostic = buildTalkFailureDiagnostics(
+                { stage: "stt", status: fallbackResult.response.status, rawBody: fallbackResult.rawText },
+                {
+                  requestId: rid,
+                  providerStage: "stt",
+                  status: fallbackResult.response.status,
+                  rawBody: fallbackResult.rawText,
+                }
+              );
               logger.log(
-                `[${rid}] STT fallback failed model=${fallbackResult.model}: ${fallbackResult.rawText}`
+                `[${rid}] STT fallback failed model=${fallbackResult.model} ${fallbackDiagnostic.supportMessage}`
               );
               continue;
             }
@@ -553,8 +596,13 @@ function createTalkHandler(deps) {
               sttUsedLanguageHint = attempt.includeLanguage;
             }
           } catch (err) {
+            const fallbackDiagnostic = buildTalkFailureDiagnostics(err, {
+              requestId: rid,
+              providerStage: "stt",
+              status: Number(err?.status || 500),
+            });
             logger.log(
-              `[${rid}] STT fallback error model=${attempt.model} lang=${attempt.includeLanguage ? "on" : "off"} reason=${String(err?.message || err)}`
+              `[${rid}] STT fallback error model=${attempt.model} lang=${attempt.includeLanguage ? "on" : "off"} ${fallbackDiagnostic.supportMessage}`
             );
           }
         }
@@ -2778,7 +2826,12 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             maybeStartEarlyTts(streamFirstSentence);
           }
         } catch (err) {
-          logger.log(`[${rid}] CHAT stream fallback reason=${String(err?.message || err)}`);
+          const streamDiagnostic = buildTalkFailureDiagnostics(err, {
+            requestId: rid,
+            providerStage: "chat",
+            status: Number(err?.status || 500),
+          });
+          logger.log(`[${rid}] CHAT stream fallback ${streamDiagnostic.supportMessage}`);
           rawReply = "";
         }
       }
@@ -2793,13 +2846,12 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             messages: chatMessages,
           });
         } catch (err) {
-          if (String(err?.stage || "") === "chat" && Number(err?.status || 0) === 504) {
-            return res.status(504).json({
-              stage: "chat",
-              error: String(err?.message || "Chat completion timed out."),
-            });
-          }
-          throw err;
+          throw createTalkFailureError({
+            requestId: rid,
+            providerStage: "chat",
+            status: Number(err?.status || 500),
+            message: String(err?.message || "Chat completion failed."),
+          });
         }
 
         const chatResp = chatResult.response;
@@ -2807,16 +2859,47 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         chatMs = Date.now() - chatStart;
 
         if (!chatResp.ok) {
-          logger.log(`[${rid}] CHAT failed:`, chatText);
-          return res.status(chatResp.status).json({ stage: "chat", error: chatText });
+          const diagnostic = buildTalkFailureDiagnostics(
+            { stage: "chat", status: chatResp.status, rawBody: chatText },
+            {
+              requestId: rid,
+              providerStage: "chat",
+              status: chatResp.status,
+              rawBody: chatText,
+            }
+          );
+          logger.log(`[${rid}] CHAT failed ${diagnostic.supportMessage}`);
+          throw createTalkFailureError({
+            requestId: rid,
+            providerStage: "chat",
+            status: chatResp.status,
+            rawBody: chatText,
+          });
         }
 
-        const chatJson = JSON.parse(chatText);
+        let chatJson;
+        try {
+          chatJson = JSON.parse(chatText);
+        } catch (_) {
+          throw createTalkFailureError({
+            requestId: rid,
+            providerStage: "chat",
+            status: 502,
+            message: "Chat completion response was invalid JSON.",
+            errorClass: "response_invalid",
+          });
+        }
         rawReply = (chatJson.choices?.[0]?.message?.content || "").trim();
       }
 
       if (!rawReply) {
-        return res.status(400).json({ stage: "chat", error: "Empty reply." });
+        throw createTalkFailureError({
+          requestId: rid,
+          providerStage: "chat",
+          status: 502,
+          message: "Chat completion returned an empty reply.",
+          errorClass: "response_invalid",
+        });
       }
     }
 
@@ -3186,11 +3269,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             : talkScreenplayCues;
         } catch (err) {
           const status = Number(err?.status || 500);
-          const stage = String(err?.stage || "tts");
           const message = String(err?.message || "Speech synthesis failed.");
           ttsMs = Date.now() - ttsStart;
-          logger.log(`[${rid}] screenplay cue TTS failed:`, message);
-          return res.status(status).json({ stage, error: message });
+          const diagnostic = buildTalkFailureDiagnostics(err, {
+            requestId: rid,
+            providerStage: "tts",
+            status,
+          });
+          logger.log(`[${rid}] screenplay cue TTS failed ${diagnostic.supportMessage}`);
+          throw createTalkFailureError({
+            requestId: rid,
+            providerStage: "tts",
+            status,
+            message,
+          });
         }
       } else {
         ttsLeadIn = earlyTtsLeadIn || pickTtsLeadIn({ rid, transcript, reply });
@@ -3231,11 +3323,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             });
           } catch (err) {
             const status = Number(err?.status || 500);
-            const stage = String(err?.stage || "tts");
             const message = String(err?.message || "Speech synthesis failed.");
             ttsMs = Date.now() - ttsStart;
-            logger.log(`[${rid}] TTS failed:`, message);
-            return res.status(status).json({ stage, error: message });
+            const diagnostic = buildTalkFailureDiagnostics(err, {
+              requestId: rid,
+              providerStage: "tts",
+              status,
+            });
+            logger.log(`[${rid}] TTS failed ${diagnostic.supportMessage}`);
+            throw createTalkFailureError({
+              requestId: rid,
+              providerStage: "tts",
+              status,
+              message,
+            });
           }
         }
 
@@ -3254,11 +3355,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
             });
           } catch (err) {
             const status = Number(err?.status || 500);
-            const stage = String(err?.stage || "tts");
             const message = String(err?.message || "Speech synthesis failed.");
             ttsMs = Date.now() - ttsStart;
-            logger.log(`[${rid}] TTS failed:`, message);
-            return res.status(status).json({ stage, error: message });
+            const diagnostic = buildTalkFailureDiagnostics(err, {
+              requestId: rid,
+              providerStage: "tts",
+              status,
+            });
+            logger.log(`[${rid}] TTS failed ${diagnostic.supportMessage}`);
+            throw createTalkFailureError({
+              requestId: rid,
+              providerStage: "tts",
+              status,
+              message,
+            });
           }
         }
 
@@ -3277,13 +3387,25 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     }
     const combinedMp3 = secondMp3.length ? Buffer.concat([firstMp3, secondMp3]) : firstMp3;
     if (!combinedMp3.length) {
-      return res.status(502).json({ stage: "tts", error: "Speech synthesis returned empty audio." });
+      throw createTalkFailureError({
+        requestId: rid,
+        providerStage: "tts",
+        status: 502,
+        message: "Speech synthesis returned empty audio.",
+        errorClass: "response_invalid",
+      });
     }
 
     if (!isLikelyMp3Buffer(combinedMp3)) {
       const signatureHex = combinedMp3.subarray(0, 8).toString("hex");
       logger.log(`[${rid}] TTS non-MP3 signature first8=${signatureHex}`);
-      return res.status(502).json({ stage: "tts", error: "Speech synthesis output was not MP3." });
+      throw createTalkFailureError({
+        requestId: rid,
+        providerStage: "tts",
+        status: 502,
+        message: "Speech synthesis output was not MP3.",
+        errorClass: "response_invalid",
+      });
     }
 
     if (!didLogMp3SignatureLocal) {
@@ -3748,12 +3870,17 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     return res.send(audioBuffer);
   } catch (err) {
     const totalMs = Date.now() - t0;
-    const statusCode = Number(err?.status || 500);
-    const errStage = normalizeSnippet(String(err?.stage || "server"), 32).toLowerCase();
-    const errMessage = String(err?.message || err || "Internal server error.");
-    const safeErrMessage = normalizeSnippet(errMessage, 180);
+    const diagnostic = buildTalkFailureDiagnostics(err, {
+      requestId: rid,
+      providerStage: err?.stage || "server",
+      status: Number(err?.status || 500),
+    });
+    const statusCode = diagnostic.status;
+    const errStage = diagnostic.providerStage;
+    const safeErrMessage = diagnostic.publicMessage;
     clearTalkIdempotencyPending(req, { keepCompleted: true });
-    console.error(`[${rid}] Server error after ${totalMs}ms:`, err);
+    incrementErrorCounter(diagnostic.errorClass);
+    console.error(`[${rid}] talk_failure after ${totalMs}ms ${diagnostic.supportMessage}`);
 
     // Reliability guard: recover server-stage failures with a short fallback voice response
     // so the client isn't left with a hard 500/no-audio path.
@@ -3779,8 +3906,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           res.setHeader("Cache-Control", "no-store");
           res.setHeader("x-turn-status", "error_recovered");
           res.setHeader("x-continue-listening", "1");
-          res.setHeader("x-turn-error-stage", encodeURIComponent(errStage || "server"));
-          res.setHeader("x-turn-error-message", encodeURIComponent(safeErrMessage));
+          applyTalkFailureHeaders(res, diagnostic);
           res.setHeader("x-tts-provider", recoveryProvider);
           res.setHeader("x-tts-segments", "1");
           res.setHeader("x-turn-meta-available", "0");
@@ -3820,14 +3946,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
               streamAudio: Boolean(streamAudioRequested),
               recovered: true,
               stage: errStage || "server",
+              errorClass: diagnostic.errorClass,
               error: safeErrMessage,
             },
           });
           return res.status(200).send(recoveryAudio);
         }
       } catch (recoveryErr) {
+        const recoveryDiagnostic = buildTalkFailureDiagnostics(recoveryErr, {
+          requestId: rid,
+          providerStage: "tts",
+          status: Number(recoveryErr?.status || 500),
+        });
         console.error(
-          `[${rid}] talk_error_recovery_failed stage=${errStage || "server"} error=${normalizeSnippet(String(recoveryErr?.message || recoveryErr || "unknown"), 180)}`
+          `[${rid}] talk_error_recovery_failed stage=${errStage || "server"} class=${diagnostic.errorClass} recovery=${recoveryDiagnostic.supportMessage}`
         );
       }
     }
@@ -3859,11 +3991,11 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         streamAudio: Boolean(streamAudioRequested),
         error: safeErrMessage,
         stage: errStage || "server",
+        errorClass: diagnostic.errorClass,
       },
     });
-    res.setHeader("x-turn-error-stage", encodeURIComponent(errStage || "server"));
-    res.setHeader("x-turn-error-message", encodeURIComponent(safeErrMessage));
-    return res.status(statusCode).json({ stage: "server", error: errMessage });
+    applyTalkFailureHeaders(res, diagnostic);
+    return res.status(statusCode).json(buildTalkFailureBody(diagnostic));
   }
   };
 }
