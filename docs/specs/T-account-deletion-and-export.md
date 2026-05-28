@@ -134,16 +134,13 @@ Phase-1 (NEXT — the actual wiring; one PR):
    In JSON dev mode, fall back to an in-memory shim (no DB) so dev
    `npm start` still boots — the store is only meaningful in prod.
 3. **Export dep.** `exportUserData({ userId, domains })` iterates
-   `sharedPersistence.list({ domain, prefix, limit })` (signature
-   confirmed: `lib/persistence_postgres.js:98`,
-   `lib/persistence_json.js:127`). For each KNOWN_DOMAIN, list with
-   the user's key prefix. **Open question for Codex/human:** the
-   legacy memory path keys by session/ip, not user-id
-   (`index.js:26617` `/data/memories/clear` uses
-   `resolveWritableMemoryContext`, not `req.authUser`). Export
-   correctness depends on confirming the per-user key convention per
-   domain. Track as `D-account-export-key-scope` in the decisions
-   queue before Phase-1 merges.
+   `sharedPersistence.list({ domain, limit })` (signature confirmed:
+   `lib/persistence_postgres.js:103`, `lib/persistence_json.js:127`)
+   and filters rows through the resolved `D-account-export-key-scope`
+   policy: `req.authUser.id` is the trusted owner identity, while the
+   export path must match per-row ownership by accepted user-key
+   shapes plus persisted owner fields. Rows without a trusted match
+   stay out of export/delete scope.
 4. **Mount point.** Add `mountAccountRoutes(app, deps)` next to
    `mountApiVersionRoute(app, …)` (`index.js:26410`). Routes:
    `GET /account/export`, `DELETE /account`,

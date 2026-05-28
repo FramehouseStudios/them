@@ -20,6 +20,7 @@ test("[account-wiring] export reads real persistence and delete revokes sessions
   const server = await startBackend();
   try {
     const { token, userId } = await signup(server, "account-wiring@example.com");
+    const { token: otherToken } = await signup(server, "account-wiring-other@example.com");
 
     const created = await apiRequest(server, "/screenplay/projects", {
       method: "POST",
@@ -29,6 +30,15 @@ test("[account-wiring] export reads real persistence and delete revokes sessions
     assert.equal(created.status, 201, created.text);
     const projectId = String(created.json?.project_id || created.json?.project?.id || "");
     assert.ok(projectId, "screenplay project should be created");
+
+    const otherCreated = await apiRequest(server, "/screenplay/projects", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + otherToken },
+      json: { title: "Other Account Picture" },
+    });
+    assert.equal(otherCreated.status, 201, otherCreated.text);
+    const otherProjectId = String(otherCreated.json?.project_id || otherCreated.json?.project?.id || "");
+    assert.ok(otherProjectId, "other user's screenplay project should be created");
 
     const exported = await apiRequest(server, "/account/export", {
       headers: { Authorization: "Bearer " + token },
@@ -44,6 +54,10 @@ test("[account-wiring] export reads real persistence and delete revokes sessions
     assert.ok(
       screenplayRows.some((row) => JSON.stringify(row).includes(projectId)),
       "account export should include the user's persisted screenplay project"
+    );
+    assert.ok(
+      screenplayRows.every((row) => !JSON.stringify(row).includes(otherProjectId)),
+      "account export must not include another user's screenplay project"
     );
 
     const deniedDelete = await apiRequest(server, "/account", {

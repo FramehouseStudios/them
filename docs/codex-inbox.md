@@ -488,18 +488,18 @@ App Store prep (the chosen next-focus) — Phase-0 done:
   `docs/specs/T-account-deletion-and-export.md` with verified
   index.js line refs (`req.authUser.id` @ 3092, mount @ 26410,
   `sharedPersistence.list` signature confirmed).
-- **New open decision** `D-account-export-key-scope` in
-  `docs/decisions-queue.md` — the legacy memory path keys by
-  session/ip not user-id; the per-user export/delete key convention
-  must be confirmed (by Codex or human) before Phase-1 merges. A
-  conservative default is documented.
+- `D-account-export-key-scope` is now resolved in
+  `docs/decisions-queue.md`: `req.authUser.id` is the trusted
+  authenticated owner identity, but export/delete must use per-row
+  ownership checks instead of assuming every domain is keyed directly
+  by user id.
 
 Recommended next actions:
 1. Human/Codex: review + rebase `claude/backend-post-v1-audit` onto
    current main, split into PRs (themed commits make this clean), merge.
-2. Human/Codex: answer `D-account-export-key-scope`.
-3. Claude: `T-account-deletion-and-export` Phase-1 wiring once the
-   key-scope decision lands.
+2. Claude/Codex: keep account export/delete scoped through the resolved
+   per-row ownership policy; add domain-specific ownership tests when
+   new persisted domains enter the account export surface.
 
 ---
 
