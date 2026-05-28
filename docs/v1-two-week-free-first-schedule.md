@@ -6,8 +6,8 @@ The 2026-05-17 audit is now a launch input. The plan stays free-first where
 possible, but security, privacy, App Review, and CI merge safety outrank local
 smoke polish. Paid/external release inputs still come last unless already
 available: Apple Developer team/signing and production `APP_TOKEN_RELEASE`.
-The hosted production backend URL is already `https://api.them.io` unless the
-release backend changes.
+Release `BACKEND_URL` is already `https://api.them.io` unless the release
+backend changes.
 
 ## Non-Negotiable Rules
 

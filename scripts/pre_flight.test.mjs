@@ -1257,17 +1257,33 @@ test("[pre-flight] flags stale V1 launch handoff instructions", () => {
   const tmp = tempRepo();
   fs.writeFileSync(
     path.join(tmp, "docs", "v1-release-smoke-clearance.md"),
-    "Claude should fix PR #33's eval-quality failures first. Launch Doctor result: 0/4 flows passed.\n",
+    [
+      "Claude should fix PR #33's eval-quality failures first. Launch Doctor result: 0/4 flows passed.",
+      "Provide the hosted release `BACKEND_URL` and production app token.",
+      "",
+    ].join("\n"),
   );
   fs.writeFileSync(
     path.join(tmp, "scripts", "v1_launch_room.mjs"),
     "Records the Talk, Studio, Memory, and Realtime smoke result as JSON/Markdown launch proof.\n",
+  );
+  fs.mkdirSync(path.join(tmp, "them"), { recursive: true });
+  fs.writeFileSync(
+    path.join(tmp, "them", "RELEASE_RUNBOOK.md"),
+    [
+      "cd /Users/halfmutantfilms/Desktop/io.them",
+      "Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`.",
+      "",
+    ].join("\n"),
   );
   const r = runIn(tmp);
   assert.match(r.stderr, /stale-v1-launch-handoff/);
   assert.match(r.stderr, /PR #33\/#359 are merged/);
   assert.match(r.stderr, /five V1 gates/);
   assert.match(r.stderr, /include iOS Release Readiness/);
+  assert.match(r.stderr, /BACKEND_URL is already hosted/);
+  assert.match(r.stderr, /repo-relative paths/);
+  assert.match(r.stderr, /DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE only/);
 });
 
 test("[pre-flight] current V1 launch handoff instructions are NOT flagged", () => {
@@ -1279,6 +1295,15 @@ test("[pre-flight] current V1 launch handoff instructions are NOT flagged", () =
   fs.writeFileSync(
     path.join(tmp, "scripts", "v1_launch_room.mjs"),
     "Records Talk, Studio, Memory, Realtime, and iOS Release Readiness as JSON/Markdown launch proof.\n",
+  );
+  fs.mkdirSync(path.join(tmp, "them"), { recursive: true });
+  fs.writeFileSync(
+    path.join(tmp, "them", "RELEASE_RUNBOOK.md"),
+    [
+      "Fill `DEVELOPMENT_TEAM_ID` and `APP_TOKEN_RELEASE` in `them/Release.local.env`.",
+      "Keep `BACKEND_URL=https://api.them.io` unless the hosted release backend changes.",
+      "",
+    ].join("\n"),
   );
   const r = runIn(tmp);
   assert.doesNotMatch(r.stderr, /stale-v1-launch-handoff/);

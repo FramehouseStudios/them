@@ -259,6 +259,7 @@ function checkV1LaunchHandoffHasNoStaleInstructions() {
         [/Postgres eval gate/i, "PR #33/#359 eval work is merged; do not list a Postgres eval gate as parked V1 work"],
         [/OPENAI_API_KEY secret fixed by a human/i, "GitHub OPENAI_API_KEY is no longer the active V1 handoff blocker"],
         [/\b0\/4\b|four-flow/i, "Launch Doctor has five V1 gates, not four"],
+        [/production app token/i, "release readiness steps must name APP_TOKEN_RELEASE, not vague production app token wording"],
       ],
     },
     {
@@ -266,12 +267,27 @@ function checkV1LaunchHandoffHasNoStaleInstructions() {
       patterns: [
         [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "PR #33/#359 are merged; Claude should not be told to repair that lane"],
         [/\b0\/4\b|four-flow/i, "Launch Doctor has five V1 gates, not four"],
+        [/missing release `?BACKEND_URL|Provide the hosted release `?BACKEND_URL|Release `BACKEND_URL` is placeholder or unset/i, "Release BACKEND_URL is already hosted as https://api.them.io; do not list it as a missing private input"],
+        [/production app token/i, "release smoke clearance must name APP_TOKEN_RELEASE, not vague production app token wording"],
       ],
     },
     {
       file: "docs/v1-six-week-launch-plan.md",
       patterns: [
         [/Launch Doctor report says Talk, Studio, Memory, and Realtime are\s+passed/i, "Launch Doctor gate text must include iOS Release Readiness"],
+        [/hosted release backend URL|production app token/i, "superseded launch-plan text must name only current private release inputs"],
+      ],
+    },
+    {
+      file: "docs/v1-two-week-free-first-schedule.md",
+      patterns: [
+        [/missing release `?BACKEND_URL|hosted production backend URL|production app token/i, "active schedule must treat BACKEND_URL as hosted and name APP_TOKEN_RELEASE explicitly"],
+      ],
+    },
+    {
+      file: "docs/v1-release-preflight-proof.md",
+      patterns: [
+        [/`APP_TOKEN` is placeholder or unset for Release|production app token/i, "release preflight proof must name APP_TOKEN_RELEASE for the operator-owned secret"],
       ],
     },
     {
@@ -279,12 +295,39 @@ function checkV1LaunchHandoffHasNoStaleInstructions() {
       patterns: [
         [/PR #33 is now Claude-owned|eval-quality failures first|fix PR #33/i, "Claude inbox must not reopen merged #33/#359 eval-quality work"],
         [/\b0\/4\b|four-flow/i, "Claude inbox must describe the five-gate Launch Doctor state"],
+        [/hosted release\s+`BACKEND_URL`|production `APP_TOKEN`/i, "Claude inbox must not ask for stale release BACKEND_URL/APP_TOKEN inputs"],
       ],
     },
     {
       file: "scripts/v1_launch_room.mjs",
       patterns: [
         [/Talk, Studio, Memory, and Realtime smoke result/i, "launch room human option must include iOS Release Readiness"],
+      ],
+    },
+    {
+      file: "them/APP_STORE_SUBMISSION_CHECKLIST.md",
+      patterns: [
+        [/\/Users\/halfmutantfilms\/Desktop\/io\.them/i, "release checklist must use repo-relative paths, not a stale local checkout path"],
+        [/Fill `DEVELOPMENT_TEAM_ID` and `BACKEND_URL`|Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`|production app token/i, "release checklist must ask for DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE only"],
+      ],
+    },
+    {
+      file: "them/RELEASE_RUNBOOK.md",
+      patterns: [
+        [/\/Users\/halfmutantfilms\/Desktop\/io\.them/i, "release runbook must use repo-relative paths, not a stale local checkout path"],
+        [/Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`|production app token/i, "release runbook must ask for DEVELOPMENT_TEAM_ID and APP_TOKEN_RELEASE only"],
+      ],
+    },
+    {
+      file: "them/QUALITY_GATE.md",
+      patterns: [
+        [/\/Users\/halfmutantfilms\/Desktop\/io\.them/i, "quality gate docs must use repo-relative paths, not a stale local checkout path"],
+      ],
+    },
+    {
+      file: "them/APP_STORE_PRIVACY_MAPPING.md",
+      patterns: [
+        [/\/Users\/halfmutantfilms\/Desktop\/io\.them/i, "privacy mapping must use repo-relative paths, not a stale local checkout path"],
       ],
     },
   ];
