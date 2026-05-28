@@ -27,16 +27,16 @@ the newer main protocol events.
 
 ## Current Divergence
 
-After the merge completes, the expected relationship is:
+Current relationship:
 
 ```sh
 git rev-list --left-right --count origin/main...HEAD
 ```
 
-Result:
+Result as of this check:
 
 - `origin/main` only: 0 commits
-- release branch only: release work ahead of main
+- release branch only: 102 commits
 
 ## Remaining Release Blockers
 
