@@ -30,12 +30,14 @@ final class VoiceToPageOrchestrator: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var recentTurns: [(role: String, text: String)] = []
 
-    // System prompt for io.them in screenplay mode
-    private let screenplaySystemPrompt = """
+    // System prompt for io.them in screenplay mode.
+    private static let baseScreenplaySystemPrompt = """
     You are CLEMENTINE. A single unified voice — warm, sharp, emotionally fluent.
-    You are a showrunner and writing partner. Output ONLY pure Fountain screenplay format.
+    You are an emotionally present feature-screenplay writing partner. Output ONLY pure Fountain screenplay format.
     No explanation, no preamble, no questions. No meta-commentary.
     Write vivid, cinematic scenes. Push for concrete physical detail over emotional labels.
+    Protect feature-length continuity: act pressure, sequence logic, setups/payoffs, character want/need, voice, pacing, and emotional handoff.
+    When an ACTIVE DRAFT EXCERPT is provided, continue from that draft instead of restarting the scene.
     Scene headings: INT./EXT. LOCATION - TIME
     Character names: ALL CAPS on their own line.
     Dialogue: below the character name.
@@ -87,7 +89,7 @@ final class VoiceToPageOrchestrator: ObservableObject {
         do {
             let result = try await backend.talkText(
                 transcript: transcript,
-                systemPrompt: screenplaySystemPrompt
+                systemPrompt: screenplaySystemPrompt()
             )
 
             let replyText = resolvedReplyText(from: result)
@@ -134,12 +136,7 @@ final class VoiceToPageOrchestrator: ObservableObject {
 
             syncCursor.start(timeline: timeline, player: orbAudio.currentPlayer!)
 
-            // Track turns for context
-            recentTurns.append((role: "user", text: transcript))
-            recentTurns.append((role: "assistant", text: replyText))
-            if recentTurns.count > 6 {
-                recentTurns.removeFirst(2)
-            }
+            rememberTurn(user: transcript, assistant: replyText)
 
         } catch {
             HerLog.talk.error("Talk failed: \(error.localizedDescription)")
@@ -156,7 +153,7 @@ final class VoiceToPageOrchestrator: ObservableObject {
 
         do {
             let bootstrap = try await backend.fetchRealtimeClientSecret(
-                systemPrompt: screenplaySystemPrompt,
+                systemPrompt: screenplaySystemPrompt(),
                 isScreenplayMode: true,
                 realtimeProvider: ClementineRealtimeSupplierMode.storedProviderParameter()
             )
@@ -211,7 +208,7 @@ final class VoiceToPageOrchestrator: ObservableObject {
         do {
             try await backend.streamStudioText(
                 transcript: transcript,
-                systemPrompt: screenplaySystemPrompt,
+                systemPrompt: screenplaySystemPrompt(),
                 onDelta: { [weak self] delta in
                     Task { @MainActor [weak self] in
                         guard let self else { return }
@@ -237,6 +234,7 @@ final class VoiceToPageOrchestrator: ObservableObject {
                         self.fountainDraft += separator + formatted
 
                         self.streamCursor.finalize(totalText: formatted)
+                        self.rememberTurn(user: transcript, assistant: fullText)
                     }
                 }
             )
@@ -299,6 +297,53 @@ final class VoiceToPageOrchestrator: ObservableObject {
 
         let separator = fountainDraft.isEmpty ? "" : "\n\n"
         fountainDraft += separator + formatted
+    }
+
+    private func screenplaySystemPrompt() -> String {
+        Self.makeScreenplaySystemPrompt(
+            existingDraft: fountainDraft,
+            recentTurns: recentTurns
+        )
+    }
+
+    static func makeScreenplaySystemPrompt(
+        existingDraft: String = "",
+        recentTurns: [(role: String, text: String)] = []
+    ) -> String {
+        var sections = [baseScreenplaySystemPrompt]
+        let cleanDraft = existingDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanDraft.isEmpty {
+            sections.append("""
+            ACTIVE DRAFT EXCERPT (preserve continuity and continue from the live page):
+            \"\"\"
+            \(String(cleanDraft.suffix(2_400)))
+            \"\"\"
+            """)
+        }
+
+        let compactTurns = recentTurns.suffix(6).compactMap { turn -> String? in
+            let role = turn.role.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let text = turn.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !role.isEmpty, !text.isEmpty else { return nil }
+            let safeRole = role == "ASSISTANT" ? "CLEMENTINE" : role
+            return "\(safeRole): \(String(text.prefix(360)))"
+        }
+        if !compactTurns.isEmpty {
+            sections.append("""
+            RECENT VOICE-TO-PAGE TURNS (use only for continuity, do not repeat):
+            \(compactTurns.joined(separator: "\n"))
+            """)
+        }
+
+        return sections.joined(separator: "\n\n")
+    }
+
+    private func rememberTurn(user: String, assistant: String) {
+        recentTurns.append((role: "user", text: user))
+        recentTurns.append((role: "assistant", text: assistant))
+        if recentTurns.count > 6 {
+            recentTurns.removeFirst(recentTurns.count - 6)
+        }
     }
 
     private func resolvedReplyText(from result: BackendTalkResult) -> String {
