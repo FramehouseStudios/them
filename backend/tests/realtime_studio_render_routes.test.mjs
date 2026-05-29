@@ -111,6 +111,56 @@ test("[studio-render] sync: 200 with ok envelope on happy path", async () => {
   });
 });
 
+test("[studio-render] sync: page target strips screenplay chat drift", async () => {
+  const rawReply = [
+    "Absolutely - here's the continuation.",
+    "",
+    "INT. DINER - NIGHT",
+    "",
+    "Rain needles the front window.",
+    "",
+    "MARA",
+    "He came back.",
+    "",
+    "Want me to keep going?"
+  ].join("\n");
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async () => rawReply,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "continue the scene",
+      screenplay_target: "page",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, [
+      "INT. DINER - NIGHT",
+      "",
+      "Rain needles the front window.",
+      "",
+      "MARA",
+      "He came back."
+    ].join("\n"));
+  });
+});
+
+test("[studio-render] sync: voice pin target preserves conversational reply", async () => {
+  const reply = "I can keep helping you shape the scene from here.";
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async () => reply,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "help me think",
+      screenplay_target: "voice_pin",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, reply);
+  });
+});
+
 test("[studio-render] sync: 503 when OPENAI_API_KEY missing", async () => {
   const deps = defaultDeps({ getOpenAIApiKey: () => "" });
   await withTestServer(deps, async (baseURL) => {
@@ -183,6 +233,43 @@ test("[studio-render-stream] sse: emits meta + delta + done events on happy path
     // Verify the deltas are in order.
     const deltaCount = (r.text.match(/event: delta\b/g) || []).length;
     assert.equal(deltaCount, 2, "expected 2 delta events from stub");
+  });
+});
+
+test("[studio-render-stream] sse: page target strips screenplay chat drift from deltas and done", async () => {
+  const rawReply = [
+    "Absolutely - here's the continuation.",
+    "",
+    "INT. DINER - NIGHT",
+    "",
+    "Rain needles the front window.",
+    "",
+    "MARA",
+    "He came back.",
+    "",
+    "Want me to keep going?"
+  ].join("\n");
+  const deps = defaultDeps({
+    streamStudioRealtimeText: async ({ onDelta }) => {
+      const first = "Absolutely - here's the continuation.\n\n";
+      const second = `${first}INT. DINER - NIGHT\n\nRain needles the front window.\n\nMARA\nHe came back.`;
+      await onDelta(first, first);
+      await onDelta(second.slice(first.length), second);
+      await onDelta("\n\nWant me to keep going?", rawReply);
+      return rawReply;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", {
+      transcript: "continue the scene",
+      screenplay_target: "page",
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.text, /event: delta\b/);
+    assert.match(r.text, /INT\. DINER - NIGHT/);
+    assert.doesNotMatch(r.text, /Absolutely/);
+    assert.doesNotMatch(r.text, /Want me to keep going/);
   });
 });
 

@@ -39,8 +39,44 @@
 // app/client must send bearer auth plus the active client token.
 
 import express from "express";
+import { normalizeScreenplayOutputContractText } from "./screenplay_output_contract.js";
 
 const STUDIO_RENDER_BODY_LIMIT = "512kb";
+
+function normalizeStudioRenderScreenplayTarget(body = {}) {
+  const rawTarget = String(
+    body?.screenplay_target
+    ?? body?.screenplayTarget
+    ?? body?.output_target
+    ?? body?.outputTarget
+    ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  if (rawTarget === "page") return "page";
+  if (rawTarget === "voicepin" || rawTarget === "voice_pin") return "voice_pin";
+  return "";
+}
+
+function shouldApplyStudioRenderScreenplayContract(body = {}) {
+  return normalizeStudioRenderScreenplayTarget(body) === "page";
+}
+
+function contractStudioRenderReply(reply = "", shouldApplyScreenplayContract = false) {
+  const normalizedReply = String(reply || "").trim();
+  if (!shouldApplyScreenplayContract) return normalizedReply;
+  return normalizeScreenplayOutputContractText(normalizedReply);
+}
+
+function studioRenderDeltaFromContractedReply(previousReply = "", nextReply = "") {
+  const previous = String(previousReply || "");
+  const next = String(nextReply || "");
+  if (!next || next === previous) return "";
+  if (next.startsWith(previous)) {
+    return next.slice(previous.length);
+  }
+  return next;
+}
 
 function mountRealtimeStudioRenderRoutes(app, deps = {}) {
   if (!app || typeof app.post !== "function") {
@@ -97,12 +133,14 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       req.body?.system_prompt ?? req.body?.instructions ?? "",
       16_000,
     );
+    const shouldApplyScreenplayContract = shouldApplyStudioRenderScreenplayContract(req.body);
 
     try {
-      const reply = await renderStudioRealtimeText({
+      const rawReply = await renderStudioRealtimeText({
         systemPrompt,
         transcript,
       });
+      const reply = contractStudioRenderReply(rawReply, shouldApplyScreenplayContract);
       console.warn(
         `[${rid}] studio_render chars_u=${transcript.length} chars_a=${reply.length}`,
       );
@@ -148,6 +186,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       req.body?.system_prompt ?? req.body?.instructions ?? "",
       16_000,
     );
+    const shouldApplyScreenplayContract = shouldApplyStudioRenderScreenplayContract(req.body);
 
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Type", "text/event-stream");
@@ -176,21 +215,30 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     };
 
     try {
+      let lastEmittedReply = "";
       pushEvent("meta", {
         ok: true,
         action: "studio_render_stream",
         request_id: rid,
         started_at: requestStartedAtISO8601,
       });
-      const reply = await streamStudioRealtimeText({
+      const rawReply = await streamStudioRealtimeText({
         systemPrompt,
         transcript,
         onDelta: async (delta, fullReply) => {
+          const contractedFullReply = contractStudioRenderReply(fullReply, shouldApplyScreenplayContract);
+          const outboundDelta = shouldApplyScreenplayContract
+            ? studioRenderDeltaFromContractedReply(lastEmittedReply, contractedFullReply)
+            : delta;
+          if (!outboundDelta) return;
           deltaChunks += 1;
+          if (shouldApplyScreenplayContract) {
+            lastEmittedReply = contractedFullReply;
+          }
           if (firstDeltaMs === null) {
             firstDeltaMs = Math.max(0, Date.now() - requestStartedAt);
             console.warn(
-              `[${rid}] studio_render_stream first_delta_ms=${firstDeltaMs} delta_chars=${delta.length} full_chars=${fullReply.length}`,
+              `[${rid}] studio_render_stream first_delta_ms=${firstDeltaMs} delta_chars=${outboundDelta.length} full_chars=${contractedFullReply.length}`,
             );
             pushEvent("trace", {
               ok: true,
@@ -200,13 +248,22 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
               started_at: requestStartedAtISO8601,
               first_delta_ms: firstDeltaMs,
               delta_chunks: deltaChunks,
-              delta_chars: delta.length,
-              full_chars: fullReply.length,
+              delta_chars: outboundDelta.length,
+              full_chars: contractedFullReply.length,
             });
           }
-          pushEvent("delta", { delta });
+          pushEvent("delta", { delta: outboundDelta });
         },
       });
+      const reply = contractStudioRenderReply(rawReply, shouldApplyScreenplayContract);
+      if (shouldApplyScreenplayContract) {
+        const finalDelta = studioRenderDeltaFromContractedReply(lastEmittedReply, reply);
+        if (finalDelta) {
+          deltaChunks += 1;
+          pushEvent("delta", { delta: finalDelta });
+          lastEmittedReply = reply;
+        }
+      }
       const totalMs = Math.max(0, Date.now() - requestStartedAt);
       console.warn(
         `[${rid}] studio_render_stream chars_u=${transcript.length} chars_a=${reply.length} delta_chunks=${deltaChunks} first_delta_ms=${firstDeltaMs ?? -1} total_ms=${totalMs}`,

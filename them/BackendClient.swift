@@ -2107,7 +2107,8 @@ final class BackendClient {
 
     func renderRealtimeStudioText(
         transcript: String,
-        systemPrompt: String
+        systemPrompt: String,
+        screenplayTarget: String? = nil
     ) async throws -> String {
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
@@ -2116,10 +2117,14 @@ final class BackendClient {
 
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveStudioRenderUserID()
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "transcript": cleanTranscript,
             "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         ]
+        let cleanScreenplayTarget = (screenplayTarget ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanScreenplayTarget.isEmpty {
+            body["screenplay_target"] = cleanScreenplayTarget
+        }
         let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
         func performRequest(
@@ -2193,6 +2198,7 @@ final class BackendClient {
     func streamRealtimeStudioText(
         transcript: String,
         systemPrompt: String,
+        screenplayTarget: String? = nil,
         onPartial: (@Sendable (String) async -> Void)? = nil,
         onTrace: (@Sendable (BackendRealtimeStudioRenderStreamTrace) async -> Void)? = nil
     ) async throws -> String {
@@ -2203,10 +2209,14 @@ final class BackendClient {
 
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveStudioRenderUserID()
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "transcript": cleanTranscript,
             "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         ]
+        let cleanScreenplayTarget = (screenplayTarget ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanScreenplayTarget.isEmpty {
+            body["screenplay_target"] = cleanScreenplayTarget
+        }
         let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
         func performRequest(

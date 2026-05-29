@@ -6890,15 +6890,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     do {
                         return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
                             try await backend.streamRealtimeStudioText(
-                            transcript: renderTranscript,
-                            systemPrompt: systemPrompt,
-                            onPartial: { partial in
-                                await MainActor.run {
-                                    guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
-                                    self.realtimeStudioRenderedReply = partial
+                                transcript: renderTranscript,
+                                systemPrompt: systemPrompt,
+                                screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                                onPartial: { partial in
+                                    await MainActor.run {
+                                        guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
+                                        self.realtimeStudioRenderedReply = partial
+                                    }
                                 }
-                            }
-                        )
+                            )
                         }
                     } catch {
                         let partialReply = sanitizedRealtimeStudioRenderReply(realtimeStudioRenderedReply)
@@ -6916,7 +6917,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
                             try await backend.renderRealtimeStudioText(
                                 transcript: renderTranscript,
-                                systemPrompt: systemPrompt
+                                systemPrompt: systemPrompt,
+                                screenplayTarget: shouldWriteToPage ? "page" : "voice_pin"
                             )
                         }
                     }
@@ -6935,7 +6937,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
                         try await backend.renderRealtimeStudioText(
                             transcript: renderTranscript,
-                            systemPrompt: systemPrompt
+                            systemPrompt: systemPrompt,
+                            screenplayTarget: shouldWriteToPage ? "page" : "voice_pin"
                         )
                     }
                 }
@@ -8493,6 +8496,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 let renderedReply = try await backend.streamRealtimeStudioText(
                     transcript: renderTranscript,
                     systemPrompt: systemPrompt,
+                    screenplayTarget: "page",
                     onPartial: { partial in
                         await MainActor.run {
                             guard self.realtimeStudioRenderUserMessage == cleanUser else { return }
@@ -8627,7 +8631,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     let fallbackReply = sanitizedRealtimeStudioRenderReply(
                         (try? await backend.renderRealtimeStudioText(
                             transcript: renderTranscript,
-                            systemPrompt: systemPrompt
+                            systemPrompt: systemPrompt,
+                            screenplayTarget: "page"
                         )) ?? ""
                     )
                     guard !fallbackReply.isEmpty else {
@@ -8702,6 +8707,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             for: cleanUser,
             confirmedContext: confirmedContext
         )
+        let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanUser, preferredTarget: .automatic)
 
         let renderedReply: String
         if realtimeStudioRenderUserMessage == cleanUser,
@@ -8712,7 +8718,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             renderedReply = sanitizedRealtimeStudioRenderReply(
                 (try? await backend.renderRealtimeStudioText(
                     transcript: renderTranscript,
-                    systemPrompt: systemPrompt
+                    systemPrompt: systemPrompt,
+                    screenplayTarget: shouldWriteToPage ? "page" : "voice_pin"
                 )) ?? ""
             )
         }
@@ -8731,7 +8738,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 userMessage: cleanUser,
                 assistantMessage: resolvedReply
             )
-            let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanUser, preferredTarget: .automatic)
             let realtimeMemoryDomain = studioMemoryDomain(for: cleanUser, preferredTarget: .automatic)
             let insertedScreenplayText = shouldWriteToPage
                 ? applyLiveScreenplayPreview(
