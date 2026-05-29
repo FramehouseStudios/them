@@ -103,6 +103,22 @@ struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     }
 }
 
+struct ScreenplayProgrammaticDraftAutosavePolicy {
+    static func shouldAutosave(
+        hasSelectedProject: Bool,
+        autosaveEnabled: Bool,
+        hasUnsavedDraftChanges: Bool,
+        isStreamingDraftPreviewActive: Bool,
+        draft: String
+    ) -> Bool {
+        hasSelectedProject &&
+            autosaveEnabled &&
+            hasUnsavedDraftChanges &&
+            !isStreamingDraftPreviewActive &&
+            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 struct ScreenplayDraftSaveRecoveryPresentationPolicy {
     static func failureStatus(source: String) -> String {
         switch normalizedSource(source) {
@@ -2679,6 +2695,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             dirty: hasUnsavedDraftChanges
         )
         Task { await refreshDraftInsights() }
+        scheduleProgrammaticDraftAutosaveIfNeeded(source: "studio_format_normalize")
     }
 
     func importExternalDraft(_ importedDraft: String, sourceName: String, appendToExisting: Bool) {
@@ -2715,6 +2732,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             dirty: hasUnsavedDraftChanges
         )
         Task { await refreshDraftInsights() }
+        scheduleProgrammaticDraftAutosaveIfNeeded(source: "studio_import")
     }
 
     func refreshDraftInsights() async {
@@ -3448,6 +3466,20 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             serverDraft: draft
         )
         Task { await refreshDraftInsights() }
+    }
+
+    private func scheduleProgrammaticDraftAutosaveIfNeeded(source: String) {
+        guard ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+            hasSelectedProject: selectedProject != nil,
+            autosaveEnabled: autosaveEnabled,
+            hasUnsavedDraftChanges: hasUnsavedDraftChanges,
+            isStreamingDraftPreviewActive: isStreamingDraftPreviewActive,
+            draft: fountainDraft
+        ) else {
+            return
+        }
+
+        Task { await saveCurrentDraft(source: source) }
     }
 
     private func handleDraftDebouncedChange(_ draft: String) async {

@@ -186,6 +186,51 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testProgrammaticAutosaveRequiresProjectDirtyDraftAndIdleStreaming() {
+        XCTAssertTrue(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+            hasSelectedProject: true,
+            autosaveEnabled: true,
+            hasUnsavedDraftChanges: true,
+            isStreamingDraftPreviewActive: false,
+            draft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+            hasSelectedProject: false,
+            autosaveEnabled: true,
+            hasUnsavedDraftChanges: true,
+            isStreamingDraftPreviewActive: false,
+            draft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+            hasSelectedProject: true,
+            autosaveEnabled: false,
+            hasUnsavedDraftChanges: true,
+            isStreamingDraftPreviewActive: false,
+            draft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+            hasSelectedProject: true,
+            autosaveEnabled: true,
+            hasUnsavedDraftChanges: false,
+            isStreamingDraftPreviewActive: false,
+            draft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+            hasSelectedProject: true,
+            autosaveEnabled: true,
+            hasUnsavedDraftChanges: true,
+            isStreamingDraftPreviewActive: true,
+            draft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayProgrammaticDraftAutosavePolicy.shouldAutosave(
+            hasSelectedProject: true,
+            autosaveEnabled: true,
+            hasUnsavedDraftChanges: true,
+            isStreamingDraftPreviewActive: false,
+            draft: "   "
+        ))
+    }
+
     func testSaveFailurePresentationDistinguishesManualAutosaveAndSnapshot() {
         XCTAssertEqual(
             ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: "studio_manual"),
