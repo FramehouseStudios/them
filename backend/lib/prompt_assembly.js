@@ -57,6 +57,32 @@ function trimToString(v) {
   return String(v).trim();
 }
 
+function trimContextLine(v, maxChars = 220) {
+  const clean = trimToString(v).replace(/\s+/g, " ");
+  if (!clean) return "";
+  return clean.slice(0, Math.max(1, Number(maxChars || 220))).trim();
+}
+
+function sanitizeContextList(items, maxItems = 8, maxChars = 180) {
+  const source = Array.isArray(items)
+    ? items
+    : trimToString(items)
+      ? String(items).split(/\r?\n|;/)
+      : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const clean = trimContextLine(item, maxChars);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
 function hasAny(text, patterns) {
   return patterns.some((pattern) => pattern.test(text));
 }
@@ -89,6 +115,9 @@ function inferScreenplayTask(userInput = "") {
     /\b(feature|film|movie|script|screenplay|pilot)\b.*\b(finish|complete|ending|finale)\b/,
     /\b(feature[- ]length|feature film|feature screenplay|whole movie|whole script|full script)\b/,
     /\b(90|ninety|100|one hundred|110|120)\s*(?:page|pages)\b/,
+    /\b(next|another)\s+(?:5|five|10|ten|15|fifteen)\s+pages?\b/,
+    /\b(write|draft|continue)\b.*\b(act two|second act|act three|third act|final act|final sequence)\b/,
+    /\b(act two|second act|act three|third act|final act|final sequence)\b.*\b(write|draft|continue)\b/,
     /\b(act two|second act|act three|third act|finale)\b.*\b(movie|film|feature|screenplay|script)\b/,
     /\b(movie|film|feature|screenplay|script)\b.*\b(act two|second act|act three|third act|finale)\b/,
     /\b(break|shape|architect|map|outline|write|draft)\b.*\b(feature[- ]length|feature film|feature screenplay|whole movie|full script)\b/,
@@ -277,6 +306,72 @@ function buildSessionContextBlock(sessionContext) {
   if (sessionContext.phase) parts.push(`phase: ${sessionContext.phase}`);
   if (sessionContext.pack) parts.push(`pack: ${sessionContext.pack}`);
   if (sessionContext.scene) parts.push(`scene: ${sessionContext.scene}`);
+  const featureLines = [];
+  const act = trimContextLine(sessionContext.act ?? sessionContext.currentAct ?? sessionContext.current_act, 120);
+  const sceneObjective = trimContextLine(
+    sessionContext.sceneObjective ?? sessionContext.scene_objective ?? sessionContext.currentSceneObjective,
+    280
+  );
+  const sceneSummary = trimContextLine(
+    sessionContext.sceneSummary ?? sessionContext.scene_summary ?? sessionContext.currentSceneSummary,
+    280
+  );
+  const currentBeat = trimContextLine(
+    sessionContext.currentBeat ?? sessionContext.current_beat ?? sessionContext.beat,
+    220
+  );
+  const emotionalContinuity = trimContextLine(
+    sessionContext.emotionalContinuity ?? sessionContext.emotional_continuity ?? sessionContext.emotionalHandoff,
+    280
+  );
+  const pageCount = Number(sessionContext.pageCount ?? sessionContext.page_count ?? 0);
+  const targetPages = Number(sessionContext.targetPages ?? sessionContext.target_pages ?? 0);
+  if (act) featureLines.push(`    act: ${act}`);
+  if (Number.isFinite(pageCount) && pageCount > 0) featureLines.push(`    estimated_page_count: ${Math.round(pageCount)}`);
+  if (Number.isFinite(targetPages) && targetPages > 0) featureLines.push(`    target_pages: ${Math.round(targetPages)}`);
+  if (sceneObjective) featureLines.push(`    current_scene_objective: ${sceneObjective}`);
+  if (sceneSummary) featureLines.push(`    current_scene_summary: ${sceneSummary}`);
+  if (currentBeat) featureLines.push(`    current_beat: ${currentBeat}`);
+  if (emotionalContinuity) featureLines.push(`    emotional_handoff: ${emotionalContinuity}`);
+  const beatSequence = sanitizeContextList(
+    sessionContext.beatSequence ?? sessionContext.beat_sequence ?? sessionContext.selectedBeats ?? sessionContext.selected_beats,
+    8,
+    180
+  );
+  if (beatSequence.length) {
+    featureLines.push("    beat_sequence:");
+    for (const beat of beatSequence) featureLines.push(`      - ${beat}`);
+  }
+  const characterFocus = sanitizeContextList(
+    sessionContext.characterFocus ?? sessionContext.character_focus ?? sessionContext.characters ?? sessionContext.currentCharacters,
+    8,
+    120
+  );
+  if (characterFocus.length) {
+    featureLines.push("    character_focus:");
+    for (const character of characterFocus) featureLines.push(`      - ${character}`);
+  }
+  const unresolvedSetups = sanitizeContextList(
+    sessionContext.unresolvedSetups ?? sessionContext.unresolved_setups ?? sessionContext.openLoops ?? sessionContext.open_loops,
+    8,
+    220
+  );
+  if (unresolvedSetups.length) {
+    featureLines.push("    unresolved_setups:");
+    for (const setup of unresolvedSetups) featureLines.push(`      - ${setup}`);
+  }
+  const continuityNotes = sanitizeContextList(
+    sessionContext.continuityNotes ?? sessionContext.continuity_notes ?? sessionContext.notes,
+    8,
+    220
+  );
+  if (continuityNotes.length) {
+    featureLines.push("    continuity_notes:");
+    for (const note of continuityNotes) featureLines.push(`      - ${note}`);
+  }
+  if (featureLines.length) {
+    parts.push(`feature_continuity:\n${featureLines.join("\n")}`);
+  }
   const draftExcerpt = trimToString(sessionContext.draftExcerpt);
   if (draftExcerpt) {
     parts.push(`draft_excerpt:\n${draftExcerpt.split("\n").map((line) => `    ${line}`).join("\n")}`);

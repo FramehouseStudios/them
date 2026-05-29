@@ -8851,6 +8851,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             .isEmpty ? liveScreenplayPack : screenplayDraftBridge.latestPack
         let draftExcerpt = screenplayDraftBridge.draftText
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let promptContinuity = screenplayPromptContinuityContext()
         let result = await screenplayPromptBuilder.buildModelPrompt(
             backend: backend,
             request: ScreenplayPromptBuilder.Request(
@@ -8863,6 +8864,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 phase: phase,
                 pack: pack,
                 draftExcerpt: String(draftExcerpt.suffix(6_000)),
+                act: promptContinuity.act,
+                sceneObjective: promptContinuity.sceneObjective,
+                sceneSummary: promptContinuity.sceneSummary,
+                currentBeat: promptContinuity.currentBeat,
+                beatSequence: promptContinuity.beatSequence,
+                characterFocus: promptContinuity.characterFocus,
+                unresolvedSetups: promptContinuity.unresolvedSetups,
+                continuityNotes: promptContinuity.continuityNotes,
+                emotionalContinuity: promptContinuity.emotionalContinuity,
+                pageCount: promptContinuity.pageCount,
+                targetPages: promptContinuity.targetPages,
                 screenplayTaskHint: userMessage,
                 isScreenplayMode: isScreenplayMode,
                 shouldWriteToPage: shouldWriteToPage,
@@ -8895,6 +8907,84 @@ Write this approved story direction directly into screenplay pages now. Maintain
             canonicalPrompt,
             userMessage: userMessage,
             isScreenplayMode: isScreenplayMode
+        )
+    }
+
+    @MainActor
+    private func screenplayPromptContinuityContext() -> (
+        act: String,
+        sceneObjective: String,
+        sceneSummary: String,
+        currentBeat: String,
+        beatSequence: [String],
+        characterFocus: [String],
+        unresolvedSetups: [String],
+        continuityNotes: [String],
+        emotionalContinuity: String,
+        pageCount: Int,
+        targetPages: Int
+    ) {
+        let bindingSnapshot = screenplayDraftBridge.projectBinding
+        let structuredDraft = screenplayDraftBridge.structuredDraft
+        let currentLine = max(1, screenplayDraftBridge.currentCursorLine)
+        let activeBinding = bindingSnapshot.sceneBindings.last(where: { binding in
+            currentLine >= binding.draftLine && currentLine <= max(binding.draftLine, binding.draftEndLine)
+        }) ?? bindingSnapshot.sceneBindings.last
+        let activeDraftScene = activeBinding.flatMap { binding in
+            structuredDraft.scenes.first(where: { $0.id == binding.draftSceneID })
+        }
+
+        var characterFocus: [String] = []
+        for character in (activeDraftScene?.characterCues ?? []) + structuredDraft.characters {
+            let clean = character.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { continue }
+            if !characterFocus.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+                characterFocus.append(clean)
+            }
+            if characterFocus.count >= 8 { break }
+        }
+
+        let unresolvedSetups = bindingSnapshot.sceneBindings
+            .filter { !$0.isBound }
+            .prefix(4)
+            .map { "Unbound draft scene: \($0.draftShortLabel)" }
+
+        var continuityNotes: [String] = []
+        if bindingSnapshot.draftSceneCount > 0 || bindingSnapshot.outlineSceneCount > 0 {
+            continuityNotes.append(
+                "Draft-outline binding: \(bindingSnapshot.boundSceneCount)/\(max(bindingSnapshot.outlineSceneCount, bindingSnapshot.draftSceneCount)) scenes aligned."
+            )
+        }
+        if bindingSnapshot.draftCharacterCount > 0 || bindingSnapshot.projectCharacterCount > 0 {
+            continuityNotes.append(
+                "Character tracking: \(bindingSnapshot.boundCharacterCount)/\(max(bindingSnapshot.projectCharacterCount, bindingSnapshot.draftCharacterCount)) project characters matched."
+            )
+        }
+
+        let currentBeat = activeBinding?.outlineBeatLabels.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sceneObjective = activeBinding?.outlineSceneObjective?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sceneSummary = activeBinding?.outlineSceneSummary?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let emotionalContinuity = [sceneObjective, sceneSummary]
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
+        let estimatedPageCount = structuredDraft.lineCount > 0
+            ? max(1, Int(ceil(Double(structuredDraft.lineCount) / 55.0)))
+            : 0
+
+        return (
+            act: activeBinding?.actTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            sceneObjective: sceneObjective,
+            sceneSummary: sceneSummary,
+            currentBeat: currentBeat,
+            beatSequence: Array((activeBinding?.outlineBeatLabels ?? []).prefix(8)),
+            characterFocus: characterFocus,
+            unresolvedSetups: Array(unresolvedSetups),
+            continuityNotes: continuityNotes,
+            emotionalContinuity: emotionalContinuity,
+            pageCount: estimatedPageCount,
+            targetPages: estimatedPageCount >= 60 ? 110 : 0
         )
     }
 

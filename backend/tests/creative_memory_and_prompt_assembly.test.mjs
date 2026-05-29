@@ -193,6 +193,16 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
       versionId: "v3",
       phase: "scene_draft",
       pack: "Feature sprint",
+      act: "Act II",
+      sceneObjective: "June must decide whether to betray the only person still protecting her.",
+      currentBeat: "June sees the motel receipt.",
+      beatSequence: ["Receipt reveal", "Marcus lies badly", "June pockets the key"],
+      characterFocus: ["June", "Marcus"],
+      unresolvedSetups: ["The missing cassette has not paid off yet."],
+      continuityNotes: ["The outline says this scene should turn trust into suspicion."],
+      emotionalContinuity: "Carry the fear from the previous diner scene into suspicion here.",
+      pageCount: 47,
+      targetPages: 110,
       draftExcerpt: "INT. DINER - NIGHT\n\nJUNE waits with her coat still on.",
     },
     screenplayTask: inferScreenplayTask("Continue the script."),
@@ -202,6 +212,21 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("<session>"));
   assert.ok(out.includes("phase: scene_draft"));
   assert.ok(out.includes("pack: Feature sprint"));
+  assert.ok(out.includes("feature_continuity:"));
+  assert.ok(out.includes("act: Act II"));
+  assert.ok(out.includes("estimated_page_count: 47"));
+  assert.ok(out.includes("target_pages: 110"));
+  assert.ok(out.includes("current_scene_objective: June must decide whether to betray"));
+  assert.ok(out.includes("current_beat: June sees the motel receipt."));
+  assert.ok(out.includes("beat_sequence:"));
+  assert.ok(out.includes("- Marcus lies badly"));
+  assert.ok(out.includes("character_focus:"));
+  assert.ok(out.includes("- June"));
+  assert.ok(out.includes("unresolved_setups:"));
+  assert.ok(out.includes("missing cassette"));
+  assert.ok(out.includes("continuity_notes:"));
+  assert.ok(out.includes("trust into suspicion"));
+  assert.ok(out.includes("emotional_handoff: Carry the fear"));
   assert.ok(out.includes("draft_excerpt:"));
   assert.ok(out.includes("    INT. DINER - NIGHT"));
   assert.ok(out.includes("intent: continue_script"));
@@ -239,6 +264,11 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   });
   assert.ok(sceneDoctor.includes("mode_guidance: Diagnose with surgical brevity"));
   assert.ok(sceneDoctor.includes("highest-leverage fix"));
+});
+
+test("[screenplay-task] inferScreenplayTask recognizes feature-scale page requests", () => {
+  assert.equal(inferScreenplayTask("Write the next ten pages of act two.").intent, "finish_feature");
+  assert.equal(inferScreenplayTask("Continue the final sequence into act three.").intent, "finish_feature");
 });
 
 test("buildModelPrompt is deterministic (same inputs → same output)", () => {

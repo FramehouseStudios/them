@@ -69,6 +69,16 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
           phase: "scene_draft",
           pack: "Feature Sprint",
           scene: "EXT. PIER - DAWN",
+          act: "Act II",
+          scene_objective: "Mara must decide whether to tell the truth before the boat leaves.",
+          current_beat: "The tide exposes the old flare gun.",
+          beat_sequence: ["Tide pulls back", "Mara finds the flare gun", "Eli lies about the boat"],
+          character_focus: ["Mara", "Eli"],
+          unresolved_setups: ["The flare gun has been planted but not paid off."],
+          continuity_notes: ["Keep the argument under the surface until the flare appears."],
+          emotional_continuity: "Carry grief into tactical suspicion.",
+          page_count: 38,
+          target_pages: 110,
           draft_excerpt: "EXT. PIER - DAWN\n\nMARA watches the tide pull back.",
         },
         include_craft_context: true,
@@ -95,6 +105,20 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("project: proj-77"));
       assert.ok(body.prompt.includes("phase: scene_draft"));
       assert.ok(body.prompt.includes("pack: Feature Sprint"));
+      assert.ok(body.prompt.includes("feature_continuity:"));
+      assert.ok(body.prompt.includes("act: Act II"));
+      assert.ok(body.prompt.includes("current_scene_objective: Mara must decide"));
+      assert.ok(body.prompt.includes("current_beat: The tide exposes the old flare gun."));
+      assert.ok(body.prompt.includes("- Mara finds the flare gun"));
+      assert.ok(body.prompt.includes("character_focus:"));
+      assert.ok(body.prompt.includes("- Eli"));
+      assert.ok(body.prompt.includes("unresolved_setups:"));
+      assert.ok(body.prompt.includes("planted but not paid off"));
+      assert.ok(body.prompt.includes("continuity_notes:"));
+      assert.ok(body.prompt.includes("argument under the surface"));
+      assert.ok(body.prompt.includes("emotional_handoff: Carry grief into tactical suspicion."));
+      assert.ok(body.prompt.includes("estimated_page_count: 38"));
+      assert.ok(body.prompt.includes("target_pages: 110"));
       assert.ok(body.prompt.includes("draft_excerpt:"));
       assert.ok(body.prompt.includes("MARA watches the tide"));
       assert.ok(body.prompt.includes("Write the all-is-lost beat."));

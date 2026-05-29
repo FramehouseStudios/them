@@ -7,6 +7,17 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
     var phase: String = ""
     var pack: String = ""
     var draftExcerpt: String = ""
+    var act: String = ""
+    var sceneObjective: String = ""
+    var sceneSummary: String = ""
+    var currentBeat: String = ""
+    var beatSequence: [String] = []
+    var characterFocus: [String] = []
+    var unresolvedSetups: [String] = []
+    var continuityNotes: [String] = []
+    var emotionalContinuity: String = ""
+    var pageCount: Int = 0
+    var targetPages: Int = 0
 
     enum CodingKeys: String, CodingKey {
         case projectId = "project_id"
@@ -15,6 +26,17 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
         case phase
         case pack
         case draftExcerpt = "draft_excerpt"
+        case act
+        case sceneObjective = "scene_objective"
+        case sceneSummary = "scene_summary"
+        case currentBeat = "current_beat"
+        case beatSequence = "beat_sequence"
+        case characterFocus = "character_focus"
+        case unresolvedSetups = "unresolved_setups"
+        case continuityNotes = "continuity_notes"
+        case emotionalContinuity = "emotional_continuity"
+        case pageCount = "page_count"
+        case targetPages = "target_pages"
     }
 }
 
@@ -80,6 +102,17 @@ struct ScreenplayPromptBuilder {
         var phase: String = ""
         var pack: String = ""
         var draftExcerpt: String = ""
+        var act: String = ""
+        var sceneObjective: String = ""
+        var sceneSummary: String = ""
+        var currentBeat: String = ""
+        var beatSequence: [String] = []
+        var characterFocus: [String] = []
+        var unresolvedSetups: [String] = []
+        var continuityNotes: [String] = []
+        var emotionalContinuity: String = ""
+        var pageCount: Int = 0
+        var targetPages: Int = 0
         var screenplayTaskHint: String = ""
         var isScreenplayMode: Bool = false
         var shouldWriteToPage: Bool = false
@@ -175,15 +208,57 @@ struct ScreenplayPromptBuilder {
         let phase = request.phase.trimmingCharacters(in: .whitespacesAndNewlines)
         let pack = request.pack.trimmingCharacters(in: .whitespacesAndNewlines)
         let draftExcerpt = request.draftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !projectId.isEmpty || !versionId.isEmpty || !scene.isEmpty || !phase.isEmpty || !pack.isEmpty || !draftExcerpt.isEmpty else { return nil }
+        let act = request.act.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sceneObjective = request.sceneObjective.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sceneSummary = request.sceneSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentBeat = request.currentBeat.trimmingCharacters(in: .whitespacesAndNewlines)
+        let emotionalContinuity = request.emotionalContinuity.trimmingCharacters(in: .whitespacesAndNewlines)
+        let beatSequence = Self.sanitizedContextList(request.beatSequence, limit: 8)
+        let characterFocus = Self.sanitizedContextList(request.characterFocus, limit: 8)
+        let unresolvedSetups = Self.sanitizedContextList(request.unresolvedSetups, limit: 8)
+        let continuityNotes = Self.sanitizedContextList(request.continuityNotes, limit: 8)
+        let pageCount = max(0, request.pageCount)
+        let targetPages = max(0, request.targetPages)
+        guard !projectId.isEmpty || !versionId.isEmpty || !scene.isEmpty || !phase.isEmpty || !pack.isEmpty ||
+                !draftExcerpt.isEmpty || !act.isEmpty || !sceneObjective.isEmpty || !sceneSummary.isEmpty ||
+                !currentBeat.isEmpty || !emotionalContinuity.isEmpty || !beatSequence.isEmpty ||
+                !characterFocus.isEmpty || !unresolvedSetups.isEmpty || !continuityNotes.isEmpty ||
+                pageCount > 0 || targetPages > 0 else { return nil }
         return BackendScreenplayPromptSessionContext(
             projectId: projectId,
             versionId: versionId,
             scene: scene,
             phase: phase,
             pack: pack,
-            draftExcerpt: String(draftExcerpt.suffix(6_000))
+            draftExcerpt: String(draftExcerpt.suffix(6_000)),
+            act: act,
+            sceneObjective: sceneObjective,
+            sceneSummary: sceneSummary,
+            currentBeat: currentBeat,
+            beatSequence: beatSequence,
+            characterFocus: characterFocus,
+            unresolvedSetups: unresolvedSetups,
+            continuityNotes: continuityNotes,
+            emotionalContinuity: emotionalContinuity,
+            pageCount: pageCount,
+            targetPages: targetPages
         )
+    }
+
+    private static func sanitizedContextList(_ items: [String], limit: Int) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for item in items {
+            let clean = item
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(String(clean.prefix(220)))
+            if result.count >= limit { break }
+        }
+        return result
     }
 
     private static func applySpeakingPace(to systemPrompt: String, speakingPace: Double) -> String {
