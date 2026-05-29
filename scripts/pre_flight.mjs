@@ -209,6 +209,28 @@ function checkSecretHygiene() {
     }
   }
 
+  const pbxproj = path.join(repoRoot, "them.xcodeproj", "project.pbxproj");
+  const xcodeEnvBundleExclusions = [
+    "Release.local.env",
+    "Release.local.env.example",
+    ".env",
+    ".env.local",
+    ".env.production",
+  ];
+  if (fs.existsSync(pbxproj)) {
+    const pbxprojText = fs.readFileSync(pbxproj, "utf8");
+    for (const file of xcodeEnvBundleExclusions) {
+      if (!pbxprojText.includes(`"${file}"`)) {
+        add(
+          "secret-hygiene",
+          "them.xcodeproj/project.pbxproj",
+          null,
+          `Xcode synchronized target does not exclude them/${file}; add it to membershipExceptions so local env files cannot be copied into the app bundle`,
+        );
+      }
+    }
+  }
+
   const secretPatterns = [
     ["openai-project-key", /\bsk-proj-[A-Za-z0-9_-]{20,}\b/g],
     ["openai-secret-key", /\bsk-[A-Za-z0-9_-]{32,}\b/g],

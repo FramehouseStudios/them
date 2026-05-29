@@ -248,6 +248,21 @@ if xcodebuild \
   "${xcodebuild_overrides[@]}" \
   -quiet build >/tmp/them_release_preflight_build.log 2>&1; then
   ok "Release iPhone build succeeds."
+  built_app="$DERIVED_DATA_PATH/Build/Products/Release-iphoneos/them.app"
+  if [[ -d "$built_app" ]]; then
+    leaked_env_count=0
+    for forbidden_env in Release.local.env Release.local.env.example .env .env.local .env.production; do
+      if [[ -e "$built_app/$forbidden_env" ]]; then
+        fail "Release app bundle contains local env artifact: $forbidden_env"
+        leaked_env_count=$((leaked_env_count + 1))
+      fi
+    done
+    if [[ "$leaked_env_count" -eq 0 ]]; then
+      ok "Release app bundle excludes local env artifacts."
+    fi
+  else
+    warn "Release build succeeded but app bundle was not found for env-artifact inspection: $built_app"
+  fi
 else
   if rg -n "swift-plugin-server|sandbox_apply: Operation not permitted|CoreSimulatorService connection became invalid" /tmp/them_release_preflight_build.log >/dev/null 2>&1; then
     warn "Release build check hit local sandbox/tooling limits in this environment. Re-run locally in Xcode to confirm archive."
