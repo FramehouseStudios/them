@@ -1503,6 +1503,20 @@ private func reconcileScreenplayParagraphElements(
     return result
 }
 
+struct ScreenplayLiveDraftTextPersistencePolicy {
+    static func draftForStorage(_ draft: String) -> String? {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft
+    }
+
+    static func restoredDraft(from storedDraft: String?) -> String {
+        guard let storedDraft,
+              !storedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
+        }
+        return storedDraft
+    }
+}
+
 @MainActor
 final class ScreenplayLiveDraftBridge: ObservableObject {
     static let shared = ScreenplayLiveDraftBridge()
@@ -1519,6 +1533,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     private static let autoInsertStorageKey = "studio_auto_insert"
     private static let activeElementStorageKey = "studio_active_screenplay_element_v1"
+    private static let draftTextStorageKey = "studio_live_draft_text_v1"
     private static let structuredDraftStorageKey = "studio_structured_draft_v1"
     private static let projectRecentTurnsStorageKey = "studio_project_recent_turns_v1"
     private static let companionRecentTurnsStorageKey = "studio_companion_recent_turns_v1"
@@ -1734,12 +1749,17 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
            let mode = StudioCompanionMode(rawValue: savedMode) {
             self.companionMode = mode
         }
+        let restoredDraftText = Self.restoreDraftText()
         self.structuredDraft = Self.restoreStructuredDraft()
+        self.draftText = restoredDraftText
         self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey)
         self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey)
         persistActiveElementDebugMirror()
         persistStudioRoutingDebugMirror()
         persistProjectBindingDebugMirror()
+        if ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(restoredDraftText) != nil {
+            syncStructuredDraftSnapshot(text: restoredDraftText)
+        }
         refreshIntelligenceReport()
     }
 
@@ -1758,6 +1778,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode(ScreenplayStructuredDraft.self, from: data)) ?? .empty
     }
 
+    private static func restoreDraftText() -> String {
+        ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(
+            from: UserDefaults.standard.string(forKey: draftTextStorageKey)
+        )
+    }
+
     private static func restoreConversationTurns(forKey key: String) -> [ScreenplayConversationTurn] {
         guard let stored = UserDefaults.standard.string(forKey: key),
               let data = stored.data(using: .utf8) else {
@@ -1774,6 +1800,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard let data = try? encoder.encode(structuredDraft),
               let encoded = String(data: data, encoding: .utf8) else { return }
         UserDefaults.standard.set(encoded, forKey: Self.structuredDraftStorageKey)
+    }
+
+    private func persistDraftText(_ text: String) {
+        if let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(text) {
+            UserDefaults.standard.set(draft, forKey: Self.draftTextStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.draftTextStorageKey)
+        }
     }
 
     private func persistConversationTurns(_ turns: [ScreenplayConversationTurn], key: String) {
@@ -1995,6 +2029,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         text: String,
         elements explicitElements: [ScreenplayEditorElement?]? = nil
     ) {
+        persistDraftText(text)
         let previousStructuredDraft = structuredDraft
         let resolvedElements = explicitElements ?? bootstrapScreenplayParagraphElements(for: text)
         let lines = screenplayLineTexts(text)

@@ -294,6 +294,26 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(ScreenplayStudioHistoryMigrationPolicy.isProjectHistoryKey(" project:abc "))
     }
 
+    func testLiveDraftTextPersistenceKeepsMeaningfulScreenplayExactly() {
+        let draft = """
+
+        INT. DINER - NIGHT
+
+        CLEMENTINE
+        Keep the last line alive.
+
+        """
+
+        XCTAssertEqual(ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(draft), draft)
+        XCTAssertEqual(ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(from: draft), draft)
+    }
+
+    func testLiveDraftTextPersistenceClearsEmptyDrafts() {
+        XCTAssertNil(ScreenplayLiveDraftTextPersistencePolicy.draftForStorage("   \n\t  "))
+        XCTAssertEqual(ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(from: nil), "")
+        XCTAssertEqual(ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(from: "   \n\t  "), "")
+    }
+
     func testSaveFailurePresentationDistinguishesManualAutosaveAndSnapshot() {
         XCTAssertEqual(
             ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: "studio_manual"),
