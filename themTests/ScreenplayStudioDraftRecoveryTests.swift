@@ -269,6 +269,31 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testHistoryMigrationPolicyOnlyMovesLiveDraftIntoProjectKey() {
+        XCTAssertTrue(ScreenplayStudioHistoryMigrationPolicy.shouldMoveLiveDraftHistory(
+            from: "live-draft",
+            to: "project:project-a",
+            liveDraftEntryCount: 1
+        ))
+        XCTAssertFalse(ScreenplayStudioHistoryMigrationPolicy.shouldMoveLiveDraftHistory(
+            from: "project:old",
+            to: "project:project-a",
+            liveDraftEntryCount: 1
+        ))
+        XCTAssertFalse(ScreenplayStudioHistoryMigrationPolicy.shouldMoveLiveDraftHistory(
+            from: "live-draft",
+            to: "live-draft",
+            liveDraftEntryCount: 1
+        ))
+        XCTAssertFalse(ScreenplayStudioHistoryMigrationPolicy.shouldMoveLiveDraftHistory(
+            from: "live-draft",
+            to: "project:project-a",
+            liveDraftEntryCount: 0
+        ))
+        XCTAssertFalse(ScreenplayStudioHistoryMigrationPolicy.isProjectHistoryKey("project:   "))
+        XCTAssertTrue(ScreenplayStudioHistoryMigrationPolicy.isProjectHistoryKey(" project:abc "))
+    }
+
     func testSaveFailurePresentationDistinguishesManualAutosaveAndSnapshot() {
         XCTAssertEqual(
             ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: "studio_manual"),

@@ -141,6 +141,26 @@ struct ScreenplayBridgeVersionAdoptionPolicy {
     }
 }
 
+struct ScreenplayStudioHistoryMigrationPolicy {
+    static let liveDraftKey = "live-draft"
+
+    static func shouldMoveLiveDraftHistory(
+        from oldKey: String,
+        to newKey: String,
+        liveDraftEntryCount: Int
+    ) -> Bool {
+        oldKey.trimmingCharacters(in: .whitespacesAndNewlines) == liveDraftKey &&
+            isProjectHistoryKey(newKey) &&
+            liveDraftEntryCount > 0
+    }
+
+    static func isProjectHistoryKey(_ key: String) -> Bool {
+        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.hasPrefix("project:") else { return false }
+        return !normalized.dropFirst("project:".count).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 struct ScreenplayDraftSaveRecoveryPresentationPolicy {
     static func failureStatus(source: String) -> String {
         switch normalizedSource(source) {
@@ -5316,25 +5336,34 @@ Replace is best when this file should become the script you edit. Append is safe
     private var studioProjectStateBoundView: some View {
         studioBrowseStateBoundView
             .onChange(of: activeStudioAskNoteHistoryKey) { oldValue, newValue in
-                persistSelectedStudioThreadID(highlightedStudioExchangeID, for: oldValue)
-                persistAcknowledgedStudioDiffs(currentAcknowledgedStudioDiffRecords(), for: oldValue)
-                persistAcknowledgedStudioDiffWriteIDs(currentAcknowledgedStudioDiffWriteIDs(), for: oldValue)
-                persistFullThreadBrowseState(for: oldValue)
-                restoreFullThreadBrowseState(for: newValue)
-                focusedPageDiffExchangeID = nil
-                let restoredAcknowledgements = restoredAcknowledgedStudioDiffRecords(for: newValue)
-                acknowledgedDiffFingerprints = restoredAcknowledgements
-                acknowledgedDiffExchangeKeys = Set(restoredAcknowledgements.keys)
-                acknowledgedDiffWriteIDs = restoredAcknowledgedStudioDiffWriteIDs(for: newValue)
-                isAwaitingInitialAcknowledgedDiffHydration =
-                    !restoredAcknowledgements.isEmpty
-                    || !acknowledgedDiffWriteIDs.isEmpty
-                    || !reopenedDiffExchangeKeys.isEmpty
-                publishDebugStudioDiffState()
-                Task {
-                    await restoreStudioAskNoteHistory(for: newValue)
-                }
+                handleActiveStudioAskNoteHistoryKeyChange(from: oldValue, to: newValue)
             }
+    }
+
+    private func handleActiveStudioAskNoteHistoryKeyChange(from oldValue: String, to newValue: String) {
+        persistStudioAskNoteHistory(studioAskNoteHistory, for: oldValue)
+        persistSelectedStudioThreadID(highlightedStudioExchangeID, for: oldValue)
+        persistAcknowledgedStudioDiffs(currentAcknowledgedStudioDiffRecords(), for: oldValue)
+        persistAcknowledgedStudioDiffWriteIDs(currentAcknowledgedStudioDiffWriteIDs(), for: oldValue)
+        persistFullThreadBrowseState(for: oldValue)
+        let migratedLiveDraftHistory = migrateLiveDraftHistoryToProjectIfNeeded(from: oldValue, to: newValue)
+        restoreFullThreadBrowseState(for: newValue)
+        focusedPageDiffExchangeID = nil
+        let restoredAcknowledgements = restoredAcknowledgedStudioDiffRecords(for: newValue)
+        acknowledgedDiffFingerprints = restoredAcknowledgements
+        acknowledgedDiffExchangeKeys = Set(restoredAcknowledgements.keys)
+        acknowledgedDiffWriteIDs = restoredAcknowledgedStudioDiffWriteIDs(for: newValue)
+        isAwaitingInitialAcknowledgedDiffHydration =
+            !restoredAcknowledgements.isEmpty
+            || !acknowledgedDiffWriteIDs.isEmpty
+            || !reopenedDiffExchangeKeys.isEmpty
+        publishDebugStudioDiffState()
+        Task {
+            await restoreStudioAskNoteHistory(for: newValue)
+            if migratedLiveDraftHistory {
+                vm.infoText = "Carried this first Studio thread into the new project."
+            }
+        }
     }
 
     private var studioBrowseStateBoundView: some View {
@@ -20850,6 +20879,30 @@ Return revised screenplay lines only.
             return "project:\(preferred)"
         }
         return "live-draft"
+    }
+
+    @discardableResult
+    private func migrateLiveDraftHistoryToProjectIfNeeded(from oldKey: String, to newKey: String) -> Bool {
+        let store = loadStudioAskNoteHistoryMap()
+        let liveEntries = Array(
+            (store[oldKey] ?? studioAskNoteHistory)
+                .prefix(24)
+        )
+        guard ScreenplayStudioHistoryMigrationPolicy.shouldMoveLiveDraftHistory(
+            from: oldKey,
+            to: newKey,
+            liveDraftEntryCount: liveEntries.count
+        ) else {
+            return false
+        }
+
+        let existingProjectEntries = Array((store[newKey] ?? []).prefix(24))
+        let merged = mergedStudioThreadHistory(local: liveEntries, remote: existingProjectEntries)
+        persistStudioAskNoteHistory(merged, for: newKey)
+        persistStudioWriteAnchorSnapshot(from: merged, for: newKey, versionID: vm.latestVersionID)
+        persistSelectedStudioThreadID(highlightedStudioExchangeID, for: newKey)
+        persistStudioAskNoteHistory([], for: oldKey)
+        return true
     }
 
     private func reloadStudioAskNoteExchange(_ exchange: StudioAskNoteExchange) {
