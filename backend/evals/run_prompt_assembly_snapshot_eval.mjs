@@ -4,13 +4,13 @@
 //
 // buildModelPrompt() concatenates labelled blocks in a fixed order:
 //
-//   persona → <creative_memory> → <session> → <accepted_twists> → <block_signal> → userInput
+//   persona → <creative_memory> → <session> → <accepted_twists> → <screenplay_task> → <block_signal> → userInput
 //
 // Several downstream concerns depend on that ordering (model
 // attention, the prompt-regression baseline, iOS prompt previews).
-// This eval pins the order with a deterministic fixture and a literal
-// expected string, so a refactor that re-orders blocks (or sneaks in
-// a new one) fails fast and forces a deliberate decision.
+// This eval pins the core order with a deterministic fixture and a
+// literal expected string, then separately verifies the optional
+// screenplay-task insertion point.
 //
 // Deterministic, no LLM, no I/O. Should be wired into the eval gate.
 
@@ -100,6 +100,24 @@ check(
     indexOfSession < indexOfAcceptedTwists &&
     indexOfAcceptedTwists < indexOfBlockSignal &&
     indexOfBlockSignal < indexOfUserInput,
+);
+
+const taskActual = buildModelPrompt({
+  ...fixture,
+  screenplayTask: {
+    intent: "finish_feature",
+    label: "Finish Feature",
+    output: "Help the writer finish the larger script.",
+  },
+});
+const taskIndexOfAcceptedTwists = taskActual.indexOf("<accepted_twists>");
+const taskIndexOfScreenplayTask = taskActual.indexOf("<screenplay_task>");
+const taskIndexOfBlockSignal = taskActual.indexOf("<block_signal>");
+check(
+  "ordering: optional screenplay-task sits between accepted-twists and block-signal",
+  taskIndexOfAcceptedTwists >= 0 &&
+    taskIndexOfAcceptedTwists < taskIndexOfScreenplayTask &&
+    taskIndexOfScreenplayTask < taskIndexOfBlockSignal,
 );
 
 // A cold-fixture variant: only persona + userInput, no extra blocks.

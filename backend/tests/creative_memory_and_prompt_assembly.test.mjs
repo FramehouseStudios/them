@@ -170,6 +170,8 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
   assert.equal(inferScreenplayTask("Rewrite this scene with more subtext.").intent, "rewrite_scene");
   assert.equal(inferScreenplayTask("Continue the script from this moment.").intent, "continue_script");
   assert.equal(inferScreenplayTask("Help me finish this feature film.").intent, "finish_feature");
+  assert.equal(inferScreenplayTask("I need help finishing this feature-length screenplay.").intent, "finish_feature");
+  assert.equal(inferScreenplayTask("Help me shape act two of the whole movie.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Give me scene doctor notes.").intent, "scene_doctor");
   assert.equal(inferScreenplayTask("Punch up the dialogue.").intent, "dialogue_punchup");
   assert.equal(inferScreenplayTask("Fix the emotional continuity.").intent, "emotional_continuity");
@@ -203,6 +205,9 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("draft_excerpt:"));
   assert.ok(out.includes("    INT. DINER - NIGHT"));
   assert.ok(out.includes("intent: continue_script"));
+  assert.ok(out.includes("feature-length continuity"));
+  assert.ok(out.includes("emotionally present"));
+  assert.ok(out.includes("clean playable Fountain"));
 });
 
 test("[screenplay-task] buildModelPrompt injects task block before user input", () => {

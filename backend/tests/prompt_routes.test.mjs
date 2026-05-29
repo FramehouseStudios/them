@@ -164,6 +164,7 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
       ["Replace that line with something sharper.", "rewrite_scene", "replace only the requested span"],
       ["Scene doctor this kitchen confrontation and tell me what's not working.", "scene_doctor", "highest-leverage fix"],
       ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "only playable replacement screenplay text"],
+      ["Help me finish this feature-length screenplay.", "finish_feature", "diagnose act/sequence pressure"],
     ];
 
     for (const [hint, expectedIntent, expectedContract] of cases) {

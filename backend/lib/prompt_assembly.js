@@ -34,6 +34,13 @@ const ACCEPTED_TWISTS_BLOCK_OPEN = "<accepted_twists>";
 const ACCEPTED_TWISTS_BLOCK_CLOSE = "</accepted_twists>";
 const SCREENPLAY_TASK_BLOCK_OPEN = "<screenplay_task>";
 const SCREENPLAY_TASK_BLOCK_CLOSE = "</screenplay_task>";
+const CLEMENTINE_CREATIVE_PACT = [
+  "presence: Clementine is warm, emotionally present, quietly proactive, and human-feeling without impersonating any specific film character.",
+  "feature-length continuity: protect act pressure, sequence logic, setups/payoffs, character want/need, and page-to-page emotional handoff.",
+  "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation.",
+  "collaboration: ask at most one clarifying question only when genuinely blocked; otherwise make the next best creative move.",
+  "format discipline: when writing or revising pages, prefer clean playable Fountain unless the user explicitly asks for analysis.",
+];
 
 function isNonEmptyObject(v) {
   return v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length > 0;
@@ -75,6 +82,16 @@ function inferScreenplayTask(userInput = "") {
   const continueLike = hasAny(lower, [
     /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|finish this scene|from here)\b/,
   ]);
+  const featureCompletionLike = hasAny(lower, [
+    /\b(finish|complete|help me finish|land the ending|ending)\b.*\b(feature|film|movie|script|screenplay|pilot)\b/,
+    /\b(feature|film|movie|script|screenplay|pilot)\b.*\b(finish|complete|ending|finale)\b/,
+    /\b(feature[- ]length|feature film|feature screenplay|whole movie|whole script|full script)\b/,
+    /\b(90|ninety|100|one hundred|110|120)\s*(?:page|pages)\b/,
+    /\b(act two|second act|act three|third act|finale)\b.*\b(movie|film|feature|screenplay|script)\b/,
+    /\b(movie|film|feature|screenplay|script)\b.*\b(act two|second act|act three|third act|finale)\b/,
+    /\b(break|shape|architect|map|outline|write|draft)\b.*\b(feature[- ]length|feature film|feature screenplay|whole movie|full script)\b/,
+    /\b(feature[- ]length|feature film|feature screenplay|whole movie|full script)\b.*\b(break|shape|architect|map|outline|write|draft)\b/,
+  ]);
 
   let intent = "general_story";
   let label = "General Story Help";
@@ -92,14 +109,14 @@ function inferScreenplayTask(userInput = "") {
     intent = "rewrite_scene";
     label = "Rewrite Scene";
     output = "Return a revised scene or targeted passage in clean screenplay/Fountain style. Preserve story intent and continuity, replace only the requested span when the user names one, and improve specificity, rhythm, and emotional truth.";
-  } else if (hasAny(lower, [/\b(finish|complete|help me finish|land the ending|ending)\b.*\b(feature|film|movie|script|screenplay|pilot)\b/, /\b(feature|film|movie|script|screenplay|pilot)\b.*\b(finish|complete|ending|finale)\b/])) {
+  } else if (featureCompletionLike) {
     intent = "finish_feature";
     label = "Finish Feature";
-    output = "Help the writer finish the larger script: identify the next highest-leverage pages, preserve emotional continuity, and move toward a playable ending.";
+    output = "Help the writer finish the larger script: diagnose act/sequence pressure, identify the next highest-leverage pages, preserve emotional continuity, and move toward a playable ending. When useful, propose the next 3 pages in clean Fountain style.";
   } else if (continueLike) {
     intent = "continue_script";
     label = "Continue Script";
-    output = "Continue from the current draft in screenplay/Fountain style, matching tone, character voice, pacing, and emotional continuity. Do not restart the scene unless the user asks.";
+    output = "Continue from the current draft in screenplay/Fountain style, matching tone, character voice, pacing, subtext, and emotional continuity. Treat the supplied draft as active continuity and do not restart the scene unless the user asks.";
   } else if (hasAny(lower, [/\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/, /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/])) {
     intent = "write_scene";
     label = "Write Scene";
@@ -146,6 +163,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
     `intent: ${intent}`,
     `label: ${label}`,
     "role: Clementine is an elite cinematic writing partner, not a generic chatbot.",
+    ...CLEMENTINE_CREATIVE_PACT,
   ];
   if (output) lines.push(`output: ${output}`);
   lines.push("quality: Be emotionally intelligent, specific, film-literate, concise when possible, and directly useful on the page.");
