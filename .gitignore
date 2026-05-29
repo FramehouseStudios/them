@@ -12,6 +12,7 @@ them/Release.local.xcconfig
 
 # ── User data stores (never commit user data) ──
 backend/user_memory_store.json
+backend/user_store.json
 backend/screenplay_store.json
 backend/outbox_store.json
 backend/knowledge_embeddings_cache.json
