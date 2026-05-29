@@ -17,6 +17,7 @@ async function withTestServer(fn, {
   memory = null,
   craftBlock = "",
   userId = "user-prompt-1",
+  promptRouteDeps = {},
 } = {}) {
   let requestedMemoryUserId = "";
   const app = express();
@@ -35,6 +36,7 @@ async function withTestServer(fn, {
     buildCraftContextBlock({ framework }) {
       return craftBlock ? `${craftBlock} (${framework})` : "";
     },
+    ...promptRouteDeps,
   });
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
@@ -205,6 +207,96 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
       assert.ok(body.prompt.includes(expectedContract));
     }
   });
+});
+
+test("POST /screenplay/prompt/build hydrates missing feature context from saved project/version", async () => {
+  const owner = {
+    projects: [
+      {
+        id: "saved-feature-1",
+        title: "The Blue Hour",
+        activeVersionId: "v2",
+        lastPhase: "scene_draft",
+        targetPages: 110,
+        characters: ["June", "Marcus", "June"],
+        outline: {
+          acts: [{ id: "act2", label: "Act II" }],
+          beats: [
+            { id: "b1", label: "Receipt reveal" },
+            { id: "b2", label: "Marcus lies badly" },
+          ],
+          scenes: [
+            {
+              id: "s2",
+              heading: "INT. MOTEL ROOM - NIGHT",
+              actId: "act2",
+              objective: "June decides whether to burn the evidence or save Marcus.",
+              summary: "The receipt exposes the lie but not the motive.",
+              emotionalContinuity: "Carry diner fear into private suspicion.",
+            },
+          ],
+        },
+        versions: [
+          {
+            id: "v2",
+            phase: "scene_draft",
+            draft: [
+              "INT. MOTEL ROOM - NIGHT",
+              "",
+              "JUNE studies the damp receipt under the bathroom light.",
+              "",
+              "MARCUS",
+              "You have to trust me before sunrise.",
+            ].join("\n"),
+          },
+        ],
+      },
+    ],
+  };
+
+  await withTestServer(
+    async ({ baseURL }) => {
+      const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+        persona: "You are Clementine, a cinematic screenwriting partner.",
+        user_input: "",
+        screenplay_task_hint: "Write the next ten pages of act two.",
+        session_context: {
+          project_id: "saved-feature-1",
+        },
+      });
+
+      assert.equal(status, 200);
+      assert.equal(body.ok, true);
+      assert.equal(body.session_context_applied, true);
+      assert.equal(body.session_context_hydrated, true);
+      assert.equal(body.screenplay_task_intent, "finish_feature");
+      assert.ok(body.prompt.includes("project: saved-feature-1"));
+      assert.ok(body.prompt.includes("version: v2"));
+      assert.ok(body.prompt.includes("pack: The Blue Hour"));
+      assert.ok(body.prompt.includes("scene: INT. MOTEL ROOM - NIGHT"));
+      assert.ok(body.prompt.includes("feature_continuity:"));
+      assert.ok(body.prompt.includes("act: Act II"));
+      assert.ok(body.prompt.includes("target_pages: 110"));
+      assert.ok(body.prompt.includes("current_scene_objective: June decides whether to burn"));
+      assert.ok(body.prompt.includes("current_scene_summary: The receipt exposes"));
+      assert.ok(body.prompt.includes("current_beat: Marcus lies badly"));
+      assert.ok(body.prompt.includes("- Receipt reveal"));
+      assert.ok(body.prompt.includes("- Marcus"));
+      assert.ok(body.prompt.includes("Saved project: The Blue Hour"));
+      assert.ok(body.prompt.includes("emotional_handoff: Carry diner fear"));
+      assert.ok(body.prompt.includes("draft_excerpt:"));
+      assert.ok(body.prompt.includes("JUNE studies the damp receipt"));
+    },
+    {
+      promptRouteDeps: {
+        getOrCreateScreenplayOwnerRecord: () => owner,
+        getScreenplayProjectRecord: (record, projectId) => {
+          return (record.projects || []).find((project) => project.id === projectId) || null;
+        },
+        getLatestScreenplayVersion: (project) => project.versions?.[0] || null,
+      },
+    }
+  );
 });
 
 test("POST /screenplay/prompt/build rejects empty prompt payloads", async () => {

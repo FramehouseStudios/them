@@ -28334,6 +28334,9 @@ mountCraftRoutes(app);
 mountPromptRoutes(app, {
   creativeMemoryStore,
   buildCraftContextBlock,
+  getOrCreateScreenplayOwnerRecord,
+  getScreenplayProjectRecord,
+  getLatestScreenplayVersion,
 });
 // T-screenplay-import-fountain: POST /screenplay/import/fountain.
 // Reverse of T-fountain-export-endpoint. Parses Fountain text into
