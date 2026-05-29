@@ -276,9 +276,22 @@ test(
 );
 
 test(
-  "talk debug-offline page-write responses expose deterministic authoritative sync payload",
+  "talk debug-offline page-write responses expose authoritative sync payload without chat drift",
   { timeout: 120_000, skip: !SPAWN_BACKEND_FOR_TESTS || RECOVERY_ONLY_MODE },
   async () => {
+    const rawScreenplayTranscript = [
+      "Absolutely - here's the continuation.",
+      "",
+      "INT. DINER - NIGHT",
+      "",
+      "Rain needles the front window while neon bleeds across the counter.",
+      "",
+      "MARA",
+      "(low)",
+      "He came back.",
+      "",
+      "Want me to keep going?"
+    ].join("\n");
     const screenplayTranscript = [
       "INT. DINER - NIGHT",
       "",
@@ -292,7 +305,7 @@ test(
     const { res, headers } = await postTalk("", {
       fields: {
         client_transcript: "Write the prepared screenplay block to the page.",
-        screenplay_generation_transcript: screenplayTranscript,
+        screenplay_generation_transcript: rawScreenplayTranscript,
         screenplay_project_id: "integration-debug-sync-project",
         screenplay_document_revision_id: "integration-version-42",
         screenplay_target: "page",

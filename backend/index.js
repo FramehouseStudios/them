@@ -69,6 +69,7 @@ import { mountApiVersionRoute } from "./lib/api_version_route.js";
 import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
+import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
@@ -3850,7 +3851,7 @@ function expandTalkInlineScreenplayParts(line = "") {
 }
 
 function normalizeTalkPageReply(text = "") {
-  const normalized = normalizeTalkScreenplayText(text);
+  const normalized = normalizeTalkScreenplayText(normalizeScreenplayOutputContractText(text));
   if (!normalized) return "";
 
   const rawLines = normalized.split("\n");
@@ -4004,7 +4005,8 @@ function buildTalkPromptBlockScreenplayOutput(transcript = "") {
 }
 
 function buildTalkDirectTranscriptScreenplayOutput(transcript = "") {
-  const normalizedText = normalizeTalkMultilineSnippet(transcript)
+  const contractedTranscript = normalizeScreenplayOutputContractText(transcript);
+  const normalizedText = (normalizeTalkPageReply(contractedTranscript) || normalizeTalkMultilineSnippet(contractedTranscript))
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!normalizedText) return null;
