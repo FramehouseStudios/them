@@ -15,6 +15,7 @@ backend/user_memory_store.json
 backend/screenplay_store.json
 backend/outbox_store.json
 backend/knowledge_embeddings_cache.json
+backend/data/
 
 # ── Node ──
 node_modules/

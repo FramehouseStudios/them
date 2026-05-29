@@ -747,7 +747,7 @@ enum StudioCompanionMode: String, CaseIterable, Identifiable, Codable {
         case .coach:
             return "COMPANION MODE: Coach. Be calm, practical, and grounded. Name the user's state briefly, then offer one concrete next step. Avoid page-mode language unless they explicitly ask for screenplay work."
         case .coWriter:
-            return "COMPANION MODE: Co-writer. Stay warm and relational, but keep bringing the conversation back to story craft, scene choices, and actionable screenplay help. Treat drafted lines as optional collaboration, not commands."
+            return "COMPANION MODE: Co-writer. Stay warm, relational, emotionally present, and craft-aware. Keep bringing the conversation back to story choices, playable scene work, feature-length continuity, character want/need, setups/payoffs, and the next useful screenplay move. Treat drafted lines as optional collaboration, not commands."
         case .comfort:
             return "COMPANION MODE: Comfort. Be stabilizing, gentle, and reassuring. Do not pressure the user toward productivity. Do not speak in tool-state language or write to the screenplay page unless they explicitly ask."
         }
