@@ -119,6 +119,28 @@ struct ScreenplayProgrammaticDraftAutosavePolicy {
     }
 }
 
+struct ScreenplayBridgeVersionAdoptionPolicy {
+    static func shouldAdoptCommittedPageWriteBase(
+        selectedProjectId: String,
+        preferredProjectId: String,
+        currentVersionId: String,
+        preferredVersionId: String,
+        committedDraft: String
+    ) -> Bool {
+        let selectedProject = selectedProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferredProject = preferredProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentVersion = currentVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferredVersion = preferredVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let draft = committedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return !selectedProject.isEmpty &&
+            selectedProject == preferredProject &&
+            !preferredVersion.isEmpty &&
+            preferredVersion != currentVersion &&
+            !draft.isEmpty
+    }
+}
+
 struct ScreenplayDraftSaveRecoveryPresentationPolicy {
     static func failureStatus(source: String) -> String {
         switch normalizedSource(source) {
@@ -903,6 +925,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var conflictState: SaveConflictState?
 
     private var draftDebounceCancellable: AnyCancellable?
+    private var bridgePreferredVersionCancellable: AnyCancellable?
     private var isHydratingDraft = false
     private var lastSavedDraftFingerprint = ""
     private var lastRevisionBaseDraft = ""
@@ -921,10 +944,18 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 guard let self else { return }
                 Task { await self.handleDraftDebouncedChange(draft) }
             }
+        bridgePreferredVersionCancellable = ScreenplayLiveDraftBridge.shared.$preferredVersionID
+            .removeDuplicates()
+            .sink { [weak self] versionID in
+                Task { @MainActor [weak self] in
+                    self?.adoptSavedPageWriteVersionFromBridgeIfNeeded(versionID)
+                }
+            }
     }
 
     deinit {
         draftDebounceCancellable?.cancel()
+        bridgePreferredVersionCancellable?.cancel()
     }
 
     func load() async {
@@ -998,6 +1029,68 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         guard !clean.isEmpty else { return }
         guard fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         applyServerDraft(clean, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
+    }
+
+    @discardableResult
+    func adoptSavedPageWriteVersionIfNeeded(
+        projectID: String,
+        versionID: String,
+        committedDraft: String
+    ) -> Bool {
+        guard ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
+            selectedProjectId: selectedProjectID,
+            preferredProjectId: projectID,
+            currentVersionId: latestVersionID,
+            preferredVersionId: versionID,
+            committedDraft: committedDraft
+        ) else {
+            return false
+        }
+
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCommittedDraft = committedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedLocalDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedLocalDraft.isEmpty else { return false }
+        let committedFingerprint = fingerprint(for: normalizedCommittedDraft)
+
+        latestVersionID = cleanVersionID
+        loadedDraftProjectID = cleanProjectID
+        lastSavedDraftFingerprint = committedFingerprint
+        lastRevisionBaseDraft = normalizedCommittedDraft
+        hasUnsavedDraftChanges = fingerprint(for: normalizedLocalDraft) != committedFingerprint
+        if hasUnsavedDraftChanges {
+            autosaveStatusText = "Unsaved changes"
+        } else {
+            isManualDraftEditing = false
+            lastManualDraftEditAt = .distantPast
+            autosaveStatusText = "Saved to Studio project"
+        }
+        persistLocalDraftRecovery(
+            projectId: cleanProjectID,
+            draft: fountainDraft,
+            baseVersionId: cleanVersionID,
+            dirty: hasUnsavedDraftChanges
+        )
+        syncLiveDraftBridgeProjectContext()
+        if hasUnsavedDraftChanges {
+            scheduleProgrammaticDraftAutosaveIfNeeded(source: "studio_autosave")
+        }
+        return true
+    }
+
+    private func adoptSavedPageWriteVersionFromBridgeIfNeeded(_ versionID: String) {
+        guard !IOThemRuntime.isRunningTests else { return }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        guard let committedWrite = bridge.lastCommittedWrite,
+              committedWrite.isAuthoritativeWrite else {
+            return
+        }
+        adoptSavedPageWriteVersionIfNeeded(
+            projectID: bridge.preferredProjectID,
+            versionID: versionID,
+            committedDraft: committedWrite.committedDraft
+        )
     }
 
     func noteManualDraftEdit() {

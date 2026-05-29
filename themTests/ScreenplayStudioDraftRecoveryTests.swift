@@ -231,6 +231,44 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testBridgeVersionAdoptionRequiresSameProjectNewVersionAndCommittedDraft() {
+        XCTAssertTrue(ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
+            selectedProjectId: " project-a ",
+            preferredProjectId: "project-a",
+            currentVersionId: "version-before",
+            preferredVersionId: "version-after",
+            committedDraft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
+            selectedProjectId: "project-a",
+            preferredProjectId: "project-b",
+            currentVersionId: "version-before",
+            preferredVersionId: "version-after",
+            committedDraft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
+            selectedProjectId: "project-a",
+            preferredProjectId: "project-a",
+            currentVersionId: "version-after",
+            preferredVersionId: "version-after",
+            committedDraft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
+            selectedProjectId: "project-a",
+            preferredProjectId: "project-a",
+            currentVersionId: "version-before",
+            preferredVersionId: " ",
+            committedDraft: "INT. ROOM - NIGHT"
+        ))
+        XCTAssertFalse(ScreenplayBridgeVersionAdoptionPolicy.shouldAdoptCommittedPageWriteBase(
+            selectedProjectId: "project-a",
+            preferredProjectId: "project-a",
+            currentVersionId: "version-before",
+            preferredVersionId: "version-after",
+            committedDraft: "   "
+        ))
+    }
+
     func testSaveFailurePresentationDistinguishesManualAutosaveAndSnapshot() {
         XCTAssertEqual(
             ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: "studio_manual"),
