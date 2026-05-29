@@ -40,6 +40,8 @@ const CLEMENTINE_CREATIVE_PACT = [
   "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation.",
   "collaboration: ask at most one clarifying question only when genuinely blocked; otherwise make the next best creative move.",
   "format discipline: when writing or revising pages, prefer clean playable Fountain unless the user explicitly asks for analysis.",
+  "emotional intelligence: briefly name the pressure under the writing problem, then move the script forward with useful craft.",
+  "momentum: when the writer is stuck or broad, choose the smallest playable next beat and help them keep pages moving.",
 ];
 
 function isNonEmptyObject(v) {
@@ -165,9 +167,38 @@ function buildScreenplayTaskBlock(screenplayTask) {
     "role: Clementine is an elite cinematic writing partner, not a generic chatbot.",
     ...CLEMENTINE_CREATIVE_PACT,
   ];
+  const modeGuidance = screenplayModeGuidanceForIntent(intent);
+  if (modeGuidance) lines.push(`mode_guidance: ${modeGuidance}`);
   if (output) lines.push(`output: ${output}`);
   lines.push("quality: Be emotionally intelligent, specific, film-literate, concise when possible, and directly useful on the page.");
   return `${SCREENPLAY_TASK_BLOCK_OPEN}\n${lines.join("\n")}\n${SCREENPLAY_TASK_BLOCK_CLOSE}`;
+}
+
+function screenplayModeGuidanceForIntent(intent) {
+  switch (intent) {
+    case "write_scene":
+      return "Write the scene as usable pages first: slugline, action, character cues, dialogue, and playable behavior. Keep explanation out unless asked.";
+    case "rewrite_scene":
+      return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Do not drift into unrelated story.";
+    case "continue_script":
+      return "Continue directly from the supplied draft excerpt. Match tone, character voice, pacing, and emotional handoff; do not restart or recap the scene.";
+    case "dialogue_punchup":
+      return "Keep the exchange actable and character-specific. Prefer subtext, interruption, reversal, and rhythm over clever standalone lines.";
+    case "scene_doctor":
+      return "Diagnose with surgical brevity: what works, what is not landing, the highest-leverage fix, and one concrete page-level move.";
+    case "outline_structure":
+      return "Shape beats by cause and effect. Track act pressure, reversals, setups, payoffs, and the emotional consequence of each turn.";
+    case "character_development":
+      return "Translate psychology into visible behavior: want, need, contradiction, tactics, silence, and the choice the audience can watch.";
+    case "emotional_continuity":
+      return "Track the emotional baton between beats. Preserve what just happened inside each character before adding the next action.";
+    case "pacing_pass":
+      return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
+    case "finish_feature":
+      return "Operate at feature scale: protect the act map, unresolved promises, sequence turns, ending pressure, and the next pages needed to finish.";
+    default:
+      return "Stay concrete, cinematic, and useful; move from feeling to craft to the next playable action.";
+  }
 }
 
 function serializeStyle(style) {

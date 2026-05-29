@@ -208,6 +208,7 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("feature-length continuity"));
   assert.ok(out.includes("emotionally present"));
   assert.ok(out.includes("clean playable Fountain"));
+  assert.ok(out.includes("mode_guidance: Continue directly from the supplied draft excerpt."));
 });
 
 test("[screenplay-task] buildModelPrompt injects task block before user input", () => {
@@ -219,6 +220,25 @@ test("[screenplay-task] buildModelPrompt injects task block before user input", 
   assert.ok(out.includes(SCREENPLAY_TASK_BLOCK_OPEN));
   assert.ok(out.includes("intent: write_scene"));
   assert.ok(out.indexOf(SCREENPLAY_TASK_BLOCK_OPEN) < out.indexOf("Write a scene where June"));
+});
+
+test("[screenplay-task] task block carries Clementine feature-writing mode contracts", () => {
+  const finishFeature = buildModelPrompt({
+    persona: "PERSONA",
+    screenplayTask: inferScreenplayTask("Help me finish the whole feature screenplay."),
+    userInput: "Help me finish the whole feature screenplay.",
+  });
+  assert.ok(finishFeature.includes("momentum: when the writer is stuck or broad"));
+  assert.ok(finishFeature.includes("mode_guidance: Operate at feature scale"));
+  assert.ok(finishFeature.includes("unresolved promises"));
+
+  const sceneDoctor = buildModelPrompt({
+    persona: "PERSONA",
+    screenplayTask: inferScreenplayTask("Scene doctor this breakup scene."),
+    userInput: "Scene doctor this breakup scene.",
+  });
+  assert.ok(sceneDoctor.includes("mode_guidance: Diagnose with surgical brevity"));
+  assert.ok(sceneDoctor.includes("highest-leverage fix"));
 });
 
 test("buildModelPrompt is deterministic (same inputs → same output)", () => {
