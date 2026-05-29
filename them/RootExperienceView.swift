@@ -662,6 +662,24 @@ enum ClementineVisualContextCapture {
 }
 #endif
 
+struct ScreenplayRestoredLiveDraftProjectPromotionPolicy {
+    static func shouldCreateProject(
+        isStudioSurfaceActive: Bool,
+        draft: String,
+        existingProjectID: String,
+        isAutoCreatingProject: Bool,
+        createKey: String,
+        lastCreateKey: String
+    ) -> Bool {
+        guard isStudioSurfaceActive else { return false }
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !isAutoCreatingProject else { return false }
+        guard !createKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return createKey != lastCreateKey
+    }
+}
+
 struct RootExperienceView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -1132,7 +1150,7 @@ struct RootExperienceView: View {
                 }
                 .onChange(of: isStudioSurfaceActive) { _, newValue in
                     DispatchQueue.main.async {
-                        voice.isStudioMode = newValue
+                        handleStudioSurfaceActiveChange(newValue)
                     }
                 }
                 .onChange(of: voiceTransportModeRaw) { _, newValue in
@@ -3468,6 +3486,7 @@ struct RootExperienceView: View {
         withAnimation(.easeInOut(duration: 0.28)) {
             primarySurface = .studio
         }
+        promoteRestoredLiveDraftToStudioProjectIfNeeded()
         if voiceTransportMode == .realtimePreview {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: true)
@@ -3489,6 +3508,12 @@ struct RootExperienceView: View {
                 await prewarmRealtimeIfNeeded(isScreenplayMode: false)
             }
         }
+    }
+
+    private func handleStudioSurfaceActiveChange(_ isActive: Bool) {
+        voice.isStudioMode = isActive
+        guard isActive else { return }
+        promoteRestoredLiveDraftToStudioProjectIfNeeded()
     }
 
     private func mergedStudioDraft(existing: String, insertion: String) -> String {
@@ -5044,6 +5069,22 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func promoteRestoredLiveDraftToStudioProjectIfNeeded() {
+        let cleanProjectID = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackProjectID = liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectID = cleanProjectID.isEmpty ? fallbackProjectID : cleanProjectID
+        let cleanPack = screenplayDraftBridge.latestPack.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPhase = screenplayDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        autoCreateStudioProjectIfNeeded(
+            draft: screenplayDraftBridge.draftText,
+            pack: cleanPack.isEmpty ? liveScreenplayPack : cleanPack,
+            phase: cleanPhase.isEmpty ? liveScreenplayPhase : cleanPhase,
+            existingProjectID: projectID
+        )
+    }
+
+    @MainActor
     private func autoCreateStudioProjectIfNeeded(
         draft: String,
         pack: String,
@@ -5051,17 +5092,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
         existingProjectID: String
     ) {
         let cleanDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isStudioSurfaceActive else { return }
-        guard !cleanDraft.isEmpty else { return }
-
         let knownProjectID = existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
             : existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard knownProjectID.isEmpty else { return }
-        guard !isAutoCreatingStudioProject else { return }
-
         let createKey = utteranceFingerprint(Data("\(cleanDraft)|\(pack)|\(phase)".utf8))
-        guard createKey != lastAutoCreatedStudioProjectKey else { return }
+        guard ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
+            isStudioSurfaceActive: isStudioSurfaceActive,
+            draft: cleanDraft,
+            existingProjectID: knownProjectID,
+            isAutoCreatingProject: isAutoCreatingStudioProject,
+            createKey: createKey,
+            lastCreateKey: lastAutoCreatedStudioProjectKey
+        ) else {
+            return
+        }
 
         isAutoCreatingStudioProject = true
         screenplayDraftBridge.autoInsertStatusText = "Creating a Studio project for this script..."

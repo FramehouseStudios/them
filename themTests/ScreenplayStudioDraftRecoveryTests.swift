@@ -314,6 +314,57 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(ScreenplayLiveDraftTextPersistencePolicy.restoredDraft(from: "   \n\t  "), "")
     }
 
+    func testRestoredLiveDraftPromotionRequiresStudioDraftAndNoProject() {
+        XCTAssertTrue(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
+            isStudioSurfaceActive: true,
+            draft: "INT. DINER - NIGHT",
+            existingProjectID: "",
+            isAutoCreatingProject: false,
+            createKey: "draft-key",
+            lastCreateKey: ""
+        ))
+        XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
+            isStudioSurfaceActive: false,
+            draft: "INT. DINER - NIGHT",
+            existingProjectID: "",
+            isAutoCreatingProject: false,
+            createKey: "draft-key",
+            lastCreateKey: ""
+        ))
+        XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
+            isStudioSurfaceActive: true,
+            draft: "   ",
+            existingProjectID: "",
+            isAutoCreatingProject: false,
+            createKey: "draft-key",
+            lastCreateKey: ""
+        ))
+        XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
+            isStudioSurfaceActive: true,
+            draft: "INT. DINER - NIGHT",
+            existingProjectID: "project-existing",
+            isAutoCreatingProject: false,
+            createKey: "draft-key",
+            lastCreateKey: ""
+        ))
+        XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
+            isStudioSurfaceActive: true,
+            draft: "INT. DINER - NIGHT",
+            existingProjectID: "",
+            isAutoCreatingProject: true,
+            createKey: "draft-key",
+            lastCreateKey: ""
+        ))
+        XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
+            isStudioSurfaceActive: true,
+            draft: "INT. DINER - NIGHT",
+            existingProjectID: "",
+            isAutoCreatingProject: false,
+            createKey: "draft-key",
+            lastCreateKey: "draft-key"
+        ))
+    }
+
     func testSaveFailurePresentationDistinguishesManualAutosaveAndSnapshot() {
         XCTAssertEqual(
             ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: "studio_manual"),
