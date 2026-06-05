@@ -48,6 +48,22 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const LOCAL_BACKEND_BASE_URL = String(
+  process.env.THEM_BASE_URL ||
+  process.env.BACKEND_BASE_URL ||
+  process.env.BACKEND_URL ||
+  "http://127.0.0.1:3000"
+).trim().replace(/\/+$/, "") || "http://127.0.0.1:3000";
+const LOCAL_BACKEND_URLS = Array.from(new Set([
+  LOCAL_BACKEND_BASE_URL,
+  LOCAL_BACKEND_BASE_URL.replace("http://127.0.0.1:", "http://localhost:"),
+]));
+
+function localBackendURL(path = "/") {
+  const cleanPath = String(path || "").replace(/^\/+/, "");
+  return `${LOCAL_BACKEND_BASE_URL}/${cleanPath}`;
+}
+
 async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 250) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -59,7 +75,7 @@ async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 2
 
 async function readHealth() {
   return await new Promise((resolve, reject) => {
-    const req = http.get("http://127.0.0.1:3000/health", (res) => {
+    const req = http.get(localBackendURL("/health"), (res) => {
       let body = "";
       res.setEncoding("utf8");
       res.on("data", (chunk) => {
@@ -177,7 +193,7 @@ async function postBackendAuthJSON(path, body, headers = {
   "Content-Type": "application/json",
   "X-APP-TOKEN": "them-dev",
 }) {
-  const response = await fetch(`http://127.0.0.1:3000${path}`, {
+  const response = await fetch(localBackendURL(path), {
     method: "POST",
     headers: {
       ...headers,
@@ -226,9 +242,11 @@ async function ensureOwnerIdentity(projectId) {
   assert(clientToken, "Studio relaunch client session did not return a client token");
 
   writeDefaultString("user_id", userId);
+  writeDefaultString("app_token", "them-dev");
+  writeDefaultString("backend_base_url", LOCAL_BACKEND_BASE_URL);
   writeDefaultString("client_token", clientToken);
   writeDefaultInt("client_token_cached_at", Math.floor(Date.now() / 1000));
-  writeDefaultString("client_token_base_url", "http://127.0.0.1:3000");
+  writeDefaultString("client_token_base_url", LOCAL_BACKEND_BASE_URL);
   const expiresIn = Math.max(60, Number(session.payload?.expires_in || 0) || 0);
   writeDefaultString("client_token_expiry", new Date(Date.now() + expiresIn * 1000).toISOString());
   writeDefaultString("auth_debug_access_token", accessToken);
@@ -269,7 +287,7 @@ function projectIdFromHistoryKey(value) {
   return clean.startsWith("project:") ? clean.slice("project:".length) : clean;
 }
 
-async function postBackendProjectThreadState(projectId, record, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
+async function postBackendProjectThreadState(projectId, record, headers = ownerHeaders(), baseURL = LOCAL_BACKEND_BASE_URL) {
   const acknowledgedLineageKey = normalizeAcknowledgedKey(record?.acknowledgedLineageKey);
   const acknowledgedWriteID = normalizeKey(record?.acknowledgedWriteID);
   const acknowledgedFingerprint = String(record?.acknowledgedFingerprint || "").trim();
@@ -307,7 +325,7 @@ async function postBackendProjectThreadState(projectId, record, headers = ownerH
   return payload;
 }
 
-async function postBackendProjectVersion(projectId, recovery, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
+async function postBackendProjectVersion(projectId, recovery, headers = ownerHeaders(), baseURL = LOCAL_BACKEND_BASE_URL) {
   if (!recovery?.draft) return null;
   const response = await fetch(`${baseURL}/screenplay/projects/${projectId}/version`, {
     method: "POST",
@@ -327,7 +345,7 @@ async function postBackendProjectVersion(projectId, recovery, headers = ownerHea
   return payload;
 }
 
-async function postBackendCollaborator(projectId, collaboratorEmail, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
+async function postBackendCollaborator(projectId, collaboratorEmail, headers = ownerHeaders(), baseURL = LOCAL_BACKEND_BASE_URL) {
   const response = await fetch(`${baseURL}/screenplay/projects/${projectId}/collaborators`, {
     method: "POST",
     headers,
@@ -345,7 +363,7 @@ async function postBackendCollaborator(projectId, collaboratorEmail, headers = o
   return payload;
 }
 
-async function postBackendComment(projectId, body, headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
+async function postBackendComment(projectId, body, headers = ownerHeaders(), baseURL = LOCAL_BACKEND_BASE_URL) {
   const response = await fetch(`${baseURL}/screenplay/projects/${projectId}/comments`, {
     method: "POST",
     headers,
@@ -358,7 +376,7 @@ async function postBackendComment(projectId, body, headers = ownerHeaders(), bas
   return payload;
 }
 
-async function seedBackendCollaboration(projectId, collaboratorEmail, commentText, versionId = "", headers = ownerHeaders(), baseURL = "http://127.0.0.1:3000") {
+async function seedBackendCollaboration(projectId, collaboratorEmail, commentText, versionId = "", headers = ownerHeaders(), baseURL = LOCAL_BACKEND_BASE_URL) {
   const collaboratorPayload = await postBackendCollaborator(projectId, collaboratorEmail, headers, baseURL);
   const commentPayload = await postBackendComment(projectId, {
     text: commentText,
@@ -392,7 +410,7 @@ async function seedBackendCollaboration(projectId, collaboratorEmail, commentTex
 async function waitForBackendReopenedHydration(projectId, seededRecord, minimumVersionCount = 1) {
   let latestProbe = null;
   await waitFor(async () => {
-    const probe = await fetchStudioProjectMetadata(projectId, ownerHeaders());
+    const probe = await fetchStudioProjectMetadata(projectId, ownerHeaders(), LOCAL_BACKEND_BASE_URL);
     latestProbe = probe;
     if (!probe.response.ok || !probe.metadata) return false;
     const project = probe.payload?.payload?.project || probe.payload?.project || {};
@@ -447,9 +465,40 @@ function appProcessIDs() {
   ));
 }
 
-function activateApp() {
-  runOptional("osascript", ["-e", 'tell application "them" to activate'], {
-    timeout: 2000,
+function currentAppPidForPath(appPath = "") {
+  const cleanAppPath = String(appPath || "").trim();
+  if (!cleanAppPath) return 0;
+  const executablePath = cleanAppPath.endsWith("/Contents/MacOS/them")
+    ? cleanAppPath
+    : `${cleanAppPath.replace(/\/+$/, "")}/Contents/MacOS/them`;
+  const result = runOptional("ps", ["-axo", "pid=,command="]);
+  if (result.status !== 0 || !result.stdout.trim()) return 0;
+  for (const line of result.stdout.split(/\r?\n/)) {
+    if (!line.includes(executablePath)) continue;
+    const match = line.trim().match(/^(\d+)\s+/);
+    if (match) return Number(match[1]) || 0;
+  }
+  return 0;
+}
+
+function activateApp(appPath = "") {
+  const pid = currentAppPidForPath(appPath) || appProcessIDs()[0] || 0;
+  if (!pid) return;
+  runOptional("osascript", [
+    "-e", "tell application \"System Events\"",
+    "-e", "repeat with attempt from 1 to 40",
+    "-e", `set matchingProcesses to (processes whose unix id is ${pid})`,
+    "-e", "if (count of matchingProcesses) > 0 then",
+    "-e", "set targetProcess to item 1 of matchingProcesses",
+    "-e", "set visible of targetProcess to true",
+    "-e", "set frontmost of targetProcess to true",
+    "-e", "return \"1\"",
+    "-e", "end if",
+    "-e", "delay 0.1",
+    "-e", "end repeat",
+    "-e", "end tell",
+  ], {
+    timeout: 6000,
   });
 }
 
@@ -479,6 +528,8 @@ const originalLocalAckWriteStateRaw = readDefaultString("studio.diff.keep-curren
 const originalAskNoteHistoryRaw = readDefaultString("studio.ask.note.history.v2");
 const originalDebugDiffStateRaw = readDefaultString("studio_debug_diff_state_json");
 const originalReplacementTraceRaw = readDefaultString("studio_debug_replacement_trace_json");
+const originalAppTokenRaw = readDefaultString("app_token");
+const originalBackendBaseURLRaw = readDefaultString("backend_base_url");
 const originalClientTokenRaw = readDefaultString("client_token");
 const originalUserIDRaw = readDefaultString("user_id");
 const originalClientTokenCachedAt = readDefaultInt("client_token_cached_at");
@@ -546,7 +597,7 @@ function isExpectedRestoredState(state, projectId, activeVersionId, expectedDraf
 
 try {
   const health = await readHealth();
-  assert(health?.ok === true, "Backend health is not OK on localhost:3000");
+  assert(health?.ok === true, `Backend health is not OK on ${LOCAL_BACKEND_BASE_URL}`);
 
   seedFixture = createStudioRestoreFixture("reopened");
   seededRecord = seedFixture.reopenedSeed;
@@ -579,7 +630,7 @@ try {
   const collaboratorEmail = `relaunch-collab-${projectId}@example.com`.toLowerCase();
   const commentText = `Relaunch collaboration restore note ${projectId}`;
   seededCollaboration = await seedBackendCollaboration(projectId, collaboratorEmail, commentText, ownerVersionId);
-  for (const baseURL of ["http://127.0.0.1:3000", "http://localhost:3000"]) {
+  for (const baseURL of LOCAL_BACKEND_URLS) {
     await postBackendProjectThreadState(projectId, seededRecord, fallbackOwnerHeaders(), baseURL);
     const fallbackVersionPayload = await postBackendProjectVersion(projectId, {
       draft: seedFixture.draftReopened,
@@ -678,6 +729,8 @@ try {
   writeDefaultString("studio.ask.note.history.v2", originalAskNoteHistoryRaw);
   writeDefaultString("studio_debug_diff_state_json", originalDebugDiffStateRaw);
   writeDefaultString("studio_debug_replacement_trace_json", originalReplacementTraceRaw);
+  writeDefaultString("app_token", originalAppTokenRaw);
+  writeDefaultString("backend_base_url", originalBackendBaseURLRaw);
   writeDefaultString("client_token", originalClientTokenRaw);
   writeDefaultString("user_id", originalUserIDRaw);
   writeDefaultInt("client_token_cached_at", originalClientTokenCachedAt);

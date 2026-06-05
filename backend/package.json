@@ -51,6 +51,7 @@
     "eval:studio-render-stream": "node evals/run_studio_render_stream_first_partial_smoke.mjs",
     "eval:screenwriter-restore": "node evals/run_screenwriter_session_restore_smoke.mjs",
     "eval:studio-typed-page-contract": "node evals/run_studio_typed_page_contract_smoke.mjs",
+    "eval:studio-macos-relaunch-restore-contract": "node evals/run_studio_macos_relaunch_restore_contract_smoke.mjs",
     "eval:studio-typed-page-write": "STUDIO_CMDRETURN_SCENARIO=page-only STUDIO_CMDRETURN_TRANSPORT=debug-submit STUDIO_CMDRETURN_FIRST_PROMPT=\"Write the next beat where she leaves before he can answer.\" node evals/run_studio_cmdreturn_smoke.mjs",
     "eval:studio-prompt-modes": "node evals/run_studio_prompt_mode_separation_smoke.mjs",
     "eval:studio-keyboard-submit": "STUDIO_CMDRETURN_SCENARIO=keyboard-submit-only STUDIO_CMDRETURN_TRANSPORT=keyboard STUDIO_CMDRETURN_FIRST_PROMPT=\"Write one new action line: He closes the blinds and waits.\" node evals/run_studio_cmdreturn_smoke.mjs",

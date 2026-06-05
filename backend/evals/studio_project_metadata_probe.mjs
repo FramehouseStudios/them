@@ -53,11 +53,23 @@ export function extractStudioProjectMetadata(payload) {
   };
 }
 
-export async function fetchStudioProjectMetadata(projectId, headers) {
+export function resolveStudioProjectMetadataBaseURL(baseURL = "") {
+  const candidate = String(
+    baseURL
+    || process.env.THEM_BASE_URL
+    || process.env.BACKEND_BASE_URL
+    || process.env.BACKEND_URL
+    || "http://127.0.0.1:3000"
+  ).trim();
+  return candidate.replace(/\/+$/, "") || "http://127.0.0.1:3000";
+}
+
+export async function fetchStudioProjectMetadata(projectId, headers, baseURL = "") {
+  const resolvedBaseURL = resolveStudioProjectMetadataBaseURL(baseURL);
   let lastError = null;
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
-      const response = await fetch(`http://127.0.0.1:3000/screenplay/projects/${projectId}?include_drafts=1`, {
+      const response = await fetch(`${resolvedBaseURL}/screenplay/projects/${projectId}?include_drafts=1`, {
         headers: {
           ...headers,
           Connection: "close",
