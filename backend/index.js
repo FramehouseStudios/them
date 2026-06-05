@@ -30,6 +30,7 @@ import {
   REQUIRE_CLIENT_TOKEN,
   REQUIRE_USER_AUTH,
   SHOULD_START_SERVER,
+  STUDIO_RENDER_TEST_REPLY,
   UNIFIED_PERSONA_PRESET,
   USER_STORE_PATH,
   assertProductionEnv,
@@ -15584,6 +15585,9 @@ async function renderStudioRealtimeText({
     err.status = 400;
     throw err;
   }
+  if (STUDIO_RENDER_TEST_REPLY) {
+    return STUDIO_RENDER_TEST_REPLY;
+  }
 
   const resp = await fetchWithTimeout(
     "https://api.openai.com/v1/chat/completions",
@@ -15651,6 +15655,12 @@ async function streamStudioRealtimeText({
     err.stage = "studio_render";
     err.status = 400;
     throw err;
+  }
+  if (STUDIO_RENDER_TEST_REPLY) {
+    if (typeof onDelta === "function") {
+      await onDelta(STUDIO_RENDER_TEST_REPLY, STUDIO_RENDER_TEST_REPLY);
+    }
+    return STUDIO_RENDER_TEST_REPLY;
   }
 
   const resp = await fetchWithTimeout(

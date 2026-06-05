@@ -135,7 +135,28 @@ function activateApp(appPath = "") {
   if (!appIsRunning() && appPath) {
     runOptional("open", ["-na", appPath]);
   }
-  const appleScript = runOptional("osascript", ["-e", 'tell application "them" to activate']);
+  const pid = currentAppPidForPath(appPath) || currentAppPids()[0] || 0;
+  if (!pid) {
+    if (appPath) {
+      runOptional("open", ["-na", appPath]);
+    }
+    return;
+  }
+  const appleScript = runOptional("osascript", [
+    "-e", "tell application \"System Events\"",
+    "-e", "repeat with attempt from 1 to 40",
+    "-e", `set matchingProcesses to (processes whose unix id is ${pid})`,
+    "-e", "if (count of matchingProcesses) > 0 then",
+    "-e", "set targetProcess to item 1 of matchingProcesses",
+    "-e", "set visible of targetProcess to true",
+    "-e", "set frontmost of targetProcess to true",
+    "-e", "return \"1\"",
+    "-e", "end if",
+    "-e", "delay 0.1",
+    "-e", "end repeat",
+    "-e", `error "unable to activate THEM pid ${pid}"`,
+    "-e", "end tell",
+  ]);
   if (appleScript.status === 0) return;
   const message = `${appleScript.stderr}\n${appleScript.stdout}`;
   if (/timed out|Connection is invalid|\(-609\)/i.test(message)) {
@@ -150,6 +171,23 @@ function activateApp(appPath = "") {
 function appIsRunning() {
   const result = runOptional("pgrep", ["-x", "them"]);
   return result.status === 0 && Boolean(result.stdout.trim());
+}
+
+function currentAppPidForPath(appPath = "") {
+  const cleanAppPath = String(appPath || "").trim();
+  if (!cleanAppPath) return 0;
+  const executablePath = cleanAppPath.endsWith("/Contents/MacOS/them")
+    ? cleanAppPath
+    : `${cleanAppPath.replace(/\/+$/, "")}/Contents/MacOS/them`;
+  const result = runOptional("ps", ["-axo", "pid=,command="]);
+  if (result.status !== 0 || !result.stdout.trim()) return 0;
+  const matches = [];
+  for (const line of result.stdout.split(/\r?\n/)) {
+    if (!line.includes(executablePath)) continue;
+    const match = line.trim().match(/^(\d+)\s+/);
+    if (match) matches.push(Number(match[1]));
+  }
+  return matches.find((value) => Number.isInteger(value) && value > 0) || 0;
 }
 
 function currentAppPids() {
@@ -270,8 +308,8 @@ async function waitFor(predicate, description, timeoutMs = 20000, intervalMs = 2
 }
 
 function sendCmdReturn() {
+  activateApp(appPath);
   osascript([
-    'tell application "them" to activate',
     'delay 0.35',
     'tell application "System Events"',
     'tell process "them" to set frontmost to true',
@@ -519,6 +557,10 @@ function ownerHeaders() {
   const clientToken = readDefaultString("client_token");
   if (clientToken) {
     headers["X-Client-Token"] = clientToken;
+  }
+  const accessToken = readDefaultString("auth_debug_access_token");
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
   }
   assert(headers["X-User-Id"] || headers["X-Client-Token"], "Missing owner identity in io.them.them defaults");
   return headers;
@@ -1960,7 +2002,7 @@ const loadedProjectKey = requiresPreloadedStudioProject
     debugDefaults: studioDebugDefaults,
     projectId: throwawayProject.projectId,
     readDebugDiffState,
-    timeoutMs: 20000,
+    timeoutMs: readEnvInt("STUDIO_CMDRETURN_PROJECT_LOAD_TIMEOUT_MS", 45000),
   }).then((loadResult) => String(loadResult?.state?.projectKey || expectedProjectKey).trim())
   : expectedProjectKey;
 

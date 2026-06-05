@@ -297,6 +297,12 @@ public enum FountainFormatter {
 
     private static func sanitizeRawScreenplayText(_ raw: String) -> String {
         var text = raw
+            .replacingOccurrences(of: "\\\\r\\\\n", with: "\n")
+            .replacingOccurrences(of: "\\\\n", with: "\n")
+            .replacingOccurrences(of: "\\\\r", with: "\n")
+            .replacingOccurrences(of: "\\r\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\r", with: "\n")
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\t", with: "    ")

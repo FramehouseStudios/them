@@ -42,6 +42,9 @@ const AUTH_APPLE_AUDIENCE = String(process.env.AUTH_APPLE_AUDIENCE || "").trim()
 const AUTH_APPLE_TEST_JWT_SECRET = String(process.env.AUTH_APPLE_TEST_JWT_SECRET || "").trim();
 const AUTH_APPLE_JWT_PUBLIC_KEY = String(process.env.AUTH_APPLE_JWT_PUBLIC_KEY || "").trim();
 const REQUIRE_USER_AUTH = parseBool(process.env.REQUIRE_USER_AUTH);
+const STUDIO_RENDER_TEST_REPLY = NODE_ENV === "production"
+  ? ""
+  : String(process.env.STUDIO_RENDER_TEST_REPLY || "").trim();
 const UNIFIED_PERSONA_PRESET = "clementine";
 const CLEMENTINE_EMPTY_TRANSCRIPT_PROMPT_DEFAULT = "I missed that. Say it one more time.";
 const CURRENT_FILE_PATH = fileURLToPath(import.meta.url);
@@ -110,6 +113,7 @@ export {
   REQUIRE_CLIENT_TOKEN,
   REQUIRE_USER_AUTH,
   SHOULD_START_SERVER,
+  STUDIO_RENDER_TEST_REPLY,
   UNIFIED_PERSONA_PRESET,
   USER_STORE_PATH,
 };

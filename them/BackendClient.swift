@@ -1629,12 +1629,22 @@ final class BackendClient {
     func buildScreenplayModelPrompt(
         _ promptRequest: BackendScreenplayPromptBuildRequest
     ) async throws -> BackendScreenplayPromptBuildResponse {
-        let resolvedBaseURL = try await resolveBaseURL()
+        let resolvedBaseURL = baseURL
+        persistSharedBackendBaseURL(resolvedBaseURL)
         let userID = resolveUserID()
         let bodyData = try JSONEncoder().encode(promptRequest)
+        let promptClientToken: String? = {
+            let trimmed = (readSharedClientToken() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            guard let expiryRaw = readSharedClientTokenExpiry(),
+                  let expiry = ISO8601DateFormatter().date(from: expiryRaw) else {
+                return trimmed
+            }
+            return expiry.timeIntervalSince(Date()) > sessionRefreshSkew ? trimmed : nil
+        }()
 
         func performRequest(
-            clientToken: String,
+            clientToken: String?,
             allowClientTokenRefresh: Bool
         ) async throws -> BackendScreenplayPromptBuildResponse {
             var request = URLRequest(
@@ -1644,12 +1654,14 @@ final class BackendClient {
                     .appendingPathComponent("build")
             )
             request.httpMethod = "POST"
-            request.timeoutInterval = min(15, requestTimeout)
+            request.timeoutInterval = min(6, requestTimeout)
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
-            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+            if let clientToken, !clientToken.isEmpty {
+                request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+            }
             if !userID.isEmpty {
                 request.setValue(userID, forHTTPHeaderField: "X-User-Id")
             }
@@ -1697,8 +1709,7 @@ final class BackendClient {
             }
         }
 
-        let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
-        return try await performRequest(clientToken: clientToken, allowClientTokenRefresh: true)
+        return try await performRequest(clientToken: promptClientToken, allowClientTokenRefresh: true)
     }
 
     func talk(
@@ -1820,7 +1831,8 @@ final class BackendClient {
             throw BackendError.stage("stt", "Prompt text is empty.")
         }
 
-        let resolvedBaseURL = try await resolveBaseURL()
+        let resolvedBaseURL = baseURL
+        persistSharedBackendBaseURL(resolvedBaseURL)
         let userID = resolveUserID()
         let clientToken = try await resolveTalkClientTokenOrFallback(
             for: resolvedBaseURL,
@@ -1868,7 +1880,8 @@ final class BackendClient {
     }
 
     func prewarmTalkSession() async throws {
-        let resolvedBaseURL = try await resolveBaseURL()
+        let resolvedBaseURL = baseURL
+        persistSharedBackendBaseURL(resolvedBaseURL)
         let userID = resolveUserID()
         _ = try await resolveClientToken(for: resolvedBaseURL, userID: userID)
     }
@@ -4369,26 +4382,29 @@ final class BackendClient {
     }
 
     private func appToken() -> String? {
-        let keychainRaw = (BackendAuthClient.sharedAppToken() ?? "")
+        let defaultsRaw = (UserDefaults.standard.string(forKey: "app_token") ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let plistRaw = (Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let envRaw = (ProcessInfo.processInfo.environment["APP_TOKEN"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let keychain = isUsableTokenValue(keychainRaw) ? keychainRaw : nil
+        let defaults = isUsableTokenValue(defaultsRaw) ? defaultsRaw : nil
         let plist = isUsableTokenValue(plistRaw) ? plistRaw : nil
         let env = isUsableTokenValue(envRaw) ? envRaw : nil
 
-        if let keychain, let plist, keychain != plist {
-            print("APP_TOKEN mismatch keychain/plist -> using keychain value")
-        } else if let plist, let env, plist != env {
+        if let plist, let env, plist != env {
             print("APP_TOKEN mismatch env/plist -> using plist value")
         }
 
-        if let keychain { return keychain }
+        if let defaults { return defaults }
         if let plist { return plist }
         if let env { return env }
+        if let fallback = devFallbackAppToken { return fallback }
+        let keychainRaw = (BackendAuthClient.sharedAppToken() ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let keychain = isUsableTokenValue(keychainRaw) ? keychainRaw : nil
+        if let keychain { return keychain }
         return devFallbackAppToken
     }
 

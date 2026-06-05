@@ -1718,18 +1718,22 @@ nonisolated enum BackendCredentialMigration {
         writeKeychain: (String, String) -> Bool,
         normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty
     ) -> String? {
+        let legacy = normalize(defaults.string(forKey: defaultsKey))
+        if !legacy.isEmpty {
+            return legacy
+        }
+
+#if os(macOS)
+        return nil
+#else
         let existing = normalize(readKeychain(account))
         if !existing.isEmpty {
             defaults.removeObject(forKey: defaultsKey)
             return existing
         }
 
-        let legacy = normalize(defaults.string(forKey: defaultsKey))
-        guard !legacy.isEmpty else { return nil }
-        if writeKeychain(legacy, account) {
-            defaults.removeObject(forKey: defaultsKey)
-        }
-        return legacy
+        return nil
+#endif
     }
 
     @discardableResult
@@ -1752,6 +1756,10 @@ nonisolated enum BackendCredentialMigration {
             )
             return false
         }
+#if os(macOS)
+        defaults.set(normalized, forKey: defaultsKey)
+        return true
+#else
         let wrote = writeKeychain(normalized, account)
         if wrote {
             defaults.removeObject(forKey: defaultsKey)
@@ -1759,6 +1767,7 @@ nonisolated enum BackendCredentialMigration {
             defaults.set(normalized, forKey: defaultsKey)
         }
         return true
+#endif
     }
 
     static func deleteString(
@@ -1767,7 +1776,9 @@ nonisolated enum BackendCredentialMigration {
         defaults: UserDefaults = .standard,
         deleteKeychain: (String) -> Void
     ) {
+#if !os(macOS)
         deleteKeychain(account)
+#endif
         defaults.removeObject(forKey: defaultsKey)
     }
 }
@@ -1780,6 +1791,8 @@ nonisolated enum BackendAuthClient {
         static let authUserEmail = "auth_user_email"
         static let authUserVerified = "auth_user_verified"
         static let authUserPayload = "auth_user_payload"
+        static let authAccessToken = "auth_access_token"
+        static let authRefreshToken = "auth_refresh_token"
         static let authAccessExpiresAt = "auth_access_expires_at"
         static let authRefreshExpiresAt = "auth_refresh_expires_at"
         static let authPendingEmailVerification = "auth_pending_email_verification"
@@ -2109,7 +2122,11 @@ nonisolated enum BackendAuthClient {
         let normalizedAccessToken = (payload.accessToken ?? payload.token ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedAccessToken.isEmpty {
+#if os(macOS)
+            UserDefaults.standard.set(normalizedAccessToken, forKey: DefaultsKey.authAccessToken)
+#else
             writeKeychainString(normalizedAccessToken, account: authAccessTokenAccount)
+#endif
             let ttl = max(60, payload.accessExpiresIn ?? payload.expiresIn ?? 0)
             UserDefaults.standard.set(Date().timeIntervalSince1970 + Double(ttl), forKey: DefaultsKey.authAccessExpiresAt)
         }
@@ -2117,7 +2134,11 @@ nonisolated enum BackendAuthClient {
         let normalizedRefreshToken = (payload.refreshToken ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedRefreshToken.isEmpty {
+#if os(macOS)
+            UserDefaults.standard.set(normalizedRefreshToken, forKey: DefaultsKey.authRefreshToken)
+#else
             writeKeychainString(normalizedRefreshToken, account: authRefreshTokenAccount)
+#endif
             let ttl = max(60, payload.refreshExpiresIn ?? 0)
             if ttl > 0 {
                 UserDefaults.standard.set(Date().timeIntervalSince1970 + Double(ttl), forKey: DefaultsKey.authRefreshExpiresAt)
@@ -2179,6 +2200,8 @@ nonisolated enum BackendAuthClient {
         UserDefaults.standard.removeObject(forKey: DefaultsKey.authSignedIn)
         UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentSessionId)
         UserDefaults.standard.removeObject(forKey: DefaultsKey.authCurrentFamilyId)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authAccessToken)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.authRefreshToken)
         clearSharedClientToken()
         clearSharedUserID()
     }
@@ -2198,9 +2221,15 @@ nonisolated enum BackendAuthClient {
         }
 #endif
         guard !IOThemRuntime.isRunningTests else { return nil }
+#if os(macOS)
+        let defaultsToken = UserDefaults.standard.string(forKey: DefaultsKey.authAccessToken) ?? ""
+        let trimmedDefaultsToken = defaultsToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedDefaultsToken.isEmpty ? nil : trimmedDefaultsToken
+#else
         let token = readKeychainString(account: authAccessTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+#endif
     }
 
     static func authorizationHeaderValue() -> String? {
@@ -2210,9 +2239,15 @@ nonisolated enum BackendAuthClient {
 
     private static func refreshToken() -> String? {
         guard !IOThemRuntime.isRunningTests else { return nil }
+#if os(macOS)
+        let defaultsToken = UserDefaults.standard.string(forKey: DefaultsKey.authRefreshToken) ?? ""
+        let trimmedDefaultsToken = defaultsToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedDefaultsToken.isEmpty ? nil : trimmedDefaultsToken
+#else
         let token = readKeychainString(account: authRefreshTokenAccount) ?? ""
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+#endif
     }
 
     @discardableResult
@@ -2361,6 +2396,14 @@ nonisolated enum BackendAuthClient {
         if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
+        let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
+        if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
+            return canonicalizeLoopbackURL(url)
+        }
+        let fromEnv = ProcessInfo.processInfo.environment["BACKEND_URL"] ?? ""
+        if isUsableConfigValue(fromEnv), let url = URL(string: fromEnv), isUsableBackendURL(url) {
+            return canonicalizeLoopbackURL(url)
+        }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
            isUsableConfigValue(fromInfo),
            let url = URL(string: fromInfo),
@@ -2418,8 +2461,9 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func appToken() -> String? {
-        if let fromKeychain = sharedAppToken(), isUsableConfigValue(fromKeychain) {
-            return fromKeychain
+        let fromDefaults = UserDefaults.standard.string(forKey: DefaultsKey.appToken) ?? ""
+        if isUsableConfigValue(fromDefaults) {
+            return fromDefaults
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String,
            isUsableConfigValue(fromInfo) {
@@ -2428,6 +2472,12 @@ nonisolated enum BackendAuthClient {
         let envValue = ProcessInfo.processInfo.environment["APP_TOKEN"] ?? ""
         if isUsableConfigValue(envValue) {
             return envValue
+        }
+        if let fallback = devFallbackAppToken, isUsableConfigValue(fallback) {
+            return fallback
+        }
+        if let fromKeychain = sharedAppToken(), isUsableConfigValue(fromKeychain) {
+            return fromKeychain
         }
         return devFallbackAppToken
     }
@@ -6090,6 +6140,14 @@ actor BackendMemoryAPI {
         if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
+        let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
+        if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
+            return canonicalizeLoopbackURL(url)
+        }
+        let fromEnv = ProcessInfo.processInfo.environment["BACKEND_URL"] ?? ""
+        if isUsableConfigValue(fromEnv), let url = URL(string: fromEnv), isUsableBackendURL(url) {
+            return canonicalizeLoopbackURL(url)
+        }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
            isUsableConfigValue(fromInfo),
            let url = URL(string: fromInfo),
@@ -6147,8 +6205,9 @@ actor BackendMemoryAPI {
     }
 
     private func appToken() -> String? {
-        if let fromKeychain = BackendAuthClient.sharedAppToken(), isUsableConfigValue(fromKeychain) {
-            return fromKeychain
+        let fromDefaults = UserDefaults.standard.string(forKey: "app_token") ?? ""
+        if isUsableConfigValue(fromDefaults) {
+            return fromDefaults
         }
         if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "APP_TOKEN") as? String,
            isUsableConfigValue(fromInfo) {
@@ -6157,6 +6216,12 @@ actor BackendMemoryAPI {
         let envValue = ProcessInfo.processInfo.environment["APP_TOKEN"] ?? ""
         if isUsableConfigValue(envValue) {
             return envValue
+        }
+        if let fallback = devFallbackAppToken, isUsableConfigValue(fallback) {
+            return fallback
+        }
+        if let fromKeychain = BackendAuthClient.sharedAppToken(), isUsableConfigValue(fromKeychain) {
+            return fromKeychain
         }
         return devFallbackAppToken
     }

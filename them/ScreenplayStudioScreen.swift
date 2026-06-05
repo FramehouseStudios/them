@@ -24247,7 +24247,7 @@ The door closes softly. That is worse than a slam.
     private func waitForStudioDebugProjectLoadReady(
         projectID: String,
         versionID: String,
-        timeoutSeconds: TimeInterval = 12
+        timeoutSeconds: TimeInterval = 25
     ) async -> Bool {
         #if DEBUG || os(macOS)
         let deadline = Date().addingTimeInterval(timeoutSeconds)
@@ -24265,6 +24265,28 @@ The door closes softly. That is worse than a slam.
             versionID: versionID,
             requireEditorFocusConsumption: false
         )
+        #else
+        return false
+        #endif
+    }
+
+    @MainActor
+    private func waitForStudioDebugSelectedProjectID(
+        projectID: String,
+        timeoutSeconds: TimeInterval = 10
+    ) async -> Bool {
+        #if DEBUG || os(macOS)
+        let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanProjectID.isEmpty else { return false }
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            let selectedProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if selectedProjectID == cleanProjectID {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == cleanProjectID
         #else
         return false
         #endif
@@ -24357,7 +24379,33 @@ The door closes softly. That is worse than a slam.
         )
         publishDebugStudioDiffState()
 
-        await vm.selectProject(cleanProjectID)
+        let selectionTask = Task { @MainActor in
+            await vm.selectProject(cleanProjectID)
+        }
+        let selectionApplied = await waitForStudioDebugSelectedProjectID(projectID: cleanProjectID)
+        if selectionApplied {
+            appendStudioDebugProjectLoadBreadcrumb(
+                token: token,
+                event: "project_selection_ready",
+                detail: "Observed requested Studio project selection before full draft hydration completed.",
+                requestedProjectID: cleanProjectID,
+                requestedVersionID: cleanVersionID
+            )
+            if cleanVersionID.isEmpty {
+                updateTrackedStudioDebugProjectLoadState(
+                    token: token,
+                    requestedProjectID: cleanProjectID,
+                    requestedVersionID: cleanVersionID,
+                    stage: "selection_ready",
+                    ready: true
+                )
+                setStudioDebugLoadProjectAckToken(token)
+                publishDebugStudioDiffState()
+                return
+            }
+        } else {
+            await selectionTask.value
+        }
 
         let resolvedProjectID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedLoadedProjectID = (vm.selectedProject?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

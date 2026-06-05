@@ -3642,6 +3642,20 @@ struct RootExperienceView: View {
             .lowercased() == "stub"
     }
 
+    private var shouldUseDebugStudioPromptLiveBackendTransport: Bool {
+        UserDefaults.standard.synchronize()
+        let standardValue = UserDefaults.standard.string(forKey: "studio_debug_submit_transport_mode")
+        let bundleValue = Bundle.main.bundleIdentifier
+            .flatMap { UserDefaults.standard.persistentDomain(forName: $0)?["studio_debug_submit_transport_mode"] as? String }
+        let cfValue = CFPreferencesCopyAppValue(
+            "studio_debug_submit_transport_mode" as CFString,
+            kCFPreferencesCurrentApplication
+        ) as? String
+        return (cfValue ?? standardValue ?? bundleValue ?? studioDebugSubmitTransportMode)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "live-backend"
+    }
+
     private func debugStudioPromptLooksLikeRewriteIntent(_ prompt: String) -> Bool {
         let clean = prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !clean.isEmpty else { return false }
@@ -6692,6 +6706,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         setStudioDebugPreferenceString(cleanPrompt, forKey: "studio_debug_root_submit_prompt")
         setStudioDebugPreferenceString(requestID ?? "", forKey: "studio_debug_root_submit_request_id")
         setStudioDebugPreferenceString("", forKey: "studio_debug_root_submit_error")
+        if shouldUseDebugStudioPromptLiveBackendTransport {
+            prepareBackendForStudioDebugVoiceTurn()
+            setStudioDebugPreferenceString("root_submit_backend_pinned", forKey: "studio_debug_root_submit_stage")
+        }
 #endif
         guard !isTurnSubmitting else {
 #if DEBUG || os(macOS)
@@ -6862,7 +6880,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
             baseSystemPrompt,
             userMessage: cleanPrompt,
             isScreenplayMode: true,
-            shouldWriteToPage: shouldWriteToPage
+            shouldWriteToPage: shouldWriteToPage,
+            includeVisualContext: !shouldSkipVisualContextForStudioDraftTurn(
+                isScreenplayMode: true,
+                shouldWriteToPage: shouldWriteToPage
+            )
         )
 #if DEBUG || os(macOS)
         setStudioDebugPreferenceString("root_prompt_build_finished", forKey: "studio_debug_root_submit_stage")
@@ -6954,6 +6976,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
 
             let cleanReply = sanitizedRealtimeStudioRenderReply(renderedReply)
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("root_render_finished", forKey: "studio_debug_root_submit_stage")
+#endif
             realtimeStudioRenderUserMessage = ""
             realtimeStudioRenderedReply = ""
             resetRealtimeStudioDraftPreviewThrottle()
@@ -8278,7 +8303,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private func sanitizedRealtimeStudioRenderReply(_ reply: String) -> String {
-        var clean = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        var clean = reply
+            .replacingOccurrences(of: "\\r\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.hasPrefix("```") {
             clean = clean.replacingOccurrences(
                 of: #"^```[A-Za-z0-9_-]*\s*"#,
@@ -8855,6 +8884,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let pack = screenplayDraftBridge.latestPack
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ? liveScreenplayPack : screenplayDraftBridge.latestPack
+        if shouldWriteToPage && isStudioSurfaceActive {
+#if DEBUG || os(macOS)
+            setStudioDebugPreferenceString("", forKey: "studio_debug_last_screenplay_task_intent")
+            setStudioDebugPreferenceString("", forKey: "studio_debug_last_screenplay_task_label")
+            setStudioDebugPreferenceString("0", forKey: "studio_debug_last_prompt_backend_assembly")
+            setStudioDebugPreferenceString("direct_page_write_local_prompt", forKey: "studio_debug_last_prompt_fallback_reason")
+#endif
+            guard includeVisualContext else { return basePrompt }
+            return await systemPromptWithVisualContext(
+                basePrompt,
+                userMessage: userMessage,
+                isScreenplayMode: isScreenplayMode
+            )
+        }
         let draftExcerpt = screenplayDraftBridge.draftText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let promptContinuity = screenplayPromptContinuityContext()
