@@ -33,4 +33,56 @@ final class ThemWorkspaceNavigationCommandTests: XCTestCase {
 
         wait(for: [expected], timeout: 1)
     }
+
+    func testWorkspaceSurfaceRestoreDefaultsMacToStudioAfterOnboarding() {
+        XCTAssertEqual(
+            ThemWorkspaceSurfaceRestorePolicy.launchSurfaceRawValue(
+                persistedSurfaceRawValue: "",
+                hasCompletedOnboarding: true,
+                isMacOS: true
+            ),
+            ThemWorkspaceSurfaceRestorePolicy.studioRawValue
+        )
+    }
+
+    func testWorkspaceSurfaceRestoreKeepsIPhoneHomeFirstWhenUnpinned() {
+        XCTAssertEqual(
+            ThemWorkspaceSurfaceRestorePolicy.launchSurfaceRawValue(
+                persistedSurfaceRawValue: "",
+                hasCompletedOnboarding: true,
+                isMacOS: false
+            ),
+            ThemWorkspaceSurfaceRestorePolicy.homeRawValue
+        )
+    }
+
+    func testWorkspaceSurfaceRestoreHonorsExplicitUserSurface() {
+        XCTAssertEqual(
+            ThemWorkspaceSurfaceRestorePolicy.launchSurfaceRawValue(
+                persistedSurfaceRawValue: " home ",
+                hasCompletedOnboarding: true,
+                isMacOS: true
+            ),
+            ThemWorkspaceSurfaceRestorePolicy.homeRawValue
+        )
+        XCTAssertEqual(
+            ThemWorkspaceSurfaceRestorePolicy.launchSurfaceRawValue(
+                persistedSurfaceRawValue: " studio ",
+                hasCompletedOnboarding: true,
+                isMacOS: false
+            ),
+            ThemWorkspaceSurfaceRestorePolicy.studioRawValue
+        )
+    }
+
+    func testWorkspaceSurfaceRestoreKeepsOnboardingOnHome() {
+        XCTAssertEqual(
+            ThemWorkspaceSurfaceRestorePolicy.launchSurfaceRawValue(
+                persistedSurfaceRawValue: "studio",
+                hasCompletedOnboarding: false,
+                isMacOS: true
+            ),
+            ThemWorkspaceSurfaceRestorePolicy.homeRawValue
+        )
+    }
 }

@@ -449,7 +449,7 @@ private func writeStudioDebugPreferenceString(_ value: String, forKey key: Strin
 #endif
 #endif
 
-private enum PrimarySurface {
+private enum PrimarySurface: String {
     case home
     case studio
 }
@@ -703,6 +703,7 @@ struct RootExperienceView: View {
     @State private var showingTasks = false
     @State private var primarySurface: PrimarySurface = .home
     @State private var uiTestForceStudioSurface = false
+    @AppStorage(ThemWorkspaceSurfaceRestorePolicy.storageKey) private var persistedPrimarySurfaceRaw: String = ""
     @State private var showingEmailComposer = false
     @State private var showingRecap = false
     @State private var showingVoiceSettings = false
@@ -2152,7 +2153,10 @@ struct RootExperienceView: View {
                 onboardingNameFocused = true
             }
         } else {
-            verballyAskForPersonalityIfNeeded()
+            restoreWorkspaceSurfaceForLaunchIfNeeded()
+            if !isStudioSurfaceActive {
+                verballyAskForPersonalityIfNeeded()
+            }
         }
 
         configureVoiceCallbacks()
@@ -3464,6 +3468,31 @@ struct RootExperienceView: View {
         """
     }
 
+    private var shouldDefaultLaunchIntoStudio: Bool {
+        #if os(macOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    private func restoreWorkspaceSurfaceForLaunchIfNeeded() {
+        let resolvedSurfaceRaw = ThemWorkspaceSurfaceRestorePolicy.launchSurfaceRawValue(
+            persistedSurfaceRawValue: persistedPrimarySurfaceRaw,
+            hasCompletedOnboarding: !evolution.needsOnboardingName,
+            isMacOS: shouldDefaultLaunchIntoStudio
+        )
+        if persistedPrimarySurfaceRaw != resolvedSurfaceRaw {
+            persistedPrimarySurfaceRaw = resolvedSurfaceRaw
+        }
+        guard resolvedSurfaceRaw == PrimarySurface.studio.rawValue else { return }
+        openStudio()
+    }
+
+    private func persistWorkspaceSurface(_ surface: PrimarySurface) {
+        persistedPrimarySurfaceRaw = surface.rawValue
+    }
+
     private func openStudio() {
         cancelRealtimeStudioDraftStream(restorePreview: true)
         if realtimeTransport.isLive || realtimeTransport.isBusy {
@@ -3495,6 +3524,7 @@ struct RootExperienceView: View {
         withAnimation(.easeInOut(duration: 0.28)) {
             primarySurface = .studio
         }
+        persistWorkspaceSurface(.studio)
         promoteRestoredLiveDraftToStudioProjectIfNeeded()
         if voiceTransportMode == .realtimePreview {
             Task { @MainActor in
@@ -3512,6 +3542,7 @@ struct RootExperienceView: View {
         withAnimation(.easeInOut(duration: 0.28)) {
             primarySurface = .home
         }
+        persistWorkspaceSurface(.home)
         if voiceTransportMode == .realtimePreview {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: false)

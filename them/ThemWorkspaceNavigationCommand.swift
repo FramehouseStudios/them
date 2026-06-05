@@ -27,6 +27,36 @@ enum ThemWorkspaceNavigationCommand: String, CaseIterable {
     }
 }
 
+enum ThemWorkspaceSurfaceRestorePolicy {
+    static let storageKey = "them.workspace.primarySurface.v1"
+    static let homeRawValue = "home"
+    static let studioRawValue = "studio"
+
+    static func normalizedSurfaceRawValue(_ value: String) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case homeRawValue:
+            return homeRawValue
+        case studioRawValue:
+            return studioRawValue
+        default:
+            return nil
+        }
+    }
+
+    static func launchSurfaceRawValue(
+        persistedSurfaceRawValue: String,
+        hasCompletedOnboarding: Bool,
+        isMacOS: Bool
+    ) -> String {
+        guard hasCompletedOnboarding else { return homeRawValue }
+        if let normalized = normalizedSurfaceRawValue(persistedSurfaceRawValue) {
+            return normalized
+        }
+        return isMacOS ? studioRawValue : homeRawValue
+    }
+}
+
 #if os(macOS)
 struct ThemWorkspaceCommands: Commands {
     var body: some Commands {
