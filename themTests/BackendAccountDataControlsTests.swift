@@ -439,6 +439,77 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
+    func testUITestLaunchConfigurationSeedsBackendRestoreDefaultsFromEnvironment() throws {
+        let suiteName = "io.them.tests.ui-launch-\(UUID().uuidString)"
+        let suiteDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            suiteDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        UITestLaunchConfiguration.applyIfNeeded(
+            arguments: [
+                "them",
+                "--ui-testing",
+                "-studio_debug_load_project_id",
+                "project-ios-restore",
+                "-studio_debug_load_project_version_id",
+                "version-ios-restore",
+                "-studio_debug_load_project_token",
+                "77",
+                "-studio_debug_load_project_ack_token",
+                "0",
+            ],
+            environment: [
+                "THEM_UITEST_BACKEND_BASE_URL": " http://127.0.0.1:31337 ",
+                "THEM_UITEST_APP_TOKEN": " them-dev ",
+                "THEM_UITEST_USER_ID": " user-ios ",
+                "THEM_UITEST_CLIENT_TOKEN": " client-ios ",
+                "THEM_UITEST_CLIENT_TOKEN_BASE_URL": " http://127.0.0.1:31337 ",
+                "THEM_UITEST_CLIENT_TOKEN_EXPIRY": "2026-06-05T20:00:00.000Z",
+                "THEM_UITEST_CLIENT_TOKEN_CACHED_AT": "1780689600",
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN": " access-ios ",
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED": "true",
+                "THEM_UITEST_AUTH_SIGNED_IN": "1",
+                "THEM_UITEST_STUDIO_FULL_THREAD_STATE_JSON": #"{"project:project-ios-restore":{"focusedDiffKey":"write:one"}}"#,
+                "THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON": #"{"project:project-ios-restore":[]}"#,
+                "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_JSON": #"{"project:project-ios-restore":{"lineage:one":"fingerprint"}}"#,
+                "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_WRITEIDS_JSON": #"{"project:project-ios-restore":{"lineage:one":"write-one"}}"#,
+            ],
+            defaults: suiteDefaults
+        )
+
+        XCTAssertEqual(suiteDefaults.string(forKey: "backend_base_url"), "http://127.0.0.1:31337")
+        XCTAssertEqual(suiteDefaults.string(forKey: "app_token"), "them-dev")
+        XCTAssertEqual(suiteDefaults.string(forKey: "user_id"), "user-ios")
+        XCTAssertEqual(suiteDefaults.string(forKey: "client_token"), "client-ios")
+        XCTAssertEqual(suiteDefaults.double(forKey: "client_token_cached_at"), 1_780_689_600)
+        XCTAssertEqual(suiteDefaults.string(forKey: "client_token_base_url"), "http://127.0.0.1:31337")
+        XCTAssertEqual(suiteDefaults.string(forKey: "client_token_expiry"), "2026-06-05T20:00:00.000Z")
+        XCTAssertEqual(suiteDefaults.string(forKey: "auth_debug_access_token"), "access-ios")
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_debug_access_token_enabled"))
+        XCTAssertTrue(suiteDefaults.bool(forKey: "auth_signed_in"))
+        XCTAssertEqual(suiteDefaults.string(forKey: "studio_debug_load_project_id"), "project-ios-restore")
+        XCTAssertEqual(suiteDefaults.string(forKey: "studio_debug_load_project_version_id"), "version-ios-restore")
+        XCTAssertEqual(suiteDefaults.integer(forKey: "studio_debug_load_project_token"), 77)
+        XCTAssertEqual(suiteDefaults.integer(forKey: "studio_debug_load_project_ack_token"), 0)
+        XCTAssertEqual(
+            suiteDefaults.string(forKey: "studio.full.thread.state.v1"),
+            #"{"project:project-ios-restore":{"focusedDiffKey":"write:one"}}"#
+        )
+        XCTAssertEqual(
+            suiteDefaults.string(forKey: "studio.ask.note.history.v2"),
+            #"{"project:project-ios-restore":[]}"#
+        )
+        XCTAssertEqual(
+            suiteDefaults.string(forKey: "studio.diff.keep-current.v1"),
+            #"{"project:project-ios-restore":{"lineage:one":"fingerprint"}}"#
+        )
+        XCTAssertEqual(
+            suiteDefaults.string(forKey: "studio.diff.keep-current.writeids.v1"),
+            #"{"project:project-ios-restore":{"lineage:one":"write-one"}}"#
+        )
+    }
+
     func testNewWritesUseKeychainAndRemoveDefaults() {
         defaults.set("stale-user", forKey: "user_id")
         var keychain: [String: String] = [:]

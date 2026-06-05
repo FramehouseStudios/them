@@ -4929,7 +4929,54 @@ struct ScreenplayStudioScreen: View {
         studioConfiguredView
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("studio.surface")
+            .overlay(alignment: .topLeading) {
+                #if DEBUG
+                if IOThemRuntime.isRunningUITests {
+                    Text(uiTestStudioRestoreSnapshotJSON)
+                        .font(.system(size: 1))
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                        .accessibilityIdentifier("studio.restore.snapshot")
+                }
+                #endif
+            }
     }
+
+    #if DEBUG
+    private var uiTestStudioRestoreSnapshotJSON: String {
+        let normalizedDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return studioDebugJSONString(from: [
+            "project_key": activeStudioAskNoteHistoryKey,
+            "selected_project_id": vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines),
+            "selected_project_present": vm.selectedProject != nil,
+            "latest_version_id": vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            "loaded_draft_project_id": vm.debugLoadedDraftProjectID,
+            "load_project_token": trackedStudioDebugProjectLoadToken,
+            "load_project_ack_token": studioDebugLoadProjectAckToken,
+            "load_project_stage": trackedStudioDebugProjectLoadStage,
+            "load_project_ready": trackedStudioDebugProjectLoadReady,
+            "load_project_error": trackedStudioDebugProjectLoadError,
+            "restored_state_source": restoredStudioDebugStateSourceRaw,
+            "restored_focused_diff_source": restoredStudioDebugFocusedDiffSourceRaw,
+            "restored_reopened_source": restoredStudioDebugReopenedSourceRaw,
+            "restored_focused_diff_key": restoredStudioDebugFocusedDiffKey,
+            "restored_reopened_lineage_keys": restoredStudioDebugReopenedLineageKeys,
+            "restored_latest_reopened_write_id": restoredStudioDebugLatestReopenedWriteID,
+            "reopened_diff_count": reopenedDiffExchangeKeys.count,
+            "acknowledged_diff_count": acknowledgedDiffExchangeKeys.count,
+            "draft_preview": String(normalizedDraft.prefix(260)),
+            "draft_tail_preview": String(normalizedDraft.suffix(260)),
+            "collaborator_count": vm.collaborators.count,
+            "approved_emails": vm.approvedEmails,
+            "comment_count": vm.comments.count,
+            "latest_comment_text": vm.comments.first?.text ?? "",
+            "latest_comment_author": vm.comments.first?.authorEmail ?? "",
+            "latest_comment_resolved": vm.comments.first?.resolved ?? false,
+            "latest_comment_deleted": vm.comments.first?.isDeleted ?? false,
+            "error_text": vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+        ])
+    }
+    #endif
 
     private var studioConfiguredView: some View {
         studioPresentationBoundView

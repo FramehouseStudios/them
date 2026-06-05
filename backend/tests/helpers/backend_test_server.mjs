@@ -45,8 +45,9 @@ async function waitForServer(baseUrl, timeoutMs = 15000) {
 export async function startBackend({
   dataDir = createTestDataDir(),
   env = {},
+  port: requestedPort = null,
 } = {}) {
-  const port = await getFreePort();
+  const port = requestedPort == null ? await getFreePort() : Number(requestedPort);
   const stdout = [];
   const stderr = [];
   const childEnv = {
