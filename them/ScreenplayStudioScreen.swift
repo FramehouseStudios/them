@@ -4740,6 +4740,7 @@ struct ScreenplayStudioScreen: View {
     @State private var isAwaitingInitialAcknowledgedDiffHydration = false
     @State private var pendingStudioTurnEvents: [BackendTurnCommittedEvent] = []
     @State private var backendThreadViewStatePersistTask: Task<Void, Never>?
+    @State private var backendAskNoteHistoryPersistTask: Task<Void, Never>?
     @State private var isRestoringFullThreadBrowseState = false
     @State private var isAwaitingInitialFullThreadRestore = true
     @State private var studioDebugSessionID = UUID().uuidString
@@ -4945,6 +4946,7 @@ struct ScreenplayStudioScreen: View {
     #if DEBUG
     private var uiTestStudioRestoreSnapshotJSON: String {
         let normalizedDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let backendAskNoteHistory = backendStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
         return studioDebugJSONString(from: [
             "project_key": activeStudioAskNoteHistoryKey,
             "selected_project_id": vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -4964,6 +4966,10 @@ struct ScreenplayStudioScreen: View {
             "restored_latest_reopened_write_id": restoredStudioDebugLatestReopenedWriteID,
             "reopened_diff_count": reopenedDiffExchangeKeys.count,
             "acknowledged_diff_count": acknowledgedDiffExchangeKeys.count,
+            "ask_note_history_count": studioAskNoteHistory.count,
+            "backend_ask_note_history_count": backendAskNoteHistory.count,
+            "latest_ask_note_prompt": studioAskNoteHistory.first?.prompt ?? "",
+            "latest_ask_note_inserted_text": studioAskNoteHistory.first?.insertedText ?? "",
             "draft_preview": String(normalizedDraft.prefix(260)),
             "draft_tail_preview": String(normalizedDraft.suffix(260)),
             "collaborator_count": vm.collaborators.count,
@@ -5038,6 +5044,13 @@ Replace is best when this file should become the script you edit. Append is safe
                 guard let event = BackendTurnCommittedEvent(notification: notification) else { return }
                 handleStudioTurnCommittedEvent(event)
             }
+            .onChange(of: backendAskNoteHistorySignature(for: activeStudioAskNoteHistoryKey)) { _, newValue in
+                guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                Task {
+                    await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
+                    publishDebugStudioDiffState()
+                }
+            }
             .onChange(of: backendThreadViewRestoreSignature(for: activeStudioAskNoteHistoryKey)) { _, newValue in
                 guard shouldRetryFullThreadBrowseStateRestore(
                     for: activeStudioAskNoteHistoryKey,
@@ -5069,6 +5082,11 @@ Replace is best when this file should become the script you edit. Append is safe
                     backendSignature: backendSignature
                 ) {
                     restoreFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
+                }
+                if !backendAskNoteHistorySignature(for: activeStudioAskNoteHistoryKey).isEmpty {
+                    Task {
+                        await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
+                    }
                 }
                 publishDebugStudioDiffState()
             }
@@ -5185,6 +5203,7 @@ Replace is best when this file should become the script you edit. Append is safe
         studioStateBoundView
             .onDisappear {
                 backendThreadViewStatePersistTask?.cancel()
+                backendAskNoteHistoryPersistTask?.cancel()
                 liveDraftBridge.clearAnchoredTextRect()
                 isSceneQuickInsertVisible = false
                 clearWriteCommitUI()
@@ -15682,6 +15701,10 @@ private var projectsSidebarContent: some View {
         let revisedDiffCount: Int
         let reopenedDiffCount: Int
         let acknowledgedDiffCount: Int
+        let askNoteHistoryCount: Int
+        let backendAskNoteHistoryCount: Int
+        let latestAskNotePrompt: String
+        let latestAskNoteInsertedText: String
         let latestRevisedKey: String
         let latestRevisedLineageKey: String
         let latestRevisedWriteID: String
@@ -22400,9 +22423,184 @@ Return revised screenplay lines only.
         return Array(merged.prefix(24))
     }
 
+    private func studioBackendTimestampString(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
+    private func parsedStudioExchangeTimestamp(_ raw: String?) -> Date {
+        let clean = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return .distantPast }
+
+        let plainFormatter = ISO8601DateFormatter()
+        if let date = plainFormatter.date(from: clean) {
+            return date
+        }
+
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractionalFormatter.date(from: clean) ?? .distantPast
+    }
+
+    private func backendStudioAskNoteHistoryPayload(
+        from entries: [StudioAskNoteExchange]
+    ) -> [BackendScreenplayStudioExchange] {
+        Array(entries.prefix(24)).map { exchange in
+            BackendScreenplayStudioExchange(
+                id: exchange.id.uuidString,
+                backendThreadId: exchange.backendThreadID,
+                backendTurn: exchange.backendTurn,
+                requestId: exchange.requestID,
+                prompt: exchange.prompt,
+                target: exchange.target.rawValue,
+                source: exchange.source.rawValue,
+                noteTitle: exchange.noteTitle,
+                noteBody: exchange.noteBody,
+                developmentText: exchange.developmentText,
+                writeId: exchange.writeID,
+                replacedWriteId: exchange.replacedWriteID,
+                anchorLine: exchange.anchorLine,
+                anchorEndLine: exchange.anchorEndLine,
+                anchorSceneLabel: exchange.anchorSceneLabel,
+                anchorExcerpt: exchange.anchorExcerpt,
+                insertedText: exchange.insertedText,
+                replacementApplied: exchange.replacementApplied,
+                revisedBlockText: exchange.revisedBlockText,
+                resolvedAnchorExcerpt: exchange.resolvedAnchorExcerpt,
+                packLabel: exchange.packLabel,
+                phase: exchange.phase,
+                sluglineAnchorLine: exchange.sluglineAnchorLine,
+                memoryDomainRaw: exchange.memoryDomainRaw,
+                companionModeRaw: exchange.companionModeRaw,
+                timestamp: studioBackendTimestampString(exchange.timestamp)
+            )
+        }
+    }
+
+    private func studioAskNoteExchange(
+        from backend: BackendScreenplayStudioExchange
+    ) -> StudioAskNoteExchange? {
+        guard let id = UUID(uuidString: backend.id) else { return nil }
+        let target = StudioTarget(rawValue: (backend.target ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            ?? .voicePin
+        let source = StudioPromptSource(rawValue: (backend.source ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            ?? .typed
+        let prompt = (backend.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let noteTitle = (backend.noteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let noteBody = (backend.noteBody ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackTitle = target == .page ? "Wrote to page" : "Clementine"
+        let hasUsefulContent =
+            !prompt.isEmpty
+            || !noteBody.isEmpty
+            || !(backend.insertedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(backend.developmentText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasUsefulContent else { return nil }
+
+        return StudioAskNoteExchange(
+            id: id,
+            backendThreadID: normalizedBackendThreadID(backend.backendThreadId).isEmpty
+                ? nil
+                : normalizedBackendThreadID(backend.backendThreadId),
+            backendTurn: backend.backendTurn,
+            requestID: normalizedStudioRequestID(backend.requestId).isEmpty
+                ? nil
+                : normalizedStudioRequestID(backend.requestId),
+            prompt: prompt,
+            target: target,
+            source: source,
+            noteTitle: noteTitle.isEmpty ? fallbackTitle : noteTitle,
+            noteBody: noteBody,
+            developmentText: backend.developmentText,
+            writeID: normalizedWriteID(backend.writeId).isEmpty ? nil : normalizedWriteID(backend.writeId),
+            replacedWriteID: normalizedWriteID(backend.replacedWriteId).isEmpty ? nil : normalizedWriteID(backend.replacedWriteId),
+            anchorLine: backend.anchorLine,
+            anchorEndLine: backend.anchorEndLine,
+            anchorSceneLabel: backend.anchorSceneLabel,
+            anchorExcerpt: backend.anchorExcerpt,
+            insertedText: backend.insertedText,
+            replacementApplied: backend.replacementApplied,
+            revisedBlockText: backend.revisedBlockText,
+            resolvedAnchorExcerpt: backend.resolvedAnchorExcerpt,
+            packLabel: backend.packLabel,
+            phase: backend.phase,
+            sluglineAnchorLine: backend.sluglineAnchorLine,
+            memoryDomainRaw: backend.memoryDomainRaw,
+            companionModeRaw: backend.companionModeRaw,
+            timestamp: parsedStudioExchangeTimestamp(backend.timestamp)
+        )
+    }
+
+    private func backendStudioAskNoteHistory(for key: String) -> [StudioAskNoteExchange] {
+        guard let projectId = screenplayProjectIdFromHistoryKey(key) else { return [] }
+        let project = (vm.selectedProject?.id == projectId)
+            ? vm.selectedProject
+            : vm.projects.first(where: { $0.id == projectId })
+        let history = project?.studioAskNoteHistory ?? []
+        return applyStoredWriteAnchors(
+            to: Array(history.compactMap(studioAskNoteExchange(from:)).prefix(24)),
+            for: key
+        )
+    }
+
+    private func backendAskNoteHistorySignature(for key: String) -> String {
+        let history = backendStudioAskNoteHistory(for: key)
+        guard !history.isEmpty else { return "" }
+        return history.map { exchange in
+            [
+                exchange.id.uuidString.lowercased(),
+                normalizedStudioRequestID(exchange.requestID),
+                normalizedWriteID(exchange.writeID),
+                normalizedWriteID(exchange.replacedWriteID),
+                studioBackendTimestampString(exchange.timestamp)
+            ].joined(separator: ":")
+        }.joined(separator: "|")
+    }
+
+    private func schedulePersistStudioAskNoteHistoryToBackend(
+        _ entries: [StudioAskNoteExchange],
+        for key: String
+    ) {
+        guard let projectId = screenplayProjectIdFromHistoryKey(key),
+              let project = (vm.selectedProject?.id == projectId
+                             ? vm.selectedProject
+                             : vm.projects.first(where: { $0.id == projectId })) else {
+            return
+        }
+
+        let historyPayload = backendStudioAskNoteHistoryPayload(from: entries)
+        backendAskNoteHistoryPersistTask?.cancel()
+        backendAskNoteHistoryPersistTask = Task {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
+                    projectId: project.id,
+                    title: project.title,
+                    phase: project.lastPhase ?? "scene_draft",
+                    tags: project.tags ?? [],
+                    characters: project.characters ?? [],
+                    setting: project.setting ?? "",
+                    tone: project.tone ?? "",
+                    studioAskNoteHistory: historyPayload
+                )
+                if let nextProject = result.payload.project {
+                    await MainActor.run {
+                        vm.applyProjectMetadataUpdate(nextProject)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    vm.errorText = error.localizedDescription
+                }
+            }
+        }
+    }
+
     private func persistStudioAskNoteHistory(_ entries: [StudioAskNoteExchange], for key: String) {
         var store = loadStudioAskNoteHistoryMap()
         let limited = Array(entries.prefix(24))
+        if !shouldDeferBackendThreadViewPersist(for: key) {
+            schedulePersistStudioAskNoteHistoryToBackend(limited, for: key)
+        }
         if limited.isEmpty {
             store.removeValue(forKey: key)
         } else {
@@ -22424,13 +22622,15 @@ Return revised screenplay lines only.
     private func restoreStudioAskNoteHistory(for key: String) async {
         let store = loadStudioAskNoteHistoryMap()
         let decoded = applyStoredWriteAnchors(to: Array((store[key] ?? []).prefix(24)), for: key)
+        let backendEntries = backendStudioAskNoteHistory(for: key)
+        let localAndBackend = mergedStudioThreadHistory(local: decoded, remote: backendEntries)
         if IOThemRuntime.isRunningTests {
-            studioAskNoteHistory = decoded
-            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: decoded)
+            studioAskNoteHistory = localAndBackend
+            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: localAndBackend)
             syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
             return
         }
-        let shouldBackfill = decoded.count < 8
+        let shouldBackfill = localAndBackend.count < 8
 
         do {
             let remoteEntries: [StudioAskNoteExchange]
@@ -22453,14 +22653,14 @@ Return revised screenplay lines only.
             } else {
                 remoteEntries = []
             }
-            let merged = mergedStudioThreadHistory(local: decoded, remote: remoteEntries)
+            let merged = mergedStudioThreadHistory(local: localAndBackend, remote: remoteEntries)
             studioAskNoteHistory = merged
             highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: merged)
             syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
             persistStudioAskNoteHistory(merged, for: key)
         } catch {
-            studioAskNoteHistory = decoded
-            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: decoded)
+            studioAskNoteHistory = localAndBackend
+            highlightedStudioExchangeID = restoredSelectedStudioThreadID(for: key, entries: localAndBackend)
             syncLatestCommittedPrompt(from: studioAskNoteHistory.first)
         }
     }
@@ -24814,6 +25014,7 @@ Look at the city.
             lastCommentAt: nil,
             studioThreadViewState: nil,
             studioDiffAcknowledged: nil,
+            studioAskNoteHistory: nil,
             collaborators: nil,
             comments: nil,
             versions: nil,
@@ -26173,6 +26374,7 @@ Look at the city.
         let listedBackendProject = activeProjectID.flatMap { projectID in
             vm.projects.first(where: { $0.id == projectID })
         }
+        let backendAskNoteEntries = backendStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
         let localThreadState = loadStudioFullThreadBrowseStateMap()[activeStudioAskNoteHistoryKey]
         let conflict = vm.conflictState
         let recovery = vm.recoveryCandidate
@@ -26222,6 +26424,10 @@ Look at the city.
             revisedDiffCount: revisedEntries.count,
             reopenedDiffCount: reopenedDiffExchangeKeys.count,
             acknowledgedDiffCount: acknowledgedDiffExchangeKeys.count,
+            askNoteHistoryCount: studioAskNoteHistory.count,
+            backendAskNoteHistoryCount: backendAskNoteEntries.count,
+            latestAskNotePrompt: studioAskNoteHistory.first?.prompt ?? "",
+            latestAskNoteInsertedText: studioAskNoteHistory.first?.insertedText ?? "",
             latestRevisedKey: latestRevisedKey,
             latestRevisedLineageKey: latestRevisedLineageKey,
             latestRevisedWriteID: latestRevisedWriteID,

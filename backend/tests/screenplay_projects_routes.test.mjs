@@ -50,6 +50,7 @@ function defaultDeps(overrides = {}) {
     toScreenplayProjectPayload: (project, opts) => ({
       id: project.id,
       title: project.title,
+      studio_ask_note_history: project.studioAskNoteHistory || [],
       _versionsIncluded: Boolean(opts?.includeVersions),
       _draftsIncluded: Boolean(opts?.includeDrafts),
     }),
@@ -101,6 +102,7 @@ function defaultDeps(overrides = {}) {
     normalizeScreenplayPhaseValue: (v) => (typeof v === "string" && v ? v : "scene_draft"),
     normalizeStoredScreenplayThreadViewState: (v) => v || null,
     normalizeStoredScreenplayDiffAcknowledgementState: (v) => ({ keys: v?.keys || [], entries: v?.entries || [] }),
+    normalizeStoredScreenplayStudioAskNoteHistory: (v) => (Array.isArray(v) ? v.slice(0, 24) : []),
     normalizeStoredScreenplayWriteAnchors: (v) => v || [],
     normalizeStoredScreenplayBindings: (v) => v || [],
     _owner: owner,
@@ -172,6 +174,7 @@ test("[screenplay-projects-routes] mount fails when required deps are missing", 
     "normalizeScreenplayPhaseValue",
     "normalizeStoredScreenplayThreadViewState",
     "normalizeStoredScreenplayDiffAcknowledgementState",
+    "normalizeStoredScreenplayStudioAskNoteHistory",
     "normalizeStoredScreenplayWriteAnchors",
     "normalizeStoredScreenplayBindings",
   ];
@@ -374,6 +377,42 @@ test("[screenplay-projects-routes] POST /screenplay/projects updates existing pr
     assert.equal(r.status, 200);
     assert.equal(r.body.status, "updated");
     assert.equal(r.body.project_id, "p1");
+  });
+});
+
+test("[screenplay-projects-routes] POST /screenplay/projects persists Studio ask-note history", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const history = [{
+      id: "exchange-one",
+      request_id: "request-one",
+      prompt: "Rewrite the final image.",
+      target: "page",
+      source: "typed",
+      note_title: "Wrote to page",
+      note_body: "INT. ROOM - NIGHT\n\nHe waits, still.",
+      inserted_text: "INT. ROOM - NIGHT\n\nHe waits, still.",
+      write_id: "write-one",
+      timestamp: "2026-06-05T20:00:00.000Z",
+    }];
+
+    const saved = await postJson(baseURL, "/screenplay/projects", {
+      title: "First Project",
+      project_id: "p1",
+      studio_ask_note_history: history,
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(deps._owner.projects[0].studioAskNoteHistory[0].id, "exchange-one");
+    assert.equal(deps._owner.projects[0].studioAskNoteHistory[0].inserted_text, "INT. ROOM - NIGHT\n\nHe waits, still.");
+    assert.deepEqual(saved.body.project.studio_ask_note_history, history);
+
+    const renamed = await postJson(baseURL, "/screenplay/projects", {
+      title: "First Project renamed without history",
+      project_id: "p1",
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal(deps._owner.projects[0].studioAskNoteHistory[0].id, "exchange-one");
+    assert.equal(renamed.body.project.studio_ask_note_history[0].inserted_text, "INT. ROOM - NIGHT\n\nHe waits, still.");
   });
 });
 

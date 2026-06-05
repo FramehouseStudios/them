@@ -240,7 +240,7 @@ function writeMacRestoreDefaults(seeded) {
   writeDefaultString("auth_debug_access_token", seeded.identity.accessToken);
   writeDefaultBool("auth_debug_access_token_enabled", true);
   writeDefaultString("studio.full.thread.state.v1", seeded.localState.fullThreadStateJSON);
-  writeDefaultString("studio.ask.note.history.v2", seeded.localState.askHistoryJSON);
+  writeDefaultString("studio.ask.note.history.v2", "{}");
   writeDefaultString("studio.diff.keep-current.v1", seeded.localState.acknowledgedJSON);
   writeDefaultString("studio.diff.keep-current.writeids.v1", seeded.localState.acknowledgedWriteIDsJSON);
   writeDefaultString("studio_debug_diff_state_json", "");
@@ -281,6 +281,11 @@ function expectedMacRestoreState(state, seeded, stagedRequest) {
     && reopenedLineageKeys.includes(normalizeStudioRestoreKey(seeded.expectedReopenedLineageKey))
     && normalizeStudioRestoreKey(state.restoredLatestReopenedWriteID) === normalizeStudioRestoreKey(seeded.expectedReopenedWriteID)
     && Number(state.reopenedDiffCount || 0) > 0
+    && Number(state.askNoteHistoryCount ?? state.ask_note_history_count ?? 0) >= 3
+    && Number(state.backendAskNoteHistoryCount ?? state.backend_ask_note_history_count ?? 0) >= 3
+    && normalizeStudioRestoreText(state.latestAskNoteInsertedText ?? state.latest_ask_note_inserted_text ?? "").includes(
+      normalizeStudioRestoreText(seeded.expectedDraft)
+    )
     && draftText.includes(normalizeStudioRestoreText(seeded.expectedDraft))
     && expectedCollaborationState(state, seeded);
 }
@@ -321,6 +326,14 @@ async function assertBackendSeeded(seeded) {
     probe.metadata.reopenedLineageKeys.includes(normalizeStudioRestoreKey(seeded.expectedReopenedLineageKey)),
     `Expected backend reopened lineage ${seeded.expectedReopenedLineageKey}, got ${probe.metadata.reopenedLineageKeys.join(",")}`
   );
+  assert(
+    Number(probe.metadata.askNoteHistoryCount || 0) >= 3,
+    `Expected backend ask-note history to be seeded, got ${probe.metadata.askNoteHistoryCount || 0}`
+  );
+  assert(
+    probe.metadata.askNoteHistory.some((entry) => normalizeStudioRestoreText(entry.insertedText) === normalizeStudioRestoreText(seeded.expectedDraft)),
+    "Expected backend ask-note history to include the shared restore draft."
+  );
   return probe;
 }
 
@@ -358,7 +371,14 @@ async function restoreSharedProjectOnMac(seeded) {
 }
 
 function restoreSharedProjectOniPhone(seeded) {
-  const fixtureJSON = createStudioRestoreUITestFixtureJSON(seeded, {
+  const backendOnlySeeded = {
+    ...seeded,
+    localState: {
+      ...seeded.localState,
+      askHistoryJSON: "{}",
+    },
+  };
+  const fixtureJSON = createStudioRestoreUITestFixtureJSON(backendOnlySeeded, {
     loadToken: Date.now() % 1_000_000_000,
   });
   writeFileSync(CROSS_PLATFORM_FIXTURE_PATH, fixtureJSON, "utf8");

@@ -29,6 +29,14 @@ export function extractStudioProjectMetadata(payload) {
   const acknowledgedKeys = Array.isArray(diffAcknowledged?.keys)
     ? diffAcknowledged.keys.map((value) => normalizeKey(value)).filter(Boolean)
     : [];
+  const askNoteHistory = Array.isArray(project?.studioAskNoteHistory || project?.studio_ask_note_history)
+    ? (project.studioAskNoteHistory || project.studio_ask_note_history).map((entry) => ({
+        id: normalizeKey(entry?.id),
+        requestID: normalizeKey(entry?.requestID || entry?.requestId || entry?.request_id),
+        writeID: normalizeKey(entry?.writeID || entry?.writeId || entry?.write_id),
+        insertedText: String(entry?.insertedText || entry?.inserted_text || "").trim(),
+      })).filter((entry) => entry.id)
+    : [];
   const versions = Array.isArray(project?.versions)
     ? project.versions.map(normalizeVersion).filter(Boolean)
     : [];
@@ -50,6 +58,8 @@ export function extractStudioProjectMetadata(payload) {
     latestReopenedWriteID: normalizeKey(threadViewState?.latestReopenedWriteID || threadViewState?.latest_reopened_write_id),
     acknowledgedKeys,
     acknowledgedEntries,
+    askNoteHistory,
+    askNoteHistoryCount: askNoteHistory.length,
   };
 }
 

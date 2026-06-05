@@ -410,12 +410,17 @@ export function createStudioRestoreDiffAcknowledgedEntries(seed) {
   }];
 }
 
-export function createStudioRestoreLocalStatePayload(fixture, seed = fixture?.reopenedSeed) {
-  const projectKey = requireNonEmptyString(seed?.projectKey || fixture?.projectKey, "Studio restore fixture is missing a project key.");
-  const acknowledgedLineageKey = normalizeStudioRestoreKey(seed?.acknowledgedLineageKey);
+export function createStudioRestoreAskNoteHistoryPayload(fixture, seed = fixture?.reopenedSeed) {
   const history = Array.isArray(seed?.latestReopenedWriteID ? fixture?.reopenedHistory : fixture?.ackHistory)
     ? (seed?.latestReopenedWriteID ? fixture.reopenedHistory : fixture.ackHistory)
     : [];
+  return history.slice(0, 24);
+}
+
+export function createStudioRestoreLocalStatePayload(fixture, seed = fixture?.reopenedSeed) {
+  const projectKey = requireNonEmptyString(seed?.projectKey || fixture?.projectKey, "Studio restore fixture is missing a project key.");
+  const acknowledgedLineageKey = normalizeStudioRestoreKey(seed?.acknowledgedLineageKey);
+  const history = createStudioRestoreAskNoteHistoryPayload(fixture, seed);
   return {
     fullThreadStateJSON: JSON.stringify({
       [projectKey]: seed?.rawRecord && typeof seed.rawRecord === "object" ? seed.rawRecord : {},
@@ -608,6 +613,7 @@ export async function seedBackendStudioRestoreFixture({
       activate: true,
       studio_thread_view_state: createStudioRestoreThreadViewPayload(resolvedSeed),
       studio_diff_acknowledged_entries: createStudioRestoreDiffAcknowledgedEntries(resolvedSeed),
+      studio_ask_note_history: createStudioRestoreAskNoteHistoryPayload(resolvedFixture, resolvedSeed),
     },
   });
   if (!projectResponse.response.ok) {

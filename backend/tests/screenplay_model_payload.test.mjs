@@ -77,6 +77,33 @@ test("[screenplay-model-payload] preserves active Clementine page write beyond v
   assert.equal(restoredVersion?.draft, generatedDraft);
 });
 
+test("[screenplay-model-payload] includes capped Studio ask-note history with screenplay line breaks", () => {
+  const { toScreenplayProjectPayload } = services();
+  const history = Array.from({ length: 26 }, (_, index) => ({
+    id: `exchange-${index}`,
+    prompt: `Prompt ${index}`,
+    target: index === 0 ? "page" : "voicePin",
+    source: "typed",
+    noteTitle: "Wrote to page",
+    noteBody: "INT. ROOM - NIGHT\n\nHe waits, still.",
+    insertedText: "INT. ROOM - NIGHT\n\nHe waits, still.",
+    writeID: `write-${index}`,
+    timestamp: `2026-06-05T20:00:${String(index).padStart(2, "0")}.000Z`,
+  }));
+  const payload = toScreenplayProjectPayload({
+    id: "project-history",
+    title: "History",
+    studioAskNoteHistory: history,
+    outline: { acts: [], scenes: [], beats: [] },
+  });
+
+  assert.equal(payload.studio_ask_note_history.length, 24);
+  assert.equal(payload.studio_ask_note_history[0].id, "exchange-0");
+  assert.equal(payload.studio_ask_note_history[0].target, "page");
+  assert.equal(payload.studio_ask_note_history[0].inserted_text, "INT. ROOM - NIGHT\n\nHe waits, still.");
+  assert.equal(payload.studio_ask_note_history.at(-1).id, "exchange-23");
+});
+
 test("[screenplay-model-payload] outline payload removes orphan scene and beat references", () => {
   const { toScreenplayOutlinePayload } = services();
   const payload = toScreenplayOutlinePayload({

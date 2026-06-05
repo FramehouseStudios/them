@@ -857,6 +857,35 @@ nonisolated struct BackendScreenplayDiffAcknowledgementState: Codable, Hashable 
     let entries: [BackendScreenplayDiffAcknowledgementEntry]?
 }
 
+nonisolated struct BackendScreenplayStudioExchange: Codable, Hashable {
+    let id: String
+    let backendThreadId: String?
+    let backendTurn: Int?
+    let requestId: String?
+    let prompt: String?
+    let target: String?
+    let source: String?
+    let noteTitle: String?
+    let noteBody: String?
+    let developmentText: String?
+    let writeId: String?
+    let replacedWriteId: String?
+    let anchorLine: Int?
+    let anchorEndLine: Int?
+    let anchorSceneLabel: String?
+    let anchorExcerpt: String?
+    let insertedText: String?
+    let replacementApplied: Bool?
+    let revisedBlockText: String?
+    let resolvedAnchorExcerpt: String?
+    let packLabel: String?
+    let phase: String?
+    let sluglineAnchorLine: Int?
+    let memoryDomainRaw: String?
+    let companionModeRaw: String?
+    let timestamp: String?
+}
+
 nonisolated struct BackendScreenplayCollaborator: Decodable, Hashable {
     let id: String?
     let email: String
@@ -967,6 +996,7 @@ nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
     let lastCommentAt: TimeInterval?
     let studioThreadViewState: BackendScreenplayThreadViewState?
     let studioDiffAcknowledged: BackendScreenplayDiffAcknowledgementState?
+    let studioAskNoteHistory: [BackendScreenplayStudioExchange]?
     let collaborators: [BackendScreenplayCollaborator]?
     let comments: [BackendScreenplayComment]?
     let versions: [BackendScreenplayVersion]?
@@ -3630,7 +3660,8 @@ actor BackendMemoryAPI {
         tone: String = "",
         studioThreadViewState: BackendScreenplayThreadViewState? = nil,
         studioDiffAcknowledgedKeys: [String]? = nil,
-        studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil
+        studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil,
+        studioAskNoteHistory: [BackendScreenplayStudioExchange]? = nil
     ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
         _ = try? await bootstrapSession(force: false)
         var request = try makeWriteRequest(path: "/screenplay/projects")
@@ -3658,6 +3689,11 @@ actor BackendMemoryAPI {
            let encoded = try? JSONEncoder().encode(studioDiffAcknowledgedEntries),
            let entriesPayload = try? JSONSerialization.jsonObject(with: encoded) {
             payload["studio_diff_acknowledged_entries"] = entriesPayload
+        }
+        if let studioAskNoteHistory,
+           let encoded = try? JSONEncoder().encode(studioAskNoteHistory),
+           let historyPayload = try? JSONSerialization.jsonObject(with: encoded) {
+            payload["studio_ask_note_history"] = historyPayload
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
         let (data, response) = try await session.data(for: request)

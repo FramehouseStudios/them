@@ -464,6 +464,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             lastCommentAt: nil,
             studioThreadViewState: nil,
             studioDiffAcknowledged: nil,
+            studioAskNoteHistory: nil,
             collaborators: nil,
             comments: nil,
             versions: versions,

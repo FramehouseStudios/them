@@ -85,6 +85,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     normalizeScreenplayPhaseValue,
     normalizeStoredScreenplayThreadViewState,
     normalizeStoredScreenplayDiffAcknowledgementState,
+    normalizeStoredScreenplayStudioAskNoteHistory,
     normalizeStoredScreenplayWriteAnchors,
     normalizeStoredScreenplayBindings,
   } = deps;
@@ -121,6 +122,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     normalizeScreenplayPhaseValue,
     normalizeStoredScreenplayThreadViewState,
     normalizeStoredScreenplayDiffAcknowledgementState,
+    normalizeStoredScreenplayStudioAskNoteHistory,
     normalizeStoredScreenplayWriteAnchors,
     normalizeStoredScreenplayBindings,
   };
@@ -343,6 +345,12 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       || Object.prototype.hasOwnProperty.call(req.body, "studio_diff_acknowledged")
       || Object.prototype.hasOwnProperty.call(req.body, "studioDiffAcknowledged")
     );
+    const hasStudioAskNoteHistory = req.body && (
+      Object.prototype.hasOwnProperty.call(req.body, "studio_ask_note_history")
+      || Object.prototype.hasOwnProperty.call(req.body, "studioAskNoteHistory")
+      || Object.prototype.hasOwnProperty.call(req.body, "studio_exchange_history")
+      || Object.prototype.hasOwnProperty.call(req.body, "studioExchangeHistory")
+    );
     const project = existing || {
       id: requestedProjectId || createScreenplayId("project"),
       title,
@@ -361,6 +369,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       studioThreadViewState: null,
       studioDiffAcknowledgedKeys: [],
       studioDiffAcknowledgedEntries: [],
+      studioAskNoteHistory: [],
       outline: createEmptyScreenplayOutline(),
       versions: [],
       collaborators: [],
@@ -389,6 +398,14 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       });
       project.studioDiffAcknowledgedKeys = diffAcknowledged.keys;
       project.studioDiffAcknowledgedEntries = diffAcknowledged.entries;
+    }
+    if (hasStudioAskNoteHistory) {
+      project.studioAskNoteHistory = normalizeStoredScreenplayStudioAskNoteHistory(
+        req.body?.studioAskNoteHistory
+        || req.body?.studio_ask_note_history
+        || req.body?.studioExchangeHistory
+        || req.body?.studio_exchange_history
+      );
     }
     project.lastPhase = normalizeScreenplayPhaseValue(req.body?.phase);
     project.updatedAt = now;

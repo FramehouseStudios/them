@@ -133,6 +133,10 @@ final class V1SmokeUITests: XCTestCase {
                 && reopenedLineageKeys.contains(fixture.expectedReopenedLineageKey.lowercased())
                 && stringValue(snapshot["restored_latest_reopened_write_id"]).lowercased() == fixture.expectedReopenedWriteID.lowercased()
                 && intValue(snapshot["reopened_diff_count"]) > 0
+                && intValue(snapshot["ask_note_history_count"]) >= 3
+                && intValue(snapshot["backend_ask_note_history_count"]) >= 3
+                && normalizedScreenplayText(stringValue(snapshot["latest_ask_note_inserted_text"]))
+                    .contains(normalizedScreenplayText(fixture.expectedDraft))
                 && draftText.contains(normalizedScreenplayText(fixture.expectedDraft))
                 && intValue(snapshot["collaborator_count"]) >= 1
                 && approvedEmails.contains(fixture.expectedCollaboratorEmail.lowercased())

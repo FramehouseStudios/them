@@ -7994,6 +7994,14 @@ function buildDraftExcerpt(draft, maxChars = 220) {
     .slice(0, Math.max(32, maxChars));
 }
 
+function normalizeScreenplayMultilineSnippet(value, maxChars = 2400) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim()
+    .slice(0, Math.max(0, Number(maxChars || 0)));
+}
+
 function scoreScreenplayDraft(draft) {
   const text = String(draft || "").trim();
   if (!text) {
@@ -8505,6 +8513,70 @@ function normalizeStoredScreenplayDiffAcknowledgementState(entry) {
   };
 }
 
+function normalizeStoredScreenplayStudioAskNoteExchange(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const id = normalizeSnippet(entry.id, 96);
+  const prompt = normalizeSnippet(entry.prompt, 1200);
+  const noteBody = normalizeScreenplayMultilineSnippet(entry.noteBody ?? entry.note_body, 2400);
+  const insertedText = normalizeScreenplayMultilineSnippet(entry.insertedText ?? entry.inserted_text, 2400);
+  const developmentText = normalizeScreenplayMultilineSnippet(entry.developmentText ?? entry.development_text, 2400);
+  if (!id || (!prompt && !noteBody && !insertedText && !developmentText)) return null;
+  const target = normalizeSnippet(entry.target, 32) || "voicePin";
+  const source = normalizeSnippet(entry.source, 32) || "typed";
+  return {
+    id,
+    backendThreadID: normalizeSnippet(entry.backendThreadID ?? entry.backendThreadId ?? entry.backend_thread_id, 120),
+    backendTurn: Number.isFinite(Number(entry.backendTurn ?? entry.backend_turn))
+      ? Math.max(0, Math.floor(Number(entry.backendTurn ?? entry.backend_turn)))
+      : null,
+    requestID: normalizeSnippet(entry.requestID ?? entry.requestId ?? entry.request_id, 120),
+    prompt,
+    target: ["page", "voicePin"].includes(target) ? target : "voicePin",
+    source: ["typed", "voice"].includes(source) ? source : "typed",
+    noteTitle: normalizeSnippet(entry.noteTitle ?? entry.note_title, 240) || "Clementine",
+    noteBody,
+    developmentText,
+    writeID: normalizeSnippet(entry.writeID ?? entry.writeId ?? entry.write_id, 96),
+    replacedWriteID: normalizeSnippet(entry.replacedWriteID ?? entry.replacedWriteId ?? entry.replaced_write_id, 96),
+    anchorLine: Number.isFinite(Number(entry.anchorLine ?? entry.anchor_line))
+      ? Math.max(1, Math.floor(Number(entry.anchorLine ?? entry.anchor_line)))
+      : null,
+    anchorEndLine: Number.isFinite(Number(entry.anchorEndLine ?? entry.anchor_end_line))
+      ? Math.max(1, Math.floor(Number(entry.anchorEndLine ?? entry.anchor_end_line)))
+      : null,
+    anchorSceneLabel: normalizeSnippet(entry.anchorSceneLabel ?? entry.anchor_scene_label, 180),
+    anchorExcerpt: normalizeScreenplayMultilineSnippet(entry.anchorExcerpt ?? entry.anchor_excerpt, 1600),
+    insertedText,
+    replacementApplied: typeof (entry.replacementApplied ?? entry.replacement_applied) === "boolean"
+      ? Boolean(entry.replacementApplied ?? entry.replacement_applied)
+      : null,
+    revisedBlockText: normalizeScreenplayMultilineSnippet(entry.revisedBlockText ?? entry.revised_block_text, 2400),
+    resolvedAnchorExcerpt: normalizeScreenplayMultilineSnippet(entry.resolvedAnchorExcerpt ?? entry.resolved_anchor_excerpt, 1600),
+    packLabel: normalizeSnippet(entry.packLabel ?? entry.pack_label, 120),
+    phase: normalizeSnippet(entry.phase, 80),
+    sluglineAnchorLine: Number.isFinite(Number(entry.sluglineAnchorLine ?? entry.slugline_anchor_line))
+      ? Math.max(1, Math.floor(Number(entry.sluglineAnchorLine ?? entry.slugline_anchor_line)))
+      : null,
+    memoryDomainRaw: normalizeSnippet(entry.memoryDomainRaw ?? entry.memory_domain_raw, 80),
+    companionModeRaw: normalizeSnippet(entry.companionModeRaw ?? entry.companion_mode_raw, 80),
+    timestamp: normalizeSnippet(entry.timestamp, 80) || new Date().toISOString(),
+  };
+}
+
+function normalizeStoredScreenplayStudioAskNoteHistory(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const normalized = [];
+  for (const item of list) {
+    const exchange = normalizeStoredScreenplayStudioAskNoteExchange(item);
+    if (!exchange || seen.has(exchange.id)) continue;
+    seen.add(exchange.id);
+    normalized.push(exchange);
+    if (normalized.length >= 24) break;
+  }
+  return normalized;
+}
+
 function normalizeStoredScreenplayAct(entry, orderFallback = 0) {
   if (!entry || typeof entry !== "object") return null;
   const id = normalizeSnippet(entry.id, 64) || createScreenplayId("act");
@@ -8665,6 +8737,12 @@ function normalizeStoredScreenplayProject(entry) {
   const comments = Array.isArray(entry.comments)
     ? entry.comments.map(normalizeStoredScreenplayComment).filter(Boolean)
     : [];
+  const studioAskNoteHistory = normalizeStoredScreenplayStudioAskNoteHistory(
+    entry.studioAskNoteHistory
+    || entry.studio_ask_note_history
+    || entry.studioExchangeHistory
+    || entry.studio_exchange_history
+  );
   return {
     id,
     title,
@@ -8683,6 +8761,7 @@ function normalizeStoredScreenplayProject(entry) {
     studioThreadViewState: normalizeStoredScreenplayThreadViewState(entry.studioThreadViewState || entry.studio_thread_view_state),
     studioDiffAcknowledgedKeys: diffAcknowledged.keys,
     studioDiffAcknowledgedEntries: diffAcknowledged.entries,
+    studioAskNoteHistory,
     outline,
     versions,
     collaborators,
@@ -8851,6 +8930,39 @@ function toScreenplayCommentPayload(comment, actorEmail = "") {
   };
 }
 
+function toScreenplayStudioAskNoteExchangePayload(exchange) {
+  const safeExchange = normalizeStoredScreenplayStudioAskNoteExchange(exchange);
+  if (!safeExchange) return null;
+  return {
+    id: safeExchange.id,
+    backend_thread_id: safeExchange.backendThreadID || "",
+    backend_turn: safeExchange.backendTurn,
+    request_id: safeExchange.requestID || "",
+    prompt: safeExchange.prompt || "",
+    target: safeExchange.target || "voicePin",
+    source: safeExchange.source || "typed",
+    note_title: safeExchange.noteTitle || "",
+    note_body: safeExchange.noteBody || "",
+    development_text: safeExchange.developmentText || "",
+    write_id: safeExchange.writeID || "",
+    replaced_write_id: safeExchange.replacedWriteID || "",
+    anchor_line: safeExchange.anchorLine,
+    anchor_end_line: safeExchange.anchorEndLine,
+    anchor_scene_label: safeExchange.anchorSceneLabel || "",
+    anchor_excerpt: safeExchange.anchorExcerpt || "",
+    inserted_text: safeExchange.insertedText || "",
+    replacement_applied: safeExchange.replacementApplied,
+    revised_block_text: safeExchange.revisedBlockText || "",
+    resolved_anchor_excerpt: safeExchange.resolvedAnchorExcerpt || "",
+    pack_label: safeExchange.packLabel || "",
+    phase: safeExchange.phase || "",
+    slugline_anchor_line: safeExchange.sluglineAnchorLine,
+    memory_domain_raw: safeExchange.memoryDomainRaw || "",
+    companion_mode_raw: safeExchange.companionModeRaw || "",
+    timestamp: safeExchange.timestamp || "",
+  };
+}
+
 function toScreenplayThreadViewStatePayload(state) {
   const safeState = normalizeStoredScreenplayThreadViewState(state);
   if (!safeState) return null;
@@ -8931,6 +9043,12 @@ function toScreenplayProjectPayload(project, options = {}) {
       safeProject.studioDiffAcknowledgedEntries,
       safeProject.studioDiffAcknowledgedKeys
     ),
+    studio_ask_note_history: Array.isArray(safeProject.studioAskNoteHistory)
+      ? safeProject.studioAskNoteHistory
+          .slice(0, 24)
+          .map(toScreenplayStudioAskNoteExchangePayload)
+          .filter(Boolean)
+      : [],
     collaborators: Array.isArray(safeProject.collaborators)
       ? safeProject.collaborators.map(toScreenplayCollaboratorPayload)
       : [],
@@ -26520,6 +26638,7 @@ mountScreenplayProjectsRoutes(app, {
   normalizeScreenplayPhaseValue,
   normalizeStoredScreenplayThreadViewState,
   normalizeStoredScreenplayDiffAcknowledgementState,
+  normalizeStoredScreenplayStudioAskNoteHistory,
   normalizeStoredScreenplayWriteAnchors,
   normalizeStoredScreenplayBindings,
 });
