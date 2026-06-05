@@ -87,7 +87,19 @@ final class V1SmokeUITests: XCTestCase {
         }
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        try await assertBackendProjectRestoreLoads(fixture)
+    }
 
+    @MainActor
+    func test_cross_platform_backend_project_restore_loads_preseeded_screenplay_session() async throws {
+        guard let fixture = try restoreContractFixtureFromEnvironment() else {
+            throw XCTSkip("No cross-platform restore fixture was provided.")
+        }
+        try await assertBackendProjectRestoreLoads(fixture)
+    }
+
+    @MainActor
+    private func assertBackendProjectRestoreLoads(_ fixture: RestoreContractFixture) async throws {
         let app = launchApp(
             openStudio: true,
             restoreProjectID: fixture.projectID,
@@ -297,6 +309,71 @@ final class V1SmokeUITests: XCTestCase {
         let expectedCollaboratorEmail: String
         let expectedCommentText: String
         let appLaunchEnvironment: [String: String]
+    }
+
+    private func restoreContractFixtureFromEnvironment(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> RestoreContractFixture? {
+        let environmentRaw = (environment["THEM_UITEST_RESTORE_FIXTURE_JSON"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fixturePath = (environment["THEM_UITEST_RESTORE_FIXTURE_PATH"] ?? "/tmp/them_studio_cross_platform_restore_fixture.json")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fileRaw = fixturePath.isEmpty
+            ? ""
+            : ((try? String(contentsOfFile: fixturePath, encoding: .utf8)) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = environmentRaw.isEmpty ? fileRaw : environmentRaw
+        guard !raw.isEmpty else { return nil }
+        guard let data = raw.data(using: .utf8),
+              let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(
+                domain: "themUITests.restore",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Could not decode cross-platform restore fixture JSON."]
+            )
+        }
+
+        let baseURL = try firstNonEmptyString(payload["baseURL"], payload["base_url"], message: "Restore fixture missing baseURL.")
+        let appToken = stringValue(payload["appToken"]).isEmpty ? "them-dev" : stringValue(payload["appToken"])
+        let userID = try firstNonEmptyString(payload["userID"], payload["user_id"], message: "Restore fixture missing userID.")
+        let clientToken = try firstNonEmptyString(payload["clientToken"], payload["client_token"], message: "Restore fixture missing clientToken.")
+        let clientTokenCachedAt = intValue(payload["clientTokenCachedAt"]) > 0
+            ? intValue(payload["clientTokenCachedAt"])
+            : Int(Date().timeIntervalSince1970)
+        let clientTokenExpiry = try firstNonEmptyString(payload["clientTokenExpiry"], payload["client_token_expiry"], message: "Restore fixture missing clientTokenExpiry.")
+        let accessToken = try firstNonEmptyString(payload["accessToken"], payload["access_token"], message: "Restore fixture missing accessToken.")
+        let fullThreadStateJSON = try firstNonEmptyString(payload["fullThreadStateJSON"], payload["full_thread_state_json"], message: "Restore fixture missing fullThreadStateJSON.")
+        let askHistoryJSON = try firstNonEmptyString(payload["askHistoryJSON"], payload["ask_history_json"], message: "Restore fixture missing askHistoryJSON.")
+        let acknowledgedJSON = try firstNonEmptyString(payload["acknowledgedJSON"], payload["acknowledged_json"], message: "Restore fixture missing acknowledgedJSON.")
+        let acknowledgedWriteIDsJSON = try firstNonEmptyString(payload["acknowledgedWriteIDsJSON"], payload["acknowledged_write_ids_json"], message: "Restore fixture missing acknowledgedWriteIDsJSON.")
+
+        return RestoreContractFixture(
+            projectID: try firstNonEmptyString(payload["projectID"], payload["project_id"], message: "Restore fixture missing projectID."),
+            versionID: try firstNonEmptyString(payload["versionID"], payload["version_id"], message: "Restore fixture missing versionID."),
+            loadToken: max(1, intValue(payload["loadToken"] ?? payload["load_token"])),
+            expectedDraft: try firstNonEmptyString(payload["expectedDraft"], payload["expected_draft"], message: "Restore fixture missing expectedDraft."),
+            expectedFocusedDiffKey: try firstNonEmptyString(payload["expectedFocusedDiffKey"], payload["expected_focused_diff_key"], message: "Restore fixture missing expectedFocusedDiffKey."),
+            expectedReopenedWriteID: try firstNonEmptyString(payload["expectedReopenedWriteID"], payload["expected_reopened_write_id"], message: "Restore fixture missing expectedReopenedWriteID."),
+            expectedReopenedLineageKey: try firstNonEmptyString(payload["expectedReopenedLineageKey"], payload["expected_reopened_lineage_key"], message: "Restore fixture missing expectedReopenedLineageKey."),
+            expectedCollaboratorEmail: try firstNonEmptyString(payload["expectedCollaboratorEmail"], payload["expected_collaborator_email"], message: "Restore fixture missing expectedCollaboratorEmail."),
+            expectedCommentText: try firstNonEmptyString(payload["expectedCommentText"], payload["expected_comment_text"], message: "Restore fixture missing expectedCommentText."),
+            appLaunchEnvironment: [
+                "THEM_UITEST_BACKEND_BASE_URL": baseURL,
+                "THEM_UITEST_APP_TOKEN": appToken,
+                "THEM_UITEST_USER_ID": userID,
+                "THEM_UITEST_CLIENT_TOKEN": clientToken,
+                "THEM_UITEST_CLIENT_TOKEN_CACHED_AT": "\(clientTokenCachedAt)",
+                "THEM_UITEST_CLIENT_TOKEN_BASE_URL": baseURL,
+                "THEM_UITEST_CLIENT_TOKEN_EXPIRY": clientTokenExpiry,
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN": accessToken,
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED": "1",
+                "THEM_UITEST_AUTH_SIGNED_IN": "1",
+                "THEM_UITEST_STUDIO_FULL_THREAD_STATE_JSON": fullThreadStateJSON,
+                "THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON": askHistoryJSON,
+                "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_JSON": acknowledgedJSON,
+                "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_WRITEIDS_JSON": acknowledgedWriteIDsJSON,
+            ]
+        )
     }
 
     private func backendRestoreContractIsAvailable(baseURL: URL) async -> Bool {
