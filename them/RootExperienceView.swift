@@ -1148,6 +1148,15 @@ struct RootExperienceView: View {
                         showOfflineTalkOutboxBanner(status)
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .themOpenStudioRequested)) { _ in
+                    handleWorkspaceNavigationCommand(.openStudio)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .themCloseStudioRequested)) { _ in
+                    handleWorkspaceNavigationCommand(.closeStudio)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .themToggleStudioRequested)) { _ in
+                    handleWorkspaceNavigationCommand(.toggleStudio)
+                }
                 .onChange(of: isStudioSurfaceActive) { _, newValue in
                     DispatchQueue.main.async {
                         handleStudioSurfaceActiveChange(newValue)
@@ -3507,6 +3516,18 @@ struct RootExperienceView: View {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: false)
             }
+        }
+    }
+
+    private func handleWorkspaceNavigationCommand(_ command: ThemWorkspaceNavigationCommand) {
+        guard !evolution.needsOnboardingName else { return }
+        switch command {
+        case .openStudio:
+            openStudio()
+        case .closeStudio:
+            closeStudio()
+        case .toggleStudio:
+            isStudioSurfaceActive ? closeStudio() : openStudio()
         }
     }
 

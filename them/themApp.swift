@@ -30,6 +30,11 @@ struct themApp: App {
         WindowGroup {
             ContentView()
         }
+        #if os(macOS)
+        .commands {
+            ThemWorkspaceCommands()
+        }
+        #endif
     }
 
     private func configureAudioSession() {
