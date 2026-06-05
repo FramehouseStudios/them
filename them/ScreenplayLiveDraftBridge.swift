@@ -514,6 +514,8 @@ struct ScreenplayStudioActionPreview: Identifiable, Equatable {
 struct ScreenplayCommittedWrite: Identifiable, Equatable {
     let id: UUID
     let writeID: String
+    let projectID: String
+    let versionID: String
     let previousDraft: String
     let committedDraft: String
     let insertedText: String
@@ -523,8 +525,44 @@ struct ScreenplayCommittedWrite: Identifiable, Equatable {
     let endLine: Int
     let committedAt: Date
 
+    init(
+        id: UUID,
+        writeID: String,
+        projectID: String = "",
+        versionID: String = "",
+        previousDraft: String,
+        committedDraft: String,
+        insertedText: String,
+        replacementApplied: Bool,
+        replacedWriteID: String?,
+        startLine: Int,
+        endLine: Int,
+        committedAt: Date
+    ) {
+        self.id = id
+        self.writeID = writeID
+        self.projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.versionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.previousDraft = previousDraft
+        self.committedDraft = committedDraft
+        self.insertedText = insertedText
+        self.replacementApplied = replacementApplied
+        self.replacedWriteID = replacedWriteID
+        self.startLine = startLine
+        self.endLine = endLine
+        self.committedAt = committedAt
+    }
+
     var normalizedWriteID: String {
         writeID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var normalizedProjectID: String {
+        projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var normalizedVersionID: String {
+        versionID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var isPlaceholderWrite: Bool {
@@ -1660,6 +1698,70 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return defaults.bool(forKey: Self.replySideCharacterMentionsEnabledKey)
     }
 
+    static func resolvedCommittedWriteProjectID(
+        _ committedWrite: ScreenplayCommittedWrite,
+        preferredProjectID: String,
+        bindingProjectID: String
+    ) -> String {
+        let committedProjectID = committedWrite.normalizedProjectID
+        if !committedProjectID.isEmpty { return committedProjectID }
+        let preferred = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferred.isEmpty { return preferred }
+        return bindingProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func resolvedCommittedWriteVersionID(
+        _ committedWrite: ScreenplayCommittedWrite,
+        preferredVersionID: String,
+        bindingVersionID: String
+    ) -> String {
+        let committedVersionID = committedWrite.normalizedVersionID
+        if !committedVersionID.isEmpty { return committedVersionID }
+        let preferred = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferred.isEmpty { return preferred }
+        return bindingVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func committedWriteProjectIDSnapshot() -> String {
+        let preferred = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferred.isEmpty { return preferred }
+        return projectBinding.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func committedWriteVersionIDSnapshot() -> String {
+        let preferred = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferred.isEmpty { return preferred }
+        return projectBinding.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func makeCommittedWrite(
+        id: UUID,
+        writeID: String? = nil,
+        previousDraft: String,
+        committedDraft: String,
+        insertedText: String,
+        replacementApplied: Bool,
+        replacedWriteID: String?,
+        startLine: Int,
+        endLine: Int,
+        committedAt: Date = Date()
+    ) -> ScreenplayCommittedWrite {
+        ScreenplayCommittedWrite(
+            id: id,
+            writeID: (writeID ?? id.uuidString.lowercased()).trimmingCharacters(in: .whitespacesAndNewlines),
+            projectID: committedWriteProjectIDSnapshot(),
+            versionID: committedWriteVersionIDSnapshot(),
+            previousDraft: previousDraft,
+            committedDraft: committedDraft,
+            insertedText: insertedText,
+            replacementApplied: replacementApplied,
+            replacedWriteID: replacedWriteID,
+            startLine: startLine,
+            endLine: endLine,
+            committedAt: committedAt
+        )
+    }
+
     func rememberDebugClientTokenOwnedProjectID(_ projectID: String, clientToken: String? = nil) {
         let cleanProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanProjectID.isEmpty else { return }
@@ -2606,10 +2708,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let normalizedPromptSource = promptSourceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedFallbackSource = companionAnalytics.lastSourceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceRaw = normalizedPromptSource.isEmpty ? normalizedFallbackSource : normalizedPromptSource
-        let projectId = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let versionId = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let bindingProjectId = projectBinding.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let bindingVersionId = projectBinding.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectId = Self.resolvedCommittedWriteProjectID(
+            committedWrite,
+            preferredProjectID: preferredProjectID,
+            bindingProjectID: projectBinding.projectID
+        )
+        let versionId = Self.resolvedCommittedWriteVersionID(
+            committedWrite,
+            preferredVersionID: preferredVersionID,
+            bindingVersionID: projectBinding.versionID
+        )
 
         companionAnalytics = ScreenplayCompanionAnalyticsSnapshot(
             updatedAt: Date(),
@@ -2625,8 +2733,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             lastSourceRaw: companionAnalytics.lastSourceRaw,
             firstPageWrittenAt: committedWrite.committedAt,
             firstPageWrittenSourceRaw: sourceRaw,
-            firstPageWrittenProjectId: projectId.isEmpty ? bindingProjectId : projectId,
-            firstPageWrittenVersionId: versionId.isEmpty ? bindingVersionId : versionId
+            firstPageWrittenProjectId: projectId,
+            firstPageWrittenVersionId: versionId
         )
         schedulePersistBackendCompanionState()
     }
@@ -2653,12 +2761,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let recordKey = "\(writeID)|\(mentionKey)"
         guard recordKey != lastRecordedCharacterMentionKey else { return }
         lastRecordedCharacterMentionKey = recordKey
-        let projectID = preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? projectBinding.projectID
-            : preferredProjectID
-        let versionID = preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? projectBinding.versionID
-            : preferredVersionID
+        let projectID = Self.resolvedCommittedWriteProjectID(
+            committedWrite,
+            preferredProjectID: preferredProjectID,
+            bindingProjectID: projectBinding.projectID
+        )
+        let versionID = Self.resolvedCommittedWriteVersionID(
+            committedWrite,
+            preferredVersionID: preferredVersionID,
+            bindingVersionID: projectBinding.versionID
+        )
         Task {
             do {
                 try await BackendMemoryAPI.shared.recordCharacterMentionsFromScreenplayReply(
@@ -7203,9 +7315,8 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied standard insertion."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: current,
                 committedDraft: nextText,
                 insertedText: trimmed,
@@ -7343,9 +7454,8 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied streaming commit."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
                 committedDraft: nextText,
                 insertedText: trimmed,
@@ -7485,9 +7595,8 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied streamed line insertion."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: streamingInsertBaseText.isEmpty ? current : streamingInsertBaseText,
                 committedDraft: nextText,
                 insertedText: trimmed,
@@ -7710,9 +7819,8 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
                 : request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let committedLines = committedLineRange(for: safeRange, in: current)
             let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: voiceRevealInsertedRange != nil ? voiceRevealBaseText : current,
                 committedDraft: current,
                 insertedText: insertedText,
@@ -9048,9 +9156,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied standard insertion."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: current,
                 committedDraft: nextText,
                 insertedText: trimmed,
@@ -9188,9 +9295,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied streaming commit."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
                 committedDraft: nextText,
                 insertedText: trimmed,
@@ -9330,9 +9436,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 target: replacementTarget,
                 detail: "Applied streamed line insertion."
             )
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: streamingInsertBaseText.isEmpty ? current : streamingInsertBaseText,
                 committedDraft: nextText,
                 insertedText: trimmed,
@@ -9555,9 +9660,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 : request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let committedLines = committedLineRange(for: safeRange, in: current)
             let replacementTarget = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
-            parent.lastCommittedWrite = ScreenplayCommittedWrite(
+            parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                writeID: request.id.uuidString.lowercased(),
                 previousDraft: voiceRevealInsertedRange != nil ? voiceRevealBaseText : current,
                 committedDraft: current,
                 insertedText: insertedText,

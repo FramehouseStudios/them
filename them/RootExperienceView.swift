@@ -3745,7 +3745,7 @@ struct RootExperienceView: View {
                     detail: "Committed stub replacement write.",
                     requestID: requestID
                 )
-                return ScreenplayCommittedWrite(
+                return screenplayDraftBridge.makeCommittedWrite(
                     id: UUID(),
                     writeID: writeID,
                     previousDraft: existingDraft,
@@ -3767,7 +3767,7 @@ struct RootExperienceView: View {
         let cleanPreviousDraft = existingDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let startLine = cleanPreviousDraft.isEmpty ? 1 : previousLines.count + 2
         let insertedLineCount = max(1, cleanInsertedText.components(separatedBy: .newlines).count)
-        return ScreenplayCommittedWrite(
+        return screenplayDraftBridge.makeCommittedWrite(
             id: UUID(),
             writeID: writeID,
             previousDraft: existingDraft,

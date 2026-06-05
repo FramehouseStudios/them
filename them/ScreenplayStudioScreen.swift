@@ -1106,8 +1106,13 @@ private final class ScreenplayStudioViewModel: ObservableObject {
               committedWrite.isAuthoritativeWrite else {
             return
         }
+        let writeProjectID = ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
+            committedWrite,
+            preferredProjectID: bridge.preferredProjectID,
+            bindingProjectID: bridge.projectBinding.projectID
+        )
         adoptSavedPageWriteVersionIfNeeded(
-            projectID: bridge.preferredProjectID,
+            projectID: writeProjectID,
             versionID: versionID,
             committedDraft: committedWrite.committedDraft
         )
@@ -23927,7 +23932,7 @@ The door closes softly. That is worse than a slam.
             let committedDraft = previousDraft + separator + insertedText
             vm.fountainDraft = committedDraft
             liveDraftBridge.draftText = committedDraft
-            liveDraftBridge.lastCommittedWrite = ScreenplayCommittedWrite(
+            liveDraftBridge.lastCommittedWrite = liveDraftBridge.makeCommittedWrite(
                 id: UUID(),
                 writeID: normalizedStudioRequestID(requestID),
                 previousDraft: previousDraft,
@@ -25734,7 +25739,7 @@ Look at the city.
         lastCommittedStudioPromptSource = requestedSource
         lastCommittedStudioPromptTarget = .page
         lastCommittedStudioPrompt = sampleInsertedText
-        liveDraftBridge.lastCommittedWrite = ScreenplayCommittedWrite(
+        liveDraftBridge.lastCommittedWrite = liveDraftBridge.makeCommittedWrite(
             id: UUID(),
             writeID: "debug-page-write-toast-\(studioDebugPageWriteToastToken)",
             previousDraft: committedDraft,

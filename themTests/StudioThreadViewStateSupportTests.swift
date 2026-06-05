@@ -279,6 +279,101 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         )
     }
 
+    func testCommittedWriteSnapshotsProjectAndVersionContext() {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let originalProjectID = bridge.preferredProjectID
+        let originalVersionID = bridge.preferredVersionID
+        defer {
+            bridge.preferredProjectID = originalProjectID
+            bridge.preferredVersionID = originalVersionID
+        }
+        bridge.preferredProjectID = "project-alpha"
+        bridge.preferredVersionID = "version-alpha"
+
+        let write = bridge.makeCommittedWrite(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000031")!,
+            writeID: "write-31",
+            previousDraft: "",
+            committedDraft: "INT. ROOFTOP - NIGHT",
+            insertedText: "INT. ROOFTOP - NIGHT",
+            replacementApplied: false,
+            replacedWriteID: nil as String?,
+            startLine: 1,
+            endLine: 1,
+            committedAt: Date(timeIntervalSince1970: 31)
+        )
+
+        bridge.preferredProjectID = "project-beta"
+        bridge.preferredVersionID = "version-beta"
+
+        XCTAssertEqual(write.normalizedProjectID, "project-alpha")
+        XCTAssertEqual(write.normalizedVersionID, "version-alpha")
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
+                write,
+                preferredProjectID: bridge.preferredProjectID,
+                bindingProjectID: "project-binding"
+            ),
+            "project-alpha"
+        )
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteVersionID(
+                write,
+                preferredVersionID: bridge.preferredVersionID,
+                bindingVersionID: "version-binding"
+            ),
+            "version-alpha"
+        )
+    }
+
+    func testCommittedWriteContextFallsBackForLegacyWrites() {
+        let legacy = ScreenplayCommittedWrite(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000032")!,
+            writeID: "write-32",
+            previousDraft: "",
+            committedDraft: "INT. STAGE - DAY",
+            insertedText: "INT. STAGE - DAY",
+            replacementApplied: false,
+            replacedWriteID: nil,
+            startLine: 1,
+            endLine: 1,
+            committedAt: Date(timeIntervalSince1970: 32)
+        )
+
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
+                legacy,
+                preferredProjectID: "project-preferred",
+                bindingProjectID: "project-binding"
+            ),
+            "project-preferred"
+        )
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteProjectID(
+                legacy,
+                preferredProjectID: "",
+                bindingProjectID: "project-binding"
+            ),
+            "project-binding"
+        )
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteVersionID(
+                legacy,
+                preferredVersionID: "version-preferred",
+                bindingVersionID: "version-binding"
+            ),
+            "version-preferred"
+        )
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.resolvedCommittedWriteVersionID(
+                legacy,
+                preferredVersionID: "",
+                bindingVersionID: "version-binding"
+            ),
+            "version-binding"
+        )
+    }
+
     func testCharacterMentionPayloadUsesRecordEndpointContract() throws {
         let mention = ScreenplayRenderedCharacterMention(
             characterName: "JUNE",
