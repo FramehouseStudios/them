@@ -62,10 +62,16 @@ struct ScreenplayProjectScopedState {
 struct ScreenplayProjectSelectionRestorePolicy {
     static func selectedProjectId(
         activeProjectId: String?,
+        preferredProjectId: String? = nil,
         projects: [BackendScreenplayProjectSummary]
     ) -> String {
         let active = (activeProjectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !active.isEmpty { return active }
+        let preferred = (preferredProjectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferred.isEmpty,
+           projects.contains(where: { $0.id.trimmingCharacters(in: .whitespacesAndNewlines) == preferred }) {
+            return preferred
+        }
         return projects.first?.id ?? ""
     }
 }
@@ -1014,8 +1020,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             )
             didLoadScreenplayProjectsFromBackend = true
             projects = result.payload.screenplayProjects
+            let bridgePreferredProjectID = ScreenplayLiveDraftBridge.shared.preferredProjectID
             selectedProjectID = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
                 activeProjectId: result.payload.screenplayActiveProjectId,
+                preferredProjectId: bridgePreferredProjectID,
                 projects: projects
             )
             await loadSelectedProjectOutline()

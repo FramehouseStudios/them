@@ -104,6 +104,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     func testRestorePolicyKeepsBackendActiveProjectEvenWhenListPageOmitsIt() {
         let selectedProjectId = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
             activeProjectId: " legacy-active-project ",
+            preferredProjectId: "recent-project",
             projects: [
                 projectSummary(id: "recent-project"),
                 projectSummary(id: "another-recent-project"),
@@ -113,9 +114,36 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(selectedProjectId, "legacy-active-project")
     }
 
+    func testRestorePolicyFallsBackToPreferredProjectWhenBackendActiveIsMissing() {
+        let selectedProjectId = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
+            activeProjectId: " ",
+            preferredProjectId: " preferred-project ",
+            projects: [
+                projectSummary(id: "first-project"),
+                projectSummary(id: "preferred-project"),
+            ]
+        )
+
+        XCTAssertEqual(selectedProjectId, "preferred-project")
+    }
+
+    func testRestorePolicyIgnoresStalePreferredProjectWhenListOmitsIt() {
+        let selectedProjectId = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
+            activeProjectId: nil,
+            preferredProjectId: "missing-project",
+            projects: [
+                projectSummary(id: "first-project"),
+                projectSummary(id: "second-project"),
+            ]
+        )
+
+        XCTAssertEqual(selectedProjectId, "first-project")
+    }
+
     func testRestorePolicyFallsBackToFirstProjectWhenNoActiveProjectExists() {
         let selectedProjectId = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
             activeProjectId: " ",
+            preferredProjectId: " ",
             projects: [
                 projectSummary(id: "first-project"),
                 projectSummary(id: "second-project"),
