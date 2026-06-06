@@ -153,6 +153,42 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(selectedProjectId, "first-project")
     }
 
+    func testPostHydrationRestorePolicyRequiresLoadedProjectAndDraftMatch() {
+        XCTAssertTrue(ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+            selectedProjectID: " project-a ",
+            loadedProjectID: "project-a",
+            loadedDraftProjectID: " project-a ",
+            isLoading: false
+        ))
+        XCTAssertFalse(ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+            selectedProjectID: "project-a",
+            loadedProjectID: "project-b",
+            loadedDraftProjectID: "project-a",
+            isLoading: false
+        ))
+        XCTAssertFalse(ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+            selectedProjectID: "project-a",
+            loadedProjectID: "project-a",
+            loadedDraftProjectID: "project-b",
+            isLoading: false
+        ))
+    }
+
+    func testPostHydrationRestorePolicyWaitsWhileLoadingButAllowsLiveDraftFallback() {
+        XCTAssertFalse(ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+            selectedProjectID: "project-a",
+            loadedProjectID: "project-a",
+            loadedDraftProjectID: "project-a",
+            isLoading: true
+        ))
+        XCTAssertTrue(ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+            selectedProjectID: " ",
+            loadedProjectID: nil,
+            loadedDraftProjectID: "",
+            isLoading: false
+        ))
+    }
+
     func testDraftRestorePolicyPrefersActiveClementinePageWriteBeyondNewerVersion() {
         let generatedDraft = "FADE IN:\n\nINT. DINER - NIGHT\n\nClementine gives the silence a shape."
         let project = projectSummary(

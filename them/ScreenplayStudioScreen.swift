@@ -76,6 +76,22 @@ struct ScreenplayProjectSelectionRestorePolicy {
     }
 }
 
+struct ScreenplayStudioPostHydrationRestorePolicy {
+    static func canRestoreWorkspace(
+        selectedProjectID: String,
+        loadedProjectID: String?,
+        loadedDraftProjectID: String,
+        isLoading: Bool
+    ) -> Bool {
+        guard !isLoading else { return false }
+        let selected = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selected.isEmpty else { return true }
+        let loaded = (loadedProjectID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let loadedDraft = loadedDraftProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return loaded == selected && loadedDraft == selected
+    }
+}
+
 struct ScreenplayProjectDraftRestorePolicy {
     static func preferredVersion(in project: BackendScreenplayProjectSummary) -> BackendScreenplayVersion? {
         let versions = sortedVersions(in: project)
@@ -5574,13 +5590,10 @@ Replace is best when this file should become the script you edit. Append is safe
         studioBaseLayout
             .task {
                 await vm.load()
+                _ = await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
+                _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
+                await restoreStudioWorkspaceAfterProjectHydration()
                 await vm.refreshScreenplayExportFormatsAutomatically()
-                await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
-                await applyBridgeDebugProjectLoadIfNeeded(force: true)
-                vm.replaceDraftFromVoiceBridgeIfNeeded(liveDraftBridge.draftText)
-                bootstrapNavigatorIfNeeded()
-                await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
-                restoreInspectorWorkspaceState()
                 if directionOneRightPanelTab == .them {
                     await vm.refreshBlockSignal(source: "Studio open")
                     await vm.refreshCharacterTraits(source: "Studio open")
@@ -5590,17 +5603,23 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
                 Task {
-                    await selectPreferredProjectIfNeeded(newValue)
+                    if await selectPreferredProjectIfNeeded(newValue) {
+                        await restoreStudioWorkspaceAfterProjectHydration()
+                    }
                 }
             }
             .onChange(of: liveDraftBridge.debugProjectLoadToken) { _, _ in
                 Task {
-                    await applyBridgeDebugProjectLoadIfNeeded()
+                    if await applyBridgeDebugProjectLoadIfNeeded() {
+                        await restoreStudioWorkspaceAfterProjectHydration()
+                    }
                 }
             }
             .onChange(of: liveDraftBridge.debugRequestedProjectID) { _, _ in
                 Task {
-                    await applyBridgeDebugProjectLoadIfNeeded(force: true)
+                    if await applyBridgeDebugProjectLoadIfNeeded(force: true) {
+                        await restoreStudioWorkspaceAfterProjectHydration()
+                    }
                 }
             }
             .onChange(of: liveDraftBridge.draftText) { _, newValue in
@@ -24846,15 +24865,16 @@ The door closes softly. That is worse than a slam.
     }
 
     @MainActor
-    private func applyBridgeDebugProjectLoadIfNeeded(force: Bool = false) async {
+    @discardableResult
+    private func applyBridgeDebugProjectLoadIfNeeded(force: Bool = false) async -> Bool {
         #if DEBUG || os(macOS)
-        guard !IOThemRuntime.isRunningTests else { return }
+        guard !IOThemRuntime.isRunningTests else { return false }
         let token = liveDraftBridge.debugProjectLoadToken
         let requestedProjectID = liveDraftBridge.debugRequestedProjectID
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedVersionID = liveDraftBridge.debugRequestedVersionID
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !requestedProjectID.isEmpty else { return }
+        guard !requestedProjectID.isEmpty else { return false }
         if token > 0,
            token == lastAppliedBridgeDebugProjectLoadToken,
            isStudioDebugProjectLoadReady(
@@ -24862,13 +24882,13 @@ The door closes softly. That is worse than a slam.
                versionID: requestedVersionID,
                requireEditorFocusConsumption: false
            ) {
-            return
+            return false
         }
         if token > 0 {
-            guard force || token != lastAppliedBridgeDebugProjectLoadToken else { return }
+            guard force || token != lastAppliedBridgeDebugProjectLoadToken else { return false }
             lastAppliedBridgeDebugProjectLoadToken = token
         } else if !force || vm.selectedProjectID == requestedProjectID {
-            return
+            return false
         }
         if token > 0 {
             await performStudioDebugProjectLoad(
@@ -24877,7 +24897,7 @@ The door closes softly. That is worse than a slam.
                 requestedVersionID: requestedVersionID,
                 source: force ? "bridge_force" : "bridge"
             )
-            return
+            return true
         }
         liveDraftBridge.preferredProjectID = requestedProjectID
         liveDraftBridge.preferredVersionID = requestedVersionID
@@ -24886,6 +24906,9 @@ The door closes softly. That is worse than a slam.
             liveDraftBridge.preferredVersionID = requestedVersionID
         }
         publishDebugStudioDiffState()
+        return true
+        #else
+        return false
         #endif
     }
 
@@ -28213,12 +28236,31 @@ Look at the city.
     }
 
     @MainActor
-    private func selectPreferredProjectIfNeeded(_ projectID: String) async {
-        guard !IOThemRuntime.isRunningTests else { return }
+    private func restoreStudioWorkspaceAfterProjectHydration() async {
+        guard ScreenplayStudioPostHydrationRestorePolicy.canRestoreWorkspace(
+            selectedProjectID: vm.selectedProjectID,
+            loadedProjectID: vm.selectedProject?.id,
+            loadedDraftProjectID: vm.debugLoadedDraftProjectID,
+            isLoading: vm.isLoading
+        ) else {
+            return
+        }
+        vm.replaceDraftFromVoiceBridgeIfNeeded(liveDraftBridge.draftText)
+        bootstrapNavigatorIfNeeded()
+        await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
+        restoreInspectorWorkspaceState()
+        vm.refreshLiveDraftBridgeContext()
+    }
+
+    @MainActor
+    @discardableResult
+    private func selectPreferredProjectIfNeeded(_ projectID: String) async -> Bool {
+        guard !IOThemRuntime.isRunningTests else { return false }
         let clean = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
-        guard vm.selectedProjectID != clean else { return }
+        guard !clean.isEmpty else { return false }
+        guard vm.selectedProjectID != clean else { return false }
         await vm.selectProject(clean)
+        return true
     }
 
     private func relativeTimestamp(_ date: Date) -> String {
