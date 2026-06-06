@@ -294,6 +294,44 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(ScreenplayStudioHistoryMigrationPolicy.isProjectHistoryKey(" project:abc "))
     }
 
+    func testHistoryKeyPolicyPrefersSelectedThenPreferredThenBindingProject() {
+        XCTAssertEqual(
+            ScreenplayStudioHistoryMigrationPolicy.activeHistoryKey(
+                selectedProjectID: " selected-project ",
+                preferredProjectID: "preferred-project",
+                bindingProjectID: "binding-project"
+            ),
+            "project:selected-project"
+        )
+        XCTAssertEqual(
+            ScreenplayStudioHistoryMigrationPolicy.activeHistoryKey(
+                selectedProjectID: " ",
+                preferredProjectID: " preferred-project ",
+                bindingProjectID: "binding-project"
+            ),
+            "project:preferred-project"
+        )
+        XCTAssertEqual(
+            ScreenplayStudioHistoryMigrationPolicy.activeHistoryKey(
+                selectedProjectID: "",
+                preferredProjectID: " ",
+                bindingProjectID: " binding-project "
+            ),
+            "project:binding-project"
+        )
+    }
+
+    func testHistoryKeyPolicyFallsBackToLiveDraftWithoutProjectContext() {
+        XCTAssertEqual(
+            ScreenplayStudioHistoryMigrationPolicy.activeHistoryKey(
+                selectedProjectID: " ",
+                preferredProjectID: "",
+                bindingProjectID: "   "
+            ),
+            ScreenplayStudioHistoryMigrationPolicy.liveDraftKey
+        )
+    }
+
     func testLiveDraftTextPersistenceKeepsMeaningfulScreenplayExactly() {
         let draft = """
 

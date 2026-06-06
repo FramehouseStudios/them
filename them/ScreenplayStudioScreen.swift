@@ -144,6 +144,20 @@ struct ScreenplayBridgeVersionAdoptionPolicy {
 struct ScreenplayStudioHistoryMigrationPolicy {
     static let liveDraftKey = "live-draft"
 
+    static func activeHistoryKey(
+        selectedProjectID: String,
+        preferredProjectID: String,
+        bindingProjectID: String
+    ) -> String {
+        for projectID in [selectedProjectID, preferredProjectID, bindingProjectID] {
+            let normalized = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                return "project:\(normalized)"
+            }
+        }
+        return liveDraftKey
+    }
+
     static func shouldMoveLiveDraftHistory(
         from oldKey: String,
         to newKey: String,
@@ -20945,15 +20959,11 @@ Return revised screenplay lines only.
     }
 
     private var activeStudioAskNoteHistoryKey: String {
-        let selected = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !selected.isEmpty {
-            return "project:\(selected)"
-        }
-        let preferred = liveDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !preferred.isEmpty {
-            return "project:\(preferred)"
-        }
-        return "live-draft"
+        ScreenplayStudioHistoryMigrationPolicy.activeHistoryKey(
+            selectedProjectID: vm.selectedProjectID,
+            preferredProjectID: liveDraftBridge.preferredProjectID,
+            bindingProjectID: liveDraftBridge.projectBinding.projectID
+        )
     }
 
     @discardableResult
