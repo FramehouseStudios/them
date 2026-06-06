@@ -1555,6 +1555,28 @@ struct ScreenplayLiveDraftTextPersistencePolicy {
     }
 }
 
+struct ScreenplayLivePreferredContextPersistencePolicy {
+    static func valueForStorage(_ value: String) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    static func restoredProjectID(storedPreferredProjectID: String?, bindingProjectID: String) -> String {
+        restoredValue(storedPreferredValue: storedPreferredProjectID, bindingValue: bindingProjectID)
+    }
+
+    static func restoredVersionID(storedPreferredVersionID: String?, bindingVersionID: String) -> String {
+        restoredValue(storedPreferredValue: storedPreferredVersionID, bindingValue: bindingVersionID)
+    }
+
+    private static func restoredValue(storedPreferredValue: String?, bindingValue: String) -> String {
+        if let stored = valueForStorage(storedPreferredValue ?? "") {
+            return stored
+        }
+        return valueForStorage(bindingValue) ?? ""
+    }
+}
+
 @MainActor
 final class ScreenplayLiveDraftBridge: ObservableObject {
     static let shared = ScreenplayLiveDraftBridge()
@@ -1573,6 +1595,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private static let activeElementStorageKey = "studio_active_screenplay_element_v1"
     private static let draftTextStorageKey = "studio_live_draft_text_v1"
     private static let structuredDraftStorageKey = "studio_structured_draft_v1"
+    private static let preferredProjectIDStorageKey = "studio_live_preferred_project_id_v1"
+    private static let preferredVersionIDStorageKey = "studio_live_preferred_version_id_v1"
     private static let projectRecentTurnsStorageKey = "studio_project_recent_turns_v1"
     private static let companionRecentTurnsStorageKey = "studio_companion_recent_turns_v1"
     private static let companionModeStorageKey = "studio_companion_mode_v1"
@@ -1593,8 +1617,18 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var latestPack: String = ""
     @Published var latestPhase: String = ""
     @Published var latestUserTranscript: String = ""
-    @Published var preferredProjectID: String = ""
-    @Published var preferredVersionID: String = ""
+    @Published var preferredProjectID: String = "" {
+        didSet {
+            guard preferredProjectID != oldValue else { return }
+            persistPreferredProjectContext()
+        }
+    }
+    @Published var preferredVersionID: String = "" {
+        didSet {
+            guard preferredVersionID != oldValue else { return }
+            persistPreferredProjectContext()
+        }
+    }
     @Published var debugProjectLoadToken: Int = 0
     @Published var debugRequestedProjectID: String = ""
     @Published var debugRequestedVersionID: String = ""
@@ -1852,10 +1886,19 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             self.companionMode = mode
         }
         let restoredDraftText = Self.restoreDraftText()
+        let restoredProjectBinding = Self.restoreProjectBindingSnapshot()
+        self.preferredProjectID = Self.restorePreferredProjectID(
+            bindingProjectID: restoredProjectBinding.projectID
+        )
+        self.preferredVersionID = Self.restorePreferredVersionID(
+            bindingVersionID: restoredProjectBinding.versionID
+        )
+        self.projectBinding = restoredProjectBinding
         self.structuredDraft = Self.restoreStructuredDraft()
         self.draftText = restoredDraftText
         self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey)
         self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey)
+        persistPreferredProjectContext()
         persistActiveElementDebugMirror()
         persistStudioRoutingDebugMirror()
         persistProjectBindingDebugMirror()
@@ -1886,6 +1929,30 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
     }
 
+    private static func restorePreferredProjectID(bindingProjectID: String) -> String {
+        ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
+            storedPreferredProjectID: UserDefaults.standard.string(forKey: preferredProjectIDStorageKey),
+            bindingProjectID: bindingProjectID
+        )
+    }
+
+    private static func restorePreferredVersionID(bindingVersionID: String) -> String {
+        ScreenplayLivePreferredContextPersistencePolicy.restoredVersionID(
+            storedPreferredVersionID: UserDefaults.standard.string(forKey: preferredVersionIDStorageKey),
+            bindingVersionID: bindingVersionID
+        )
+    }
+
+    private static func restoreProjectBindingSnapshot() -> ScreenplayProjectBindingSnapshot {
+        guard let stored = UserDefaults.standard.string(forKey: debugProjectBindingStorageKey),
+              let data = stored.data(using: .utf8) else {
+            return .empty
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(ScreenplayProjectBindingSnapshot.self, from: data)) ?? .empty
+    }
+
     private static func restoreConversationTurns(forKey key: String) -> [ScreenplayConversationTurn] {
         guard let stored = UserDefaults.standard.string(forKey: key),
               let data = stored.data(using: .utf8) else {
@@ -1909,6 +1976,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             UserDefaults.standard.set(draft, forKey: Self.draftTextStorageKey)
         } else {
             UserDefaults.standard.removeObject(forKey: Self.draftTextStorageKey)
+        }
+    }
+
+    private func persistPreferredProjectContext() {
+        if let projectID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(preferredProjectID) {
+            UserDefaults.standard.set(projectID, forKey: Self.preferredProjectIDStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.preferredProjectIDStorageKey)
+        }
+
+        if let versionID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(preferredVersionID) {
+            UserDefaults.standard.set(versionID, forKey: Self.preferredVersionIDStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.preferredVersionIDStorageKey)
         }
     }
 

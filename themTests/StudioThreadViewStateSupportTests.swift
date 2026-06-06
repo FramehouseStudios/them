@@ -374,6 +374,59 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         )
     }
 
+    func testPreferredContextPersistenceTrimsStoredValuesAndClearsEmptyValues() {
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(" project-alpha "),
+            "project-alpha"
+        )
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.valueForStorage("\nversion-alpha\t"),
+            "version-alpha"
+        )
+        XCTAssertNil(ScreenplayLivePreferredContextPersistencePolicy.valueForStorage("   "))
+    }
+
+    func testPreferredContextRestorePrefersStoredIDsOverBindingFallbacks() {
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
+                storedPreferredProjectID: " project-preferred ",
+                bindingProjectID: "project-binding"
+            ),
+            "project-preferred"
+        )
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredVersionID(
+                storedPreferredVersionID: " version-preferred ",
+                bindingVersionID: "version-binding"
+            ),
+            "version-preferred"
+        )
+    }
+
+    func testPreferredContextRestoreFallsBackToBindingIDs() {
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
+                storedPreferredProjectID: nil,
+                bindingProjectID: " project-binding "
+            ),
+            "project-binding"
+        )
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredVersionID(
+                storedPreferredVersionID: " ",
+                bindingVersionID: " version-binding "
+            ),
+            "version-binding"
+        )
+        XCTAssertEqual(
+            ScreenplayLivePreferredContextPersistencePolicy.restoredProjectID(
+                storedPreferredProjectID: nil,
+                bindingProjectID: " "
+            ),
+            ""
+        )
+    }
+
     func testCharacterMentionPayloadUsesRecordEndpointContract() throws {
         let mention = ScreenplayRenderedCharacterMention(
             characterName: "JUNE",
