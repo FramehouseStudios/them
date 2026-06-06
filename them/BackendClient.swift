@@ -21,6 +21,170 @@ nonisolated enum BackendClientCredentialStorePolicy {
     }
 }
 
+nonisolated enum BackendDefaultBaseURLPolicy {
+    static let productionBaseURLRawValue = "https://api.them.io"
+    static let localPrimaryDebugBaseURLRawValue = "http://127.0.0.1:3000"
+    static let localFallbackDebugBaseURLRawValue = "http://localhost:3001"
+    private static let loopbackDefaultOptInEnvironmentKey = "THEM_ALLOW_LOOPBACK_BACKEND_DEFAULTS"
+    private static let localBackendDebugTokenFreshnessInterval: TimeInterval = 15 * 60
+    private static let localBackendDebugDefaultTokenKeys = [
+        "studio_debug_open_token",
+        "studio_debug_load_project_token",
+        "studio_debug_prepare_token",
+        "studio_debug_submit_token",
+        "studio_debug_voice_turn_token",
+    ]
+
+    static func primaryBaseURL(isMacOS: Bool, isDebug: Bool) -> URL {
+        if isDebug, !isMacOS {
+            return URL(string: localPrimaryDebugBaseURLRawValue)!
+        }
+        return URL(string: productionBaseURLRawValue)!
+    }
+
+    static func fallbackBaseURL(isMacOS: Bool, isDebug: Bool) -> URL {
+        if isDebug, !isMacOS {
+            return URL(string: localFallbackDebugBaseURLRawValue)!
+        }
+        return URL(string: productionBaseURLRawValue)!
+    }
+
+    static var currentPrimaryBaseURL: URL {
+        #if os(macOS) && DEBUG
+        return primaryBaseURL(isMacOS: true, isDebug: true)
+        #elseif os(macOS)
+        return primaryBaseURL(isMacOS: true, isDebug: false)
+        #elseif DEBUG
+        return primaryBaseURL(isMacOS: false, isDebug: true)
+        #else
+        return primaryBaseURL(isMacOS: false, isDebug: false)
+        #endif
+    }
+
+    static var currentFallbackBaseURL: URL {
+        #if os(macOS) && DEBUG
+        return fallbackBaseURL(isMacOS: true, isDebug: true)
+        #elseif os(macOS)
+        return fallbackBaseURL(isMacOS: true, isDebug: false)
+        #elseif DEBUG
+        return fallbackBaseURL(isMacOS: false, isDebug: true)
+        #else
+        return fallbackBaseURL(isMacOS: false, isDebug: false)
+        #endif
+    }
+
+    static func shouldUseStoredBaseURL(
+        _ url: URL,
+        isMacOS: Bool,
+        isDebug: Bool,
+        launchArguments: [String],
+        environment: [String: String],
+        debugTokenValues: [String],
+        now: Date
+    ) -> Bool {
+        guard isMacOS, isDebug, isLoopbackBackendURL(url) else {
+            return true
+        }
+        if launchArguments.contains("--ui-testing") {
+            return true
+        }
+        if normalizedBoolean(environment[loopbackDefaultOptInEnvironmentKey])
+            || isUsableConfigValue(environment["THEM_UITEST_BACKEND_BASE_URL"] ?? "") {
+            return true
+        }
+        return debugTokenValues.contains { isFreshDebugToken($0, now: now) }
+    }
+
+    static func currentShouldUseStoredBaseURL(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
+        #if os(macOS) && DEBUG
+        return shouldUseStoredBaseURL(
+            url,
+            isMacOS: true,
+            isDebug: true,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            debugTokenValues: localBackendDebugTokenValues(defaults: defaults),
+            now: Date()
+        )
+        #elseif os(macOS)
+        return shouldUseStoredBaseURL(
+            url,
+            isMacOS: true,
+            isDebug: false,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            debugTokenValues: localBackendDebugTokenValues(defaults: defaults),
+            now: Date()
+        )
+        #elseif DEBUG
+        return shouldUseStoredBaseURL(
+            url,
+            isMacOS: false,
+            isDebug: true,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            debugTokenValues: localBackendDebugTokenValues(defaults: defaults),
+            now: Date()
+        )
+        #else
+        return shouldUseStoredBaseURL(
+            url,
+            isMacOS: false,
+            isDebug: false,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment,
+            debugTokenValues: localBackendDebugTokenValues(defaults: defaults),
+            now: Date()
+        )
+        #endif
+    }
+
+    static func isLoopbackBackendURL(_ url: URL) -> Bool {
+        guard let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return false
+        }
+        return host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host == "[::1]"
+    }
+
+    private static func localBackendDebugTokenValues(defaults: UserDefaults) -> [String] {
+        localBackendDebugDefaultTokenKeys.compactMap { key in
+            if let string = defaults.string(forKey: key) {
+                return string
+            }
+            if let number = defaults.object(forKey: key) as? NSNumber {
+                return number.stringValue
+            }
+            return nil
+        }
+    }
+
+    private static func isFreshDebugToken(_ raw: String, now: Date) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let tokenMilliseconds = Double(trimmed), tokenMilliseconds > 0 else {
+            return false
+        }
+        let nowMilliseconds = now.timeIntervalSince1970 * 1000
+        return abs(nowMilliseconds - tokenMilliseconds) <= localBackendDebugTokenFreshnessInterval * 1000
+    }
+
+    private static func normalizedBoolean(_ raw: String?) -> Bool {
+        let normalized = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["1", "true", "yes", "on"].contains(normalized)
+    }
+
+    private static func isUsableConfigValue(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        if value.hasPrefix("$("), value.hasSuffix(")") {
+            return false
+        }
+        return true
+    }
+}
+
 struct BackendTalkUIReflection {
     let cycleIndex: Int
     let orbSaturation: Double
@@ -1116,7 +1280,7 @@ enum BackendError: LocalizedError {
             }
             return "\(label) error: \(message)"
         case let .http(status, message):
-            return "HTTP \(status): \(message)"
+            return "HTTP \(status): \(BackendErrorMessageSanitizer.displayMessage(message, status: status))"
         case let .realtimeUnavailable(unavailable):
             return unavailable.userMessage
         case .continueListening:
@@ -1126,6 +1290,46 @@ enum BackendError: LocalizedError {
         case let .invalidAudioType(type):
             return "Backend returned non-audio response (\(type))."
         }
+    }
+}
+
+nonisolated enum BackendErrorMessageSanitizer {
+    static func displayMessage(
+        from data: Data,
+        status: Int? = nil,
+        fallback: String = "Request failed."
+    ) -> String {
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        return displayMessage(raw, status: status, fallback: fallback)
+    }
+
+    static func displayMessage(
+        _ raw: String,
+        status: Int? = nil,
+        fallback: String = "Request failed."
+    ) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return fallback }
+        if looksLikeHTML(trimmed) {
+            if let status, status >= 500 {
+                return "Backend service unavailable. Please try again."
+            }
+            return "Backend returned an HTML error page."
+        }
+        if trimmed.count > 500 {
+            return "\(trimmed.prefix(500))..."
+        }
+        return trimmed
+    }
+
+    private static func looksLikeHTML(_ raw: String) -> Bool {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized.hasPrefix("<!doctype html")
+            || normalized.hasPrefix("<html")
+            || normalized.contains("<head>")
+            || normalized.contains("<body")
     }
 }
 
@@ -1180,23 +1384,12 @@ final class BackendClient {
     private var cachedHealthyURL: URL?
     private var cachedHealthyAt: Date = .distantPast
 
-    private static let productionBaseURL = URL(string: "https://api.them.io")!
-
     private static var defaultPrimaryBaseURL: URL {
-#if DEBUG
-        return URL(string: "http://127.0.0.1:3000")!
-#else
-        return productionBaseURL
-#endif
+        BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
     }
 
     private static var defaultFallbackBaseURL: URL {
-#if DEBUG
-        return URL(string: "http://localhost:3001")!
-#else
-        // Never fall back to localhost in release/App Store builds.
-        return productionBaseURL
-#endif
+        BackendDefaultBaseURLPolicy.currentFallbackBaseURL
     }
 
     init(
@@ -4467,14 +4660,6 @@ final class BackendClient {
         return "\(prefix)...\(suffix) len=\(token.count)"
     }
     private static func resolveURL(fromEnv envName: String, infoPlistKey: String, fallback: URL) -> URL {
-        let defaultsValue = (UserDefaults.standard.string(forKey: sharedBackendBaseURLDefaultsKeyStatic) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if isUsableConfigValue(defaultsValue),
-           let url = URL(string: defaultsValue),
-           isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
-        }
-
         let envValue = (ProcessInfo.processInfo.environment[envName] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if isUsableConfigValue(envValue), let url = URL(string: envValue), isUsableBackendURL(url) {
@@ -4488,6 +4673,19 @@ final class BackendClient {
             isUsableBackendURL(url)
         {
             return canonicalizeLoopbackURL(url)
+        }
+
+        let defaultsValue = (UserDefaults.standard.string(forKey: sharedBackendBaseURLDefaultsKeyStatic) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if isUsableConfigValue(defaultsValue),
+           let url = URL(string: defaultsValue),
+           isUsableBackendURL(url) {
+            let resolvedURL = canonicalizeLoopbackURL(url)
+            if BackendDefaultBaseURLPolicy.currentShouldUseStoredBaseURL(resolvedURL) {
+                return resolvedURL
+            }
+            UserDefaults.standard.removeObject(forKey: sharedBackendBaseURLDefaultsKeyStatic)
+            UserDefaults.standard.synchronize()
         }
 
         return canonicalizeLoopbackURL(fallback)
@@ -5124,6 +5322,7 @@ final class BackendClient {
     private func persistSharedBackendBaseURL(_ url: URL) {
         guard shouldPersistBackendBaseURL else { return }
         UserDefaults.standard.set(url.absoluteString, forKey: sharedBackendBaseURLDefaultsKey)
+        UserDefaults.standard.synchronize()
     }
 }
 

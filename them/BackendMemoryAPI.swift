@@ -2422,10 +2422,6 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func baseURL() -> URL {
-        let fromDefaults = preferenceString(forKey: DefaultsKey.baseURL)
-        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
-        }
         let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
         if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
@@ -2446,11 +2442,16 @@ nonisolated enum BackendAuthClient {
            isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
-        #if DEBUG
-        return URL(string: "http://127.0.0.1:3000")!
-        #else
-        return URL(string: "https://api.them.io")!
-        #endif
+        let fromDefaults = preferenceString(forKey: DefaultsKey.baseURL)
+        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
+            let resolvedURL = canonicalizeLoopbackURL(url)
+            if BackendDefaultBaseURLPolicy.currentShouldUseStoredBaseURL(resolvedURL) {
+                return resolvedURL
+            }
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.baseURL)
+            UserDefaults.standard.synchronize()
+        }
+        return BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
     }
 
     private static func canonicalizeLoopbackURL(_ url: URL) -> URL {
@@ -2719,7 +2720,7 @@ nonisolated enum BackendAuthClient {
             }
             return error
         }
-        return String(data: data, encoding: .utf8) ?? "Request failed."
+        return BackendErrorMessageSanitizer.displayMessage(from: data)
     }
 }
 
@@ -6156,7 +6157,7 @@ actor BackendMemoryAPI {
                 return error
             }
         }
-        return String(data: data, encoding: .utf8) ?? "Request failed."
+        return BackendErrorMessageSanitizer.displayMessage(from: data)
     }
 
     private func decodeScreenplayExportError(status: Int, data: Data) -> Error {
@@ -6171,10 +6172,6 @@ actor BackendMemoryAPI {
     private func baseURL() -> URL {
         if let baseURLOverride {
             return baseURLOverride
-        }
-        let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
-        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
         }
         let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
         if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
@@ -6196,11 +6193,16 @@ actor BackendMemoryAPI {
            isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
         }
-#if DEBUG
-        return URL(string: "http://127.0.0.1:3000")!
-#else
-        return URL(string: "https://api.them.io")!
-#endif
+        let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
+        if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
+            let resolvedURL = canonicalizeLoopbackURL(url)
+            if BackendDefaultBaseURLPolicy.currentShouldUseStoredBaseURL(resolvedURL) {
+                return resolvedURL
+            }
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.baseURL)
+            UserDefaults.standard.synchronize()
+        }
+        return BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
     }
 
     private func canonicalizeLoopbackURL(_ url: URL) -> URL {

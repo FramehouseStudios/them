@@ -417,6 +417,154 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
+    func testBackendDefaultBaseURLPolicyUsesHostedAPIForMacDebugLaunches() {
+        XCTAssertEqual(
+            BackendDefaultBaseURLPolicy.primaryBaseURL(isMacOS: true, isDebug: true).absoluteString,
+            BackendDefaultBaseURLPolicy.productionBaseURLRawValue
+        )
+        XCTAssertEqual(
+            BackendDefaultBaseURLPolicy.fallbackBaseURL(isMacOS: true, isDebug: true).absoluteString,
+            BackendDefaultBaseURLPolicy.productionBaseURLRawValue
+        )
+    }
+
+    func testBackendDefaultBaseURLPolicyKeepsLocalBackendForiOSDebug() {
+        XCTAssertEqual(
+            BackendDefaultBaseURLPolicy.primaryBaseURL(isMacOS: false, isDebug: true).absoluteString,
+            BackendDefaultBaseURLPolicy.localPrimaryDebugBaseURLRawValue
+        )
+        XCTAssertEqual(
+            BackendDefaultBaseURLPolicy.fallbackBaseURL(isMacOS: false, isDebug: true).absoluteString,
+            BackendDefaultBaseURLPolicy.localFallbackDebugBaseURLRawValue
+        )
+    }
+
+    func testBackendDefaultBaseURLPolicyUsesHostedAPIForReleaseBuilds() {
+        XCTAssertEqual(
+            BackendDefaultBaseURLPolicy.primaryBaseURL(isMacOS: true, isDebug: false).absoluteString,
+            BackendDefaultBaseURLPolicy.productionBaseURLRawValue
+        )
+        XCTAssertEqual(
+            BackendDefaultBaseURLPolicy.primaryBaseURL(isMacOS: false, isDebug: false).absoluteString,
+            BackendDefaultBaseURLPolicy.productionBaseURLRawValue
+        )
+        XCTAssertEqual(
+            BackendDefaultBaseURLPolicy.fallbackBaseURL(isMacOS: true, isDebug: false).absoluteString,
+            BackendDefaultBaseURLPolicy.productionBaseURLRawValue
+        )
+    }
+
+    func testBackendDefaultBaseURLPolicyIgnoresStaleLoopbackDefaultsForMacDebugLaunches() {
+        let staleLoopback = URL(string: BackendDefaultBaseURLPolicy.localPrimaryDebugBaseURLRawValue)!
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+
+        XCTAssertFalse(
+            BackendDefaultBaseURLPolicy.shouldUseStoredBaseURL(
+                staleLoopback,
+                isMacOS: true,
+                isDebug: true,
+                launchArguments: [],
+                environment: [:],
+                debugTokenValues: [],
+                now: now
+            )
+        )
+        XCTAssertTrue(
+            BackendDefaultBaseURLPolicy.shouldUseStoredBaseURL(
+                URL(string: BackendDefaultBaseURLPolicy.productionBaseURLRawValue)!,
+                isMacOS: true,
+                isDebug: true,
+                launchArguments: [],
+                environment: [:],
+                debugTokenValues: [],
+                now: now
+            )
+        )
+        XCTAssertTrue(
+            BackendDefaultBaseURLPolicy.shouldUseStoredBaseURL(
+                staleLoopback,
+                isMacOS: false,
+                isDebug: true,
+                launchArguments: [],
+                environment: [:],
+                debugTokenValues: [],
+                now: now
+            )
+        )
+    }
+
+    func testBackendDefaultBaseURLPolicyAllowsFreshAutomationLoopbackDefaults() {
+        let loopback = URL(string: BackendDefaultBaseURLPolicy.localPrimaryDebugBaseURLRawValue)!
+        let now = Date(timeIntervalSince1970: 1_780_000_000)
+        let freshToken = String(Int(now.timeIntervalSince1970 * 1000))
+
+        XCTAssertTrue(
+            BackendDefaultBaseURLPolicy.shouldUseStoredBaseURL(
+                loopback,
+                isMacOS: true,
+                isDebug: true,
+                launchArguments: [],
+                environment: [:],
+                debugTokenValues: [freshToken],
+                now: now
+            )
+        )
+        XCTAssertTrue(
+            BackendDefaultBaseURLPolicy.shouldUseStoredBaseURL(
+                loopback,
+                isMacOS: true,
+                isDebug: true,
+                launchArguments: ["--ui-testing"],
+                environment: [:],
+                debugTokenValues: [],
+                now: now
+            )
+        )
+        XCTAssertTrue(
+            BackendDefaultBaseURLPolicy.shouldUseStoredBaseURL(
+                loopback,
+                isMacOS: true,
+                isDebug: true,
+                launchArguments: [],
+                environment: ["THEM_ALLOW_LOOPBACK_BACKEND_DEFAULTS": "1"],
+                debugTokenValues: [],
+                now: now
+            )
+        )
+    }
+
+    func testBackendErrorMessageSanitizerCollapsesHTMLGatewayErrors() {
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>502 Bad Gateway</title></head>
+        <body>proxy failure</body>
+        </html>
+        """
+
+        XCTAssertEqual(
+            BackendErrorMessageSanitizer.displayMessage(html, status: 502),
+            "Backend service unavailable. Please try again."
+        )
+        XCTAssertEqual(
+            BackendError.http(502, html).errorDescription,
+            "HTTP 502: Backend service unavailable. Please try again."
+        )
+    }
+
+    func testBackendErrorMessageSanitizerKeepsPlainErrorsReadable() {
+        let longMessage = String(repeating: "x", count: 520)
+
+        XCTAssertEqual(
+            BackendErrorMessageSanitizer.displayMessage(" user_auth_required "),
+            "user_auth_required"
+        )
+        XCTAssertEqual(
+            BackendErrorMessageSanitizer.displayMessage(longMessage).count,
+            503
+        )
+    }
+
     func testStudioDebugProjectLoadUsesDefaultsClientTokenOverride() {
         defaults.set(" studio-smoke-project ", forKey: "client_token")
         defaults.set("project-123", forKey: "studio_debug_load_project_id")
