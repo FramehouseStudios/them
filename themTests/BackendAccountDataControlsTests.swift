@@ -396,6 +396,27 @@ final class BackendCredentialMigrationTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "client_token"), "legacy-token")
     }
 
+    func testBackendClientCredentialPolicySkipsKeychainForMacDebugShell() {
+        XCTAssertFalse(
+            BackendClientCredentialStorePolicy.shouldUseKeychainForClientTokens(
+                isMacOS: true,
+                isDebug: true
+            )
+        )
+        XCTAssertTrue(
+            BackendClientCredentialStorePolicy.shouldUseKeychainForClientTokens(
+                isMacOS: true,
+                isDebug: false
+            )
+        )
+        XCTAssertTrue(
+            BackendClientCredentialStorePolicy.shouldUseKeychainForClientTokens(
+                isMacOS: false,
+                isDebug: true
+            )
+        )
+    }
+
     func testStudioDebugProjectLoadUsesDefaultsClientTokenOverride() {
         defaults.set(" studio-smoke-project ", forKey: "client_token")
         defaults.set("project-123", forKey: "studio_debug_load_project_id")

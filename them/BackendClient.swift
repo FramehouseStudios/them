@@ -3,6 +3,24 @@ import ScreenplayStudio
 import os
 import Security
 
+nonisolated enum BackendClientCredentialStorePolicy {
+    static func shouldUseKeychainForClientTokens(isMacOS: Bool, isDebug: Bool) -> Bool {
+        !(isMacOS && isDebug)
+    }
+
+    static var currentShouldUseKeychainForClientTokens: Bool {
+        #if os(macOS) && DEBUG
+        return shouldUseKeychainForClientTokens(isMacOS: true, isDebug: true)
+        #elseif os(macOS)
+        return shouldUseKeychainForClientTokens(isMacOS: true, isDebug: false)
+        #elseif DEBUG
+        return shouldUseKeychainForClientTokens(isMacOS: false, isDebug: true)
+        #else
+        return shouldUseKeychainForClientTokens(isMacOS: false, isDebug: false)
+        #endif
+    }
+}
+
 struct BackendTalkUIReflection {
     let cycleIndex: Int
     let orbSaturation: Double
@@ -3667,6 +3685,7 @@ final class BackendClient {
         }
 
         if
+            BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens,
             let token = readKeychainString(account: keychainTokenAccount),
             let expiryRaw = readKeychainString(account: keychainExpiryAccount),
             let expiry = formatter.date(from: expiryRaw),
@@ -3683,8 +3702,10 @@ final class BackendClient {
             if expiry.timeIntervalSince(now) > sessionRefreshSkew {
                 cachedClientToken = sharedToken
                 cachedClientTokenExpiry = expiry
-                writeKeychainString(sharedToken, account: keychainTokenAccount)
-                writeKeychainString(formatter.string(from: expiry), account: keychainExpiryAccount)
+                if BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens {
+                    writeKeychainString(sharedToken, account: keychainTokenAccount)
+                    writeKeychainString(formatter.string(from: expiry), account: keychainExpiryAccount)
+                }
                 writeSharedClientToken(sharedToken, expiry: expiry)
                 return sharedToken
             }
@@ -3821,8 +3842,10 @@ final class BackendClient {
         cachedClientTokenExpiry = nil
         cachedHealthyURL = nil      // force re-check on next turn after auth failure
         cachedHealthyAt = .distantPast
-        deleteKeychainString(account: keychainTokenAccount)
-        deleteKeychainString(account: keychainExpiryAccount)
+        if BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens {
+            deleteKeychainString(account: keychainTokenAccount)
+            deleteKeychainString(account: keychainExpiryAccount)
+        }
         clearSharedClientToken()
     }
 
@@ -3831,8 +3854,10 @@ final class BackendClient {
         cachedClientTokenExpiry = expiry
 
         let expiryRaw = ISO8601DateFormatter().string(from: expiry)
-        writeKeychainString(token, account: keychainTokenAccount)
-        writeKeychainString(expiryRaw, account: keychainExpiryAccount)
+        if BackendClientCredentialStorePolicy.currentShouldUseKeychainForClientTokens {
+            writeKeychainString(token, account: keychainTokenAccount)
+            writeKeychainString(expiryRaw, account: keychainExpiryAccount)
+        }
         writeSharedClientToken(token, expiry: expiry)
     }
 
