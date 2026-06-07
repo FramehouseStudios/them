@@ -16,7 +16,8 @@ chmod 600 them/Release.local.env
 ## 2. Security + Entitlements
 - Confirm microphone and network behavior match `them/PrivacyInfo.xcprivacy` and App Store Connect privacy answers.
 - Confirm Release entitlements warnings in `scripts/appstore_preflight.sh` are understood before upload.
-- Confirm V1 remains iPhone only. macOS is dormant scaffolding, not a V1 listing or marketing surface.
+- Confirm the iPhone TestFlight lane remains iPhone-only.
+- Confirm the active Mac desktop Studio shell passes `scripts/desktop_preflight.sh` before any desktop handoff or demo.
 
 ## 3. Privacy + Policy
 - Publish the privacy policy page at `https://them.io/privacy` (or update plist URL first).
@@ -74,6 +75,8 @@ chmod 600 them/Release.local.env
 ```bash
 ./scripts/run_release_preflight.sh
 ```
+- This wrapper now checks the live backend URL, the active Mac desktop scaffold build, and the iPhone App Store preflight path.
+- To run only the iPhone App Store preflight locally, use `RUN_MAC_DESKTOP_PREFLIGHT=0 RUN_LIVE_BACKEND_CHECK=0 ./scripts/run_release_preflight.sh`.
 - If you want the App Store preflight to include the full quality gate in one command:
 ```bash
 RUN_QUALITY_GATE=1 ./scripts/run_release_preflight.sh

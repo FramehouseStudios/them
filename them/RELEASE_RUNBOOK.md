@@ -24,6 +24,11 @@ node scripts/release_config_status.mjs
 scripts/run_release_preflight.sh
 ```
 
+This wrapper proves the live backend URL, the active Mac desktop scaffold
+build, and the iPhone App Store preflight path. Use
+`RUN_MAC_DESKTOP_PREFLIGHT=0` only for a deliberately iPhone-only local
+diagnostic run.
+
 - Smoke tag trigger:
 
 ```bash
@@ -45,7 +50,7 @@ git push origin ":refs/tags/$TAG" && git tag -d "$TAG"
 | Workflow | Primary use | Trigger | Notes |
 | --- | --- | --- | --- |
 | `.github/workflows/quality-gate.yml` | Manual smoke or reusable backend/app regression gate | `workflow_dispatch`, `workflow_call` | Best for interactive validation or a parent workflow that wants to skip some expensive sections. |
-| `.github/workflows/release-preflight.yml` | Release-candidate preflight | push tag `rc-*`, `workflow_dispatch`, `workflow_call` | Enforces `RUN_QUALITY_GATE=1` before iPhone preflight. |
+| `.github/workflows/release-preflight.yml` | Release-candidate preflight | push tag `rc-*`, `workflow_dispatch`, `workflow_call` | Enforces `RUN_QUALITY_GATE=1` before iPhone and Mac desktop preflight. |
 | `rc-smoke-*` disposable tag | One-off trigger smoke | temporary pushed tag | Use only for validating the automated release-preflight trigger path, then delete it. |
 
 ## Repo Settings Checklist
@@ -58,7 +63,7 @@ git push origin ":refs/tags/$TAG" && git tag -d "$TAG"
 
 ## Release Sequence
 1. Confirm local build and config are ready with `node scripts/release_config_status.mjs`.
-2. Run `scripts/run_release_preflight.sh` locally.
+2. Run `scripts/run_release_preflight.sh` locally and confirm live backend, Mac desktop, and iPhone preflight checks are green.
 3. Push an `rc-*` tag to trigger `.github/workflows/release-preflight.yml`.
 4. Review the Actions summary and any uploaded failure artifacts:
    - `/tmp/them-quality-gate-backend.log`

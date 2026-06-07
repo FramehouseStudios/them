@@ -38,14 +38,14 @@ The five XCUITests cover onboarding, talk-to-screenplay UI flow, export, memory 
 
 `scripts/run_release_preflight.sh`
 
-Release settings, private signing/token inputs, privacy manifest, iPhone-only TestFlight posture, and the Release iPhone build are ready for archive checks.
+Release settings, private signing/token inputs, live backend URL, active Mac desktop scaffold build, privacy manifest, iPhone TestFlight posture, and the Release iPhone build are ready for archive checks.
 
 Current local proof, 2026-05-28 America/Los_Angeles: strict pre-flight, canon/V1 smokes, backend tests, authenticated backend smoke through `/session`, `/history`, `/memories`, and `/talk`, free/local quality gate, unsigned Release iPhone Simulator build, and iOS Debug unit/UI tests all passed. `scripts/appstore_preflight.sh` and `scripts/run_release_preflight.sh` correctly remain red without paid/private release inputs: missing `DEVELOPMENT_TEAM_ID`, missing release `APP_TOKEN_RELEASE`, and a Release entitlements confirmation warning before upload. `them/Release.local.env.example`, `scripts/release_config_status.mjs`, and `scripts/run_release_preflight.sh` keep the private release switch-flip path explicit without printing secrets.
 
 ## Platform Posture
 
-- V1 is iPhone only.
-- macOS remains dormant scaffolding and is excluded from Release/TestFlight posture until a dedicated Mac shell ships.
+- iPhone TestFlight remains the App Store release lane.
+- macOS is an active desktop Studio shell and must pass Mac desktop preflight/build checks alongside iPhone.
 
 ## Manual App Flows
 
@@ -96,14 +96,14 @@ Goal: primary mint works; failures surface as local fallback or production degra
 
 Pass: Primary succeeds when healthy; local/test fallback remains visible; production failures never report stub as a successful realtime session.
 
-### iOS Release Readiness
+### Cross-Platform Release Readiness
 
-Goal: real release config -> green preflight -> exported Launch Doctor proof -> human signoff
+Goal: real release config -> live backend -> iPhone and Mac preflights -> exported Launch Doctor proof -> human signoff
 
 1. Create the ignored Release.local.env from the checked-in template.
 2. Fill in the Apple Development Team ID and production APP_TOKEN_RELEASE.
 3. Keep the hosted backend URL at https://api.them.io unless the release backend changes.
-4. Run the release preflight and confirm it is green.
+4. Run the release preflight and confirm live backend, Mac desktop, and iPhone build checks are green.
 5. Export Launch Doctor JSON/Markdown from the app or CLI fallback.
 6. Record final human signoff before TestFlight or external review.
 

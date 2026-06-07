@@ -69,4 +69,11 @@ else
   echo "[release-preflight] Skipping live backend health check (RUN_LIVE_BACKEND_CHECK=${RUN_LIVE_BACKEND_CHECK})."
 fi
 
+RUN_MAC_DESKTOP_PREFLIGHT="${RUN_MAC_DESKTOP_PREFLIGHT:-1}"
+if [[ "${RUN_MAC_DESKTOP_PREFLIGHT}" == "1" ]]; then
+  "${ROOT}/scripts/desktop_preflight.sh"
+else
+  echo "[release-preflight] Skipping Mac desktop preflight (RUN_MAC_DESKTOP_PREFLIGHT=${RUN_MAC_DESKTOP_PREFLIGHT})."
+fi
+
 "${ROOT}/scripts/appstore_preflight.sh"

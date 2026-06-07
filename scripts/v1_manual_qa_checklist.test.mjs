@@ -24,19 +24,21 @@ test("[v1-manual-qa] --json emits the five V1 manual gates", () => {
   assert.equal(payload.manualFlows.length, 5);
   assert.deepEqual(
     payload.manualFlows.map((f) => f.pillar),
-    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime", "iOS Release Readiness"],
+    ["Talk Pipeline", "Screenplay Studio", "Creative Memory", "Realtime", "Cross-Platform Release Readiness"],
   );
   assert.ok(payload.parked.some((p) => p.prs.includes("#94")));
   assert.ok(payload.parked.some((p) => /core memory export is approved/.test(p.reason)));
   assert.ok(payload.automatedProof.some((p) => p.command.includes("eval:v1-smokes")));
-  assert.ok(payload.platformPosture.includes("V1 is iPhone only."));
+  assert.ok(payload.platformPosture.includes("iPhone TestFlight remains the App Store release lane."));
+  assert.ok(payload.platformPosture.includes("macOS is an active desktop Studio shell and must pass Mac desktop preflight/build checks alongside iPhone."));
   assert.match(payload.currentLocalProof, /2026-05-28/);
   assert.match(payload.currentLocalProof, /authenticated backend smoke/);
   assert.match(payload.currentLocalProof, /APP_TOKEN_RELEASE/);
-  const releaseFlow = payload.manualFlows.find((f) => f.pillar === "iOS Release Readiness");
+  const releaseFlow = payload.manualFlows.find((f) => f.pillar === "Cross-Platform Release Readiness");
   assert.ok(releaseFlow);
   assert.ok(releaseFlow.steps.some((step) => /Apple Development Team ID and production APP_TOKEN_RELEASE/.test(step)));
   assert.ok(releaseFlow.steps.some((step) => /https:\/\/api\.them\.io/.test(step)));
+  assert.ok(releaseFlow.steps.some((step) => /Mac desktop/.test(step)));
   assert.ok(!releaseFlow.steps.some((step) => /hosted backend URL, and production app token/.test(step)));
 });
 
@@ -45,7 +47,7 @@ test("[v1-manual-qa] markdown output names pass criteria and parked gates", () =
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /## Manual App Flows/);
   assert.match(r.stdout, /## Platform Posture/);
-  assert.match(r.stdout, /V1 is iPhone only\./);
+  assert.match(r.stdout, /macOS is an active desktop Studio shell/);
   assert.match(r.stdout, /Pass: Reply text is visible/);
   assert.match(r.stdout, /#212/);
 });
@@ -58,7 +60,7 @@ test("[v1-manual-qa] --prompt emits a Launch Doctor result block template", () =
   assert.match(r.stdout, /^Screenplay Studio: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
   assert.match(r.stdout, /^Creative Memory: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
   assert.match(r.stdout, /^Realtime: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
-  assert.match(r.stdout, /^iOS Release Readiness: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
+  assert.match(r.stdout, /^Cross-Platform Release Readiness: PASS\/FAIL\/IN PROGRESS\/NOT STARTED - <notes>/m);
   assert.doesNotMatch(r.stdout, /## Manual App Flows/);
 });
 

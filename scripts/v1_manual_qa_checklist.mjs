@@ -51,13 +51,13 @@ const artifact = {
     {
       name: "Release preflight",
       command: "scripts/run_release_preflight.sh",
-      proves: "Release settings, private signing/token inputs, privacy manifest, iPhone-only TestFlight posture, and the Release iPhone build are ready for archive checks.",
+      proves: "Release settings, private signing/token inputs, live backend URL, active Mac desktop scaffold build, privacy manifest, iPhone TestFlight posture, and the Release iPhone build are ready for archive checks.",
     },
   ],
   currentLocalProof: "Current local proof, 2026-05-28 America/Los_Angeles: strict pre-flight, canon/V1 smokes, backend tests, authenticated backend smoke through `/session`, `/history`, `/memories`, and `/talk`, free/local quality gate, unsigned Release iPhone Simulator build, and iOS Debug unit/UI tests all passed. `scripts/appstore_preflight.sh` and `scripts/run_release_preflight.sh` correctly remain red without paid/private release inputs: missing `DEVELOPMENT_TEAM_ID`, missing release `APP_TOKEN_RELEASE`, and a Release entitlements confirmation warning before upload. `them/Release.local.env.example`, `scripts/release_config_status.mjs`, and `scripts/run_release_preflight.sh` keep the private release switch-flip path explicit without printing secrets.",
   platformPosture: [
-    "V1 is iPhone only.",
-    "macOS remains dormant scaffolding and is excluded from Release/TestFlight posture until a dedicated Mac shell ships.",
+    "iPhone TestFlight remains the App Store release lane.",
+    "macOS is an active desktop Studio shell and must pass Mac desktop preflight/build checks alongside iPhone.",
   ],
   manualFlows: [
     {
@@ -108,13 +108,13 @@ const artifact = {
       passCriteria: "Primary succeeds when healthy; local/test fallback remains visible; production failures never report stub as a successful realtime session.",
     },
     {
-      pillar: "iOS Release Readiness",
-      goal: "real release config -> green preflight -> exported Launch Doctor proof -> human signoff",
+      pillar: "Cross-Platform Release Readiness",
+      goal: "real release config -> live backend -> iPhone and Mac preflights -> exported Launch Doctor proof -> human signoff",
       steps: [
         "Create the ignored Release.local.env from the checked-in template.",
         "Fill in the Apple Development Team ID and production APP_TOKEN_RELEASE.",
         "Keep the hosted backend URL at https://api.them.io unless the release backend changes.",
-        "Run the release preflight and confirm it is green.",
+        "Run the release preflight and confirm live backend, Mac desktop, and iPhone build checks are green.",
         "Export Launch Doctor JSON/Markdown from the app or CLI fallback.",
         "Record final human signoff before TestFlight or external review.",
       ],

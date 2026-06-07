@@ -78,7 +78,9 @@ test("[release-docs] operator docs point at the iPhone release wrapper", () => {
   assert.match(combined, /scripts\/run_release_preflight\.sh/);
   assert.match(combined, /them\/Release\.local\.env\.example/);
   assert.match(combined, /Keep `BACKEND_URL=https:\/\/api\.them\.io`/);
-  assert.doesNotMatch(combined, /macOS App Store|macOS preflight/);
+  assert.match(combined, /Mac desktop preflight|desktop preflight/i);
+  assert.doesNotMatch(combined, /macOS App Store/);
+  assert.doesNotMatch(combined, /macOS is dormant scaffolding/);
   assert.doesNotMatch(combined, /\/Users\/halfmutantfilms\/Desktop\/io\.them/);
   assert.doesNotMatch(combined, /Fill `DEVELOPMENT_TEAM_ID`, `BACKEND_URL`, and `APP_TOKEN_RELEASE`/);
   assert.doesNotMatch(combined, /Set `(?:DEVELOPMENT_TEAM_ID|APP_TOKEN_RELEASE)` in .*Config\.xcconfig/);
@@ -151,4 +153,36 @@ test("[run-release-preflight] stops at config status without leaking sourced tok
   assert.match(r.stdout, /Apple Development Team ID is missing/);
   assert.doesNotMatch(`${r.stdout}\n${r.stderr}`, new RegExp(secret));
   assert.doesNotMatch(r.stdout, /App Store Preflight/);
+});
+
+test("[run-release-preflight] skips live backend and desktop preflight when config is still invalid", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-release-wrapper-invalid-"));
+  const envFile = path.join(dir, "Release.local.env");
+  fs.writeFileSync(
+    envFile,
+    [
+      "BACKEND_URL=https://api.them.io",
+      "APP_TOKEN_RELEASE=",
+      "",
+    ].join("\n"),
+  );
+
+  const desktopMarker = path.join(dir, "desktop-ran");
+  const r = spawnSync("bash", [wrapper], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      RELEASE_ENV_FILE: envFile,
+      DEVELOPMENT_TEAM_ID: "",
+      BACKEND_URL: "",
+      APP_TOKEN_RELEASE: "",
+      MAC_DESKTOP_DERIVED_DATA_PATH: desktopMarker,
+    },
+    encoding: "utf8",
+  });
+
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /APP_TOKEN_RELEASE/);
+  assert.doesNotMatch(r.stdout, /Live Backend Health/);
+  assert.doesNotMatch(r.stdout, /Mac Desktop Preflight/);
 });
