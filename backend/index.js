@@ -3262,9 +3262,11 @@ let didLogMp3Signature = false;
 let elevenLabsBlockedUntilMs = 0;
 let elevenLabsBlockedReason = "";
 
-if (!OPENAI_API_KEY) {
+if (!OPENAI_API_KEY && NODE_ENV === "production") {
   console.error("Missing OPENAI_API_KEY in environment.");
   process.exit(1);
+} else if (!OPENAI_API_KEY) {
+  console.warn("[provider_config] OPENAI_API_KEY is missing; provider-backed writing and realtime routes will return provider errors until configured.");
 }
 
 if (REQUIRE_APP_TOKEN && !APP_TOKEN) {
