@@ -3643,7 +3643,12 @@ function stripTalkScreenplayMarkdown(line = "") {
     .trim();
 }
 
+function isTalkMarkdownFenceLine(line = "") {
+  return /^\s*```[A-Za-z0-9_-]*\s*$/.test(String(line || ""));
+}
+
 function stripTalkLeadInPrefix(line = "") {
+  if (isTalkMarkdownFenceLine(line)) return "";
   const cleaned = stripTalkScreenplayMarkdown(line);
   if (!cleaned) return "";
   return cleaned.replace(
@@ -3777,6 +3782,18 @@ function isTalkWrapperLeadInLine(line = "", nextNonEmpty = "", nextAfterNonEmpty
   if (/^you said:\s*["“].+["”]$/i.test(normalized)) {
     return true;
   }
+  if (/^(?:absolutely|sure|yes|yeah|okay|ok)\b.*\b(?:write|draft|try|take|play|scene|page|beat|like this|this way)\b/i.test(normalized)) {
+    return true;
+  }
+  if (/^i(?:'|’)d (?:write|draft|play|take|shape) (?:it|this) (?:like this|this way)$/i.test(normalized)) {
+    return true;
+  }
+  if (/^i would (?:write|draft|play|take|shape) (?:it|this) (?:like this|this way)$/i.test(normalized)) {
+    return true;
+  }
+  if (/^let(?:'|’)s (?:write|draft|try|take|play|shape) (?:it|this|the scene|the beat|the page)\b/i.test(normalized)) {
+    return true;
+  }
   return [
     "here's the scene",
     "heres the scene",
@@ -3796,7 +3813,28 @@ function isTalkWrapperLeadInLine(line = "", nextNonEmpty = "", nextAfterNonEmpty
     "try this",
     "action line",
     "use this",
+    "try it this way",
+    "i'd write it like this",
+    "i would write it like this",
   ].includes(normalized);
+}
+
+function isLikelyTalkScreenplayAfterwordLine(line = "") {
+  const cleaned = stripTalkScreenplayMarkdown(line);
+  if (!cleaned) return false;
+  const normalized = cleaned
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/[.:!?-–—]+$/g, "")
+    .trim();
+  return [
+    /^this (?:gives|keeps|lets|makes|should give|should keep)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|character|pressure|subtext|tension|emotion|turn)\b/,
+    /^the (?:key|idea|move|pressure|subtext|turn) (?:is|here is)\b/,
+    /^i (?:kept|made|gave|added|cut|left|protected|preserved)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|character|pressure|subtext|tension|emotion|turn)\b/,
+    /^if you want\b/,
+    /^you can (?:also|then|next|now)\b/,
+    /^that way\b/,
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function stripTalkTrailingConversationalQuestion(line = "") {
@@ -3825,7 +3863,21 @@ function trimTrailingConversationalScreenplayLines(lines = []) {
     }
     if (trimmed.length <= 1) break;
     const lastLine = String(trimmed[trimmed.length - 1] || "").trim();
-    if (!lastLine || !isLikelyConversationalScreenplayLine(lastLine)) break;
+    const previousNonEmptyLine = [...trimmed.slice(0, -1)]
+      .reverse()
+      .map((line) => String(line || "").trim())
+      .find(Boolean) || "";
+    const followsDialogueCue = isTalkParentheticalLine(previousNonEmptyLine) ||
+      isTalkUppercaseCueCandidate(previousNonEmptyLine);
+    if (
+      !lastLine ||
+      (
+        !isTalkMarkdownFenceLine(lastLine) &&
+        !isLikelyConversationalScreenplayLine(lastLine) &&
+        !isLikelyTalkScreenplayAfterwordLine(lastLine)
+      )
+    ) break;
+    if (followsDialogueCue) break;
     trimmed.pop();
   }
   return trimmed;
@@ -28704,4 +28756,5 @@ export {
   evaluateTurnQualityHeuristics,
   validateAndDirectHerReply,
   enforceReplyCompletenessGuard,
+  normalizeTalkPageReply,
 };
