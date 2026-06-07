@@ -187,12 +187,20 @@ struct ScreenplayPromptBuilder {
                         screenplayTaskLabel: response.screenplayTaskLabel
                     )
                 }
-                return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: "empty_backend_prompt")
+                return Result(
+                    prompt: localFallbackPrompt(from: request, persona: persona),
+                    usedBackendAssembly: false,
+                    fallbackReason: "empty_backend_prompt"
+                )
             } catch {
                 lastError = error
             }
         }
-        return Result(prompt: persona, usedBackendAssembly: false, fallbackReason: lastError?.localizedDescription ?? "prompt_build_failed")
+        return Result(
+            prompt: localFallbackPrompt(from: request, persona: persona),
+            usedBackendAssembly: false,
+            fallbackReason: lastError?.localizedDescription ?? "prompt_build_failed"
+        )
     }
 
     private func screenplayTaskHint(from request: Request) -> String {
@@ -259,6 +267,79 @@ struct ScreenplayPromptBuilder {
             if result.count >= limit { break }
         }
         return result
+    }
+
+    private func localFallbackPrompt(from request: Request, persona: String) -> String {
+        let featureBlock = localFeatureFilmFallbackBlock(from: request)
+        guard !featureBlock.isEmpty else { return persona }
+        return [persona, featureBlock].joined(separator: "\n\n")
+    }
+
+    private func localFeatureFilmFallbackBlock(from request: Request) -> String {
+        guard request.isScreenplayMode else { return "" }
+        let taskHint = screenplayTaskHint(from: request)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let act = request.act.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentBeat = request.currentBeat.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sceneObjective = request.sceneObjective.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sceneSummary = request.sceneSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let draftExcerpt = request.draftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pageCount = max(0, request.pageCount)
+        let targetPages = max(0, request.targetPages)
+        let hasFeatureContext = request.shouldWriteToPage ||
+            !taskHint.isEmpty ||
+            !act.isEmpty ||
+            !currentBeat.isEmpty ||
+            !sceneObjective.isEmpty ||
+            !sceneSummary.isEmpty ||
+            !draftExcerpt.isEmpty ||
+            pageCount > 0 ||
+            targetPages > 0
+        guard hasFeatureContext else { return "" }
+
+        var lines: [String] = [
+            "LOCAL FEATURE-FILM CONTINUITY FALLBACK:",
+            "- Clementine must think like a whole-feature screenwriter, not a single-scene chatbot.",
+            "- Act I: wound, want, catalyst, debate, irreversible choice.",
+            "- Act II: tests, reversals, midpoint truth, escalating cost, all-is-lost collapse.",
+            "- Act III: synthesis, final plan, climax under maximum pressure, final image.",
+            "- Protect setups/payoffs, character need, theme argument, emotional handoff, and ending image.",
+            "- When asked to finish pages, give one concise strategy note, then write playable Fountain.",
+        ]
+
+        if !act.isEmpty {
+            lines.append("- Active act: \(String(act.prefix(120)))")
+        }
+        if pageCount > 0 {
+            let target = targetPages > 0 ? targetPages : 110
+            lines.append("- Estimated position: p\(pageCount) / \(target)")
+        } else if targetPages > 0 {
+            lines.append("- Target length: \(targetPages) pages")
+        }
+        if !sceneObjective.isEmpty {
+            lines.append("- Current scene objective: \(String(sceneObjective.prefix(220)))")
+        }
+        if !sceneSummary.isEmpty {
+            lines.append("- Current scene summary: \(String(sceneSummary.prefix(220)))")
+        }
+        if !currentBeat.isEmpty {
+            lines.append("- Current beat: \(String(currentBeat.prefix(180)))")
+        }
+
+        let beatSequence = Self.sanitizedContextList(request.beatSequence, limit: 6)
+        if !beatSequence.isEmpty {
+            lines.append("- Beat chain: \(beatSequence.joined(separator: " -> "))")
+        }
+        let unresolvedSetups = Self.sanitizedContextList(request.unresolvedSetups, limit: 4)
+        if !unresolvedSetups.isEmpty {
+            lines.append("- Unresolved setups: \(unresolvedSetups.joined(separator: "; "))")
+        }
+        let continuityNotes = Self.sanitizedContextList(request.continuityNotes, limit: 4)
+        if !continuityNotes.isEmpty {
+            lines.append("- Continuity notes: \(continuityNotes.joined(separator: "; "))")
+        }
+
+        return lines.joined(separator: "\n")
     }
 
     private static func applySpeakingPace(to systemPrompt: String, speakingPace: Double) -> String {

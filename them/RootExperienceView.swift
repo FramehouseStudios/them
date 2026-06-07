@@ -8936,20 +8936,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let pack = screenplayDraftBridge.latestPack
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ? liveScreenplayPack : screenplayDraftBridge.latestPack
-        if shouldWriteToPage && isStudioSurfaceActive {
-#if DEBUG || os(macOS)
-            setStudioDebugPreferenceString("", forKey: "studio_debug_last_screenplay_task_intent")
-            setStudioDebugPreferenceString("", forKey: "studio_debug_last_screenplay_task_label")
-            setStudioDebugPreferenceString("0", forKey: "studio_debug_last_prompt_backend_assembly")
-            setStudioDebugPreferenceString("direct_page_write_local_prompt", forKey: "studio_debug_last_prompt_fallback_reason")
-#endif
-            guard includeVisualContext else { return basePrompt }
-            return await systemPromptWithVisualContext(
-                basePrompt,
-                userMessage: userMessage,
-                isScreenplayMode: isScreenplayMode
-            )
-        }
         let draftExcerpt = screenplayDraftBridge.draftText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let promptContinuity = screenplayPromptContinuityContext()

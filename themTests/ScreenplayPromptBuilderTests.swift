@@ -27,6 +27,14 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 phase: "scene_draft",
                 pack: "Feature Sprint",
                 draftExcerpt: "INT. MOTEL - NIGHT\n\nJUNE closes the blinds.",
+                act: "Act II",
+                sceneObjective: "June must decide whether to burn the evidence.",
+                currentBeat: "The receipt exposes the lie.",
+                beatSequence: ["Receipt reveal", "Marcus lies badly"],
+                unresolvedSetups: ["The missing cassette has not paid off."],
+                continuityNotes: ["Trust is turning into suspicion."],
+                pageCount: 47,
+                targetPages: 110,
                 isScreenplayMode: true,
                 shouldWriteToPage: true,
                 craftFrameworkId: "story-circle"
@@ -47,6 +55,14 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.phase, "scene_draft")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.pack, "Feature Sprint")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.draftExcerpt, "INT. MOTEL - NIGHT\n\nJUNE closes the blinds.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.act, "Act II")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.sceneObjective, "June must decide whether to burn the evidence.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.currentBeat, "The receipt exposes the lie.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.beatSequence, ["Receipt reveal", "Marcus lies badly"])
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.unresolvedSetups, ["The missing cassette has not paid off."])
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.continuityNotes, ["Trust is turning into suspicion."])
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.pageCount, 47)
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.targetPages, 110)
         XCTAssertEqual(backend.capturedRequest?.includeCraftContext, true)
         XCTAssertEqual(backend.capturedRequest?.craftFrameworkId, "story-circle")
     }
@@ -121,12 +137,23 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
             request: ScreenplayPromptBuilder.Request(
                 persona: "LOCAL PERSONA",
                 userInput: "Keep going.",
+                act: "Act II",
+                currentBeat: "Mara realizes the witness has been lying.",
+                unresolvedSetups: ["The courthouse key has not paid off."],
+                pageCount: 62,
+                targetPages: 110,
                 isScreenplayMode: true,
                 shouldWriteToPage: true
             )
         )
 
-        XCTAssertEqual(result.prompt, "LOCAL PERSONA")
+        XCTAssertTrue(result.prompt.contains("LOCAL PERSONA"))
+        XCTAssertTrue(result.prompt.contains("LOCAL FEATURE-FILM CONTINUITY FALLBACK"))
+        XCTAssertTrue(result.prompt.contains("Act II: tests, reversals, midpoint truth"))
+        XCTAssertTrue(result.prompt.contains("Active act: Act II"))
+        XCTAssertTrue(result.prompt.contains("Estimated position: p62 / 110"))
+        XCTAssertTrue(result.prompt.contains("Current beat: Mara realizes the witness has been lying."))
+        XCTAssertTrue(result.prompt.contains("Unresolved setups: The courthouse key has not paid off."))
         XCTAssertFalse(result.usedBackendAssembly)
         XCTAssertFalse(result.fallbackReason.isEmpty)
     }
