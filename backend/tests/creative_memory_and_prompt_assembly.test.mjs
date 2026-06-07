@@ -21,6 +21,7 @@ import {
   MEMORY_BLOCK_CLOSE,
   BLOCK_SIGNAL_BLOCK_OPEN,
   SCREENPLAY_TASK_BLOCK_OPEN,
+  FEATURE_MAP_BLOCK_OPEN,
 } from "../lib/prompt_assembly.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 
@@ -172,6 +173,8 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
   assert.equal(inferScreenplayTask("Help me finish this feature film.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("I need help finishing this feature-length screenplay.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Help me shape act two of the whole movie.").intent, "finish_feature");
+  assert.equal(inferScreenplayTask("Help me build the entire feature from Act 1 to Act 2 to Act 3.").intent, "finish_feature");
+  assert.equal(inferScreenplayTask("Map Act I, Act II, and Act III so I can complete the full script.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Give me scene doctor notes.").intent, "scene_doctor");
   assert.equal(inferScreenplayTask("Punch up the dialogue.").intent, "dialogue_punchup");
   assert.equal(inferScreenplayTask("Fix the emotional continuity.").intent, "emotional_continuity");
@@ -231,12 +234,56 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("draft_excerpt:"));
   assert.ok(out.includes("    INT. DINER - NIGHT"));
   assert.ok(out.includes("intent: continue_script"));
+  assert.ok(out.includes(FEATURE_MAP_BLOCK_OPEN));
+  assert.ok(out.includes("current_position: p47 / 110"));
+  assert.ok(out.includes("current_sequence: Act II - Midpoint Pressure"));
+  assert.ok(out.includes("coming_next:"));
+  assert.ok(out.includes("Act II - Reversal Fallout"));
   assert.ok(out.includes("feature-length continuity"));
+  assert.ok(out.includes("whole-feature authorship"));
+  assert.ok(out.includes("act engine"));
   assert.ok(out.includes("emotionally present"));
   assert.ok(out.includes("living co-writer"));
   assert.ok(out.includes("never corporate"));
   assert.ok(out.includes("clean playable Fountain"));
   assert.ok(out.includes("mode_guidance: Continue directly from the supplied draft excerpt."));
+});
+
+test("[feature-film-map] finish_feature prompt carries act-to-act completion brain", () => {
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    sessionContext: {
+      projectId: "feature-1",
+      act: "Act II",
+      pageCount: 78,
+      targetPages: 110,
+      currentBeat: "The false victory collapses into public betrayal.",
+      unresolvedSetups: [
+        "The sister's voicemail has not paid off.",
+        "The opening image of the empty pool still needs its mirror.",
+      ],
+      draftExcerpt: "INT. CITY HALL - NIGHT\n\nMARA cannot make the microphone work.",
+    },
+    screenplayTask: inferScreenplayTask("Help me finish the entire feature from Act 1 to Act 2 to Act 3."),
+    userInput: "Help me finish the entire feature from Act 1 to Act 2 to Act 3.",
+  });
+
+  assert.ok(out.includes(FEATURE_MAP_BLOCK_OPEN));
+  assert.ok(out.includes("operating_principle: Clementine thinks like a whole-feature screenwriter"));
+  assert.ok(out.includes("act_ladder:"));
+  assert.ok(out.includes("Act I: wound, want, catalyst, debate, irreversible choice"));
+  assert.ok(out.includes("Act II: tests, reversals, midpoint truth, escalating cost"));
+  assert.ok(out.includes("Act III: synthesis, final plan, climax under maximum pressure, final image"));
+  assert.ok(out.includes("current_position: p78 / 110"));
+  assert.ok(out.includes("current_sequence: Act II - Collapse / All Is Lost"));
+  assert.ok(out.includes("active_act_label: Act II"));
+  assert.ok(out.includes("due_now:"));
+  assert.ok(out.includes("confront the need beneath the want"));
+  assert.ok(out.includes("coming_next:"));
+  assert.ok(out.includes("Act III - Break Into Three / Final Plan"));
+  assert.ok(out.includes("feature_completion_protocol:"));
+  assert.ok(out.includes("Never solve Act III by adding information the movie has not earned"));
+  assert.ok(out.includes("mode_guidance: Operate at feature scale. Locate the current act/sequence"));
 });
 
 test("[screenplay-task] buildModelPrompt injects task block before user input", () => {

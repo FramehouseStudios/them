@@ -102,6 +102,7 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes(MEMORY_BLOCK_OPEN));
       assert.ok(body.prompt.includes("tone: dry"));
       assert.ok(body.prompt.includes("<session>"));
+      assert.ok(body.prompt.includes("<feature_film_map>"));
       assert.ok(body.prompt.includes("<screenplay_task>"));
       assert.ok(body.prompt.includes("intent: write_scene"));
       assert.ok(body.prompt.includes("project: proj-77"));
@@ -121,6 +122,10 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("emotional_handoff: Carry grief into tactical suspicion."));
       assert.ok(body.prompt.includes("estimated_page_count: 38"));
       assert.ok(body.prompt.includes("target_pages: 110"));
+      assert.ok(body.prompt.includes("current_position: p38 / 110"));
+      assert.ok(body.prompt.includes("current_sequence: Act II - Promise Of The Premise"));
+      assert.ok(body.prompt.includes("Act I: wound, want, catalyst, debate, irreversible choice"));
+      assert.ok(body.prompt.includes("feature_completion_protocol:"));
       assert.ok(body.prompt.includes("draft_excerpt:"));
       assert.ok(body.prompt.includes("MARA watches the tide"));
       assert.ok(body.prompt.includes("Write the all-is-lost beat."));
@@ -191,6 +196,7 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
       ["Scene doctor this kitchen confrontation and tell me what's not working.", "scene_doctor", "highest-leverage fix"],
       ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "only playable replacement screenplay text"],
       ["Help me finish this feature-length screenplay.", "finish_feature", "diagnose act/sequence pressure"],
+      ["Help me write the whole feature from Act 1 through Act 2 into Act 3.", "finish_feature", "Locate the current act/sequence"],
     ];
 
     for (const [hint, expectedIntent, expectedContract] of cases) {
@@ -275,8 +281,13 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
       assert.ok(body.prompt.includes("pack: The Blue Hour"));
       assert.ok(body.prompt.includes("scene: INT. MOTEL ROOM - NIGHT"));
       assert.ok(body.prompt.includes("feature_continuity:"));
+      assert.ok(body.prompt.includes("<feature_film_map>"));
       assert.ok(body.prompt.includes("act: Act II"));
       assert.ok(body.prompt.includes("target_pages: 110"));
+      assert.ok(body.prompt.includes("active_act_label: Act II"));
+      assert.ok(body.prompt.includes("position_basis: outline act label overrides low draft-page estimate."));
+      assert.ok(body.prompt.includes("Act II must escalate tactics, reversals, midpoint pressure"));
+      assert.ok(body.prompt.includes("feature_completion_protocol:"));
       assert.ok(body.prompt.includes("current_scene_objective: June decides whether to burn"));
       assert.ok(body.prompt.includes("current_scene_summary: The receipt exposes"));
       assert.ok(body.prompt.includes("current_beat: Marcus lies badly"));

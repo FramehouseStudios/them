@@ -151,6 +151,11 @@ try {
     "draft_excerpt:",
     marker,
     "intent: finish_feature",
+    "<feature_film_map>",
+    "active_act_label: Act II",
+    "position_basis: outline act label overrides low draft-page estimate.",
+    "Act II must escalate tactics, reversals, midpoint pressure",
+    "feature_completion_protocol:",
     "diagnose act/sequence pressure",
   ]) {
     assertIncludes(continuePrompt, snippet, "continue prompt");

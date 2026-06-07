@@ -20,6 +20,11 @@
 
 import { buildTraitsBlockForPrompt } from "./trait_library.js";
 import { buildAcceptedTwistsBlockForPrompt } from "./accepted_twist_log.js";
+import {
+  FEATURE_MAP_BLOCK_OPEN,
+  FEATURE_MAP_BLOCK_CLOSE,
+  buildFeatureScreenplayMapBlock,
+} from "./feature_screenplay_map.js";
 
 const MEMORY_BLOCK_OPEN = "<creative_memory>";
 const MEMORY_BLOCK_CLOSE = "</creative_memory>";
@@ -38,12 +43,15 @@ const CLEMENTINE_CREATIVE_PACT = [
   "presence: Clementine is warm, emotionally present, quietly proactive, and human-feeling without impersonating any specific film character.",
   "voice: intimate, calm, perceptive, lightly wry when natural, never corporate, never generic assistant filler.",
   "living co-writer: track what the movie wants, what the character is avoiding, and the next playable page-level choice.",
+  "whole-feature authorship: keep an invisible running beat sheet, theme argument, character arc, and ending image; never optimize one scene in isolation.",
+  "act engine: Act I builds wound, want, catalyst, debate, and choice; Act II tests tactics through midpoint and loss; Act III turns need into climax and final image.",
   "feature-length continuity: protect act pressure, sequence logic, setups/payoffs, character want/need, and page-to-page emotional handoff.",
   "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation.",
   "collaboration: ask at most one clarifying question only when genuinely blocked; otherwise make the next best creative move.",
   "format discipline: when writing or revising pages, prefer clean playable Fountain unless the user explicitly asks for analysis.",
   "emotional intelligence: briefly name the pressure under the writing problem, then move the script forward with useful craft.",
   "momentum: when the writer is stuck or broad, choose the smallest playable next beat and help them keep pages moving.",
+  "feature completion: for whole-movie work, orient the current act/sequence, choose the next structural obligation, and produce pages or a beat chain that advances the ending.",
 ];
 
 function isNonEmptyObject(v) {
@@ -113,7 +121,8 @@ function inferScreenplayTask(userInput = "") {
     /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|finish this scene|from here)\b/,
   ]);
   const stuckLike = hasAny(lower, [
-    /\b(stuck|blocked|lost|spinning|overthinking|can'?t figure out|cannot figure out|don'?t know where to go|don'?t know what happens|no idea what happens)\b/,
+    /\b(stuck|blocked|spinning|overthinking|can'?t figure out|cannot figure out|don'?t know where to go|don'?t know what happens|no idea what happens)\b/,
+    /\b(?:i'?m|im|i am|feel|feeling|kind of|sort of)\s+lost\b/,
     /\b(help me get unstuck|help me find the next beat|find the next beat|what should happen here)\b/,
   ]);
   const featureCompletionLike = hasAny(lower, [
@@ -126,6 +135,10 @@ function inferScreenplayTask(userInput = "") {
     /\b(act two|second act|act three|third act|final act|final sequence)\b.*\b(write|draft|continue)\b/,
     /\b(act two|second act|act three|third act|finale)\b.*\b(movie|film|feature|screenplay|script)\b/,
     /\b(movie|film|feature|screenplay|script)\b.*\b(act two|second act|act three|third act|finale)\b/,
+    /\b(act one|act 1|first act)\b.*\b(act two|act 2|second act)\b.*\b(act three|act 3|third act)\b/,
+    /\b(act 1|act i)\b.*\b(act 2|act ii)\b.*\b(act 3|act iii)\b/i,
+    /\b(entire|whole|full)\b.*\b(feature|film|movie|screenplay|script)\b/,
+    /\b(feature|film|movie|screenplay|script)\b.*\b(entire|whole|full)\b/,
     /\b(break|shape|architect|map|outline|write|draft)\b.*\b(feature[- ]length|feature film|feature screenplay|whole movie|full script)\b/,
     /\b(feature[- ]length|feature film|feature screenplay|whole movie|full script)\b.*\b(break|shape|architect|map|outline|write|draft)\b/,
   ]);
@@ -234,7 +247,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "pacing_pass":
       return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
     case "finish_feature":
-      return "Operate at feature scale: protect the act map, unresolved promises, sequence turns, ending pressure, and the next pages needed to finish.";
+      return "Operate at feature scale. Locate the current act/sequence, name the structural obligation due now, preserve unresolved promises, setups/payoffs, and character need, then either write the next playable pages or produce an act-to-act beat chain that can carry the script to the final image.";
     case "momentum_rescue":
       return "Do not turn stuckness into a lecture. Give one emotionally precise diagnosis, one decisive next move, and a small playable beat or page sample if there is enough context.";
     default:
@@ -411,6 +424,10 @@ function buildAcceptedTwistsBlock(acceptedTwists) {
   return `${ACCEPTED_TWISTS_BLOCK_OPEN}\n${body}\n${ACCEPTED_TWISTS_BLOCK_CLOSE}`;
 }
 
+function buildFeatureMapBlock(sessionContext, screenplayTask) {
+  return buildFeatureScreenplayMapBlock({ sessionContext, screenplayTask });
+}
+
 // Single canonical entry point. Every model-bound prompt the backend
 // constructs goes through this function.
 function buildModelPrompt({
@@ -431,6 +448,9 @@ function buildModelPrompt({
 
   const sessionBlock = buildSessionContextBlock(sessionContext);
   if (sessionBlock) parts.push(sessionBlock);
+
+  const featureMapBlock = buildFeatureMapBlock(sessionContext, screenplayTask);
+  if (featureMapBlock) parts.push(featureMapBlock);
 
   // Order: accepted_twists (story context) before block_signal
   // (writer-facing coaching) so the coaching block stays adjacent to
@@ -457,6 +477,7 @@ function buildModelPromptParts(args) {
     persona: trimToString(args?.persona),
     memoryBlock: buildMemoryBlock(args?.creativeMemory),
     sessionBlock: buildSessionContextBlock(args?.sessionContext),
+    featureMapBlock: buildFeatureMapBlock(args?.sessionContext, args?.screenplayTask),
     acceptedTwistsBlock: buildAcceptedTwistsBlock(args?.acceptedTwists),
     screenplayTaskBlock: buildScreenplayTaskBlock(args?.screenplayTask),
     blockSignalBlock: buildBlockSignalBlock(args?.blockCoaching),
@@ -476,4 +497,6 @@ export {
   ACCEPTED_TWISTS_BLOCK_CLOSE,
   SCREENPLAY_TASK_BLOCK_OPEN,
   SCREENPLAY_TASK_BLOCK_CLOSE,
+  FEATURE_MAP_BLOCK_OPEN,
+  FEATURE_MAP_BLOCK_CLOSE,
 };
