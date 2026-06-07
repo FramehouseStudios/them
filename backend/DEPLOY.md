@@ -60,7 +60,7 @@ render blueprint launch render.yaml
 # Subsequent deploys
 git push origin main
 # Render builds the Dockerfile and runs the new image after the health
-# check at /realtime/health responds 200.
+# check at /healthz responds 200.
 ```
 
 The blueprint provisions a managed Postgres alongside the web service. After
@@ -95,9 +95,14 @@ schema is compatible, rolling the image back is safe.
 ## Smoke after deploy
 
 ```sh
-curl -fsS "$BASE_URL/realtime/health"
-# expect: 200 with { ok: true, ... }
+node ../scripts/live_backend_health.mjs --url="$BASE_URL"
+# expect: [OK] for /healthz and /api/version
 ```
 
 Then run the iOS V1 manual smoke from `docs/runbook-v1-smoke.md` against
 the new backend.
+
+For the production custom domain, `https://api.them.io/healthz` must return
+the JSON readiness envelope directly. A redirect to a parked them.io page or
+Render `x-render-routing: no-server` means DNS/custom-domain attachment still
+needs operator work before TestFlight or desktop release.

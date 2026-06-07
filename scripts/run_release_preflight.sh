@@ -61,4 +61,12 @@ fi
 
 node "${ROOT}/scripts/release_config_status.mjs" --release-env-file="${RELEASE_ENV_FILE}"
 
+RUN_LIVE_BACKEND_CHECK="${RUN_LIVE_BACKEND_CHECK:-1}"
+if [[ "${RUN_LIVE_BACKEND_CHECK}" == "1" ]]; then
+  APP_TOKEN="${APP_TOKEN:-${APP_TOKEN_RELEASE:-}}" \
+    node "${ROOT}/scripts/live_backend_health.mjs" --url="${BACKEND_URL:-https://api.them.io}"
+else
+  echo "[release-preflight] Skipping live backend health check (RUN_LIVE_BACKEND_CHECK=${RUN_LIVE_BACKEND_CHECK})."
+fi
+
 "${ROOT}/scripts/appstore_preflight.sh"

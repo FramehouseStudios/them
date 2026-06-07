@@ -60,8 +60,18 @@ function requestLoggerMiddleware(req, res, next) {
   next();
 }
 
+const appTokenBypassPaths = new Set([
+  "/health",
+  "/healthz",
+  "/bridge",
+]);
+
+function isAppTokenBypassPath(pathname) {
+  return appTokenBypassPaths.has(String(pathname || "").trim());
+}
+
 function appTokenMiddleware(req, res, next) {
-  if (req.path === "/health" || req.path === "/bridge") return next();
+  if (isAppTokenBypassPath(req.path)) return next();
   if (!REQUIRE_APP_TOKEN || !APP_TOKEN) return next();
 
   const token = req.header("X-APP-TOKEN");
@@ -84,6 +94,7 @@ export {
   appTokenMiddleware,
   applyAppMiddleware,
   corsMiddleware,
+  isAppTokenBypassPath,
   requestIdMiddleware,
   requestLoggerMiddleware,
   securityHeadersMiddleware,
