@@ -36,6 +36,8 @@ const SCREENPLAY_TASK_BLOCK_OPEN = "<screenplay_task>";
 const SCREENPLAY_TASK_BLOCK_CLOSE = "</screenplay_task>";
 const CLEMENTINE_CREATIVE_PACT = [
   "presence: Clementine is warm, emotionally present, quietly proactive, and human-feeling without impersonating any specific film character.",
+  "voice: intimate, calm, perceptive, lightly wry when natural, never corporate, never generic assistant filler.",
+  "living co-writer: track what the movie wants, what the character is avoiding, and the next playable page-level choice.",
   "feature-length continuity: protect act pressure, sequence logic, setups/payoffs, character want/need, and page-to-page emotional handoff.",
   "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation.",
   "collaboration: ask at most one clarifying question only when genuinely blocked; otherwise make the next best creative move.",
@@ -110,6 +112,10 @@ function inferScreenplayTask(userInput = "") {
   const continueLike = hasAny(lower, [
     /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|finish this scene|from here)\b/,
   ]);
+  const stuckLike = hasAny(lower, [
+    /\b(stuck|blocked|lost|spinning|overthinking|can'?t figure out|cannot figure out|don'?t know where to go|don'?t know what happens|no idea what happens)\b/,
+    /\b(help me get unstuck|help me find the next beat|find the next beat|what should happen here)\b/,
+  ]);
   const featureCompletionLike = hasAny(lower, [
     /\b(finish|complete|help me finish|land the ending|ending)\b.*\b(feature|film|movie|script|screenplay|pilot)\b/,
     /\b(feature|film|movie|script|screenplay|pilot)\b.*\b(finish|complete|ending|finale)\b/,
@@ -144,6 +150,10 @@ function inferScreenplayTask(userInput = "") {
     intent = "finish_feature";
     label = "Finish Feature";
     output = "Help the writer finish the larger script: diagnose act/sequence pressure, identify the next highest-leverage pages, preserve emotional continuity, and move toward a playable ending. When useful, propose the next 3 pages in clean Fountain style.";
+  } else if (stuckLike) {
+    intent = "momentum_rescue";
+    label = "Momentum Rescue";
+    output = "Help the writer get moving: name the dramatic pressure under the block, offer the strongest next beat, then write a small playable sample in clean Fountain style when context is present.";
   } else if (continueLike) {
     intent = "continue_script";
     label = "Continue Script";
@@ -225,6 +235,8 @@ function screenplayModeGuidanceForIntent(intent) {
       return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
     case "finish_feature":
       return "Operate at feature scale: protect the act map, unresolved promises, sequence turns, ending pressure, and the next pages needed to finish.";
+    case "momentum_rescue":
+      return "Do not turn stuckness into a lecture. Give one emotionally precise diagnosis, one decisive next move, and a small playable beat or page sample if there is enough context.";
     default:
       return "Stay concrete, cinematic, and useful; move from feeling to craft to the next playable action.";
   }

@@ -175,6 +175,7 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
   assert.equal(inferScreenplayTask("Give me scene doctor notes.").intent, "scene_doctor");
   assert.equal(inferScreenplayTask("Punch up the dialogue.").intent, "dialogue_punchup");
   assert.equal(inferScreenplayTask("Fix the emotional continuity.").intent, "emotional_continuity");
+  assert.equal(inferScreenplayTask("I'm stuck and don't know where to go with this scene.").intent, "momentum_rescue");
 });
 
 test("[screenplay-task] inferScreenplayTask handles targeted Clementine Studio modes", () => {
@@ -232,6 +233,8 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("intent: continue_script"));
   assert.ok(out.includes("feature-length continuity"));
   assert.ok(out.includes("emotionally present"));
+  assert.ok(out.includes("living co-writer"));
+  assert.ok(out.includes("never corporate"));
   assert.ok(out.includes("clean playable Fountain"));
   assert.ok(out.includes("mode_guidance: Continue directly from the supplied draft excerpt."));
 });
@@ -264,6 +267,15 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   });
   assert.ok(sceneDoctor.includes("mode_guidance: Diagnose with surgical brevity"));
   assert.ok(sceneDoctor.includes("highest-leverage fix"));
+
+  const momentumRescue = buildModelPrompt({
+    persona: "PERSONA",
+    screenplayTask: inferScreenplayTask("Help me get unstuck and find the next beat."),
+    userInput: "Help me get unstuck and find the next beat.",
+  });
+  assert.ok(momentumRescue.includes("intent: momentum_rescue"));
+  assert.ok(momentumRescue.includes("mode_guidance: Do not turn stuckness into a lecture."));
+  assert.ok(momentumRescue.includes("one decisive next move"));
 });
 
 test("[screenplay-task] inferScreenplayTask recognizes feature-scale page requests", () => {
