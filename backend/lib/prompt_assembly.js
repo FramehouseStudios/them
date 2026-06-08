@@ -45,7 +45,9 @@ const CLEMENTINE_CREATIVE_PACT = [
   "living co-writer: track what the movie wants, what the character is avoiding, and the next playable page-level choice.",
   "whole-feature authorship: keep an invisible running beat sheet, theme argument, character arc, and ending image; never optimize one scene in isolation.",
   "act engine: Act I builds wound, want, catalyst, debate, and choice; Act II tests tactics through midpoint and loss; Act III turns need into climax and final image.",
+  "act bridge discipline: every Act I choice must create Act II pressure; every midpoint reversal must force an all-is-lost cost; every Act III move must pay off behavior planted earlier.",
   "feature-length continuity: protect act pressure, sequence logic, setups/payoffs, character want/need, and page-to-page emotional handoff.",
+  "feature completion method: when helping finish a whole film, keep a living map of current sequence, next three turns, unresolved promises, Act III payoff path, and final image.",
   "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation.",
   "collaboration: ask at most one clarifying question only when genuinely blocked; otherwise make the next best creative move.",
   "format discipline: when writing or revising pages, prefer clean playable Fountain unless the user explicitly asks for analysis.",
@@ -129,6 +131,11 @@ function inferScreenplayTask(userInput = "") {
     /\b(finish|complete|help me finish|land the ending|ending)\b.*\b(feature|film|movie|script|screenplay|pilot)\b/,
     /\b(feature|film|movie|script|screenplay|pilot)\b.*\b(finish|complete|ending|finale)\b/,
     /\b(feature[- ]length|feature film|feature screenplay|whole movie|whole script|full script)\b/,
+    /\b(help me|work with me|guide me|show me|teach me)\b.*\b(write|finish|complete|break|shape|map|outline|build)\b.*\b(feature|film|movie|screenplay|script)\b/,
+    /\b(write|finish|complete|break|shape|map|outline|build)\b.*\b(feature|film|movie|screenplay|script)\b.*\b(with me|together|from scratch|all the way)\b/,
+    /\b(act\s*(?:i|1|one)|first act)\b.*\b(movie|film|feature|screenplay|script)\b/,
+    /\b(act\s*(?:ii|2|two)|second act)\b.*\b(movie|film|feature|screenplay|script)\b/,
+    /\b(act\s*(?:iii|3|three)|third act|final act)\b.*\b(movie|film|feature|screenplay|script)\b/,
     /\b(90|ninety|100|one hundred|110|120)\s*(?:page|pages)\b/,
     /\b(next|another)\s+(?:5|five|10|ten|15|fifteen)\s+pages?\b/,
     /\b(write|draft|continue)\b.*\b(act two|second act|act three|third act|final act|final sequence)\b/,
@@ -162,7 +169,7 @@ function inferScreenplayTask(userInput = "") {
   } else if (featureCompletionLike) {
     intent = "finish_feature";
     label = "Finish Feature";
-    output = "Help the writer finish the larger script: diagnose act/sequence pressure, identify the next highest-leverage pages, preserve emotional continuity, and move toward a playable ending. When useful, propose the next 3 pages in clean Fountain style.";
+    output = "Help the writer finish the larger script: diagnose act/sequence pressure, locate the current act/sequence, identify the next three structural turns, track unresolved promises and character need, then move toward the Act III payoff path. When the request asks for pages, give one concise strategy note and write the next playable Fountain pages.";
   } else if (stuckLike) {
     intent = "momentum_rescue";
     label = "Momentum Rescue";
@@ -247,7 +254,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "pacing_pass":
       return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
     case "finish_feature":
-      return "Operate at feature scale. Locate the current act/sequence, name the structural obligation due now, preserve unresolved promises, setups/payoffs, and character need, then either write the next playable pages or produce an act-to-act beat chain that can carry the script to the final image.";
+      return "Operate at feature scale. Locate the current act/sequence, name the structural obligation due now, preserve unresolved promises, setups/payoffs, and character need, then produce a current-sequence diagnosis, the next three turns, the Act III payoff path, and either playable Fountain pages or an act-to-act beat chain that can carry the script to the final image.";
     case "momentum_rescue":
       return "Do not turn stuckness into a lecture. Give one emotionally precise diagnosis, one decisive next move, and a small playable beat or page sample if there is enough context.";
     default:

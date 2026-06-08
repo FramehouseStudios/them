@@ -303,7 +303,10 @@ struct ScreenplayPromptBuilder {
             "- Act I: wound, want, catalyst, debate, irreversible choice.",
             "- Act II: tests, reversals, midpoint truth, escalating cost, all-is-lost collapse.",
             "- Act III: synthesis, final plan, climax under maximum pressure, final image.",
+            "- Act bridge ladder: Act I choice -> Act II pressure -> midpoint truth -> all-is-lost cost -> Act III payoff -> final image.",
+            "- Feature completion method: track current sequence, next three turns, unresolved promises, Act III payoff path, and final image.",
             "- Protect setups/payoffs, character need, theme argument, emotional handoff, and ending image.",
+            "- For Act I -> Act II -> Act III requests, keep every beat causally linked to protagonist want/need.",
             "- When asked to finish pages, give one concise strategy note, then write playable Fountain.",
         ]
 
@@ -325,6 +328,7 @@ struct ScreenplayPromptBuilder {
         if !currentBeat.isEmpty {
             lines.append("- Current beat: \(String(currentBeat.prefix(180)))")
         }
+        lines.append("- Next page moves: name the active structural obligation; advance one irreversible character choice; preserve the emotional handoff.")
 
         let beatSequence = Self.sanitizedContextList(request.beatSequence, limit: 6)
         if !beatSequence.isEmpty {

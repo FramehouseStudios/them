@@ -27,9 +27,50 @@ test("[feature-screenplay-map] maps page position into feature sequence pressure
   assert.ok(block.endsWith(FEATURE_MAP_BLOCK_CLOSE));
   assert.ok(block.includes("current_position: p47 / 110"));
   assert.ok(block.includes("current_sequence: Act II - Midpoint Pressure"));
+  assert.ok(block.includes("act_bridge_ladder:"));
+  assert.ok(block.includes("Midpoint -> All Is Lost"));
+  assert.ok(block.includes("next_page_moves:"));
+  assert.ok(block.includes("Build to a reversal that redefines"));
   assert.ok(block.includes("coming_next:"));
   assert.ok(block.includes("Act II - Reversal Fallout"));
   assert.ok(block.includes("feature_completion_protocol:"));
+});
+
+test("[feature-screenplay-map] carries feature spine, promises, and Act III payoff path", () => {
+  const block = buildFeatureScreenplayMapBlock({
+    sessionContext: {
+      pageCount: 78,
+      targetPages: 110,
+      act: "Act II",
+      logline: "A burned-out public defender must expose a coastal cover-up before her sister takes the fall.",
+      themeArgument: "Truth is only love if it costs you something.",
+      centralQuestion: "Can Mara tell the truth before it destroys the person she is protecting?",
+      protagonistWant: "Win the public case.",
+      protagonistNeed: "Stop mistaking control for loyalty.",
+      antagonisticForce: "A town that survives by burying evidence.",
+      endingImage: "The empty pool filled with rainwater at dawn.",
+      currentBeat: "The false victory collapses into public betrayal.",
+      emotionalContinuity: "Carry humiliation into a colder, more honest resolve.",
+      characterFocus: ["Mara", "Eli"],
+      unresolvedSetups: [
+        "The sister's voicemail has not paid off.",
+        "The opening image of the empty pool still needs its mirror.",
+      ],
+    },
+    screenplayTask: { intent: "finish_feature" },
+  });
+
+  assert.ok(block.includes("story_spine:"));
+  assert.ok(block.includes("theme_argument: Truth is only love"));
+  assert.ok(block.includes("central_question: Can Mara tell the truth"));
+  assert.ok(block.includes("ending_image: The empty pool filled with rainwater"));
+  assert.ok(block.includes("continuity_assets:"));
+  assert.ok(block.includes("unresolved_setups_to_track:"));
+  assert.ok(block.includes("sister's voicemail"));
+  assert.ok(block.includes("next_page_moves:"));
+  assert.ok(block.includes("Cash in the most dangerous unresolved setup."));
+  assert.ok(block.includes("Act III payoff path"));
+  assert.ok(block.includes("For Act I -> Act II -> Act III requests"));
 });
 
 test("[feature-screenplay-map] trusts explicit Act II over a tiny restored draft estimate", () => {
@@ -46,6 +87,8 @@ test("[feature-screenplay-map] trusts explicit Act II over a tiny restored draft
   assert.ok(block.includes("active_act_label: Act II"));
   assert.ok(block.includes("position_basis: outline act label overrides low draft-page estimate."));
   assert.ok(block.includes("Act II must escalate tactics, reversals, midpoint pressure"));
+  assert.ok(block.includes("next_page_moves:"));
+  assert.ok(block.includes("Name the active structural obligation before writing."));
   assert.ok(!block.includes("current_sequence: Act I - Opening Image / Ordinary World"));
 });
 

@@ -11,6 +11,11 @@ const FEATURE_SEQUENCE_TEMPLATE = Object.freeze([
     endRatio: 12 / 110,
     pressure: "Make the protagonist's wound, want, world, and tonal promise visible through behavior.",
     obligation: "Plant the emotional question the ending must answer.",
+    nextMoves: [
+      "Open on behavior that shows the wound before anyone explains it.",
+      "Plant the ordinary-world rule the movie will later break.",
+      "Echo the ending image in a smaller, incomplete form.",
+    ],
   },
   {
     id: "sequence-2",
@@ -20,6 +25,11 @@ const FEATURE_SEQUENCE_TEMPLATE = Object.freeze([
     endRatio: 25 / 110,
     pressure: "Disrupt the old life, force debate, and end Act I with an irreversible choice.",
     obligation: "The protagonist must choose the movie, not merely receive it.",
+    nextMoves: [
+      "Turn the catalyst into a personal dilemma, not just an event.",
+      "Let debate expose the cost of staying the same.",
+      "End the act on a choice that burns one safe exit.",
+    ],
   },
   {
     id: "sequence-3",
@@ -29,6 +39,11 @@ const FEATURE_SEQUENCE_TEMPLATE = Object.freeze([
     endRatio: 40 / 110,
     pressure: "Let the premise generate cinematic tests, new rules, and sharper tactics.",
     obligation: "Each scene should make the protagonist try a visible strategy and pay a price.",
+    nextMoves: [
+      "Write tests that force different tactics instead of repeating the premise.",
+      "Give each win a cost that narrows later choices.",
+      "Bring the B-story into pressure, not decoration.",
+    ],
   },
   {
     id: "sequence-4",
@@ -38,6 +53,11 @@ const FEATURE_SEQUENCE_TEMPLATE = Object.freeze([
     endRatio: 55 / 110,
     pressure: "Drive toward a midpoint reversal that changes the meaning of the pursuit.",
     obligation: "The midpoint must raise stakes, reveal a truth, or turn victory into a trap.",
+    nextMoves: [
+      "Build to a reversal that redefines what the protagonist thought they wanted.",
+      "Make the midpoint public, irreversible, or intimate enough to change tactics.",
+      "Let the emotional truth arrive before the exposition.",
+    ],
   },
   {
     id: "sequence-5",
@@ -47,6 +67,11 @@ const FEATURE_SEQUENCE_TEMPLATE = Object.freeze([
     endRatio: 70 / 110,
     pressure: "Make the midpoint cost emotional, relational, and practical ground.",
     obligation: "The protagonist's old tactics should stop working.",
+    nextMoves: [
+      "Show the old tactic failing in a way the audience can watch.",
+      "Turn allies, secrets, and desire into pressure against the protagonist.",
+      "Let the relationship cost sharpen the theme argument.",
+    ],
   },
   {
     id: "sequence-6",
@@ -56,6 +81,11 @@ const FEATURE_SEQUENCE_TEMPLATE = Object.freeze([
     endRatio: 85 / 110,
     pressure: "Escalate to the loss that forces the protagonist to confront the need beneath the want.",
     obligation: "Pay off planted dread; leave one painful truth that can power Act III.",
+    nextMoves: [
+      "Cash in the most dangerous unresolved setup.",
+      "Strip away the false want so the real need becomes unavoidable.",
+      "Leave Act II with a painful truth, not just a plot setback.",
+    ],
   },
   {
     id: "sequence-7",
@@ -65,6 +95,11 @@ const FEATURE_SEQUENCE_TEMPLATE = Object.freeze([
     endRatio: 98 / 110,
     pressure: "Synthesize A-story and B-story into a new plan the old self could not have chosen.",
     obligation: "The final plan must express change, not just competence.",
+    nextMoves: [
+      "Let the final plan be born from the character's need, not a clever external trick.",
+      "Bring the B-story lesson into the A-story tactic.",
+      "Choose payoffs that make earlier behavior feel inevitable.",
+    ],
   },
   {
     id: "sequence-8",
@@ -74,11 +109,48 @@ const FEATURE_SEQUENCE_TEMPLATE = Object.freeze([
     endRatio: 110 / 110,
     pressure: "Force the decisive choice, resolve the central question, and land a final image with emotional contrast.",
     obligation: "The climax should make the inner arc visible under maximum external pressure.",
+    nextMoves: [
+      "Make the climax turn on the changed choice only this protagonist can make.",
+      "Resolve the theme through behavior under pressure.",
+      "Land a final image that answers the opening image with emotional contrast.",
+    ],
   },
+]);
+
+const FEATURE_ACT_BRIDGES = Object.freeze([
+  "Act I -> Act II: move from wound/want into an irreversible choice that makes the premise active.",
+  "Act IIa -> Midpoint: turn fun-and-games tests into a revelation that changes the meaning of the goal.",
+  "Midpoint -> All Is Lost: make the old tactic fail harder until the false want collapses.",
+  "All Is Lost -> Act III: convert the painful truth into a new plan the old self could not choose.",
+  "Act III -> Final Image: resolve the central dramatic question through visible behavior, then echo the opening image with changed meaning.",
 ]);
 
 function trimToString(value, maxLength = 500) {
   return String(value ?? "").trim().slice(0, Math.max(1, Number(maxLength || 500)));
+}
+
+function trimContextLine(value, maxLength = 220) {
+  return trimToString(value, maxLength).replace(/\s+/g, " ").trim();
+}
+
+function sanitizeContextList(items, maxItems = 6, maxChars = 180) {
+  const source = Array.isArray(items)
+    ? items
+    : trimToString(items, maxItems * maxChars)
+      ? String(items).split(/\r?\n|;/)
+      : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const clean = trimContextLine(item, maxChars);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
 }
 
 function positiveIntegerOrZero(value) {
@@ -156,6 +228,78 @@ function buildActRoadmapLines() {
   ];
 }
 
+function buildActBridgeLines() {
+  return [
+    "  act_bridge_ladder:",
+    ...FEATURE_ACT_BRIDGES.map((bridge) => `    - ${bridge}`),
+  ];
+}
+
+function buildStorySpineLines(sessionContext = {}) {
+  const spineFields = [
+    ["logline", sessionContext.logline],
+    ["theme_argument", sessionContext.themeArgument ?? sessionContext.theme_argument ?? sessionContext.theme],
+    ["central_question", sessionContext.centralQuestion ?? sessionContext.central_question ?? sessionContext.dramaticQuestion ?? sessionContext.dramatic_question],
+    ["protagonist_want", sessionContext.protagonistWant ?? sessionContext.protagonist_want],
+    ["protagonist_need", sessionContext.protagonistNeed ?? sessionContext.protagonist_need],
+    ["antagonistic_force", sessionContext.antagonisticForce ?? sessionContext.antagonistic_force],
+    ["ending_image", sessionContext.endingImage ?? sessionContext.ending_image ?? sessionContext.finalImage ?? sessionContext.final_image],
+  ];
+  const lines = [];
+  for (const [label, raw] of spineFields) {
+    const clean = trimContextLine(raw, 260);
+    if (clean) lines.push(`    ${label}: ${clean}`);
+  }
+  return lines.length ? ["  story_spine:", ...lines] : [];
+}
+
+function buildContinuityAssetLines(sessionContext = {}) {
+  const currentBeat = trimContextLine(
+    sessionContext.currentBeat ?? sessionContext.current_beat ?? sessionContext.beat,
+    220
+  );
+  const emotionalHandoff = trimContextLine(
+    sessionContext.emotionalContinuity ?? sessionContext.emotional_continuity ?? sessionContext.emotionalHandoff,
+    260
+  );
+  const sceneObjective = trimContextLine(
+    sessionContext.sceneObjective ?? sessionContext.scene_objective ?? sessionContext.currentSceneObjective,
+    260
+  );
+  const characterFocus = sanitizeContextList(
+    sessionContext.characterFocus ?? sessionContext.character_focus ?? sessionContext.characters ?? sessionContext.currentCharacters,
+    6,
+    120
+  );
+  const unresolvedSetups = sanitizeContextList(
+    sessionContext.unresolvedSetups ?? sessionContext.unresolved_setups ?? sessionContext.openLoops ?? sessionContext.open_loops,
+    6,
+    200
+  );
+  const lines = [];
+  if (sceneObjective) lines.push(`    current_scene_objective: ${sceneObjective}`);
+  if (currentBeat) lines.push(`    current_beat: ${currentBeat}`);
+  if (emotionalHandoff) lines.push(`    emotional_handoff: ${emotionalHandoff}`);
+  if (characterFocus.length) {
+    lines.push("    character_focus:");
+    for (const character of characterFocus) lines.push(`      - ${character}`);
+  }
+  if (unresolvedSetups.length) {
+    lines.push("    unresolved_setups_to_track:");
+    for (const setup of unresolvedSetups) lines.push(`      - ${setup}`);
+  }
+  return lines.length ? ["  continuity_assets:", ...lines] : [];
+}
+
+function buildNextPageMoveLines(sequence) {
+  const moves = Array.isArray(sequence?.nextMoves) ? sequence.nextMoves : [];
+  if (!moves.length) return [];
+  return [
+    "  next_page_moves:",
+    ...moves.slice(0, 3).map((move) => `    - ${move}`),
+  ];
+}
+
 function screenplayIntentNeedsFeatureMap(intent) {
   return new Set([
     "write_scene",
@@ -200,6 +344,9 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     "operating_principle: Clementine thinks like a whole-feature screenwriter, not a single-scene chatbot.",
     `target_pages: ${targetPages}`,
     ...buildActRoadmapLines(),
+    ...buildActBridgeLines(),
+    ...buildStorySpineLines(sessionContext || {}),
+    ...buildContinuityAssetLines(sessionContext || {}),
   ];
 
   if (currentPage > 0) {
@@ -211,6 +358,7 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     lines.push("  due_now:");
     lines.push(`    - ${current.pressure}`);
     lines.push(`    - ${current.obligation}`);
+    lines.push(...buildNextPageMoveLines(current));
     if (nextSequence && nextSequence.id !== current.id) {
       const nextRange = scaledRange(nextSequence, targetPages);
       lines.push("  coming_next:");
@@ -223,12 +371,18 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     }
     lines.push("  due_now:");
     lines.push(`    - ${actPressureForLabel(explicitAct)}`);
+    lines.push("  next_page_moves:");
+    lines.push("    - Name the active structural obligation before writing.");
+    lines.push("    - Advance one irreversible character choice instead of summarizing the act.");
+    lines.push("    - Preserve the emotional handoff from the previous beat.");
   }
 
   lines.push("  feature_completion_protocol:");
   lines.push("    - Orient the writer in the act/sequence before choosing the next pages.");
+  lines.push("    - Return a feature-scale beat chain when the user asks for the whole movie: current sequence, next three turns, Act III payoff path.");
   lines.push("    - Track unresolved setups, reversals, character need, theme argument, and ending image.");
   lines.push("    - When the user asks to finish pages, give one concise strategy note then write playable Fountain.");
+  lines.push("    - For Act I -> Act II -> Act III requests, keep every beat causally linked to the protagonist's want/need and final image.");
   lines.push("    - Never solve Act III by adding information the movie has not earned; pay off planted behavior.");
 
   return `${FEATURE_MAP_BLOCK_OPEN}\n${lines.join("\n")}\n${FEATURE_MAP_BLOCK_CLOSE}`;

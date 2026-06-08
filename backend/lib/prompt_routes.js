@@ -271,6 +271,22 @@ function sanitizeSessionContext(value) {
     value.emotional_continuity ?? value.emotionalContinuity ?? value.emotional_handoff ?? value.emotionalHandoff,
     360
   );
+  const logline = trimToString(value.logline, 360);
+  const themeArgument = trimToString(
+    value.theme_argument ?? value.themeArgument ?? value.theme,
+    360
+  );
+  const centralQuestion = trimToString(
+    value.central_question ?? value.centralQuestion ?? value.dramatic_question ?? value.dramaticQuestion,
+    360
+  );
+  const protagonistWant = trimToString(value.protagonist_want ?? value.protagonistWant, 240);
+  const protagonistNeed = trimToString(value.protagonist_need ?? value.protagonistNeed, 240);
+  const antagonisticForce = trimToString(value.antagonistic_force ?? value.antagonisticForce, 240);
+  const endingImage = trimToString(
+    value.ending_image ?? value.endingImage ?? value.final_image ?? value.finalImage,
+    240
+  );
   const beatSequence = sanitizeStringList(
     value.beat_sequence ?? value.beatSequence ?? value.selected_beats ?? value.selectedBeats,
     8,
@@ -308,6 +324,13 @@ function sanitizeSessionContext(value) {
   if (sceneSummary) context.sceneSummary = sceneSummary;
   if (currentBeat) context.currentBeat = currentBeat;
   if (emotionalContinuity) context.emotionalContinuity = emotionalContinuity;
+  if (logline) context.logline = logline;
+  if (themeArgument) context.themeArgument = themeArgument;
+  if (centralQuestion) context.centralQuestion = centralQuestion;
+  if (protagonistWant) context.protagonistWant = protagonistWant;
+  if (protagonistNeed) context.protagonistNeed = protagonistNeed;
+  if (antagonisticForce) context.antagonisticForce = antagonisticForce;
+  if (endingImage) context.endingImage = endingImage;
   if (beatSequence.length) context.beatSequence = beatSequence;
   if (characterFocus.length) context.characterFocus = characterFocus;
   if (unresolvedSetups.length) context.unresolvedSetups = unresolvedSetups;

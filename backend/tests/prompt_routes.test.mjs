@@ -74,6 +74,13 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
           act: "Act II",
           scene_objective: "Mara must decide whether to tell the truth before the boat leaves.",
           current_beat: "The tide exposes the old flare gun.",
+          logline: "A public defender exposes a coastal cover-up before her sister takes the fall.",
+          theme_argument: "Truth is only love if it costs you something.",
+          central_question: "Can Mara tell the truth before it destroys the person she protects?",
+          protagonist_want: "Win the public case.",
+          protagonist_need: "Stop mistaking control for loyalty.",
+          antagonistic_force: "A town that survives by burying evidence.",
+          ending_image: "The empty pool filled with rainwater at dawn.",
           beat_sequence: ["Tide pulls back", "Mara finds the flare gun", "Eli lies about the boat"],
           character_focus: ["Mara", "Eli"],
           unresolved_setups: ["The flare gun has been planted but not paid off."],
@@ -125,7 +132,17 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("current_position: p38 / 110"));
       assert.ok(body.prompt.includes("current_sequence: Act II - Promise Of The Premise"));
       assert.ok(body.prompt.includes("Act I: wound, want, catalyst, debate, irreversible choice"));
+      assert.ok(body.prompt.includes("act_bridge_ladder:"));
+      assert.ok(body.prompt.includes("Act IIa -> Midpoint"));
+      assert.ok(body.prompt.includes("story_spine:"));
+      assert.ok(body.prompt.includes("theme_argument: Truth is only love"));
+      assert.ok(body.prompt.includes("central_question: Can Mara tell the truth"));
+      assert.ok(body.prompt.includes("protagonist_need: Stop mistaking control for loyalty."));
+      assert.ok(body.prompt.includes("ending_image: The empty pool filled with rainwater"));
+      assert.ok(body.prompt.includes("next_page_moves:"));
+      assert.ok(body.prompt.includes("Write tests that force different tactics"));
       assert.ok(body.prompt.includes("feature_completion_protocol:"));
+      assert.ok(body.prompt.includes("current sequence, next three turns, Act III payoff path"));
       assert.ok(body.prompt.includes("draft_excerpt:"));
       assert.ok(body.prompt.includes("MARA watches the tide"));
       assert.ok(body.prompt.includes("Write the all-is-lost beat."));
@@ -197,6 +214,7 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
       ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "only playable replacement screenplay text"],
       ["Help me finish this feature-length screenplay.", "finish_feature", "diagnose act/sequence pressure"],
       ["Help me write the whole feature from Act 1 through Act 2 into Act 3.", "finish_feature", "Locate the current act/sequence"],
+      ["Help me write act three of my feature screenplay.", "finish_feature", "next three turns"],
     ];
 
     for (const [hint, expectedIntent, expectedContract] of cases) {
