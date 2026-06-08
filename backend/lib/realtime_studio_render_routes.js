@@ -14,7 +14,9 @@
 // realtime extraction chain.
 //
 // Behavior preserves the previous inline handlers:
-//   - same 503 envelope when OPENAI_API_KEY is missing,
+//   - same 503 envelope when OPENAI_API_KEY is missing, except
+//     explicit test-render mode can bypass the provider gate for
+//     deterministic local/CI Studio smokes,
 //   - same 400 envelope on empty transcript,
 //   - same 200 success envelope for sync (`/studio_render`),
 //   - same SSE event stream for streaming
@@ -93,6 +95,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     // is treated as "missing" at request time, matching the
     // inline `if (!OPENAI_API_KEY)` guard.
     getOpenAIApiKey,
+    shouldAllowStudioRenderWithoutOpenAIKey = () => false,
   } = deps;
 
   const required = {
@@ -108,10 +111,15 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     }
   }
 
+  function hasStudioRenderProvider() {
+    if (getOpenAIApiKey()) return true;
+    return Boolean(shouldAllowStudioRenderWithoutOpenAIKey());
+  }
+
   // ---------- POST /realtime/studio_render (sync) ----------
   app.post("/realtime/studio_render", express.json({ limit: STUDIO_RENDER_BODY_LIMIT }), async (req, res) => {
     const rid = req.requestId || createRequestId();
-    if (!getOpenAIApiKey()) {
+    if (!hasStudioRenderProvider()) {
       return res.status(503).json({
         stage: "studio_render",
         error: "OpenAI API key is missing for Studio render.",
@@ -164,7 +172,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     const requestStartedAtISO8601 = new Date(requestStartedAt).toISOString();
     let firstDeltaMs = null;
     let deltaChunks = 0;
-    if (!getOpenAIApiKey()) {
+    if (!hasStudioRenderProvider()) {
       return res.status(503).json({
         stage: "studio_render",
         error: "OpenAI API key is missing for Studio render.",

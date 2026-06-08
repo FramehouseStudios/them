@@ -84,6 +84,12 @@ function writeDefaultBool(key, value) {
   debugDefaults.writeBool(key, Boolean(value));
 }
 
+function setLocalBackendDefaults() {
+  writeDefaultString("backend_base_url", "http://127.0.0.1:3000");
+  writeDefaultString("client_token_base_url", "http://127.0.0.1:3000");
+  shouldRestoreAuthDefaults = true;
+}
+
 const originalAuthDefaults = {
   userId: readDefaultString("user_id"),
   clientToken: readDefaultString("client_token"),
@@ -91,6 +97,8 @@ const originalAuthDefaults = {
   debugAccessTokenEnabled: readDefaultBool("auth_debug_access_token_enabled", false),
   authSignedIn: readDefaultBool("auth_signed_in", false),
   authUserEmail: readDefaultString("auth_user_email"),
+  backendBaseURL: readDefaultString("backend_base_url"),
+  clientTokenBaseURL: readDefaultString("client_token_base_url"),
 };
 let shouldRestoreAuthDefaults = false;
 
@@ -103,6 +111,8 @@ function restoreAuthDefaults() {
   writeDefaultBool("auth_debug_access_token_enabled", originalAuthDefaults.debugAccessTokenEnabled);
   writeDefaultBool("auth_signed_in", originalAuthDefaults.authSignedIn);
   writeDefaultString("auth_user_email", originalAuthDefaults.authUserEmail);
+  writeDefaultString("backend_base_url", originalAuthDefaults.backendBaseURL);
+  writeDefaultString("client_token_base_url", originalAuthDefaults.clientTokenBaseURL);
 }
 
 process.on("exit", restoreAuthDefaults);
@@ -199,7 +209,22 @@ function findDebugAppPath() {
   if (direct && existsSync(direct)) return direct;
   const discovered = run("/bin/zsh", [
     "-lc",
-    "find ~/Library/Developer/Xcode/DerivedData -path '*Build/Products/Debug/them.app/Contents/MacOS/them' -exec stat -f '%m %N' {} \\; | sort -nr | head -n 1 | cut -d' ' -f2- | sed 's#/Contents/MacOS/them$##'",
+    `
+for config in "Mac Scaffold Debug" "Debug"; do
+  candidate="$(
+    find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/\${config}/them.app/Contents/MacOS/them" -exec stat -f '%m %N' {} \\; \
+      | awk '$0 !~ /\\/them_MAIN-/' \
+      | sort -nr \
+      | head -n 1 \
+      | cut -d' ' -f2- \
+      | sed 's#/Contents/MacOS/them$##'
+  )"
+  if [[ -n "$candidate" ]]; then
+    printf '%s\\n' "$candidate"
+    exit 0
+  fi
+done
+`,
   ]);
   assert(discovered, "Could not locate Debug them.app");
   assert(existsSync(discovered), `Debug app path does not exist: ${discovered}`);
@@ -228,6 +253,21 @@ function activateApp() {
 function appIsRunning() {
   const result = runOptional("pgrep", ["-x", "them"]);
   return result.status === 0 && Boolean(result.stdout.trim());
+}
+
+function quitApp() {
+  runOptional("osascript", ["-e", "try", "-e", 'tell application "them" to quit', "-e", "end try"], {
+    timeout: 2000,
+  });
+  runOptional("killall", ["them"], {
+    timeout: 2000,
+  });
+}
+
+async function ensureAppStopped() {
+  if (!appIsRunning()) return;
+  quitApp();
+  await waitFor(() => !appIsRunning(), "THEM process to quit before prompt-mode smoke", 15000, 300);
 }
 
 function normalizeKey(value) {
@@ -273,6 +313,14 @@ function resetSubmitDebugDefaults() {
   writeDefaultString("studio_debug_root_submit_prompt", "");
   writeDefaultString("studio_debug_root_submit_request_id", "");
   writeDefaultString("studio_debug_root_submit_error", "");
+}
+
+function resetProjectLoadDebugDefaults() {
+  writeDefaultString("studio_debug_load_project_id", "");
+  writeDefaultString("studio_debug_load_project_version_id", "");
+  writeDefaultString("studio_debug_project_load_trace_json", "[]");
+  writeDefaultInt("studio_debug_load_project_token", 0);
+  writeDefaultInt("studio_debug_load_project_ack_token", 0);
 }
 
 function readPromptBuildState() {
@@ -708,10 +756,13 @@ writeDefaultString("studio_debug_submit_transport_mode", "backend");
 
 const beforeHealth = await readHealth();
 assert(beforeHealth?.ok === true, "Backend health is not OK on localhost:3000");
+setLocalBackendDefaults();
 const smokeIdentity = await bootstrapSmokeIdentity();
 const throwawayProject = await createThrowawayStudioProject();
 const expectedProjectKey = normalizeKey(`project:${throwawayProject.projectId}`);
 resetSubmitDebugDefaults();
+resetProjectLoadDebugDefaults();
+await ensureAppStopped();
 const appPath = findDebugAppPath();
 const appSession = await ensureStudioVisible(appPath);
 

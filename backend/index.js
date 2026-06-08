@@ -28005,6 +28005,7 @@ mountRealtimeStudioRenderRoutes(app, {
   createRequestId,
   normalizeSnippet,
   getOpenAIApiKey: () => OPENAI_API_KEY,
+  shouldAllowStudioRenderWithoutOpenAIKey: () => Boolean(STUDIO_RENDER_TEST_REPLY),
 });
 
 app.post(

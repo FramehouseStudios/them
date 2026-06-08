@@ -171,6 +171,20 @@ test("[studio-render] sync: 503 when OPENAI_API_KEY missing", async () => {
   });
 });
 
+test("[studio-render] sync: explicit test render bypasses missing OPENAI_API_KEY", async () => {
+  const deps = defaultDeps({
+    getOpenAIApiKey: () => "",
+    shouldAllowStudioRenderWithoutOpenAIKey: () => true,
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", { transcript: "x" });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.reply, "rendered reply");
+    assert.equal(deps._calls.renderInvocations.length, 1);
+  });
+});
+
 test("[studio-render] sync: 400 when transcript is empty", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", { transcript: "" });
@@ -292,6 +306,19 @@ test("[studio-render-stream] sse: 503 when OPENAI_API_KEY missing", async () => 
     assert.equal(r.status, 503);
     const body = await r.json();
     assert.equal(body.stage, "studio_render");
+  });
+});
+
+test("[studio-render-stream] sse: explicit test render bypasses missing OPENAI_API_KEY", async () => {
+  const deps = defaultDeps({
+    getOpenAIApiKey: () => "",
+    shouldAllowStudioRenderWithoutOpenAIKey: () => true,
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", { transcript: "x" });
+    assert.equal(r.status, 200);
+    assert.match(r.text, /event: done\b/);
+    assert.equal(deps._calls.streamInvocations.length, 1);
   });
 });
 
