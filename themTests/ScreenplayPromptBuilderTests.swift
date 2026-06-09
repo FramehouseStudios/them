@@ -37,6 +37,10 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 protagonistNeed: "June needs to trust someone with the truth.",
                 antagonisticForce: "Marcus and the studio archive burying the evidence.",
                 endingImage: "June screens the recovered reel to a silent street.",
+                featureSequence: "Act II - Midpoint Pressure (p41-p55)",
+                featureObligation: "The midpoint must raise stakes, reveal a truth, or turn victory into a trap.",
+                nextScenePlan: "Act II - Midpoint Pressure: June wins the reel and realizes the win is a trap.",
+                nextSceneMoves: ["Make the midpoint public.", "Let the emotional truth arrive before exposition."],
                 beatSequence: ["Receipt reveal", "Marcus lies badly"],
                 unresolvedSetups: ["The missing cassette has not paid off."],
                 continuityNotes: ["Trust is turning into suspicion."],
@@ -72,6 +76,10 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.protagonistNeed, "June needs to trust someone with the truth.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.antagonisticForce, "Marcus and the studio archive burying the evidence.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.endingImage, "June screens the recovered reel to a silent street.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.featureSequence, "Act II - Midpoint Pressure (p41-p55)")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.featureObligation, "The midpoint must raise stakes, reveal a truth, or turn victory into a trap.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.nextScenePlan, "Act II - Midpoint Pressure: June wins the reel and realizes the win is a trap.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.nextSceneMoves, ["Make the midpoint public.", "Let the emotional truth arrive before exposition."])
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.beatSequence, ["Receipt reveal", "Marcus lies badly"])
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.unresolvedSetups, ["The missing cassette has not paid off."])
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.continuityNotes, ["Trust is turning into suspicion."])
@@ -160,6 +168,10 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 protagonistNeed: "Mara needs to stop hiding behind observation.",
                 antagonisticForce: "A judge who edits the public record.",
                 endingImage: "Mara hangs the true sketch outside the courthouse.",
+                featureSequence: "Act II - Reversal Fallout (p56-p70)",
+                featureObligation: "The old tactic should stop working under public pressure.",
+                nextScenePlan: "Act II - Reversal Fallout: Mara's observation habit fails in front of the court.",
+                nextSceneMoves: ["Show the old tactic failing.", "Let the relationship cost sharpen the theme argument."],
                 unresolvedSetups: ["The courthouse key has not paid off."],
                 pageCount: 62,
                 targetPages: 110,
@@ -183,6 +195,10 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertTrue(result.prompt.contains("Protagonist engine: want=Mara wants the original witness sketch.; need=Mara needs to stop hiding behind observation."))
         XCTAssertTrue(result.prompt.contains("Antagonistic force: A judge who edits the public record."))
         XCTAssertTrue(result.prompt.contains("Ending image: Mara hangs the true sketch outside the courthouse."))
+        XCTAssertTrue(result.prompt.contains("Active feature sequence: Act II - Reversal Fallout"))
+        XCTAssertTrue(result.prompt.contains("Structural obligation due now: The old tactic should stop working"))
+        XCTAssertTrue(result.prompt.contains("Next scene planner: Act II - Reversal Fallout"))
+        XCTAssertTrue(result.prompt.contains("Next scene moves: Show the old tactic failing. -> Let the relationship cost sharpen the theme argument."))
         XCTAssertTrue(result.prompt.contains("Next page moves: name the active structural obligation"))
         XCTAssertTrue(result.prompt.contains("Unresolved setups: The courthouse key has not paid off."))
         XCTAssertFalse(result.usedBackendAssembly)

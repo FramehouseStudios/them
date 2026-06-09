@@ -18,6 +18,10 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
     var protagonistNeed: String = ""
     var antagonisticForce: String = ""
     var endingImage: String = ""
+    var featureSequence: String = ""
+    var featureObligation: String = ""
+    var nextScenePlan: String = ""
+    var nextSceneMoves: [String] = []
     var beatSequence: [String] = []
     var characterFocus: [String] = []
     var unresolvedSetups: [String] = []
@@ -44,6 +48,10 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
         case protagonistNeed = "protagonist_need"
         case antagonisticForce = "antagonistic_force"
         case endingImage = "ending_image"
+        case featureSequence = "feature_sequence"
+        case featureObligation = "feature_obligation"
+        case nextScenePlan = "next_scene_plan"
+        case nextSceneMoves = "next_scene_moves"
         case beatSequence = "beat_sequence"
         case characterFocus = "character_focus"
         case unresolvedSetups = "unresolved_setups"
@@ -127,6 +135,10 @@ struct ScreenplayPromptBuilder {
         var protagonistNeed: String = ""
         var antagonisticForce: String = ""
         var endingImage: String = ""
+        var featureSequence: String = ""
+        var featureObligation: String = ""
+        var nextScenePlan: String = ""
+        var nextSceneMoves: [String] = []
         var beatSequence: [String] = []
         var characterFocus: [String] = []
         var unresolvedSetups: [String] = []
@@ -248,7 +260,11 @@ struct ScreenplayPromptBuilder {
         let protagonistNeed = request.protagonistNeed.trimmingCharacters(in: .whitespacesAndNewlines)
         let antagonisticForce = request.antagonisticForce.trimmingCharacters(in: .whitespacesAndNewlines)
         let endingImage = request.endingImage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let featureSequence = request.featureSequence.trimmingCharacters(in: .whitespacesAndNewlines)
+        let featureObligation = request.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextScenePlan = request.nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines)
         let emotionalContinuity = request.emotionalContinuity.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextSceneMoves = Self.sanitizedContextList(request.nextSceneMoves, limit: 5)
         let beatSequence = Self.sanitizedContextList(request.beatSequence, limit: 8)
         let characterFocus = Self.sanitizedContextList(request.characterFocus, limit: 8)
         let unresolvedSetups = Self.sanitizedContextList(request.unresolvedSetups, limit: 8)
@@ -259,8 +275,9 @@ struct ScreenplayPromptBuilder {
                 !draftExcerpt.isEmpty || !act.isEmpty || !sceneObjective.isEmpty || !sceneSummary.isEmpty ||
                 !currentBeat.isEmpty || !logline.isEmpty || !themeArgument.isEmpty || !centralQuestion.isEmpty ||
                 !protagonistWant.isEmpty || !protagonistNeed.isEmpty || !antagonisticForce.isEmpty ||
-                !endingImage.isEmpty || !emotionalContinuity.isEmpty || !beatSequence.isEmpty ||
-                !characterFocus.isEmpty || !unresolvedSetups.isEmpty || !continuityNotes.isEmpty ||
+                !endingImage.isEmpty || !featureSequence.isEmpty || !featureObligation.isEmpty ||
+                !nextScenePlan.isEmpty || !nextSceneMoves.isEmpty || !emotionalContinuity.isEmpty ||
+                !beatSequence.isEmpty || !characterFocus.isEmpty || !unresolvedSetups.isEmpty || !continuityNotes.isEmpty ||
                 pageCount > 0 || targetPages > 0 else { return nil }
         return BackendScreenplayPromptSessionContext(
             projectId: projectId,
@@ -280,6 +297,10 @@ struct ScreenplayPromptBuilder {
             protagonistNeed: protagonistNeed,
             antagonisticForce: antagonisticForce,
             endingImage: endingImage,
+            featureSequence: featureSequence,
+            featureObligation: featureObligation,
+            nextScenePlan: nextScenePlan,
+            nextSceneMoves: nextSceneMoves,
             beatSequence: beatSequence,
             characterFocus: characterFocus,
             unresolvedSetups: unresolvedSetups,
@@ -327,6 +348,9 @@ struct ScreenplayPromptBuilder {
         let protagonistNeed = request.protagonistNeed.trimmingCharacters(in: .whitespacesAndNewlines)
         let antagonisticForce = request.antagonisticForce.trimmingCharacters(in: .whitespacesAndNewlines)
         let endingImage = request.endingImage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let featureSequence = request.featureSequence.trimmingCharacters(in: .whitespacesAndNewlines)
+        let featureObligation = request.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextScenePlan = request.nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines)
         let draftExcerpt = request.draftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
         let pageCount = max(0, request.pageCount)
         let targetPages = max(0, request.targetPages)
@@ -343,6 +367,9 @@ struct ScreenplayPromptBuilder {
             !protagonistNeed.isEmpty ||
             !antagonisticForce.isEmpty ||
             !endingImage.isEmpty ||
+            !featureSequence.isEmpty ||
+            !featureObligation.isEmpty ||
+            !nextScenePlan.isEmpty ||
             !draftExcerpt.isEmpty ||
             pageCount > 0 ||
             targetPages > 0
@@ -397,8 +424,21 @@ struct ScreenplayPromptBuilder {
         if !endingImage.isEmpty {
             lines.append("- Ending image: \(String(endingImage.prefix(220)))")
         }
+        if !featureSequence.isEmpty {
+            lines.append("- Active feature sequence: \(String(featureSequence.prefix(180)))")
+        }
+        if !featureObligation.isEmpty {
+            lines.append("- Structural obligation due now: \(String(featureObligation.prefix(260)))")
+        }
+        if !nextScenePlan.isEmpty {
+            lines.append("- Next scene planner: \(String(nextScenePlan.prefix(320)))")
+        }
         lines.append("- Next page moves: name the active structural obligation; advance one irreversible character choice; preserve the emotional handoff.")
 
+        let nextSceneMoves = Self.sanitizedContextList(request.nextSceneMoves, limit: 4)
+        if !nextSceneMoves.isEmpty {
+            lines.append("- Next scene moves: \(nextSceneMoves.joined(separator: " -> "))")
+        }
         let beatSequence = Self.sanitizedContextList(request.beatSequence, limit: 6)
         if !beatSequence.isEmpty {
             lines.append("- Beat chain: \(beatSequence.joined(separator: " -> "))")

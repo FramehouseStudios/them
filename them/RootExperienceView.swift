@@ -8962,6 +8962,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 protagonistNeed: promptContinuity.protagonistNeed,
                 antagonisticForce: promptContinuity.antagonisticForce,
                 endingImage: promptContinuity.endingImage,
+                featureSequence: promptContinuity.featureSequence,
+                featureObligation: promptContinuity.featureObligation,
+                nextScenePlan: promptContinuity.nextScenePlan,
+                nextSceneMoves: promptContinuity.nextSceneMoves,
                 beatSequence: promptContinuity.beatSequence,
                 characterFocus: promptContinuity.characterFocus,
                 unresolvedSetups: promptContinuity.unresolvedSetups,
@@ -9017,6 +9021,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         protagonistNeed: String,
         antagonisticForce: String,
         endingImage: String,
+        featureSequence: String,
+        featureObligation: String,
+        nextScenePlan: String,
+        nextSceneMoves: [String],
         beatSequence: [String],
         characterFocus: [String],
         unresolvedSetups: [String],
@@ -9076,6 +9084,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
             : 0
         let activeActTitle = activeBinding?.actTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedAct = activeActTitle.isEmpty ? featureSpine.actPosition : activeActTitle
+        let hasFeatureGuideContext = !resolvedAct.isEmpty ||
+            estimatedPageCount > 0 ||
+            !featureSpine.isEmpty ||
+            bindingSnapshot.draftSceneCount > 0 ||
+            bindingSnapshot.outlineSceneCount > 0
+        let featureGuide = hasFeatureGuideContext
+            ? ScreenplayFeatureProgressionGuide.guide(
+                actPosition: resolvedAct,
+                currentPage: estimatedPageCount,
+                targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
+            )
+            : nil
+        if let featureGuide {
+            continuityNotes.append("Feature sequence: \(featureGuide.currentAct) - \(featureGuide.sequenceLabel) (\(featureGuide.pageRangeText)).")
+            continuityNotes.append("Structural obligation due now: \(featureGuide.dueNow)")
+            continuityNotes.append("Next scene planner: \(featureGuide.nextScenePlan)")
+        }
 
         return (
             act: resolvedAct,
@@ -9089,6 +9114,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             protagonistNeed: featureSpine.protagonistNeed,
             antagonisticForce: featureSpine.antagonisticForce,
             endingImage: featureSpine.endingImage,
+            featureSequence: featureGuide.map { "\($0.currentAct) - \($0.sequenceLabel) (\($0.pageRangeText))" } ?? "",
+            featureObligation: featureGuide?.dueNow ?? "",
+            nextScenePlan: featureGuide?.nextScenePlan ?? "",
+            nextSceneMoves: featureGuide?.nextMoves ?? [],
             beatSequence: Array((activeBinding?.outlineBeatLabels ?? []).prefix(8)),
             characterFocus: characterFocus,
             unresolvedSetups: Array(unresolvedSetups),

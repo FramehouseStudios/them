@@ -101,6 +101,36 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertFalse(ScreenplayProjectScopedState.matches(nil, selectedProjectId: "project-a"))
     }
 
+    func testFeatureProgressionGuideMapsPageToNextScenePlan() {
+        let guide = ScreenplayFeatureProgressionGuide.guide(
+            actPosition: "",
+            currentPage: 47,
+            targetPages: 110
+        )
+
+        XCTAssertEqual(guide.currentAct, "Act II")
+        XCTAssertEqual(guide.sequenceLabel, "Midpoint Pressure")
+        XCTAssertEqual(guide.pageRangeText, "p41-p55")
+        XCTAssertEqual(guide.progressText, "p47 / 110")
+        XCTAssertTrue(guide.dueNow.contains("midpoint reversal"))
+        XCTAssertTrue(guide.nextScenePlan.contains("Midpoint Pressure"))
+        XCTAssertTrue(guide.nextMoves.contains("Let the emotional truth arrive before the exposition."))
+        XCTAssertTrue(guide.comingNext.contains("Reversal Fallout"))
+    }
+
+    func testFeatureProgressionGuideTrustsExplicitLateActOverTinyDraft() {
+        let guide = ScreenplayFeatureProgressionGuide.guide(
+            actPosition: "Act III",
+            currentPage: 1,
+            targetPages: 110
+        )
+
+        XCTAssertEqual(guide.currentAct, "Act III")
+        XCTAssertEqual(guide.sequenceLabel, "Break Into Three / Final Plan")
+        XCTAssertEqual(guide.progressText, "Act estimate")
+        XCTAssertTrue(guide.nextScenePlan.contains("Final Plan"))
+    }
+
     func testRestorePolicyKeepsBackendActiveProjectEvenWhenListPageOmitsIt() {
         let selectedProjectId = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
             activeProjectId: " legacy-active-project ",

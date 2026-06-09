@@ -287,6 +287,23 @@ function sanitizeSessionContext(value) {
     value.ending_image ?? value.endingImage ?? value.final_image ?? value.finalImage,
     240
   );
+  const featureSequence = trimToString(
+    value.feature_sequence ?? value.featureSequence ?? value.current_sequence ?? value.currentSequence,
+    240
+  );
+  const featureObligation = trimToString(
+    value.feature_obligation ?? value.featureObligation ?? value.structural_obligation ?? value.structuralObligation,
+    360
+  );
+  const nextScenePlan = trimToString(
+    value.next_scene_plan ?? value.nextScenePlan ?? value.next_page_plan ?? value.nextPagePlan,
+    420
+  );
+  const nextSceneMoves = sanitizeStringList(
+    value.next_scene_moves ?? value.nextSceneMoves ?? value.next_page_moves ?? value.nextPageMoves,
+    5,
+    180
+  );
   const beatSequence = sanitizeStringList(
     value.beat_sequence ?? value.beatSequence ?? value.selected_beats ?? value.selectedBeats,
     8,
@@ -331,6 +348,10 @@ function sanitizeSessionContext(value) {
   if (protagonistNeed) context.protagonistNeed = protagonistNeed;
   if (antagonisticForce) context.antagonisticForce = antagonisticForce;
   if (endingImage) context.endingImage = endingImage;
+  if (featureSequence) context.featureSequence = featureSequence;
+  if (featureObligation) context.featureObligation = featureObligation;
+  if (nextScenePlan) context.nextScenePlan = nextScenePlan;
+  if (nextSceneMoves.length) context.nextSceneMoves = nextSceneMoves;
   if (beatSequence.length) context.beatSequence = beatSequence;
   if (characterFocus.length) context.characterFocus = characterFocus;
   if (unresolvedSetups.length) context.unresolvedSetups = unresolvedSetups;

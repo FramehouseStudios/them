@@ -266,6 +266,23 @@ function buildContinuityAssetLines(sessionContext = {}) {
     sessionContext.sceneObjective ?? sessionContext.scene_objective ?? sessionContext.currentSceneObjective,
     260
   );
+  const featureSequence = trimContextLine(
+    sessionContext.featureSequence ?? sessionContext.feature_sequence ?? sessionContext.currentSequence ?? sessionContext.current_sequence,
+    220
+  );
+  const featureObligation = trimContextLine(
+    sessionContext.featureObligation ?? sessionContext.feature_obligation ?? sessionContext.structuralObligation ?? sessionContext.structural_obligation,
+    280
+  );
+  const nextScenePlan = trimContextLine(
+    sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
+    340
+  );
+  const nextSceneMoves = sanitizeContextList(
+    sessionContext.nextSceneMoves ?? sessionContext.next_scene_moves ?? sessionContext.nextPageMoves ?? sessionContext.next_page_moves,
+    5,
+    180
+  );
   const characterFocus = sanitizeContextList(
     sessionContext.characterFocus ?? sessionContext.character_focus ?? sessionContext.characters ?? sessionContext.currentCharacters,
     6,
@@ -280,6 +297,13 @@ function buildContinuityAssetLines(sessionContext = {}) {
   if (sceneObjective) lines.push(`    current_scene_objective: ${sceneObjective}`);
   if (currentBeat) lines.push(`    current_beat: ${currentBeat}`);
   if (emotionalHandoff) lines.push(`    emotional_handoff: ${emotionalHandoff}`);
+  if (featureSequence) lines.push(`    feature_sequence: ${featureSequence}`);
+  if (featureObligation) lines.push(`    structural_obligation_due_now: ${featureObligation}`);
+  if (nextScenePlan) lines.push(`    next_scene_plan: ${nextScenePlan}`);
+  if (nextSceneMoves.length) {
+    lines.push("    next_scene_moves:");
+    for (const move of nextSceneMoves) lines.push(`      - ${move}`);
+  }
   if (characterFocus.length) {
     lines.push("    character_focus:");
     for (const character of characterFocus) lines.push(`      - ${character}`);

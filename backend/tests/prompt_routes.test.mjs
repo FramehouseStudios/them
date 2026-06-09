@@ -81,6 +81,13 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
           protagonist_need: "Stop mistaking control for loyalty.",
           antagonistic_force: "A town that survives by burying evidence.",
           ending_image: "The empty pool filled with rainwater at dawn.",
+          feature_sequence: "Act II - Promise Of The Premise (p26-p40)",
+          feature_obligation: "Each scene should make Mara try a visible strategy and pay a price.",
+          next_scene_plan: "Act II - Promise Of The Premise: Mara tries a new public tactic and pays for it privately.",
+          next_scene_moves: [
+            "Write tests that force different tactics instead of repeating the premise.",
+            "Give each win a cost that narrows later choices.",
+          ],
           beat_sequence: ["Tide pulls back", "Mara finds the flare gun", "Eli lies about the boat"],
           character_focus: ["Mara", "Eli"],
           unresolved_setups: ["The flare gun has been planted but not paid off."],
@@ -119,6 +126,11 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("act: Act II"));
       assert.ok(body.prompt.includes("current_scene_objective: Mara must decide"));
       assert.ok(body.prompt.includes("current_beat: The tide exposes the old flare gun."));
+      assert.ok(body.prompt.includes("feature_sequence: Act II - Promise Of The Premise"));
+      assert.ok(body.prompt.includes("structural_obligation_due_now: Each scene should make Mara try"));
+      assert.ok(body.prompt.includes("next_scene_plan: Act II - Promise Of The Premise"));
+      assert.ok(body.prompt.includes("next_scene_moves:"));
+      assert.ok(body.prompt.includes("Give each win a cost that narrows later choices."));
       assert.ok(body.prompt.includes("- Mara finds the flare gun"));
       assert.ok(body.prompt.includes("character_focus:"));
       assert.ok(body.prompt.includes("- Eli"));

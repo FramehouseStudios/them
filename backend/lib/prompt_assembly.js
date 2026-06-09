@@ -356,6 +356,18 @@ function buildSessionContextBlock(sessionContext) {
     sessionContext.emotionalContinuity ?? sessionContext.emotional_continuity ?? sessionContext.emotionalHandoff,
     280
   );
+  const featureSequence = trimContextLine(
+    sessionContext.featureSequence ?? sessionContext.feature_sequence ?? sessionContext.currentSequence ?? sessionContext.current_sequence,
+    220
+  );
+  const featureObligation = trimContextLine(
+    sessionContext.featureObligation ?? sessionContext.feature_obligation ?? sessionContext.structuralObligation ?? sessionContext.structural_obligation,
+    280
+  );
+  const nextScenePlan = trimContextLine(
+    sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
+    340
+  );
   const pageCount = Number(sessionContext.pageCount ?? sessionContext.page_count ?? 0);
   const targetPages = Number(sessionContext.targetPages ?? sessionContext.target_pages ?? 0);
   if (act) featureLines.push(`    act: ${act}`);
@@ -365,6 +377,18 @@ function buildSessionContextBlock(sessionContext) {
   if (sceneSummary) featureLines.push(`    current_scene_summary: ${sceneSummary}`);
   if (currentBeat) featureLines.push(`    current_beat: ${currentBeat}`);
   if (emotionalContinuity) featureLines.push(`    emotional_handoff: ${emotionalContinuity}`);
+  if (featureSequence) featureLines.push(`    feature_sequence: ${featureSequence}`);
+  if (featureObligation) featureLines.push(`    structural_obligation_due_now: ${featureObligation}`);
+  if (nextScenePlan) featureLines.push(`    next_scene_plan: ${nextScenePlan}`);
+  const nextSceneMoves = sanitizeContextList(
+    sessionContext.nextSceneMoves ?? sessionContext.next_scene_moves ?? sessionContext.nextPageMoves ?? sessionContext.next_page_moves,
+    5,
+    180
+  );
+  if (nextSceneMoves.length) {
+    featureLines.push("    next_scene_moves:");
+    for (const move of nextSceneMoves) featureLines.push(`      - ${move}`);
+  }
   const beatSequence = sanitizeContextList(
     sessionContext.beatSequence ?? sessionContext.beat_sequence ?? sessionContext.selectedBeats ?? sessionContext.selected_beats,
     8,
