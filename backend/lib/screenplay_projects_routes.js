@@ -171,6 +171,46 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     return true;
   }
 
+  function bodyHasAny(body, keys) {
+    if (!body || typeof body !== "object") return false;
+    return keys.some((key) => Object.prototype.hasOwnProperty.call(body, key));
+  }
+
+  function firstBodyValue(body, keys) {
+    if (!body || typeof body !== "object") return undefined;
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(body, key)) {
+        return body[key];
+      }
+    }
+    return undefined;
+  }
+
+  function applyFeatureSpineMetadata(project, body) {
+    const stringFields = [
+      { prop: "logline", keys: ["logline"], max: 500 },
+      { prop: "themeArgument", keys: ["theme_argument", "themeArgument", "theme"], max: 500 },
+      { prop: "centralQuestion", keys: ["central_question", "centralQuestion", "dramatic_question", "dramaticQuestion"], max: 500 },
+      { prop: "protagonistWant", keys: ["protagonist_want", "protagonistWant"], max: 500 },
+      { prop: "protagonistNeed", keys: ["protagonist_need", "protagonistNeed"], max: 500 },
+      { prop: "antagonisticForce", keys: ["antagonistic_force", "antagonisticForce"], max: 500 },
+      { prop: "actPosition", keys: ["act_position", "actPosition", "act"], max: 80 },
+      { prop: "endingImage", keys: ["ending_image", "endingImage", "final_image", "finalImage"], max: 500 },
+    ];
+    for (const field of stringFields) {
+      if (bodyHasAny(body, field.keys)) {
+        project[field.prop] = normalizeSnippet(firstBodyValue(body, field.keys), field.max);
+      }
+    }
+    if (bodyHasAny(body, ["unresolved_setups", "unresolvedSetups"])) {
+      project.unresolvedSetups = normalizeScreenplayStringList(
+        firstBodyValue(body, ["unresolved_setups", "unresolvedSetups"]),
+        24,
+        220
+      );
+    }
+  }
+
   app.get("/screenplay/projects", (req, res) => {
     const owner = getAuthorizedScreenplayOwner(req, res, "screenplay_projects");
     if (!owner) return;
@@ -360,6 +400,15 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       setting: "",
       tone: "",
       promptSeed: "",
+      logline: "",
+      themeArgument: "",
+      centralQuestion: "",
+      protagonistWant: "",
+      protagonistNeed: "",
+      antagonisticForce: "",
+      actPosition: "",
+      endingImage: "",
+      unresolvedSetups: [],
       createdAt: now,
       updatedAt: now,
       lastPhase: "scene_draft",
@@ -380,6 +429,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     project.characters = normalizeScreenplayStringList(req.body?.characters, 24, 48);
     project.setting = normalizeSnippet(req.body?.setting, 120);
     project.tone = normalizeSnippet(req.body?.tone, 120);
+    applyFeatureSpineMetadata(project, req.body);
     if (hasStudioThreadViewState) {
       project.studioThreadViewState = normalizeStoredScreenplayThreadViewState(
         req.body?.studioThreadViewState || req.body?.studio_thread_view_state

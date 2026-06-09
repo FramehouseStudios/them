@@ -8955,6 +8955,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 sceneObjective: promptContinuity.sceneObjective,
                 sceneSummary: promptContinuity.sceneSummary,
                 currentBeat: promptContinuity.currentBeat,
+                logline: promptContinuity.logline,
+                themeArgument: promptContinuity.themeArgument,
+                centralQuestion: promptContinuity.centralQuestion,
+                protagonistWant: promptContinuity.protagonistWant,
+                protagonistNeed: promptContinuity.protagonistNeed,
+                antagonisticForce: promptContinuity.antagonisticForce,
+                endingImage: promptContinuity.endingImage,
                 beatSequence: promptContinuity.beatSequence,
                 characterFocus: promptContinuity.characterFocus,
                 unresolvedSetups: promptContinuity.unresolvedSetups,
@@ -9003,6 +9010,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
         sceneObjective: String,
         sceneSummary: String,
         currentBeat: String,
+        logline: String,
+        themeArgument: String,
+        centralQuestion: String,
+        protagonistWant: String,
+        protagonistNeed: String,
+        antagonisticForce: String,
+        endingImage: String,
         beatSequence: [String],
         characterFocus: [String],
         unresolvedSetups: [String],
@@ -9012,6 +9026,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         targetPages: Int
     ) {
         let bindingSnapshot = screenplayDraftBridge.projectBinding
+        let featureSpine = screenplayDraftBridge.featureSpine
         let structuredDraft = screenplayDraftBridge.structuredDraft
         let currentLine = max(1, screenplayDraftBridge.currentCursorLine)
         let activeBinding = bindingSnapshot.sceneBindings.last(where: { binding in
@@ -9031,7 +9046,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if characterFocus.count >= 8 { break }
         }
 
-        let unresolvedSetups = bindingSnapshot.sceneBindings
+        let unresolvedSetups = featureSpine.unresolvedSetups + bindingSnapshot.sceneBindings
             .filter { !$0.isBound }
             .prefix(4)
             .map { "Unbound draft scene: \($0.draftShortLabel)" }
@@ -9059,12 +9074,21 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let estimatedPageCount = structuredDraft.lineCount > 0
             ? max(1, Int(ceil(Double(structuredDraft.lineCount) / 55.0)))
             : 0
+        let activeActTitle = activeBinding?.actTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedAct = activeActTitle.isEmpty ? featureSpine.actPosition : activeActTitle
 
         return (
-            act: activeBinding?.actTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            act: resolvedAct,
             sceneObjective: sceneObjective,
             sceneSummary: sceneSummary,
             currentBeat: currentBeat,
+            logline: featureSpine.logline,
+            themeArgument: featureSpine.themeArgument,
+            centralQuestion: featureSpine.centralQuestion,
+            protagonistWant: featureSpine.protagonistWant,
+            protagonistNeed: featureSpine.protagonistNeed,
+            antagonisticForce: featureSpine.antagonisticForce,
+            endingImage: featureSpine.endingImage,
             beatSequence: Array((activeBinding?.outlineBeatLabels ?? []).prefix(8)),
             characterFocus: characterFocus,
             unresolvedSetups: Array(unresolvedSetups),

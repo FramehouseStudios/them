@@ -926,6 +926,15 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     #endif
 
     @Published var newProjectTitle: String = ""
+    @Published var featureLogline: String = ""
+    @Published var featureThemeArgument: String = ""
+    @Published var featureCentralQuestion: String = ""
+    @Published var featureProtagonistWant: String = ""
+    @Published var featureProtagonistNeed: String = ""
+    @Published var featureAntagonisticForce: String = ""
+    @Published var featureActPosition: String = ""
+    @Published var featureEndingImage: String = ""
+    @Published var featureUnresolvedSetupsText: String = ""
     @Published var newSceneSlugline: String = ""
     @Published var newSceneTitle: String = ""
     @Published var newSceneObjective: String = ""
@@ -1021,6 +1030,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             selectedProjectID = ""
             selectedProject = nil
             outline = .empty
+            clearFeatureSpineFields()
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
             return
         }
@@ -1048,6 +1058,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             errorText = error.localizedDescription
             selectedProject = nil
             outline = .empty
+            clearFeatureSpineFields()
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
         }
     }
@@ -3402,6 +3413,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             comments = []
             recoveryCandidate = nil
             conflictState = nil
+            clearFeatureSpineFields()
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
             return
         }
@@ -3468,6 +3480,9 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             outline = .empty
             reconcileSceneSessionState(with: outline)
             errorText = error.localizedDescription
+            if selectedProject == nil {
+                clearFeatureSpineFields()
+            }
             syncLiveDraftBridgeProjectContext()
         }
     }
@@ -3509,6 +3524,87 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private static func unresolvedSetups(from text: String) -> [String] {
+        let separators = CharacterSet.newlines.union(CharacterSet(charactersIn: ";"))
+        var seen = Set<String>()
+        var result: [String] = []
+        for raw in text.components(separatedBy: separators) {
+            let clean = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(String(clean.prefix(220)))
+            if result.count >= 24 { break }
+        }
+        return result
+    }
+
+    private func hydrateFeatureSpineFields(from project: BackendScreenplayProjectSummary) {
+        featureLogline = project.logline ?? ""
+        featureThemeArgument = project.themeArgument ?? ""
+        featureCentralQuestion = project.centralQuestion ?? ""
+        featureProtagonistWant = project.protagonistWant ?? ""
+        featureProtagonistNeed = project.protagonistNeed ?? ""
+        featureAntagonisticForce = project.antagonisticForce ?? ""
+        featureActPosition = project.actPosition ?? ""
+        featureEndingImage = project.endingImage ?? ""
+        featureUnresolvedSetupsText = (project.unresolvedSetups ?? []).joined(separator: "\n")
+    }
+
+    private func clearFeatureSpineFields() {
+        featureLogline = ""
+        featureThemeArgument = ""
+        featureCentralQuestion = ""
+        featureProtagonistWant = ""
+        featureProtagonistNeed = ""
+        featureAntagonisticForce = ""
+        featureActPosition = ""
+        featureEndingImage = ""
+        featureUnresolvedSetupsText = ""
+    }
+
+    func saveFeatureSpineMetadata() async {
+        guard let project = selectedProject else {
+            errorText = "Select a project first."
+            return
+        }
+        isSaving = true
+        defer { isSaving = false }
+        errorText = ""
+        do {
+            let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
+                projectId: project.id,
+                title: project.title,
+                phase: project.lastPhase ?? "scene_draft",
+                tags: project.tags ?? [],
+                characters: project.characters ?? [],
+                setting: project.setting ?? "",
+                tone: project.tone ?? "",
+                logline: featureLogline,
+                themeArgument: featureThemeArgument,
+                centralQuestion: featureCentralQuestion,
+                protagonistWant: featureProtagonistWant,
+                protagonistNeed: featureProtagonistNeed,
+                antagonisticForce: featureAntagonisticForce,
+                actPosition: featureActPosition,
+                endingImage: featureEndingImage,
+                unresolvedSetups: Self.unresolvedSetups(from: featureUnresolvedSetupsText)
+            )
+            if let nextProject = result.payload.project {
+                upsertProject(nextProject)
+                selectedProject = nextProject
+                selectedProjectID = nextProject.id
+                hydrateFeatureSpineFields(from: nextProject)
+            }
+            syncLiveDraftBridgeProjectContext()
+            infoText = "Feature spine saved."
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
     private func upsertProject(_ project: BackendScreenplayProjectSummary) {
         if let index = projects.firstIndex(where: { $0.id == project.id }) {
             projects[index] = project
@@ -3517,6 +3613,9 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         }
         projects.sort { lhs, rhs in
             (lhs.updatedAt ?? 0) > (rhs.updatedAt ?? 0)
+        }
+        if selectedProjectID == project.id || selectedProject?.id == project.id {
+            hydrateFeatureSpineFields(from: project)
         }
     }
 
@@ -4037,6 +4136,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         let projectTitle = (selectedProject?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let phase = (selectedProject?.lastPhase ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let projectCharacters = selectedProject?.characters ?? []
+        let featureSpine = ScreenplayFeatureSpine(project: selectedProject)
 
         if clearWhenEmpty || !projectID.isEmpty {
             bridge.preferredProjectID = projectID
@@ -4054,7 +4154,8 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 versionID: versionID,
                 phase: phase,
                 outline: outline,
-                projectCharacters: projectCharacters
+                projectCharacters: projectCharacters,
+                featureSpine: featureSpine
             )
         }
     }
@@ -10911,6 +11012,11 @@ private var projectsSidebarContent: some View {
                         .foregroundStyle(directionOneChromeSecondaryText)
                         .padding(.top, 8)
                 }
+
+                if vm.selectedProject != nil {
+                    featureSpineSidebarEditor
+                        .padding(.top, 4)
+                }
             }
             .padding(.vertical, 4)
         }
@@ -10925,6 +11031,97 @@ private var projectsSidebarContent: some View {
         }
     }
 }
+
+    private var featureSpineSidebarEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.accentColor.opacity(0.82))
+                Text("Feature spine")
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(directionOneChromeText.opacity(0.90))
+                Spacer(minLength: 0)
+                directionOneAssistantPill("Act", value: vm.featureActPosition.isEmpty ? "Unset" : vm.featureActPosition, tint: Color.accentColor.opacity(0.78))
+            }
+
+            featureSpineField("Logline", text: $vm.featureLogline)
+            featureSpineField("Theme", text: $vm.featureThemeArgument)
+            featureSpineField("Central question", text: $vm.featureCentralQuestion)
+            featureSpineField("Want", text: $vm.featureProtagonistWant)
+            featureSpineField("Need", text: $vm.featureProtagonistNeed)
+            featureSpineField("Pressure", text: $vm.featureAntagonisticForce)
+            featureSpineField("Act position", text: $vm.featureActPosition)
+            featureSpineField("Ending image", text: $vm.featureEndingImage)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("UNRESOLVED SETUPS")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(directionOneChromeTertiaryText)
+                TextEditor(text: $vm.featureUnresolvedSetupsText)
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(directionOneChromeText.opacity(0.88))
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 72)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.herPaper.opacity(0.92))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
+                    )
+            }
+
+            Button {
+                Task { await vm.saveFeatureSpineMetadata() }
+            } label: {
+                Label(vm.isSaving ? "Saving…" : "Save spine", systemImage: vm.isSaving ? "arrow.clockwise" : "square.and.arrow.down")
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(vm.selectedProject == nil || vm.isSaving)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.herShellPanelSoft.opacity(0.88))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.20), lineWidth: 1)
+        )
+    }
+
+    private func featureSpineField(_ title: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .tracking(0.7)
+                .foregroundStyle(directionOneChromeTertiaryText)
+            TextField(title, text: text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11, weight: .regular, design: .default))
+                .foregroundStyle(directionOneChromeText.opacity(0.88))
+                .lineLimit(1...3)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.herPaper.opacity(0.92))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
+                )
+        }
+    }
+
     private var filesSidebarContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -25039,6 +25236,15 @@ Look at the city.
             setting: "Test City",
             tone: "Grounded",
             promptSeed: nil,
+            logline: "A test crew maps broken scenes into a working draft.",
+            themeArgument: "Structure lets chaos become playable.",
+            centralQuestion: "Can the draft become coherent before the handoff?",
+            protagonistWant: "Lucy wants the missing scene order.",
+            protagonistNeed: "Lucy needs to trust the rewrite pass.",
+            antagonisticForce: "A fractured outline fighting the page.",
+            actPosition: "Act I",
+            endingImage: "The scenes line up in a clean final pass.",
+            unresolvedSetups: ["The duplicate kitchen beat remains unresolved."],
             createdAt: now,
             updatedAt: now,
             versionCount: 1,

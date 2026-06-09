@@ -69,6 +69,94 @@ final class BackendScreenplayProjectActivationTests: XCTestCase {
         XCTAssertEqual(activateRequest.method, "POST")
         XCTAssertEqual(activateRequest.bodyObject?.isEmpty, true)
     }
+
+    func testUpsertScreenplayProjectSendsFeatureSpineMetadata() async throws {
+        let recorder = ScreenplayProjectActivationRequestRecorder()
+        ScreenplayProjectActivationURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return ScreenplayProjectActivationHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-test", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/screenplay/projects":
+                return ScreenplayProjectActivationHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(
+                        #"""
+                        {
+                          "stage": "screenplay_project",
+                          "status": "updated",
+                          "project_id": "proj-feature",
+                          "screenplay_active_project_id": "proj-feature",
+                          "screenplay_project_count": 1,
+                          "project": {
+                            "id": "proj-feature",
+                            "title": "Feature Project",
+                            "logline": "A courier crosses a flooded Los Angeles.",
+                            "theme_argument": "Truth is only love when it costs something.",
+                            "central_question": "Can Sol tell the truth in time?",
+                            "protagonist_want": "Sol wants to deliver the confession unseen.",
+                            "protagonist_need": "Sol needs to stop treating honesty as punishment.",
+                            "antagonistic_force": "A surveillance startup.",
+                            "act_position": "Act IIb",
+                            "ending_image": "Sol walks into sunrise with the truth public.",
+                            "unresolved_setups": ["The blue key has not paid off."]
+                          }
+                        }
+                        """#.utf8
+                    )
+                )
+            default:
+                return ScreenplayProjectActivationHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayProjectActivationURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://screenplay-project-activation.test")!
+        )
+
+        let response = try await api.upsertScreenplayProject(
+            projectId: "proj-feature",
+            title: "Feature Project",
+            phase: "scene_draft",
+            logline: "A courier crosses a flooded Los Angeles.",
+            themeArgument: "Truth is only love when it costs something.",
+            centralQuestion: "Can Sol tell the truth in time?",
+            protagonistWant: "Sol wants to deliver the confession unseen.",
+            protagonistNeed: "Sol needs to stop treating honesty as punishment.",
+            antagonisticForce: "A surveillance startup.",
+            actPosition: "Act IIb",
+            endingImage: "Sol walks into sunrise with the truth public.",
+            unresolvedSetups: ["The blue key has not paid off."]
+        )
+
+        XCTAssertEqual(response.payload.project?.logline, "A courier crosses a flooded Los Angeles.")
+        XCTAssertEqual(response.payload.project?.themeArgument, "Truth is only love when it costs something.")
+        let upsertRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/screenplay/projects" })
+        XCTAssertEqual(upsertRequest.method, "POST")
+        XCTAssertEqual(upsertRequest.bodyObject?["project_id"] as? String, "proj-feature")
+        XCTAssertEqual(upsertRequest.bodyObject?["logline"] as? String, "A courier crosses a flooded Los Angeles.")
+        XCTAssertEqual(upsertRequest.bodyObject?["theme_argument"] as? String, "Truth is only love when it costs something.")
+        XCTAssertEqual(upsertRequest.bodyObject?["central_question"] as? String, "Can Sol tell the truth in time?")
+        XCTAssertEqual(upsertRequest.bodyObject?["protagonist_want"] as? String, "Sol wants to deliver the confession unseen.")
+        XCTAssertEqual(upsertRequest.bodyObject?["protagonist_need"] as? String, "Sol needs to stop treating honesty as punishment.")
+        XCTAssertEqual(upsertRequest.bodyObject?["antagonistic_force"] as? String, "A surveillance startup.")
+        XCTAssertEqual(upsertRequest.bodyObject?["act_position"] as? String, "Act IIb")
+        XCTAssertEqual(upsertRequest.bodyObject?["ending_image"] as? String, "Sol walks into sunrise with the truth public.")
+        XCTAssertEqual(upsertRequest.bodyObject?["unresolved_setups"] as? [String], ["The blue key has not paid off."])
+    }
 }
 
 private struct ScreenplayProjectActivationHTTPStub {

@@ -30,6 +30,13 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 act: "Act II",
                 sceneObjective: "June must decide whether to burn the evidence.",
                 currentBeat: "The receipt exposes the lie.",
+                logline: "A runaway editor finds a vanished film that can expose a family crime.",
+                themeArgument: "Memory only heals when it becomes action.",
+                centralQuestion: "Can June expose the truth without becoming what she hates?",
+                protagonistWant: "June wants the missing reel.",
+                protagonistNeed: "June needs to trust someone with the truth.",
+                antagonisticForce: "Marcus and the studio archive burying the evidence.",
+                endingImage: "June screens the recovered reel to a silent street.",
                 beatSequence: ["Receipt reveal", "Marcus lies badly"],
                 unresolvedSetups: ["The missing cassette has not paid off."],
                 continuityNotes: ["Trust is turning into suspicion."],
@@ -58,6 +65,13 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.act, "Act II")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.sceneObjective, "June must decide whether to burn the evidence.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.currentBeat, "The receipt exposes the lie.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.logline, "A runaway editor finds a vanished film that can expose a family crime.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.themeArgument, "Memory only heals when it becomes action.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.centralQuestion, "Can June expose the truth without becoming what she hates?")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.protagonistWant, "June wants the missing reel.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.protagonistNeed, "June needs to trust someone with the truth.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.antagonisticForce, "Marcus and the studio archive burying the evidence.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.endingImage, "June screens the recovered reel to a silent street.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.beatSequence, ["Receipt reveal", "Marcus lies badly"])
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.unresolvedSetups, ["The missing cassette has not paid off."])
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.continuityNotes, ["Trust is turning into suspicion."])
@@ -139,6 +153,13 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 userInput: "Keep going.",
                 act: "Act II",
                 currentBeat: "Mara realizes the witness has been lying.",
+                logline: "A court artist discovers every verdict has been staged.",
+                themeArgument: "Justice begins when performance fails.",
+                centralQuestion: "Can Mara draw the truth faster than the court can erase it?",
+                protagonistWant: "Mara wants the original witness sketch.",
+                protagonistNeed: "Mara needs to stop hiding behind observation.",
+                antagonisticForce: "A judge who edits the public record.",
+                endingImage: "Mara hangs the true sketch outside the courthouse.",
                 unresolvedSetups: ["The courthouse key has not paid off."],
                 pageCount: 62,
                 targetPages: 110,
@@ -156,6 +177,12 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertTrue(result.prompt.contains("Active act: Act II"))
         XCTAssertTrue(result.prompt.contains("Estimated position: p62 / 110"))
         XCTAssertTrue(result.prompt.contains("Current beat: Mara realizes the witness has been lying."))
+        XCTAssertTrue(result.prompt.contains("Feature logline: A court artist discovers every verdict has been staged."))
+        XCTAssertTrue(result.prompt.contains("Theme argument: Justice begins when performance fails."))
+        XCTAssertTrue(result.prompt.contains("Central dramatic question: Can Mara draw the truth faster than the court can erase it?"))
+        XCTAssertTrue(result.prompt.contains("Protagonist engine: want=Mara wants the original witness sketch.; need=Mara needs to stop hiding behind observation."))
+        XCTAssertTrue(result.prompt.contains("Antagonistic force: A judge who edits the public record."))
+        XCTAssertTrue(result.prompt.contains("Ending image: Mara hangs the true sketch outside the courthouse."))
         XCTAssertTrue(result.prompt.contains("Next page moves: name the active structural obligation"))
         XCTAssertTrue(result.prompt.contains("Unresolved setups: The courthouse key has not paid off."))
         XCTAssertFalse(result.usedBackendAssembly)

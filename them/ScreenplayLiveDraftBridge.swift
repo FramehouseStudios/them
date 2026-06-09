@@ -8,6 +8,89 @@ import AppKit
 import UIKit
 #endif
 
+nonisolated struct ScreenplayFeatureSpine: Codable, Equatable {
+    var logline: String = ""
+    var themeArgument: String = ""
+    var centralQuestion: String = ""
+    var protagonistWant: String = ""
+    var protagonistNeed: String = ""
+    var antagonisticForce: String = ""
+    var actPosition: String = ""
+    var endingImage: String = ""
+    var unresolvedSetups: [String] = []
+
+    static let empty = ScreenplayFeatureSpine()
+
+    init(
+        logline: String = "",
+        themeArgument: String = "",
+        centralQuestion: String = "",
+        protagonistWant: String = "",
+        protagonistNeed: String = "",
+        antagonisticForce: String = "",
+        actPosition: String = "",
+        endingImage: String = "",
+        unresolvedSetups: [String] = []
+    ) {
+        self.logline = Self.clean(logline, limit: 500)
+        self.themeArgument = Self.clean(themeArgument, limit: 500)
+        self.centralQuestion = Self.clean(centralQuestion, limit: 500)
+        self.protagonistWant = Self.clean(protagonistWant, limit: 500)
+        self.protagonistNeed = Self.clean(protagonistNeed, limit: 500)
+        self.antagonisticForce = Self.clean(antagonisticForce, limit: 500)
+        self.actPosition = Self.clean(actPosition, limit: 80)
+        self.endingImage = Self.clean(endingImage, limit: 500)
+        self.unresolvedSetups = Self.cleanList(unresolvedSetups, limit: 24, itemLimit: 220)
+    }
+
+    init(project: BackendScreenplayProjectSummary?) {
+        self.init(
+            logline: project?.logline ?? "",
+            themeArgument: project?.themeArgument ?? "",
+            centralQuestion: project?.centralQuestion ?? "",
+            protagonistWant: project?.protagonistWant ?? "",
+            protagonistNeed: project?.protagonistNeed ?? "",
+            antagonisticForce: project?.antagonisticForce ?? "",
+            actPosition: project?.actPosition ?? "",
+            endingImage: project?.endingImage ?? "",
+            unresolvedSetups: project?.unresolvedSetups ?? []
+        )
+    }
+
+    var isEmpty: Bool {
+        logline.isEmpty &&
+            themeArgument.isEmpty &&
+            centralQuestion.isEmpty &&
+            protagonistWant.isEmpty &&
+            protagonistNeed.isEmpty &&
+            antagonisticForce.isEmpty &&
+            actPosition.isEmpty &&
+            endingImage.isEmpty &&
+            unresolvedSetups.isEmpty
+    }
+
+    private static func clean(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return String(compact.prefix(max(0, limit)))
+    }
+
+    private static func cleanList(_ values: [String], limit: Int, itemLimit: Int) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            let clean = Self.clean(value, limit: itemLimit)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(clean)
+            if result.count >= limit { break }
+        }
+        return result
+    }
+}
+
 #if os(macOS)
 private func screenplayDebugMirroredDomains() -> [String] {
     ["io.them.them"]
@@ -1589,6 +1672,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let phase: String
         let outline: BackendScreenplayOutline
         let projectCharacters: [String]
+        let featureSpine: ScreenplayFeatureSpine
     }
 
     private static let autoInsertStorageKey = "studio_auto_insert"
@@ -1646,6 +1730,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             refreshIntelligenceReport()
         }
     }
+    @Published var featureSpine: ScreenplayFeatureSpine = .empty
     @Published var latestStudioRouteTarget: ScreenplayStudioUserPrompt.Target = .voicePin {
         didSet {
             persistStudioRoutingDebugMirror()
@@ -4634,12 +4719,24 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         versionID: String,
         phase: String,
         outline: BackendScreenplayOutline,
-        projectCharacters: [String]
+        projectCharacters: [String],
+        featureSpine: ScreenplayFeatureSpine = .empty
     ) {
         let normalizedProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTitle = projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedFeatureSpine = ScreenplayFeatureSpine(
+            logline: featureSpine.logline,
+            themeArgument: featureSpine.themeArgument,
+            centralQuestion: featureSpine.centralQuestion,
+            protagonistWant: featureSpine.protagonistWant,
+            protagonistNeed: featureSpine.protagonistNeed,
+            antagonisticForce: featureSpine.antagonisticForce,
+            actPosition: featureSpine.actPosition,
+            endingImage: featureSpine.endingImage,
+            unresolvedSetups: featureSpine.unresolvedSetups
+        )
         let normalizedCharacters = projectCharacters
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -4648,19 +4745,23 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
            normalizedVersionID.isEmpty,
            normalizedTitle.isEmpty,
            outline.scenes.isEmpty,
-           normalizedCharacters.isEmpty {
+           normalizedCharacters.isEmpty,
+           normalizedFeatureSpine.isEmpty {
             projectBindingContext = nil
+            self.featureSpine = .empty
             projectBinding = .empty
             return
         }
 
+        self.featureSpine = normalizedFeatureSpine
         projectBindingContext = ProjectBindingContext(
             projectID: normalizedProjectID,
             projectTitle: normalizedTitle,
             versionID: normalizedVersionID,
             phase: normalizedPhase,
             outline: outline,
-            projectCharacters: normalizedCharacters
+            projectCharacters: normalizedCharacters,
+            featureSpine: normalizedFeatureSpine
         )
         refreshProjectBindingSnapshot()
     }

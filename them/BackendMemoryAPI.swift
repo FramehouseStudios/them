@@ -975,6 +975,15 @@ nonisolated struct BackendScreenplayProjectSummary: Decodable, Hashable {
     let setting: String?
     let tone: String?
     let promptSeed: String?
+    let logline: String?
+    let themeArgument: String?
+    let centralQuestion: String?
+    let protagonistWant: String?
+    let protagonistNeed: String?
+    let antagonisticForce: String?
+    let actPosition: String?
+    let endingImage: String?
+    let unresolvedSetups: [String]?
     let createdAt: TimeInterval?
     let updatedAt: TimeInterval?
     let versionCount: Int?
@@ -3659,6 +3668,15 @@ actor BackendMemoryAPI {
         characters: [String] = [],
         setting: String = "",
         tone: String = "",
+        logline: String? = nil,
+        themeArgument: String? = nil,
+        centralQuestion: String? = nil,
+        protagonistWant: String? = nil,
+        protagonistNeed: String? = nil,
+        antagonisticForce: String? = nil,
+        actPosition: String? = nil,
+        endingImage: String? = nil,
+        unresolvedSetups: [String]? = nil,
         studioThreadViewState: BackendScreenplayThreadViewState? = nil,
         studioDiffAcknowledgedKeys: [String]? = nil,
         studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil,
@@ -3675,6 +3693,33 @@ actor BackendMemoryAPI {
             "tone": tone,
             "activate": true,
         ]
+        if let logline {
+            payload["logline"] = logline
+        }
+        if let themeArgument {
+            payload["theme_argument"] = themeArgument
+        }
+        if let centralQuestion {
+            payload["central_question"] = centralQuestion
+        }
+        if let protagonistWant {
+            payload["protagonist_want"] = protagonistWant
+        }
+        if let protagonistNeed {
+            payload["protagonist_need"] = protagonistNeed
+        }
+        if let antagonisticForce {
+            payload["antagonistic_force"] = antagonisticForce
+        }
+        if let actPosition {
+            payload["act_position"] = actPosition
+        }
+        if let endingImage {
+            payload["ending_image"] = endingImage
+        }
+        if let unresolvedSetups {
+            payload["unresolved_setups"] = unresolvedSetups
+        }
         if let projectId, !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["project_id"] = projectId
         }

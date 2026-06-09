@@ -50,6 +50,15 @@ function defaultDeps(overrides = {}) {
     toScreenplayProjectPayload: (project, opts) => ({
       id: project.id,
       title: project.title,
+      logline: project.logline || "",
+      theme_argument: project.themeArgument || "",
+      central_question: project.centralQuestion || "",
+      protagonist_want: project.protagonistWant || "",
+      protagonist_need: project.protagonistNeed || "",
+      antagonistic_force: project.antagonisticForce || "",
+      act_position: project.actPosition || "",
+      ending_image: project.endingImage || "",
+      unresolved_setups: project.unresolvedSetups || [],
       studio_ask_note_history: project.studioAskNoteHistory || [],
       _versionsIncluded: Boolean(opts?.includeVersions),
       _draftsIncluded: Boolean(opts?.includeDrafts),
@@ -377,6 +386,43 @@ test("[screenplay-projects-routes] POST /screenplay/projects updates existing pr
     assert.equal(r.status, 200);
     assert.equal(r.body.status, "updated");
     assert.equal(r.body.project_id, "p1");
+  });
+});
+
+test("[screenplay-projects-routes] POST /screenplay/projects saves and preserves feature spine metadata", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const saved = await postJson(baseURL, "/screenplay/projects", {
+      title: "First Project",
+      project_id: "p1",
+      logline: "A composer follows a pirate radio signal into a city that has forgotten music.",
+      theme_argument: "Love becomes courage when it asks for action, not nostalgia.",
+      central_question: "Can Mara stop hiding in other people's songs?",
+      protagonist_want: "Mara wants the missing broadcast master.",
+      protagonist_need: "Mara needs to write her own ending.",
+      antagonistic_force: "A studio executive burying the old recordings.",
+      act_position: "Act IIa",
+      ending_image: "Mara conducts the city from a rooftop as radios answer back.",
+      unresolved_setups: ["The cracked acetate has not paid off.", "The silent tower remains locked."],
+    });
+
+    assert.equal(saved.status, 200);
+    assert.equal(deps._owner.projects[0].logline, "A composer follows a pirate radio signal into a city that has forgotten music.");
+    assert.equal(saved.body.project.theme_argument, "Love becomes courage when it asks for action, not nostalgia.");
+    assert.equal(saved.body.project.act_position, "Act IIa");
+    assert.deepEqual(saved.body.project.unresolved_setups, [
+      "The cracked acetate has not paid off.",
+      "The silent tower remains locked.",
+    ]);
+
+    const renamed = await postJson(baseURL, "/screenplay/projects", {
+      title: "First Project renamed without spine",
+      project_id: "p1",
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.project.logline, saved.body.project.logline);
+    assert.equal(renamed.body.project.ending_image, saved.body.project.ending_image);
+    assert.deepEqual(renamed.body.project.unresolved_setups, saved.body.project.unresolved_setups);
   });
 });
 

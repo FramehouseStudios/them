@@ -104,6 +104,37 @@ test("[screenplay-model-payload] includes capped Studio ask-note history with sc
   assert.equal(payload.studio_ask_note_history.at(-1).id, "exchange-23");
 });
 
+test("[screenplay-model-payload] includes durable feature spine metadata", () => {
+  const { toScreenplayProjectPayload } = services();
+  const payload = toScreenplayProjectPayload({
+    id: "project-feature-spine",
+    title: "Feature Spine",
+    logline: "A courier crosses a flooded Los Angeles to deliver one impossible confession.",
+    themeArgument: "Truth is only love when it costs the liar something.",
+    centralQuestion: "Can Sol tell the truth before the city goes underwater?",
+    protagonistWant: "Sol wants to deliver the confession without being seen.",
+    protagonistNeed: "Sol needs to stop treating honesty as a punishment.",
+    antagonisticForce: "A surveillance startup controlling the evacuation routes.",
+    actPosition: "Act III",
+    endingImage: "Sol walks into sunrise with the confession finally public.",
+    unresolvedSetups: ["The blue key has not paid off.", "The flooded tunnel remains closed."],
+    outline: { acts: [], scenes: [], beats: [] },
+  });
+
+  assert.equal(payload.logline, "A courier crosses a flooded Los Angeles to deliver one impossible confession.");
+  assert.equal(payload.theme_argument, "Truth is only love when it costs the liar something.");
+  assert.equal(payload.central_question, "Can Sol tell the truth before the city goes underwater?");
+  assert.equal(payload.protagonist_want, "Sol wants to deliver the confession without being seen.");
+  assert.equal(payload.protagonist_need, "Sol needs to stop treating honesty as a punishment.");
+  assert.equal(payload.antagonistic_force, "A surveillance startup controlling the evacuation routes.");
+  assert.equal(payload.act_position, "Act III");
+  assert.equal(payload.ending_image, "Sol walks into sunrise with the confession finally public.");
+  assert.deepEqual(payload.unresolved_setups, [
+    "The blue key has not paid off.",
+    "The flooded tunnel remains closed.",
+  ]);
+});
+
 test("[screenplay-model-payload] outline payload removes orphan scene and beat references", () => {
   const { toScreenplayOutlinePayload } = services();
   const payload = toScreenplayOutlinePayload({
