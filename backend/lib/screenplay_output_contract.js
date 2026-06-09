@@ -105,6 +105,44 @@ export function looksLikeScreenplayChatDriftLine(line = "") {
   ].some((pattern) => pattern.test(normalized));
 }
 
+export function looksLikeScreenplayStrategyLeadInLine(line = "") {
+  const normalized = lowerContractLine(line);
+  if (!normalized) return false;
+  if (looksLikeScreenplayOutputStarterLine(line)) return false;
+
+  return [
+    /^(?:one\s+)?(?:quick\s+)?(?:strategy|craft|diagnosis|note|page-first note|highest-leverage fix)\b/,
+    /^the (?:move|turn|pressure|subtext|engine|page|scene|beat) (?:is|here is)\b/,
+    /^(?:this|the) (?:scene|beat|page|moment|exchange|pass) (?:needs|wants|should|must|can)\b/,
+    /^to make (?:it|this|the scene|the page|the exchange) (?:faster|smarter|more expert|more cinematic|more emotional|work)\b/,
+    /^i (?:would|kept|focused|anchored|made|gave|added|cut|preserved)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|pressure|subtext|turn|objective|obstacle)\b/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function nextNonEmptyLineAfter(lines = [], startIndex = 0) {
+  for (let index = Math.max(0, Number(startIndex || 0)); index < lines.length; index += 1) {
+    const candidate = String(lines[index] || "");
+    if (normalizeContractLine(candidate)) return candidate;
+  }
+  return "";
+}
+
+function hasScreenplayStarterAhead(lines = [], startIndex = 0, maxNonEmptyLookahead = 10) {
+  let seen = 0;
+  for (let index = Math.max(0, Number(startIndex || 0)); index < lines.length; index += 1) {
+    const line = String(lines[index] || "");
+    const cleaned = normalizeContractLine(line);
+    if (!cleaned) continue;
+    seen += 1;
+    if (seen > maxNonEmptyLookahead) return false;
+    const nextNonEmpty = nextNonEmptyLineAfter(lines, index + 1);
+    if (looksLikeScreenplayOutputStarterLine(cleaned, nextNonEmpty)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function stripCodeFenceLines(lines = []) {
   return lines.filter((line) => !/^```(?:[a-z0-9_-]+)?\s*$/i.test(String(line || "").trim()));
 }
@@ -119,6 +157,13 @@ function stripLeadingContractDrift(lines = []) {
       continue;
     }
     if (looksLikeScreenplayChatDriftLine(cleaned)) {
+      startIndex += 1;
+      continue;
+    }
+    if (
+      looksLikeScreenplayStrategyLeadInLine(cleaned) &&
+      hasScreenplayStarterAhead(lines, startIndex + 1)
+    ) {
       startIndex += 1;
       continue;
     }

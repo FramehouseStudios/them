@@ -145,6 +145,39 @@ test("[studio-render] sync: page target strips screenplay chat drift", async () 
   });
 });
 
+test("[studio-render] sync: page target strips strategy notes before screenplay text", async () => {
+  const rawReply = [
+    "Strategy: make the receipt the trap instead of exposition.",
+    "The scene needs one irreversible turn before anyone explains the clue.",
+    "",
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "June folds the receipt into a white square.",
+    "",
+    "MARCUS",
+    "You kept it."
+  ].join("\n");
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async () => rawReply,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "make this more expert and faster",
+      screenplay_target: "page",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June folds the receipt into a white square.",
+      "",
+      "MARCUS",
+      "You kept it."
+    ].join("\n"));
+  });
+});
+
 test("[studio-render] sync: voice pin target preserves conversational reply", async () => {
   const reply = "I can keep helping you shape the scene from here.";
   const deps = defaultDeps({
