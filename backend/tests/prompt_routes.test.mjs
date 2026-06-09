@@ -146,6 +146,9 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("Act I: wound, want, catalyst, debate, irreversible choice"));
       assert.ok(body.prompt.includes("act_bridge_ladder:"));
       assert.ok(body.prompt.includes("Act IIa -> Midpoint"));
+      assert.ok(body.prompt.includes("expert_scene_execution:"));
+      assert.ok(body.prompt.includes("scene_job: make the objective, obstacle, pressure clock, and cost visible"));
+      assert.ok(body.prompt.includes("speed_protocol: when the user asks for pages"));
       assert.ok(body.prompt.includes("story_spine:"));
       assert.ok(body.prompt.includes("theme_argument: Truth is only love"));
       assert.ok(body.prompt.includes("central_question: Can Mara tell the truth"));
@@ -227,6 +230,7 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
       ["Help me finish this feature-length screenplay.", "finish_feature", "diagnose act/sequence pressure"],
       ["Help me write the whole feature from Act 1 through Act 2 into Act 3.", "finish_feature", "Locate the current act/sequence"],
       ["Help me write act three of my feature screenplay.", "finish_feature", "next three turns"],
+      ["Make this scene more expert and faster.", "rewrite_scene", "stronger playable pages"],
     ];
 
     for (const [hint, expectedIntent, expectedContract] of cases) {

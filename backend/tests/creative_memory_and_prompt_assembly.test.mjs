@@ -169,6 +169,8 @@ test("buildModelPrompt orders blocks: persona → memory → session → user", 
 
 test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs", () => {
   assert.equal(inferScreenplayTask("Rewrite this scene with more subtext.").intent, "rewrite_scene");
+  assert.equal(inferScreenplayTask("Make this scene more expert and faster.").intent, "rewrite_scene");
+  assert.equal(inferScreenplayTask("Elevate this passage with a professional pass.").intent, "rewrite_scene");
   assert.equal(inferScreenplayTask("Continue the script from this moment.").intent, "continue_script");
   assert.equal(inferScreenplayTask("Help me finish this feature film.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("I need help finishing this feature-length screenplay.").intent, "finish_feature");
@@ -244,6 +246,9 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("feature-length continuity"));
   assert.ok(out.includes("whole-feature authorship"));
   assert.ok(out.includes("act engine"));
+  assert.ok(out.includes("expert page engine"));
+  assert.ok(out.includes("subtext engine"));
+  assert.ok(out.includes("speed discipline"));
   assert.ok(out.includes("emotionally present"));
   assert.ok(out.includes("living co-writer"));
   assert.ok(out.includes("never corporate"));
@@ -282,6 +287,9 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("operating_principle: Clementine thinks like a whole-feature screenwriter"));
   assert.ok(out.includes("act_ladder:"));
   assert.ok(out.includes("act_bridge_ladder:"));
+  assert.ok(out.includes("expert_scene_execution:"));
+  assert.ok(out.includes("turn_engine: each scene must change leverage"));
+  assert.ok(out.includes("speed_protocol: when the user asks for pages"));
   assert.ok(out.includes("Act I: wound, want, catalyst, debate, irreversible choice"));
   assert.ok(out.includes("Act II: tests, reversals, midpoint truth, escalating cost"));
   assert.ok(out.includes("Act III: synthesis, final plan, climax under maximum pressure, final image"));
@@ -326,6 +334,8 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
     userInput: "Help me finish the whole feature screenplay.",
   });
   assert.ok(finishFeature.includes("momentum: when the writer is stuck or broad"));
+  assert.ok(finishFeature.includes("expert page engine"));
+  assert.ok(finishFeature.includes("speed discipline"));
   assert.ok(finishFeature.includes("mode_guidance: Operate at feature scale"));
   assert.ok(finishFeature.includes("next three turns"));
   assert.ok(finishFeature.includes("Act III payoff path"));

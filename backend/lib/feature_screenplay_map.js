@@ -235,6 +235,18 @@ function buildActBridgeLines() {
   ];
 }
 
+function buildExpertExecutionLines() {
+  return [
+    "  expert_scene_execution:",
+    "    - scene_job: make the objective, obstacle, pressure clock, and cost visible on the page.",
+    "    - turn_engine: each scene must change leverage, information, relationship, or self-knowledge.",
+    "    - subtext_engine: dialogue should hide need inside tactic, interruption, pressure, and behavior.",
+    "    - image_system: plant, echo, and transform motifs toward the ending image.",
+    "    - exit_velocity: leave each scene with a new problem, cost, reveal, or irreversible choice.",
+    "    - speed_protocol: when the user asks for pages, keep strategy to one sentence and write playable Fountain immediately.",
+  ];
+}
+
 function buildStorySpineLines(sessionContext = {}) {
   const spineFields = [
     ["logline", sessionContext.logline],
@@ -369,6 +381,7 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     `target_pages: ${targetPages}`,
     ...buildActRoadmapLines(),
     ...buildActBridgeLines(),
+    ...buildExpertExecutionLines(),
     ...buildStorySpineLines(sessionContext || {}),
     ...buildContinuityAssetLines(sessionContext || {}),
   ];

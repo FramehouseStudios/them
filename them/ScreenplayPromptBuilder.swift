@@ -115,6 +115,8 @@ protocol ScreenplayPromptBackendBuilding {
 }
 
 struct ScreenplayPromptBuilder {
+    private static let backendRetryDelayNanoseconds: UInt64 = 80_000_000
+
     struct Request: Equatable {
         var persona: String
         var userInput: String = ""
@@ -204,7 +206,7 @@ struct ScreenplayPromptBuilder {
         var lastError: Error?
         for attempt in 0..<2 {
             if attempt > 0 {
-                try? await Task.sleep(nanoseconds: 180_000_000)
+                try? await Task.sleep(nanoseconds: Self.backendRetryDelayNanoseconds)
             }
             do {
                 let response = try await backend.buildScreenplayModelPrompt(
@@ -383,9 +385,13 @@ struct ScreenplayPromptBuilder {
             "- Act III: synthesis, final plan, climax under maximum pressure, final image.",
             "- Act bridge ladder: Act I choice -> Act II pressure -> midpoint truth -> all-is-lost cost -> Act III payoff -> final image.",
             "- Feature completion method: track current sequence, next three turns, unresolved promises, Act III payoff path, and final image.",
+            "- Expert page engine: every scene needs objective, obstacle, escalation, reversal or turn, emotional residue, and an exit image.",
+            "- Subtext engine: dialogue carries tactic, concealment, interruption, pressure, and character-specific rhythm.",
+            "- Image system: plant, echo, and transform visual motifs so the ending feels earned.",
             "- Protect setups/payoffs, character need, theme argument, emotional handoff, and ending image.",
             "- For Act I -> Act II -> Act III requests, keep every beat causally linked to protagonist want/need.",
-            "- When asked to finish pages, give one concise strategy note, then write playable Fountain.",
+            "- When asked to finish pages, give one concise strategy note, then write playable Fountain immediately.",
+            "- Production format: present-tense action, clean white space, actable lines, and no novelistic interiority.",
         ]
 
         if !act.isEmpty {
