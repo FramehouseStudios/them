@@ -131,6 +131,61 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(guide.nextScenePlan.contains("Final Plan"))
     }
 
+    func testFeatureActionPromptBuilderCreatesPageSafeNextScenePrompt() {
+        let guide = ScreenplayFeatureProgressionGuide.guide(
+            actPosition: "",
+            currentPage: 47,
+            targetPages: 110
+        )
+        let context = ScreenplayFeatureActionContext(
+            logline: "A courier crosses a flooded Los Angeles to deliver one impossible confession.",
+            themeArgument: "Truth is only love when it costs the liar something.",
+            centralQuestion: "Can Sol tell the truth before the city goes underwater?",
+            protagonistWant: "Sol wants to deliver the confession unseen.",
+            protagonistNeed: "Sol needs to stop treating honesty as punishment.",
+            antagonisticForce: "A surveillance startup controlling evacuation routes.",
+            endingImage: "Sol walks into sunrise with the confession finally public.",
+            unresolvedSetups: ["The blue key has not paid off."]
+        )
+
+        let prompt = ScreenplayFeatureActionPromptBuilder.prompt(
+            for: .writeNextScene,
+            guide: guide,
+            context: context
+        )
+
+        XCTAssertTrue(prompt.contains("Write the next scene directly into the screenplay draft"))
+        XCTAssertTrue(prompt.contains("Current feature position: Act II - Midpoint Pressure"))
+        XCTAssertTrue(prompt.contains("Feature spine:"))
+        XCTAssertTrue(prompt.contains("Logline: A courier crosses"))
+        XCTAssertTrue(prompt.contains("Next page moves:"))
+        XCTAssertTrue(prompt.contains("Unresolved setups to protect:"))
+        XCTAssertTrue(prompt.contains("Return screenplay text only."))
+        XCTAssertFalse(prompt.contains("TODO"))
+    }
+
+    func testFeatureActionPromptBuilderCreatesThreeTurnDraftPrompt() {
+        let guide = ScreenplayFeatureProgressionGuide.guide(
+            actPosition: "Act IIb",
+            currentPage: 1,
+            targetPages: 110
+        )
+        let prompt = ScreenplayFeatureActionPromptBuilder.prompt(
+            for: .outlineNextThreeTurns,
+            guide: guide,
+            context: ScreenplayFeatureActionContext(
+                protagonistWant: "Mara wants the missing reel.",
+                protagonistNeed: "Mara needs to trust someone with the truth."
+            )
+        )
+
+        XCTAssertTrue(prompt.contains("Draft the next three structural turns directly into the screenplay draft"))
+        XCTAssertTrue(prompt.contains("Current feature position: Act II - Collapse / All Is Lost"))
+        XCTAssertTrue(prompt.contains("Protagonist want: Mara wants the missing reel."))
+        XCTAssertTrue(prompt.contains("Protagonist need: Mara needs to trust someone with the truth."))
+        XCTAssertTrue(prompt.contains("Return screenplay-facing text only."))
+    }
+
     func testRestorePolicyKeepsBackendActiveProjectEvenWhenListPageOmitsIt() {
         let selectedProjectId = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
             activeProjectId: " legacy-active-project ",

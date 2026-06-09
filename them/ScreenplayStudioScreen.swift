@@ -347,6 +347,152 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
     }
 }
 
+struct ScreenplayFeatureActionContext: Equatable {
+    var logline: String = ""
+    var themeArgument: String = ""
+    var centralQuestion: String = ""
+    var protagonistWant: String = ""
+    var protagonistNeed: String = ""
+    var antagonisticForce: String = ""
+    var endingImage: String = ""
+    var unresolvedSetups: [String] = []
+
+    var spineLines: [String] {
+        var lines: [String] = []
+        appendLine("Logline", logline, to: &lines)
+        appendLine("Theme argument", themeArgument, to: &lines)
+        appendLine("Central dramatic question", centralQuestion, to: &lines)
+        appendLine("Protagonist want", protagonistWant, to: &lines)
+        appendLine("Protagonist need", protagonistNeed, to: &lines)
+        appendLine("Antagonistic force", antagonisticForce, to: &lines)
+        appendLine("Ending image", endingImage, to: &lines)
+        return lines
+    }
+
+    private func appendLine(_ label: String, _ value: String, to lines: inout [String]) {
+        let clean = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !clean.isEmpty else { return }
+        lines.append("- \(label): \(String(clean.prefix(260)))")
+    }
+}
+
+enum ScreenplayFeatureActionCommand: Equatable {
+    case writeNextScene
+    case outlineNextThreeTurns
+
+    var displayText: String {
+        switch self {
+        case .writeNextScene:
+            return "Write next feature scene"
+        case .outlineNextThreeTurns:
+            return "Outline next three turns"
+        }
+    }
+
+    var successMessage: String {
+        switch self {
+        case .writeNextScene:
+            return "Asked io.them to write the next feature scene."
+        case .outlineNextThreeTurns:
+            return "Asked io.them to draft the next three feature turns."
+        }
+    }
+}
+
+struct ScreenplayFeatureActionPromptBuilder {
+    static func prompt(
+        for command: ScreenplayFeatureActionCommand,
+        guide: ScreenplayFeatureProgressionGuide,
+        context: ScreenplayFeatureActionContext
+    ) -> String {
+        switch command {
+        case .writeNextScene:
+            return writeNextScenePrompt(guide: guide, context: context)
+        case .outlineNextThreeTurns:
+            return outlineNextThreeTurnsPrompt(guide: guide, context: context)
+        }
+    }
+
+    private static func writeNextScenePrompt(
+        guide: ScreenplayFeatureProgressionGuide,
+        context: ScreenplayFeatureActionContext
+    ) -> String {
+        var lines: [String] = [
+            "Write the next scene directly into the screenplay draft as playable Fountain pages only.",
+            "",
+            "Current feature position: \(guide.currentAct) - \(guide.sequenceLabel) (\(guide.pageRangeText)); \(guide.progressText).",
+            "Structural obligation due now: \(guide.dueNow)",
+            "Next scene plan: \(guide.nextScenePlan)",
+        ]
+        appendFeatureContext(context, guide: guide, to: &lines)
+        lines.append(contentsOf: [
+            "",
+            "Requirements:",
+            "- Start with a slugline if the location or time changes; otherwise continue cleanly from the current draft.",
+            "- Write a complete scene section with visible behavior, conflict, subtext, and emotional handoff.",
+            "- Pay off or complicate at least one existing setup when it fits naturally.",
+            "- Do not include analysis, markdown, headings about craft, or notes to the writer.",
+            "- Return screenplay text only.",
+        ])
+        return lines.joined(separator: "\n")
+    }
+
+    private static func outlineNextThreeTurnsPrompt(
+        guide: ScreenplayFeatureProgressionGuide,
+        context: ScreenplayFeatureActionContext
+    ) -> String {
+        var lines: [String] = [
+            "Draft the next three structural turns directly into the screenplay draft as playable Fountain scene beats, not advice.",
+            "",
+            "Current feature position: \(guide.currentAct) - \(guide.sequenceLabel) (\(guide.pageRangeText)); \(guide.progressText).",
+            "Structural obligation due now: \(guide.dueNow)",
+            "Next scene plan: \(guide.nextScenePlan)",
+        ]
+        appendFeatureContext(context, guide: guide, to: &lines)
+        lines.append(contentsOf: [
+            "",
+            "Requirements:",
+            "- Write three numbered screenplay turn sections using Fountain-friendly scene headings, action, and optional dialogue fragments.",
+            "- Each turn must change the protagonist's tactic, cost, or emotional denial.",
+            "- Keep the turns causally linked from the current sequence toward \(guide.comingNext).",
+            "- Do not include analysis, markdown beyond the turn numbers, or notes to the writer.",
+            "- Return screenplay-facing text only.",
+        ])
+        return lines.joined(separator: "\n")
+    }
+
+    private static func appendFeatureContext(
+        _ context: ScreenplayFeatureActionContext,
+        guide: ScreenplayFeatureProgressionGuide,
+        to lines: inout [String]
+    ) {
+        let spineLines = context.spineLines
+        if !spineLines.isEmpty {
+            lines.append("")
+            lines.append("Feature spine:")
+            lines.append(contentsOf: spineLines)
+        }
+
+        if !guide.nextMoves.isEmpty {
+            lines.append("")
+            lines.append("Next page moves:")
+            for move in guide.nextMoves {
+                lines.append("- \(move)")
+            }
+        }
+
+        if !context.unresolvedSetups.isEmpty {
+            lines.append("")
+            lines.append("Unresolved setups to protect:")
+            for setup in context.unresolvedSetups.prefix(6) {
+                lines.append("- \(setup)")
+            }
+        }
+    }
+}
+
 struct ScreenplayBridgeVersionAdoptionPolicy {
     static func shouldAdoptCommittedPageWriteBase(
         selectedProjectId: String,
@@ -1141,6 +1287,10 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             currentPage: estimatedFeaturePageCount,
             targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
         )
+    }
+
+    var featureUnresolvedSetups: [String] {
+        Self.unresolvedSetups(from: featureUnresolvedSetupsText)
     }
 
     #if os(macOS)
@@ -11376,7 +11526,78 @@ private var projectsSidebarContent: some View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
+            HStack(spacing: 8) {
+                featureProgressionActionButton(
+                    "Write scene",
+                    systemImage: "sparkles",
+                    command: .writeNextScene,
+                    guide: guide
+                )
+                featureProgressionActionButton(
+                    "Outline turns",
+                    systemImage: "list.number",
+                    command: .outlineNextThreeTurns,
+                    guide: guide
+                )
+            }
         }
+    }
+
+    private func featureProgressionActionButton(
+        _ title: String,
+        systemImage: String,
+        command: ScreenplayFeatureActionCommand,
+        guide: ScreenplayFeatureProgressionGuide
+    ) -> some View {
+        Button {
+            submitFeatureProgressionCommand(command, guide: guide)
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 10, weight: .semibold, design: .default))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(vm.selectedProject == nil || isSubmittingStudioPrompt || isSubmittingPrompt)
+    }
+
+    private func featureActionContext() -> ScreenplayFeatureActionContext {
+        ScreenplayFeatureActionContext(
+            logline: vm.featureLogline,
+            themeArgument: vm.featureThemeArgument,
+            centralQuestion: vm.featureCentralQuestion,
+            protagonistWant: vm.featureProtagonistWant,
+            protagonistNeed: vm.featureProtagonistNeed,
+            antagonisticForce: vm.featureAntagonisticForce,
+            endingImage: vm.featureEndingImage,
+            unresolvedSetups: vm.featureUnresolvedSetups
+        )
+    }
+
+    private func submitFeatureProgressionCommand(
+        _ command: ScreenplayFeatureActionCommand,
+        guide: ScreenplayFeatureProgressionGuide
+    ) {
+        guard vm.selectedProject != nil else {
+            vm.errorText = "Select a project first."
+            return
+        }
+        let prompt = ScreenplayFeatureActionPromptBuilder.prompt(
+            for: command,
+            guide: guide,
+            context: featureActionContext()
+        )
+        submitStudioPromptText(
+            prompt,
+            displayText: command.displayText,
+            source: .typed,
+            routingMode: .page,
+            successMessage: command.successMessage,
+            clearSeedOnSuccess: false,
+            sendingSuggestionID: nil
+        )
     }
 
     private func featureSpineField(_ title: String, text: Binding<String>) -> some View {
