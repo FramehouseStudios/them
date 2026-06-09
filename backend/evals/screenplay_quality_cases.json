@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "act1_opening_pages",
+      "screenplayTaskHint": "Write the opening scene of my feature film in clean Fountain.",
+      "userInput": "Write the opening scene of my feature film in clean Fountain.",
+      "sessionContext": {
+        "projectId": "quality-act1",
+        "versionId": "v1",
+        "phase": "scene_draft",
+        "pack": "Feature Sprint",
+        "act": "Act I",
+        "scene": "EXT. EMPTY POOL - DAWN",
+        "sceneObjective": "Make Mara's wound visible without explaining it.",
+        "currentBeat": "Mara photographs an empty pool before the house is sold.",
+        "logline": "A burned-out public defender must expose a coastal cover-up before her sister takes the fall.",
+        "themeArgument": "Truth is only love if it costs you something.",
+        "centralQuestion": "Can Mara tell the truth before it destroys the person she protects?",
+        "protagonistWant": "Mara wants to win the public case.",
+        "protagonistNeed": "Mara needs to stop mistaking control for loyalty.",
+        "antagonisticForce": "A town that survives by burying evidence.",
+        "endingImage": "The empty pool filled with rainwater at dawn.",
+        "featureSequence": "Act I - Opening Image / Ordinary World (p1-p12)",
+        "featureObligation": "Plant the emotional question the ending must answer.",
+        "pageCount": 7,
+        "targetPages": 110
+      },
+      "expectedIntent": "finish_feature",
+      "maxChars": 12000,
+      "mustInclude": [
+        "intent: finish_feature",
+        "current_sequence: Act I - Opening Image / Ordinary World",
+        "Act I: wound, want, catalyst, debate, irreversible choice",
+        "expert_scene_execution:",
+        "scene_job: make the objective, obstacle, pressure clock, and cost visible",
+        "feature_completion_protocol:",
+        "For page requests, keep diagnosis to one sentence and start the pages immediately",
+        "ending_image: The empty pool filled with rainwater at dawn."
+      ]
+    },
+    {
+      "id": "act2_midpoint_continuation",
+      "screenplayTaskHint": "Continue the next ten pages of Act Two and drive toward the midpoint reversal.",
+      "userInput": "Continue the next ten pages of Act Two and drive toward the midpoint reversal.",
+      "sessionContext": {
+        "projectId": "quality-act2",
+        "versionId": "v3",
+        "phase": "scene_draft",
+        "pack": "Feature Sprint",
+        "act": "Act II",
+        "scene": "INT. MOTEL ROOM - NIGHT",
+        "sceneObjective": "June must decide whether to burn the receipt or trust Marcus with it.",
+        "currentBeat": "June realizes the receipt proves Marcus has been lying.",
+        "emotionalContinuity": "Carry fear from the diner into tactical suspicion.",
+        "logline": "A runaway editor finds a vanished film that can expose a family crime.",
+        "themeArgument": "Memory only heals when it becomes action.",
+        "centralQuestion": "Can June expose the truth without becoming what she hates?",
+        "protagonistWant": "June wants the missing reel.",
+        "protagonistNeed": "June needs to trust someone with the truth.",
+        "antagonisticForce": "Marcus and the studio archive burying the evidence.",
+        "endingImage": "June screens the recovered reel to a silent street.",
+        "unresolvedSetups": [
+          "The missing cassette has not paid off.",
+          "The opening image of June muting the projector needs its mirror."
+        ],
+        "pageCount": 47,
+        "targetPages": 110,
+        "draftExcerpt": "INT. MOTEL ROOM - NIGHT\n\nJUNE folds the receipt until it becomes a small white square."
+      },
+      "expectedIntent": "finish_feature",
+      "maxChars": 12000,
+      "mustInclude": [
+        "intent: finish_feature",
+        "current_sequence: Act II - Midpoint Pressure",
+        "Drive toward a midpoint reversal that changes the meaning of the pursuit.",
+        "next_page_moves:",
+        "turn_engine: each scene must change leverage, information, relationship, or self-knowledge",
+        "speed_protocol: when the user asks for pages",
+        "unresolved_setups_to_track:",
+        "Act III payoff path"
+      ]
+    },
+    {
+      "id": "act3_finale_payoff",
+      "screenplayTaskHint": "Help me write Act Three of my feature screenplay and land the final image.",
+      "userInput": "Help me write Act Three of my feature screenplay and land the final image.",
+      "sessionContext": {
+        "projectId": "quality-act3",
+        "versionId": "v5",
+        "phase": "scene_draft",
+        "pack": "Feature Sprint",
+        "act": "Act III",
+        "scene": "EXT. COURTHOUSE STEPS - DAWN",
+        "sceneObjective": "Mara must choose public truth over private control.",
+        "currentBeat": "The judge offers Mara a sealed deal if she walks away.",
+        "emotionalContinuity": "Carry all-is-lost humiliation into clear resolve.",
+        "logline": "A court artist discovers every verdict has been staged.",
+        "themeArgument": "Justice begins when performance fails.",
+        "centralQuestion": "Can Mara draw the truth faster than the court can erase it?",
+        "protagonistWant": "Mara wants the original witness sketch.",
+        "protagonistNeed": "Mara needs to stop hiding behind observation.",
+        "antagonisticForce": "A judge who edits the public record.",
+        "endingImage": "Mara hangs the true sketch outside the courthouse.",
+        "unresolvedSetups": [
+          "The courthouse key has not paid off.",
+          "The first false sketch needs its visual answer."
+        ],
+        "pageCount": 101,
+        "targetPages": 110
+      },
+      "expectedIntent": "finish_feature",
+      "maxChars": 12000,
+      "mustInclude": [
+        "intent: finish_feature",
+        "current_sequence: Act III - Climax / Final Image",
+        "Act III: synthesis, final plan, climax under maximum pressure, final image",
+        "The climax should make the inner arc visible under maximum external pressure.",
+        "Never solve Act III by adding information the movie has not earned",
+        "image_system: plant, echo, and transform motifs toward the ending image",
+        "ending_image: Mara hangs the true sketch outside the courthouse."
+      ]
+    },
+    {
+      "id": "rewrite_expert_speed_pass",
+      "screenplayTaskHint": "Make this scene more expert and faster.",
+      "userInput": "Make this scene more expert and faster.",
+      "sessionContext": {
+        "projectId": "quality-rewrite",
+        "versionId": "v2",
+        "phase": "rewrite",
+        "act": "Act II",
+        "scene": "INT. DINER - NIGHT",
+        "sceneObjective": "Mara must force Eli to reveal what he knows without asking directly.",
+        "currentBeat": "Eli keeps cleaning the same coffee stain.",
+        "emotionalContinuity": "Keep attraction buried under accusation.",
+        "pageCount": 62,
+        "targetPages": 110,
+        "draftExcerpt": "INT. DINER - NIGHT\n\nMARA\nTell me the truth.\n\nELI\nI already did."
+      },
+      "expectedIntent": "rewrite_scene",
+      "maxChars": 12000,
+      "mustInclude": [
+        "intent: rewrite_scene",
+        "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages.",
+        "Raise objective, obstacle, subtext, image, rhythm, and the scene turn.",
+        "Give at most one craft sentence before pages",
+        "expert page engine",
+        "production format",
+        "draft_excerpt:"
+      ]
+    },
+    {
+      "id": "continue_unfinished_scene",
+      "screenplayTaskHint": "Continue from here without restarting the scene.",
+      "userInput": "Continue from here without restarting the scene.",
+      "sessionContext": {
+        "projectId": "quality-continue",
+        "versionId": "v2",
+        "phase": "scene_draft",
+        "act": "Act I",
+        "scene": "INT. ARCHIVE - NIGHT",
+        "sceneObjective": "June must steal the reel while deciding whether Marcus is protecting her or trapping her.",
+        "currentBeat": "The archive lights click off row by row.",
+        "emotionalContinuity": "Carry wonder into dread.",
+        "pageCount": 18,
+        "targetPages": 110,
+        "draftExcerpt": "INT. ARCHIVE - NIGHT\n\nThe last light clicks off.\n\nJUNE holds the reel against her chest."
+      },
+      "expectedIntent": "continue_script",
+      "maxChars": 12000,
+      "mustInclude": [
+        "intent: continue_script",
+        "Continue directly from the supplied draft excerpt. Begin with the next visible action.",
+        "do not restart or recap the scene",
+        "Every few beats should change power, information, relationship, or self-knowledge",
+        "emotional_handoff: Carry wonder into dread.",
+        "draft_excerpt:"
+      ]
+    },
+    {
+      "id": "dialogue_punchup_subtext",
+      "screenplayTaskHint": "Punch up this dialogue so the subtext is sharper and the voices are distinct.",
+      "userInput": "Punch up this dialogue so the subtext is sharper and the voices are distinct.",
+      "sessionContext": {
+        "projectId": "quality-dialogue",
+        "versionId": "v4",
+        "phase": "rewrite",
+        "scene": "INT. KITCHEN - LATE NIGHT",
+        "sceneObjective": "Two sisters fight about the house while avoiding their mother's diagnosis.",
+        "currentBeat": "Lena pretends the unpaid bill is just a bill.",
+        "draftExcerpt": "LENA\nYou're being dramatic.\n\nNORA\nI'm being realistic."
+      },
+      "expectedIntent": "dialogue_punchup",
+      "maxChars": 12000,
+      "mustInclude": [
+        "intent: dialogue_punchup",
+        "Return only playable replacement screenplay text",
+        "Add subtext, distinct voices, and rhythm.",
+        "Prefer subtext, interruption, reversal, and rhythm over clever standalone lines.",
+        "subtext engine"
+      ]
+    },
+    {
+      "id": "scene_doctor_high_leverage",
+      "screenplayTaskHint": "Scene doctor this confrontation and tell me why it is not working.",
+      "userInput": "Scene doctor this confrontation and tell me why it is not working.",
+      "sessionContext": {
+        "projectId": "quality-doctor",
+        "versionId": "v1",
+        "phase": "notes",
+        "act": "Act II",
+        "scene": "EXT. FERRY TERMINAL - MORNING",
+        "sceneObjective": "Mara needs Eli to admit he leaked the file.",
+        "currentBeat": "The ferry horn drowns out the accusation.",
+        "pageCount": 69,
+        "targetPages": 110,
+        "draftExcerpt": "EXT. FERRY TERMINAL - MORNING\n\nMARA and ELI argue by the gate.\n\nMARA\nYou lied.\n\nELI\nYou don't understand."
+      },
+      "expectedIntent": "scene_doctor",
+      "maxChars": 12000,
+      "mustInclude": [
+        "intent: scene_doctor",
+        "Diagnose with surgical brevity",
+        "highest-leverage fix",
+        "one concrete page-level move",
+        "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation"
+      ]
+    }
+  ],
+  "globalMustInclude": [
+    "role: Clementine is an elite cinematic writing partner, not a generic chatbot.",
+    "whole-feature authorship",
+    "expert page engine",
+    "subtext engine",
+    "image system",
+    "speed discipline",
+    "quality: Be emotionally intelligent, specific, film-literate, concise when possible, and directly useful on the page."
+  ],
+  "globalMustNotInclude": [
+    "as an ai",
+    "as a language model",
+    "let's unpack"
+  ]
+}

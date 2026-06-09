@@ -1,6 +1,6 @@
 # prompt_assembly.js — canonical prompt builder
 
-`buildModelPrompt({ persona, creativeMemory, userInput, sessionContext, blockCoaching })`
+`buildModelPrompt({ persona, creativeMemory, userInput, sessionContext, screenplayTask, acceptedTwists, blockCoaching })`
 is the single entry point every model-bound prompt the backend
 constructs goes through.
 
@@ -28,6 +28,23 @@ The function concatenates blocks in this strict order:
   scene: ...
 </session>
 
+<feature_film_map>  (when screenplay task or feature context needs it)
+  act_ladder:
+  act_bridge_ladder:
+  expert_scene_execution:
+  feature_completion_protocol:
+</feature_film_map>
+
+<accepted_twists>   (only when accepted twist cards are supplied)
+  - ...
+</accepted_twists>
+
+<screenplay_task>   (only when a screenplay task is supplied/inferred)
+  intent: ...
+  role: Clementine is an elite cinematic writing partner...
+  mode_guidance: ...
+</screenplay_task>
+
 <block_signal>      (only when blockCoaching non-empty)
   writer-coaching-note:
     observation: ...
@@ -46,9 +63,10 @@ behind.
 
 | Invariant | Pinned by |
 |---|---|
-| Block ordering is exactly persona → memory → session → block-signal → input | PR #112 `T-prompt-assembly-snapshot-eval` |
+| Block ordering is exactly persona → memory → session → feature-map → accepted-twists → screenplay-task → block-signal → input | PR #112 `T-prompt-assembly-snapshot-eval` |
 | Heavy user prompt stays under 12,000 chars | PR #110 `T-prompt-size-eval` |
 | `<block_signal>` block stays under 12,000 chars even with pathological summary | PR #141 `T-prompt-assembly-block-signal-cap-eval` |
+| Screenplay prompts carry Act I/II/III feature-continuity, expert scene execution, subtext/image-system, and page-first speed obligations | `run_screenplay_quality_eval.mjs` |
 | Cold user prompt has no memory block | PR #112 + run_creative_memory_eval |
 | Multi-turn recall: memory recorded in turn N appears in turn N+1's prompt | PR #105 `T-memory-quality-eval` |
 | Per-user isolation: prompt for user A never contains user B's memory | PR #105 |
@@ -83,7 +101,30 @@ sections in this order:
 Empty sub-sections are dropped.
 
 ### `sessionContext`
-`{ projectId, versionId, scene }`. `null` → no `<session>` block.
+Project/session object. At minimum this can be `{ projectId,
+versionId, scene }`, but screenplay mode also consumes fields such as
+`act`, `pageCount`, `targetPages`, `draftExcerpt`, `currentBeat`,
+`sceneObjective`, `logline`, `themeArgument`, `protagonistWant`,
+`protagonistNeed`, `endingImage`, `nextSceneMoves`,
+`unresolvedSetups`, and `continuityNotes`.
+
+When feature-scale context is present, `buildModelPrompt(...)` also
+emits a `<feature_film_map>` block with act ladder, sequence pressure,
+expert scene execution, and feature-completion protocol.
+
+### `screenplayTask`
+Object returned by `inferScreenplayTask(...)`, or any compatible
+`{ intent, label, output }` object. When present, emits
+`<screenplay_task>` after story context and before writer-facing block
+coaching. This is where Clementine's mode-specific writing contract is
+declared for scene writing, rewriting, continuation, scene doctor,
+dialogue punch-up, feature completion, pacing, and emotional
+continuity.
+
+### `acceptedTwists`
+Optional accepted reversal/twist cards. When present, emits
+`<accepted_twists>` after feature/session context and before
+`<screenplay_task>`.
 
 ### `blockCoaching`
 String from `block_detector.buildBlockCoachingBlockForPrompt(signal)`.
@@ -112,5 +153,6 @@ a literal expected string so silent reordering fails fast.
   source of truth for the coaching block contents.
 - `backend/evals/run_prompt_assembly_snapshot_eval.mjs` — snapshot test.
 - `backend/evals/run_prompt_size_eval.mjs` — size-budget test.
+- `backend/evals/run_screenplay_quality_eval.mjs` — deterministic Act I/II/III and screenplay-task quality fixtures.
 - `backend/evals/run_block_signal_block_cap_eval.mjs` — pathological-summary test.
 - `backend/evals/run_memory_quality_eval.mjs` — multi-turn recall test.
