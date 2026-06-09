@@ -381,6 +381,7 @@ struct ScreenplayFeatureActionContext: Equatable {
 enum ScreenplayFeatureActionCommand: String, Codable, Equatable {
     case writeNextScene = "write_next_scene"
     case outlineNextThreeTurns = "outline_next_three_turns"
+    case mapFeatureRoadmap = "map_feature_roadmap"
 
     var displayText: String {
         switch self {
@@ -388,6 +389,8 @@ enum ScreenplayFeatureActionCommand: String, Codable, Equatable {
             return "Write next feature scene"
         case .outlineNextThreeTurns:
             return "Outline next three turns"
+        case .mapFeatureRoadmap:
+            return "Map Act I to Act III"
         }
     }
 
@@ -397,6 +400,17 @@ enum ScreenplayFeatureActionCommand: String, Codable, Equatable {
             return "Asked io.them to write the next feature scene."
         case .outlineNextThreeTurns:
             return "Asked io.them to draft the next three feature turns."
+        case .mapFeatureRoadmap:
+            return "Asked io.them to map the feature from Act I to Act III."
+        }
+    }
+
+    var routingModeRawValue: String {
+        switch self {
+        case .writeNextScene, .outlineNextThreeTurns:
+            return "page"
+        case .mapFeatureRoadmap:
+            return "voicePin"
         }
     }
 }
@@ -412,6 +426,8 @@ struct ScreenplayFeatureActionPromptBuilder {
             return writeNextScenePrompt(guide: guide, context: context)
         case .outlineNextThreeTurns:
             return outlineNextThreeTurnsPrompt(guide: guide, context: context)
+        case .mapFeatureRoadmap:
+            return mapFeatureRoadmapPrompt(guide: guide, context: context)
         }
     }
 
@@ -463,6 +479,37 @@ struct ScreenplayFeatureActionPromptBuilder {
         return lines.joined(separator: "\n")
     }
 
+    private static func mapFeatureRoadmapPrompt(
+        guide: ScreenplayFeatureProgressionGuide,
+        context: ScreenplayFeatureActionContext
+    ) -> String {
+        var lines: [String] = [
+            "Build a feature-completion roadmap for this screenplay from Act I through Act III.",
+            "",
+            "Current feature position: \(guide.currentAct) - \(guide.sequenceLabel) (\(guide.pageRangeText)); \(guide.progressText).",
+            "Structural obligation due now: \(guide.dueNow)",
+            "Next scene plan: \(guide.nextScenePlan)",
+        ]
+        appendFeatureContext(context, guide: guide, to: &lines)
+        lines.append(contentsOf: [
+            "",
+            "Response shape:",
+            "- Current diagnosis: two concise bullets about the active act/sequence pressure.",
+            "- Act I spine: the wound, want, catalyst, debate, and irreversible choice this movie needs.",
+            "- Act II engine: the tests, midpoint reversal, false-want collapse, and all-is-lost cost.",
+            "- Act III payoff path: the changed plan, climax choice, and final image answer.",
+            "- Next three turns: scene-level moves that can be written immediately.",
+            "- Setup/payoff watchlist: promises to preserve or pay off before the ending.",
+            "",
+            "Rules:",
+            "- Use the existing feature spine; do not invent a different movie.",
+            "- Be specific enough that the writer can draft pages from the roadmap.",
+            "- Keep it cinematic, emotionally intelligent, and concise.",
+            "- Do not output screenplay pages in this response unless the user asks next.",
+        ])
+        return lines.joined(separator: "\n")
+    }
+
     private static func appendFeatureContext(
         _ context: ScreenplayFeatureActionContext,
         guide: ScreenplayFeatureProgressionGuide,
@@ -505,9 +552,16 @@ struct ScreenplayFeaturePlannerActionSnapshot: Codable, Equatable, Identifiable 
     let pageRangeText: String
     let requestID: String
     let submittedAt: TimeInterval
+    var routingModeRawValue: String? = nil
 
     var command: ScreenplayFeatureActionCommand? {
         ScreenplayFeatureActionCommand(rawValue: commandRawValue)
+    }
+
+    var resolvedRoutingModeRawValue: String {
+        let stored = (routingModeRawValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stored.isEmpty { return stored }
+        return command?.routingModeRawValue ?? "page"
     }
 
     var submittedDate: Date {
@@ -529,7 +583,8 @@ struct ScreenplayFeaturePlannerActionSnapshot: Codable, Equatable, Identifiable 
             sequenceLabel: sequenceLabel,
             pageRangeText: pageRangeText,
             requestID: requestID,
-            submittedAt: submittedAt
+            submittedAt: submittedAt,
+            routingModeRawValue: routingModeRawValue
         )
     }
 }
@@ -11642,17 +11697,25 @@ private var projectsSidebarContent: some View {
                 }
             }
 
-            HStack(spacing: 8) {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    featureProgressionActionButton(
+                        "Write scene",
+                        systemImage: "sparkles",
+                        command: .writeNextScene,
+                        guide: guide
+                    )
+                    featureProgressionActionButton(
+                        "Outline turns",
+                        systemImage: "list.number",
+                        command: .outlineNextThreeTurns,
+                        guide: guide
+                    )
+                }
                 featureProgressionActionButton(
-                    "Write scene",
-                    systemImage: "sparkles",
-                    command: .writeNextScene,
-                    guide: guide
-                )
-                featureProgressionActionButton(
-                    "Outline turns",
-                    systemImage: "list.number",
-                    command: .outlineNextThreeTurns,
+                    "Map feature",
+                    systemImage: "map.circle",
+                    command: .mapFeatureRoadmap,
                     guide: guide
                 )
             }
@@ -11721,14 +11784,15 @@ private var projectsSidebarContent: some View {
             sequenceLabel: guide.sequenceLabel,
             pageRangeText: guide.pageRangeText,
             requestID: requestID,
-            submittedAt: Date().timeIntervalSince1970
+            submittedAt: Date().timeIntervalSince1970,
+            routingModeRawValue: command.routingModeRawValue
         )
         persistFeaturePlannerActionSnapshot(snapshot)
         submitStudioPromptText(
             prompt,
             displayText: command.displayText,
             source: .typed,
-            routingMode: .page,
+            routingMode: featurePlannerRoutingMode(for: command),
             successMessage: command.successMessage,
             clearSeedOnSuccess: false,
             sendingSuggestionID: nil,
@@ -11748,6 +11812,14 @@ private var projectsSidebarContent: some View {
     private func selectedFeaturePlannerProjectTitle() -> String {
         let title = vm.selectedProject?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return title.isEmpty ? "Untitled screenplay" : title
+    }
+
+    private func featurePlannerRoutingMode(for command: ScreenplayFeatureActionCommand) -> PromptRoutingMode {
+        PromptRoutingMode(rawValue: command.routingModeRawValue) ?? .page
+    }
+
+    private func featurePlannerRoutingMode(for snapshot: ScreenplayFeaturePlannerActionSnapshot) -> PromptRoutingMode {
+        PromptRoutingMode(rawValue: snapshot.resolvedRoutingModeRawValue) ?? .page
     }
 
     private func pendingFeaturePlannerActionForSelectedProject() -> ScreenplayFeaturePlannerActionSnapshot? {
@@ -11805,7 +11877,7 @@ private var projectsSidebarContent: some View {
             retrySnapshot.prompt,
             displayText: retrySnapshot.displayText,
             source: .typed,
-            routingMode: .page,
+            routingMode: featurePlannerRoutingMode(for: retrySnapshot),
             successMessage: retrySnapshot.command?.successMessage ?? "Asked io.them to continue the feature plan.",
             clearSeedOnSuccess: false,
             sendingSuggestionID: nil,

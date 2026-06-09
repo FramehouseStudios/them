@@ -186,11 +186,42 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Return screenplay-facing text only."))
     }
 
+    func testFeatureActionPromptBuilderCreatesActToActRoadmapPrompt() {
+        let guide = ScreenplayFeatureProgressionGuide.guide(
+            actPosition: "Act II",
+            currentPage: 47,
+            targetPages: 110
+        )
+        let prompt = ScreenplayFeatureActionPromptBuilder.prompt(
+            for: .mapFeatureRoadmap,
+            guide: guide,
+            context: ScreenplayFeatureActionContext(
+                logline: "A lonely projectionist has one night to finish a movie that keeps changing around him.",
+                themeArgument: "Art only saves him when he stops using it to hide.",
+                centralQuestion: "Can Eli enter the unfinished film before it erases his life?",
+                protagonistWant: "Eli wants to complete the lost final reel.",
+                protagonistNeed: "Eli needs to be seen outside the fantasy.",
+                antagonisticForce: "The film itself keeps rewriting his memories.",
+                endingImage: "Eli exits the theater into daylight with the last frame still on his hands."
+            )
+        )
+
+        XCTAssertEqual(ScreenplayFeatureActionCommand.mapFeatureRoadmap.routingModeRawValue, "voicePin")
+        XCTAssertTrue(prompt.contains("Build a feature-completion roadmap"))
+        XCTAssertTrue(prompt.contains("Act I spine"))
+        XCTAssertTrue(prompt.contains("Act II engine"))
+        XCTAssertTrue(prompt.contains("Act III payoff path"))
+        XCTAssertTrue(prompt.contains("Next three turns"))
+        XCTAssertTrue(prompt.contains("Do not output screenplay pages"))
+        XCTAssertFalse(prompt.contains("Return screenplay text only."))
+    }
+
     func testFeaturePlannerActionRecoveryStoreSavesProjectScopedSnapshot() {
         let snapshot = featurePlannerActionSnapshot(
             projectId: "project-a",
-            command: .writeNextScene,
-            displayText: "Write next feature scene"
+            command: .mapFeatureRoadmap,
+            displayText: "Map Act I to Act III",
+            routingModeRawValue: "voicePin"
         )
 
         let raw = ScreenplayFeaturePlannerActionRecoveryStore.save(snapshot, in: "")
@@ -200,6 +231,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         )
 
         XCTAssertEqual(restored, snapshot)
+        XCTAssertEqual(restored?.resolvedRoutingModeRawValue, "voicePin")
         XCTAssertNil(ScreenplayFeaturePlannerActionRecoveryStore.pendingSnapshot(projectId: "project-b", in: raw))
     }
 
@@ -703,7 +735,8 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         command: ScreenplayFeatureActionCommand = .writeNextScene,
         displayText: String = "Write next feature scene",
         requestID: String = "planner-request",
-        submittedAt: TimeInterval = 1_700_000_000
+        submittedAt: TimeInterval = 1_700_000_000,
+        routingModeRawValue: String? = nil
     ) -> ScreenplayFeaturePlannerActionSnapshot {
         ScreenplayFeaturePlannerActionSnapshot(
             id: id,
@@ -716,7 +749,8 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             sequenceLabel: "Midpoint Pressure",
             pageRangeText: "p41-p55",
             requestID: requestID,
-            submittedAt: submittedAt
+            submittedAt: submittedAt,
+            routingModeRawValue: routingModeRawValue ?? command.routingModeRawValue
         )
     }
 
