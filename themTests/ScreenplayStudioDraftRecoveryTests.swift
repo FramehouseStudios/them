@@ -186,6 +186,88 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Return screenplay-facing text only."))
     }
 
+    func testFeaturePlannerActionRecoveryStoreSavesProjectScopedSnapshot() {
+        let snapshot = featurePlannerActionSnapshot(
+            projectId: "project-a",
+            command: .writeNextScene,
+            displayText: "Write next feature scene"
+        )
+
+        let raw = ScreenplayFeaturePlannerActionRecoveryStore.save(snapshot, in: "")
+        let restored = ScreenplayFeaturePlannerActionRecoveryStore.pendingSnapshot(
+            projectId: " project-a ",
+            in: raw
+        )
+
+        XCTAssertEqual(restored, snapshot)
+        XCTAssertNil(ScreenplayFeaturePlannerActionRecoveryStore.pendingSnapshot(projectId: "project-b", in: raw))
+    }
+
+    func testFeaturePlannerActionRecoveryStoreReplacesOnlyMatchingProject() {
+        let first = featurePlannerActionSnapshot(
+            id: "planner-first",
+            projectId: "project-a",
+            command: .writeNextScene,
+            displayText: "Write next feature scene",
+            submittedAt: 10
+        )
+        let replacement = featurePlannerActionSnapshot(
+            id: "planner-replacement",
+            projectId: "project-a",
+            command: .outlineNextThreeTurns,
+            displayText: "Outline next three turns",
+            submittedAt: 20
+        )
+        let otherProject = featurePlannerActionSnapshot(
+            id: "planner-other",
+            projectId: "project-b",
+            command: .writeNextScene,
+            displayText: "Write next feature scene",
+            submittedAt: 30
+        )
+
+        var raw = ScreenplayFeaturePlannerActionRecoveryStore.save(first, in: "")
+        raw = ScreenplayFeaturePlannerActionRecoveryStore.save(otherProject, in: raw)
+        raw = ScreenplayFeaturePlannerActionRecoveryStore.save(replacement, in: raw)
+
+        XCTAssertEqual(
+            ScreenplayFeaturePlannerActionRecoveryStore.pendingSnapshot(projectId: "project-a", in: raw),
+            replacement
+        )
+        XCTAssertEqual(
+            ScreenplayFeaturePlannerActionRecoveryStore.pendingSnapshot(projectId: "project-b", in: raw),
+            otherProject
+        )
+    }
+
+    func testFeaturePlannerActionRecoveryStoreClearsById() {
+        let first = featurePlannerActionSnapshot(id: "planner-first", projectId: "project-a")
+        let second = featurePlannerActionSnapshot(id: "planner-second", projectId: "project-b")
+        var raw = ScreenplayFeaturePlannerActionRecoveryStore.save(first, in: "")
+        raw = ScreenplayFeaturePlannerActionRecoveryStore.save(second, in: raw)
+
+        raw = ScreenplayFeaturePlannerActionRecoveryStore.clear(id: " planner-first ", in: raw)
+
+        XCTAssertNil(ScreenplayFeaturePlannerActionRecoveryStore.pendingSnapshot(projectId: "project-a", in: raw))
+        XCTAssertEqual(ScreenplayFeaturePlannerActionRecoveryStore.pendingSnapshot(projectId: "project-b", in: raw), second)
+    }
+
+    func testFeaturePlannerActionSnapshotKeepsRetryIdentityButRefreshesRequest() {
+        let snapshot = featurePlannerActionSnapshot(
+            id: "planner-first",
+            projectId: "project-a",
+            requestID: "request-first",
+            submittedAt: 10
+        )
+
+        let retry = snapshot.retrySnapshot(requestID: "request-retry", submittedAt: 20)
+
+        XCTAssertEqual(retry.id, "planner-first")
+        XCTAssertEqual(retry.requestID, "request-retry")
+        XCTAssertEqual(retry.submittedAt, 20)
+        XCTAssertEqual(retry.prompt, snapshot.prompt)
+    }
+
     func testRestorePolicyKeepsBackendActiveProjectEvenWhenListPageOmitsIt() {
         let selectedProjectId = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
             activeProjectId: " legacy-active-project ",
@@ -613,6 +695,29 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertFalse(ScreenplaySceneSessionRestorePolicy.shouldClearSelection(" scene-a ", validIDs: validIDs))
         XCTAssertTrue(ScreenplaySceneSessionRestorePolicy.shouldClearSelection("scene-old", validIDs: validIDs))
         XCTAssertFalse(ScreenplaySceneSessionRestorePolicy.shouldClearSelection("   ", validIDs: validIDs))
+    }
+
+    private func featurePlannerActionSnapshot(
+        id: String = "planner-action",
+        projectId: String,
+        command: ScreenplayFeatureActionCommand = .writeNextScene,
+        displayText: String = "Write next feature scene",
+        requestID: String = "planner-request",
+        submittedAt: TimeInterval = 1_700_000_000
+    ) -> ScreenplayFeaturePlannerActionSnapshot {
+        ScreenplayFeaturePlannerActionSnapshot(
+            id: id,
+            projectId: projectId,
+            projectTitle: "The Flood Courier",
+            commandRawValue: command.rawValue,
+            displayText: displayText,
+            prompt: "Write the next scene directly into the screenplay draft.",
+            currentAct: "Act II",
+            sequenceLabel: "Midpoint Pressure",
+            pageRangeText: "p41-p55",
+            requestID: requestID,
+            submittedAt: submittedAt
+        )
     }
 
     private func projectSummary(

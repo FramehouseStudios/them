@@ -378,9 +378,9 @@ struct ScreenplayFeatureActionContext: Equatable {
     }
 }
 
-enum ScreenplayFeatureActionCommand: Equatable {
-    case writeNextScene
-    case outlineNextThreeTurns
+enum ScreenplayFeatureActionCommand: String, Codable, Equatable {
+    case writeNextScene = "write_next_scene"
+    case outlineNextThreeTurns = "outline_next_three_turns"
 
     var displayText: String {
         switch self {
@@ -490,6 +490,120 @@ struct ScreenplayFeatureActionPromptBuilder {
                 lines.append("- \(setup)")
             }
         }
+    }
+}
+
+struct ScreenplayFeaturePlannerActionSnapshot: Codable, Equatable, Identifiable {
+    let id: String
+    let projectId: String
+    let projectTitle: String
+    let commandRawValue: String
+    let displayText: String
+    let prompt: String
+    let currentAct: String
+    let sequenceLabel: String
+    let pageRangeText: String
+    let requestID: String
+    let submittedAt: TimeInterval
+
+    var command: ScreenplayFeatureActionCommand? {
+        ScreenplayFeatureActionCommand(rawValue: commandRawValue)
+    }
+
+    var submittedDate: Date {
+        Date(timeIntervalSince1970: submittedAt)
+    }
+
+    func retrySnapshot(
+        requestID: String,
+        submittedAt: TimeInterval = Date().timeIntervalSince1970
+    ) -> ScreenplayFeaturePlannerActionSnapshot {
+        ScreenplayFeaturePlannerActionSnapshot(
+            id: id,
+            projectId: projectId,
+            projectTitle: projectTitle,
+            commandRawValue: commandRawValue,
+            displayText: displayText,
+            prompt: prompt,
+            currentAct: currentAct,
+            sequenceLabel: sequenceLabel,
+            pageRangeText: pageRangeText,
+            requestID: requestID,
+            submittedAt: submittedAt
+        )
+    }
+}
+
+struct ScreenplayFeaturePlannerActionRecoveryStore {
+    static let defaultKey = "studio.feature.planner.pending.v1"
+
+    static func snapshots(from rawValue: String) -> [String: ScreenplayFeaturePlannerActionSnapshot] {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String: ScreenplayFeaturePlannerActionSnapshot].self, from: data) else {
+            return [:]
+        }
+        return decoded.filter { key, snapshot in
+            !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                !snapshot.projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                !snapshot.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    static func encoded(_ snapshots: [String: ScreenplayFeaturePlannerActionSnapshot]) -> String {
+        guard !snapshots.isEmpty,
+              let data = try? JSONEncoder().encode(snapshots),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return encoded
+    }
+
+    static func save(
+        _ snapshot: ScreenplayFeaturePlannerActionSnapshot,
+        in rawValue: String
+    ) -> String {
+        let projectId = snapshot.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !projectId.isEmpty,
+              !snapshot.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return rawValue
+        }
+        var next = snapshots(from: rawValue)
+        next[projectId] = snapshot
+        return encoded(next)
+    }
+
+    static func clear(
+        projectId: String,
+        in rawValue: String
+    ) -> String {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else { return rawValue }
+        var next = snapshots(from: rawValue)
+        next.removeValue(forKey: normalizedProjectId)
+        return encoded(next)
+    }
+
+    static func clear(
+        id: String,
+        in rawValue: String
+    ) -> String {
+        let normalizedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedID.isEmpty else { return rawValue }
+        let next = snapshots(from: rawValue).filter { _, snapshot in
+            snapshot.id.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedID
+        }
+        return encoded(next)
+    }
+
+    static func pendingSnapshot(
+        projectId: String,
+        in rawValue: String
+    ) -> ScreenplayFeaturePlannerActionSnapshot? {
+        let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedProjectId.isEmpty else { return nil }
+        return snapshots(from: rawValue)[normalizedProjectId]
     }
 }
 
@@ -5277,6 +5391,7 @@ struct ScreenplayStudioScreen: View {
     @AppStorage("studio.inspector.workspace.v1") private var studioInspectorWorkspaceStorage = ""
     @AppStorage("studio.inspector.beat.provenance.v1") private var studioInspectorBeatProvenanceStorage = ""
     @AppStorage("studio.inspector.beat.provenance.history.v1") private var studioInspectorBeatProvenanceHistoryStorage = ""
+    @AppStorage(ScreenplayFeaturePlannerActionRecoveryStore.defaultKey) private var featurePlannerPendingActionStorage = ""
 #if DEBUG || os(macOS)
     @AppStorage("studio_debug_voice_turn_result_json") private var studioDebugVoiceTurnResultJSON = ""
     @AppStorage("studio_debug_prepare_token") private var studioDebugPrepareToken: Int = 0
@@ -11541,6 +11656,10 @@ private var projectsSidebarContent: some View {
                     guide: guide
                 )
             }
+
+            if let pendingAction = pendingFeaturePlannerActionForSelectedProject() {
+                featurePlannerActionRecoveryCard(pendingAction)
+            }
         }
     }
 
@@ -11580,7 +11699,8 @@ private var projectsSidebarContent: some View {
         _ command: ScreenplayFeatureActionCommand,
         guide: ScreenplayFeatureProgressionGuide
     ) {
-        guard vm.selectedProject != nil else {
+        let projectId = selectedFeaturePlannerProjectID()
+        guard !projectId.isEmpty else {
             vm.errorText = "Select a project first."
             return
         }
@@ -11589,6 +11709,21 @@ private var projectsSidebarContent: some View {
             guide: guide,
             context: featureActionContext()
         )
+        let requestID = "feature-planner-\(UUID().uuidString.lowercased())"
+        let snapshot = ScreenplayFeaturePlannerActionSnapshot(
+            id: requestID,
+            projectId: projectId,
+            projectTitle: selectedFeaturePlannerProjectTitle(),
+            commandRawValue: command.rawValue,
+            displayText: command.displayText,
+            prompt: prompt,
+            currentAct: guide.currentAct,
+            sequenceLabel: guide.sequenceLabel,
+            pageRangeText: guide.pageRangeText,
+            requestID: requestID,
+            submittedAt: Date().timeIntervalSince1970
+        )
+        persistFeaturePlannerActionSnapshot(snapshot)
         submitStudioPromptText(
             prompt,
             displayText: command.displayText,
@@ -11596,7 +11731,149 @@ private var projectsSidebarContent: some View {
             routingMode: .page,
             successMessage: command.successMessage,
             clearSeedOnSuccess: false,
-            sendingSuggestionID: nil
+            sendingSuggestionID: nil,
+            requestIDOverride: requestID,
+            completion: { error in
+                handleFeaturePlannerActionCompletion(snapshot, error: error)
+            }
+        )
+    }
+
+    private func selectedFeaturePlannerProjectID() -> String {
+        let selectedProjectID = (vm.selectedProject?.id ?? vm.selectedProjectID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return selectedProjectID
+    }
+
+    private func selectedFeaturePlannerProjectTitle() -> String {
+        let title = vm.selectedProject?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? "Untitled screenplay" : title
+    }
+
+    private func pendingFeaturePlannerActionForSelectedProject() -> ScreenplayFeaturePlannerActionSnapshot? {
+        ScreenplayFeaturePlannerActionRecoveryStore.pendingSnapshot(
+            projectId: selectedFeaturePlannerProjectID(),
+            in: featurePlannerPendingActionStorage
+        )
+    }
+
+    private func persistFeaturePlannerActionSnapshot(_ snapshot: ScreenplayFeaturePlannerActionSnapshot) {
+        featurePlannerPendingActionStorage = ScreenplayFeaturePlannerActionRecoveryStore.save(
+            snapshot,
+            in: featurePlannerPendingActionStorage
+        )
+    }
+
+    private func clearFeaturePlannerActionSnapshot(_ snapshot: ScreenplayFeaturePlannerActionSnapshot) {
+        featurePlannerPendingActionStorage = ScreenplayFeaturePlannerActionRecoveryStore.clear(
+            id: snapshot.id,
+            in: featurePlannerPendingActionStorage
+        )
+        vm.infoText = "Cleared the saved feature planner action."
+    }
+
+    private func handleFeaturePlannerActionCompletion(
+        _ snapshot: ScreenplayFeaturePlannerActionSnapshot,
+        error: String?
+    ) {
+        let cleanError = (error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanError.isEmpty {
+            featurePlannerPendingActionStorage = ScreenplayFeaturePlannerActionRecoveryStore.clear(
+                id: snapshot.id,
+                in: featurePlannerPendingActionStorage
+            )
+        } else {
+            persistFeaturePlannerActionSnapshot(snapshot)
+            vm.infoText = "\(cleanError) Saved this feature planner action so you can retry it."
+        }
+    }
+
+    private func retryFeaturePlannerAction(_ snapshot: ScreenplayFeaturePlannerActionSnapshot) {
+        let projectId = selectedFeaturePlannerProjectID()
+        guard ScreenplayProjectScopedState.matches(snapshot.projectId, selectedProjectId: projectId) else {
+            featurePlannerPendingActionStorage = ScreenplayFeaturePlannerActionRecoveryStore.clear(
+                id: snapshot.id,
+                in: featurePlannerPendingActionStorage
+            )
+            vm.infoText = "That saved feature planner action belonged to a different project."
+            return
+        }
+        let requestID = "feature-planner-\(UUID().uuidString.lowercased())"
+        let retrySnapshot = snapshot.retrySnapshot(requestID: requestID)
+        persistFeaturePlannerActionSnapshot(retrySnapshot)
+        submitStudioPromptText(
+            retrySnapshot.prompt,
+            displayText: retrySnapshot.displayText,
+            source: .typed,
+            routingMode: .page,
+            successMessage: retrySnapshot.command?.successMessage ?? "Asked io.them to continue the feature plan.",
+            clearSeedOnSuccess: false,
+            sendingSuggestionID: nil,
+            requestIDOverride: requestID,
+            completion: { error in
+                handleFeaturePlannerActionCompletion(retrySnapshot, error: error)
+            }
+        )
+    }
+
+    private func featurePlannerActionRecoveryCard(_ snapshot: ScreenplayFeaturePlannerActionSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 7) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 10, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.accentColor.opacity(0.78))
+                Text("Saved planner action")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .tracking(0.6)
+                    .foregroundStyle(directionOneChromeTertiaryText)
+                Spacer(minLength: 0)
+                Text(relativeTimestamp(snapshot.submittedDate))
+                    .font(.system(size: 9, weight: .medium, design: .default))
+                    .foregroundStyle(directionOneChromeTertiaryText)
+            }
+
+            Text(snapshot.displayText)
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .foregroundStyle(directionOneChromeText.opacity(0.92))
+                .lineLimit(2)
+
+            Text("\(snapshot.currentAct) · \(snapshot.sequenceLabel) · \(snapshot.pageRangeText)")
+                .font(.system(size: 10, weight: .regular, design: .default))
+                .foregroundStyle(directionOneChromeSecondaryText)
+                .lineLimit(2)
+
+            HStack(spacing: 8) {
+                Button {
+                    retryFeaturePlannerAction(snapshot)
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
+
+                Button {
+                    clearFeaturePlannerActionSnapshot(snapshot)
+                } label: {
+                    Label("Clear", systemImage: "xmark")
+                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
+            }
+        }
+        .padding(9)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.herPaper.opacity(0.86))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.herShellStroke.opacity(0.18), lineWidth: 1)
         )
     }
 
@@ -24422,7 +24699,8 @@ Return revised screenplay lines only.
         sendingSuggestionID: String?,
         requestIDOverride: String? = nil,
         debugSubmitToken: Int? = nil,
-        debugSubmitReplacementMode: String? = nil
+        debugSubmitReplacementMode: String? = nil,
+        completion: ((String?) -> Void)? = nil
     ) {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
@@ -24489,6 +24767,7 @@ Return revised screenplay lines only.
                     successMessage: successMessage,
                     clearSeedOnSuccess: clearSeedOnSuccess
                 )
+                completion?(nil)
                 return
             }
         }
@@ -24531,6 +24810,7 @@ Return revised screenplay lines only.
                 }
 #endif
                 vm.infoText = error
+                completion?(error)
                 return
             }
             if clearSeedOnSuccess {
@@ -24607,6 +24887,7 @@ Return revised screenplay lines only.
             }
 #endif
             vm.infoText = successMessage
+            completion?(nil)
         }
     }
 
