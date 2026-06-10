@@ -244,6 +244,8 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("coming_next:"));
   assert.ok(out.includes("Act II - Reversal Fallout"));
   assert.ok(out.includes("feature-length continuity"));
+  assert.ok(out.includes("feature compass"));
+  assert.ok(out.includes("Silently lock the feature compass before pages"));
   assert.ok(out.includes("whole-feature authorship"));
   assert.ok(out.includes("act engine"));
   assert.ok(out.includes("expert page engine"));
@@ -287,6 +289,9 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("operating_principle: Clementine thinks like a whole-feature screenwriter"));
   assert.ok(out.includes("act_ladder:"));
   assert.ok(out.includes("act_bridge_ladder:"));
+  assert.ok(out.includes("feature_compass:"));
+  assert.ok(out.includes("before_pages: silently lock act, sequence, scene job"));
+  assert.ok(out.includes("completion_output: for whole-feature requests"));
   assert.ok(out.includes("expert_scene_execution:"));
   assert.ok(out.includes("turn_engine: each scene must change leverage"));
   assert.ok(out.includes("speed_protocol: when the user asks for pages"));

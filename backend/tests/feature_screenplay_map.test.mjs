@@ -29,6 +29,11 @@ test("[feature-screenplay-map] maps page position into feature sequence pressure
   assert.ok(block.includes("current_sequence: Act II - Midpoint Pressure"));
   assert.ok(block.includes("act_bridge_ladder:"));
   assert.ok(block.includes("Midpoint -> All Is Lost"));
+  assert.ok(block.includes("feature_compass:"));
+  assert.ok(block.includes("before_pages: silently lock act, sequence, scene job"));
+  assert.ok(block.includes("act_to_act_causality: every page should push a choice/cost chain"));
+  assert.ok(block.includes("scene_to_feature_loop: each scene must satisfy its local objective"));
+  assert.ok(block.includes("page_quality_gate: no placeholder scenes"));
   assert.ok(block.includes("expert_scene_execution:"));
   assert.ok(block.includes("scene_job: make the objective, obstacle, pressure clock, and cost visible"));
   assert.ok(block.includes("speed_protocol: when the user asks for pages"));
@@ -70,6 +75,7 @@ test("[feature-screenplay-map] carries feature spine, promises, and Act III payo
   assert.ok(block.includes("continuity_assets:"));
   assert.ok(block.includes("turn_engine: each scene must change leverage"));
   assert.ok(block.includes("image_system: plant, echo, and transform motifs"));
+  assert.ok(block.includes("completion_output: for whole-feature requests"));
   assert.ok(block.includes("unresolved_setups_to_track:"));
   assert.ok(block.includes("sister's voicemail"));
   assert.ok(block.includes("next_page_moves:"));

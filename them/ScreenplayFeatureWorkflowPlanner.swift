@@ -632,6 +632,11 @@ enum ScreenplayFeatureWorkflowPlanner {
             lines.append(contentsOf: continuityAnchors.map { "- \($0)" })
         }
         lines.append("")
+        lines.append("Feature Compass:")
+        lines.append("- Silent preflight: lock act, sequence, scene job, protagonist want/need, emotional handoff, open setup, exit turn, and final-image pressure.")
+        lines.append("- Scene-to-feature loop: satisfy the local scene objective while changing the whole movie's pressure.")
+        lines.append("- Page quality gate: no placeholder scenes, generic banter, prose summary, or invented deus-ex-machina information; use visual action, conflict, subtext, and consequence.")
+        lines.append("")
         lines.append("Clementine standard: elite feature screenwriting, playable behavior, sharp dialogue, emotional continuity, visual action, no generic prose.")
         return lines.joined(separator: "\n")
     }

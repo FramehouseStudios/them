@@ -235,6 +235,18 @@ function buildActBridgeLines() {
   ];
 }
 
+function buildFeatureCompassLines() {
+  return [
+    "  feature_compass:",
+    "    - before_pages: silently lock act, sequence, scene job, protagonist want/need, emotional handoff, open setup, and exit turn.",
+    "    - act_to_act_causality: every page should push a choice/cost chain from the current act toward the ending image.",
+    "    - scene_to_feature_loop: each scene must satisfy its local objective while changing the whole movie's pressure.",
+    "    - screenplay_speed: choose the next best playable move and write it; do not explain process unless asked.",
+    "    - completion_output: for whole-feature requests, return current sequence, next three turns, Act III payoff path, final-image pressure, and the immediate next page move.",
+    "    - page_quality_gate: no placeholder scenes, generic banter, prose summary, or invented deus-ex-machina information; use visual action, conflict, subtext, and consequence.",
+  ];
+}
+
 function buildExpertExecutionLines() {
   return [
     "  expert_scene_execution:",
@@ -440,6 +452,7 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     `target_pages: ${targetPages}`,
     ...buildActRoadmapLines(),
     ...buildActBridgeLines(),
+    ...buildFeatureCompassLines(),
     ...buildExpertExecutionLines(),
     ...buildFeatureScaleOutputContractLines(),
     ...buildFeaturePageBatchPlanLines({

@@ -146,6 +146,9 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("Act I: wound, want, catalyst, debate, irreversible choice"));
       assert.ok(body.prompt.includes("act_bridge_ladder:"));
       assert.ok(body.prompt.includes("Act IIa -> Midpoint"));
+      assert.ok(body.prompt.includes("feature_compass:"));
+      assert.ok(body.prompt.includes("before_pages: silently lock act, sequence, scene job"));
+      assert.ok(body.prompt.includes("page_quality_gate: no placeholder scenes"));
       assert.ok(body.prompt.includes("expert_scene_execution:"));
       assert.ok(body.prompt.includes("scene_job: make the objective, obstacle, pressure clock, and cost visible"));
       assert.ok(body.prompt.includes("pressure_clock: give the scene a visible deadline"));

@@ -167,6 +167,9 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(snapshot.nextMoves.count, 3)
         XCTAssertTrue(snapshot.nextMoves[0].prompt.contains("Write 3-5 pages in Fountain format only"))
         XCTAssertTrue(snapshot.pageWritePrompt.contains("Clementine standard"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Feature Compass:"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Silent preflight: lock act, sequence, scene job"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Page quality gate: no placeholder scenes"))
         XCTAssertTrue(snapshot.acceptedBatchDetail.contains("L45-L49"))
         XCTAssertTrue(snapshot.hasAcceptedBatch)
     }
