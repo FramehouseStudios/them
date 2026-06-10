@@ -1822,6 +1822,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             persistStudioRoutingDebugMirror()
         }
     }
+    @Published var latestFeatureWorkflowContext: ScreenplayFeatureWorkflowSessionContext?
 
     static let latestVoicePinReplyStorageKey = "studio.latest_voice_pin_reply"
     static let latestVoicePinPromptStorageKey = "studio.latest_voice_pin_prompt"
@@ -4804,6 +4805,22 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             memoryDomain: memoryDomain.promptMemoryDomain,
             recordedAt: Date()
         )
+    }
+
+    func recordFeatureWorkflowContext(_ context: ScreenplayFeatureWorkflowSessionContext) {
+        guard !context.isEmpty else { return }
+        latestFeatureWorkflowContext = context
+    }
+
+    func featureWorkflowContext(for requestID: String?) -> ScreenplayFeatureWorkflowSessionContext? {
+        let cleanRequestID = requestID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !cleanRequestID.isEmpty,
+              let context = latestFeatureWorkflowContext,
+              context.requestID == cleanRequestID,
+              Date().timeIntervalSince(context.createdAt) < 180 else {
+            return nil
+        }
+        return context
     }
 
     private func sceneSnapshot(atOrBeforeLine line: Int) -> ScreenplayDraftSceneSnapshot? {

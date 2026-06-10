@@ -35,6 +35,103 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
     }
 }
 
+struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
+    let requestID: String
+    let submittedPrompt: String
+    let createdAt: Date
+    let act: String
+    let sceneObjective: String
+    let sceneSummary: String
+    let currentBeat: String
+    let featureSequence: String
+    let featureObligation: String
+    let nextScenePlan: String
+    let nextSceneMoves: [String]
+    let continuityNotes: [String]
+    let emotionalContinuity: String
+    let pageCount: Int
+    let targetPages: Int
+
+    init(
+        requestID: String,
+        submittedPrompt: String,
+        snapshot: ScreenplayFeatureWorkflowSnapshot,
+        createdAt: Date = Date(),
+        pageCount: Int = 0,
+        targetPages: Int = 0
+    ) {
+        self.requestID = Self.clean(requestID, limit: 160)
+        self.submittedPrompt = Self.clean(submittedPrompt, limit: 500)
+        self.createdAt = createdAt
+        self.act = Self.clean(snapshot.currentActTitle, limit: 120)
+        self.sceneObjective = Self.clean(snapshot.nextSceneDetail, limit: 280)
+        self.sceneSummary = Self.clean(
+            "\(snapshot.nextSceneTitle): \(snapshot.nextSceneDetail)",
+            limit: 280
+        )
+        self.currentBeat = Self.clean(snapshot.structuralObligation, limit: 220)
+        self.featureSequence = Self.clean(
+            "\(snapshot.currentActTitle) - \(snapshot.actProgressLabel); \(snapshot.draftProgressLabel)",
+            limit: 220
+        )
+        self.featureObligation = Self.clean(snapshot.structuralObligation, limit: 280)
+        self.nextScenePlan = Self.clean(
+            "Next scene: \(snapshot.nextSceneTitle). \(snapshot.nextSceneDetail)",
+            limit: 340
+        )
+        self.nextSceneMoves = Self.cleanList(
+            snapshot.nextMoves.map { "\($0.title): \($0.detail)" },
+            limit: 5,
+            itemLimit: 180
+        )
+        self.continuityNotes = Self.cleanList([
+            "Feature Compass accepted batch: \(snapshot.acceptedBatchDetail)",
+            "Feature Compass next scene: \(snapshot.nextSceneTitle)",
+            "Feature Compass structural obligation: \(snapshot.structuralObligation)"
+        ], limit: 5, itemLimit: 220)
+        self.emotionalContinuity = Self.clean(snapshot.nextSceneDetail, limit: 280)
+        self.pageCount = max(0, pageCount)
+        self.targetPages = max(0, targetPages)
+    }
+
+    var isEmpty: Bool {
+        requestID.isEmpty &&
+            act.isEmpty &&
+            sceneObjective.isEmpty &&
+            sceneSummary.isEmpty &&
+            currentBeat.isEmpty &&
+            featureSequence.isEmpty &&
+            featureObligation.isEmpty &&
+            nextScenePlan.isEmpty &&
+            nextSceneMoves.isEmpty &&
+            continuityNotes.isEmpty &&
+            emotionalContinuity.isEmpty &&
+            pageCount <= 0 &&
+            targetPages <= 0
+    }
+
+    private static func clean(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return String(compact.prefix(max(0, limit)))
+    }
+
+    private static func cleanList(_ values: [String], limit: Int, itemLimit: Int) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            let clean = Self.clean(value, limit: itemLimit)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(clean)
+            if result.count >= limit { break }
+        }
+        return result
+    }
+}
+
 @MainActor
 enum ScreenplayFeatureWorkflowPlanner {
     static func buildSnapshot(

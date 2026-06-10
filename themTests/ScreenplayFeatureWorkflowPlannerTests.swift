@@ -279,6 +279,63 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         ))
     }
 
+    func testFeatureWorkflowSnapshotBuildsSessionContextForBackendMetadata() {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act II",
+            currentActDetail: "Midpoint pressure.",
+            actProgressLabel: "Scene 7/14",
+            draftProgressLabel: "42 pages drafted",
+            acceptedBatchTitle: "3 accepted batches",
+            acceptedBatchDetail: "Latest: L210-L248, 39 lines",
+            acceptedBatchLineRange: 210...248,
+            structuralObligation: "Turn the midpoint victory into irreversible fallout.",
+            nextSceneTitle: "INT. COURTHOUSE HALLWAY - NIGHT",
+            nextSceneDetail: "Mara must lie in public to protect the person she is starting to trust.",
+            nextMoves: [
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-scene",
+                    title: "Write the hallway confession",
+                    detail: "Mara risks a public lie.",
+                    prompt: "Write the hallway confession."
+                ),
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-beat",
+                    title: "Pay off the false alibi",
+                    detail: "The lie saves one person and wounds another.",
+                    prompt: "Write the false alibi beat."
+                )
+            ],
+            pageWritePrompt: "Write the next pages.",
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+
+        let context = ScreenplayFeatureWorkflowSessionContext(
+            requestID: " studio-123 ",
+            submittedPrompt: " continue ",
+            snapshot: snapshot,
+            createdAt: Date(timeIntervalSince1970: 100),
+            pageCount: 42,
+            targetPages: 110
+        )
+
+        XCTAssertEqual(context.requestID, "studio-123")
+        XCTAssertEqual(context.submittedPrompt, "continue")
+        XCTAssertEqual(context.act, "Act II")
+        XCTAssertEqual(context.sceneObjective, "Mara must lie in public to protect the person she is starting to trust.")
+        XCTAssertTrue(context.sceneSummary.contains("INT. COURTHOUSE HALLWAY - NIGHT"))
+        XCTAssertEqual(context.currentBeat, "Turn the midpoint victory into irreversible fallout.")
+        XCTAssertEqual(context.featureSequence, "Act II - Scene 7/14; 42 pages drafted")
+        XCTAssertEqual(context.featureObligation, "Turn the midpoint victory into irreversible fallout.")
+        XCTAssertTrue(context.nextScenePlan.contains("Next scene: INT. COURTHOUSE HALLWAY - NIGHT"))
+        XCTAssertEqual(context.nextSceneMoves.count, 2)
+        XCTAssertTrue(context.continuityNotes.contains("Feature Compass accepted batch: Latest: L210-L248, 39 lines"))
+        XCTAssertEqual(context.emotionalContinuity, "Mara must lie in public to protect the person she is starting to trust.")
+        XCTAssertEqual(context.pageCount, 42)
+        XCTAssertEqual(context.targetPages, 110)
+        XCTAssertFalse(context.isEmpty)
+    }
+
     private func project() -> BackendScreenplayProjectSummary {
         BackendScreenplayProjectSummary(
             id: "project-1",

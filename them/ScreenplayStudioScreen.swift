@@ -24982,14 +24982,24 @@ Return revised screenplay lines only.
         }
         guard !isSubmittingStudioPrompt, !isSubmittingPrompt else { return }
         let routesToPage = shouldRoutePromptToPage(text, routingMode)
-        let featureContinuationPrompt = routesToPage
-            ? ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
+        let featureSnapshotForSubmission = routesToPage ? featureWorkflowSnapshot : nil
+        let featureContinuationPrompt = featureSnapshotForSubmission.flatMap { snapshot in
+            ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
                 for: text,
-                snapshot: featureWorkflowSnapshot
+                snapshot: snapshot
             )
-            : nil
+        }
         let submittedText = featureContinuationPrompt ?? text
         let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
+        if let featureSnapshotForSubmission {
+            liveDraftBridge.recordFeatureWorkflowContext(
+                ScreenplayFeatureWorkflowSessionContext(
+                    requestID: requestID,
+                    submittedPrompt: submittedText,
+                    snapshot: featureSnapshotForSubmission
+                )
+            )
+        }
         let perceivedTarget: StudioPerceivedSpeedState.Target = routesToPage ? .page : .voicePin
 
         beginPerceivedSpeedResponse(

@@ -6933,6 +6933,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             userMessage: cleanPrompt,
             isScreenplayMode: true,
             shouldWriteToPage: shouldWriteToPage,
+            featureWorkflowRequestID: requestID,
             includeVisualContext: !shouldSkipVisualContextForStudioDraftTurn(
                 isScreenplayMode: true,
                 shouldWriteToPage: shouldWriteToPage
@@ -7105,7 +7106,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     await annotateLatestRealtimeStudioTurnIfNeeded(
                         promptSource: .typed,
                         targetOverride: .page,
-                        insertedTextOverride: deferredInsertedText
+                        insertedTextOverride: deferredInsertedText,
+                        requestID: deferredRequestID
                     )
                 }
             } else {
@@ -8922,6 +8924,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         userMessage: String,
         isScreenplayMode: Bool,
         shouldWriteToPage: Bool,
+        featureWorkflowRequestID: String? = nil,
         includeVisualContext: Bool = true
     ) async -> String {
         let projectId = screenplayDraftBridge.preferredProjectID
@@ -8938,7 +8941,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             .isEmpty ? liveScreenplayPack : screenplayDraftBridge.latestPack
         let draftExcerpt = screenplayDraftBridge.draftText
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let promptContinuity = screenplayPromptContinuityContext()
+        let promptContinuity = screenplayPromptContinuityContext(
+            featureWorkflowRequestID: featureWorkflowRequestID
+        )
         let result = await screenplayPromptBuilder.buildModelPrompt(
             backend: backend,
             request: ScreenplayPromptBuilder.Request(
@@ -9009,7 +9014,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
-    private func screenplayPromptContinuityContext() -> (
+    private func screenplayPromptContinuityContext(
+        featureWorkflowRequestID: String? = nil
+    ) -> (
         act: String,
         sceneObjective: String,
         sceneSummary: String,
@@ -9102,11 +9109,56 @@ Write this approved story direction directly into screenplay pages now. Maintain
             continuityNotes.append("Next scene planner: \(featureGuide.nextScenePlan)")
         }
 
+        var promptAct = resolvedAct
+        var promptSceneObjective = sceneObjective
+        var promptSceneSummary = sceneSummary
+        var promptCurrentBeat = currentBeat
+        var promptFeatureSequence = featureGuide.map { "\($0.currentAct) - \($0.sequenceLabel) (\($0.pageRangeText))" } ?? ""
+        var promptFeatureObligation = featureGuide?.dueNow ?? ""
+        var promptNextScenePlan = featureGuide?.nextScenePlan ?? ""
+        var promptNextSceneMoves = featureGuide?.nextMoves ?? []
+        var promptEmotionalContinuity = emotionalContinuity
+        var promptPageCount = estimatedPageCount
+        var promptTargetPages = estimatedPageCount >= 60 ? 110 : 0
+
+        func mergedContextList(_ primary: [String], _ secondary: [String], limit: Int) -> [String] {
+            var seen = Set<String>()
+            var result: [String] = []
+            for item in primary + secondary {
+                let clean = item
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                guard !clean.isEmpty else { continue }
+                let key = clean.lowercased()
+                guard seen.insert(key).inserted else { continue }
+                result.append(clean)
+                if result.count >= limit { break }
+            }
+            return result
+        }
+
+        if let workflowContext = screenplayDraftBridge.featureWorkflowContext(for: featureWorkflowRequestID) {
+            if !workflowContext.act.isEmpty { promptAct = workflowContext.act }
+            if !workflowContext.sceneObjective.isEmpty { promptSceneObjective = workflowContext.sceneObjective }
+            if !workflowContext.sceneSummary.isEmpty { promptSceneSummary = workflowContext.sceneSummary }
+            if !workflowContext.currentBeat.isEmpty { promptCurrentBeat = workflowContext.currentBeat }
+            if !workflowContext.featureSequence.isEmpty { promptFeatureSequence = workflowContext.featureSequence }
+            if !workflowContext.featureObligation.isEmpty { promptFeatureObligation = workflowContext.featureObligation }
+            if !workflowContext.nextScenePlan.isEmpty { promptNextScenePlan = workflowContext.nextScenePlan }
+            promptNextSceneMoves = mergedContextList(workflowContext.nextSceneMoves, promptNextSceneMoves, limit: 5)
+            continuityNotes = mergedContextList(workflowContext.continuityNotes, continuityNotes, limit: 8)
+            if !workflowContext.emotionalContinuity.isEmpty {
+                promptEmotionalContinuity = workflowContext.emotionalContinuity
+            }
+            if workflowContext.pageCount > 0 { promptPageCount = workflowContext.pageCount }
+            if workflowContext.targetPages > 0 { promptTargetPages = workflowContext.targetPages }
+        }
+
         return (
-            act: resolvedAct,
-            sceneObjective: sceneObjective,
-            sceneSummary: sceneSummary,
-            currentBeat: currentBeat,
+            act: promptAct,
+            sceneObjective: promptSceneObjective,
+            sceneSummary: promptSceneSummary,
+            currentBeat: promptCurrentBeat,
             logline: featureSpine.logline,
             themeArgument: featureSpine.themeArgument,
             centralQuestion: featureSpine.centralQuestion,
@@ -9114,17 +9166,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
             protagonistNeed: featureSpine.protagonistNeed,
             antagonisticForce: featureSpine.antagonisticForce,
             endingImage: featureSpine.endingImage,
-            featureSequence: featureGuide.map { "\($0.currentAct) - \($0.sequenceLabel) (\($0.pageRangeText))" } ?? "",
-            featureObligation: featureGuide?.dueNow ?? "",
-            nextScenePlan: featureGuide?.nextScenePlan ?? "",
-            nextSceneMoves: featureGuide?.nextMoves ?? [],
+            featureSequence: promptFeatureSequence,
+            featureObligation: promptFeatureObligation,
+            nextScenePlan: promptNextScenePlan,
+            nextSceneMoves: promptNextSceneMoves,
             beatSequence: Array((activeBinding?.outlineBeatLabels ?? []).prefix(8)),
             characterFocus: characterFocus,
             unresolvedSetups: Array(unresolvedSetups),
             continuityNotes: continuityNotes,
-            emotionalContinuity: emotionalContinuity,
-            pageCount: estimatedPageCount,
-            targetPages: estimatedPageCount >= 60 ? 110 : 0
+            emotionalContinuity: promptEmotionalContinuity,
+            pageCount: promptPageCount,
+            targetPages: promptTargetPages
         )
     }
 
@@ -10008,7 +10060,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func studioThreadCommitMetadata(
         promptSource: ScreenplayStudioUserPrompt.Source,
         targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
-        insertedTextOverride: String? = nil
+        insertedTextOverride: String? = nil,
+        requestID: String? = nil
     ) -> BackendStudioThreadCommitMetadata? {
         guard isStudioSurfaceActive else { return nil }
 
@@ -10068,7 +10121,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ?? (isPageWrite && hasInsertedTextOverride
                 ? clippedStudioAssistantText(cleanInsertedTextOverride, limit: 220)
                 : "")
-        let promptContinuity = screenplayPromptContinuityContext()
+        let promptContinuity = screenplayPromptContinuityContext(
+            featureWorkflowRequestID: requestID
+        )
         let metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: projectId,
             screenplayDocumentRevisionId: anchorMetadata.documentRevisionID,
@@ -10212,7 +10267,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let studioMetadata = studioThreadCommitMetadata(
                 promptSource: promptSource,
                 targetOverride: targetOverride,
-                insertedTextOverride: insertedTextOverride
+                insertedTextOverride: insertedTextOverride,
+                requestID: requestId
             )
             let result = try await BackendMemoryAPI.shared.commitRealtimeTurn(
                 userMessage: cleanUser,
@@ -10243,6 +10299,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         promptSource: ScreenplayStudioUserPrompt.Source,
         targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
         insertedTextOverride: String? = nil,
+        requestID: String? = nil,
         turnIdOverride: String? = nil
     ) async {
         let turnId = (turnIdOverride ?? lastRealtimeCommittedTurnID)
@@ -10255,7 +10312,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         guard let studioMetadata = studioThreadCommitMetadata(
             promptSource: promptSource,
             targetOverride: targetOverride,
-            insertedTextOverride: insertedTextOverride
+            insertedTextOverride: insertedTextOverride,
+            requestID: requestID
         ) else { return }
 
         do {
