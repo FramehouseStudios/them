@@ -310,6 +310,9 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
       assert.equal(body.session_context_applied, true);
       assert.equal(body.session_context_hydrated, true);
       assert.equal(body.screenplay_task_intent, "finish_feature");
+      assert.equal(body.screenplay_task_feature_scope, "page_batch");
+      assert.equal(body.screenplay_task_requested_act, "Act II");
+      assert.equal(body.screenplay_task_requested_pages, 10);
       assert.ok(body.prompt.includes("project: saved-feature-1"));
       assert.ok(body.prompt.includes("version: v2"));
       assert.ok(body.prompt.includes("pack: The Blue Hour"));
@@ -318,6 +321,10 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
       assert.ok(body.prompt.includes("<feature_film_map>"));
       assert.ok(body.prompt.includes("act: Act II"));
       assert.ok(body.prompt.includes("target_pages: 110"));
+      assert.ok(body.prompt.includes("requested_page_batch: 10"));
+      assert.ok(body.prompt.includes("page_batch_execution_plan:"));
+      assert.ok(body.prompt.includes("requested_pages: 10"));
+      assert.ok(body.prompt.includes("delivery: write clean Fountain pages first"));
       assert.ok(body.prompt.includes("active_act_label: Act II"));
       assert.ok(body.prompt.includes("position_basis: outline act label overrides low draft-page estimate."));
       assert.ok(body.prompt.includes("Act II must escalate tactics, reversals, midpoint pressure"));

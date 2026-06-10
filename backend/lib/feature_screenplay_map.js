@@ -258,6 +258,50 @@ function buildFeatureScaleOutputContractLines() {
   ];
 }
 
+function requestedPageBatchFromTask(screenplayTask = {}) {
+  const requestedPages = positiveIntegerOrZero(
+    screenplayTask?.requestedPages ??
+    screenplayTask?.requested_pages ??
+    screenplayTask?.pageBatch ??
+    screenplayTask?.page_batch
+  );
+  return requestedPages > 0 && requestedPages <= 30 ? requestedPages : 0;
+}
+
+function requestedActFromTask(screenplayTask = {}) {
+  return trimContextLine(screenplayTask?.requestedAct ?? screenplayTask?.requested_act, 120);
+}
+
+function buildFeaturePageBatchPlanLines({
+  screenplayTask = null,
+  sequence = null,
+  targetPages = DEFAULT_FEATURE_TARGET_PAGES,
+  currentPage = 0,
+  explicitAct = "",
+} = {}) {
+  const requestedPages = requestedPageBatchFromTask(screenplayTask);
+  if (requestedPages <= 0) return [];
+  const requestedAct = requestedActFromTask(screenplayTask);
+  const targetAct = requestedAct || explicitAct;
+  const lines = [
+    "  page_batch_execution_plan:",
+    `    requested_pages: ${requestedPages}`,
+  ];
+  if (targetAct) lines.push(`    target_act: ${targetAct}`);
+  if (currentPage > 0) lines.push(`    starting_position: p${clamp(currentPage, 1, targetPages)} / ${targetPages}`);
+  if (sequence) {
+    lines.push(`    active_sequence_pressure: ${sequence.act} - ${sequence.label}: ${sequence.pressure}`);
+    lines.push(`    structural_obligation_due_now: ${sequence.obligation}`);
+  } else if (targetAct) {
+    lines.push(`    active_sequence_pressure: ${actPressureForLabel(targetAct)}`);
+  }
+  lines.push("    turn_budget: 2-4 escalating scene turns, not one static conversation.");
+  lines.push("    delivery: write clean Fountain pages first; no outline, diagnosis, recap, or permission loop unless explicitly requested.");
+  lines.push("    continuity: treat the draft excerpt as the live previous page and preserve the emotional handoff.");
+  lines.push("    end_condition: finish the batch on a decision, reveal, cost, or image that hands into the next sequence.");
+  return lines;
+}
+
 function buildStorySpineLines(sessionContext = {}) {
   const spineFields = [
     ["logline", sessionContext.logline],
@@ -394,6 +438,13 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     ...buildActBridgeLines(),
     ...buildExpertExecutionLines(),
     ...buildFeatureScaleOutputContractLines(),
+    ...buildFeaturePageBatchPlanLines({
+      screenplayTask,
+      sequence,
+      targetPages,
+      currentPage,
+      explicitAct,
+    }),
     ...buildStorySpineLines(sessionContext || {}),
     ...buildContinuityAssetLines(sessionContext || {}),
   ];

@@ -339,6 +339,8 @@ struct ScreenplayPromptBuilder {
         guard request.isScreenplayMode else { return "" }
         let taskHint = screenplayTaskHint(from: request)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedPages = Self.requestedPageBatch(from: taskHint)
+        let requestedAct = Self.requestedActLabel(from: taskHint)
         let act = request.act.trimmingCharacters(in: .whitespacesAndNewlines)
         let currentBeat = request.currentBeat.trimmingCharacters(in: .whitespacesAndNewlines)
         let sceneObjective = request.sceneObjective.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -399,6 +401,17 @@ struct ScreenplayPromptBuilder {
 
         if !act.isEmpty {
             lines.append("- Active act: \(String(act.prefix(120)))")
+        }
+        if requestedPages > 0 {
+            lines.append("- Requested page batch: \(requestedPages) pages")
+            let targetAct = requestedAct.isEmpty ? act : requestedAct
+            if !targetAct.isEmpty {
+                lines.append("- Target act from request: \(String(targetAct.prefix(120)))")
+            }
+            lines.append("- Page-batch execution plan: write the next continuous run as playable Fountain; split it into 2-4 escalating scene turns; change story state every 1-2 pages.")
+            lines.append("- Batch end condition: leave a decision, reveal, cost, or image that hands into the next sequence.")
+        } else if !requestedAct.isEmpty {
+            lines.append("- Target act from request: \(String(requestedAct.prefix(120)))")
         }
         if pageCount > 0 {
             let target = targetPages > 0 ? targetPages : 110
@@ -462,6 +475,62 @@ struct ScreenplayPromptBuilder {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    private static func requestedPageBatch(from hint: String) -> Int {
+        let lowered = hint
+            .lowercased()
+            .replacingOccurrences(of: "-", with: " ")
+        let tokens = lowered
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        guard tokens.count >= 2 else { return 0 }
+        let pageWords: [String: Int] = [
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+            "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+            "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+            "nineteen": 19, "twenty": 20,
+        ]
+        let triggerWords: Set<String> = [
+            "next", "another", "first", "final", "last", "write", "draft",
+            "continue", "generate", "give", "do",
+        ]
+        for index in tokens.indices where tokens[index].hasPrefix("page") && index > tokens.startIndex {
+            let previous = tokens[tokens.index(before: index)]
+            let count = Int(previous) ?? pageWords[previous] ?? 0
+            guard count > 0 && count <= 30 else { continue }
+            let windowStart = max(tokens.startIndex, index - 6)
+            let triggerWindow = tokens[windowStart..<index]
+            if triggerWindow.contains(where: { triggerWords.contains($0) }) {
+                return count
+            }
+        }
+        return 0
+    }
+
+    private static func requestedActLabel(from hint: String) -> String {
+        let lowered = hint.lowercased()
+        let hasActOne = matches(#"\bact\s*(i|1|one)\b"#, in: lowered) ||
+            lowered.contains("first act")
+        let hasActTwo = matches(#"\bact\s*(ii|2|two)\b"#, in: lowered) ||
+            lowered.contains("second act")
+        let hasActThree = matches(#"\bact\s*(iii|3|three)\b"#, in: lowered) ||
+            lowered.contains("third act") ||
+            lowered.contains("final act") ||
+            lowered.contains("final sequence") ||
+            lowered.contains("finale")
+        if hasActOne && hasActTwo && hasActThree {
+            return "Act I -> Act II -> Act III"
+        }
+        if hasActThree { return "Act III" }
+        if hasActTwo { return "Act II" }
+        if hasActOne { return "Act I" }
+        return ""
+    }
+
+    private static func matches(_ pattern: String, in text: String) -> Bool {
+        text.range(of: pattern, options: .regularExpression) != nil
     }
 
     private static func applySpeakingPace(to systemPrompt: String, speakingPace: Double) -> String {

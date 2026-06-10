@@ -360,8 +360,46 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
 });
 
 test("[screenplay-task] inferScreenplayTask recognizes feature-scale page requests", () => {
-  assert.equal(inferScreenplayTask("Write the next ten pages of act two.").intent, "finish_feature");
-  assert.equal(inferScreenplayTask("Continue the final sequence into act three.").intent, "finish_feature");
+  const actTwoBatch = inferScreenplayTask("Write the next ten pages of act two.");
+  assert.equal(actTwoBatch.intent, "finish_feature");
+  assert.equal(actTwoBatch.requestedPages, 10);
+  assert.equal(actTwoBatch.requestedAct, "Act II");
+  assert.equal(actTwoBatch.featureScope, "page_batch");
+
+  const actThree = inferScreenplayTask("Continue the final sequence into act three.");
+  assert.equal(actThree.intent, "finish_feature");
+  assert.equal(actThree.requestedAct, "Act III");
+  assert.equal(actThree.featureScope, "act_target");
+});
+
+test("[screenplay-task] feature page requests carry a concrete page-batch execution contract", () => {
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    sessionContext: {
+      projectId: "feature-batch-1",
+      act: "Act II",
+      pageCount: 47,
+      targetPages: 110,
+      currentBeat: "June realizes the receipt makes the win a trap.",
+      emotionalContinuity: "Carry private suspicion into public pressure.",
+      draftExcerpt: "INT. MOTEL ROOM - NIGHT\n\nJUNE folds the receipt.",
+    },
+    screenplayTask: inferScreenplayTask("Write the next ten pages of act two."),
+    userInput: "Write the next ten pages of act two.",
+  });
+
+  assert.ok(out.includes("feature_scope: page_batch"));
+  assert.ok(out.includes("requested_act: Act II"));
+  assert.ok(out.includes("requested_page_batch: 10"));
+  assert.ok(out.includes("page_batch_contract:"));
+  assert.ok(out.includes("Start from the active draft/scene state; do not restart"));
+  assert.ok(out.includes("page_batch_execution_plan:"));
+  assert.ok(out.includes("requested_pages: 10"));
+  assert.ok(out.includes("target_act: Act II"));
+  assert.ok(out.includes("starting_position: p47 / 110"));
+  assert.ok(out.includes("active_sequence_pressure: Act II - Midpoint Pressure"));
+  assert.ok(out.includes("delivery: write clean Fountain pages first"));
+  assert.ok(out.includes("end_condition: finish the batch on a decision, reveal, cost, or image"));
 });
 
 test("buildModelPrompt is deterministic (same inputs → same output)", () => {

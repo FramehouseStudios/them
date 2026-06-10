@@ -175,6 +175,7 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 unresolvedSetups: ["The courthouse key has not paid off."],
                 pageCount: 62,
                 targetPages: 110,
+                screenplayTaskHint: "Write the next ten pages of act two.",
                 isScreenplayMode: true,
                 shouldWriteToPage: true
             )
@@ -195,6 +196,10 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertTrue(result.prompt.contains("Production format: present-tense action"))
         XCTAssertTrue(result.prompt.contains("For Act I -> Act II -> Act III requests"))
         XCTAssertTrue(result.prompt.contains("Active act: Act II"))
+        XCTAssertTrue(result.prompt.contains("Requested page batch: 10 pages"))
+        XCTAssertTrue(result.prompt.contains("Target act from request: Act II"))
+        XCTAssertTrue(result.prompt.contains("Page-batch execution plan: write the next continuous run as playable Fountain"))
+        XCTAssertTrue(result.prompt.contains("Batch end condition: leave a decision, reveal, cost, or image"))
         XCTAssertTrue(result.prompt.contains("Estimated position: p62 / 110"))
         XCTAssertTrue(result.prompt.contains("Current beat: Mara realizes the witness has been lying."))
         XCTAssertTrue(result.prompt.contains("Feature logline: A court artist discovers every verdict has been staged."))

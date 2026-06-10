@@ -78,6 +78,34 @@ test("[feature-screenplay-map] carries feature spine, promises, and Act III payo
   assert.ok(block.includes("For Act I -> Act II -> Act III requests"));
 });
 
+test("[feature-screenplay-map] emits page-batch execution plan for feature page requests", () => {
+  const block = buildFeatureScreenplayMapBlock({
+    sessionContext: {
+      pageCount: 47,
+      targetPages: 110,
+      act: "Act II",
+      draftExcerpt: "INT. MOTEL ROOM - NIGHT\n\nJUNE folds the receipt.",
+    },
+    screenplayTask: {
+      intent: "finish_feature",
+      requestedPages: 10,
+      requestedAct: "Act II",
+      featureScope: "page_batch",
+    },
+  });
+
+  assert.ok(block.includes("page_batch_execution_plan:"));
+  assert.ok(block.includes("requested_pages: 10"));
+  assert.ok(block.includes("target_act: Act II"));
+  assert.ok(block.includes("starting_position: p47 / 110"));
+  assert.ok(block.includes("active_sequence_pressure: Act II - Midpoint Pressure"));
+  assert.ok(block.includes("structural_obligation_due_now: The midpoint must raise stakes"));
+  assert.ok(block.includes("turn_budget: 2-4 escalating scene turns"));
+  assert.ok(block.includes("delivery: write clean Fountain pages first"));
+  assert.ok(block.includes("continuity: treat the draft excerpt as the live previous page"));
+  assert.ok(block.includes("end_condition: finish the batch on a decision, reveal, cost, or image"));
+});
+
 test("[feature-screenplay-map] trusts explicit Act II over a tiny restored draft estimate", () => {
   const block = buildFeatureScreenplayMapBlock({
     sessionContext: {

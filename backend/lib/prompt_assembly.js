@@ -61,6 +61,29 @@ const CLEMENTINE_CREATIVE_PACT = [
   "speed discipline: when the request asks for pages, output page work immediately; no throat-clearing, long diagnosis, permission loop, or generic writing advice.",
   "feature completion: for whole-movie work, orient the current act/sequence, choose the next structural obligation, and produce pages or a beat chain that advances the ending.",
 ];
+const PAGE_COUNT_WORDS = Object.freeze({
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+});
+const PAGE_COUNT_TOKEN = "(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)";
 
 function isNonEmptyObject(v) {
   return v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length > 0;
@@ -105,10 +128,71 @@ function hasAny(text, patterns) {
   return patterns.some((pattern) => pattern.test(text));
 }
 
+function positiveIntegerOrZero(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed);
+}
+
+function pageCountFromToken(token) {
+  const clean = trimToString(token).toLowerCase().replace(/-/g, " ");
+  if (!clean) return 0;
+  if (/^\d+$/.test(clean)) return positiveIntegerOrZero(clean);
+  return PAGE_COUNT_WORDS[clean] || 0;
+}
+
+function inferRequestedPageBatch(lower) {
+  const patterns = [
+    new RegExp(`\\b(?:next|another|first|final|last)\\s+(${PAGE_COUNT_TOKEN})\\s+pages?\\b`),
+    new RegExp(`\\b(?:write|draft|continue|generate|give me|do)\\b[\\s\\S]{0,48}\\b(${PAGE_COUNT_TOKEN})\\s+pages?\\b`),
+  ];
+  for (const pattern of patterns) {
+    const match = lower.match(pattern);
+    const count = pageCountFromToken(match?.[1]);
+    if (count > 0 && count <= 30) return count;
+  }
+  return 0;
+}
+
+function patternMatches(text, pattern) {
+  return pattern.test(text);
+}
+
+function inferRequestedActLabel(lower) {
+  const hasActOne = patternMatches(lower, /\bact\s*(?:i|1|one)\b/) || /\bfirst act\b/.test(lower);
+  const hasActTwo = patternMatches(lower, /\bact\s*(?:ii|2|two)\b/) || /\bsecond act\b/.test(lower);
+  const hasActThree = patternMatches(lower, /\bact\s*(?:iii|3|three)\b/) || /\bthird act|final act|final sequence|finale\b/.test(lower);
+  if (hasActOne && hasActTwo && hasActThree) return "Act I -> Act II -> Act III";
+  if (hasActThree) return "Act III";
+  if (hasActTwo) return "Act II";
+  if (hasActOne) return "Act I";
+  return "";
+}
+
+function inferFeatureRequestMetadata(lower) {
+  const requestedPages = inferRequestedPageBatch(lower);
+  const requestedAct = inferRequestedActLabel(lower);
+  const wholeFeature = hasAny(lower, [
+    /\b(entire|whole|full)\b.*\b(feature|film|movie|screenplay|script)\b/,
+    /\b(feature|film|movie|screenplay|script)\b.*\b(entire|whole|full)\b/,
+    /\bact\s*(?:i|1|one)\b.*\bact\s*(?:ii|2|two)\b.*\bact\s*(?:iii|3|three)\b/i,
+  ]);
+  let featureScope = "";
+  if (requestedPages > 0) featureScope = "page_batch";
+  else if (wholeFeature) featureScope = "whole_feature";
+  else if (requestedAct) featureScope = "act_target";
+  return {
+    requestedPages,
+    requestedAct,
+    featureScope,
+  };
+}
+
 function inferScreenplayTask(userInput = "") {
   const text = trimToString(userInput);
   const lower = text.toLowerCase();
   if (!lower) return null;
+  const featureMetadata = inferFeatureRequestMetadata(lower);
   const sceneDoctorLike = hasAny(lower, [
     /\b(scene doctor|doctor this|doctor the scene|coverage|feedback|notes|diagnose|what'?s wrong|what'?s not working|fix this scene|why isn'?t this working)\b/,
   ]);
@@ -214,7 +298,11 @@ function inferScreenplayTask(userInput = "") {
     output = "Identify drag, compression points, escalation gaps, and page-level fixes that keep momentum alive.";
   }
 
-  return { intent, label, output };
+  const task = { intent, label, output };
+  if (featureMetadata.requestedPages > 0) task.requestedPages = featureMetadata.requestedPages;
+  if (featureMetadata.requestedAct) task.requestedAct = featureMetadata.requestedAct;
+  if (featureMetadata.featureScope) task.featureScope = featureMetadata.featureScope;
+  return task;
 }
 
 function buildScreenplayTaskBlock(screenplayTask) {
@@ -232,6 +320,20 @@ function buildScreenplayTaskBlock(screenplayTask) {
     "role: Clementine is an elite cinematic writing partner, not a generic chatbot.",
     ...CLEMENTINE_CREATIVE_PACT,
   ];
+  const requestedPages = positiveIntegerOrZero(task.requestedPages ?? task.requested_pages ?? task.pageBatch ?? task.page_batch);
+  const requestedAct = trimContextLine(task.requestedAct ?? task.requested_act, 80);
+  const featureScope = trimContextLine(task.featureScope ?? task.feature_scope, 80);
+  if (featureScope) lines.push(`feature_scope: ${featureScope}`);
+  if (requestedAct) lines.push(`requested_act: ${requestedAct}`);
+  if (requestedPages > 0) {
+    lines.push(`requested_page_batch: ${requestedPages}`);
+    lines.push("page_batch_contract:");
+    lines.push("  - Write the next continuous run as screenplay pages, not a summary or lecture.");
+    lines.push("  - Split the batch internally into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.");
+    lines.push("  - Start from the active draft/scene state; do not restart, recap, or outline unless the user explicitly asks.");
+    lines.push("  - Change leverage, information, relationship, tactic, or emotional cost every 1-2 pages.");
+    lines.push("  - End on a decision, reveal, cost, or image that hands cleanly into the next sequence.");
+  }
   const modeGuidance = screenplayModeGuidanceForIntent(intent);
   if (modeGuidance) lines.push(`mode_guidance: ${modeGuidance}`);
   if (output) lines.push(`output: ${output}`);

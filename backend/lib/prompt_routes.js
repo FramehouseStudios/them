@@ -443,6 +443,9 @@ function mountPromptRoutes(app, {
       craft_framework_id: includeCraftContext ? craftFrameworkId : "",
       screenplay_task_intent: screenplayTask?.intent || "",
       screenplay_task_label: screenplayTask?.label || "",
+      screenplay_task_feature_scope: screenplayTask?.featureScope || "",
+      screenplay_task_requested_act: screenplayTask?.requestedAct || "",
+      screenplay_task_requested_pages: screenplayTask?.requestedPages || 0,
     });
   });
 }
