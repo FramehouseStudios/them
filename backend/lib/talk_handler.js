@@ -2094,7 +2094,9 @@ function createTalkHandler(deps) {
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
     const systemBaseRaw = normalizeSystemPrompt(withOutputContract(presetBoundSystem));
     // T08: augment with per-user creative memory when present (no-op for cold users).
-    const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req);
+    const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req, {
+      screenplayTaskHint: transcript,
+    });
     // T21: when this is a screenplay page-write turn, append a compact
     // craft-context block describing the active framework (and, when
     // available, the user's coverage state). Cheap and additive: the

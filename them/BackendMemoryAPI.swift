@@ -566,6 +566,29 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     let screenplayReplacedWriteId: String
     let screenplayRevisedBlockText: String
     let screenplayResolvedAnchorExcerpt: String
+    var screenplayDraftExcerpt: String = ""
+    var screenplayAct: String = ""
+    var screenplaySceneObjective: String = ""
+    var screenplaySceneSummary: String = ""
+    var screenplayCurrentBeat: String = ""
+    var screenplayLogline: String = ""
+    var screenplayThemeArgument: String = ""
+    var screenplayCentralQuestion: String = ""
+    var screenplayProtagonistWant: String = ""
+    var screenplayProtagonistNeed: String = ""
+    var screenplayAntagonisticForce: String = ""
+    var screenplayEndingImage: String = ""
+    var screenplayFeatureSequence: String = ""
+    var screenplayFeatureObligation: String = ""
+    var screenplayNextScenePlan: String = ""
+    var screenplayNextSceneMoves: [String] = []
+    var screenplayBeatSequence: [String] = []
+    var screenplayCharacterFocus: [String] = []
+    var screenplayUnresolvedSetups: [String] = []
+    var screenplayContinuityNotes: [String] = []
+    var screenplayEmotionalContinuity: String = ""
+    var screenplayPageCount: Int? = nil
+    var screenplayTargetPages: Int? = nil
 
     var isMeaningful: Bool {
         !screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -586,7 +609,30 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
         screenplayReplacementApplied ||
         !screenplayReplacedWriteId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayRevisedBlockText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-        !screenplayResolvedAnchorExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !screenplayResolvedAnchorExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayDraftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayAct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplaySceneObjective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplaySceneSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayCurrentBeat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayLogline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayThemeArgument.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayCentralQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayProtagonistWant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayProtagonistNeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayAntagonisticForce.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayEndingImage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayFeatureSequence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayFeatureObligation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayNextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayNextSceneMoves.isEmpty ||
+        !screenplayBeatSequence.isEmpty ||
+        !screenplayCharacterFocus.isEmpty ||
+        !screenplayUnresolvedSetups.isEmpty ||
+        !screenplayContinuityNotes.isEmpty ||
+        !screenplayEmotionalContinuity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        (screenplayPageCount ?? 0) > 0 ||
+        (screenplayTargetPages ?? 0) > 0
     }
 }
 
@@ -2775,6 +2821,76 @@ actor BackendMemoryAPI {
         static let userId = "user_id"
         static let assistantName = "assistant_self_name"
         static let userName = "user_primary_name"
+    }
+
+    private static func studioTurnPayload(_ studioMetadata: BackendStudioThreadCommitMetadata) -> [String: Any] {
+        var payload: [String: Any] = [:]
+
+        func appendString(_ key: String, _ value: String, limit: Int = 1_000) {
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { return }
+            payload[key] = String(clean.prefix(limit))
+        }
+
+        func appendStrings(_ key: String, _ values: [String], maxItems: Int = 12, limit: Int = 240) {
+            let cleanValues = values
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .prefix(maxItems)
+                .map { String($0.prefix(limit)) }
+            guard !cleanValues.isEmpty else { return }
+            payload[key] = Array(cleanValues)
+        }
+
+        func appendInt(_ key: String, _ value: Int?) {
+            guard let value, value > 0 else { return }
+            payload[key] = value
+        }
+
+        appendString("screenplay_project_id", studioMetadata.screenplayProjectId, limit: 96)
+        appendString("screenplay_document_revision_id", studioMetadata.screenplayDocumentRevisionId, limit: 96)
+        appendString("screenplay_target", studioMetadata.screenplayTarget, limit: 80)
+        appendString("screenplay_prompt_source", studioMetadata.screenplayPromptSource, limit: 120)
+        appendString("screenplay_write_id", studioMetadata.screenplayWriteId, limit: 120)
+        appendInt("screenplay_anchor_line", studioMetadata.screenplayAnchorLine)
+        appendInt("screenplay_anchor_end_line", studioMetadata.screenplayAnchorEndLine)
+        appendString("screenplay_anchor_scene_label", studioMetadata.screenplayAnchorSceneLabel, limit: 160)
+        appendString("screenplay_anchor_draft_scene_id", studioMetadata.screenplayAnchorDraftSceneId, limit: 120)
+        appendString("screenplay_anchor_outline_scene_id", studioMetadata.screenplayAnchorOutlineSceneId, limit: 120)
+        appendStrings("screenplay_anchor_outline_beat_ids", studioMetadata.screenplayAnchorOutlineBeatIds, maxItems: 16, limit: 120)
+        appendString("screenplay_anchor_script_node_id", studioMetadata.screenplayAnchorScriptNodeId, limit: 120)
+        appendString("screenplay_note_title", studioMetadata.screenplayNoteTitle, limit: 240)
+        appendString("screenplay_note_body", studioMetadata.screenplayNoteBody, limit: 2_000)
+        appendString("screenplay_inserted_text", studioMetadata.screenplayInsertedText, limit: 12_000)
+        payload["screenplay_replacement_applied"] = studioMetadata.screenplayReplacementApplied
+        appendString("screenplay_replaced_write_id", studioMetadata.screenplayReplacedWriteId, limit: 120)
+        appendString("screenplay_revised_block_text", studioMetadata.screenplayRevisedBlockText, limit: 12_000)
+        appendString("screenplay_resolved_anchor_excerpt", studioMetadata.screenplayResolvedAnchorExcerpt, limit: 280)
+        appendString("screenplay_draft_excerpt", studioMetadata.screenplayDraftExcerpt, limit: 6_000)
+        appendString("screenplay_act", studioMetadata.screenplayAct, limit: 120)
+        appendString("screenplay_scene_objective", studioMetadata.screenplaySceneObjective, limit: 280)
+        appendString("screenplay_scene_summary", studioMetadata.screenplaySceneSummary, limit: 280)
+        appendString("screenplay_current_beat", studioMetadata.screenplayCurrentBeat, limit: 220)
+        appendString("screenplay_logline", studioMetadata.screenplayLogline, limit: 280)
+        appendString("screenplay_theme_argument", studioMetadata.screenplayThemeArgument, limit: 280)
+        appendString("screenplay_central_question", studioMetadata.screenplayCentralQuestion, limit: 280)
+        appendString("screenplay_protagonist_want", studioMetadata.screenplayProtagonistWant, limit: 240)
+        appendString("screenplay_protagonist_need", studioMetadata.screenplayProtagonistNeed, limit: 240)
+        appendString("screenplay_antagonistic_force", studioMetadata.screenplayAntagonisticForce, limit: 260)
+        appendString("screenplay_ending_image", studioMetadata.screenplayEndingImage, limit: 240)
+        appendString("screenplay_feature_sequence", studioMetadata.screenplayFeatureSequence, limit: 220)
+        appendString("screenplay_feature_obligation", studioMetadata.screenplayFeatureObligation, limit: 280)
+        appendString("screenplay_next_scene_plan", studioMetadata.screenplayNextScenePlan, limit: 340)
+        appendStrings("screenplay_next_scene_moves", studioMetadata.screenplayNextSceneMoves, maxItems: 5, limit: 180)
+        appendStrings("screenplay_beat_sequence", studioMetadata.screenplayBeatSequence, maxItems: 8, limit: 180)
+        appendStrings("screenplay_character_focus", studioMetadata.screenplayCharacterFocus, maxItems: 8, limit: 120)
+        appendStrings("screenplay_unresolved_setups", studioMetadata.screenplayUnresolvedSetups, maxItems: 8, limit: 220)
+        appendStrings("screenplay_continuity_notes", studioMetadata.screenplayContinuityNotes, maxItems: 8, limit: 220)
+        appendString("screenplay_emotional_continuity", studioMetadata.screenplayEmotionalContinuity, limit: 280)
+        appendInt("screenplay_page_count", studioMetadata.screenplayPageCount)
+        appendInt("screenplay_target_pages", studioMetadata.screenplayTargetPages)
+
+        return payload
     }
 
     private var clientNameHeaderValue: String {
@@ -4971,22 +5087,7 @@ actor BackendMemoryAPI {
             "request_id": requestId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         ]
         if let studioMetadata, studioMetadata.isMeaningful {
-            payload["studio"] = [
-                "screenplay_project_id": studioMetadata.screenplayProjectId,
-                "screenplay_target": studioMetadata.screenplayTarget,
-                "screenplay_prompt_source": studioMetadata.screenplayPromptSource,
-                "screenplay_write_id": studioMetadata.screenplayWriteId,
-                "screenplay_anchor_line": studioMetadata.screenplayAnchorLine as Any,
-                "screenplay_anchor_end_line": studioMetadata.screenplayAnchorEndLine as Any,
-                "screenplay_anchor_scene_label": studioMetadata.screenplayAnchorSceneLabel,
-                "screenplay_note_title": studioMetadata.screenplayNoteTitle,
-                "screenplay_note_body": studioMetadata.screenplayNoteBody,
-                "screenplay_inserted_text": studioMetadata.screenplayInsertedText,
-                "screenplay_replacement_applied": studioMetadata.screenplayReplacementApplied,
-                "screenplay_replaced_write_id": studioMetadata.screenplayReplacedWriteId,
-                "screenplay_revised_block_text": studioMetadata.screenplayRevisedBlockText,
-                "screenplay_resolved_anchor_excerpt": studioMetadata.screenplayResolvedAnchorExcerpt,
-            ]
+            payload["studio"] = Self.studioTurnPayload(studioMetadata)
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
@@ -5040,27 +5141,7 @@ actor BackendMemoryAPI {
         var request = try makeWriteRequest(path: "/history/annotate_turn")
         let payload: [String: Any] = [
             "turn_id": normalizedTurnId,
-            "studio": [
-                "screenplay_project_id": studioMetadata.screenplayProjectId,
-                "screenplay_document_revision_id": studioMetadata.screenplayDocumentRevisionId,
-                "screenplay_target": studioMetadata.screenplayTarget,
-                "screenplay_prompt_source": studioMetadata.screenplayPromptSource,
-                "screenplay_write_id": studioMetadata.screenplayWriteId,
-                "screenplay_anchor_line": studioMetadata.screenplayAnchorLine as Any,
-                "screenplay_anchor_end_line": studioMetadata.screenplayAnchorEndLine as Any,
-                "screenplay_anchor_scene_label": studioMetadata.screenplayAnchorSceneLabel,
-                "screenplay_anchor_draft_scene_id": studioMetadata.screenplayAnchorDraftSceneId,
-                "screenplay_anchor_outline_scene_id": studioMetadata.screenplayAnchorOutlineSceneId,
-                "screenplay_anchor_outline_beat_ids": studioMetadata.screenplayAnchorOutlineBeatIds,
-                "screenplay_anchor_script_node_id": studioMetadata.screenplayAnchorScriptNodeId,
-                "screenplay_note_title": studioMetadata.screenplayNoteTitle,
-                "screenplay_note_body": studioMetadata.screenplayNoteBody,
-                "screenplay_inserted_text": studioMetadata.screenplayInsertedText,
-                "screenplay_replacement_applied": studioMetadata.screenplayReplacementApplied,
-                "screenplay_replaced_write_id": studioMetadata.screenplayReplacedWriteId,
-                "screenplay_revised_block_text": studioMetadata.screenplayRevisedBlockText,
-                "screenplay_resolved_anchor_excerpt": studioMetadata.screenplayResolvedAnchorExcerpt,
-            ]
+            "studio": Self.studioTurnPayload(studioMetadata)
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 

@@ -9919,6 +9919,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let anchorMetadata = preparedPrompt.shouldWriteToPage
             ? resolvedStudioDialogueAnchorMetadata()
             : nil
+        let promptContinuity = screenplayPromptContinuityContext()
+        let draftExcerpt = preparedPrompt.shouldWriteToPage
+            ? String(screenplayDraftBridge.draftText.trimmingCharacters(in: .whitespacesAndNewlines).suffix(6_000))
+            : ""
         let metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: projectId,
             screenplayDocumentRevisionId: anchorMetadata?.documentRevisionID ?? "",
@@ -9938,7 +9942,30 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayReplacementApplied: false,
             screenplayReplacedWriteId: "",
             screenplayRevisedBlockText: "",
-            screenplayResolvedAnchorExcerpt: ""
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayDraftExcerpt: draftExcerpt,
+            screenplayAct: promptContinuity.act,
+            screenplaySceneObjective: promptContinuity.sceneObjective,
+            screenplaySceneSummary: promptContinuity.sceneSummary,
+            screenplayCurrentBeat: promptContinuity.currentBeat,
+            screenplayLogline: promptContinuity.logline,
+            screenplayThemeArgument: promptContinuity.themeArgument,
+            screenplayCentralQuestion: promptContinuity.centralQuestion,
+            screenplayProtagonistWant: promptContinuity.protagonistWant,
+            screenplayProtagonistNeed: promptContinuity.protagonistNeed,
+            screenplayAntagonisticForce: promptContinuity.antagonisticForce,
+            screenplayEndingImage: promptContinuity.endingImage,
+            screenplayFeatureSequence: promptContinuity.featureSequence,
+            screenplayFeatureObligation: promptContinuity.featureObligation,
+            screenplayNextScenePlan: promptContinuity.nextScenePlan,
+            screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
+            screenplayBeatSequence: promptContinuity.beatSequence,
+            screenplayCharacterFocus: promptContinuity.characterFocus,
+            screenplayUnresolvedSetups: promptContinuity.unresolvedSetups,
+            screenplayContinuityNotes: promptContinuity.continuityNotes,
+            screenplayEmotionalContinuity: promptContinuity.emotionalContinuity,
+            screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
+            screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
         )
         return metadata.isMeaningful ? metadata : nil
     }
@@ -10041,6 +10068,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ?? (isPageWrite && hasInsertedTextOverride
                 ? clippedStudioAssistantText(cleanInsertedTextOverride, limit: 220)
                 : "")
+        let promptContinuity = screenplayPromptContinuityContext()
         let metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: projectId,
             screenplayDocumentRevisionId: anchorMetadata.documentRevisionID,
@@ -10060,7 +10088,30 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayReplacementApplied: replacementApplied,
             screenplayReplacedWriteId: replacedWriteID,
             screenplayRevisedBlockText: revisedBlockText,
-            screenplayResolvedAnchorExcerpt: resolvedAnchorExcerpt
+            screenplayResolvedAnchorExcerpt: resolvedAnchorExcerpt,
+            screenplayDraftExcerpt: isPageWrite ? String(screenplayDraftBridge.draftText.trimmingCharacters(in: .whitespacesAndNewlines).suffix(6_000)) : "",
+            screenplayAct: promptContinuity.act,
+            screenplaySceneObjective: promptContinuity.sceneObjective,
+            screenplaySceneSummary: promptContinuity.sceneSummary,
+            screenplayCurrentBeat: promptContinuity.currentBeat,
+            screenplayLogline: promptContinuity.logline,
+            screenplayThemeArgument: promptContinuity.themeArgument,
+            screenplayCentralQuestion: promptContinuity.centralQuestion,
+            screenplayProtagonistWant: promptContinuity.protagonistWant,
+            screenplayProtagonistNeed: promptContinuity.protagonistNeed,
+            screenplayAntagonisticForce: promptContinuity.antagonisticForce,
+            screenplayEndingImage: promptContinuity.endingImage,
+            screenplayFeatureSequence: promptContinuity.featureSequence,
+            screenplayFeatureObligation: promptContinuity.featureObligation,
+            screenplayNextScenePlan: promptContinuity.nextScenePlan,
+            screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
+            screenplayBeatSequence: promptContinuity.beatSequence,
+            screenplayCharacterFocus: promptContinuity.characterFocus,
+            screenplayUnresolvedSetups: promptContinuity.unresolvedSetups,
+            screenplayContinuityNotes: promptContinuity.continuityNotes,
+            screenplayEmotionalContinuity: promptContinuity.emotionalContinuity,
+            screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
+            screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
         )
         return metadata.isMeaningful ? metadata : nil
     }

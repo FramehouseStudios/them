@@ -3005,6 +3005,36 @@ final class BackendClient {
             body.appendString("\r\n")
         }
         if let studioMetadata, studioMetadata.isMeaningful {
+            func appendStudioField(_ name: String, _ value: String, limit: Int) {
+                let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !clean.isEmpty else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(String(clean.prefix(limit)))
+                body.appendString("\r\n")
+            }
+
+            func appendStudioIntField(_ name: String, _ value: Int?) {
+                guard let value, value > 0 else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(String(max(1, min(200_000, value))))
+                body.appendString("\r\n")
+            }
+
+            func appendStudioListField(_ name: String, _ values: [String]) {
+                let cleanValues = values
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                guard !cleanValues.isEmpty,
+                      let data = try? JSONEncoder().encode(Array(cleanValues.prefix(12))),
+                      let json = String(data: data, encoding: .utf8) else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(json)
+                body.appendString("\r\n")
+            }
+
             let projectId = studioMetadata.screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !projectId.isEmpty {
                 body.appendString("--\(boundary)\r\n")
@@ -3134,6 +3164,29 @@ final class BackendClient {
                 body.appendString(String(resolvedAnchorExcerpt.prefix(280)))
                 body.appendString("\r\n")
             }
+            appendStudioField("screenplay_draft_excerpt", studioMetadata.screenplayDraftExcerpt, limit: 6000)
+            appendStudioField("screenplay_act", studioMetadata.screenplayAct, limit: 120)
+            appendStudioField("screenplay_scene_objective", studioMetadata.screenplaySceneObjective, limit: 280)
+            appendStudioField("screenplay_scene_summary", studioMetadata.screenplaySceneSummary, limit: 280)
+            appendStudioField("screenplay_current_beat", studioMetadata.screenplayCurrentBeat, limit: 220)
+            appendStudioField("screenplay_logline", studioMetadata.screenplayLogline, limit: 280)
+            appendStudioField("screenplay_theme_argument", studioMetadata.screenplayThemeArgument, limit: 280)
+            appendStudioField("screenplay_central_question", studioMetadata.screenplayCentralQuestion, limit: 280)
+            appendStudioField("screenplay_protagonist_want", studioMetadata.screenplayProtagonistWant, limit: 240)
+            appendStudioField("screenplay_protagonist_need", studioMetadata.screenplayProtagonistNeed, limit: 240)
+            appendStudioField("screenplay_antagonistic_force", studioMetadata.screenplayAntagonisticForce, limit: 260)
+            appendStudioField("screenplay_ending_image", studioMetadata.screenplayEndingImage, limit: 240)
+            appendStudioField("screenplay_feature_sequence", studioMetadata.screenplayFeatureSequence, limit: 220)
+            appendStudioField("screenplay_feature_obligation", studioMetadata.screenplayFeatureObligation, limit: 280)
+            appendStudioField("screenplay_next_scene_plan", studioMetadata.screenplayNextScenePlan, limit: 340)
+            appendStudioListField("screenplay_next_scene_moves", studioMetadata.screenplayNextSceneMoves)
+            appendStudioListField("screenplay_beat_sequence", studioMetadata.screenplayBeatSequence)
+            appendStudioListField("screenplay_character_focus", studioMetadata.screenplayCharacterFocus)
+            appendStudioListField("screenplay_unresolved_setups", studioMetadata.screenplayUnresolvedSetups)
+            appendStudioListField("screenplay_continuity_notes", studioMetadata.screenplayContinuityNotes)
+            appendStudioField("screenplay_emotional_continuity", studioMetadata.screenplayEmotionalContinuity, limit: 280)
+            appendStudioIntField("screenplay_page_count", studioMetadata.screenplayPageCount)
+            appendStudioIntField("screenplay_target_pages", studioMetadata.screenplayTargetPages)
         }
         body.appendString("--\(boundary)\r\n")
         body.appendString("Content-Disposition: form-data; name=\"file\"; filename=\"\(uploadMeta.filename)\"\r\n")
