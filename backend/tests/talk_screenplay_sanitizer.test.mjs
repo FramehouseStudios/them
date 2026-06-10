@@ -6,6 +6,7 @@ process.env.OPENAI_API_KEY ||= "test-openai-key";
 process.env.REALTIME_PROVIDER ||= "stub";
 
 const {
+  buildTalkScreenplayOutput,
   normalizeTalkPageReply,
 } = await import("../index.js");
 
@@ -94,4 +95,61 @@ test("[talk-screenplay-sanitizer] keeps playable action lines that are not trail
     "CAL",
     "Say it.",
   ].join("\n"));
+});
+
+test("[talk-screenplay-output] repairs missing scene heading from trusted page anchor", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "MARA: Don't open it.",
+      "",
+      "Eli slips the receipt under the coffee cup before she can see his hand shake.",
+    ].join("\n"),
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAnchorSceneLabel: "INT. MOTEL ROOM - NIGHT",
+    },
+  });
+
+  assert.equal(output.target, "page");
+  assert.equal(output.source, "repaired_scene_anchor");
+  assert.equal(output.text, [
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "MARA",
+    "Don't open it.",
+    "",
+    "Eli slips the receipt under the coffee cup before she can see his hand shake.",
+  ].join("\n"));
+  assert.equal(output.lines[0].element, "sceneHeading");
+  assert.ok(output.lines.some((line) => line.element === "character"));
+});
+
+test("[talk-screenplay-output] repairs action-only continuations when anchor is available", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "June folds the receipt into a white square.",
+      "The motel sign flickers out behind her.",
+    ].join("\n"),
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAnchorSceneLabel: "EXT. MOTEL BALCONY - DAWN",
+    },
+  });
+
+  assert.equal(output.target, "page");
+  assert.equal(output.source, "repaired_scene_anchor");
+  assert.equal(output.text.startsWith("EXT. MOTEL BALCONY - DAWN\n\n"), true);
+});
+
+test("[talk-screenplay-output] rejects craft notes even with a scene anchor", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: "The scene needs more pressure before anyone explains the clue.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAnchorSceneLabel: "INT. MOTEL ROOM - NIGHT",
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_non_screenplay");
 });

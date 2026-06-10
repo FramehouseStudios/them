@@ -3838,6 +3838,7 @@ function isLikelyTalkScreenplayAfterwordLine(line = "") {
     .replace(/[.:!?-–—]+$/g, "")
     .trim();
   return [
+    /^the (?:scene|beat|page|moment|exchange|dialogue|sequence) (?:needs|wants|should|must|can)\b/,
     /^this (?:gives|keeps|lets|makes|should give|should keep)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|character|pressure|subtext|tension|emotion|turn)\b/,
     /^the (?:key|idea|move|pressure|subtext|turn) (?:is|here is)\b/,
     /^i (?:kept|made|gave|added|cut|left|protected|preserved)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|character|pressure|subtext|tension|emotion|turn)\b/,
@@ -4090,6 +4091,71 @@ function buildTalkDirectTranscriptScreenplayOutput(transcript = "") {
   };
 }
 
+function normalizeTalkScreenplayAnchorSceneLabel(studioMeta = null) {
+  if (!studioMeta || typeof studioMeta !== "object") return "";
+  const candidates = [
+    studioMeta.screenplayAnchorSceneLabel,
+    studioMeta.screenplaySceneLabel,
+    studioMeta.sceneLabel,
+  ];
+  for (const candidate of candidates) {
+    const firstLine = normalizeTalkScreenplayText(candidate)
+      .split("\n")
+      .map((line) => stripTalkLeadInPrefix(line).replace(/\s+/g, " ").trim())
+      .find(Boolean) || "";
+    if (firstLine && isTalkSceneHeadingLine(firstLine)) {
+      return normalizeSnippet(firstLine, 160);
+    }
+  }
+  return "";
+}
+
+function hasTalkScreenplaySceneHeading(lines = []) {
+  return (Array.isArray(lines) ? lines : [])
+    .some((line) => String(line?.element || "") === "sceneHeading");
+}
+
+function hasTalkScreenplayAnchorRepairEvidence(lines = []) {
+  const nonEmpty = (Array.isArray(lines) ? lines : [])
+    .filter((line) => String(line?.text || "").trim());
+  if (!nonEmpty.length) return false;
+  if (nonEmpty.some((line) => ["transition", "character", "dialogue", "parenthetical"].includes(line.element))) {
+    return true;
+  }
+  if (nonEmpty.length < 2) return false;
+  if (nonEmpty.some((line) =>
+    isLikelyConversationalScreenplayLine(line.text) ||
+    isLikelyTalkScreenplayAfterwordLine(line.text)
+  )) {
+    return false;
+  }
+  const wordCount = nonEmpty
+    .map((line) => String(line?.text || "").trim().split(/\s+/).filter(Boolean).length)
+    .reduce((sum, count) => sum + count, 0);
+  return wordCount >= 8;
+}
+
+function repairTalkScreenplayOutputWithSceneAnchor({
+  normalizedText = "",
+  lines = [],
+  studioMeta = null,
+} = {}) {
+  if (!normalizedText || hasTalkScreenplaySceneHeading(lines)) return null;
+  if (!hasTalkScreenplayAnchorRepairEvidence(lines)) return null;
+  const sceneLabel = normalizeTalkScreenplayAnchorSceneLabel(studioMeta);
+  if (!sceneLabel) return null;
+  const repairedText = normalizeTalkScreenplayText(`${sceneLabel}\n\n${normalizedText}`);
+  const repairedLines = buildTalkScreenplayOutputLines(repairedText);
+  if (!hasTalkScreenplaySceneHeading(repairedLines) || !isRenderableTalkScreenplayOutput(repairedLines)) {
+    return null;
+  }
+  return {
+    text: repairedText,
+    lines: repairedLines,
+    source: "repaired_scene_anchor",
+  };
+}
+
 function isTalkSceneHeadingLine(line = "") {
   const trimmed = String(line || "").trim();
   return /^(INT|EXT|EST|INT\/EXT|I\/E)\.?(?:\s|$)/i.test(trimmed);
@@ -4200,10 +4266,12 @@ function isRenderableTalkScreenplayOutput(lines = []) {
     return true;
   }
   if (nonEmpty.length === 1) {
-    return !isLikelyConversationalScreenplayLine(nonEmpty[0].text);
+    return !isLikelyConversationalScreenplayLine(nonEmpty[0].text) &&
+      !isLikelyTalkScreenplayAfterwordLine(nonEmpty[0].text);
   }
   const conversationalCount = nonEmpty.filter((line) => isLikelyConversationalScreenplayLine(line.text)).length;
-  return conversationalCount === 0;
+  const afterwordCount = nonEmpty.filter((line) => isLikelyTalkScreenplayAfterwordLine(line.text)).length;
+  return conversationalCount === 0 && afterwordCount === 0;
 }
 
 function estimateTalkSpeechDurationMs(text = "", speed = 1) {
@@ -4811,13 +4879,18 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
       lines: [],
     };
   }
+  const repaired = repairTalkScreenplayOutputWithSceneAnchor({
+    normalizedText,
+    lines,
+    studioMeta,
+  });
 
   return {
     target: "page",
     format: "hollywood",
-    source: "studio_target",
-    text: normalizedText,
-    lines,
+    source: repaired?.source || "studio_target",
+    text: repaired?.text || normalizedText,
+    lines: repaired?.lines || lines,
   };
 }
 
@@ -28796,6 +28869,7 @@ export {
   appendDirectorAddendum,
   directorFlagsFromTranscript,
   inferRoutingPriorityLane,
+  buildTalkScreenplayOutput,
   buildTurnPlanner,
   selectChatModelForTurn,
   buildKnowledgeRetrievalAddendum,

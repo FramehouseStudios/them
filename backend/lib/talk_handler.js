@@ -370,7 +370,10 @@ function createTalkHandler(deps) {
       screenplayFinalTarget: String(talkScreenplayOutput?.target || "").trim().toLowerCase() || "none",
       screenplayOutputSource: String(talkScreenplayOutput?.source || "").trim().toLowerCase() || "none",
       screenplayAuthoritative: Boolean(hasAuthoritativeScreenplayText),
-      screenplayReplyRepaired: Boolean(replyRepaired),
+      screenplayReplyRepaired: Boolean(
+        replyRepaired ||
+        String(talkScreenplayOutput?.source || "").trim().toLowerCase().startsWith("repaired_")
+      ),
     };
   }
 
