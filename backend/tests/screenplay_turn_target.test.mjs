@@ -67,3 +67,17 @@ test("[screenplay-turn-target] studio metadata sanitizer uses inferred page targ
   assert.equal(studio.screenplayProjectId, "feature-1");
   assert.equal(studio.screenplayTarget, "page");
 });
+
+test("[screenplay-turn-target] studio metadata preserves explicit one-line replacement mode", () => {
+  const studio = sanitizeStudioTurnMetadata({
+    screenplayProjectId: "feature-1",
+    screenplayTarget: "page",
+    screenplayAnchorLine: 12,
+    screenplayAnchorEndLine: 12,
+    screenplayInsertionMode: "replace-selection",
+  });
+
+  assert.equal(studio.screenplayInsertionMode, "replace_selection");
+  assert.equal(studio.screenplayAnchorLine, 12);
+  assert.equal(studio.screenplayAnchorEndLine, 12);
+});

@@ -67,6 +67,10 @@ function assertDialogueTimeline(
     expectedSceneId = "",
     expectedBeatId = "",
     expectedFirstScriptNodeId = "",
+    expectedInsertMode = "",
+    expectedInsertionAnchorLine = 0,
+    expectedInsertionAnchorEndLine = 0,
+    expectedFirstSegmentAnchorLine = 0,
   } = {}
 ) {
   assert.ok(timeline && typeof timeline === "object", "missing dialogue timeline payload");
@@ -95,6 +99,20 @@ function assertDialogueTimeline(
   }
   if (expectedFirstScriptNodeId) {
     assert.equal(String(firstSegment.page_anchor?.script_node_id || "").trim(), expectedFirstScriptNodeId);
+  }
+  if (expectedInsertMode) {
+    assert.equal(String(timeline.insertion_anchor?.insert_mode || "").trim(), expectedInsertMode);
+    assert.equal(String(firstSegment.page_anchor?.insert_mode || "").trim(), expectedInsertMode);
+  }
+  if (expectedInsertionAnchorLine > 0) {
+    assert.equal(Number(timeline.insertion_anchor?.anchor_line || 0), expectedInsertionAnchorLine);
+  }
+  if (expectedInsertionAnchorEndLine > 0) {
+    assert.equal(Number(timeline.insertion_anchor?.anchor_end_line || 0), expectedInsertionAnchorEndLine);
+  }
+  if (expectedFirstSegmentAnchorLine > 0) {
+    assert.equal(Number(firstSegment.page_anchor?.anchor_line || 0), expectedFirstSegmentAnchorLine);
+    assert.equal(Number(firstSegment.page_anchor?.anchor_end_line || 0), expectedFirstSegmentAnchorLine);
   }
   if (expectedText) {
     const joined = timeline.segments.map((segment) => String(segment.text || "").trim()).filter(Boolean).join("\n");
@@ -348,6 +366,10 @@ test(
       expectedSceneId: "outline-scene-diner",
       expectedBeatId: "beat-diner",
       expectedFirstScriptNodeId: "draft-scene-diner:line:42",
+      expectedInsertMode: "replace_selection",
+      expectedInsertionAnchorLine: 42,
+      expectedInsertionAnchorEndLine: 48,
+      expectedFirstSegmentAnchorLine: 42,
     });
 
     const turnId = String(headers["x-turn-id"] || "").trim();
@@ -367,6 +389,10 @@ test(
       expectedSceneId: "outline-scene-diner",
       expectedBeatId: "beat-diner",
       expectedFirstScriptNodeId: "draft-scene-diner:line:42",
+      expectedInsertMode: "replace_selection",
+      expectedInsertionAnchorLine: 42,
+      expectedInsertionAnchorEndLine: 48,
+      expectedFirstSegmentAnchorLine: 42,
     });
     assert.equal(String(meta.body.render_contract?.reply_role || "").trim(), "preview");
     assert.equal(Boolean(meta.body.render_contract?.authoritative_page_text_available), true);

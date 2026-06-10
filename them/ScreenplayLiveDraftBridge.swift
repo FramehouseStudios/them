@@ -238,6 +238,9 @@ struct ScreenplayPageAnchor: Codable, Equatable {
     let pageIndex: Int?
     let rangeStart: Int
     let rangeEnd: Int
+    let anchorLine: Int?
+    let anchorEndLine: Int?
+    let insertMode: String?
 }
 
 struct ScreenplayRevealUnit: Codable, Equatable {
@@ -2751,7 +2754,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                         scriptNodeId: resolvedScriptNodeID,
                         pageIndex: segment.pageAnchor.pageIndex,
                         rangeStart: segment.pageAnchor.rangeStart,
-                        rangeEnd: segment.pageAnchor.rangeEnd
+                        rangeEnd: segment.pageAnchor.rangeEnd,
+                        anchorLine: lineNumber,
+                        anchorEndLine: lineNumber,
+                        insertMode: segment.pageAnchor.insertMode
                     ),
                     revealUnits: segment.revealUnits
                 )
@@ -2773,7 +2779,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             scriptNodeId: insertionParagraph?.id ?? timeline.insertionAnchor.scriptNodeId,
             pageIndex: timeline.insertionAnchor.pageIndex,
             rangeStart: timeline.insertionAnchor.rangeStart,
-            rangeEnd: timeline.insertionAnchor.rangeEnd
+            rangeEnd: timeline.insertionAnchor.rangeEnd,
+            anchorLine: timeline.insertionAnchor.anchorLine ?? insertionLineNumber,
+            anchorEndLine: timeline.insertionAnchor.anchorEndLine ?? insertionLineNumber,
+            insertMode: timeline.insertionAnchor.insertMode
         )
 
         if resolvedInsertionAnchor.scriptNodeId != timeline.insertionAnchor.scriptNodeId
@@ -4179,7 +4188,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                     scriptNodeId: "\(revisionID):node:\(offset)",
                     pageIndex: nil,
                     rangeStart: max(startUTF16, 0),
-                    rangeEnd: max(endUTF16, startUTF16)
+                    rangeEnd: max(endUTF16, startUTF16),
+                    anchorLine: nil,
+                    anchorEndLine: nil,
+                    insertMode: nil
                 ),
                 revealUnits: revealUnits
             ))
@@ -4198,7 +4210,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 scriptNodeId: revisionID + ":root",
                 pageIndex: nil,
                 rangeStart: 0,
-                rangeEnd: (trimmed as NSString).length
+                rangeEnd: (trimmed as NSString).length,
+                anchorLine: nil,
+                anchorEndLine: nil,
+                insertMode: nil
             ),
             segments: segments
         )

@@ -554,6 +554,7 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     let screenplayWriteId: String
     let screenplayAnchorLine: Int?
     let screenplayAnchorEndLine: Int?
+    let screenplayInsertionMode: String
     let screenplayAnchorSceneLabel: String
     let screenplayAnchorDraftSceneId: String
     let screenplayAnchorOutlineSceneId: String
@@ -598,6 +599,7 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
         !screenplayWriteId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         screenplayAnchorLine != nil ||
         screenplayAnchorEndLine != nil ||
+        !screenplayInsertionMode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayAnchorSceneLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayAnchorDraftSceneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayAnchorOutlineSceneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -2854,6 +2856,7 @@ actor BackendMemoryAPI {
         appendString("screenplay_write_id", studioMetadata.screenplayWriteId, limit: 120)
         appendInt("screenplay_anchor_line", studioMetadata.screenplayAnchorLine)
         appendInt("screenplay_anchor_end_line", studioMetadata.screenplayAnchorEndLine)
+        appendString("screenplay_insertion_mode", studioMetadata.screenplayInsertionMode, limit: 80)
         appendString("screenplay_anchor_scene_label", studioMetadata.screenplayAnchorSceneLabel, limit: 160)
         appendString("screenplay_anchor_draft_scene_id", studioMetadata.screenplayAnchorDraftSceneId, limit: 120)
         appendString("screenplay_anchor_outline_scene_id", studioMetadata.screenplayAnchorOutlineSceneId, limit: 120)

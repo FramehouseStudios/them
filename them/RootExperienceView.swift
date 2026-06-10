@@ -7702,7 +7702,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 ),
                 pageIndex: timeline.insertionAnchor.pageIndex,
                 rangeStart: timeline.insertionAnchor.rangeStart,
-                rangeEnd: timeline.insertionAnchor.rangeEnd
+                rangeEnd: timeline.insertionAnchor.rangeEnd,
+                anchorLine: timeline.insertionAnchor.anchorLine ?? localBaseLine,
+                anchorEndLine: timeline.insertionAnchor.anchorEndLine ?? localAnchorMetadata.endLine ?? localBaseLine,
+                insertMode: timeline.insertionAnchor.insertMode
             ),
             segments: timeline.segments.enumerated().map { index, segment in
                 let absoluteLine = localBaseLine + index
@@ -7726,7 +7729,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         ),
                         pageIndex: segment.pageAnchor.pageIndex,
                         rangeStart: segment.pageAnchor.rangeStart,
-                        rangeEnd: segment.pageAnchor.rangeEnd
+                        rangeEnd: segment.pageAnchor.rangeEnd,
+                        anchorLine: segment.pageAnchor.anchorLine ?? absoluteLine,
+                        anchorEndLine: segment.pageAnchor.anchorEndLine ?? absoluteLine,
+                        insertMode: segment.pageAnchor.insertMode
                     ),
                     revealUnits: segment.revealUnits.map { unit in
                         ScreenplayRevealUnit(
@@ -9971,6 +9977,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let anchorMetadata = preparedPrompt.shouldWriteToPage
             ? resolvedStudioDialogueAnchorMetadata()
             : nil
+        let insertionMode = (screenplayDraftBridge.pendingReplacementTarget ?? screenplayDraftBridge.submittedReplacementTarget) != nil
+            ? "replace_selection"
+            : "insert_after_anchor"
         let promptContinuity = screenplayPromptContinuityContext()
         let draftExcerpt = preparedPrompt.shouldWriteToPage
             ? String(screenplayDraftBridge.draftText.trimmingCharacters(in: .whitespacesAndNewlines).suffix(6_000))
@@ -9983,6 +9992,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayWriteId: "",
             screenplayAnchorLine: anchorMetadata?.startLine,
             screenplayAnchorEndLine: anchorMetadata?.endLine,
+            screenplayInsertionMode: preparedPrompt.shouldWriteToPage ? insertionMode : "",
             screenplayAnchorSceneLabel: anchorMetadata?.sceneLabel ?? "",
             screenplayAnchorDraftSceneId: anchorMetadata?.draftSceneID ?? "",
             screenplayAnchorOutlineSceneId: anchorMetadata?.outlineSceneID ?? "",
@@ -10132,6 +10142,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayWriteId: committedWrite?.writeID ?? "",
             screenplayAnchorLine: anchorMetadata.startLine,
             screenplayAnchorEndLine: anchorMetadata.endLine,
+            screenplayInsertionMode: replacementApplied ? "replace_selection" : "insert_after_anchor",
             screenplayAnchorSceneLabel: anchorSceneLabel,
             screenplayAnchorDraftSceneId: anchorMetadata.draftSceneID,
             screenplayAnchorOutlineSceneId: anchorMetadata.outlineSceneID,

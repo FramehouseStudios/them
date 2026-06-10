@@ -826,6 +826,9 @@ struct BackendTalkPageAnchor: Codable, Equatable {
     let pageIndex: Int?
     let rangeStart: Int
     let rangeEnd: Int
+    let anchorLine: Int?
+    let anchorEndLine: Int?
+    let insertMode: String?
 
     enum CodingKeys: String, CodingKey {
         case projectId = "project_id"
@@ -835,6 +838,9 @@ struct BackendTalkPageAnchor: Codable, Equatable {
         case pageIndex = "page_index"
         case rangeStart = "range_start"
         case rangeEnd = "range_end"
+        case anchorLine = "anchor_line"
+        case anchorEndLine = "anchor_end_line"
+        case insertMode = "insert_mode"
     }
 }
 

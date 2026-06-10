@@ -4693,6 +4693,51 @@ function buildTalkRevealUnits({
   });
 }
 
+function normalizeTalkScreenplayInsertionMode(raw = "", {
+  anchorLine = 0,
+  anchorEndLine = 0,
+  replacementApplied = false,
+  replacedWriteId = "",
+  revisedBlockText = "",
+} = {}) {
+  const clean = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if ([
+    "replace",
+    "replacement",
+    "replace_selection",
+    "rewrite",
+    "rewrite_selection",
+    "selection",
+  ].includes(clean)) {
+    return "replace_selection";
+  }
+  if ([
+    "insert_after",
+    "insert_after_anchor",
+    "continue",
+    "continuation",
+    "append_after_anchor",
+    "append",
+  ].includes(clean)) {
+    return "insert_after_anchor";
+  }
+
+  const safeAnchorLine = Math.max(0, Number(anchorLine || 0));
+  const safeAnchorEndLine = Math.max(0, Number(anchorEndLine || 0));
+  if (
+    replacementApplied ||
+    String(replacedWriteId || "").trim() ||
+    String(revisedBlockText || "").trim() ||
+    (safeAnchorLine > 0 && safeAnchorEndLine > safeAnchorLine)
+  ) {
+    return "replace_selection";
+  }
+  return "insert_after_anchor";
+}
+
 function buildTalkDialogueTimelineRevision({
   turnId = "",
   requestId = "",
@@ -4718,10 +4763,23 @@ function buildTalkDialogueTimelineRevision({
   const normalizedTurnId = normalizeSnippet(turnId, 96) || revisionId;
   const projectId = normalizeSnippet(studioMeta?.screenplayProjectId, 96);
   const anchorLine = Math.max(1, Number(studioMeta?.screenplayAnchorLine || 1));
+  const anchorEndLine = Math.max(
+    anchorLine,
+    Number(studioMeta?.screenplayAnchorEndLine || 0) > 0
+      ? Number(studioMeta?.screenplayAnchorEndLine || 0)
+      : anchorLine
+  );
   const anchorDraftSceneId = normalizeSnippet(studioMeta?.screenplayAnchorDraftSceneId, 96);
   const anchorOutlineSceneId = normalizeSnippet(studioMeta?.screenplayAnchorOutlineSceneId, 96);
   const anchorBeatIds = normalizeScreenplayStringList(studioMeta?.screenplayAnchorOutlineBeatIds, 12, 96);
   const anchorScriptNodeId = normalizeSnippet(studioMeta?.screenplayAnchorScriptNodeId, 160);
+  const insertionMode = normalizeTalkScreenplayInsertionMode(studioMeta?.screenplayInsertionMode, {
+    anchorLine,
+    anchorEndLine,
+    replacementApplied: studioMeta?.screenplayReplacementApplied,
+    replacedWriteId: studioMeta?.screenplayReplacedWriteId,
+    revisedBlockText: studioMeta?.screenplayRevisedBlockText,
+  });
   const sceneLabel = normalizeSnippet(studioMeta?.screenplayAnchorSceneLabel, 120);
   const sceneId = anchorOutlineSceneId || anchorDraftSceneId || (sceneLabel
     ? `scene:${normalizeDialogueIdPart(sceneLabel)}`
@@ -4787,6 +4845,9 @@ function buildTalkDialogueTimelineRevision({
           page_index: null,
           range_start: Math.max(0, lineRange.start),
           range_end: Math.max(lineRange.start, lineRange.end),
+          anchor_line: absoluteLineNumber,
+          anchor_end_line: absoluteLineNumber,
+          insert_mode: insertionMode,
         },
         reveal_units: buildTalkRevealUnits({
           text: lineText,
@@ -4812,12 +4873,29 @@ function buildTalkDialogueTimelineRevision({
       page_index: null,
       range_start: 0,
       range_end: fullText.length,
+      anchor_line: anchorLine,
+      anchor_end_line: anchorEndLine,
+      insert_mode: insertionMode,
     },
     segments,
   };
 }
 
 function sanitizeTalkPageAnchor(anchor = {}, fallback = {}) {
+  const anchorLine = Math.max(
+    0,
+    Number(anchor.anchor_line ?? anchor.anchorLine ?? fallback.anchor_line ?? fallback.anchorLine ?? 0)
+  );
+  const anchorEndLineRaw = Number(
+    anchor.anchor_end_line ?? anchor.anchorEndLine ?? fallback.anchor_end_line ?? fallback.anchorEndLine ?? 0
+  );
+  const anchorEndLine = anchorEndLineRaw > 0
+    ? Math.max(anchorLine || 1, anchorEndLineRaw)
+    : 0;
+  const insertMode = normalizeTalkScreenplayInsertionMode(
+    anchor.insert_mode ?? anchor.insertMode ?? fallback.insert_mode ?? fallback.insertMode,
+    { anchorLine, anchorEndLine }
+  );
   return {
     project_id: normalizeSnippet(anchor.project_id ?? anchor.projectId ?? fallback.project_id ?? fallback.projectId, 96),
     scene_id: normalizeSnippet(anchor.scene_id ?? anchor.sceneId ?? fallback.scene_id ?? fallback.sceneId, 120),
@@ -4831,6 +4909,9 @@ function sanitizeTalkPageAnchor(anchor = {}, fallback = {}) {
       Math.max(0, Number(anchor.range_start ?? anchor.rangeStart ?? fallback.range_start ?? fallback.rangeStart ?? 0)),
       Number(anchor.range_end ?? anchor.rangeEnd ?? fallback.range_end ?? fallback.rangeEnd ?? 0)
     ),
+    anchor_line: anchorLine > 0 ? anchorLine : null,
+    anchor_end_line: anchorEndLine > 0 ? anchorEndLine : null,
+    insert_mode: insertMode,
   };
 }
 
@@ -9868,6 +9949,29 @@ function sanitizeStudioTurnMetadata(input) {
     input.screenplayRevisedBlockText ?? input.screenplay_revised_block_text ?? input.revisedBlockText ?? input.revised_block_text ?? "",
     6000
   );
+  const screenplayInsertionModeRaw = input.screenplayInsertionMode
+    ?? input.screenplay_insertion_mode
+    ?? input.screenplayInsertMode
+    ?? input.screenplay_insert_mode
+    ?? input.insertMode
+    ?? input.insert_mode
+    ?? "";
+  const hasScreenplayInsertionModeHint = Boolean(
+    String(screenplayInsertionModeRaw || "").trim() ||
+    screenplayReplacementApplied ||
+    screenplayReplacedWriteId ||
+    screenplayRevisedBlockText ||
+    (screenplayAnchorLine > 0 && screenplayAnchorEndLine > screenplayAnchorLine)
+  );
+  const screenplayInsertionMode = hasScreenplayInsertionModeHint
+    ? normalizeTalkScreenplayInsertionMode(screenplayInsertionModeRaw, {
+      anchorLine: screenplayAnchorLine,
+      anchorEndLine: screenplayAnchorEndLine,
+      replacementApplied: screenplayReplacementApplied,
+      replacedWriteId: screenplayReplacedWriteId,
+      revisedBlockText: screenplayRevisedBlockText,
+    })
+    : "";
   const screenplayResolvedAnchorExcerpt = normalizeSnippet(
     input.screenplayResolvedAnchorExcerpt ?? input.screenplay_resolved_anchor_excerpt ?? input.resolvedAnchorExcerpt ?? input.resolved_anchor_excerpt ?? "",
     280
@@ -9981,6 +10085,7 @@ function sanitizeStudioTurnMetadata(input) {
     !screenplayReplacementApplied &&
     !screenplayReplacedWriteId &&
     !screenplayRevisedBlockText &&
+    !screenplayInsertionMode &&
     !screenplayResolvedAnchorExcerpt &&
     !screenplayDraftExcerpt &&
     !screenplayAct &&
@@ -10028,6 +10133,7 @@ function sanitizeStudioTurnMetadata(input) {
     screenplayReplacementApplied,
     screenplayReplacedWriteId,
     screenplayRevisedBlockText,
+    screenplayInsertionMode,
     screenplayResolvedAnchorExcerpt,
     screenplayDraftExcerpt,
     screenplayAct,
@@ -25688,6 +25794,7 @@ function buildConversationHistoryThreads(memory, limit = 60, options = {}) {
       screenplayReplacementApplied: false,
       screenplayReplacedWriteId: "",
       screenplayRevisedBlockText: "",
+      screenplayInsertionMode: "",
       screenplayResolvedAnchorExcerpt: "",
     };
     if (item.role === "assistant") {
@@ -25713,6 +25820,7 @@ function buildConversationHistoryThreads(memory, limit = 60, options = {}) {
       );
       current.screenplayReplacedWriteId = studio.screenplayReplacedWriteId || current.screenplayReplacedWriteId;
       current.screenplayRevisedBlockText = studio.screenplayRevisedBlockText || current.screenplayRevisedBlockText;
+      current.screenplayInsertionMode = studio.screenplayInsertionMode || current.screenplayInsertionMode;
       current.screenplayResolvedAnchorExcerpt =
         studio.screenplayResolvedAnchorExcerpt || current.screenplayResolvedAnchorExcerpt;
     }
@@ -25754,6 +25862,7 @@ function buildConversationHistoryThreads(memory, limit = 60, options = {}) {
         screenplay_replacement_applied: item.screenplayReplacementApplied ? true : null,
         screenplay_replaced_write_id: item.screenplayReplacedWriteId || null,
         screenplay_revised_block_text: item.screenplayRevisedBlockText || null,
+        screenplay_insertion_mode: item.screenplayInsertionMode || null,
         screenplay_resolved_anchor_excerpt: item.screenplayResolvedAnchorExcerpt || null,
       };
     });
