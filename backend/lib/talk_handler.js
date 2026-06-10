@@ -2096,6 +2096,7 @@ function createTalkHandler(deps) {
     // T08: augment with per-user creative memory when present (no-op for cold users).
     const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req, {
       screenplayTaskHint: transcript,
+      memory: sessionMemory,
     });
     // T21: when this is a screenplay page-write turn, append a compact
     // craft-context block describing the active framework (and, when

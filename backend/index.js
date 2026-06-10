@@ -2994,22 +2994,83 @@ function positiveTalkContextInteger(value) {
   return Math.round(parsed);
 }
 
-function buildTalkScreenplayPromptSessionContext(req, studioMeta = null) {
-  const body = req?.body && typeof req.body === "object" ? req.body : {};
+const SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS = new Set([
+  "write_scene",
+  "rewrite_scene",
+  "continue_script",
+  "scene_doctor",
+  "outline_structure",
+  "character_development",
+  "dialogue_punchup",
+  "emotional_continuity",
+  "pacing_pass",
+  "finish_feature",
+  "momentum_rescue",
+]);
+
+function screenplayTaskCanUseProjectMemory(task, hint = "") {
+  const intent = String(task?.intent || "").trim();
+  if (!SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS.has(intent)) return false;
+  const lowerHint = String(hint || "").toLowerCase();
+  if (!lowerHint.trim()) return false;
+  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup"].includes(intent)) {
+    return true;
+  }
+  return /\b(screenplay|script|scene|pages?|act|feature|movie|film|draft|dialogue|beat|sequence|fountain|character|ending|outline|story|emotional continuity|pacing)\b/.test(lowerHint);
+}
+
+function selectScreenplayProjectMemoryForPrompt(memory, studioMeta = null, body = {}) {
+  const items = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  if (!items.length) return null;
   const projectId = normalizeSnippet(
-    body.projectId ?? body.project_id ?? body.screenplayProjectId ?? body.screenplay_project_id ?? studioMeta?.screenplayProjectId,
+    body.projectId ??
+      body.project_id ??
+      body.screenplayProjectId ??
+      body.screenplay_project_id ??
+      studioMeta?.screenplayProjectId ??
+      "",
     96
   );
   const versionId = normalizeSnippet(
-    body.versionId ?? body.version_id ?? body.screenplayDocumentRevisionId ?? body.screenplay_document_revision_id ?? studioMeta?.screenplayDocumentRevisionId,
+    body.versionId ??
+      body.version_id ??
+      body.screenplayDocumentRevisionId ??
+      body.screenplay_document_revision_id ??
+      studioMeta?.screenplayDocumentRevisionId ??
+      "",
     96
   );
+  if (projectId) {
+    const byProject = items.find((item) => item.projectId === projectId);
+    if (byProject) return byProject;
+  }
+  if (versionId) {
+    const byVersion = items.find((item) => item.documentRevisionId === versionId);
+    if (byVersion) return byVersion;
+  }
+  return items[0] || null;
+}
+
+function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory = null) {
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const memoryProject = selectScreenplayProjectMemoryForPrompt(memory, studioMeta, body);
+  const projectId = normalizeSnippet(
+    body.projectId ?? body.project_id ?? body.screenplayProjectId ?? body.screenplay_project_id ?? studioMeta?.screenplayProjectId,
+    96
+  ) || memoryProject?.projectId || "";
+  const versionId = normalizeSnippet(
+    body.versionId ?? body.version_id ?? body.screenplayDocumentRevisionId ?? body.screenplay_document_revision_id ?? studioMeta?.screenplayDocumentRevisionId,
+    96
+  ) || memoryProject?.documentRevisionId || "";
   const scene = normalizeSnippet(
     body.scene ?? body.screenplayScene ?? body.screenplay_scene ?? body.screenplayAnchorSceneLabel ?? body.screenplay_anchor_scene_label ?? studioMeta?.screenplayAnchorSceneLabel,
     160
-  );
+  ) || memoryProject?.sceneLabel || "";
   const target = String(
-    body.screenplayTarget ?? body.screenplay_target ?? studioMeta?.screenplayTarget ?? ""
+    body.screenplayTarget ?? body.screenplay_target ?? studioMeta?.screenplayTarget ?? memoryProject?.lastTarget ?? ""
   ).trim().toLowerCase();
   const phase = normalizeSnippet(
     body.phase ?? body.screenplayPhase ?? body.screenplay_phase ?? (target === "page" ? "scene_draft" : ""),
@@ -3022,38 +3083,40 @@ function buildTalkScreenplayPromptSessionContext(req, studioMeta = null) {
   const draftExcerpt = normalizeTalkMultilineSnippet(
     body.draftExcerpt ?? body.draft_excerpt ?? body.screenplayDraftExcerpt ?? body.screenplay_draft_excerpt,
     6_000
-  );
-  const act = normalizeSnippet(body.act ?? body.screenplayAct ?? body.screenplay_act, 120);
+  ) || normalizeTalkMultilineSnippet(memoryProject?.lastWritePreview, 1_800);
+  const act = normalizeSnippet(body.act ?? body.screenplayAct ?? body.screenplay_act, 120) || memoryProject?.act || "";
   const sceneObjective = normalizeSnippet(
     body.sceneObjective ?? body.scene_objective ?? body.screenplaySceneObjective ?? body.screenplay_scene_objective,
     280
-  );
+  ) || memoryProject?.sceneObjective || "";
   const sceneSummary = normalizeSnippet(
     body.sceneSummary ?? body.scene_summary ?? body.screenplaySceneSummary ?? body.screenplay_scene_summary,
     280
-  );
+  ) || memoryProject?.sceneSummary || "";
   const currentBeat = normalizeSnippet(
     body.currentBeat ?? body.current_beat ?? body.screenplayCurrentBeat ?? body.screenplay_current_beat,
     220
-  );
+  ) || memoryProject?.currentBeat || "";
   const emotionalContinuity = normalizeSnippet(
     body.emotionalContinuity ?? body.emotional_continuity ?? body.screenplayEmotionalContinuity ?? body.screenplay_emotional_continuity,
     280
-  );
+  ) || memoryProject?.emotionalContinuity || "";
   const featureSequence = normalizeSnippet(
     body.featureSequence ?? body.feature_sequence ?? body.screenplayFeatureSequence ?? body.screenplay_feature_sequence,
     220
-  );
+  ) || memoryProject?.featureSequence || "";
   const featureObligation = normalizeSnippet(
     body.featureObligation ?? body.feature_obligation ?? body.screenplayFeatureObligation ?? body.screenplay_feature_obligation,
     280
-  );
+  ) || memoryProject?.featureObligation || "";
   const nextScenePlan = normalizeSnippet(
     body.nextScenePlan ?? body.next_scene_plan ?? body.screenplayNextScenePlan ?? body.screenplay_next_scene_plan,
     340
-  );
-  const pageCount = positiveTalkContextInteger(body.pageCount ?? body.page_count ?? body.screenplayPageCount ?? body.screenplay_page_count);
-  const targetPages = positiveTalkContextInteger(body.targetPages ?? body.target_pages ?? body.screenplayTargetPages ?? body.screenplay_target_pages);
+  ) || memoryProject?.nextScenePlan || "";
+  const pageCount = positiveTalkContextInteger(body.pageCount ?? body.page_count ?? body.screenplayPageCount ?? body.screenplay_page_count) ||
+    positiveTalkContextInteger(memoryProject?.pageCount);
+  const targetPages = positiveTalkContextInteger(body.targetPages ?? body.target_pages ?? body.screenplayTargetPages ?? body.screenplay_target_pages) ||
+    positiveTalkContextInteger(memoryProject?.targetPages);
   const context = {
     projectId,
     versionId,
@@ -3065,21 +3128,31 @@ function buildTalkScreenplayPromptSessionContext(req, studioMeta = null) {
     sceneObjective,
     sceneSummary,
     currentBeat,
-    logline: normalizeSnippet(body.logline ?? body.screenplayLogline ?? body.screenplay_logline, 280),
-    themeArgument: normalizeSnippet(body.themeArgument ?? body.theme_argument ?? body.screenplayThemeArgument ?? body.screenplay_theme_argument, 280),
-    centralQuestion: normalizeSnippet(body.centralQuestion ?? body.central_question ?? body.screenplayCentralQuestion ?? body.screenplay_central_question, 280),
-    protagonistWant: normalizeSnippet(body.protagonistWant ?? body.protagonist_want ?? body.screenplayProtagonistWant ?? body.screenplay_protagonist_want, 240),
-    protagonistNeed: normalizeSnippet(body.protagonistNeed ?? body.protagonist_need ?? body.screenplayProtagonistNeed ?? body.screenplay_protagonist_need, 240),
-    antagonisticForce: normalizeSnippet(body.antagonisticForce ?? body.antagonistic_force ?? body.screenplayAntagonisticForce ?? body.screenplay_antagonistic_force, 260),
-    endingImage: normalizeSnippet(body.endingImage ?? body.ending_image ?? body.screenplayEndingImage ?? body.screenplay_ending_image, 240),
+    logline: normalizeSnippet(body.logline ?? body.screenplayLogline ?? body.screenplay_logline, 280) || memoryProject?.logline || "",
+    themeArgument: normalizeSnippet(body.themeArgument ?? body.theme_argument ?? body.screenplayThemeArgument ?? body.screenplay_theme_argument, 280) || memoryProject?.themeArgument || "",
+    centralQuestion: normalizeSnippet(body.centralQuestion ?? body.central_question ?? body.screenplayCentralQuestion ?? body.screenplay_central_question, 280) || memoryProject?.centralQuestion || "",
+    protagonistWant: normalizeSnippet(body.protagonistWant ?? body.protagonist_want ?? body.screenplayProtagonistWant ?? body.screenplay_protagonist_want, 240) || memoryProject?.protagonistWant || "",
+    protagonistNeed: normalizeSnippet(body.protagonistNeed ?? body.protagonist_need ?? body.screenplayProtagonistNeed ?? body.screenplay_protagonist_need, 240) || memoryProject?.protagonistNeed || "",
+    antagonisticForce: normalizeSnippet(body.antagonisticForce ?? body.antagonistic_force ?? body.screenplayAntagonisticForce ?? body.screenplay_antagonistic_force, 260) || memoryProject?.antagonisticForce || "",
+    endingImage: normalizeSnippet(body.endingImage ?? body.ending_image ?? body.screenplayEndingImage ?? body.screenplay_ending_image, 240) || memoryProject?.endingImage || "",
     featureSequence,
     featureObligation,
     nextScenePlan,
-    nextSceneMoves: parseTalkScreenplayContextList(body.nextSceneMoves ?? body.next_scene_moves ?? body.screenplayNextSceneMoves ?? body.screenplay_next_scene_moves, 5, 180),
-    beatSequence: parseTalkScreenplayContextList(body.beatSequence ?? body.beat_sequence ?? body.screenplayBeatSequence ?? body.screenplay_beat_sequence, 8, 180),
-    characterFocus: parseTalkScreenplayContextList(body.characterFocus ?? body.character_focus ?? body.screenplayCharacterFocus ?? body.screenplay_character_focus, 8, 120),
-    unresolvedSetups: parseTalkScreenplayContextList(body.unresolvedSetups ?? body.unresolved_setups ?? body.screenplayUnresolvedSetups ?? body.screenplay_unresolved_setups, 8, 220),
-    continuityNotes: parseTalkScreenplayContextList(body.continuityNotes ?? body.continuity_notes ?? body.screenplayContinuityNotes ?? body.screenplay_continuity_notes, 8, 220),
+    nextSceneMoves: parseTalkScreenplayContextList(body.nextSceneMoves ?? body.next_scene_moves ?? body.screenplayNextSceneMoves ?? body.screenplay_next_scene_moves, 5, 180)
+      .concat(memoryProject?.nextSceneMoves || [])
+      .slice(0, 5),
+    beatSequence: parseTalkScreenplayContextList(body.beatSequence ?? body.beat_sequence ?? body.screenplayBeatSequence ?? body.screenplay_beat_sequence, 8, 180)
+      .concat(memoryProject?.beatSequence || [])
+      .slice(0, 8),
+    characterFocus: parseTalkScreenplayContextList(body.characterFocus ?? body.character_focus ?? body.screenplayCharacterFocus ?? body.screenplay_character_focus, 8, 120)
+      .concat(memoryProject?.characterFocus || [])
+      .slice(0, 8),
+    unresolvedSetups: parseTalkScreenplayContextList(body.unresolvedSetups ?? body.unresolved_setups ?? body.screenplayUnresolvedSetups ?? body.screenplay_unresolved_setups, 8, 220)
+      .concat(memoryProject?.unresolvedSetups || [])
+      .slice(0, 8),
+    continuityNotes: parseTalkScreenplayContextList(body.continuityNotes ?? body.continuity_notes ?? body.screenplayContinuityNotes ?? body.screenplay_continuity_notes, 8, 220)
+      .concat(memoryProject?.continuityNotes || [])
+      .slice(0, 8),
     emotionalContinuity,
     pageCount,
     targetPages,
@@ -3092,7 +3165,10 @@ function buildTalkScreenplayPromptSessionContext(req, studioMeta = null) {
   return hasContext ? context : null;
 }
 
-async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, { screenplayTaskHint = "" } = {}) {
+async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
+  screenplayTaskHint = "",
+  memory: persistentMemory = null,
+} = {}) {
   const basePrompt = String(systemPrompt || "");
   const hasMemoryBlock = basePrompt.includes(MEMORY_BLOCK_OPEN);
   const hasScreenplayTaskBlock = basePrompt.includes("<screenplay_task>");
@@ -3133,10 +3209,21 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, { screenpla
     } catch (_e) { /* never block the prompt on a twist-log read */ }
   }
   const studioMeta = sanitizeStudioTurnMetadata(req?.body || null);
+  const cleanTaskHint = normalizeSnippet(screenplayTaskHint, 8_000);
+  const inferredScreenplayTask = cleanTaskHint ? inferScreenplayTask(cleanTaskHint) : null;
+  const canUsePersistentScreenplayMemory =
+    screenplayTaskCanUseProjectMemory(inferredScreenplayTask, cleanTaskHint) &&
+    sanitizeScreenplayProjectMemoryItems(
+      persistentMemory?.screenplayProjectMemory,
+      SCREENPLAY_PROJECT_MEMORY_MAX
+    ).length > 0;
   const sessionContext = hasFeatureMapBlock
     ? null
-    : buildTalkScreenplayPromptSessionContext(req, studioMeta);
-  const cleanTaskHint = normalizeSnippet(screenplayTaskHint, 8_000);
+    : buildTalkScreenplayPromptSessionContext(
+      req,
+      studioMeta,
+      canUsePersistentScreenplayMemory ? persistentMemory : null
+    );
   const hasScreenplayModeContext = Boolean(
     sessionContext ||
     studioMeta?.screenplayProjectId ||
@@ -3144,7 +3231,7 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, { screenpla
     studioMeta?.screenplayPromptSource
   );
   const screenplayTask = !hasScreenplayTaskBlock && hasScreenplayModeContext && cleanTaskHint
-    ? inferScreenplayTask(cleanTaskHint)
+    ? inferredScreenplayTask
     : null;
   if (!memory && !blockCoaching && !acceptedTwists && !sessionContext && !screenplayTask) {
     return systemPrompt;
@@ -29896,4 +29983,5 @@ export {
   sanitizeStudioTurnMetadata,
   updateSessionAfterReply,
   upsertScreenplayProjectMemory,
+  wrapSystemPromptWithCreativeMemory,
 };

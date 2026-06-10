@@ -13,6 +13,7 @@ const {
   createEmptyEmotionMemory,
   sanitizeScreenplayProjectMemoryItems,
   updateSessionAfterReply,
+  wrapSystemPromptWithCreativeMemory,
 } = await import("../index.js");
 const {
   sanitizePersistedSessionMemory,
@@ -168,4 +169,88 @@ test("[persistent-screenplay-memory] screenplay memory changes state version and
     "New equilibrium",
   ]);
   assert.equal(sanitized.screenplayProjectMemoryUpdatedAt, 200);
+});
+
+test("[persistent-screenplay-memory] prompt builder rebuilds feature context from durable project memory", async () => {
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      {
+        projectId: "feature-gamma",
+        documentRevisionId: "rev-77",
+        act: "Act II",
+        sceneLabel: "Courthouse Hallway",
+        sceneObjective: "Mara must decide whether to expose the forged testimony.",
+        currentBeat: "The father reveal corners Mara emotionally.",
+        featureSequence: "Midpoint trap",
+        featureObligation: "Force the protagonist to act instead of investigate.",
+        nextScenePlan: "Move into a private corridor confrontation that redefines the case.",
+        characterFocus: ["Mara", "Father"],
+        unresolvedSetups: ["Forged testimony", "Missing evidence"],
+        continuityNotes: ["Mara distrusts the courthouse staff."],
+        emotionalContinuity: "Resolve fractures into grief, then reforms as courage.",
+        lastWritePreview: "FATHER\nI came because the lie finally had your face on it.",
+        pageCount: 47,
+        targetPages: 105,
+        updatedAt: 300,
+      },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 300,
+  };
+
+  const prompt = await wrapSystemPromptWithCreativeMemory(
+    "PERSONA",
+    { body: {} },
+    {
+      screenplayTaskHint: "Continue the script from here.",
+      memory,
+    }
+  );
+
+  assert.ok(prompt.includes("<session>"));
+  assert.ok(prompt.includes("project: feature-gamma"));
+  assert.ok(prompt.includes("version: rev-77"));
+  assert.ok(prompt.includes("scene: Courthouse Hallway"));
+  assert.ok(prompt.includes("current_scene_objective: Mara must decide whether to expose"));
+  assert.ok(prompt.includes("current_beat: The father reveal corners Mara emotionally."));
+  assert.ok(prompt.includes("feature_sequence: Midpoint trap"));
+  assert.ok(prompt.includes("structural_obligation_due_now: Force the protagonist to act"));
+  assert.ok(prompt.includes("next_scene_plan: Move into a private corridor confrontation"));
+  assert.ok(prompt.includes("character_focus:"));
+  assert.ok(prompt.includes("- Father"));
+  assert.ok(prompt.includes("unresolved_setups:"));
+  assert.ok(prompt.includes("Missing evidence"));
+  assert.ok(prompt.includes("draft_excerpt:"));
+  assert.ok(prompt.includes("    FATHER"));
+  assert.ok(prompt.includes("<feature_film_map>"));
+  assert.ok(prompt.includes("current_position: p47 / 105"));
+  assert.ok(prompt.includes("current_sequence: Act II - Midpoint Pressure"));
+  assert.ok(prompt.includes("<screenplay_task>"));
+  assert.ok(prompt.includes("intent: continue_script"));
+});
+
+test("[persistent-screenplay-memory] non-screenplay turns do not inject project memory", async () => {
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      {
+        projectId: "feature-delta",
+        act: "Act III",
+        currentBeat: "The final image is waiting.",
+        updatedAt: 400,
+      },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 400,
+  };
+
+  const prompt = await wrapSystemPromptWithCreativeMemory(
+    "PERSONA",
+    { body: {} },
+    {
+      screenplayTaskHint: "How are you feeling today?",
+      memory,
+    }
+  );
+
+  assert.equal(prompt, "PERSONA");
 });
