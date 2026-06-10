@@ -232,6 +232,43 @@ test("[talk-screenplay-output] rejects outline prose masquerading as page text",
   assert.equal(output.source, "guard_low_page_quality");
 });
 
+test("[talk-screenplay-output] rejects placeholder page scaffolding", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. ROOM - NIGHT",
+      "",
+      "Action line goes here.",
+      "",
+      "CHARACTER A",
+      "Dialogue line.",
+    ].join("\n"),
+    studioMeta: {
+      screenplayTarget: "page",
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+});
+
+test("[talk-screenplay-output] rejects generic low-density page action", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. ROOM - NIGHT",
+      "",
+      "They keep talking in the room.",
+      "The argument gets more intense.",
+      "The conversation continues for a while.",
+    ].join("\n"),
+    studioMeta: {
+      screenplayTarget: "page",
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+});
+
 test("[talk-screenplay-output] rejects craft notes even with a scene anchor", () => {
   const output = buildTalkScreenplayOutput({
     reply: "The scene needs more pressure before anyone explains the clue.",

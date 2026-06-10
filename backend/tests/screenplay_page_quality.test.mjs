@@ -4,6 +4,8 @@ import { test } from "node:test";
 import {
   evaluateScreenplayPageQuality,
   isLikelyOutlineOrCraftArtifactLine,
+  isLikelyPlaceholderScreenplayLine,
+  isLowSignalActionLine,
 } from "../lib/screenplay_page_quality.js";
 
 test("[screenplay-page-quality] accepts playable screenplay pages", () => {
@@ -43,6 +45,52 @@ test("[screenplay-page-quality] rejects outline and craft artifacts masquerading
   assert.equal(quality.reason, "outline_or_craft_artifact");
 });
 
+test("[screenplay-page-quality] rejects placeholder screenplay scaffolding", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. ROOM - NIGHT",
+      "",
+      "Action line goes here.",
+      "",
+      "CHARACTER A",
+      "Dialogue line.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. ROOM - NIGHT", element: "sceneHeading" },
+      { text: "", element: "blank" },
+      { text: "Action line goes here.", element: "action" },
+      { text: "", element: "blank" },
+      { text: "CHARACTER A", element: "character" },
+      { text: "Dialogue line.", element: "dialogue" },
+    ],
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "placeholder_page_text");
+});
+
+test("[screenplay-page-quality] rejects generic low-density page action", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. ROOM - NIGHT",
+      "",
+      "They keep talking in the room.",
+      "The argument gets more intense.",
+      "The conversation continues for a while.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. ROOM - NIGHT", element: "sceneHeading" },
+      { text: "", element: "blank" },
+      { text: "They keep talking in the room.", element: "action" },
+      { text: "The argument gets more intense.", element: "action" },
+      { text: "The conversation continues for a while.", element: "action" },
+    ],
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "low_dramatic_density");
+});
+
 test("[screenplay-page-quality] requires screenplay shape when no trusted anchor exists", () => {
   const quality = evaluateScreenplayPageQuality({
     text: "June folds the receipt into a white square.",
@@ -79,5 +127,15 @@ test("[screenplay-page-quality] protects dialogue lines from prose artifact heur
   assert.equal(
     isLikelyOutlineOrCraftArtifactLine("I would make this scene more tense.", "action"),
     true,
+  );
+});
+
+test("[screenplay-page-quality] identifies placeholders and low-signal action without flagging specific action", () => {
+  assert.equal(isLikelyPlaceholderScreenplayLine("CHARACTER A", "character"), true);
+  assert.equal(isLikelyPlaceholderScreenplayLine("Dialogue line.", "dialogue"), true);
+  assert.equal(isLowSignalActionLine("They keep talking in the room.", "action"), true);
+  assert.equal(
+    isLowSignalActionLine("June folds the receipt into a white square.", "action"),
+    false,
   );
 });
