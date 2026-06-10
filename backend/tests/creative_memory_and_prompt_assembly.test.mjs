@@ -176,6 +176,8 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
   assert.equal(inferScreenplayTask("I need help finishing this feature-length screenplay.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Help me shape act two of the whole movie.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Help me build the entire feature from Act 1 to Act 2 to Act 3.").intent, "finish_feature");
+  assert.equal(inferScreenplayTask("Help me build the entire feature from Act 1 to Act 2 to Act 3.").requestedAct, "Act I -> Act II -> Act III");
+  assert.equal(inferScreenplayTask("Help me build the entire feature from Act 1 to Act 2 to Act 3.").featureScope, "whole_feature");
   assert.equal(inferScreenplayTask("Map Act I, Act II, and Act III so I can complete the full script.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Help me write act three of my feature screenplay.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Work with me to finish the movie all the way to the final image.").intent, "finish_feature");
@@ -295,6 +297,10 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("expert_scene_execution:"));
   assert.ok(out.includes("turn_engine: each scene must change leverage"));
   assert.ok(out.includes("speed_protocol: when the user asks for pages"));
+  assert.ok(out.includes("act_sequence_runway:"));
+  assert.ok(out.includes("Act I - Opening Image / Ordinary World"));
+  assert.ok(out.includes("Act II - Midpoint Pressure"));
+  assert.ok(out.includes("Act III - Climax / Final Image"));
   assert.ok(out.includes("Act I: wound, want, catalyst, debate, irreversible choice"));
   assert.ok(out.includes("Act II: tests, reversals, midpoint truth, escalating cost"));
   assert.ok(out.includes("Act III: synthesis, final plan, climax under maximum pressure, final image"));

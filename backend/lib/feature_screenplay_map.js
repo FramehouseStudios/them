@@ -197,6 +197,19 @@ function nextSequenceAfter(sequence) {
   return FEATURE_SEQUENCE_TEMPLATE[Math.min(index + 1, FEATURE_SEQUENCE_TEMPLATE.length - 1)];
 }
 
+function isWholeFeatureActTarget(actLabel) {
+  const text = trimToString(actLabel, 160).toLowerCase();
+  if (!text) return false;
+  const hasActOne = /\bact\s*(?:i|1|one)\b|\bfirst act\b/.test(text);
+  const hasActTwo = /\bact\s*(?:ii|2|two)\b|\bsecond act\b/.test(text);
+  const hasActThree = /\bact\s*(?:iii|3|three)\b|\bthird act|final act|finale\b/.test(text);
+  return (
+    (hasActOne && hasActTwo && hasActThree) ||
+    /\b(entire|whole|full)\b.*\b(feature|film|movie|screenplay|script)\b/.test(text) ||
+    /\b(feature|film|movie|screenplay|script)\b.*\b(entire|whole|full)\b/.test(text)
+  );
+}
+
 function inferActKind(actLabel) {
   const text = trimToString(actLabel, 120).toLowerCase();
   if (!text) return "";
@@ -219,6 +232,26 @@ function actPressureForLabel(actLabel) {
   }
 }
 
+function sequencesForActLabel(actLabel) {
+  const text = trimToString(actLabel, 160);
+  if (!text) return [];
+  if (isWholeFeatureActTarget(text)) return [...FEATURE_SEQUENCE_TEMPLATE];
+  switch (inferActKind(text)) {
+    case "act1":
+      return FEATURE_SEQUENCE_TEMPLATE.filter((sequence) => sequence.act === "Act I");
+    case "act2":
+      return FEATURE_SEQUENCE_TEMPLATE.filter((sequence) => sequence.act === "Act II");
+    case "act3":
+      return FEATURE_SEQUENCE_TEMPLATE.filter((sequence) => sequence.act === "Act III");
+    default:
+      return [];
+  }
+}
+
+function firstSequenceForActLabel(actLabel) {
+  return sequencesForActLabel(actLabel)[0] || null;
+}
+
 function buildActRoadmapLines() {
   return [
     "  act_ladder:",
@@ -233,6 +266,30 @@ function buildActBridgeLines() {
     "  act_bridge_ladder:",
     ...FEATURE_ACT_BRIDGES.map((bridge) => `    - ${bridge}`),
   ];
+}
+
+function buildActSequenceRunwayLines({ actLabel = "", targetPages = DEFAULT_FEATURE_TARGET_PAGES } = {}) {
+  const targetAct = trimContextLine(actLabel, 160);
+  const sequences = sequencesForActLabel(targetAct);
+  if (!targetAct || !sequences.length) return [];
+  const lines = [
+    "  act_sequence_runway:",
+    `    target: ${targetAct}`,
+    "    sequence_lanes:",
+  ];
+  for (const sequence of sequences) {
+    const range = scaledRange(sequence, targetPages);
+    lines.push(`      - ${sequence.act} - ${sequence.label} (p${range.start}-${range.end}): ${sequence.obligation}`);
+  }
+  lines.push("    next_three_turns:");
+  for (const sequence of sequences.slice(0, 3)) {
+    const move = Array.isArray(sequence.nextMoves) && sequence.nextMoves[0]
+      ? sequence.nextMoves[0]
+      : sequence.pressure;
+    lines.push(`      - ${sequence.label}: ${move}`);
+  }
+  lines.push("    act_handoff: every local scene must push the next sequence obligation; do not write isolated set pieces.");
+  return lines;
 }
 
 function buildFeatureCompassLines() {
@@ -299,15 +356,16 @@ function buildFeaturePageBatchPlanLines({
   if (requestedPages <= 0) return [];
   const requestedAct = requestedActFromTask(screenplayTask);
   const targetAct = requestedAct || explicitAct;
+  const activeSequence = sequence || firstSequenceForActLabel(targetAct);
   const lines = [
     "  page_batch_execution_plan:",
     `    requested_pages: ${requestedPages}`,
   ];
   if (targetAct) lines.push(`    target_act: ${targetAct}`);
   if (currentPage > 0) lines.push(`    starting_position: p${clamp(currentPage, 1, targetPages)} / ${targetPages}`);
-  if (sequence) {
-    lines.push(`    active_sequence_pressure: ${sequence.act} - ${sequence.label}: ${sequence.pressure}`);
-    lines.push(`    structural_obligation_due_now: ${sequence.obligation}`);
+  if (activeSequence) {
+    lines.push(`    active_sequence_pressure: ${activeSequence.act} - ${activeSequence.label}: ${activeSequence.pressure}`);
+    lines.push(`    structural_obligation_due_now: ${activeSequence.obligation}`);
   } else if (targetAct) {
     lines.push(`    active_sequence_pressure: ${actPressureForLabel(targetAct)}`);
   }
@@ -439,6 +497,8 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     sessionContext?.act ?? sessionContext?.currentAct ?? sessionContext?.current_act,
     120
   );
+  const requestedAct = requestedActFromTask(screenplayTask);
+  const actRunwayLabel = requestedAct || explicitAct;
   const explicitActKind = inferActKind(explicitAct);
   const lowDraftEstimateConflictsWithAct = rawCurrentPage > 0
     && rawCurrentPage <= 2
@@ -455,6 +515,10 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     ...buildFeatureCompassLines(),
     ...buildExpertExecutionLines(),
     ...buildFeatureScaleOutputContractLines(),
+    ...buildActSequenceRunwayLines({
+      actLabel: actRunwayLabel,
+      targetPages,
+    }),
     ...buildFeaturePageBatchPlanLines({
       screenplayTask,
       sequence,
@@ -482,16 +546,32 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
       lines.push(`    - ${nextSequence.act} - ${nextSequence.label} (p${nextRange.start}-${nextRange.end}): ${nextSequence.pressure}`);
     }
   } else if (explicitAct) {
+    const actSequence = firstSequenceForActLabel(explicitAct);
+    const followingSequence = actSequence ? nextSequenceAfter(actSequence) : null;
     lines.push(`  active_act_label: ${explicitAct}`);
     if (lowDraftEstimateConflictsWithAct) {
       lines.push("  position_basis: outline act label overrides low draft-page estimate.");
     }
+    lines.push(`  active_act_pressure: ${actPressureForLabel(explicitAct)}`);
     lines.push("  due_now:");
-    lines.push(`    - ${actPressureForLabel(explicitAct)}`);
-    lines.push("  next_page_moves:");
-    lines.push("    - Name the active structural obligation before writing.");
-    lines.push("    - Advance one irreversible character choice instead of summarizing the act.");
-    lines.push("    - Preserve the emotional handoff from the previous beat.");
+    if (actSequence) {
+      const range = scaledRange(actSequence, targetPages);
+      lines.push(`    - inferred_sequence_lane: ${actSequence.act} - ${actSequence.label} (p${range.start}-${range.end})`);
+      lines.push(`    - ${actSequence.pressure}`);
+      lines.push(`    - ${actSequence.obligation}`);
+      lines.push(...buildNextPageMoveLines(actSequence));
+      if (followingSequence && followingSequence.id !== actSequence.id) {
+        const nextRange = scaledRange(followingSequence, targetPages);
+        lines.push("  coming_next:");
+        lines.push(`    - ${followingSequence.act} - ${followingSequence.label} (p${nextRange.start}-${nextRange.end}): ${followingSequence.pressure}`);
+      }
+    } else {
+      lines.push(`    - ${actPressureForLabel(explicitAct)}`);
+      lines.push("  next_page_moves:");
+      lines.push("    - Name the active structural obligation before writing.");
+      lines.push("    - Advance one irreversible character choice instead of summarizing the act.");
+      lines.push("    - Preserve the emotional handoff from the previous beat.");
+    }
   }
 
   lines.push("  feature_completion_protocol:");

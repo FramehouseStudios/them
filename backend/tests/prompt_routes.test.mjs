@@ -331,6 +331,9 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
       assert.ok(body.prompt.includes("feature page sprint: for multi-page asks"));
       assert.ok(body.prompt.includes("page_batch_execution_plan:"));
       assert.ok(body.prompt.includes("requested_pages: 10"));
+      assert.ok(body.prompt.includes("act_sequence_runway:"));
+      assert.ok(body.prompt.includes("Act II - Promise Of The Premise"));
+      assert.ok(body.prompt.includes("Act II - Collapse / All Is Lost"));
       assert.ok(body.prompt.includes("delivery: write clean Fountain pages first"));
       assert.ok(body.prompt.includes("markdown fence, menu choices, or permission loop"));
       assert.ok(body.prompt.includes("active_act_label: Act II"));
