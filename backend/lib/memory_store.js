@@ -18,6 +18,7 @@ function memoryStoreDeps() {
 function sanitizePersistedSessionMemory(rawMemory) {
   const {
     DEFAULT_ASSISTANT_SELF_NAME,
+    SCREENPLAY_PROJECT_MEMORY_MAX = 8,
     SESSION_THREAD_SCHEMA_VERSION,
     SOCIAL_SPARK_MEMORY_MAX,
     TASKS_MAX_STORED,
@@ -49,6 +50,7 @@ function sanitizePersistedSessionMemory(rawMemory) {
     sanitizePersonalitySignalMap,
     sanitizeReassuranceStyleScores,
     sanitizeRememberedPeople,
+    sanitizeScreenplayProjectMemoryItems,
     sanitizeSnippetList,
     sanitizeSocialSparkMoments,
     sanitizeTaskItems,
@@ -145,6 +147,24 @@ function sanitizePersistedSessionMemory(rawMemory) {
   merged.recentAssistantTurns = sanitizeSnippetList(merged.recentAssistantTurns, 8, 170);
   merged.recentQAPairs = sanitizeSnippetList(merged.recentQAPairs, 8, 260);
   merged.turnHistory = sanitizeTurnHistoryItems(merged.turnHistory).slice(-USER_MEMORY_TURN_HISTORY_MAX);
+  if (typeof sanitizeScreenplayProjectMemoryItems === "function") {
+    merged.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+      merged.screenplayProjectMemory,
+      SCREENPLAY_PROJECT_MEMORY_MAX
+    );
+  } else {
+    merged.screenplayProjectMemory = (Array.isArray(merged.screenplayProjectMemory)
+      ? merged.screenplayProjectMemory
+      : []
+    )
+      .map((item) => (item && typeof item === "object" ? item : null))
+      .filter(Boolean)
+      .slice(-SCREENPLAY_PROJECT_MEMORY_MAX);
+  }
+  merged.screenplayProjectMemoryUpdatedAt = Math.max(
+    0,
+    Number(merged.screenplayProjectMemoryUpdatedAt || 0)
+  );
 
   let listeningFacts = [];
   const sourceFacts = Array.isArray(merged.listeningFacts) ? merged.listeningFacts : [];

@@ -1469,6 +1469,17 @@ const USER_MEMORY_STORE_PATH = resolveStorePath(
   "user_memory_store.json",
   process.env.USER_MEMORY_STORE_PATH
 );
+const SCREENPLAY_PROJECT_MEMORY_MAX = Math.max(
+  3,
+  parsePositiveInt(process.env.SCREENPLAY_PROJECT_MEMORY_MAX, 8)
+);
+const SCREENPLAY_PROJECT_MEMORY_PROMPT_MAX = Math.max(
+  1,
+  Math.min(
+    4,
+    parsePositiveInt(process.env.SCREENPLAY_PROJECT_MEMORY_PROMPT_MAX, 3)
+  )
+);
 const SCALE_REDIS_URL = String(process.env.REDIS_URL || process.env.SCALE_REDIS_URL || "").trim();
 const SCALE_POSTGRES_URL = String(process.env.DATABASE_URL || process.env.SCALE_POSTGRES_URL || "").trim();
 const SCALE_BACKPLANE_ENABLED = process.env.SCALE_BACKPLANE_ENABLED == null
@@ -3153,6 +3164,7 @@ configureMemoryStore({
   DEFAULT_ASSISTANT_SELF_NAME,
   SESSION_THREAD_SCHEMA_VERSION,
   SOCIAL_SPARK_MEMORY_MAX,
+  SCREENPLAY_PROJECT_MEMORY_MAX,
   TASKS_MAX_STORED,
   USER_MEMORY_LISTENING_FACTS_MAX,
   USER_MEMORY_MAX_TRACKED,
@@ -3189,6 +3201,7 @@ configureMemoryStore({
   sanitizeReassuranceStyleScores,
   sanitizeRememberedPeople,
   sanitizeSnippetList,
+  sanitizeScreenplayProjectMemoryItems,
   sanitizeSocialSparkMoments,
   sanitizeTaskItems,
   sanitizeTimestampList,
@@ -9604,6 +9617,8 @@ function createEmptyEmotionMemory() {
     recentAssistantTurns: [],
     recentQAPairs: [],
     turnHistory: [],
+    screenplayProjectMemory: [],
+    screenplayProjectMemoryUpdatedAt: 0,
     listeningFacts: [],
     recentEmotionShifts: [],
     activeThemes: [],
@@ -14020,6 +14035,385 @@ function buildLastConversationRecap(memory, userSnippet, assistantSnippet) {
   return normalizeSnippet(parts.join(" "), 220);
 }
 
+const SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS = [
+  ["projectId", 96],
+  ["documentRevisionId", 96],
+  ["act", 120],
+  ["sceneLabel", 120],
+  ["sceneObjective", 280],
+  ["sceneSummary", 280],
+  ["currentBeat", 220],
+  ["logline", 280],
+  ["themeArgument", 280],
+  ["centralQuestion", 280],
+  ["protagonistWant", 240],
+  ["protagonistNeed", 240],
+  ["antagonisticForce", 260],
+  ["endingImage", 240],
+  ["featureSequence", 220],
+  ["featureObligation", 280],
+  ["nextScenePlan", 340],
+  ["emotionalContinuity", 280],
+  ["lastTarget", 48],
+  ["lastPromptSource", 48],
+  ["lastWriteId", 72],
+  ["lastInsertionMode", 48],
+  ["lastAnchorExcerpt", 280],
+  ["lastUserIntent", 180],
+  ["lastAssistantReply", 220],
+];
+
+const SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS = [
+  ["nextSceneMoves", 5, 180],
+  ["beatSequence", 8, 180],
+  ["characterFocus", 8, 120],
+  ["unresolvedSetups", 8, 220],
+  ["continuityNotes", 8, 220],
+];
+
+function normalizeScreenplayMemoryInteger(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed);
+}
+
+function resolveScreenplayMemoryInput(item, camelKey, snakeKey = "") {
+  if (!item || typeof item !== "object") return undefined;
+  const screenKey = `screenplay${camelKey.charAt(0).toUpperCase()}${camelKey.slice(1)}`;
+  const screenSnakeKey = snakeKey ? `screenplay_${snakeKey}` : "";
+  return item[camelKey] ??
+    (snakeKey ? item[snakeKey] : undefined) ??
+    item[screenKey] ??
+    (screenSnakeKey ? item[screenSnakeKey] : undefined);
+}
+
+function sanitizeScreenplayProjectMemoryItems(items, maxItems = SCREENPLAY_PROJECT_MEMORY_MAX) {
+  const source = Array.isArray(items) ? items : [];
+  const cappedMax = Math.max(1, Number(maxItems || SCREENPLAY_PROJECT_MEMORY_MAX));
+  const byKey = new Map();
+
+  for (const item of source) {
+    if (!item || typeof item !== "object") continue;
+    const record = {
+      schemaVersion: 1,
+    };
+
+    for (const [field, maxChars] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
+      const snakeKey = field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+      record[field] = normalizeSnippet(
+        resolveScreenplayMemoryInput(item, field, snakeKey) ?? "",
+        maxChars
+      );
+    }
+
+    record.lastWritePreview = normalizeTalkMultilineSnippet(
+      item.lastWritePreview ??
+        item.last_write_preview ??
+        item.screenplayLastWritePreview ??
+        item.screenplay_last_write_preview ??
+        item.screenplayInsertedText ??
+        item.screenplay_inserted_text ??
+        item.screenplayRevisedBlockText ??
+        item.screenplay_revised_block_text ??
+        "",
+      900
+    );
+
+    for (const [field, maxListItems, maxChars] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+      const snakeKey = field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+      record[field] = parseTalkScreenplayContextList(
+        resolveScreenplayMemoryInput(item, field, snakeKey),
+        maxListItems,
+        maxChars
+      );
+    }
+
+    record.pageCount = normalizeScreenplayMemoryInteger(
+      item.pageCount ?? item.page_count ?? item.screenplayPageCount ?? item.screenplay_page_count
+    );
+    record.targetPages = normalizeScreenplayMemoryInteger(
+      item.targetPages ?? item.target_pages ?? item.screenplayTargetPages ?? item.screenplay_target_pages
+    );
+    record.lastAnchorLine = normalizeScreenplayMemoryInteger(
+      item.lastAnchorLine ?? item.last_anchor_line ?? item.screenplayAnchorLine ?? item.screenplay_anchor_line
+    );
+    record.lastAnchorEndLine = normalizeScreenplayMemoryInteger(
+      item.lastAnchorEndLine ?? item.last_anchor_end_line ?? item.screenplayAnchorEndLine ?? item.screenplay_anchor_end_line
+    );
+    record.writeCount = normalizeScreenplayMemoryInteger(item.writeCount ?? item.write_count);
+    record.interactionCount = normalizeScreenplayMemoryInteger(
+      item.interactionCount ?? item.interaction_count
+    );
+    record.createdAt = Math.max(
+      0,
+      Number(item.createdAt ?? item.created_at ?? item.rememberedAt ?? item.remembered_at ?? 0)
+    );
+    record.updatedAt = Math.max(
+      record.createdAt,
+      Number(item.updatedAt ?? item.updated_at ?? item.lastUpdatedAt ?? item.last_updated_at ?? 0)
+    );
+
+    const hasProjectMemory = Boolean(
+      record.projectId ||
+      record.documentRevisionId ||
+      record.act ||
+      record.sceneLabel ||
+      record.sceneObjective ||
+      record.sceneSummary ||
+      record.currentBeat ||
+      record.logline ||
+      record.featureSequence ||
+      record.featureObligation ||
+      record.nextScenePlan ||
+      record.emotionalContinuity ||
+      record.lastWritePreview ||
+      record.nextSceneMoves.length ||
+      record.beatSequence.length ||
+      record.characterFocus.length ||
+      record.unresolvedSetups.length ||
+      record.continuityNotes.length ||
+      record.pageCount > 0 ||
+      record.targetPages > 0
+    );
+    if (!hasProjectMemory) continue;
+
+    const key = record.projectId ||
+      record.documentRevisionId ||
+      [record.sceneLabel, record.act].filter(Boolean).join("|") ||
+      `idx-${byKey.size}`;
+    const existing = byKey.get(key);
+    if (!existing || Number(record.updatedAt || 0) >= Number(existing.updatedAt || 0)) {
+      byKey.set(key, record);
+    }
+  }
+
+  return [...byKey.values()]
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, cappedMax);
+}
+
+function buildScreenplayProjectMemoryRecordFromStudioMeta(
+  studioMeta,
+  { transcript = "", reply = "", nowTs = Date.now() } = {}
+) {
+  const studio = sanitizeStudioTurnMetadata(studioMeta);
+  if (!studio) return null;
+  const hasScreenplayMemorySignal = Boolean(
+    studio.screenplayProjectId ||
+    studio.screenplayDocumentRevisionId ||
+    studio.screenplayTarget ||
+    studio.screenplayAnchorSceneLabel ||
+    studio.screenplayAct ||
+    studio.screenplaySceneObjective ||
+    studio.screenplaySceneSummary ||
+    studio.screenplayCurrentBeat ||
+    studio.screenplayLogline ||
+    studio.screenplayThemeArgument ||
+    studio.screenplayCentralQuestion ||
+    studio.screenplayProtagonistWant ||
+    studio.screenplayProtagonistNeed ||
+    studio.screenplayAntagonisticForce ||
+    studio.screenplayEndingImage ||
+    studio.screenplayFeatureSequence ||
+    studio.screenplayFeatureObligation ||
+    studio.screenplayNextScenePlan ||
+    studio.screenplayNextSceneMoves?.length ||
+    studio.screenplayBeatSequence?.length ||
+    studio.screenplayCharacterFocus?.length ||
+    studio.screenplayUnresolvedSetups?.length ||
+    studio.screenplayContinuityNotes?.length ||
+    studio.screenplayEmotionalContinuity ||
+    studio.screenplayPageCount > 0 ||
+    studio.screenplayTargetPages > 0 ||
+    studio.screenplayInsertedText ||
+    studio.screenplayRevisedBlockText
+  );
+  if (!hasScreenplayMemorySignal) return null;
+
+  const writePreviewSource =
+    studio.screenplayInsertedText ||
+    studio.screenplayRevisedBlockText ||
+    studio.screenplayResolvedAnchorExcerpt ||
+    reply ||
+    "";
+  const wroteScreenplayText = Boolean(
+    studio.screenplayInsertedText ||
+    studio.screenplayRevisedBlockText ||
+    studio.screenplayTarget === "page"
+  );
+  const [record = null] = sanitizeScreenplayProjectMemoryItems([
+    {
+      projectId: studio.screenplayProjectId,
+      documentRevisionId: studio.screenplayDocumentRevisionId,
+      act: studio.screenplayAct,
+      sceneLabel: studio.screenplayAnchorSceneLabel,
+      sceneObjective: studio.screenplaySceneObjective,
+      sceneSummary: studio.screenplaySceneSummary,
+      currentBeat: studio.screenplayCurrentBeat,
+      logline: studio.screenplayLogline,
+      themeArgument: studio.screenplayThemeArgument,
+      centralQuestion: studio.screenplayCentralQuestion,
+      protagonistWant: studio.screenplayProtagonistWant,
+      protagonistNeed: studio.screenplayProtagonistNeed,
+      antagonisticForce: studio.screenplayAntagonisticForce,
+      endingImage: studio.screenplayEndingImage,
+      featureSequence: studio.screenplayFeatureSequence,
+      featureObligation: studio.screenplayFeatureObligation,
+      nextScenePlan: studio.screenplayNextScenePlan,
+      nextSceneMoves: studio.screenplayNextSceneMoves,
+      beatSequence: studio.screenplayBeatSequence,
+      characterFocus: studio.screenplayCharacterFocus,
+      unresolvedSetups: studio.screenplayUnresolvedSetups,
+      continuityNotes: studio.screenplayContinuityNotes,
+      emotionalContinuity: studio.screenplayEmotionalContinuity,
+      pageCount: studio.screenplayPageCount,
+      targetPages: studio.screenplayTargetPages,
+      lastTarget: studio.screenplayTarget,
+      lastPromptSource: studio.screenplayPromptSource,
+      lastWriteId: studio.screenplayWriteId,
+      lastInsertionMode: studio.screenplayInsertionMode,
+      lastAnchorLine: studio.screenplayAnchorLine,
+      lastAnchorEndLine: studio.screenplayAnchorEndLine,
+      lastAnchorExcerpt: studio.screenplayResolvedAnchorExcerpt,
+      lastUserIntent: transcript,
+      lastAssistantReply: reply,
+      lastWritePreview: writePreviewSource,
+      writeCount: wroteScreenplayText ? 1 : 0,
+      interactionCount: 1,
+      createdAt: nowTs,
+      updatedAt: nowTs,
+    },
+  ], 1);
+  return record;
+}
+
+function mergeScreenplayProjectMemoryRecords(existingRecord, incomingRecord, nowTs = Date.now()) {
+  const existing = sanitizeScreenplayProjectMemoryItems([existingRecord], 1)[0] || {};
+  const incoming = sanitizeScreenplayProjectMemoryItems([incomingRecord], 1)[0] || null;
+  if (!incoming) return existing;
+  const merged = {
+    ...existing,
+    schemaVersion: 1,
+  };
+
+  for (const [field] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
+    if (incoming[field]) merged[field] = incoming[field];
+  }
+  if (incoming.lastWritePreview) merged.lastWritePreview = incoming.lastWritePreview;
+
+  for (const [field] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+    if (Array.isArray(incoming[field]) && incoming[field].length) {
+      merged[field] = incoming[field];
+    }
+  }
+
+  for (const field of ["pageCount", "targetPages", "lastAnchorLine", "lastAnchorEndLine"]) {
+    if (Number(incoming[field] || 0) > 0) {
+      merged[field] = incoming[field];
+    }
+  }
+
+  merged.writeCount = Math.max(0, Number(existing.writeCount || 0)) +
+    Math.max(0, Number(incoming.writeCount || 0));
+  merged.interactionCount = Math.max(0, Number(existing.interactionCount || 0)) +
+    Math.max(1, Number(incoming.interactionCount || 1));
+  merged.createdAt = Math.max(
+    0,
+    Number(existing.createdAt || incoming.createdAt || nowTs)
+  );
+  merged.updatedAt = Math.max(
+    nowTs,
+    Number(existing.updatedAt || 0),
+    Number(incoming.updatedAt || 0)
+  );
+
+  return sanitizeScreenplayProjectMemoryItems([merged], 1)[0] || incoming;
+}
+
+function upsertScreenplayProjectMemory(memory, studioMeta, options = {}) {
+  if (!memory || typeof memory !== "object") return memory;
+  const nowTs = Math.max(0, Number(options.nowTs || Date.now()));
+  const incoming = buildScreenplayProjectMemoryRecordFromStudioMeta(studioMeta, {
+    transcript: options.transcript,
+    reply: options.reply,
+    nowTs,
+  });
+  if (!incoming) {
+    memory.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+      memory.screenplayProjectMemory,
+      SCREENPLAY_PROJECT_MEMORY_MAX
+    );
+    memory.screenplayProjectMemoryUpdatedAt = Math.max(
+      0,
+      Number(memory.screenplayProjectMemoryUpdatedAt || 0)
+    );
+    return memory;
+  }
+
+  const current = sanitizeScreenplayProjectMemoryItems(
+    memory.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  const matchIndex = current.findIndex((item) => (
+    (incoming.projectId && item.projectId === incoming.projectId) ||
+    (incoming.documentRevisionId && item.documentRevisionId === incoming.documentRevisionId)
+  ));
+  const next = matchIndex >= 0 ? [...current] : [incoming, ...current];
+  if (matchIndex >= 0) {
+    next[matchIndex] = mergeScreenplayProjectMemoryRecords(current[matchIndex], incoming, nowTs);
+  }
+  memory.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    next,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  memory.screenplayProjectMemoryUpdatedAt = Math.max(
+    nowTs,
+    Number(memory.screenplayProjectMemoryUpdatedAt || 0)
+  );
+  return memory;
+}
+
+function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PROJECT_MEMORY_PROMPT_MAX) {
+  const items = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    Math.max(1, maxItems)
+  );
+  if (!items.length) return "none";
+  return items.slice(0, Math.max(1, maxItems)).map((item) => {
+    const pages = item.pageCount > 0 || item.targetPages > 0
+      ? ` pages:${item.pageCount || "?"}/${item.targetPages || "?"}`
+      : "";
+    const characters = item.characterFocus.length
+      ? ` characters:${item.characterFocus.join(", ")}`
+      : "";
+    const setups = item.unresolvedSetups.length
+      ? ` open_setups:${item.unresolvedSetups.slice(0, 3).join(" / ")}`
+      : "";
+    const notes = item.continuityNotes.length
+      ? ` continuity_notes:${item.continuityNotes.slice(0, 3).join(" / ")}`
+      : "";
+    return normalizeSnippet(
+      [
+        `project:${item.projectId || "unknown"}`,
+        item.act ? `act:${item.act}` : "",
+        item.sceneLabel ? `scene:${item.sceneLabel}` : "",
+        item.currentBeat ? `current_beat:${item.currentBeat}` : "",
+        item.sceneObjective ? `objective:${item.sceneObjective}` : "",
+        item.emotionalContinuity ? `emotional_continuity:${item.emotionalContinuity}` : "",
+        item.featureSequence ? `sequence:${item.featureSequence}` : "",
+        item.featureObligation ? `obligation:${item.featureObligation}` : "",
+        item.nextScenePlan ? `next:${item.nextScenePlan}` : "",
+        item.lastWritePreview ? `last_write:${normalizeSnippet(item.lastWritePreview, 180)}` : "",
+        pages.trim(),
+        characters.trim(),
+        setups.trim(),
+        notes.trim(),
+      ].filter(Boolean).join("; "),
+      900
+    );
+  }).join(" || ");
+}
+
 function updateSessionAfterReply(memory, transcript, reply, didUseCheckInOpener, studioMeta = null) {
   const base = memory && typeof memory === "object" ? memory : createEmptyEmotionMemory();
   const userSnippet = normalizeSnippet(transcript, 130);
@@ -14027,6 +14421,7 @@ function updateSessionAfterReply(memory, transcript, reply, didUseCheckInOpener,
   const qaPair = normalizeSnippet(`U: ${userSnippet} | A: ${assistantSnippet}`, 260);
   const turnNumber = Math.max(1, Number(base.turns || 1));
   const nowTs = Date.now();
+  const sanitizedStudioMeta = sanitizeStudioTurnMetadata(studioMeta);
 
   base.lastAssistantReply = assistantSnippet || base.lastAssistantReply;
   base.lastConversationRecap = buildLastConversationRecap(base, userSnippet, assistantSnippet);
@@ -14038,14 +14433,19 @@ function updateSessionAfterReply(memory, transcript, reply, didUseCheckInOpener,
   base.recentQAPairs = pushBoundedUnique(base.recentQAPairs, qaPair, 8);
   base.turnHistory = pushTurnHistory(
     base.turnHistory,
-    { role: "user", content: transcript, turn: turnNumber, ts: nowTs - 1, studio: studioMeta },
+    { role: "user", content: transcript, turn: turnNumber, ts: nowTs - 1, studio: sanitizedStudioMeta },
     TURN_HISTORY_MAX_ENTRIES
   );
   base.turnHistory = pushTurnHistory(
     base.turnHistory,
-    { role: "assistant", content: reply, turn: turnNumber, ts: nowTs, studio: studioMeta },
+    { role: "assistant", content: reply, turn: turnNumber, ts: nowTs, studio: sanitizedStudioMeta },
     TURN_HISTORY_MAX_ENTRIES
   );
+  upsertScreenplayProjectMemory(base, sanitizedStudioMeta, {
+    transcript,
+    reply,
+    nowTs,
+  });
 
   if (didUseCheckInOpener) {
     base.checkInPromptsUsed = Math.max(0, Number(base.checkInPromptsUsed || 0)) + 1;
@@ -14312,6 +14712,16 @@ function buildMemoryAddendum(memory) {
   const turnHistoryCount = Array.isArray(memory.turnHistory)
     ? sanitizeTurnHistoryItems(memory.turnHistory).length
     : 0;
+  const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    memory.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  const screenplayProjectMemoryPrompt = formatScreenplayProjectMemoryForPrompt(memory);
+  const screenplayProjectMemoryUpdatedAt = Math.max(
+    0,
+    Number(memory.screenplayProjectMemoryUpdatedAt || 0),
+    ...screenplayProjectMemory.map((item) => Number(item.updatedAt || 0))
+  );
   const shortTermMessages = buildShortTermContextMessages(memory, SHORT_TERM_CONTEXT_TURNS);
   const activeThemes = formatActiveThemesForPrompt(memory);
   const sessionThreadCount = sanitizeActiveThemes(
@@ -14382,6 +14792,7 @@ SUBTLE MEMORY:
 - user_identity=primary_name:${userPrimaryName || "unknown"} primary_name_updated_at:${userPrimaryNameUpdatedAt || "n/a"} remembered_people:${rememberedPeoplePreview}
 - continuity_anchor=last_conversation_at:${lastConversationAt || "n/a"} last_conversation_recap:${lastConversationRecap}
 - continuity_snapshot=v${lastConversationSummaryVersion} at:${lastConversationSnapshotAt || "n/a"} summary:${lastConversationSnapshot}
+- screenplay_project_memory=count:${screenplayProjectMemory.length}/${SCREENPLAY_PROJECT_MEMORY_MAX} updated_at:${screenplayProjectMemoryUpdatedAt || "n/a"} ${screenplayProjectMemoryPrompt}
 - boundary_edge_state=count:${boundaryEdgeCount} last_turn:${lastBoundaryEdgeTurn} last_reason:${lastBoundaryEdgeReason}
 - depth_components=behaviorDepthScore:${behaviorDepthSessionScore.toFixed(2)}/10 sessionLengthScore:${sessionLengthScore.toFixed(2)}/5 returnConsistencyScore:${returnConsistencyScore.toFixed(2)}/5 reflectiveAnswerScore:${reflectiveAnswerScore.toFixed(2)}/5 formula=(b*0.4)+(s*0.2)+(r*0.2)+(q*0.2)
 - over_attachment_signals=dep_signals_14d:${dependencySignals14d} dep_signal_total:${dependencySignalCount} high_behavior_streak:${veryHighBehaviorTurnStreak} high_behavior_7d:${veryHighBehaviorTurns7d}
@@ -25564,12 +25975,24 @@ function deriveMemoriesUpdatedAt(memory) {
     ? memory.sessionThreads
     : memory?.activeThemes;
   const themes = sanitizeActiveThemes(sourceThemes, Number(memory?.turns || 0));
+  const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
   let themeTs = 0;
   for (const theme of themes) {
     themeTs = Math.max(themeTs, Number(theme?.lastMentionedAt || 0));
   }
+  let screenplayProjectMemoryTs = Math.max(
+    0,
+    Number(memory?.screenplayProjectMemoryUpdatedAt || 0)
+  );
+  for (const item of screenplayProjectMemory) {
+    screenplayProjectMemoryTs = Math.max(screenplayProjectMemoryTs, Number(item?.updatedAt || 0));
+  }
   return Math.max(
     themeTs,
+    screenplayProjectMemoryTs,
     Number(memory?.taskLastUpdatedAt || 0),
     Number(memory?.lastUpdatedAt || 0),
     Number(memory?.lastConversationSnapshotAt || 0),
@@ -25593,6 +26016,15 @@ function buildMemoryStateVersion(memory) {
   const openTaskCount = taskItems.filter((item) => item.status === "open").length;
   const taskUpdatedAt = Math.max(0, Number(memory?.taskLastUpdatedAt || 0));
   const forgottenMemoryCardIds = sanitizeMemoryCardIdList(memory?.forgottenMemoryCardIds, 768);
+  const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  const screenplayProjectMemoryUpdatedAt = Math.max(
+    0,
+    Number(memory?.screenplayProjectMemoryUpdatedAt || 0),
+    ...screenplayProjectMemory.map((item) => Number(item?.updatedAt || 0))
+  );
   const activeThemeCount = sanitizeActiveThemes(
     Array.isArray(memory?.sessionThreads) && memory.sessionThreads.length
       ? memory.sessionThreads
@@ -25611,6 +26043,8 @@ function buildMemoryStateVersion(memory) {
     `tasks:${taskItems.length}`,
     `tasks_open:${openTaskCount}`,
     `tasks_updated:${taskUpdatedAt}`,
+    `screenplay_projects:${screenplayProjectMemory.length}`,
+    `screenplay_memory_updated:${screenplayProjectMemoryUpdatedAt}`,
     `mem_hidden:${forgottenMemoryCardIds.length}`,
   ].join("|");
   return createHash("sha1").update(raw).digest("hex").slice(0, 24);
@@ -26224,6 +26658,77 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24) {
   const hasPostClearConversation = recentHistoryThreads.length > 0 ||
     Math.max(0, Number(memory?.lastConversationAt || 0)) > memoriesClearedAt;
   const cards = [];
+  const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  ).filter((item) => (
+    !hasClearMarker ||
+    Math.max(0, Number(item?.updatedAt || 0)) > memoriesClearedAt
+  ));
+
+  for (const item of screenplayProjectMemory) {
+    const projectKey = normalizeMemoryCardId(
+      [
+        "screenplay-project",
+        item.projectId || item.documentRevisionId || item.sceneLabel || item.updatedAt,
+      ].join("-").replace(/[^a-zA-Z0-9_-]+/g, "-")
+    );
+    const title = normalizeSnippet(
+      item.sceneLabel ||
+        item.featureSequence ||
+        item.act ||
+        "Screenplay Project",
+      72
+    );
+    const summaryParts = [
+      item.act ? `Act: ${item.act}` : "",
+      item.currentBeat ? `Beat: ${item.currentBeat}` : "",
+      item.sceneObjective ? `Objective: ${item.sceneObjective}` : "",
+      item.emotionalContinuity ? `Emotional continuity: ${item.emotionalContinuity}` : "",
+      item.nextScenePlan ? `Next: ${item.nextScenePlan}` : "",
+    ].filter(Boolean);
+    const snippets = [
+      item.lastWritePreview,
+      item.featureObligation,
+      item.unresolvedSetups.slice(0, 2).join(" / "),
+      item.continuityNotes.slice(0, 2).join(" / "),
+    ].map((value) => normalizeSnippet(value, 180)).filter(Boolean);
+    cards.push({
+      id: projectKey || `screenplay-project-${cards.length + 1}`,
+      key: item.projectId || item.documentRevisionId || projectKey,
+      title,
+      summary: normalizeSnippet(
+        summaryParts.join(" | ") ||
+          item.lastWritePreview ||
+          "Durable screenplay continuity captured from Studio writing turns.",
+        260
+      ),
+      reason: "Captured from screenplay Studio continuity.",
+      emotionalTone: normalizeSnippet(item.emotionalContinuity, 72),
+      salience: 0.84,
+      confidence: 0.78,
+      rememberedAt: Math.max(0, Number(item.updatedAt || 0)),
+      lastUsedAt: Math.max(0, Number(item.updatedAt || 0)),
+      qualityScore: 0.78,
+      qualityHitCount: 0,
+      qualityCorrectionCount: 0,
+      qualityLastFeedbackAt: 0,
+      stalenessDays: computeThemeStalenessDays(
+        { lastMentionedAt: Math.max(0, Number(item.updatedAt || 0)) },
+        nowTs
+      ),
+      stalenessBand: classifyThemeStalenessBand(
+        computeThemeStalenessDays(
+          { lastMentionedAt: Math.max(0, Number(item.updatedAt || 0)) },
+          nowTs
+        )
+      ),
+      editable: false,
+      snippets: snippets.slice(0, 3),
+      referenceHint: normalizeSnippet(item.nextScenePlan, 120),
+      source: "screenplay_project",
+    });
+  }
 
   for (const theme of themes) {
     const title = normalizeThemeLabel(theme?.label, "Memory");
@@ -26985,6 +27490,8 @@ function clearAllMemoriesMemory(memory, nowTs = Date.now()) {
   base.sessionThreads = [];
   base.listeningFacts = [];
   base.recentEmotionShifts = [];
+  base.screenplayProjectMemory = [];
+  base.screenplayProjectMemoryUpdatedAt = nowTs;
   base.lastTheme = "";
   base.lastFeelingHint = "";
   base.lastNeedHint = "";
@@ -27739,11 +28246,18 @@ app.post("/history/annotate_turn", express.json({ limit: "256kb" }), (req, res) 
   const nextMemory = sanitizePersistedSessionMemory(context.memory);
   const history = sanitizeTurnHistoryItems(nextMemory.turnHistory);
   let touched = 0;
+  let matchedUserTurn = "";
+  let matchedAssistantTurn = "";
   nextMemory.turnHistory = history.map((item) => {
     if (Math.max(0, Number(item?.turn || 0)) !== turnNumber) {
       return item;
     }
     touched += 1;
+    if (item.role === "assistant") {
+      matchedAssistantTurn = normalizeSnippet(item.content, 280) || matchedAssistantTurn;
+    } else {
+      matchedUserTurn = normalizeSnippet(item.content, 280) || matchedUserTurn;
+    }
     const mergedStudio = sanitizeStudioTurnMetadata({
       ...(item?.studio && typeof item.studio === "object" ? item.studio : {}),
       ...studioMeta,
@@ -27760,6 +28274,12 @@ app.post("/history/annotate_turn", express.json({ limit: "256kb" }), (req, res) 
       error: "turn_not_found",
     });
   }
+  upsertScreenplayProjectMemory(nextMemory, studioMeta, {
+    transcript: matchedUserTurn,
+    reply: matchedAssistantTurn,
+    nowTs,
+  });
+  nextMemory.lastUpdatedAt = Math.max(0, Number(nextMemory.lastUpdatedAt || 0), nowTs);
 
   const persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
   const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
@@ -29363,9 +29883,17 @@ export {
   selectChatModelForTurn,
   computeChatMaxTokensForTurn,
   buildKnowledgeRetrievalAddendum,
+  buildMemoryAddendum,
+  buildMemoryCards,
+  buildMemoryStateVersion,
+  buildScreenplayProjectMemoryRecordFromStudioMeta,
   evaluateTurnQualityHeuristics,
   validateAndDirectHerReply,
   enforceReplyCompletenessGuard,
+  createEmptyEmotionMemory,
   normalizeTalkPageReply,
+  sanitizeScreenplayProjectMemoryItems,
   sanitizeStudioTurnMetadata,
+  updateSessionAfterReply,
+  upsertScreenplayProjectMemory,
 };
