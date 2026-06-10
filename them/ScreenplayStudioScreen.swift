@@ -10212,6 +10212,7 @@ Detail:
 
     private var directionOneOutlinePanel: some View {
         sectionCard(title: "Outline") {
+            let featureSnapshot = featureWorkflowSnapshot
             let orderedActs = vm.outline.acts.sorted {
                 let lhsOrder = $0.order ?? Int.max
                 let rhsOrder = $1.order ?? Int.max
@@ -10233,6 +10234,8 @@ Detail:
                     directionOneMiniStat("Scenes", value: "\(vm.outline.scenes.count)")
                     directionOneMiniStat("Beats", value: "\(vm.outline.beats.count)")
                 }
+
+                featureWorkflowCompassCard(featureSnapshot)
 
                 inspectorSubsectionLabel("Story spine")
 
@@ -10294,6 +10297,195 @@ Detail:
                 }
             }
         }
+    }
+
+    private var acceptedStudioPageWriteExchanges: [StudioAskNoteExchange] {
+        studioAskNoteHistory.filter { exchange in
+            exchange.target == .page &&
+                (!exactInsertedText(for: exchange).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                 !(exchange.insertedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                 exchange.anchorLine != nil)
+        }
+    }
+
+    private var featureWorkflowSnapshot: ScreenplayFeatureWorkflowSnapshot {
+        ScreenplayFeatureWorkflowPlanner.buildSnapshot(
+            project: vm.selectedProject,
+            outline: vm.outline,
+            structuredDraft: liveDraftBridge.structuredDraft,
+            projectBinding: liveDraftBridge.projectBinding,
+            featureSpine: liveDraftBridge.featureSpine,
+            lastCommittedWrite: liveDraftBridge.lastCommittedWrite,
+            acceptedPageBatchCount: acceptedStudioPageWriteExchanges.count,
+            currentCursorLine: liveDraftBridge.currentCursorLine,
+            draftText: vm.fountainDraft
+        )
+    }
+
+    private func featureWorkflowCompassCard(_ snapshot: ScreenplayFeatureWorkflowSnapshot) -> some View {
+        intelligenceCollectionCard(title: "Feature Compass", icon: "map") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    directionOneMiniStat("Act", value: snapshot.currentActTitle)
+                    directionOneMiniStat("Progress", value: snapshot.actProgressLabel)
+                }
+
+                HStack(spacing: 8) {
+                    directionOneMiniStat("Draft", value: snapshot.draftProgressLabel)
+                    directionOneMiniStat("Batches", value: "\(acceptedStudioPageWriteExchanges.count)")
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(snapshot.structuralObligation)
+                        .font(.system(size: 12, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.82))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !snapshot.nextSceneDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(snapshot.nextSceneDetail)
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.58))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(10)
+                .background(Color.white.opacity(0.22))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    inspectorSubsectionLabel("Next three turns")
+                    ForEach(snapshot.nextMoves) { move in
+                        featureWorkflowMoveRow(move)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    inspectorSubsectionLabel("Accepted page batch")
+                    Text(snapshot.acceptedBatchDetail)
+                        .font(.system(size: 11, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 8) {
+                        Button {
+                            submitFeatureWorkflowPageWrite(snapshot.pageWritePrompt, displayText: "Continue feature: \(snapshot.nextSceneTitle)")
+                        } label: {
+                            Label("Write Next Pages", systemImage: "doc.badge.plus")
+                                .font(.system(size: 11, weight: .semibold, design: .default))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
+
+                        Button {
+                            openStudioCommandBar(
+                                prefill: snapshot.planningPrompt,
+                                routingMode: .voicePin,
+                                intent: .advice
+                            )
+                            vm.infoText = "Loaded a next-three-turns plan for Clementine."
+                        } label: {
+                            Label("Plan", systemImage: "list.bullet")
+                                .font(.system(size: 11, weight: .semibold, design: .default))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button {
+                            openStudioCommandBar(
+                                prefill: snapshot.sceneDoctorPrompt,
+                                routingMode: .voicePin,
+                                intent: .advice
+                            )
+                            vm.infoText = "Loaded a feature scene-doctor brief."
+                        } label: {
+                            Label("Doctor", systemImage: "cross.case")
+                                .font(.system(size: 11, weight: .semibold, design: .default))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+
+                        if snapshot.hasAcceptedBatch {
+                            Button {
+                                revealFeatureWorkflowAcceptedBatch(snapshot)
+                            } label: {
+                                Label("Review Batch", systemImage: "text.magnifyingglass")
+                                    .font(.system(size: 11, weight: .semibold, design: .default))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+
+                        if let committedWrite = liveDraftBridge.lastCommittedWrite {
+                            Button {
+                                reviseLastCommittedWrite(committedWrite, preset: .moreVisual)
+                            } label: {
+                                Label("Polish Batch", systemImage: "sparkles")
+                                    .font(.system(size: 11, weight: .semibold, design: .default))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func featureWorkflowMoveRow(_ move: ScreenplayFeatureWorkflowMove) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(move.title)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.80))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(move.detail)
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.56))
+                    .lineLimit(3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                submitFeatureWorkflowPageWrite(move.prompt, displayText: move.shortTitle)
+            } label: {
+                Label("Write", systemImage: "square.and.pencil")
+                    .font(.system(size: 11, weight: .semibold, design: .default))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isSubmittingStudioPrompt || isSubmittingPrompt)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.18))
+        )
+    }
+
+    private func submitFeatureWorkflowPageWrite(_ prompt: String, displayText: String) {
+        submitStudioPromptText(
+            prompt,
+            displayText: displayText,
+            source: .typed,
+            routingMode: .page,
+            successMessage: "Asked Clementine to continue the feature on the page.",
+            clearSeedOnSuccess: false,
+            sendingSuggestionID: nil
+        )
+    }
+
+    private func revealFeatureWorkflowAcceptedBatch(_ snapshot: ScreenplayFeatureWorkflowSnapshot) {
+        guard let lineRange = snapshot.acceptedBatchLineRange else {
+            vm.infoText = "No accepted page batch is available yet."
+            return
+        }
+        liveDraftBridge.jumpToLine(lineRange.lowerBound)
+        liveDraftBridge.highlightLineRange(startLine: lineRange.lowerBound, endLine: lineRange.upperBound)
+        expandLastCommittedWriteActions()
+        vm.infoText = "Opened the latest accepted page batch."
     }
 
 private var directionOneThemPanel: some View {
@@ -10885,6 +11077,9 @@ private var directionOneThemPanel: some View {
             Text(value)
                 .font(.system(size: 17, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.90))
+                .lineLimit(2)
+                .minimumScaleFactor(0.74)
+                .multilineTextAlignment(.leading)
             Text(label)
                 .font(.system(size: 10, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.42))
@@ -16903,6 +17098,12 @@ private var projectsSidebarContent: some View {
         let intelligenceQueueTitles: [String]
         let intelligenceLastBatchID: String
         let intelligenceLastBatchAppliedCount: Int
+        let featureCompassAct: String
+        let featureCompassNextScene: String
+        let featureCompassMoveTitles: [String]
+        let featureCompassAcceptedBatchCount: Int
+        let featureCompassAcceptedBatchDetail: String
+        let featureCompassHasAcceptedBatch: Bool
         let rightRailExpanded: Bool
         let rightPanelTab: String
         let selectedBeatID: String
@@ -27477,6 +27678,8 @@ Look at the city.
         let selectedBeat = vm.outline.beats.first(where: { $0.id == selectedBeatInspectorID })
         let inspectorAutoScrollRequest = currentInspectorAutoScrollRequest
         let currentPageWritePreview = liveDraftBridge.lastCommittedWrite.map { committedWriteToastPreview($0.insertedText) } ?? ""
+        let featureSnapshot = featureWorkflowSnapshot
+        let acceptedPageWrites = acceptedStudioPageWriteExchanges
         let selectedBackendProject = (vm.selectedProject?.id == activeProjectID) ? vm.selectedProject : nil
         let listedBackendProject = activeProjectID.flatMap { projectID in
             vm.projects.first(where: { $0.id == projectID })
@@ -27642,6 +27845,12 @@ Look at the city.
             intelligenceQueueTitles: queuedIntelligenceFixes.map(\.title),
             intelligenceLastBatchID: lastAppliedIntelligenceFixBatch?.id ?? "",
             intelligenceLastBatchAppliedCount: lastAppliedIntelligenceFixBatch?.appliedFixIDs.count ?? 0,
+            featureCompassAct: featureSnapshot.currentActTitle,
+            featureCompassNextScene: featureSnapshot.nextSceneTitle,
+            featureCompassMoveTitles: featureSnapshot.nextMoves.map(\.title),
+            featureCompassAcceptedBatchCount: acceptedPageWrites.count,
+            featureCompassAcceptedBatchDetail: featureSnapshot.acceptedBatchDetail,
+            featureCompassHasAcceptedBatch: featureSnapshot.hasAcceptedBatch,
             rightRailExpanded: isDirectionOneRightRailExpanded,
             rightPanelTab: directionOneRightPanelTab.rawValue,
             selectedBeatID: selectedBeatInspectorID,
