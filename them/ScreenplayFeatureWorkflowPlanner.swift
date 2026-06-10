@@ -37,6 +37,8 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
 
 struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
     let requestID: String
+    let projectID: String
+    let versionID: String
     let submittedPrompt: String
     let createdAt: Date
     let act: String
@@ -54,6 +56,8 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
 
     init(
         requestID: String,
+        projectID: String = "",
+        versionID: String = "",
         submittedPrompt: String,
         snapshot: ScreenplayFeatureWorkflowSnapshot,
         createdAt: Date = Date(),
@@ -61,6 +65,8 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         targetPages: Int = 0
     ) {
         self.requestID = Self.clean(requestID, limit: 160)
+        self.projectID = Self.clean(projectID, limit: 160)
+        self.versionID = Self.clean(versionID, limit: 160)
         self.submittedPrompt = Self.clean(submittedPrompt, limit: 500)
         self.createdAt = createdAt
         self.act = Self.clean(snapshot.currentActTitle, limit: 120)
@@ -108,6 +114,55 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
             emotionalContinuity.isEmpty &&
             pageCount <= 0 &&
             targetPages <= 0
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case requestID
+        case projectID
+        case versionID
+        case submittedPrompt
+        case createdAt
+        case act
+        case sceneObjective
+        case sceneSummary
+        case currentBeat
+        case featureSequence
+        case featureObligation
+        case nextScenePlan
+        case nextSceneMoves
+        case continuityNotes
+        case emotionalContinuity
+        case pageCount
+        case targetPages
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.requestID = Self.clean(try container.decodeIfPresent(String.self, forKey: .requestID) ?? "", limit: 160)
+        self.projectID = Self.clean(try container.decodeIfPresent(String.self, forKey: .projectID) ?? "", limit: 160)
+        self.versionID = Self.clean(try container.decodeIfPresent(String.self, forKey: .versionID) ?? "", limit: 160)
+        self.submittedPrompt = Self.clean(try container.decodeIfPresent(String.self, forKey: .submittedPrompt) ?? "", limit: 500)
+        self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
+        self.act = Self.clean(try container.decodeIfPresent(String.self, forKey: .act) ?? "", limit: 120)
+        self.sceneObjective = Self.clean(try container.decodeIfPresent(String.self, forKey: .sceneObjective) ?? "", limit: 280)
+        self.sceneSummary = Self.clean(try container.decodeIfPresent(String.self, forKey: .sceneSummary) ?? "", limit: 280)
+        self.currentBeat = Self.clean(try container.decodeIfPresent(String.self, forKey: .currentBeat) ?? "", limit: 220)
+        self.featureSequence = Self.clean(try container.decodeIfPresent(String.self, forKey: .featureSequence) ?? "", limit: 220)
+        self.featureObligation = Self.clean(try container.decodeIfPresent(String.self, forKey: .featureObligation) ?? "", limit: 280)
+        self.nextScenePlan = Self.clean(try container.decodeIfPresent(String.self, forKey: .nextScenePlan) ?? "", limit: 340)
+        self.nextSceneMoves = Self.cleanList(
+            try container.decodeIfPresent([String].self, forKey: .nextSceneMoves) ?? [],
+            limit: 5,
+            itemLimit: 180
+        )
+        self.continuityNotes = Self.cleanList(
+            try container.decodeIfPresent([String].self, forKey: .continuityNotes) ?? [],
+            limit: 5,
+            itemLimit: 220
+        )
+        self.emotionalContinuity = Self.clean(try container.decodeIfPresent(String.self, forKey: .emotionalContinuity) ?? "", limit: 280)
+        self.pageCount = max(0, try container.decodeIfPresent(Int.self, forKey: .pageCount) ?? 0)
+        self.targetPages = max(0, try container.decodeIfPresent(Int.self, forKey: .targetPages) ?? 0)
     }
 
     private static func clean(_ value: String, limit: Int) -> String {

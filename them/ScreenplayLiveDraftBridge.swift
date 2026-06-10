@@ -1677,6 +1677,68 @@ struct ScreenplayLivePreferredContextPersistencePolicy {
     }
 }
 
+struct ScreenplayFeatureWorkflowContextPersistencePolicy {
+    static let liveRequestMaxAge: TimeInterval = 180
+    static let restoredProjectMaxAge: TimeInterval = 14 * 24 * 60 * 60
+
+    static func payloadForStorage(_ context: ScreenplayFeatureWorkflowSessionContext?) -> String? {
+        guard let context, !context.isEmpty else { return nil }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(context) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func restoredContext(
+        from stored: String?,
+        now: Date = Date()
+    ) -> ScreenplayFeatureWorkflowSessionContext? {
+        guard let stored,
+              let data = stored.data(using: .utf8) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let context = try? decoder.decode(ScreenplayFeatureWorkflowSessionContext.self, from: data),
+              !context.isEmpty,
+              isFreshForProjectFallback(context, now: now) else {
+            return nil
+        }
+        return context
+    }
+
+    static func isFreshForLiveRequest(
+        _ context: ScreenplayFeatureWorkflowSessionContext,
+        now: Date = Date()
+    ) -> Bool {
+        now.timeIntervalSince(context.createdAt) >= 0 &&
+            now.timeIntervalSince(context.createdAt) < liveRequestMaxAge
+    }
+
+    static func isFreshForProjectFallback(
+        _ context: ScreenplayFeatureWorkflowSessionContext,
+        now: Date = Date()
+    ) -> Bool {
+        now.timeIntervalSince(context.createdAt) >= 0 &&
+            now.timeIntervalSince(context.createdAt) < restoredProjectMaxAge
+    }
+
+    static func projectScopedContext(
+        _ context: ScreenplayFeatureWorkflowSessionContext,
+        matchesProjectID projectID: String
+    ) -> Bool {
+        let contextProjectID = normalizedIdentifier(context.projectID)
+        let activeProjectID = normalizedIdentifier(projectID)
+        return !contextProjectID.isEmpty &&
+            !activeProjectID.isEmpty &&
+            contextProjectID == activeProjectID
+    }
+
+    private static func normalizedIdentifier(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 @MainActor
 final class ScreenplayLiveDraftBridge: ObservableObject {
     static let shared = ScreenplayLiveDraftBridge()
@@ -1707,6 +1769,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private static let debugLastPromptTargetStorageKey = "studio_debug_last_prompt_target"
     private static let debugLastPromptSourceStorageKey = "studio_debug_last_prompt_source"
     private static let debugProjectBindingStorageKey = "studio_debug_project_binding_json"
+    private static let featureWorkflowContextStorageKey = "studio_feature_workflow_context_v1"
 
     @Published var draftText: String = "" {
         didSet {
@@ -1822,7 +1885,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             persistStudioRoutingDebugMirror()
         }
     }
-    @Published var latestFeatureWorkflowContext: ScreenplayFeatureWorkflowSessionContext?
+    @Published var latestFeatureWorkflowContext: ScreenplayFeatureWorkflowSessionContext? {
+        didSet {
+            persistFeatureWorkflowContext()
+        }
+    }
 
     static let latestVoicePinReplyStorageKey = "studio.latest_voice_pin_reply"
     static let latestVoicePinPromptStorageKey = "studio.latest_voice_pin_prompt"
@@ -2001,10 +2068,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         self.draftText = restoredDraftText
         self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey)
         self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey)
+        self.latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext()
         persistPreferredProjectContext()
         persistActiveElementDebugMirror()
         persistStudioRoutingDebugMirror()
         persistProjectBindingDebugMirror()
+        reconcileFeatureWorkflowContextWithActiveProject()
         if ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(restoredDraftText) != nil {
             syncStructuredDraftSnapshot(text: restoredDraftText)
         }
@@ -2066,6 +2135,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode([ScreenplayConversationTurn].self, from: data)) ?? []
     }
 
+    private static func restoreFeatureWorkflowContext() -> ScreenplayFeatureWorkflowSessionContext? {
+        ScreenplayFeatureWorkflowContextPersistencePolicy.restoredContext(
+            from: UserDefaults.standard.string(forKey: featureWorkflowContextStorageKey)
+        )
+    }
+
     private func persistStructuredDraft() {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -2104,6 +2179,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         UserDefaults.standard.set(encoded, forKey: key)
     }
 
+    private func persistFeatureWorkflowContext() {
+        if let payload = ScreenplayFeatureWorkflowContextPersistencePolicy.payloadForStorage(latestFeatureWorkflowContext) {
+            UserDefaults.standard.set(payload, forKey: Self.featureWorkflowContextStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.featureWorkflowContextStorageKey)
+        }
+    }
+
     private func persistStudioRoutingDebugMirror() {
         UserDefaults.standard.set(latestMemoryDomain.rawValue, forKey: Self.debugLastMemoryDomainStorageKey)
         UserDefaults.standard.set(latestStudioRouteTarget.rawValue, forKey: Self.debugLastPromptTargetStorageKey)
@@ -2120,6 +2203,23 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
         UserDefaults.standard.set(encoded, forKey: Self.debugProjectBindingStorageKey)
     }
+
+    private func reconcileFeatureWorkflowContextWithActiveProject() {
+        guard let context = latestFeatureWorkflowContext else { return }
+        let activeProjectID = committedWriteProjectIDSnapshot()
+        if ScreenplayFeatureWorkflowContextPersistencePolicy.projectScopedContext(
+            context,
+            matchesProjectID: activeProjectID
+        ) {
+            return
+        }
+        if context.projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           activeProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return
+        }
+        latestFeatureWorkflowContext = nil
+    }
+
 
     private func compactSceneLabel(_ label: String) -> String {
         let upper = label
@@ -4768,6 +4868,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             projectBindingContext = nil
             self.featureSpine = .empty
             projectBinding = .empty
+            reconcileFeatureWorkflowContextWithActiveProject()
             return
         }
 
@@ -4782,6 +4883,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             featureSpine: normalizedFeatureSpine
         )
         refreshProjectBindingSnapshot()
+        reconcileFeatureWorkflowContextWithActiveProject()
     }
 
     func recordStudioUserPrompt(
@@ -4814,10 +4916,19 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     func featureWorkflowContext(for requestID: String?) -> ScreenplayFeatureWorkflowSessionContext? {
         let cleanRequestID = requestID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !cleanRequestID.isEmpty,
-              let context = latestFeatureWorkflowContext,
-              context.requestID == cleanRequestID,
-              Date().timeIntervalSince(context.createdAt) < 180 else {
+        guard let context = latestFeatureWorkflowContext else { return nil }
+        let now = Date()
+        if !cleanRequestID.isEmpty,
+           context.requestID == cleanRequestID,
+           ScreenplayFeatureWorkflowContextPersistencePolicy.isFreshForLiveRequest(context, now: now) {
+            return context
+        }
+
+        guard ScreenplayFeatureWorkflowContextPersistencePolicy.isFreshForProjectFallback(context, now: now),
+              ScreenplayFeatureWorkflowContextPersistencePolicy.projectScopedContext(
+                context,
+                matchesProjectID: committedWriteProjectIDSnapshot()
+              ) else {
             return nil
         }
         return context

@@ -24995,6 +24995,8 @@ Return revised screenplay lines only.
             liveDraftBridge.recordFeatureWorkflowContext(
                 ScreenplayFeatureWorkflowSessionContext(
                     requestID: requestID,
+                    projectID: liveDraftBridge.committedWriteProjectIDSnapshot(),
+                    versionID: liveDraftBridge.committedWriteVersionIDSnapshot(),
                     submittedPrompt: submittedText,
                     snapshot: featureSnapshotForSubmission
                 )

@@ -336,6 +336,104 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertFalse(context.isEmpty)
     }
 
+    func testFeatureWorkflowContextPersistenceRestoresProjectScopedContinuity() throws {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act II",
+            currentActDetail: "The midpoint has teeth.",
+            actProgressLabel: "Scene 8/14",
+            draftProgressLabel: "48 pages drafted",
+            acceptedBatchTitle: "4 accepted batches",
+            acceptedBatchDetail: "Latest: L248-L302, 55 lines",
+            acceptedBatchLineRange: 248...302,
+            structuralObligation: "Make the victory cost Mara the relationship she needs most.",
+            nextSceneTitle: "EXT. FLOOD CHANNEL - NIGHT",
+            nextSceneDetail: "Mara follows the signal and realizes the future call came from inside her family.",
+            nextMoves: [
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-scene",
+                    title: "Write the flood-channel discovery",
+                    detail: "Mara turns the clue into a wound.",
+                    prompt: "Write the discovery."
+                )
+            ],
+            pageWritePrompt: "Write the next feature pages.",
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+        let createdAt = Date(timeIntervalSince1970: 1_000)
+        let context = ScreenplayFeatureWorkflowSessionContext(
+            requestID: " studio-restore ",
+            projectID: " project-feature ",
+            versionID: " version-7 ",
+            submittedPrompt: " continue ",
+            snapshot: snapshot,
+            createdAt: createdAt,
+            pageCount: 48,
+            targetPages: 110
+        )
+
+        let payload = try XCTUnwrap(ScreenplayFeatureWorkflowContextPersistencePolicy.payloadForStorage(context))
+        let restored = try XCTUnwrap(ScreenplayFeatureWorkflowContextPersistencePolicy.restoredContext(
+            from: payload,
+            now: createdAt.addingTimeInterval(60)
+        ))
+
+        XCTAssertEqual(restored.projectID, "project-feature")
+        XCTAssertEqual(restored.versionID, "version-7")
+        XCTAssertEqual(restored.act, "Act II")
+        XCTAssertEqual(restored.featureSequence, "Act II - Scene 8/14; 48 pages drafted")
+        XCTAssertEqual(restored.nextSceneMoves, ["Write the flood-channel discovery: Mara turns the clue into a wound."])
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.isFreshForLiveRequest(
+            restored,
+            now: createdAt.addingTimeInterval(120)
+        ))
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.isFreshForLiveRequest(
+            restored,
+            now: createdAt.addingTimeInterval(181)
+        ))
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.projectScopedContext(
+            restored,
+            matchesProjectID: "project-feature"
+        ))
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.projectScopedContext(
+            restored,
+            matchesProjectID: "project-other"
+        ))
+    }
+
+    func testFeatureWorkflowContextPersistenceRejectsExpiredSessionRestore() {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act III",
+            currentActDetail: "",
+            actProgressLabel: "Final plan",
+            draftProgressLabel: "90 pages drafted",
+            acceptedBatchTitle: "",
+            acceptedBatchDetail: "",
+            acceptedBatchLineRange: nil,
+            structuralObligation: "Drive the final choice.",
+            nextSceneTitle: "INT. TERMINAL - DAWN",
+            nextSceneDetail: "Mara makes the truth public.",
+            nextMoves: [],
+            pageWritePrompt: "Write the final movement.",
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+        let createdAt = Date(timeIntervalSince1970: 2_000)
+        let context = ScreenplayFeatureWorkflowSessionContext(
+            requestID: "studio-expired",
+            projectID: "project-feature",
+            submittedPrompt: "continue",
+            snapshot: snapshot,
+            createdAt: createdAt
+        )
+        let payload = ScreenplayFeatureWorkflowContextPersistencePolicy.payloadForStorage(context)
+
+        XCTAssertNil(ScreenplayFeatureWorkflowContextPersistencePolicy.restoredContext(
+            from: payload,
+            now: createdAt.addingTimeInterval(ScreenplayFeatureWorkflowContextPersistencePolicy.restoredProjectMaxAge + 1)
+        ))
+    }
+
     private func project() -> BackendScreenplayProjectSummary {
         BackendScreenplayProjectSummary(
             id: "project-1",
