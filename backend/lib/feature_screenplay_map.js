@@ -674,7 +674,7 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
   lines.push("    - Return a feature-scale beat chain when the user asks for the whole movie: current sequence, next three turns, Act III payoff path.");
   lines.push("    - For multi-page requests, make every 1-2 pages alter leverage, information, relationship, tactic, or emotional cost.");
   lines.push("    - Track unresolved setups, reversals, character need, theme argument, and ending image.");
-  lines.push("    - When the user asks to finish pages, give one concise strategy note then write playable Fountain.");
+  lines.push("    - When the user asks to finish pages or Studio targets page text, write playable Fountain first with no strategy note unless explicitly asked.");
   lines.push("    - For Act I -> Act II -> Act III requests, keep every beat causally linked to the protagonist's want/need and final image.");
   lines.push("    - Never solve Act III by adding information the movie has not earned; pay off planted behavior.");
 
