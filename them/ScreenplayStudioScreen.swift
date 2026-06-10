@@ -29567,6 +29567,31 @@ Look at the city.
         await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
         restoreInspectorWorkspaceState()
         vm.refreshLiveDraftBridgeContext()
+        restoreFeatureWorkflowContextAfterProjectHydration()
+    }
+
+    @MainActor
+    private func restoreFeatureWorkflowContextAfterProjectHydration() {
+        let projectID = liveDraftBridge.committedWriteProjectIDSnapshot()
+        let versionID = liveDraftBridge.committedWriteVersionIDSnapshot()
+        guard ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: liveDraftBridge.latestFeatureWorkflowContext,
+            projectID: projectID,
+            versionID: versionID
+        ) else {
+            return
+        }
+        liveDraftBridge.recordFeatureWorkflowContext(
+            ScreenplayFeatureWorkflowSessionContext(
+                requestID: "studio-restore-\(projectID)",
+                projectID: projectID,
+                versionID: versionID,
+                submittedPrompt: "Restored project continuity",
+                snapshot: featureWorkflowSnapshot,
+                pageCount: vm.estimatedFeaturePageCount,
+                targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
+            )
+        )
     }
 
     @MainActor

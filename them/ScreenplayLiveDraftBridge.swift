@@ -1807,6 +1807,32 @@ struct ScreenplayFeatureWorkflowContextPersistencePolicy {
             contextProjectID == activeProjectID
     }
 
+    static func shouldRefreshProjectRestoreContext(
+        current: ScreenplayFeatureWorkflowSessionContext?,
+        projectID: String,
+        versionID: String,
+        now: Date = Date()
+    ) -> Bool {
+        let activeProjectID = normalizedIdentifier(projectID)
+        guard !activeProjectID.isEmpty else { return false }
+        guard let current, !current.isEmpty else { return true }
+        guard isFreshForProjectFallback(current, now: now),
+              projectScopedContext(current, matchesProjectID: activeProjectID) else {
+            return true
+        }
+        if isFreshForLiveRequest(current, now: now) {
+            return false
+        }
+        let activeVersionID = normalizedIdentifier(versionID)
+        let currentVersionID = normalizedIdentifier(current.versionID)
+        if !activeVersionID.isEmpty,
+           !currentVersionID.isEmpty,
+           activeVersionID != currentVersionID {
+            return true
+        }
+        return false
+    }
+
     private static func normalizedIdentifier(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }

@@ -437,6 +437,120 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         ))
     }
 
+    func testFeatureWorkflowRestorePolicyKeepsFreshMatchingProjectContext() {
+        let createdAt = Date(timeIntervalSince1970: 3_000)
+        let current = workflowContext(
+            projectID: "project-feature",
+            versionID: "version-7",
+            createdAt: createdAt
+        )
+
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: current,
+            projectID: " project-feature ",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(600)
+        ))
+    }
+
+    func testFeatureWorkflowRestorePolicyProtectsLiveRequestContext() {
+        let createdAt = Date(timeIntervalSince1970: 3_500)
+        let current = workflowContext(
+            projectID: "project-feature",
+            versionID: "version-6",
+            createdAt: createdAt
+        )
+
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: current,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(60)
+        ))
+    }
+
+    func testFeatureWorkflowRestorePolicyRefreshesMissingMismatchedExpiredOrChangedVersionContext() {
+        let createdAt = Date(timeIntervalSince1970: 4_000)
+        let matching = workflowContext(
+            projectID: "project-feature",
+            versionID: "version-6",
+            createdAt: createdAt
+        )
+        let otherProject = workflowContext(
+            projectID: "project-other",
+            versionID: "version-7",
+            createdAt: createdAt
+        )
+        let expired = workflowContext(
+            projectID: "project-feature",
+            versionID: "version-7",
+            createdAt: createdAt
+        )
+
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: nil,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt
+        ))
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: otherProject,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(600)
+        ))
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: matching,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(600)
+        ))
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: expired,
+            projectID: "project-feature",
+            versionID: "version-7",
+            now: createdAt.addingTimeInterval(ScreenplayFeatureWorkflowContextPersistencePolicy.restoredProjectMaxAge + 1)
+        ))
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: nil,
+            projectID: " ",
+            versionID: "version-7",
+            now: createdAt
+        ))
+    }
+
+    private func workflowContext(
+        projectID: String,
+        versionID: String,
+        createdAt: Date
+    ) -> ScreenplayFeatureWorkflowSessionContext {
+        ScreenplayFeatureWorkflowSessionContext(
+            requestID: "studio-restore-\(projectID)",
+            projectID: projectID,
+            versionID: versionID,
+            submittedPrompt: "Restored project continuity",
+            snapshot: ScreenplayFeatureWorkflowSnapshot(
+                currentActTitle: "Act II",
+                currentActDetail: "The middle closes in.",
+                actProgressLabel: "Scene 8/14",
+                draftProgressLabel: "48 pages drafted",
+                acceptedBatchTitle: "3 accepted batches",
+                acceptedBatchDetail: "Latest: L200-L248, 49 lines",
+                acceptedBatchLineRange: 200...248,
+                structuralObligation: "Make the victory cost the protagonist.",
+                nextSceneTitle: "EXT. FLOOD CHANNEL - NIGHT",
+                nextSceneDetail: "Mara follows the signal into a family wound.",
+                nextMoves: [],
+                pageWritePrompt: "Write the next feature pages.",
+                planningPrompt: "",
+                sceneDoctorPrompt: ""
+            ),
+            createdAt: createdAt,
+            pageCount: 48,
+            targetPages: 110
+        )
+    }
+
     private func project() -> BackendScreenplayProjectSummary {
         BackendScreenplayProjectSummary(
             id: "project-1",
