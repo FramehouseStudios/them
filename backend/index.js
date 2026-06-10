@@ -90,6 +90,7 @@ import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, inferScreenplayTask, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
+import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
 import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase } from "./lib/system_prompt_trim.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
@@ -14164,6 +14165,43 @@ function normalizeScreenplayMemoryInteger(value) {
   return Math.round(parsed);
 }
 
+function inferScreenplayMemoryPosition({ pageCount = 0, targetPages = 0 } = {}) {
+  const currentPage = normalizeScreenplayMemoryInteger(pageCount);
+  if (currentPage <= 0) {
+    return {
+      act: "",
+      featureSequence: "",
+      featureObligation: "",
+    };
+  }
+  const target = normalizeScreenplayMemoryInteger(targetPages) || DEFAULT_FEATURE_TARGET_PAGES;
+  const sequence = findSequenceForPage(currentPage, target);
+  return {
+    act: normalizeSnippet(sequence?.act || "", 120),
+    featureSequence: sequence
+      ? normalizeSnippet(`${sequence.act} - ${sequence.label}`, 220)
+      : "",
+    featureObligation: normalizeSnippet(sequence?.obligation || "", 280),
+  };
+}
+
+function mergeScreenplayProjectMemoryList(existingItems, incomingItems, maxItems = 8, maxChars = 180) {
+  const out = [];
+  const seen = new Set();
+  for (const source of [incomingItems, existingItems]) {
+    for (const item of Array.isArray(source) ? source : []) {
+      const clean = normalizeSnippet(item, maxChars);
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+      if (out.length >= maxItems) return out;
+    }
+  }
+  return out;
+}
+
 function resolveScreenplayMemoryInput(item, camelKey, snakeKey = "") {
   if (!item || typeof item !== "object") return undefined;
   const screenKey = `screenplay${camelKey.charAt(0).toUpperCase()}${camelKey.slice(1)}`;
@@ -14338,6 +14376,7 @@ function distillScreenplayProjectMemoryFromText(text = "") {
       sceneLabel: "",
       sceneSummary: "",
       currentBeat: "",
+      beatSequence: [],
       characterFocus: [],
       hasScreenplayShape: false,
     };
@@ -14376,6 +14415,12 @@ function distillScreenplayProjectMemoryFromText(text = "") {
   const sceneSummary = sceneLabel && summaryMoment
     ? `${sceneLabel}: ${summaryMoment}`
     : summaryMoment;
+  const beatSequence = mergeScreenplayProjectMemoryList(
+    [],
+    actionLines.slice(-4),
+    4,
+    180
+  );
   const hasScreenplayShape = Boolean(
     sceneLabel ||
     characterFocus.length ||
@@ -14387,6 +14432,7 @@ function distillScreenplayProjectMemoryFromText(text = "") {
     sceneLabel: normalizeSnippet(sceneLabel, 120),
     sceneSummary: normalizeSnippet(sceneSummary, 280),
     currentBeat: normalizeSnippet(currentBeat, 220),
+    beatSequence,
     characterFocus: characterFocus.slice(0, 8),
     hasScreenplayShape,
   };
@@ -14406,6 +14452,10 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     studio.screenplayTarget === "page" ? reply : "",
   ].filter(Boolean).join("\n\n");
   const distilled = distillScreenplayProjectMemoryFromText(screenplayTextForMemory);
+  const position = inferScreenplayMemoryPosition({
+    pageCount: studio.screenplayPageCount,
+    targetPages: studio.screenplayTargetPages,
+  });
   const hasScreenplayMemorySignal = Boolean(
     studio.screenplayProjectId ||
     studio.screenplayDocumentRevisionId ||
@@ -14458,7 +14508,7 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     {
       projectId: studio.screenplayProjectId,
       documentRevisionId: studio.screenplayDocumentRevisionId,
-      act: studio.screenplayAct,
+      act: studio.screenplayAct || position.act,
       sceneLabel: studio.screenplayAnchorSceneLabel || distilled.sceneLabel,
       sceneObjective: studio.screenplaySceneObjective,
       sceneSummary: studio.screenplaySceneSummary || distilled.sceneSummary,
@@ -14470,11 +14520,13 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       protagonistNeed: studio.screenplayProtagonistNeed,
       antagonisticForce: studio.screenplayAntagonisticForce,
       endingImage: studio.screenplayEndingImage,
-      featureSequence: studio.screenplayFeatureSequence,
-      featureObligation: studio.screenplayFeatureObligation,
+      featureSequence: studio.screenplayFeatureSequence || position.featureSequence,
+      featureObligation: studio.screenplayFeatureObligation || position.featureObligation,
       nextScenePlan: studio.screenplayNextScenePlan,
       nextSceneMoves: studio.screenplayNextSceneMoves,
-      beatSequence: studio.screenplayBeatSequence,
+      beatSequence: studio.screenplayBeatSequence.length
+        ? studio.screenplayBeatSequence
+        : distilled.beatSequence,
       characterFocus: studio.screenplayCharacterFocus.length
         ? studio.screenplayCharacterFocus
         : distilled.characterFocus,
@@ -14516,10 +14568,13 @@ function mergeScreenplayProjectMemoryRecords(existingRecord, incomingRecord, now
   }
   if (incoming.lastWritePreview) merged.lastWritePreview = incoming.lastWritePreview;
 
-  for (const [field] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
-    if (Array.isArray(incoming[field]) && incoming[field].length) {
-      merged[field] = incoming[field];
-    }
+  for (const [field, maxItems, maxChars] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+    merged[field] = mergeScreenplayProjectMemoryList(
+      existing[field],
+      incoming[field],
+      maxItems,
+      maxChars
+    );
   }
 
   for (const field of ["pageCount", "targetPages", "lastAnchorLine", "lastAnchorEndLine"]) {

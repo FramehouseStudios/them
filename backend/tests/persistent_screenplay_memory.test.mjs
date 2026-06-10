@@ -57,6 +57,7 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
       screenplayFeatureSequence: "Midpoint trap",
       screenplayFeatureObligation: "Force the protagonist to act instead of investigate.",
       screenplayNextScenePlan: "Pay off the father reveal with a private confrontation.",
+      screenplayBeatSequence: ["Bailiff hides the evidence."],
       screenplayCharacterFocus: ["Mara", "Bailiff", "Father"],
       screenplayUnresolvedSetups: ["Forged testimony", "Missing evidence"],
       screenplayContinuityNotes: ["Mara distrusts the courthouse staff."],
@@ -102,6 +103,10 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
       screenplayAct: "Act II",
       screenplayCurrentBeat: "The father reveal corners Mara emotionally.",
       screenplayNextScenePlan: "Move into a private corridor confrontation that redefines the case.",
+      screenplayBeatSequence: ["Father turns the lie public."],
+      screenplayCharacterFocus: ["Father", "Clerk"],
+      screenplayUnresolvedSetups: ["Father's sealed affidavit"],
+      screenplayContinuityNotes: ["Do not soften Mara's public humiliation."],
       screenplayEmotionalContinuity: "Resolve fractures into grief, then reforms as courage.",
       screenplayInsertedText: "FATHER\nI came because the lie finally had your face on it.",
     }
@@ -117,6 +122,20 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.equal(merged.interactionCount, 2);
   assert.equal(merged.updatedAt, secondTs);
   assert.match(merged.lastWritePreview, /lie finally had your face/);
+  assert.deepEqual(merged.beatSequence, [
+    "Father turns the lie public.",
+    "Bailiff hides the evidence.",
+  ]);
+  assert.deepEqual(merged.characterFocus, ["Father", "Clerk", "Mara", "Bailiff"]);
+  assert.deepEqual(merged.unresolvedSetups, [
+    "Father's sealed affidavit",
+    "Forged testimony",
+    "Missing evidence",
+  ]);
+  assert.deepEqual(merged.continuityNotes, [
+    "Do not soften Mara's public humiliation.",
+    "Mara distrusts the courthouse staff.",
+  ]);
 
   const cards = buildMemoryCards(memory, [], 12);
   const projectCard = cards.find((card) => card.source === "screenplay_project");
@@ -157,9 +176,16 @@ test("[persistent-screenplay-memory] distills durable context from sparse draft 
 
   assert.ok(record);
   assert.equal(record.projectId, "feature-draft-only");
+  assert.equal(record.act, "Act II");
+  assert.equal(record.featureSequence, "Act II - Reversal Fallout");
+  assert.equal(record.featureObligation, "The protagonist's old tactics should stop working.");
   assert.equal(record.sceneLabel, "INT. ROOFTOP - NIGHT");
   assert.equal(record.currentBeat, "She watches the courthouse lights blink out below them.");
   assert.match(record.sceneSummary, /Mara hides the cassette/);
+  assert.deepEqual(record.beatSequence, [
+    "Mara hides the cassette under the rain-swollen vent.",
+    "She watches the courthouse lights blink out below them.",
+  ]);
   assert.deepEqual(record.characterFocus, ["Eli", "Mara"]);
   assert.match(record.lastWritePreview, /rain-swollen vent/);
 
