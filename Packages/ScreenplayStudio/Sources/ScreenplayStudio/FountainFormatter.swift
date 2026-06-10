@@ -245,6 +245,37 @@ public enum FountainFormatter {
         return issues
     }
 
+    public static func removingDuplicateLeadingSceneHeading(
+        from text: String,
+        existingDraft: String,
+        insertionUTF16Location: Int,
+        replacementText: String = ""
+    ) -> String {
+        let original = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = sanitizeRawScreenplayText(text)
+        guard !clean.isEmpty else { return "" }
+        guard let leadingHeading = leadingSceneHeading(in: clean) else { return original }
+
+        if containsMatchingSceneHeading(leadingHeading.normalizedHeading, in: replacementText) {
+            return original
+        }
+
+        guard let existingHeading = nearestSceneHeading(
+            in: existingDraft,
+            atOrBeforeUTF16Location: insertionUTF16Location
+        ) else {
+            return original
+        }
+        guard insertionUTF16Location >= existingHeading.range.location + existingHeading.range.length else {
+            return original
+        }
+        guard sceneHeadingsMatchForDuplicate(leadingHeading.normalizedHeading, existingHeading.normalizedHeading) else {
+            return original
+        }
+
+        return strippingLeadingSceneHeading(from: clean, leadingAction: leadingHeading.attachedAction)
+    }
+
     public static func normalizeEditorLine(
         _ rawLine: String,
         as element: ScreenplayEditorElement,
@@ -1067,6 +1098,147 @@ public enum FountainFormatter {
         if normalizedSceneHeadingFragment(upper) != nil { return false }
         return upper.hasPrefix("INT.") || upper.hasPrefix("EXT.") ||
             upper.hasPrefix("INT/EXT.") || upper.hasPrefix("I/E.")
+    }
+
+    private struct SceneHeadingLocation {
+        let normalizedHeading: String
+        let range: NSRange
+    }
+
+    private struct LeadingSceneHeading {
+        let normalizedHeading: String
+        let attachedAction: String?
+    }
+
+    private static func leadingSceneHeading(in text: String) -> LeadingSceneHeading? {
+        let lines = text.components(separatedBy: "\n")
+        guard let firstContentIndex = lines.firstIndex(where: {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            return nil
+        }
+
+        let firstLine = lines[firstContentIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        if let split = splitSceneHeadingLineWithAttachedAction(firstLine) {
+            return LeadingSceneHeading(
+                normalizedHeading: normalizeSceneHeading(split.heading),
+                attachedAction: split.action
+            )
+        }
+
+        guard let normalizedHeading = normalizedSceneHeadingCandidate(firstLine) else { return nil }
+        return LeadingSceneHeading(normalizedHeading: normalizedHeading, attachedAction: nil)
+    }
+
+    private static func normalizedSceneHeadingCandidate(_ line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if isSceneHeadingLine(trimmed) || looksLikeSceneHeading(trimmed.lowercased(), upper: trimmed.uppercased()) {
+            return normalizeSceneHeading(trimmed)
+        }
+        return nil
+    }
+
+    private static func nearestSceneHeading(
+        in draft: String,
+        atOrBeforeUTF16Location location: Int
+    ) -> SceneHeadingLocation? {
+        let normalized = draft
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let ns = normalized as NSString
+        let safeLocation = max(0, min(location, ns.length))
+        var cursor = 0
+        var latest: SceneHeadingLocation?
+
+        while cursor <= safeLocation {
+            let remaining = max(0, ns.length - cursor)
+            let newlineRange = remaining > 0
+                ? ns.range(of: "\n", options: [], range: NSRange(location: cursor, length: remaining))
+                : NSRange(location: NSNotFound, length: 0)
+            let lineEnd = newlineRange.location == NSNotFound ? ns.length : newlineRange.location
+            let lineRange = NSRange(location: cursor, length: max(0, lineEnd - cursor))
+            let line = lineRange.length > 0 ? ns.substring(with: lineRange) : ""
+
+            if let heading = normalizedSceneHeadingCandidate(line) {
+                latest = SceneHeadingLocation(normalizedHeading: heading, range: lineRange)
+            }
+
+            if newlineRange.location == NSNotFound || lineEnd >= safeLocation {
+                break
+            }
+            cursor = lineEnd + 1
+        }
+
+        return latest
+    }
+
+    private static func containsMatchingSceneHeading(_ normalizedHeading: String, in text: String) -> Bool {
+        text
+            .components(separatedBy: "\n")
+            .compactMap(normalizedSceneHeadingCandidate)
+            .contains { sceneHeadingsMatchForDuplicate($0, normalizedHeading) }
+    }
+
+    private static func strippingLeadingSceneHeading(from text: String, leadingAction: String?) -> String {
+        let lines = text.components(separatedBy: "\n")
+        guard let firstContentIndex = lines.firstIndex(where: {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) else {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var startIndex = firstContentIndex + 1
+        while startIndex < lines.count,
+              lines[startIndex].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            startIndex += 1
+        }
+
+        var remainder: [String] = []
+        if let leadingAction,
+           !leadingAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            remainder.append(leadingAction)
+        }
+        if startIndex < lines.count {
+            remainder.append(contentsOf: lines[startIndex...])
+        }
+
+        let stripped = remainder
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped.isEmpty ? text.trimmingCharacters(in: .whitespacesAndNewlines) : stripped
+    }
+
+    private static func sceneHeadingsMatchForDuplicate(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsNormalized = normalizeSceneHeading(lhs)
+        let rhsNormalized = normalizeSceneHeading(rhs)
+        if lhsNormalized == rhsNormalized { return true }
+        guard sceneHeadingCompactKey(lhsNormalized) == sceneHeadingCompactKey(rhsNormalized) else {
+            return false
+        }
+        return !sceneHeadingHasExplicitTime(lhsNormalized) || !sceneHeadingHasExplicitTime(rhsNormalized)
+    }
+
+    private static func sceneHeadingCompactKey(_ heading: String) -> String {
+        var core = normalizeSceneHeading(heading)
+        let prefixes = ["INT/EXT.", "EXT/INT.", "INT.", "EXT.", "I/E."]
+        if let prefix = prefixes.first(where: { core.hasPrefix($0) }) {
+            core = String(core.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let dashRange = core.range(of: " - ", options: .backwards) {
+            core = String(core[..<dashRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return core
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func sceneHeadingHasExplicitTime(_ heading: String) -> Bool {
+        normalizeSceneHeading(heading).range(
+            of: #"\s-\s(?:DAY|NIGHT|DAWN|DUSK|MORNING|EVENING|AFTERNOON|LATER|CONTINUOUS|MOMENTS LATER)\b"#,
+            options: .regularExpression
+        ) != nil
     }
 
     private static func normalizedSceneHeadingFragment(_ line: String) -> String? {
