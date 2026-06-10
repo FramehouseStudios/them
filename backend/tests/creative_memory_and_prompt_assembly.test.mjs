@@ -372,6 +372,38 @@ test("[screenplay-task] inferScreenplayTask recognizes feature-scale page reques
   assert.equal(actThree.featureScope, "act_target");
 });
 
+test("[screenplay-task] inferScreenplayTask recognizes Feature Compass continuation briefs", () => {
+  const compassBrief = `
+Continue the feature as feature-film screenplay pages.
+
+Write 3-5 pages in Fountain format only. Continue directly from the current draft position.
+Current act: Act II
+Scene target: INT. COURTHOUSE HALLWAY - NIGHT
+
+Feature workflow context:
+- Writer's immediate direction: continue
+- Current feature position: Act II (Scene 7/14); 42 pages drafted.
+- Latest accepted page batch: Latest: L210-L248, 39 lines
+- Next required scene: INT. COURTHOUSE HALLWAY - NIGHT.
+`;
+  const task = inferScreenplayTask(compassBrief);
+  assert.equal(task.intent, "finish_feature");
+  assert.equal(task.requestedPages, 5);
+  assert.equal(task.requestedAct, "Act II");
+  assert.equal(task.featureScope, "page_batch");
+
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    screenplayTask: task,
+    userInput: compassBrief,
+  });
+  assert.ok(out.includes("intent: finish_feature"));
+  assert.ok(out.includes("requested_page_batch: 5"));
+  assert.ok(out.includes("page_batch_contract:"));
+  assert.ok(out.includes("write the next playable Fountain pages immediately"));
+  assert.ok(out.includes("Feature workflow context:"));
+});
+
 test("[screenplay-task] feature page requests carry a concrete page-batch execution contract", () => {
   const out = buildModelPrompt({
     persona: "PERSONA",

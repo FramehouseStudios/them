@@ -145,6 +145,11 @@ function pageCountFromToken(token) {
 }
 
 function inferRequestedPageBatch(lower) {
+  const rangePattern = new RegExp(`\\b(${PAGE_COUNT_TOKEN})\\s*(?:-|to|\\u2013|\\u2014)\\s*(${PAGE_COUNT_TOKEN})\\s+pages?\\b`);
+  const rangeMatch = lower.match(rangePattern);
+  const rangeEnd = pageCountFromToken(rangeMatch?.[2]);
+  if (rangeEnd > 0 && rangeEnd <= 30) return rangeEnd;
+
   const patterns = [
     new RegExp(`\\b(?:next|another|first|final|last)\\s+(${PAGE_COUNT_TOKEN})\\s+pages?\\b`),
     new RegExp(`\\b(?:write|draft|continue|generate|give me|do)\\b[\\s\\S]{0,48}\\b(${PAGE_COUNT_TOKEN})\\s+pages?\\b`),
@@ -175,6 +180,11 @@ function inferRequestedActLabel(lower) {
 function inferFeatureRequestMetadata(lower) {
   const requestedPages = inferRequestedPageBatch(lower);
   const requestedAct = inferRequestedActLabel(lower);
+  const featureWorkflowContinuation = hasAny(lower, [
+    /\bfeature workflow context\b/,
+    /\bfeature continuation\b/,
+    /\bfeature[- ]film screenplay pages\b/,
+  ]);
   const wholeFeature = hasAny(lower, [
     /\b(entire|whole|full)\b.*\b(feature|film|movie|screenplay|script)\b/,
     /\b(feature|film|movie|screenplay|script)\b.*\b(entire|whole|full)\b/,
@@ -182,6 +192,7 @@ function inferFeatureRequestMetadata(lower) {
   ]);
   let featureScope = "";
   if (requestedPages > 0) featureScope = "page_batch";
+  else if (featureWorkflowContinuation) featureScope = "page_batch";
   else if (wholeFeature) featureScope = "whole_feature";
   else if (requestedAct) featureScope = "act_target";
   return {
@@ -221,6 +232,9 @@ function inferScreenplayTask(userInput = "") {
     /\b(help me get unstuck|help me find the next beat|find the next beat|what should happen here)\b/,
   ]);
   const featureCompletionLike = hasAny(lower, [
+    /\bfeature workflow context\b/,
+    /\bfeature continuation\b/,
+    /\bfeature[- ]film screenplay pages\b/,
     /\b(finish|complete|help me finish|land the ending|ending)\b.*\b(feature|film|movie|script|screenplay|pilot)\b/,
     /\b(feature|film|movie|script|screenplay|pilot)\b.*\b(finish|complete|ending|finale)\b/,
     /\b(feature[- ]length|feature film|feature screenplay|whole movie|whole script|full script)\b/,
@@ -262,7 +276,7 @@ function inferScreenplayTask(userInput = "") {
   } else if (featureCompletionLike) {
     intent = "finish_feature";
     label = "Finish Feature";
-    output = "Help the writer finish the larger script: diagnose act/sequence pressure, locate the current act/sequence, identify the next three structural turns, track unresolved promises and character need, then move toward the Act III payoff path. When the request asks for pages, give one concise strategy note and write the next playable Fountain pages.";
+    output = "Finish the larger script: diagnose act/sequence pressure, next three turns, unresolved promises, character need, and the Act III payoff path. When the request asks for pages, write the next playable Fountain pages immediately with no strategy note unless explicitly asked.";
   } else if (stuckLike) {
     intent = "momentum_rescue";
     label = "Momentum Rescue";
@@ -351,7 +365,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "write_scene":
       return "Write the scene as usable pages first: slugline, action, character cues, dialogue, and playable behavior. Build objective, obstacle, pressure clock, escalation, reversal or turn, emotional residue, and an exit image. Keep explanation out unless asked.";
     case "rewrite_scene":
-      return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. If this is page-targeted, output only the revised screenplay text; otherwise give at most one craft sentence before pages.";
+      return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. If this is page-targeted, output only the revised screenplay text. Give at most one craft sentence before pages when not page-targeted.";
     case "continue_script":
       return "Continue directly from the supplied draft excerpt. Begin with the next visible action. Match tone, character voice, pacing, and emotional handoff; do not restart or recap the scene. Every few beats should change power, information, relationship, or self-knowledge, and every page should tighten the feature's act pressure.";
     case "dialogue_punchup":
@@ -367,7 +381,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "pacing_pass":
       return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
     case "finish_feature":
-      return "Operate at feature scale. Locate the current act/sequence, name the structural obligation due now, preserve unresolved promises, setups/payoffs, and character need, then produce the next executable act-to-act move. For page requests, skip diagnosis and start playable Fountain immediately; for whole-feature planning, give a compact act engine, next three turns, Act III payoff path, and final-image handoff.";
+      return "Operate at feature scale. Locate the current act/sequence, name the due obligation, preserve promises, setups/payoffs, and character need, then make the next act-to-act move. For page requests, keep diagnosis to one sentence and start the pages immediately; if Studio provided a page-targeted continuation brief, skip diagnosis and start Fountain pages. For planning, give an act engine, next three turns, Act III payoff path, and final-image handoff.";
     case "momentum_rescue":
       return "Do not turn stuckness into a lecture. Give one emotionally precise diagnosis, one decisive next move, and a small playable beat or page sample if there is enough context. Prefer forward motion over options.";
     default:
