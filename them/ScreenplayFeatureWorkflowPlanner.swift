@@ -147,6 +147,117 @@ enum ScreenplayFeatureWorkflowPlanner {
         )
     }
 
+    static func shouldElevateContinuationPrompt(_ rawPrompt: String) -> Bool {
+        let prompt = clean(rawPrompt, fallback: "")
+        guard !prompt.isEmpty else { return false }
+        guard prompt.count <= 180 else { return false }
+
+        let normalized = normalizedPrompt(prompt)
+        guard !normalized.isEmpty else { return false }
+
+        if prompt.contains("Clementine standard") ||
+            prompt.contains("Feature workflow context") ||
+            prompt.contains("Continuity anchors:") {
+            return false
+        }
+
+        let excludedTerms = [
+            "rewrite",
+            "revise",
+            "polish",
+            "punch up",
+            "scene doctor",
+            "doctor",
+            "analyze",
+            "outline",
+            "plan",
+            "feedback",
+            "notes"
+        ]
+        if excludedTerms.contains(where: { normalized.contains($0) }) {
+            return false
+        }
+
+        let exactPrompts = Set([
+            "continue",
+            "continue from here",
+            "continue the script",
+            "continue the screenplay",
+            "continue the feature",
+            "go on",
+            "keep going",
+            "keep writing",
+            "more",
+            "next",
+            "next scene",
+            "next pages",
+            "write more",
+            "write next",
+            "write next pages",
+            "write the next pages",
+            "write next scene",
+            "write the next scene",
+            "finish the scene",
+            "finish this scene",
+            "take it from here"
+        ])
+        if exactPrompts.contains(normalized) {
+            return true
+        }
+
+        let words = normalized.split(separator: " ")
+        guard words.count <= 9 else { return false }
+
+        let hasContinuationCue = [
+            "continue",
+            "next",
+            "more",
+            "finish",
+            "extend"
+        ].contains { normalized.contains($0) }
+        let hasPageCue = [
+            "scene",
+            "pages",
+            "script",
+            "screenplay",
+            "feature",
+            "draft",
+            "act"
+        ].contains { normalized.contains($0) }
+
+        return hasContinuationCue && (hasPageCue || words.count <= 4)
+    }
+
+    static func enrichedContinuationPrompt(
+        for rawPrompt: String,
+        snapshot: ScreenplayFeatureWorkflowSnapshot
+    ) -> String? {
+        let prompt = clean(rawPrompt, fallback: "")
+        guard shouldElevateContinuationPrompt(prompt) else { return nil }
+
+        var lines: [String] = [
+            snapshot.pageWritePrompt,
+            "",
+            "Feature workflow context:",
+            "- Writer's immediate direction: \(prompt)",
+            "- Current feature position: \(snapshot.currentActTitle) (\(snapshot.actProgressLabel)); \(snapshot.draftProgressLabel).",
+            "- Latest accepted page batch: \(snapshot.acceptedBatchDetail)",
+            "- Next required scene: \(snapshot.nextSceneTitle).",
+            "- Required pressure: \(snapshot.nextSceneDetail)",
+            "",
+            "Use this as a feature continuation, not a generic response. Pick up at the current insertion point, preserve emotional tone continuity, honor accepted pages, and write the next 3-5 pages as finished Fountain screenplay pages."
+        ]
+
+        let nextMoves = snapshot.nextMoves.prefix(3).map { "\($0.title): \($0.detail)" }
+        if !nextMoves.isEmpty {
+            lines.insert("", at: lines.count - 1)
+            lines.insert("Next story turns:", at: lines.count - 1)
+            lines.insert(contentsOf: nextMoves.map { "- \($0)" }, at: lines.count - 1)
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
     private static func orderedActs(_ lhs: BackendScreenplayAct, _ rhs: BackendScreenplayAct) -> Bool {
         let lhsOrder = lhs.order ?? Int.max
         let rhsOrder = rhs.order ?? Int.max
@@ -578,5 +689,13 @@ enum ScreenplayFeatureWorkflowPlanner {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
         return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    private static func normalizedPrompt(_ value: String) -> String {
+        value
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 }

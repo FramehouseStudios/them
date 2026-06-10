@@ -210,6 +210,75 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertFalse(snapshot.hasAcceptedBatch)
     }
 
+    func testContinuationPromptElevationOnlyTargetsGenericPageContinuation() {
+        XCTAssertTrue(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("continue"))
+        XCTAssertTrue(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("write the next scene"))
+        XCTAssertTrue(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("continue from here, please"))
+        XCTAssertTrue(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("more"))
+
+        XCTAssertFalse(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("Rewrite the diner scene with sharper subtext."))
+        XCTAssertFalse(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("Plan the next three turns before writing."))
+        XCTAssertFalse(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("Scene doctor this confrontation."))
+        XCTAssertFalse(ScreenplayFeatureWorkflowPlanner.shouldElevateContinuationPrompt("Continue the feature.\n\nClementine standard: elite feature screenwriting."))
+    }
+
+    func testContinuationPromptElevationBuildsFeatureAwareWritingBrief() {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act II",
+            currentActDetail: "Pressure closes in.",
+            actProgressLabel: "Scene 7/14",
+            draftProgressLabel: "42 pages drafted",
+            acceptedBatchTitle: "3 accepted batches",
+            acceptedBatchDetail: "Latest: L210-L248, 39 lines",
+            acceptedBatchLineRange: 210...248,
+            structuralObligation: "Escalate the central pressure and turn the midpoint into irreversible fallout.",
+            nextSceneTitle: "INT. COURTHOUSE HALLWAY - NIGHT",
+            nextSceneDetail: "Mara must lie in public to protect the person she is starting to trust.",
+            nextMoves: [
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-scene",
+                    title: "Write INT. COURTHOUSE HALLWAY - NIGHT",
+                    detail: "Mara risks a public lie.",
+                    prompt: "Write the hallway scene."
+                ),
+                ScreenplayFeatureWorkflowMove(
+                    id: "next-beat",
+                    title: "Pay off the false alibi",
+                    detail: "The lie saves one person and wounds another.",
+                    prompt: "Write the false alibi beat."
+                )
+            ],
+            pageWritePrompt: """
+            Continue the feature as feature-film screenplay pages.
+
+            Write 3-5 pages in Fountain format only.
+            Current act: Act II
+            Scene target: INT. COURTHOUSE HALLWAY - NIGHT
+            Structural obligation: Escalate the midpoint fallout.
+            """,
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+
+        let prompt = ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
+            for: "continue from here",
+            snapshot: snapshot
+        )
+
+        XCTAssertNotNil(prompt)
+        XCTAssertTrue(prompt?.contains("Writer's immediate direction: continue from here") == true)
+        XCTAssertTrue(prompt?.contains("Act II (Scene 7/14); 42 pages drafted") == true)
+        XCTAssertTrue(prompt?.contains("Latest: L210-L248") == true)
+        XCTAssertTrue(prompt?.contains("INT. COURTHOUSE HALLWAY - NIGHT") == true)
+        XCTAssertTrue(prompt?.contains("Next story turns:") == true)
+        XCTAssertTrue(prompt?.contains("finished Fountain screenplay pages") == true)
+
+        XCTAssertNil(ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
+            for: "Rewrite this as a colder confrontation.",
+            snapshot: snapshot
+        ))
+    }
+
     private func project() -> BackendScreenplayProjectSummary {
         BackendScreenplayProjectSummary(
             id: "project-1",

@@ -24982,6 +24982,13 @@ Return revised screenplay lines only.
         }
         guard !isSubmittingStudioPrompt, !isSubmittingPrompt else { return }
         let routesToPage = shouldRoutePromptToPage(text, routingMode)
+        let featureContinuationPrompt = routesToPage
+            ? ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
+                for: text,
+                snapshot: featureWorkflowSnapshot
+            )
+            : nil
+        let submittedText = featureContinuationPrompt ?? text
         let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
         let perceivedTarget: StudioPerceivedSpeedState.Target = routesToPage ? .page : .voicePin
 
@@ -25032,7 +25039,7 @@ Return revised screenplay lines only.
                 setStudioDebugSubmitStage("stub_submit_started", token: effectiveDebugSubmitToken)
                 applyDebugStudioPromptStubSubmit(
                     token: effectiveDebugSubmitToken,
-                    prompt: text,
+                    prompt: submittedText,
                     displayText: displayText,
                     requestID: requestID,
                     routingMode: routingMode,
@@ -25058,7 +25065,7 @@ Return revised screenplay lines only.
             }
 #endif
             let submittedAt = Date()
-            let error = await onSubmitPrompt(text, routingMode, requestID)
+            let error = await onSubmitPrompt(submittedText, routingMode, requestID)
 #if DEBUG || os(macOS)
             if let effectiveDebugSubmitToken {
                 setStudioDebugSubmitStage("on_submit_finished", token: effectiveDebugSubmitToken, error: error ?? "")
