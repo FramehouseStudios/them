@@ -1186,6 +1186,33 @@ struct ScreenplayProjectBindingSnapshot: Codable, Equatable, Hashable {
     )
 }
 
+struct ScreenplayLiveDraftOriginSnapshot: Codable, Equatable, Hashable {
+    let updatedAt: Date
+    let projectID: String
+    let versionID: String
+
+    init(
+        updatedAt: Date = Date(),
+        projectID: String,
+        versionID: String
+    ) {
+        self.updatedAt = updatedAt
+        self.projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.versionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var isEmpty: Bool {
+        projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            versionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static let empty = ScreenplayLiveDraftOriginSnapshot(
+        updatedAt: .distantPast,
+        projectID: "",
+        versionID: ""
+    )
+}
+
 enum ScreenplayIntelligenceSeverity: String, Codable, Equatable, Hashable {
     case info
     case warning
@@ -1803,6 +1830,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private static let autoInsertStorageKey = "studio_auto_insert"
     private static let activeElementStorageKey = "studio_active_screenplay_element_v1"
     private static let draftTextStorageKey = "studio_live_draft_text_v1"
+    private static let draftOriginStorageKey = "studio_live_draft_origin_v1"
     private static let structuredDraftStorageKey = "studio_structured_draft_v1"
     private static let preferredProjectIDStorageKey = "studio_live_preferred_project_id_v1"
     private static let preferredVersionIDStorageKey = "studio_live_preferred_version_id_v1"
@@ -1856,6 +1884,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             refreshIntelligenceReport()
         }
     }
+    @Published private(set) var draftOrigin: ScreenplayLiveDraftOriginSnapshot = .empty
     @Published var featureSpine: ScreenplayFeatureSpine = .empty
     @Published var latestStudioRouteTarget: ScreenplayStudioUserPrompt.Target = .voicePin {
         didSet {
@@ -1984,6 +2013,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return projectBinding.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    func draftOriginProjectIDSnapshot() -> String {
+        draftOrigin.projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func draftOriginVersionIDSnapshot() -> String {
+        draftOrigin.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func makeCommittedWrite(
         id: UUID,
         writeID: String? = nil,
@@ -2110,6 +2147,13 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             bindingVersionID: restoredProjectBinding.versionID
         )
         self.projectBinding = restoredProjectBinding
+        self.draftOrigin = Self.restoreLiveDraftOriginSnapshot(
+            restoredDraftText: restoredDraftText,
+            restoredProjectID: self.preferredProjectID,
+            restoredVersionID: self.preferredVersionID,
+            fallbackProjectID: restoredProjectBinding.projectID,
+            fallbackVersionID: restoredProjectBinding.versionID
+        )
         self.structuredDraft = Self.restoreStructuredDraft()
         self.draftText = restoredDraftText
         self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey)
@@ -2171,6 +2215,35 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode(ScreenplayProjectBindingSnapshot.self, from: data)) ?? .empty
     }
 
+    private static func restoreLiveDraftOriginSnapshot(
+        restoredDraftText: String,
+        restoredProjectID: String,
+        restoredVersionID: String,
+        fallbackProjectID: String,
+        fallbackVersionID: String
+    ) -> ScreenplayLiveDraftOriginSnapshot {
+        guard ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(restoredDraftText) != nil else {
+            return .empty
+        }
+        if let stored = UserDefaults.standard.string(forKey: draftOriginStorageKey),
+           let data = stored.data(using: .utf8) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if let snapshot = try? decoder.decode(ScreenplayLiveDraftOriginSnapshot.self, from: data),
+               !snapshot.isEmpty {
+                return snapshot
+            }
+        }
+        let projectID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(restoredProjectID)
+            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackProjectID)
+            ?? ""
+        let versionID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(restoredVersionID)
+            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackVersionID)
+            ?? ""
+        let snapshot = ScreenplayLiveDraftOriginSnapshot(projectID: projectID, versionID: versionID)
+        return snapshot.isEmpty ? .empty : snapshot
+    }
+
     private static func restoreConversationTurns(forKey key: String) -> [ScreenplayConversationTurn] {
         guard let stored = UserDefaults.standard.string(forKey: key),
               let data = stored.data(using: .utf8) else {
@@ -2198,9 +2271,29 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private func persistDraftText(_ text: String) {
         if let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(text) {
             UserDefaults.standard.set(draft, forKey: Self.draftTextStorageKey)
+            persistDraftOriginForCurrentContext()
         } else {
             UserDefaults.standard.removeObject(forKey: Self.draftTextStorageKey)
+            draftOrigin = .empty
+            UserDefaults.standard.removeObject(forKey: Self.draftOriginStorageKey)
         }
+    }
+
+    private func persistDraftOriginForCurrentContext() {
+        let snapshot = ScreenplayLiveDraftOriginSnapshot(
+            projectID: committedWriteProjectIDSnapshot(),
+            versionID: committedWriteVersionIDSnapshot()
+        )
+        draftOrigin = snapshot
+        guard !snapshot.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: Self.draftOriginStorageKey)
+            return
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(snapshot),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        UserDefaults.standard.set(encoded, forKey: Self.draftOriginStorageKey)
     }
 
     private func persistPreferredProjectContext() {

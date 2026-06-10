@@ -684,6 +684,22 @@ struct ScreenplayBridgeVersionAdoptionPolicy {
     }
 }
 
+struct ScreenplayBridgeDraftAdoptionPolicy {
+    static func shouldAdoptLiveBridgeDraft(
+        selectedProjectId: String,
+        currentDraft: String,
+        bridgeDraft: String,
+        draftOriginProjectId: String
+    ) -> Bool {
+        let selectedProject = selectedProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCurrentDraft = currentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedBridgeDraft = bridgeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedCurrentDraft.isEmpty, !normalizedBridgeDraft.isEmpty else { return false }
+        guard !selectedProject.isEmpty else { return true }
+        return ScreenplayProjectScopedState.matches(draftOriginProjectId, selectedProjectId: selectedProject)
+    }
+}
+
 struct ScreenplayStudioHistoryMigrationPolicy {
     static let liveDraftKey = "live-draft"
 
@@ -1636,10 +1652,16 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         await persistActiveProjectSelection(projectID)
     }
 
-    func replaceDraftFromVoiceBridgeIfNeeded(_ draft: String) {
+    func replaceDraftFromVoiceBridgeIfNeeded(_ draft: String, draftOriginProjectID: String) {
+        guard ScreenplayBridgeDraftAdoptionPolicy.shouldAdoptLiveBridgeDraft(
+            selectedProjectId: selectedProjectID,
+            currentDraft: fountainDraft,
+            bridgeDraft: draft,
+            draftOriginProjectId: draftOriginProjectID
+        ) else {
+            return
+        }
         let clean = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return }
-        guard fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         applyServerDraft(clean, versionId: latestVersionID, allowOverwriteDirtyLocalDraft: true)
     }
 
@@ -6268,7 +6290,10 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
             }
             .onChange(of: liveDraftBridge.draftText) { _, newValue in
-                vm.replaceDraftFromVoiceBridgeIfNeeded(newValue)
+                vm.replaceDraftFromVoiceBridgeIfNeeded(
+                    newValue,
+                    draftOriginProjectID: liveDraftBridge.draftOriginProjectIDSnapshot()
+                )
             }
             .onChange(of: liveDraftBridge.isStreamingDraftPreviewActive) { _, isActive in
                 vm.setStreamingDraftPreviewActive(isActive)
@@ -29534,7 +29559,10 @@ Look at the city.
         ) else {
             return
         }
-        vm.replaceDraftFromVoiceBridgeIfNeeded(liveDraftBridge.draftText)
+        vm.replaceDraftFromVoiceBridgeIfNeeded(
+            liveDraftBridge.draftText,
+            draftOriginProjectID: liveDraftBridge.draftOriginProjectIDSnapshot()
+        )
         bootstrapNavigatorIfNeeded()
         await restoreStudioAskNoteHistory(for: activeStudioAskNoteHistoryKey)
         restoreInspectorWorkspaceState()

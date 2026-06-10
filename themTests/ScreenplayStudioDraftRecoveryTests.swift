@@ -453,6 +453,51 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         ))
     }
 
+    func testBridgeDraftAdoptionPolicyAllowsProjectlessLiveDraftFallback() {
+        XCTAssertTrue(ScreenplayBridgeDraftAdoptionPolicy.shouldAdoptLiveBridgeDraft(
+            selectedProjectId: " ",
+            currentDraft: "",
+            bridgeDraft: "INT. DINER - NIGHT\n\nCLEMENTINE listens.",
+            draftOriginProjectId: ""
+        ))
+    }
+
+    func testBridgeDraftAdoptionPolicyRequiresMatchingOriginForSelectedProject() {
+        XCTAssertTrue(ScreenplayBridgeDraftAdoptionPolicy.shouldAdoptLiveBridgeDraft(
+            selectedProjectId: " project-a ",
+            currentDraft: "",
+            bridgeDraft: "INT. DINER - NIGHT\n\nCLEMENTINE listens.",
+            draftOriginProjectId: "project-a"
+        ))
+        XCTAssertFalse(ScreenplayBridgeDraftAdoptionPolicy.shouldAdoptLiveBridgeDraft(
+            selectedProjectId: "project-a",
+            currentDraft: "",
+            bridgeDraft: "INT. MOTEL - NIGHT\n\nA different movie waits.",
+            draftOriginProjectId: "project-b"
+        ))
+        XCTAssertFalse(ScreenplayBridgeDraftAdoptionPolicy.shouldAdoptLiveBridgeDraft(
+            selectedProjectId: "project-a",
+            currentDraft: "",
+            bridgeDraft: "INT. MOTEL - NIGHT\n\nA different movie waits.",
+            draftOriginProjectId: " "
+        ))
+    }
+
+    func testBridgeDraftAdoptionPolicyDoesNotReplaceExistingDraftOrAdoptEmptyBridgeDraft() {
+        XCTAssertFalse(ScreenplayBridgeDraftAdoptionPolicy.shouldAdoptLiveBridgeDraft(
+            selectedProjectId: "project-a",
+            currentDraft: "INT. DINER - NIGHT",
+            bridgeDraft: "INT. MOTEL - NIGHT",
+            draftOriginProjectId: "project-a"
+        ))
+        XCTAssertFalse(ScreenplayBridgeDraftAdoptionPolicy.shouldAdoptLiveBridgeDraft(
+            selectedProjectId: "project-a",
+            currentDraft: "",
+            bridgeDraft: "   ",
+            draftOriginProjectId: "project-a"
+        ))
+    }
+
     func testDraftRestorePolicyPrefersActiveClementinePageWriteBeyondNewerVersion() {
         let generatedDraft = "FADE IN:\n\nINT. DINER - NIGHT\n\nClementine gives the silence a shape."
         let project = projectSummary(
