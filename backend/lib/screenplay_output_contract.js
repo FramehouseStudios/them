@@ -1,6 +1,7 @@
 const SCENE_HEADING_RE = /^(INT|EXT|EST|INT\/EXT|I\/E)\.?(?:\s|$)/i;
 const TRANSITION_RE = /^[A-Z0-9 .'\-]+ TO:$|^(FADE IN|FADE OUT|CUT TO BLACK)\.?$/i;
 const PARENTHETICAL_RE = /^\([^()\n]{1,80}\)$/;
+const CONTRACT_DIVIDER_RE = /^(?:-{3,}|\*{3,}|_{3,})$/;
 
 function normalizeContractLine(line = "") {
   return String(line || "")
@@ -72,20 +73,45 @@ export function looksLikeScreenplayChatDriftLine(line = "") {
     "got it",
     "great",
     "screenplay",
+    "screenplay continuation",
+    "screenplay draft",
+    "screenplay page",
+    "screenplay pages",
     "scene",
+    "scene draft",
+    "scene pages",
+    "fountain",
+    "fountain page",
+    "fountain pages",
+    "draft",
+    "draft pages",
+    "page draft",
+    "pages",
     "in screenplay format",
     "try this",
     "use this",
+    "notes",
+    "craft notes",
+    "why this works",
+    "what changed",
+    "end scene",
+    "end of scene",
+    "end of excerpt",
   ].includes(normalized)) {
     return true;
   }
 
   return [
     /^(absolutely|certainly|definitely|of course|sure|yes|yeah|okay|ok|got it|great)\b.{0,120}\b(here|let's|lets|i'll|i will|continu)/,
+    /^here (?:are|is)\b.{0,120}\b(page|pages|scene|beat|continuation|rewrite|revision|version|screenplay|script|fountain|draft)\b/,
     /^here(?:'s| is)\b.{0,120}\b(scene|page|beat|continuation|rewrite|revision|version|screenplay|script)\b/,
     /^in screenplay format\b/,
+    /^(?:screenplay|scene|fountain|draft|page|pages)(?:\s+(?:page|pages|continuation|draft|version|pass|rewrite|revision))?$/,
     /^screenplay\s*:/,
     /^scene\s*:/,
+    /^fountain\s*:/,
+    /^pages?\s*:/,
+    /^draft\s*:/,
     /^try this\b/,
     /^use this\b/,
     /^continuing\b/,
@@ -102,6 +128,8 @@ export function looksLikeScreenplayChatDriftLine(line = "") {
     /^let me know\b/,
     /^tell me if\b/,
     /^we can\b.{0,80}\b(next|also|tighten|revise|rewrite|continue|make)\b/,
+    /^(?:why this works|what changed|notes?|craft notes?)\b/,
+    /^(?:end scene|end of scene|end of excerpt)\b/,
   ].some((pattern) => pattern.test(normalized));
 }
 
@@ -114,6 +142,8 @@ export function looksLikeScreenplayStrategyLeadInLine(line = "") {
     /^(?:one\s+)?(?:quick\s+)?(?:strategy|craft|diagnosis|note|page-first note|highest-leverage fix)\b/,
     /^the (?:move|turn|pressure|subtext|engine|page|scene|beat) (?:is|here is)\b/,
     /^(?:this|the) (?:scene|beat|page|moment|exchange|pass) (?:needs|wants|should|must|can)\b/,
+    /^this (?:gives|keeps|lets|makes|should give|should keep)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|character|pressure|subtext|tension|emotion|turn)\b/,
+    /^the (?:key|idea|move|pressure|subtext|turn) (?:is|here is)\b/,
     /^to make (?:it|this|the scene|the page|the exchange) (?:faster|smarter|more expert|more cinematic|more emotional|work)\b/,
     /^i (?:would|kept|focused|anchored|made|gave|added|cut|preserved)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|pressure|subtext|turn|objective|obstacle)\b/,
   ].some((pattern) => pattern.test(normalized));
@@ -121,6 +151,14 @@ export function looksLikeScreenplayStrategyLeadInLine(line = "") {
 
 function nextNonEmptyLineAfter(lines = [], startIndex = 0) {
   for (let index = Math.max(0, Number(startIndex || 0)); index < lines.length; index += 1) {
+    const candidate = String(lines[index] || "");
+    if (normalizeContractLine(candidate)) return candidate;
+  }
+  return "";
+}
+
+function previousNonEmptyLineBefore(lines = [], startIndex = 0) {
+  for (let index = Math.min(lines.length - 1, Number(startIndex || 0)); index >= 0; index -= 1) {
     const candidate = String(lines[index] || "");
     if (normalizeContractLine(candidate)) return candidate;
   }
@@ -144,7 +182,24 @@ function hasScreenplayStarterAhead(lines = [], startIndex = 0, maxNonEmptyLookah
 }
 
 function stripCodeFenceLines(lines = []) {
-  return lines.filter((line) => !/^```(?:[a-z0-9_-]+)?\s*$/i.test(String(line || "").trim()));
+  return lines.filter((line) => {
+    const trimmed = String(line || "").trim();
+    return !/^```(?:[a-z0-9_-]+)?\s*$/i.test(trimmed) && !CONTRACT_DIVIDER_RE.test(trimmed);
+  });
+}
+
+function looksLikeScreenplayContractDriftLine(line = "") {
+  return looksLikeScreenplayChatDriftLine(line) || looksLikeScreenplayStrategyLeadInLine(line);
+}
+
+function lineFollowsScreenplayDialogueCue(lines = [], index = 0) {
+  const line = String(lines[index] || "");
+  const previousNonEmpty = previousNonEmptyLineBefore(lines, index - 1);
+  if (!previousNonEmpty) return false;
+  return (
+    isParentheticalLine(previousNonEmpty)
+    || isUppercaseCueCandidate(previousNonEmpty, line)
+  );
 }
 
 function stripLeadingContractDrift(lines = []) {
@@ -172,12 +227,27 @@ function stripLeadingContractDrift(lines = []) {
   return lines.slice(startIndex);
 }
 
+function stripInteriorContractDrift(lines = []) {
+  return lines.filter((line, index) => {
+    const cleaned = normalizeContractLine(line);
+    if (!cleaned || !looksLikeScreenplayContractDriftLine(cleaned)) return true;
+    if (lineFollowsScreenplayDialogueCue(lines, index)) return true;
+    return !hasScreenplayStarterAhead(lines, index + 1);
+  });
+}
+
 function stripTrailingContractDrift(lines = []) {
   const trimmed = [...lines];
   while (trimmed.length) {
     const line = String(trimmed[trimmed.length - 1] || "");
     const cleaned = normalizeContractLine(line);
-    if (!cleaned || looksLikeScreenplayChatDriftLine(cleaned)) {
+    if (
+      !cleaned
+      || (
+        looksLikeScreenplayContractDriftLine(cleaned)
+        && !lineFollowsScreenplayDialogueCue(trimmed, trimmed.length - 1)
+      )
+    ) {
       trimmed.pop();
       continue;
     }
@@ -196,7 +266,8 @@ export function normalizeScreenplayOutputContractText(text = "") {
 
   const lines = stripCodeFenceLines(normalized.split("\n"));
   const leadingStripped = stripLeadingContractDrift(lines);
-  const trailingStripped = stripTrailingContractDrift(leadingStripped);
+  const interiorStripped = stripInteriorContractDrift(leadingStripped);
+  const trailingStripped = stripTrailingContractDrift(interiorStripped);
   return trailingStripped
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")

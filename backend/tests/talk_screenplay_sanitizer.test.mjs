@@ -77,6 +77,56 @@ test("[talk-screenplay-sanitizer] strips strategy and diagnosis lines before pag
   ].join("\n"));
 });
 
+test("[talk-screenplay-sanitizer] strips page labels, dividers, and trailing craft notes", () => {
+  const out = normalizeTalkPageReply([
+    "## Screenplay Pages",
+    "---",
+    "Here are the next pages:",
+    "",
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "June folds the receipt into a white square.",
+    "",
+    "MARCUS",
+    "You kept it.",
+    "",
+    "END SCENE.",
+    "",
+    "Why this works:",
+    "This gives the scene pressure without explaining the feeling.",
+    "Want me to keep going from here?",
+  ].join("\n"));
+
+  assert.equal(out, [
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "June folds the receipt into a white square.",
+    "",
+    "MARCUS",
+    "You kept it.",
+  ].join("\n"));
+});
+
+test("[talk-screenplay-sanitizer] preserves dialogue that looks like an assistant offer", () => {
+  const out = normalizeTalkPageReply([
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "MARCUS",
+    "Want me to go?",
+    "",
+    "June does not answer.",
+  ].join("\n"));
+
+  assert.equal(out, [
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "MARCUS",
+    "Want me to go?",
+    "",
+    "June does not answer.",
+  ].join("\n"));
+});
+
 test("[talk-screenplay-sanitizer] keeps playable action lines that are not trailing craft notes", () => {
   const out = normalizeTalkPageReply([
     "INT. KITCHEN - MORNING",
@@ -151,5 +201,5 @@ test("[talk-screenplay-output] rejects craft notes even with a scene anchor", ()
   });
 
   assert.equal(output.target, "voice_pin");
-  assert.equal(output.source, "guard_non_screenplay");
+  assert.equal(output.source, "guard_invalid_page_format");
 });

@@ -178,6 +178,46 @@ test("[studio-render] sync: page target strips strategy notes before screenplay 
   });
 });
 
+test("[studio-render] sync: page target strips labels, dividers, and trailing craft notes", async () => {
+  const rawReply = [
+    "## Screenplay Pages",
+    "---",
+    "Here are the next pages:",
+    "",
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "June folds the receipt into a white square.",
+    "",
+    "MARCUS",
+    "You kept it.",
+    "",
+    "END SCENE.",
+    "",
+    "Why this works:",
+    "This gives the scene pressure without explaining the feeling.",
+    "Want me to keep going from here?"
+  ].join("\n");
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async () => rawReply,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "write the next page",
+      screenplay_target: "page",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June folds the receipt into a white square.",
+      "",
+      "MARCUS",
+      "You kept it."
+    ].join("\n"));
+  });
+});
+
 test("[studio-render] sync: voice pin target preserves conversational reply", async () => {
   const reply = "I can keep helping you shape the scene from here.";
   const deps = defaultDeps({
@@ -317,6 +357,49 @@ test("[studio-render-stream] sse: page target strips screenplay chat drift from 
     assert.match(r.text, /INT\. DINER - NIGHT/);
     assert.doesNotMatch(r.text, /Absolutely/);
     assert.doesNotMatch(r.text, /Want me to keep going/);
+  });
+});
+
+test("[studio-render-stream] sse: page target strips labels and craft notes from deltas and done", async () => {
+  const rawReply = [
+    "## Screenplay Pages",
+    "---",
+    "Here are the next pages:",
+    "",
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "June folds the receipt into a white square.",
+    "",
+    "MARCUS",
+    "You kept it.",
+    "",
+    "END SCENE.",
+    "",
+    "Why this works:",
+    "This gives the scene pressure without explaining the feeling."
+  ].join("\n");
+  const deps = defaultDeps({
+    streamStudioRealtimeText: async ({ onDelta }) => {
+      const first = "## Screenplay Pages\n---\nHere are the next pages:\n\n";
+      const second = `${first}INT. MOTEL ROOM - NIGHT\n\nJune folds the receipt into a white square.\n\nMARCUS\nYou kept it.`;
+      await onDelta(first, first);
+      await onDelta(second.slice(first.length), second);
+      await onDelta("\n\nEND SCENE.\n\nWhy this works:\nThis gives the scene pressure without explaining the feeling.", rawReply);
+      return rawReply;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", {
+      transcript: "write the next page",
+      screenplay_target: "page",
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.text, /INT\. MOTEL ROOM - NIGHT/);
+    assert.doesNotMatch(r.text, /Screenplay Pages/);
+    assert.doesNotMatch(r.text, /Here are the next pages/);
+    assert.doesNotMatch(r.text, /END SCENE/);
+    assert.doesNotMatch(r.text, /Why this works/);
   });
 });
 
