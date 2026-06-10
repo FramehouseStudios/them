@@ -34,6 +34,11 @@ test("[feature-screenplay-map] maps page position into feature sequence pressure
   assert.ok(block.includes("act_to_act_causality: every page should push a choice/cost chain"));
   assert.ok(block.includes("scene_to_feature_loop: each scene must satisfy its local objective"));
   assert.ok(block.includes("page_quality_gate: no placeholder scenes"));
+  assert.ok(block.includes("feature_continuity_ledger:"));
+  assert.ok(block.includes("ledger_rules:"));
+  assert.ok(block.includes("Spend planted setups and image echoes before inventing new solutions."));
+  assert.ok(block.includes("act_exit_checklist:"));
+  assert.ok(block.includes("active_handoff: write toward reversal, cost, and collapse of the false tactic."));
   assert.ok(block.includes("expert_scene_execution:"));
   assert.ok(block.includes("scene_job: make the objective, obstacle, pressure clock, and cost visible"));
   assert.ok(block.includes("speed_protocol: when the user asks for pages"));
@@ -76,6 +81,14 @@ test("[feature-screenplay-map] carries feature spine, promises, and Act III payo
   assert.ok(block.includes("theme_argument: Truth is only love"));
   assert.ok(block.includes("central_question: Can Mara tell the truth"));
   assert.ok(block.includes("ending_image: The empty pool filled with rainwater"));
+  assert.ok(block.includes("feature_continuity_ledger:"));
+  assert.ok(block.includes("logline_lock: A burned-out public defender"));
+  assert.ok(block.includes("theme_argument_to_test: Truth is only love"));
+  assert.ok(block.includes("central_question_to_answer: Can Mara tell the truth"));
+  assert.ok(block.includes("protagonist_engine: want=Win the public case.; need=Stop mistaking control for loyalty."));
+  assert.ok(block.includes("opposition_engine: A town that survives by burying evidence."));
+  assert.ok(block.includes("final_image_pressure: The empty pool filled with rainwater at dawn."));
+  assert.ok(block.includes("active_setups_to_carry_or_pay:"));
   assert.ok(block.includes("continuity_assets:"));
   assert.ok(block.includes("turn_engine: each scene must change leverage"));
   assert.ok(block.includes("image_system: plant, echo, and transform motifs"));
@@ -113,6 +126,11 @@ test("[feature-screenplay-map] emits page-batch execution plan for feature page 
   assert.ok(block.includes("turn_budget: 2-4 escalating scene turns"));
   assert.ok(block.includes("delivery: write clean Fountain pages first"));
   assert.ok(block.includes("continuity: treat the draft excerpt as the live previous page"));
+  assert.ok(block.includes("scene_turn_tests:"));
+  assert.ok(block.includes("launch: inherit the previous emotional residue"));
+  assert.ok(block.includes("complication: add an obstacle that changes tactic"));
+  assert.ok(block.includes("reversal: change leverage, information, relationship, or self-knowledge."));
+  assert.ok(block.includes("exit: leave a cost, reveal, decision, or image"));
   assert.ok(block.includes("end_condition: finish the batch on a decision, reveal, cost, or image"));
 });
 
@@ -184,6 +202,10 @@ test("[feature-screenplay-map] maps whole-feature targets across all act lanes",
   assert.ok(block.includes("Act I - Opening Image / Ordinary World"));
   assert.ok(block.includes("Act II - Midpoint Pressure"));
   assert.ok(block.includes("Act III - Climax / Final Image"));
+  assert.ok(block.includes("act_exit_checklist:"));
+  assert.ok(block.includes("Act I exit: protagonist makes an irreversible choice"));
+  assert.ok(block.includes("Act II exit: old tactic collapses"));
+  assert.ok(block.includes("Act III exit: changed behavior resolves the central question"));
   assert.ok(block.includes("next_three_turns:"));
   assert.ok(block.includes("Opening Image / Ordinary World: Open on behavior"));
   assert.ok(block.includes("act_handoff: every local scene must push the next sequence obligation"));

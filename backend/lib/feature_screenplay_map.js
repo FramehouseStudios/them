@@ -331,6 +331,94 @@ function buildFeatureScaleOutputContractLines() {
   ];
 }
 
+function buildFeatureContinuityLedgerLines(sessionContext = {}) {
+  const logline = trimContextLine(sessionContext.logline, 260);
+  const themeArgument = trimContextLine(
+    sessionContext.themeArgument ?? sessionContext.theme_argument ?? sessionContext.theme,
+    260
+  );
+  const centralQuestion = trimContextLine(
+    sessionContext.centralQuestion ?? sessionContext.central_question ?? sessionContext.dramaticQuestion ?? sessionContext.dramatic_question,
+    260
+  );
+  const protagonistWant = trimContextLine(sessionContext.protagonistWant ?? sessionContext.protagonist_want, 180);
+  const protagonistNeed = trimContextLine(sessionContext.protagonistNeed ?? sessionContext.protagonist_need, 180);
+  const antagonisticForce = trimContextLine(
+    sessionContext.antagonisticForce ?? sessionContext.antagonistic_force,
+    220
+  );
+  const endingImage = trimContextLine(
+    sessionContext.endingImage ?? sessionContext.ending_image ?? sessionContext.finalImage ?? sessionContext.final_image,
+    240
+  );
+  const characterFocus = sanitizeContextList(
+    sessionContext.characterFocus ?? sessionContext.character_focus ?? sessionContext.characters ?? sessionContext.currentCharacters,
+    6,
+    120
+  );
+  const unresolvedSetups = sanitizeContextList(
+    sessionContext.unresolvedSetups ?? sessionContext.unresolved_setups ?? sessionContext.openLoops ?? sessionContext.open_loops,
+    6,
+    200
+  );
+  const continuityNotes = sanitizeContextList(
+    sessionContext.continuityNotes ?? sessionContext.continuity_notes ?? sessionContext.notes,
+    6,
+    200
+  );
+  const lines = [
+    "  feature_continuity_ledger:",
+    "    purpose: preserve the whole movie while writing the immediate next playable beat.",
+  ];
+  if (logline) lines.push(`    logline_lock: ${logline}`);
+  if (themeArgument) lines.push(`    theme_argument_to_test: ${themeArgument}`);
+  if (centralQuestion) lines.push(`    central_question_to_answer: ${centralQuestion}`);
+  if (protagonistWant || protagonistNeed) {
+    lines.push(`    protagonist_engine: want=${protagonistWant || "unknown"}; need=${protagonistNeed || "unknown"}`);
+  }
+  if (antagonisticForce) lines.push(`    opposition_engine: ${antagonisticForce}`);
+  if (endingImage) lines.push(`    final_image_pressure: ${endingImage}`);
+  if (characterFocus.length) {
+    lines.push("    active_character_pressure:");
+    for (const character of characterFocus) lines.push(`      - ${character}`);
+  }
+  if (unresolvedSetups.length) {
+    lines.push("    active_setups_to_carry_or_pay:");
+    for (const setup of unresolvedSetups) lines.push(`      - ${setup}`);
+  }
+  if (continuityNotes.length) {
+    lines.push("    continuity_promises:");
+    for (const note of continuityNotes) lines.push(`      - ${note}`);
+  }
+  lines.push("    ledger_rules:");
+  lines.push("      - Every new scene must alter the want/need engine, the opposition engine, or the central question.");
+  lines.push("      - Spend planted setups and image echoes before inventing new solutions.");
+  lines.push("      - Preserve emotional residue from the previous scene; do not reset characters between sequences.");
+  return lines;
+}
+
+function buildActExitChecklistLines({ sequence = null, explicitAct = "" } = {}) {
+  const activeAct = trimContextLine(sequence?.act || explicitAct, 120);
+  const lines = [
+    "  act_exit_checklist:",
+    "    - Act I exit: protagonist makes an irreversible choice that activates the premise and burns a safe exit.",
+    "    - Act II exit: old tactic collapses, false want is exposed, and one painful truth powers the Act III plan.",
+    "    - Act III exit: changed behavior resolves the central question and transforms the final image.",
+  ];
+  if (activeAct) {
+    const activeActKind = inferActKind(activeAct);
+    lines.push(`    active_act_watch: ${activeAct}`);
+    if (activeActKind === "act1") {
+      lines.push("    active_handoff: write toward commitment, not explanation.");
+    } else if (activeActKind === "act2") {
+      lines.push("    active_handoff: write toward reversal, cost, and collapse of the false tactic.");
+    } else if (activeActKind === "act3") {
+      lines.push("    active_handoff: write toward synthesis, payoff, and the changed final choice.");
+    }
+  }
+  return lines;
+}
+
 function requestedPageBatchFromTask(screenplayTask = {}) {
   const requestedPages = positiveIntegerOrZero(
     screenplayTask?.requestedPages ??
@@ -372,6 +460,11 @@ function buildFeaturePageBatchPlanLines({
   lines.push("    turn_budget: 2-4 escalating scene turns, not one static conversation.");
   lines.push("    delivery: write clean Fountain pages first; no outline, diagnosis, recap, markdown fence, menu choices, or permission loop unless explicitly requested.");
   lines.push("    continuity: treat the draft excerpt as the live previous page and preserve the emotional handoff.");
+  lines.push("    scene_turn_tests:");
+  lines.push("      - launch: inherit the previous emotional residue through visible behavior.");
+  lines.push("      - complication: add an obstacle that changes tactic, not just louder dialogue.");
+  lines.push("      - reversal: change leverage, information, relationship, or self-knowledge.");
+  lines.push("      - exit: leave a cost, reveal, decision, or image that changes the feature state.");
   lines.push("    end_condition: finish the batch on a decision, reveal, cost, or image that hands into the next sequence.");
   return lines;
 }
@@ -515,6 +608,8 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     ...buildFeatureCompassLines(),
     ...buildExpertExecutionLines(),
     ...buildFeatureScaleOutputContractLines(),
+    ...buildFeatureContinuityLedgerLines(sessionContext || {}),
+    ...buildActExitChecklistLines({ sequence, explicitAct }),
     ...buildActSequenceRunwayLines({
       actLabel: actRunwayLabel,
       targetPages,
