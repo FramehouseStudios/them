@@ -191,6 +191,47 @@ test("[talk-screenplay-output] repairs action-only continuations when anchor is 
   assert.equal(output.text.startsWith("EXT. MOTEL BALCONY - DAWN\n\n"), true);
 });
 
+test("[talk-screenplay-output] accepts playable page output after quality gate", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June folds the receipt into a white square.",
+      "",
+      "MARCUS",
+      "You kept it.",
+      "",
+      "June looks up before he can hide the shake in his hand.",
+    ].join("\n"),
+    studioMeta: {
+      screenplayTarget: "page",
+    },
+  });
+
+  assert.equal(output.target, "page");
+  assert.equal(output.source, "studio_target");
+  assert.ok(output.lines.some((line) => line.element === "sceneHeading"));
+  assert.ok(output.lines.some((line) => line.element === "dialogue"));
+});
+
+test("[talk-screenplay-output] rejects outline prose masquerading as page text", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "Beat 1: June confronts Marcus about the receipt.",
+      "The scene should escalate suspicion before the reveal.",
+    ].join("\n"),
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAnchorSceneLabel: "INT. MOTEL ROOM - NIGHT",
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+});
+
 test("[talk-screenplay-output] rejects craft notes even with a scene anchor", () => {
   const output = buildTalkScreenplayOutput({
     reply: "The scene needs more pressure before anyone explains the clue.",

@@ -71,6 +71,7 @@ import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
+import { evaluateScreenplayPageQuality } from "./lib/screenplay_page_quality.js";
 import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
 import {
   buildTalkScreenplayQualityAlert,
@@ -5034,13 +5035,30 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
     lines,
     studioMeta,
   });
+  const outputText = repaired?.text || normalizedText;
+  const outputLines = repaired?.lines || lines;
+  const quality = evaluateScreenplayPageQuality({
+    text: outputText,
+    lines: outputLines,
+    targetPages: studioMeta.screenplayTargetPages,
+    hasSceneAnchor: Boolean(normalizeTalkScreenplayAnchorSceneLabel(studioMeta)),
+  });
+  if (!quality.ok) {
+    return promptBlockFallback || {
+      target: "voice_pin",
+      format: "note",
+      source: "guard_low_page_quality",
+      text: "",
+      lines: [],
+    };
+  }
 
   return {
     target: "page",
     format: "hollywood",
     source: repaired?.source || "studio_target",
-    text: repaired?.text || normalizedText,
-    lines: repaired?.lines || lines,
+    text: outputText,
+    lines: outputLines,
   };
 }
 

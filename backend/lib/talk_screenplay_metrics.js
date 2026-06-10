@@ -39,6 +39,9 @@ function deriveScreenplayOutcome({
   if (screenplayOutputSource === "guard_non_screenplay") {
     return "rejected_non_screenplay";
   }
+  if (screenplayOutputSource === "guard_low_page_quality") {
+    return "rejected_low_page_quality";
+  }
   if (screenplayFinalTarget === "voice_pin") {
     return "downgraded_voice_pin";
   }
@@ -101,6 +104,9 @@ function summarizeTalkScreenplayMetrics(samples = []) {
   const nonScreenplay = pageRequested.filter((sample) =>
     sample.screenplayOutputSource === "guard_non_screenplay"
   );
+  const lowPageQuality = pageRequested.filter((sample) =>
+    sample.screenplayOutputSource === "guard_low_page_quality"
+  );
   return {
     modeCount: screenplaySamples.length,
     pageRequestedCount: pageRequested.length,
@@ -109,6 +115,7 @@ function summarizeTalkScreenplayMetrics(samples = []) {
     pageDowngradedCount: downgraded.length,
     pageRejectedInvalidFormatCount: invalidFormat.length,
     pageRejectedNonScreenplayCount: nonScreenplay.length,
+    pageRejectedLowQualityCount: lowPageQuality.length,
     pageAcceptanceRate: pageRequested.length > 0 ? accepted.length / pageRequested.length : 0,
     outcomeCounts: countBy(screenplaySamples, "screenplayOutcome"),
     outputSourceCounts: countBy(screenplaySamples, "screenplayOutputSource"),
@@ -137,7 +144,10 @@ function deriveTalkScreenplayQualitySignal(summary = {}, options = {}) {
   const pageDowngradedCount = normalizeMetricCount(summary?.pageDowngradedCount);
   const pageRejectedInvalidFormatCount = normalizeMetricCount(summary?.pageRejectedInvalidFormatCount);
   const pageRejectedNonScreenplayCount = normalizeMetricCount(summary?.pageRejectedNonScreenplayCount);
-  const guardRejectedCount = pageRejectedInvalidFormatCount + pageRejectedNonScreenplayCount;
+  const pageRejectedLowQualityCount = normalizeMetricCount(summary?.pageRejectedLowQualityCount);
+  const guardRejectedCount = pageRejectedInvalidFormatCount +
+    pageRejectedNonScreenplayCount +
+    pageRejectedLowQualityCount;
   const denominator = Math.max(1, pageRequestedCount);
   const pageAcceptanceRate = pageRequestedCount > 0
     ? normalizeMetricRate(summary?.pageAcceptanceRate || (pageAcceptedCount / denominator))
@@ -197,6 +207,7 @@ function deriveTalkScreenplayQualitySignal(summary = {}, options = {}) {
     pageDowngradedCount,
     pageRejectedInvalidFormatCount,
     pageRejectedNonScreenplayCount,
+    pageRejectedLowQualityCount,
     guardRejectedCount,
     pageAcceptanceRate,
     guardRejectionRate,
@@ -224,6 +235,7 @@ function buildTalkScreenplayQualityAlert(signal = {}) {
       page_repaired_count: normalizeMetricCount(signal?.pageRepairedCount),
       page_downgraded_count: normalizeMetricCount(signal?.pageDowngradedCount),
       guard_rejected_count: normalizeMetricCount(signal?.guardRejectedCount),
+      page_rejected_low_quality_count: normalizeMetricCount(signal?.pageRejectedLowQualityCount),
       page_acceptance_rate: pageAcceptanceRate,
       guard_rejection_rate: roundedMetricRate(signal?.guardRejectionRate),
       downgrade_rate: roundedMetricRate(signal?.downgradeRate),

@@ -41,6 +41,13 @@ test("[talk-screenplay-metrics] derives accepted, repaired, and rejected outcome
     screenplayFinalTarget: "voice_pin",
     screenplayOutputSource: "guard_non_screenplay",
   }), "rejected_non_screenplay");
+
+  assert.equal(deriveScreenplayOutcome({
+    screenplayMode: true,
+    screenplayRequestedTarget: "page",
+    screenplayFinalTarget: "voice_pin",
+    screenplayOutputSource: "guard_low_page_quality",
+  }), "rejected_low_page_quality");
 });
 
 test("[talk-screenplay-metrics] normalizes sample fields without content", () => {
@@ -95,21 +102,29 @@ test("[talk-screenplay-metrics] summarizes page-write outcome counters", () => {
       screenplayOutputSource: "studio_target",
     },
     {
+      screenplayMode: true,
+      screenplayRequestedTarget: "page",
+      screenplayFinalTarget: "voice_pin",
+      screenplayOutputSource: "guard_low_page_quality",
+    },
+    {
       screenplayMode: false,
     },
   ]);
 
-  assert.equal(summary.modeCount, 4);
-  assert.equal(summary.pageRequestedCount, 3);
+  assert.equal(summary.modeCount, 5);
+  assert.equal(summary.pageRequestedCount, 4);
   assert.equal(summary.pageAcceptedCount, 2);
   assert.equal(summary.pageRepairedCount, 1);
-  assert.equal(summary.pageDowngradedCount, 1);
+  assert.equal(summary.pageDowngradedCount, 2);
   assert.equal(summary.pageRejectedInvalidFormatCount, 0);
   assert.equal(summary.pageRejectedNonScreenplayCount, 1);
-  assert.equal(summary.pageAcceptanceRate, 2 / 3);
+  assert.equal(summary.pageRejectedLowQualityCount, 1);
+  assert.equal(summary.pageAcceptanceRate, 2 / 4);
   assert.equal(summary.outcomeCounts.accepted_page, 1);
   assert.equal(summary.outcomeCounts.accepted_repaired_page, 1);
   assert.equal(summary.outcomeCounts.rejected_non_screenplay, 1);
+  assert.equal(summary.outcomeCounts.rejected_low_page_quality, 1);
   assert.equal(summary.outcomeCounts.voice_pin, 1);
 });
 
@@ -134,6 +149,7 @@ test("[talk-screenplay-metrics] quality signal warns on low page acceptance", ()
     pageDowngradedCount: 3,
     pageRejectedInvalidFormatCount: 1,
     pageRejectedNonScreenplayCount: 1,
+    pageRejectedLowQualityCount: 1,
     pageAcceptanceRate: 5 / 8,
   });
   const alert = buildTalkScreenplayQualityAlert(signal);
@@ -141,12 +157,13 @@ test("[talk-screenplay-metrics] quality signal warns on low page acceptance", ()
   assert.equal(signal.status, "warning");
   assert.equal(signal.reason, "low_page_acceptance");
   assert.equal(signal.sampleReady, true);
-  assert.equal(signal.guardRejectedCount, 2);
-  assert.equal(signal.guardRejectionRate, 0.25);
+  assert.equal(signal.guardRejectedCount, 3);
+  assert.equal(signal.guardRejectionRate, 0.375);
   assert.equal(signal.downgradeRate, 0.375);
   assert.equal(alert.code, "screenplay_page_write_regression");
   assert.equal(alert.severity, "warning");
   assert.equal(alert.details.page_requested_count, 8);
+  assert.equal(alert.details.page_rejected_low_quality_count, 1);
   assert.equal(alert.details.page_acceptance_rate, 0.625);
 });
 
@@ -157,6 +174,7 @@ test("[talk-screenplay-metrics] quality signal escalates critical regressions", 
     pageDowngradedCount: 4,
     pageRejectedInvalidFormatCount: 2,
     pageRejectedNonScreenplayCount: 1,
+    pageRejectedLowQualityCount: 1,
     pageAcceptanceRate: 2 / 6,
   });
   const alert = buildTalkScreenplayQualityAlert(signal);
@@ -164,6 +182,7 @@ test("[talk-screenplay-metrics] quality signal escalates critical regressions", 
   assert.equal(signal.status, "critical");
   assert.equal(signal.reason, "low_page_acceptance");
   assert.equal(alert.severity, "critical");
-  assert.equal(alert.details.guard_rejected_count, 3);
+  assert.equal(alert.details.guard_rejected_count, 4);
+  assert.equal(alert.details.page_rejected_low_quality_count, 1);
   assert.equal(alert.details.downgrade_rate, 0.667);
 });
