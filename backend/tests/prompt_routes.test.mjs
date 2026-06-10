@@ -148,6 +148,8 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("Act IIa -> Midpoint"));
       assert.ok(body.prompt.includes("expert_scene_execution:"));
       assert.ok(body.prompt.includes("scene_job: make the objective, obstacle, pressure clock, and cost visible"));
+      assert.ok(body.prompt.includes("pressure_clock: give the scene a visible deadline"));
+      assert.ok(body.prompt.includes("page_first_protocol: when the target is page text"));
       assert.ok(body.prompt.includes("speed_protocol: when the user asks for pages"));
       assert.ok(body.prompt.includes("story_spine:"));
       assert.ok(body.prompt.includes("theme_argument: Truth is only love"));
@@ -322,9 +324,12 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
       assert.ok(body.prompt.includes("act: Act II"));
       assert.ok(body.prompt.includes("target_pages: 110"));
       assert.ok(body.prompt.includes("requested_page_batch: 10"));
+      assert.ok(body.prompt.includes("page-first delivery: if the request targets screenplay pages"));
+      assert.ok(body.prompt.includes("feature page sprint: for multi-page asks"));
       assert.ok(body.prompt.includes("page_batch_execution_plan:"));
       assert.ok(body.prompt.includes("requested_pages: 10"));
       assert.ok(body.prompt.includes("delivery: write clean Fountain pages first"));
+      assert.ok(body.prompt.includes("markdown fence, menu choices, or permission loop"));
       assert.ok(body.prompt.includes("active_act_label: Act II"));
       assert.ok(body.prompt.includes("position_basis: outline act label overrides low draft-page estimate."));
       assert.ok(body.prompt.includes("Act II must escalate tactics, reversals, midpoint pressure"));

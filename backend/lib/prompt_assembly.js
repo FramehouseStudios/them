@@ -49,7 +49,10 @@ const CLEMENTINE_CREATIVE_PACT = [
   "feature-length continuity: protect act pressure, sequence logic, setups/payoffs, character want/need, and page-to-page emotional handoff.",
   "feature completion method: when helping finish a whole film, keep a living map of current sequence, next three turns, unresolved promises, Act III payoff path, and final image.",
   "page batch discipline: for 5-15 page asks, write a run of escalating scene turns where story state changes every 1-2 pages.",
+  "page-first delivery: if the request targets screenplay pages, write the pages immediately; no preamble, no markdown fence, no options menu, no permission check.",
+  "feature page sprint: for multi-page asks, silently choose the strongest sequence obligation and deliver a continuous playable run with built-in escalation.",
   "expert page engine: every written scene needs a playable objective, obstacle, escalation, reversal or turn, emotional residue, and an exit image.",
+  "scene intelligence: before writing, silently know the scene job, pressure clock, relationship fracture, hidden want, turn, and exit problem.",
   "subtext engine: dialogue should carry tactic, concealment, interruption, pressure, and character-specific rhythm; avoid characters explaining the theme directly.",
   "image system: plant, echo, and transform visual motifs so later payoffs feel earned instead of invented.",
   "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation.",
@@ -329,9 +332,11 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push(`requested_page_batch: ${requestedPages}`);
     lines.push("page_batch_contract:");
     lines.push("  - Write the next continuous run as screenplay pages, not a summary or lecture.");
+    lines.push("  - Begin with playable Fountain text unless the user explicitly asks for an outline or diagnosis.");
     lines.push("  - Split the batch internally into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.");
     lines.push("  - Start from the active draft/scene state; do not restart, recap, or outline unless the user explicitly asks.");
     lines.push("  - Change leverage, information, relationship, tactic, or emotional cost every 1-2 pages.");
+    lines.push("  - Track act math: Act I earns commitment; Act II breaks false tactics; Act III spends setups through changed behavior.");
     lines.push("  - End on a decision, reveal, cost, or image that hands cleanly into the next sequence.");
   }
   const modeGuidance = screenplayModeGuidanceForIntent(intent);
@@ -344,11 +349,11 @@ function buildScreenplayTaskBlock(screenplayTask) {
 function screenplayModeGuidanceForIntent(intent) {
   switch (intent) {
     case "write_scene":
-      return "Write the scene as usable pages first: slugline, action, character cues, dialogue, and playable behavior. Build objective, obstacle, escalation, reversal or turn, emotional residue, and an exit image. Keep explanation out unless asked.";
+      return "Write the scene as usable pages first: slugline, action, character cues, dialogue, and playable behavior. Build objective, obstacle, pressure clock, escalation, reversal or turn, emotional residue, and an exit image. Keep explanation out unless asked.";
     case "rewrite_scene":
-      return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. Give at most one craft sentence before pages, then write the improved passage without drifting into unrelated story.";
+      return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. If this is page-targeted, output only the revised screenplay text; otherwise give at most one craft sentence before pages.";
     case "continue_script":
-      return "Continue directly from the supplied draft excerpt. Begin with the next visible action. Match tone, character voice, pacing, and emotional handoff; do not restart or recap the scene. Every few beats should change power, information, relationship, or self-knowledge.";
+      return "Continue directly from the supplied draft excerpt. Begin with the next visible action. Match tone, character voice, pacing, and emotional handoff; do not restart or recap the scene. Every few beats should change power, information, relationship, or self-knowledge, and every page should tighten the feature's act pressure.";
     case "dialogue_punchup":
       return "Keep the exchange actable and character-specific. Prefer subtext, interruption, reversal, and rhythm over clever standalone lines.";
     case "scene_doctor":
@@ -362,7 +367,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "pacing_pass":
       return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
     case "finish_feature":
-      return "Operate at feature scale. Locate the current act/sequence, name the structural obligation due now, preserve unresolved promises, setups/payoffs, and character need, then produce a current-sequence diagnosis, the next three turns, the Act III payoff path, and either playable Fountain pages or an act-to-act beat chain that can carry the script to the final image. For page requests, keep diagnosis to one sentence and start the pages immediately.";
+      return "Operate at feature scale. Locate the current act/sequence, name the structural obligation due now, preserve unresolved promises, setups/payoffs, and character need, then produce the next executable act-to-act move. For page requests, skip diagnosis and start playable Fountain immediately; for whole-feature planning, give a compact act engine, next three turns, Act III payoff path, and final-image handoff.";
     case "momentum_rescue":
       return "Do not turn stuckness into a lecture. Give one emotionally precise diagnosis, one decisive next move, and a small playable beat or page sample if there is enough context. Prefer forward motion over options.";
     default:

@@ -2701,6 +2701,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       flags,
       routingLane,
       chatModelPlan,
+      screenplayPageWrite: isScreenplayPageWriteTurn,
     });
 
     if (process.env.NODE_ENV !== "production") {
@@ -3476,6 +3477,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     res.setHeader("x-chat-load-shed", chatModelPlan.loadShed ? "1" : "0");
     res.setHeader("x-chat-load-shed-cause", encodeURIComponent(String(chatModelPlan.loadShedCause || "none")));
     res.setHeader("x-chat-temperature", chatTemperature.toFixed(2));
+    res.setHeader("x-chat-max-tokens", String(Math.max(0, Number(chatMaxTokens || 0))));
     res.setHeader("x-stt-model", encodeURIComponent(String(sttModelUsed || STT_MODEL_PRIMARY)));
     res.setHeader("x-stt-confidence", sttConfidence.toFixed(3));
     res.setHeader("x-knowledge-cards", String(knowledgeCardsUsed.length));

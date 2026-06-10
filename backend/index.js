@@ -364,6 +364,8 @@ const RICH_TURN_SYSTEM_PROMPT_MAX_CHARS = Math.max(
   )
 );
 const CHAT_MAX_TOKENS = parsePositiveInt(process.env.CHAT_MAX_TOKENS, 124);
+const CHAT_SCREENPLAY_PAGE_MAX_TOKENS = parsePositiveInt(process.env.CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 900);
+const CHAT_SCREENPLAY_BATCH_MAX_TOKENS = parsePositiveInt(process.env.CHAT_SCREENPLAY_BATCH_MAX_TOKENS, 2200);
 const CHAT_TEMPERATURE = parseNumberInRange(process.env.CHAT_TEMPERATURE, 0, 2, 0.45);
 const USER_NAME_MENTION_EVERY_TURNS = Math.max(
   2,
@@ -21025,12 +21027,75 @@ function selectChatTemperatureForTurn({ chatModelPlan, flags, turnPlanner }) {
   return Math.max(0.20, Math.min(1.2, CHAT_TEMPERATURE));
 }
 
+const SCREENPLAY_PAGE_COUNT_WORDS = Object.freeze({
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+});
+
+function screenplayPageCountFromToken(token) {
+  const clean = String(token || "").trim().toLowerCase().replace(/-/g, " ");
+  if (!clean) return 0;
+  if (/^\d+$/.test(clean)) return Math.max(0, Math.round(Number(clean)));
+  return SCREENPLAY_PAGE_COUNT_WORDS[clean] || 0;
+}
+
+function inferRequestedScreenplayPagesFromText(text = "") {
+  const lower = String(text || "").toLowerCase();
+  if (!lower) return 0;
+  const token = "(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)";
+  const patterns = [
+    new RegExp(`\\b(?:next|another|first|final|last)\\s+(${token})\\s+pages?\\b`),
+    new RegExp(`\\b(?:write|draft|continue|generate|give me|do)\\b[\\s\\S]{0,56}\\b(${token})\\s+pages?\\b`),
+  ];
+  for (const pattern of patterns) {
+    const match = lower.match(pattern);
+    const count = screenplayPageCountFromToken(match?.[1]);
+    if (count > 0 && count <= 30) return count;
+  }
+  return 0;
+}
+
+function screenplayPageWriteTokenFloor({ transcript = "", requestedPages = 0 } = {}) {
+  const pages = Math.max(
+    0,
+    Math.min(
+      30,
+      Math.round(Number(requestedPages || inferRequestedScreenplayPagesFromText(transcript) || 0))
+    )
+  );
+  if (pages >= 12) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 2100);
+  if (pages >= 8) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1700);
+  if (pages >= 5) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1300);
+  if (pages >= 2) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 980);
+  return CHAT_SCREENPLAY_PAGE_MAX_TOKENS;
+}
+
 function computeChatMaxTokensForTurn({
   transcript,
   turnPlanner,
   flags,
   routingLane,
   chatModelPlan,
+  screenplayPageWrite = false,
+  screenplayRequestedPages = 0,
 }) {
   const t = String(transcript || "").toLowerCase();
   const words = countWords(t);
@@ -21051,6 +21116,12 @@ function computeChatMaxTokensForTurn({
   ]);
 
   let maxTokens = CHAT_MAX_TOKENS;
+  const screenplayFloor = screenplayPageWrite
+    ? screenplayPageWriteTokenFloor({
+      transcript: t,
+      requestedPages: screenplayRequestedPages,
+    })
+    : 0;
 
   if (intent === "gratitude_acknowledgment") {
     return Math.max(96, Math.min(140, maxTokens));
@@ -21101,13 +21172,18 @@ function computeChatMaxTokensForTurn({
     maxTokens = Math.max(maxTokens, substantial ? 340 : 270);
   }
 
+  if (screenplayPageWrite) {
+    maxTokens = Math.max(maxTokens, screenplayFloor);
+  }
+
   if (
     tier === "fast" &&
     !substantial &&
     intent !== "motivation_coaching" &&
     intent !== "idea_development" &&
     !Boolean(flags?.isVulnerable) &&
-    !Boolean(flags?.isVenting)
+    !Boolean(flags?.isVenting) &&
+    !screenplayPageWrite
   ) {
     maxTokens = Math.min(maxTokens, 190);
   }
@@ -21116,7 +21192,8 @@ function computeChatMaxTokensForTurn({
     loadShedActive &&
     lane !== "high_distress_safety" &&
     lane !== "therapeutic_depth" &&
-    !Boolean(flags?.therapeuticDepth)
+    !Boolean(flags?.therapeuticDepth) &&
+    !screenplayPageWrite
   ) {
     if (intent === "idea_development") {
       maxTokens = Math.min(maxTokens, 260);
@@ -21125,9 +21202,17 @@ function computeChatMaxTokensForTurn({
     }
   }
 
-  const brevityScale = intent === "idea_development" ? 0.94 : (substantial ? 0.90 : 0.82);
+  const brevityScale = screenplayPageWrite
+    ? 1
+    : intent === "idea_development"
+      ? 0.94
+      : (substantial ? 0.90 : 0.82);
   maxTokens = maxTokens * brevityScale;
-  return Math.max(88, Math.min(420, Math.round(maxTokens)));
+  const hardCap = screenplayPageWrite
+    ? Math.max(900, Math.min(2600, CHAT_SCREENPLAY_BATCH_MAX_TOKENS))
+    : 420;
+  const minimum = screenplayPageWrite ? Math.min(900, screenplayFloor || 900) : 88;
+  return Math.max(minimum, Math.min(hardCap, Math.round(maxTokens)));
 }
 
 function inferSocialSparkEventLabel(text) {
@@ -29154,6 +29239,7 @@ export {
   buildTalkScreenplayOutput,
   buildTurnPlanner,
   selectChatModelForTurn,
+  computeChatMaxTokensForTurn,
   buildKnowledgeRetrievalAddendum,
   evaluateTurnQualityHeuristics,
   validateAndDirectHerReply,

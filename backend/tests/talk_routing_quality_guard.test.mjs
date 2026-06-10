@@ -33,6 +33,7 @@ const {
   inferRoutingPriorityLane,
   buildTurnPlanner,
   selectChatModelForTurn,
+  computeChatMaxTokensForTurn,
 } = await import("../index.js");
 
 function plan(transcript) {
@@ -85,4 +86,31 @@ test("[33-guard] no collateral regression: a plain emotional turn stays reflecti
   const { turnPlanner } = plan("I feel kind of lost today and I'm not sure why.");
   assert.equal(turnPlanner.intent, "reflective_checkin",
     "the new playful branch must not over-trigger on non-playful emotional turns");
+});
+
+test("[screenplay-budget] normal companion talk stays compact", () => {
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan("keep going");
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript: "keep going",
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+  });
+  assert.ok(maxTokens <= 190, `normal talk should stay compact, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] page-write turns get enough budget for feature page sprints", () => {
+  const transcript = "Write the next ten pages of act two and keep the feature moving fast.";
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan(transcript);
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+  });
+  assert.ok(maxTokens >= 1600, `ten-page page-write needs a larger budget, got ${maxTokens}`);
+  assert.ok(maxTokens <= 2200, `screenplay page-write budget should remain bounded, got ${maxTokens}`);
 });

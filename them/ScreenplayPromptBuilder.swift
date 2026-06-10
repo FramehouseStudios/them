@@ -388,10 +388,13 @@ struct ScreenplayPromptBuilder {
             "- Act bridge ladder: Act I choice -> Act II pressure -> midpoint truth -> all-is-lost cost -> Act III payoff -> final image.",
             "- Feature completion method: track current sequence, next three turns, unresolved promises, Act III payoff path, and final image.",
             "- Page batch discipline: for 5-15 page asks, write escalating scene turns where story state changes every 1-2 pages.",
-            "- Expert page engine: every scene needs objective, obstacle, escalation, reversal or turn, emotional residue, and an exit image.",
+            "- Page-first delivery: if the request targets screenplay pages, write the pages immediately; no preamble, no markdown fence, no options menu, no permission check.",
+            "- Feature page sprint: for multi-page asks, silently choose the strongest sequence obligation and deliver a continuous playable run with built-in escalation.",
+            "- Expert page engine: every scene needs objective, obstacle, pressure clock, escalation, reversal or turn, emotional residue, and an exit image.",
+            "- Scene intelligence: silently know the scene job, relationship fracture, hidden want, turn, and exit problem before writing.",
             "- Subtext engine: dialogue carries tactic, concealment, interruption, pressure, and character-specific rhythm.",
             "- Image system: plant, echo, and transform visual motifs so the ending feels earned.",
-            "- Feature-scale output contract: launch pressure, complication, reversal, exit image; no filler conversation, static explanation, or repeated tactic.",
+            "- Feature-scale output contract: launch pressure, complication, reversal, exit image; no filler conversation, static explanation, repeated tactic, markdown fence, or permission language.",
             "- Protect setups/payoffs, character need, theme argument, emotional handoff, and ending image.",
             "- Carry one unresolved setup forward and plant, echo, or pay off one image toward the final image.",
             "- For Act I -> Act II -> Act III requests, keep every beat causally linked to protagonist want/need.",
@@ -408,7 +411,7 @@ struct ScreenplayPromptBuilder {
             if !targetAct.isEmpty {
                 lines.append("- Target act from request: \(String(targetAct.prefix(120)))")
             }
-            lines.append("- Page-batch execution plan: write the next continuous run as playable Fountain; split it into 2-4 escalating scene turns; change story state every 1-2 pages.")
+            lines.append("- Page-batch execution plan: write the next continuous run as playable Fountain; split it into 2-4 escalating scene turns; change story state every 1-2 pages; write toward the next structural obligation, not merely the next incident.")
             lines.append("- Batch end condition: leave a decision, reveal, cost, or image that hands into the next sequence.")
         } else if !requestedAct.isEmpty {
             lines.append("- Target act from request: \(String(requestedAct.prefix(120)))")

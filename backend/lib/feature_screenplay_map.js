@@ -240,10 +240,13 @@ function buildExpertExecutionLines() {
     "  expert_scene_execution:",
     "    - scene_job: make the objective, obstacle, pressure clock, and cost visible on the page.",
     "    - turn_engine: each scene must change leverage, information, relationship, or self-knowledge.",
+    "    - pressure_clock: give the scene a visible deadline, narrowing option, or cost that makes the next beat necessary.",
+    "    - hidden_want: know what each major character wants but will not say; let behavior and interruption reveal it.",
     "    - subtext_engine: dialogue should hide need inside tactic, interruption, pressure, and behavior.",
     "    - image_system: plant, echo, and transform motifs toward the ending image.",
     "    - exit_velocity: leave each scene with a new problem, cost, reveal, or irreversible choice.",
     "    - speed_protocol: when the user asks for pages, keep strategy to one sentence and write playable Fountain immediately.",
+    "    - page_first_protocol: when the target is page text, output screenplay pages without markdown, menu choices, or permission language.",
   ];
 }
 
@@ -252,6 +255,7 @@ function buildFeatureScaleOutputContractLines() {
     "  feature_scale_output_contract:",
     "    - For 5-15 page requests, silently break the run into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.",
     "    - Page batches must change story state every 1-2 pages; no filler conversation, static explanation, or repeated tactic.",
+    "    - Write toward the next structural obligation, not merely the next incident.",
     "    - Act I pages must earn commitment; Act II pages must test and break the false tactic; Act III pages must spend planted setups through changed behavior.",
     "    - Carry one unresolved setup forward and plant, echo, or pay off one image toward the final image.",
     "    - End each batch with a handoff: new problem, decision, reveal, emotional cost, or irreversible choice.",
@@ -296,7 +300,7 @@ function buildFeaturePageBatchPlanLines({
     lines.push(`    active_sequence_pressure: ${actPressureForLabel(targetAct)}`);
   }
   lines.push("    turn_budget: 2-4 escalating scene turns, not one static conversation.");
-  lines.push("    delivery: write clean Fountain pages first; no outline, diagnosis, recap, or permission loop unless explicitly requested.");
+  lines.push("    delivery: write clean Fountain pages first; no outline, diagnosis, recap, markdown fence, menu choices, or permission loop unless explicitly requested.");
   lines.push("    continuity: treat the draft excerpt as the live previous page and preserve the emotional handoff.");
   lines.push("    end_condition: finish the batch on a decision, reveal, cost, or image that hands into the next sequence.");
   return lines;
