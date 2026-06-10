@@ -76,6 +76,13 @@ function mountOpsMetricsRoute(app, deps = {}) {
         talk_status: sample.talkStatus,
         lane: sample.lane,
         model: sample.model,
+        screenplay_mode: sample.screenplayMode ? 1 : 0,
+        screenplay_requested_target: sample.screenplayRequestedTarget || "none",
+        screenplay_final_target: sample.screenplayFinalTarget || "none",
+        screenplay_output_source: sample.screenplayOutputSource || "none",
+        screenplay_outcome: sample.screenplayOutcome || "none",
+        screenplay_authoritative: sample.screenplayAuthoritative ? 1 : 0,
+        screenplay_reply_repaired: sample.screenplayReplyRepaired ? 1 : 0,
       }));
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("x-backend-status", runtime.status);

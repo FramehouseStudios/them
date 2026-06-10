@@ -354,6 +354,26 @@ function createTalkHandler(deps) {
     synthesizeTalkScreenplayPageAudio,
   });
 
+  function buildScreenplayMetricFields({
+    talkScreenplayModeEnabled = false,
+    studioMeta = null,
+    talkScreenplayOutput = null,
+    hasAuthoritativeScreenplayText = false,
+    replyRepaired = false,
+  } = {}) {
+    const requestedTarget = talkScreenplayModeEnabled
+      ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() || "unspecified")
+      : "none";
+    return {
+      screenplayMode: Boolean(talkScreenplayModeEnabled),
+      screenplayRequestedTarget: requestedTarget,
+      screenplayFinalTarget: String(talkScreenplayOutput?.target || "").trim().toLowerCase() || "none",
+      screenplayOutputSource: String(talkScreenplayOutput?.source || "").trim().toLowerCase() || "none",
+      screenplayAuthoritative: Boolean(hasAuthoritativeScreenplayText),
+      screenplayReplyRepaired: Boolean(replyRepaired),
+    };
+  }
+
   return async function handleTalkRequest(req, res) {
   logger.log(`\n==================== NEW TALK ====================`);
 
@@ -2015,6 +2035,13 @@ function createTalkHandler(deps) {
         talkStatus: "responded",
         lane: actionLaneMeta?.lane || "chat",
         model: "debug_offline",
+        ...buildScreenplayMetricFields({
+          talkScreenplayModeEnabled,
+          studioMeta,
+          talkScreenplayOutput,
+          hasAuthoritativeScreenplayText,
+          replyRepaired: false,
+        }),
       });
       void scaleBackplane.emitTalkCommit({
         id: randomUUID(),
@@ -3702,6 +3729,13 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         talkStatus,
         lane: actionLaneMeta?.lane || "chat",
         model: chatModelPlan.model,
+        ...buildScreenplayMetricFields({
+          talkScreenplayModeEnabled,
+          studioMeta,
+          talkScreenplayOutput,
+          hasAuthoritativeScreenplayText,
+          replyRepaired,
+        }),
       });
       void scaleBackplane.emitTalkCommit({
         id: randomUUID(),
@@ -3803,6 +3837,13 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       talkStatus,
       lane: actionLaneMeta?.lane || "chat",
       model: chatModelPlan.model,
+      ...buildScreenplayMetricFields({
+        talkScreenplayModeEnabled,
+        studioMeta,
+        talkScreenplayOutput,
+        hasAuthoritativeScreenplayText,
+        replyRepaired,
+      }),
     });
     void scaleBackplane.emitTalkCommit({
       id: randomUUID(),

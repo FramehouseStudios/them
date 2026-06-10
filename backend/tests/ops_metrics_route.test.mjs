@@ -197,11 +197,25 @@ test("[ops-metrics-route] normalizes boolean flags to 0/1", async () => {
     talkStatus: "ok",
     lane: "live",
     model: "model-a",
+    screenplayMode: true,
+    screenplayRequestedTarget: "page",
+    screenplayFinalTarget: "page",
+    screenplayOutputSource: "studio_target",
+    screenplayOutcome: "accepted_repaired_page",
+    screenplayAuthoritative: true,
+    screenplayReplyRepaired: true,
   }];
   await withTestServer(defaultDeps({ talkMetricsSamples: () => samples }), async (baseURL) => {
     const r = await get(baseURL, "/ops/metrics");
     assert.equal(r.body.recent[0].stream_audio, 1);
     assert.equal(r.body.recent[0].chat_stream_used, 0);
+    assert.equal(r.body.recent[0].screenplay_mode, 1);
+    assert.equal(r.body.recent[0].screenplay_requested_target, "page");
+    assert.equal(r.body.recent[0].screenplay_final_target, "page");
+    assert.equal(r.body.recent[0].screenplay_output_source, "studio_target");
+    assert.equal(r.body.recent[0].screenplay_outcome, "accepted_repaired_page");
+    assert.equal(r.body.recent[0].screenplay_authoritative, 1);
+    assert.equal(r.body.recent[0].screenplay_reply_repaired, 1);
   });
 });
 

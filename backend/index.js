@@ -71,6 +71,7 @@ import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
+import { normalizeTalkScreenplayMetricSample, summarizeTalkScreenplayMetrics } from "./lib/talk_screenplay_metrics.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
@@ -3422,6 +3423,7 @@ function percentileFromSorted(sortedValues, percentile) {
 
 function recordTalkMetric(sample) {
   const at = Date.now();
+  const screenplayMetric = normalizeTalkScreenplayMetricSample(sample);
   const normalized = {
     at,
     statusCode: Math.max(0, Number(sample?.statusCode || 0)),
@@ -3434,6 +3436,7 @@ function recordTalkMetric(sample) {
     talkStatus: String(sample?.talkStatus || "").trim() || "unknown",
     lane: normalizeSnippet(sample?.lane, 48) || "unknown",
     model: normalizeSnippet(sample?.model, 80) || "unknown",
+    ...screenplayMetric,
   };
   talkMetricsSamples.push(normalized);
   if (talkMetricsSamples.length > TALK_METRICS_MAX_SAMPLES) {
@@ -3454,6 +3457,7 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
   const ttsMsSorted = success.map((s) => Number(s.ttsMs || 0)).sort((a, b) => a - b);
   const streamAudioCount = success.filter((s) => s.streamAudio).length;
   const chatStreamCount = success.filter((s) => s.chatStreamUsed).length;
+  const screenplay = summarizeTalkScreenplayMetrics(recent);
   return {
     windowMs: Math.max(1_000, Number(windowMs || TALK_METRICS_WINDOW_MS)),
     sampleCount: total,
@@ -3470,6 +3474,7 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
     p95TtsMs: percentileFromSorted(ttsMsSorted, 0.95),
     streamAudioRate: success.length > 0 ? streamAudioCount / success.length : 0,
     chatStreamRate: success.length > 0 ? chatStreamCount / success.length : 0,
+    screenplay,
   };
 }
 
