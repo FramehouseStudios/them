@@ -8,6 +8,16 @@ function normalizeMetricToken(value = "", fallback = "none", maxLength = 48) {
   return normalized || fallback;
 }
 
+function normalizeMetricCount(value = 0) {
+  return Math.max(0, Math.floor(Number(value || 0)));
+}
+
+function normalizeMetricRate(value = 0) {
+  const normalized = Number(value || 0);
+  if (!Number.isFinite(normalized)) return 0;
+  return Math.max(0, Math.min(1, normalized));
+}
+
 function deriveScreenplayOutcome({
   screenplayMode = false,
   screenplayRequestedTarget = "none",
@@ -105,8 +115,127 @@ function summarizeTalkScreenplayMetrics(samples = []) {
   };
 }
 
+const TALK_SCREENPLAY_QUALITY_DEFAULTS = Object.freeze({
+  minPageRequests: 6,
+  warningPageAcceptanceRate: 0.75,
+  criticalPageAcceptanceRate: 0.50,
+  warningGuardRejectionRate: 0.25,
+  criticalGuardRejectionRate: 0.50,
+  warningDowngradeRate: 0.25,
+  criticalDowngradeRate: 0.50,
+});
+
+function deriveTalkScreenplayQualitySignal(summary = {}, options = {}) {
+  const thresholds = {
+    ...TALK_SCREENPLAY_QUALITY_DEFAULTS,
+    ...(options && typeof options === "object" ? options : {}),
+  };
+  const minPageRequests = Math.max(1, normalizeMetricCount(thresholds.minPageRequests));
+  const pageRequestedCount = normalizeMetricCount(summary?.pageRequestedCount);
+  const pageAcceptedCount = normalizeMetricCount(summary?.pageAcceptedCount);
+  const pageRepairedCount = normalizeMetricCount(summary?.pageRepairedCount);
+  const pageDowngradedCount = normalizeMetricCount(summary?.pageDowngradedCount);
+  const pageRejectedInvalidFormatCount = normalizeMetricCount(summary?.pageRejectedInvalidFormatCount);
+  const pageRejectedNonScreenplayCount = normalizeMetricCount(summary?.pageRejectedNonScreenplayCount);
+  const guardRejectedCount = pageRejectedInvalidFormatCount + pageRejectedNonScreenplayCount;
+  const denominator = Math.max(1, pageRequestedCount);
+  const pageAcceptanceRate = pageRequestedCount > 0
+    ? normalizeMetricRate(summary?.pageAcceptanceRate || (pageAcceptedCount / denominator))
+    : 0;
+  const guardRejectionRate = pageRequestedCount > 0 ? normalizeMetricRate(guardRejectedCount / denominator) : 0;
+  const downgradeRate = pageRequestedCount > 0 ? normalizeMetricRate(pageDowngradedCount / denominator) : 0;
+  const repairRate = pageAcceptedCount > 0 ? normalizeMetricRate(pageRepairedCount / Math.max(1, pageAcceptedCount)) : 0;
+  const sampleReady = pageRequestedCount >= minPageRequests;
+
+  let status = "ok";
+  let reason = sampleReady ? "healthy" : "insufficient_page_requests";
+  if (sampleReady) {
+    const critical =
+      pageAcceptanceRate < normalizeMetricRate(thresholds.criticalPageAcceptanceRate) ||
+      guardRejectionRate >= normalizeMetricRate(thresholds.criticalGuardRejectionRate) ||
+      downgradeRate >= normalizeMetricRate(thresholds.criticalDowngradeRate);
+    const warning =
+      pageAcceptanceRate < normalizeMetricRate(thresholds.warningPageAcceptanceRate) ||
+      guardRejectionRate >= normalizeMetricRate(thresholds.warningGuardRejectionRate) ||
+      downgradeRate >= normalizeMetricRate(thresholds.warningDowngradeRate);
+    if (critical) {
+      status = "critical";
+    } else if (warning) {
+      status = "warning";
+    }
+    if (status !== "ok") {
+      if (
+        pageAcceptanceRate < (
+          status === "critical"
+            ? normalizeMetricRate(thresholds.criticalPageAcceptanceRate)
+            : normalizeMetricRate(thresholds.warningPageAcceptanceRate)
+        )
+      ) {
+        reason = "low_page_acceptance";
+      } else if (
+        guardRejectionRate >= (
+          status === "critical"
+            ? normalizeMetricRate(thresholds.criticalGuardRejectionRate)
+            : normalizeMetricRate(thresholds.warningGuardRejectionRate)
+        )
+      ) {
+        reason = "high_guard_rejection_rate";
+      } else {
+        reason = "high_downgrade_rate";
+      }
+    }
+  }
+
+  return {
+    status,
+    reason,
+    sampleReady,
+    minPageRequests,
+    pageRequestedCount,
+    pageAcceptedCount,
+    pageRepairedCount,
+    pageDowngradedCount,
+    pageRejectedInvalidFormatCount,
+    pageRejectedNonScreenplayCount,
+    guardRejectedCount,
+    pageAcceptanceRate,
+    guardRejectionRate,
+    downgradeRate,
+    repairRate,
+  };
+}
+
+function roundedMetricRate(value = 0) {
+  return Math.round(normalizeMetricRate(value) * 1000) / 1000;
+}
+
+function buildTalkScreenplayQualityAlert(signal = {}) {
+  const status = String(signal?.status || "ok").trim().toLowerCase();
+  if (status !== "warning" && status !== "critical") return null;
+  const pageRequestedCount = normalizeMetricCount(signal?.pageRequestedCount);
+  const pageAcceptanceRate = roundedMetricRate(signal?.pageAcceptanceRate);
+  return {
+    code: "screenplay_page_write_regression",
+    severity: status === "critical" ? "critical" : "warning",
+    message: `Screenplay page-write acceptance ${pageAcceptanceRate.toFixed(3)} across ${pageRequestedCount} page requests (${normalizeMetricToken(signal?.reason, "quality_regression", 64)}).`,
+    details: {
+      page_requested_count: pageRequestedCount,
+      page_accepted_count: normalizeMetricCount(signal?.pageAcceptedCount),
+      page_repaired_count: normalizeMetricCount(signal?.pageRepairedCount),
+      page_downgraded_count: normalizeMetricCount(signal?.pageDowngradedCount),
+      guard_rejected_count: normalizeMetricCount(signal?.guardRejectedCount),
+      page_acceptance_rate: pageAcceptanceRate,
+      guard_rejection_rate: roundedMetricRate(signal?.guardRejectionRate),
+      downgrade_rate: roundedMetricRate(signal?.downgradeRate),
+      reason: normalizeMetricToken(signal?.reason, "quality_regression", 64),
+    },
+  };
+}
+
 export {
+  buildTalkScreenplayQualityAlert,
   deriveScreenplayOutcome,
+  deriveTalkScreenplayQualitySignal,
   normalizeTalkScreenplayMetricSample,
   summarizeTalkScreenplayMetrics,
 };

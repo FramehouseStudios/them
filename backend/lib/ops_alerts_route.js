@@ -7,6 +7,7 @@
 // Access-control posture: SAFE-PUBLIC. Response is alert codes,
 // severity strings, and runtime snapshot — no per-user content.
 // Matches /ops/metrics, /ops/health-summary, /ops/routes.
+// Schema: docs/schemas/ops-alerts.md.
 //
 // Deps:
 //   buildOpsAlerts()        → { status, alerts, runtime }

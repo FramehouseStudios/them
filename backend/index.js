@@ -71,7 +71,12 @@ import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
-import { normalizeTalkScreenplayMetricSample, summarizeTalkScreenplayMetrics } from "./lib/talk_screenplay_metrics.js";
+import {
+  buildTalkScreenplayQualityAlert,
+  deriveTalkScreenplayQualitySignal,
+  normalizeTalkScreenplayMetricSample,
+  summarizeTalkScreenplayMetrics,
+} from "./lib/talk_screenplay_metrics.js";
 import { mountBlockSignalHistoryRoute } from "./lib/block_signal_history_route.js";
 import { mountScreenplayExportFormatsRoute } from "./lib/screenplay_export_formats_route.js";
 import { mountOpsRoutesListRoute } from "./lib/ops_routes_list_route.js";
@@ -5002,10 +5007,23 @@ function buildOpsAlerts() {
       message: `Session lock pressure detected (${talkInFlightBySessionSize()} locks).`,
     });
   }
+  const screenplayAlert = buildTalkScreenplayQualityAlert(
+    deriveTalkScreenplayQualitySignal(runtime.metrics?.screenplay)
+  );
+  if (screenplayAlert) {
+    alerts.push(screenplayAlert);
+  }
   return {
     status: alerts.length ? "alerting" : "healthy",
     alerts,
     runtime,
+  };
+}
+
+function buildOpsHealthSignals() {
+  const metrics = summarizeTalkMetrics();
+  return {
+    screenplay_page_write: deriveTalkScreenplayQualitySignal(metrics.screenplay),
   };
 }
 
@@ -28611,6 +28629,7 @@ mountScreenplayExportFormatsRoute(app);
 // optional surfaces). Distinct from /ops/metrics (hot-path counters).
 mountOpsHealthSummaryRoute(app, {
   deriveBackendStatus: deriveBackendRuntimeStatus,
+  signals: buildOpsHealthSignals,
   features: {
     creative_memory: true,
     block_signal: true,
