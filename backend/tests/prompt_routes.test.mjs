@@ -232,7 +232,7 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
       ["Replace that line with something sharper.", "rewrite_scene", "replace only the requested span"],
       ["Scene doctor this kitchen confrontation and tell me what's not working.", "scene_doctor", "highest-leverage fix"],
       ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "only playable replacement screenplay text"],
-      ["Help me finish this feature-length screenplay.", "finish_feature", "diagnose act/sequence pressure"],
+      ["Help me finish this feature-length screenplay.", "finish_feature", "for planning, orient act/sequence pressure"],
       ["Help me write the whole feature from Act 1 through Act 2 into Act 3.", "finish_feature", "Locate the current act/sequence"],
       ["Help me write act three of my feature screenplay.", "finish_feature", "next three turns"],
       ["Make this scene more expert and faster.", "rewrite_scene", "stronger playable pages"],
@@ -327,6 +327,7 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
       assert.ok(body.prompt.includes("act: Act II"));
       assert.ok(body.prompt.includes("target_pages: 110"));
       assert.ok(body.prompt.includes("requested_page_batch: 10"));
+      assert.ok(body.prompt.includes("Begin with playable Fountain text; do not preface with diagnosis"));
       assert.ok(body.prompt.includes("page-first delivery: if the request targets screenplay pages"));
       assert.ok(body.prompt.includes("feature page sprint: for multi-page asks"));
       assert.ok(body.prompt.includes("page_batch_execution_plan:"));
@@ -335,7 +336,9 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
       assert.ok(body.prompt.includes("Act II - Promise Of The Premise"));
       assert.ok(body.prompt.includes("Act II - Collapse / All Is Lost"));
       assert.ok(body.prompt.includes("delivery: write clean Fountain pages first"));
+      assert.ok(body.prompt.includes("write playable Fountain immediately with no diagnosis"));
       assert.ok(body.prompt.includes("markdown fence, menu choices, or permission loop"));
+      assert.ok(!body.prompt.includes("keep diagnosis to one sentence"));
       assert.ok(body.prompt.includes("active_act_label: Act II"));
       assert.ok(body.prompt.includes("position_basis: outline act label overrides low draft-page estimate."));
       assert.ok(body.prompt.includes("Act II must escalate tactics, reversals, midpoint pressure"));

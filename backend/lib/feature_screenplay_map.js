@@ -314,7 +314,7 @@ function buildExpertExecutionLines() {
     "    - subtext_engine: dialogue should hide need inside tactic, interruption, pressure, and behavior.",
     "    - image_system: plant, echo, and transform motifs toward the ending image.",
     "    - exit_velocity: leave each scene with a new problem, cost, reveal, or irreversible choice.",
-    "    - speed_protocol: when the user asks for pages, keep strategy to one sentence and write playable Fountain immediately.",
+    "    - speed_protocol: when the user asks for pages, write playable Fountain immediately with no diagnosis, strategy note, menu, or permission loop.",
     "    - page_first_protocol: when the target is page text, output screenplay pages without markdown, menu choices, or permission language.",
   ];
 }
@@ -670,11 +670,12 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
   }
 
   lines.push("  feature_completion_protocol:");
-  lines.push("    - Orient the writer in the act/sequence before choosing the next pages.");
+  lines.push("    - For planning requests, orient the writer in the act/sequence before choosing the next pages.");
+  lines.push("    - For page requests, silently lock act/sequence obligations and begin with playable Fountain text.");
   lines.push("    - Return a feature-scale beat chain when the user asks for the whole movie: current sequence, next three turns, Act III payoff path.");
   lines.push("    - For multi-page requests, make every 1-2 pages alter leverage, information, relationship, tactic, or emotional cost.");
   lines.push("    - Track unresolved setups, reversals, character need, theme argument, and ending image.");
-  lines.push("    - When the user asks to finish pages or Studio targets page text, write playable Fountain first with no strategy note unless explicitly asked.");
+  lines.push("    - When the user asks to finish pages or Studio targets page text, write playable Fountain first with no diagnosis, strategy note, outline, recap, or permission loop unless explicitly asked.");
   lines.push("    - For Act I -> Act II -> Act III requests, keep every beat causally linked to the protagonist's want/need and final image.");
   lines.push("    - Never solve Act III by adding information the movie has not earned; pay off planted behavior.");
 

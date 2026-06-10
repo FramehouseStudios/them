@@ -277,7 +277,7 @@ function inferScreenplayTask(userInput = "") {
   } else if (featureCompletionLike) {
     intent = "finish_feature";
     label = "Finish Feature";
-    output = "Finish the larger script: diagnose act/sequence pressure, next three turns, unresolved promises, character need, and the Act III payoff path. When the request asks for pages, write the next playable Fountain pages immediately with no strategy note unless explicitly asked.";
+    output = "Finish the larger script: for planning, orient act/sequence pressure, next three turns, unresolved promises, character need, and the Act III payoff path. When the request asks for pages, write the next playable Fountain pages immediately with no diagnosis or strategy note unless explicitly asked.";
   } else if (stuckLike) {
     intent = "momentum_rescue";
     label = "Momentum Rescue";
@@ -347,7 +347,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push(`requested_page_batch: ${requestedPages}`);
     lines.push("page_batch_contract:");
     lines.push("  - Write the next continuous run as screenplay pages, not a summary or lecture.");
-    lines.push("  - Begin with playable Fountain text unless the user explicitly asks for an outline or diagnosis.");
+    lines.push("  - Begin with playable Fountain text; do not preface with diagnosis, outline, recap, strategy note, markdown, or permission language unless the user explicitly asks for analysis instead of pages.");
     lines.push("  - Split the batch internally into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.");
     lines.push("  - Start from the active draft/scene state; do not restart, recap, or outline unless the user explicitly asks.");
     lines.push("  - Change leverage, information, relationship, tactic, or emotional cost every 1-2 pages.");
@@ -382,7 +382,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "pacing_pass":
       return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
     case "finish_feature":
-      return "Operate at feature scale. Locate the current act/sequence, name the due obligation, preserve promises, setups/payoffs, and character need, then make the next act-to-act move. Use the feature compass: current sequence, next three turns, Act III payoff path, final-image pressure, and immediate next page move. For page requests, keep diagnosis to one sentence and start the pages immediately; if Studio provided a page-targeted continuation brief, skip diagnosis and start Fountain pages. For planning, give an act engine, next three turns, Act III payoff path, and final-image handoff.";
+      return "Operate at feature scale. Locate the current act/sequence, name the due obligation, preserve promises, setups/payoffs, and character need, then make the next act-to-act move. Use the feature compass: current sequence, next three turns, Act III payoff path, final-image pressure, and immediate next page move. For page requests, start Fountain pages immediately with no diagnosis or strategy note; if Studio provided a page-targeted continuation brief, output only playable screenplay pages. For planning, give an act engine, next three turns, Act III payoff path, and final-image handoff.";
     case "momentum_rescue":
       return "Do not turn stuckness into a lecture. Give one emotionally precise diagnosis, one decisive next move, and a small playable beat or page sample if there is enough context. Prefer forward motion over options.";
     default:

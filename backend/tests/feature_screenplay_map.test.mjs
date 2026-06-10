@@ -132,7 +132,8 @@ test("[feature-screenplay-map] emits page-batch execution plan for feature page 
   assert.ok(block.includes("reversal: change leverage, information, relationship, or self-knowledge."));
   assert.ok(block.includes("exit: leave a cost, reveal, decision, or image"));
   assert.ok(block.includes("end_condition: finish the batch on a decision, reveal, cost, or image"));
-  assert.ok(block.includes("write playable Fountain first with no strategy note unless explicitly asked."));
+  assert.ok(block.includes("For page requests, silently lock act/sequence obligations and begin with playable Fountain text."));
+  assert.ok(block.includes("write playable Fountain first with no diagnosis, strategy note"));
   assert.ok(!block.includes("give one concise strategy note then write playable Fountain"));
 });
 

@@ -411,8 +411,11 @@ Feature workflow context:
   assert.ok(out.includes("intent: finish_feature"));
   assert.ok(out.includes("requested_page_batch: 5"));
   assert.ok(out.includes("page_batch_contract:"));
+  assert.ok(out.includes("Begin with playable Fountain text; do not preface with diagnosis"));
   assert.ok(out.includes("write the next playable Fountain pages immediately"));
+  assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));
   assert.ok(out.includes("Feature workflow context:"));
+  assert.ok(!out.includes("keep diagnosis to one sentence"));
 });
 
 test("[screenplay-task] feature page requests carry a concrete page-batch execution contract", () => {
@@ -435,13 +438,19 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("requested_act: Act II"));
   assert.ok(out.includes("requested_page_batch: 10"));
   assert.ok(out.includes("page_batch_contract:"));
+  assert.ok(out.includes("Begin with playable Fountain text; do not preface with diagnosis"));
   assert.ok(out.includes("Start from the active draft/scene state; do not restart"));
+  assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));
   assert.ok(out.includes("page_batch_execution_plan:"));
   assert.ok(out.includes("requested_pages: 10"));
   assert.ok(out.includes("target_act: Act II"));
   assert.ok(out.includes("starting_position: p47 / 110"));
   assert.ok(out.includes("active_sequence_pressure: Act II - Midpoint Pressure"));
   assert.ok(out.includes("delivery: write clean Fountain pages first"));
+  assert.ok(out.includes("write playable Fountain immediately with no diagnosis"));
+  assert.ok(out.includes("write playable Fountain first with no diagnosis, strategy note"));
+  assert.ok(!out.includes("keep diagnosis to one sentence"));
+  assert.ok(!out.includes("give one concise strategy note then write playable Fountain"));
   assert.ok(out.includes("end_condition: finish the batch on a decision, reveal, cost, or image"));
 });
 
