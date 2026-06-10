@@ -131,6 +131,71 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(guide.nextScenePlan.contains("Final Plan"))
     }
 
+    func testStructuredDraftRestoresRecentActionBeatsForPromptMemory() {
+        let draft = ScreenplayStructuredDraft(
+            updatedAt: Date(timeIntervalSince1970: 100),
+            lineCount: 11,
+            sceneCount: 1,
+            paragraphs: [
+                ScreenplayDraftParagraphSnapshot(
+                    id: "p1",
+                    line: 1,
+                    element: .sceneHeading,
+                    text: "INT. ROOFTOP - NIGHT"
+                ),
+                ScreenplayDraftParagraphSnapshot(
+                    id: "p2",
+                    line: 3,
+                    element: .action,
+                    text: "Mara hides the cassette under the rain-swollen vent."
+                ),
+                ScreenplayDraftParagraphSnapshot(
+                    id: "p3",
+                    line: 5,
+                    element: .character,
+                    text: "ELI"
+                ),
+                ScreenplayDraftParagraphSnapshot(
+                    id: "p4",
+                    line: 6,
+                    element: .dialogue,
+                    text: "You said nobody else knew."
+                ),
+                ScreenplayDraftParagraphSnapshot(
+                    id: "p5",
+                    line: 10,
+                    element: .action,
+                    text: "She watches the courthouse lights blink out below them."
+                )
+            ],
+            scenes: [
+                ScreenplayDraftSceneSnapshot(
+                    id: "scene-rooftop",
+                    line: 1,
+                    endLine: 11,
+                    slugline: "INT. ROOFTOP - NIGHT",
+                    shortLabel: "ROOFTOP",
+                    characterCues: ["ELI", "MARA"],
+                    dialogueLineCount: 1
+                )
+            ],
+            characters: ["ELI", "MARA"]
+        )
+
+        XCTAssertEqual(draft.activeScene(containingOrBefore: 99)?.slugline, "INT. ROOFTOP - NIGHT")
+        XCTAssertEqual(
+            draft.recentActionBeatSequence(endingAtLine: 11, limit: 2),
+            [
+                "Mara hides the cassette under the rain-swollen vent.",
+                "She watches the courthouse lights blink out below them."
+            ]
+        )
+        XCTAssertEqual(
+            draft.currentActionBeat(endingAtLine: 11),
+            "She watches the courthouse lights blink out below them."
+        )
+    }
+
     func testFeatureActionPromptBuilderCreatesPageSafeNextScenePrompt() {
         let guide = ScreenplayFeatureProgressionGuide.guide(
             actPosition: "",

@@ -1113,6 +1113,49 @@ struct ScreenplayStructuredDraft: Codable, Equatable, Hashable {
     )
 }
 
+extension ScreenplayStructuredDraft {
+    func activeScene(containingOrBefore line: Int) -> ScreenplayDraftSceneSnapshot? {
+        let target = max(1, line)
+        return scenes.last(where: {
+            target >= $0.line && target <= max($0.line, $0.endLine)
+        }) ?? scenes.last(where: { $0.line <= target }) ?? scenes.last
+    }
+
+    func recentActionBeatSequence(endingAtLine line: Int, limit: Int = 8) -> [String] {
+        let target = max(1, line)
+        var seen = Set<String>()
+        var beats: [String] = []
+        for paragraph in paragraphs where paragraph.line <= target && paragraph.element == .action {
+            let clean = Self.cleanPromptBeat(paragraph.text)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            beats.append(clean)
+        }
+        let capped = max(1, limit)
+        if beats.count > capped {
+            return Array(beats.suffix(capped))
+        }
+        if beats.isEmpty, let scene = activeScene(containingOrBefore: target) {
+            let label = Self.cleanPromptBeat(scene.slugline)
+            return label.isEmpty ? [] : [label]
+        }
+        return beats
+    }
+
+    func currentActionBeat(endingAtLine line: Int) -> String {
+        recentActionBeatSequence(endingAtLine: line, limit: 1).last ?? ""
+    }
+
+    private static func cleanPromptBeat(_ value: String) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !compact.isEmpty else { return "" }
+        return String(compact.prefix(180))
+    }
+}
+
 struct ScreenplayProjectBindingSnapshot: Codable, Equatable, Hashable {
     let updatedAt: Date
     let projectID: String

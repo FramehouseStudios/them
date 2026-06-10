@@ -9055,7 +9055,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }) ?? bindingSnapshot.sceneBindings.last
         let activeDraftScene = activeBinding.flatMap { binding in
             structuredDraft.scenes.first(where: { $0.id == binding.draftSceneID })
-        }
+        } ?? structuredDraft.activeScene(containingOrBefore: currentLine)
+        let draftBeatSequence = structuredDraft.recentActionBeatSequence(
+            endingAtLine: currentLine,
+            limit: 8
+        )
+        let draftCurrentBeat = structuredDraft.currentActionBeat(endingAtLine: currentLine)
 
         var characterFocus: [String] = []
         for character in (activeDraftScene?.characterCues ?? []) + structuredDraft.characters {
@@ -9085,11 +9090,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         let currentBeat = activeBinding?.outlineBeatLabels.first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? draftCurrentBeat
         let sceneObjective = activeBinding?.outlineSceneObjective?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let sceneSummary = activeBinding?.outlineSceneSummary?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? [
+                activeDraftScene?.slugline.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                draftCurrentBeat
+            ]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: ": ")
         let emotionalContinuity = [sceneObjective, sceneSummary]
             .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
         let estimatedPageCount = structuredDraft.lineCount > 0
@@ -9125,7 +9135,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var promptNextSceneMoves = featureGuide?.nextMoves ?? []
         var promptEmotionalContinuity = emotionalContinuity
         var promptPageCount = estimatedPageCount
-        var promptTargetPages = estimatedPageCount >= 60 ? 110 : 0
+        var promptTargetPages = hasFeatureGuideContext ? ScreenplayFeatureProgressionGuide.defaultTargetPages : 0
+        var promptBeatSequence: [String] = []
+
+        if promptSceneObjective.isEmpty {
+            promptSceneObjective = featureGuide?.dueNow ?? ""
+        }
+        if promptCurrentBeat.isEmpty {
+            promptCurrentBeat = draftCurrentBeat
+        }
+        if promptEmotionalContinuity.isEmpty {
+            promptEmotionalContinuity = [promptCurrentBeat, promptSceneObjective, promptSceneSummary]
+                .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
+        }
 
         func mergedContextList(_ primary: [String], _ secondary: [String], limit: Int) -> [String] {
             var seen = Set<String>()
@@ -9142,6 +9164,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
             return result
         }
+
+        promptBeatSequence = mergedContextList(
+            Array((activeBinding?.outlineBeatLabels ?? []).prefix(8)),
+            draftBeatSequence,
+            limit: 8
+        )
 
         if let workflowContext = screenplayDraftBridge.featureWorkflowContext(for: featureWorkflowRequestID) {
             if !workflowContext.act.isEmpty { promptAct = workflowContext.act }
@@ -9160,6 +9188,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if workflowContext.targetPages > 0 { promptTargetPages = workflowContext.targetPages }
         }
 
+        if promptBeatSequence.isEmpty {
+            promptBeatSequence = draftBeatSequence
+        }
+
         return (
             act: promptAct,
             sceneObjective: promptSceneObjective,
@@ -9176,7 +9208,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             featureObligation: promptFeatureObligation,
             nextScenePlan: promptNextScenePlan,
             nextSceneMoves: promptNextSceneMoves,
-            beatSequence: Array((activeBinding?.outlineBeatLabels ?? []).prefix(8)),
+            beatSequence: promptBeatSequence,
             characterFocus: characterFocus,
             unresolvedSetups: Array(unresolvedSetups),
             continuityNotes: continuityNotes,
