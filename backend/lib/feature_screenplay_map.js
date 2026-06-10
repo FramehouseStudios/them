@@ -247,6 +247,17 @@ function buildExpertExecutionLines() {
   ];
 }
 
+function buildFeatureScaleOutputContractLines() {
+  return [
+    "  feature_scale_output_contract:",
+    "    - For 5-15 page requests, silently break the run into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.",
+    "    - Page batches must change story state every 1-2 pages; no filler conversation, static explanation, or repeated tactic.",
+    "    - Act I pages must earn commitment; Act II pages must test and break the false tactic; Act III pages must spend planted setups through changed behavior.",
+    "    - Carry one unresolved setup forward and plant, echo, or pay off one image toward the final image.",
+    "    - End each batch with a handoff: new problem, decision, reveal, emotional cost, or irreversible choice.",
+  ];
+}
+
 function buildStorySpineLines(sessionContext = {}) {
   const spineFields = [
     ["logline", sessionContext.logline],
@@ -382,6 +393,7 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     ...buildActRoadmapLines(),
     ...buildActBridgeLines(),
     ...buildExpertExecutionLines(),
+    ...buildFeatureScaleOutputContractLines(),
     ...buildStorySpineLines(sessionContext || {}),
     ...buildContinuityAssetLines(sessionContext || {}),
   ];
@@ -417,6 +429,7 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
   lines.push("  feature_completion_protocol:");
   lines.push("    - Orient the writer in the act/sequence before choosing the next pages.");
   lines.push("    - Return a feature-scale beat chain when the user asks for the whole movie: current sequence, next three turns, Act III payoff path.");
+  lines.push("    - For multi-page requests, make every 1-2 pages alter leverage, information, relationship, tactic, or emotional cost.");
   lines.push("    - Track unresolved setups, reversals, character need, theme argument, and ending image.");
   lines.push("    - When the user asks to finish pages, give one concise strategy note then write playable Fountain.");
   lines.push("    - For Act I -> Act II -> Act III requests, keep every beat causally linked to the protagonist's want/need and final image.");

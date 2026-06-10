@@ -35,6 +35,8 @@
         "expert_scene_execution:",
         "scene_job: make the objective, obstacle, pressure clock, and cost visible",
         "feature_completion_protocol:",
+        "feature_scale_output_contract:",
+        "Page batches must change story state every 1-2 pages",
         "For page requests, keep diagnosis to one sentence and start the pages immediately",
         "ending_image: The empty pool filled with rainwater at dawn."
       ]
@@ -75,6 +77,8 @@
         "current_sequence: Act II - Midpoint Pressure",
         "Drive toward a midpoint reversal that changes the meaning of the pursuit.",
         "next_page_moves:",
+        "2-4 escalating scene turns",
+        "For multi-page requests, make every 1-2 pages alter leverage",
         "turn_engine: each scene must change leverage, information, relationship, or self-knowledge",
         "speed_protocol: when the user asks for pages",
         "unresolved_setups_to_track:",
@@ -117,6 +121,7 @@
         "Act III: synthesis, final plan, climax under maximum pressure, final image",
         "The climax should make the inner arc visible under maximum external pressure.",
         "Never solve Act III by adding information the movie has not earned",
+        "Act III pages must spend planted setups through changed behavior",
         "image_system: plant, echo, and transform motifs toward the ending image",
         "ending_image: Mara hangs the true sketch outside the courthouse."
       ]
@@ -231,6 +236,7 @@
   "globalMustInclude": [
     "role: Clementine is an elite cinematic writing partner, not a generic chatbot.",
     "whole-feature authorship",
+    "page batch discipline",
     "expert page engine",
     "subtext engine",
     "image system",

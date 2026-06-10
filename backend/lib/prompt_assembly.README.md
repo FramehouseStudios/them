@@ -66,7 +66,7 @@ behind.
 | Block ordering is exactly persona → memory → session → feature-map → accepted-twists → screenplay-task → block-signal → input | PR #112 `T-prompt-assembly-snapshot-eval` |
 | Heavy user prompt stays under 12,000 chars | PR #110 `T-prompt-size-eval` |
 | `<block_signal>` block stays under 12,000 chars even with pathological summary | PR #141 `T-prompt-assembly-block-signal-cap-eval` |
-| Screenplay prompts carry Act I/II/III feature-continuity, expert scene execution, subtext/image-system, and page-first speed obligations | `run_screenplay_quality_eval.mjs` |
+| Screenplay prompts carry Act I/II/III feature-continuity, feature-scale page-batch discipline, expert scene execution, subtext/image-system, and page-first speed obligations | `run_screenplay_quality_eval.mjs` |
 | Cold user prompt has no memory block | PR #112 + run_creative_memory_eval |
 | Multi-turn recall: memory recorded in turn N appears in turn N+1's prompt | PR #105 `T-memory-quality-eval` |
 | Per-user isolation: prompt for user A never contains user B's memory | PR #105 |
