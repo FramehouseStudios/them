@@ -10,6 +10,7 @@ const {
   buildMemoryAddendum,
   buildMemoryCards,
   buildMemoryStateVersion,
+  buildScreenplayProjectMemoryRecordFromStudioMeta,
   createEmptyEmotionMemory,
   sanitizeScreenplayProjectMemoryItems,
   updateSessionAfterReply,
@@ -123,6 +124,108 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.equal(projectCard.key, "feature-alpha");
   assert.match(projectCard.summary, /The father reveal corners Mara emotionally/);
   assert.match(projectCard.referenceHint, /private corridor confrontation/);
+});
+
+test("[persistent-screenplay-memory] distills durable context from sparse draft excerpts", () => {
+  const draftExcerpt = [
+    "INT. ROOFTOP - NIGHT",
+    "",
+    "Mara hides the cassette under the rain-swollen vent.",
+    "",
+    "ELI",
+    "You said nobody else knew.",
+    "",
+    "MARA",
+    "Now somebody does.",
+    "",
+    "She watches the courthouse lights blink out below them.",
+  ].join("\n");
+
+  const record = buildScreenplayProjectMemoryRecordFromStudioMeta(
+    {
+      screenplayProjectId: "feature-draft-only",
+      screenplayTarget: "page",
+      screenplayDraftExcerpt: draftExcerpt,
+      screenplayPageCount: 61,
+      screenplayTargetPages: 108,
+    },
+    {
+      reply: "",
+      nowTs: 1_800_000_100_000,
+    }
+  );
+
+  assert.ok(record);
+  assert.equal(record.projectId, "feature-draft-only");
+  assert.equal(record.sceneLabel, "INT. ROOFTOP - NIGHT");
+  assert.equal(record.currentBeat, "She watches the courthouse lights blink out below them.");
+  assert.match(record.sceneSummary, /Mara hides the cassette/);
+  assert.deepEqual(record.characterFocus, ["Eli", "Mara"]);
+  assert.match(record.lastWritePreview, /rain-swollen vent/);
+
+  let memory = createEmptyEmotionMemory();
+  memory = updateSessionAfterReply(
+    memory,
+    "Pick up from this rooftop page.",
+    "",
+    false,
+    {
+      screenplayProjectId: "feature-draft-only",
+      screenplayTarget: "page",
+      screenplayDraftExcerpt: draftExcerpt,
+      screenplayPageCount: 61,
+      screenplayTargetPages: 108,
+    }
+  );
+
+  assert.equal(memory.screenplayProjectMemory.length, 1);
+  const prompt = buildMemoryAddendum(memory);
+  assert.match(prompt, /scene:INT\. ROOFTOP - NIGHT/);
+  assert.match(prompt, /current_beat:She watches the courthouse lights blink out below them/);
+  assert.match(prompt, /characters:Eli, Mara/);
+
+  const nonPageRecord = buildScreenplayProjectMemoryRecordFromStudioMeta(
+    {
+      screenplayProjectId: "feature-draft-only",
+      screenplayDraftExcerpt: draftExcerpt,
+    },
+    {
+      reply: "The scene is working because the secret now has a visible cost.",
+      nowTs: 1_800_000_101_000,
+    }
+  );
+  assert.match(nonPageRecord.lastWritePreview, /rain-swollen vent/);
+  assert.doesNotMatch(nonPageRecord.lastWritePreview, /scene is working/);
+});
+
+test("[persistent-screenplay-memory] keeps story spine memory even before scene context exists", () => {
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      {
+        projectId: "feature-spine",
+        logline: "A grieving projectionist rebuilds a lost film to solve the disappearance of her sister.",
+        themeArgument: "Memory only heals when it becomes action.",
+        centralQuestion: "Can Mara stop preserving the past long enough to save someone living?",
+        protagonistWant: "Recover the missing final reel.",
+        protagonistNeed: "Choose connection over control.",
+        antagonisticForce: "A studio fixer erasing every witness.",
+        endingImage: "The repaired reel burns while Mara watches the sunrise without flinching.",
+        updatedAt: 1_800_000_200_000,
+      },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 1_800_000_200_000,
+  };
+
+  assert.equal(memory.screenplayProjectMemory.length, 1);
+  const prompt = buildMemoryAddendum(memory);
+  assert.match(prompt, /logline:A grieving projectionist/);
+  assert.match(prompt, /theme:Memory only heals/);
+  assert.match(prompt, /central_question:Can Mara stop preserving/);
+  assert.match(prompt, /want:Recover the missing final reel/);
+  assert.match(prompt, /need:Choose connection over control/);
+  assert.match(prompt, /opposition:A studio fixer/);
+  assert.match(prompt, /ending_image:The repaired reel burns/);
 });
 
 test("[persistent-screenplay-memory] screenplay memory changes state version and survives persistence sanitization", () => {

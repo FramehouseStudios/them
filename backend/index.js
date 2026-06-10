@@ -14249,6 +14249,12 @@ function sanitizeScreenplayProjectMemoryItems(items, maxItems = SCREENPLAY_PROJE
       record.sceneSummary ||
       record.currentBeat ||
       record.logline ||
+      record.themeArgument ||
+      record.centralQuestion ||
+      record.protagonistWant ||
+      record.protagonistNeed ||
+      record.antagonisticForce ||
+      record.endingImage ||
       record.featureSequence ||
       record.featureObligation ||
       record.nextScenePlan ||
@@ -14279,12 +14285,127 @@ function sanitizeScreenplayProjectMemoryItems(items, maxItems = SCREENPLAY_PROJE
     .slice(0, cappedMax);
 }
 
+const SCREENPLAY_MEMORY_GENERIC_CUES = new Set([
+  "CHARACTER",
+  "CHARACTER A",
+  "CHARACTER B",
+  "PROTAGONIST",
+  "ANTAGONIST",
+  "HERO",
+  "VILLAIN",
+  "LEAD",
+  "MAIN CHARACTER",
+]);
+
+function countScreenplayMemoryWords(text = "") {
+  const matches = normalizeSnippet(text, 500).match(/[A-Za-z0-9'][A-Za-z0-9'-]*/g);
+  return Array.isArray(matches) ? matches.length : 0;
+}
+
+function normalizeScreenplayMemoryCharacterCue(line = "") {
+  const cue = normalizeSnippet(
+    String(line || "")
+      .replace(/\s+\([^()\n]{1,40}\)\s*$/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+    80
+  );
+  if (!cue || cue.length > 42 || cue !== cue.toUpperCase() || !/[A-Z]/.test(cue)) return "";
+  if (SCREENPLAY_MEMORY_GENERIC_CUES.has(cue)) return "";
+  if (/^(?:FADE IN|FADE OUT|CUT TO|SMASH CUT|DISSOLVE TO|THE END|END)$/.test(cue)) return "";
+  return cue
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (match) => match.toUpperCase())
+    .replace(/\bTv\b/g, "TV")
+    .replace(/\bFbi\b/g, "FBI")
+    .replace(/\bCia\b/g, "CIA");
+}
+
+function isScreenplayMemoryActionLine(line = "") {
+  const text = normalizeSnippet(line, 260);
+  if (!text || countScreenplayMemoryWords(text) < 4) return false;
+  if (isTalkSceneHeadingLine(text) || isTalkTransitionLine(text)) return false;
+  if (isLikelyConversationalScreenplayLine(text) || isLikelyTalkScreenplayAfterwordLine(text)) return false;
+  if (/^(?:beat|act|sequence|outline|note|analysis|diagnosis|strategy)\s*(?:\d+)?\s*:/i.test(text)) return false;
+  if (/^(?:the|this) (?:scene|sequence|act|page|moment|exchange|dialogue) (?:should|needs|wants|must|can)\b/i.test(text)) return false;
+  return /[A-Za-z]/.test(text);
+}
+
+function distillScreenplayProjectMemoryFromText(text = "") {
+  const normalized = normalizeTalkMultilineSnippet(text, 12_000);
+  if (!normalized) {
+    return {
+      sceneLabel: "",
+      sceneSummary: "",
+      currentBeat: "",
+      characterFocus: [],
+      hasScreenplayShape: false,
+    };
+  }
+
+  const lines = buildTalkScreenplayOutputLines(normalized);
+  const sceneHeadings = [];
+  const characterFocus = [];
+  const actionLines = [];
+  const dialogueLines = [];
+
+  for (const line of lines) {
+    const clean = normalizeSnippet(line?.text, 260);
+    if (!clean) continue;
+    if (line.element === "sceneHeading") {
+      sceneHeadings.push(clean);
+    } else if (line.element === "character") {
+      const cue = normalizeScreenplayMemoryCharacterCue(clean);
+      const key = cue.toLowerCase();
+      if (cue && !characterFocus.some((item) => item.toLowerCase() === key)) {
+        characterFocus.push(cue);
+      }
+    } else if (line.element === "dialogue") {
+      if (countScreenplayMemoryWords(clean) >= 3) dialogueLines.push(clean);
+    } else if (line.element === "action" && isScreenplayMemoryActionLine(clean)) {
+      actionLines.push(clean);
+    }
+  }
+
+  const sceneLabel = sceneHeadings[sceneHeadings.length - 1] || "";
+  const lastAction = actionLines[actionLines.length - 1] || "";
+  const firstAction = actionLines[0] || "";
+  const lastDialogue = dialogueLines[dialogueLines.length - 1] || "";
+  const currentBeat = lastAction || (lastDialogue ? `Last exchange: ${lastDialogue}` : "");
+  const summaryMoment = firstAction || currentBeat;
+  const sceneSummary = sceneLabel && summaryMoment
+    ? `${sceneLabel}: ${summaryMoment}`
+    : summaryMoment;
+  const hasScreenplayShape = Boolean(
+    sceneLabel ||
+    characterFocus.length ||
+    actionLines.length >= 2 ||
+    dialogueLines.length >= 2
+  );
+
+  return {
+    sceneLabel: normalizeSnippet(sceneLabel, 120),
+    sceneSummary: normalizeSnippet(sceneSummary, 280),
+    currentBeat: normalizeSnippet(currentBeat, 220),
+    characterFocus: characterFocus.slice(0, 8),
+    hasScreenplayShape,
+  };
+}
+
 function buildScreenplayProjectMemoryRecordFromStudioMeta(
   studioMeta,
   { transcript = "", reply = "", nowTs = Date.now() } = {}
 ) {
   const studio = sanitizeStudioTurnMetadata(studioMeta);
   if (!studio) return null;
+  const screenplayTextForMemory = [
+    studio.screenplayDraftExcerpt,
+    studio.screenplayResolvedAnchorExcerpt,
+    studio.screenplayInsertedText,
+    studio.screenplayRevisedBlockText,
+    studio.screenplayTarget === "page" ? reply : "",
+  ].filter(Boolean).join("\n\n");
+  const distilled = distillScreenplayProjectMemoryFromText(screenplayTextForMemory);
   const hasScreenplayMemorySignal = Boolean(
     studio.screenplayProjectId ||
     studio.screenplayDocumentRevisionId ||
@@ -14313,13 +14434,18 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     studio.screenplayPageCount > 0 ||
     studio.screenplayTargetPages > 0 ||
     studio.screenplayInsertedText ||
-    studio.screenplayRevisedBlockText
+    studio.screenplayRevisedBlockText ||
+    studio.screenplayDraftExcerpt ||
+    distilled.hasScreenplayShape
   );
   if (!hasScreenplayMemorySignal) return null;
 
+  const pageReplyPreview = studio.screenplayTarget === "page" ? reply : "";
   const writePreviewSource =
     studio.screenplayInsertedText ||
     studio.screenplayRevisedBlockText ||
+    pageReplyPreview ||
+    studio.screenplayDraftExcerpt ||
     studio.screenplayResolvedAnchorExcerpt ||
     reply ||
     "";
@@ -14333,10 +14459,10 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       projectId: studio.screenplayProjectId,
       documentRevisionId: studio.screenplayDocumentRevisionId,
       act: studio.screenplayAct,
-      sceneLabel: studio.screenplayAnchorSceneLabel,
+      sceneLabel: studio.screenplayAnchorSceneLabel || distilled.sceneLabel,
       sceneObjective: studio.screenplaySceneObjective,
-      sceneSummary: studio.screenplaySceneSummary,
-      currentBeat: studio.screenplayCurrentBeat,
+      sceneSummary: studio.screenplaySceneSummary || distilled.sceneSummary,
+      currentBeat: studio.screenplayCurrentBeat || distilled.currentBeat,
       logline: studio.screenplayLogline,
       themeArgument: studio.screenplayThemeArgument,
       centralQuestion: studio.screenplayCentralQuestion,
@@ -14349,7 +14475,9 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       nextScenePlan: studio.screenplayNextScenePlan,
       nextSceneMoves: studio.screenplayNextSceneMoves,
       beatSequence: studio.screenplayBeatSequence,
-      characterFocus: studio.screenplayCharacterFocus,
+      characterFocus: studio.screenplayCharacterFocus.length
+        ? studio.screenplayCharacterFocus
+        : distilled.characterFocus,
       unresolvedSetups: studio.screenplayUnresolvedSetups,
       continuityNotes: studio.screenplayContinuityNotes,
       emotionalContinuity: studio.screenplayEmotionalContinuity,
@@ -14484,8 +14612,16 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
         `project:${item.projectId || "unknown"}`,
         item.act ? `act:${item.act}` : "",
         item.sceneLabel ? `scene:${item.sceneLabel}` : "",
+        item.logline ? `logline:${item.logline}` : "",
+        item.themeArgument ? `theme:${item.themeArgument}` : "",
+        item.centralQuestion ? `central_question:${item.centralQuestion}` : "",
+        item.protagonistWant ? `want:${item.protagonistWant}` : "",
+        item.protagonistNeed ? `need:${item.protagonistNeed}` : "",
+        item.antagonisticForce ? `opposition:${item.antagonisticForce}` : "",
+        item.endingImage ? `ending_image:${item.endingImage}` : "",
         item.currentBeat ? `current_beat:${item.currentBeat}` : "",
         item.sceneObjective ? `objective:${item.sceneObjective}` : "",
+        item.sceneSummary ? `scene_summary:${item.sceneSummary}` : "",
         item.emotionalContinuity ? `emotional_continuity:${item.emotionalContinuity}` : "",
         item.featureSequence ? `sequence:${item.featureSequence}` : "",
         item.featureObligation ? `obligation:${item.featureObligation}` : "",
