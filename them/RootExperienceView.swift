@@ -9981,9 +9981,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ? "replace_selection"
             : "insert_after_anchor"
         let promptContinuity = screenplayPromptContinuityContext()
-        let draftExcerpt = preparedPrompt.shouldWriteToPage
-            ? String(screenplayDraftBridge.draftText.trimmingCharacters(in: .whitespacesAndNewlines).suffix(6_000))
-            : ""
+        let draftExcerpt = String(
+            screenplayDraftBridge.draftText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .suffix(6_000)
+        )
         let metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: projectId,
             screenplayDocumentRevisionId: anchorMetadata?.documentRevisionID ?? "",
@@ -10155,7 +10157,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayReplacedWriteId: replacedWriteID,
             screenplayRevisedBlockText: revisedBlockText,
             screenplayResolvedAnchorExcerpt: resolvedAnchorExcerpt,
-            screenplayDraftExcerpt: isPageWrite ? String(screenplayDraftBridge.draftText.trimmingCharacters(in: .whitespacesAndNewlines).suffix(6_000)) : "",
+            screenplayDraftExcerpt: String(
+                screenplayDraftBridge.draftText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .suffix(6_000)
+            ),
             screenplayAct: promptContinuity.act,
             screenplaySceneObjective: promptContinuity.sceneObjective,
             screenplaySceneSummary: promptContinuity.sceneSummary,
