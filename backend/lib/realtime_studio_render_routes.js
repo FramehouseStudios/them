@@ -42,22 +42,20 @@
 
 import express from "express";
 import { normalizeScreenplayOutputContractText } from "./screenplay_output_contract.js";
+import { resolveScreenplayTargetFromRequest } from "./screenplay_turn_target.js";
 
 const STUDIO_RENDER_BODY_LIMIT = "512kb";
 
 function normalizeStudioRenderScreenplayTarget(body = {}) {
-  const rawTarget = String(
-    body?.screenplay_target
-    ?? body?.screenplayTarget
-    ?? body?.output_target
-    ?? body?.outputTarget
-    ?? "",
-  )
-    .trim()
-    .toLowerCase();
-  if (rawTarget === "page") return "page";
-  if (rawTarget === "voicepin" || rawTarget === "voice_pin") return "voice_pin";
-  return "";
+  return resolveScreenplayTargetFromRequest({
+    ...body,
+    screenplayTarget:
+      body?.screenplay_target
+      ?? body?.screenplayTarget
+      ?? body?.output_target
+      ?? body?.outputTarget
+      ?? "",
+  });
 }
 
 function shouldApplyStudioRenderScreenplayContract(body = {}) {

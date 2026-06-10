@@ -71,6 +71,7 @@ import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
+import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
 import {
   buildTalkScreenplayQualityAlert,
   deriveTalkScreenplayQualitySignal,
@@ -9763,14 +9764,7 @@ function sanitizeStudioTurnMetadata(input) {
     input.screenplayDocumentRevisionId ?? input.screenplay_document_revision_id ?? input.documentRevisionId ?? input.document_revision_id ?? "",
     96
   );
-  const screenplayTargetRaw = String(
-    input.screenplayTarget ?? input.screenplay_target ?? input.target ?? ""
-  ).trim().toLowerCase();
-  const screenplayTarget = screenplayTargetRaw === "page"
-    ? "page"
-    : screenplayTargetRaw === "voicepin" || screenplayTargetRaw === "voice_pin"
-      ? "voice_pin"
-      : "";
+  const screenplayTarget = resolveScreenplayTargetFromRequest(input);
   const screenplayPromptSourceRaw = String(
     input.screenplayPromptSource ?? input.screenplay_prompt_source ?? input.promptSource ?? ""
   ).trim().toLowerCase();
@@ -28913,6 +28907,7 @@ const handleTalkRequest = createTalkHandler({
   normalizePersonaPreset,
   normalizeReassuranceStyle,
   normalizeSnippet,
+  sanitizeStudioTurnMetadata,
   normalizeSpeculativeKey,
   normalizeSpeculativePromptHash,
   normalizeSpeechCompare,
@@ -29245,4 +29240,5 @@ export {
   validateAndDirectHerReply,
   enforceReplyCompletenessGuard,
   normalizeTalkPageReply,
+  sanitizeStudioTurnMetadata,
 };

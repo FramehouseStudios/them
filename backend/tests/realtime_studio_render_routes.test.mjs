@@ -218,6 +218,37 @@ test("[studio-render] sync: page target strips labels, dividers, and trailing cr
   });
 });
 
+test("[studio-render] sync: infers page target for typed screenplay continuation", async () => {
+  const rawReply = [
+    "Here are the next pages:",
+    "",
+    "INT. COURTHOUSE HALLWAY - NIGHT",
+    "",
+    "Mara stops walking before the verdict reaches her face.",
+    "",
+    "END SCENE.",
+    "",
+    "Want me to keep going?"
+  ].join("\n");
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async () => rawReply,
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the next ten pages of act two.",
+      screenplay_act: "Act II",
+      screenplay_draft_excerpt: "INT. COURTHOUSE HALLWAY - NIGHT\n\nMARA stops walking.",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, [
+      "INT. COURTHOUSE HALLWAY - NIGHT",
+      "",
+      "Mara stops walking before the verdict reaches her face."
+    ].join("\n"));
+  });
+});
+
 test("[studio-render] sync: voice pin target preserves conversational reply", async () => {
   const reply = "I can keep helping you shape the scene from here.";
   const deps = defaultDeps({
