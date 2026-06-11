@@ -317,6 +317,87 @@ test("[screenplay-page-quality] accepts dialogue batches with concrete turns and
   assert.equal(quality.counts.specificAction >= 3, true);
 });
 
+test("[screenplay-page-quality] rejects Act III pages that dodge supplied payoff obligations", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE - NIGHT",
+      "",
+      "Mara steps into the center aisle and looks at everyone.",
+      "",
+      "ELI",
+      "It's over.",
+      "",
+      "Mara takes a breath.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE - NIGHT", element: "sceneHeading" },
+      { text: "Mara steps into the center aisle and looks at everyone.", element: "action" },
+      { text: "ELI", element: "character" },
+      { text: "It's over.", element: "dialogue" },
+      { text: "Mara takes a breath.", element: "action" },
+    ],
+    featureContext: {
+      act: "Act III",
+      pageCount: 100,
+      targetPages: 110,
+      characterArcState: "Mara can only win by choosing public truth over private control.",
+      endingImage: "The empty pool filled with rainwater at dawn.",
+      actThreePayoffPath: [
+        "The sister's voicemail becomes testimony.",
+        "The broken microphone becomes the public proof.",
+      ],
+      unresolvedSetups: [
+        "The buried first report has not been exposed.",
+      ],
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_act_three_payoff");
+});
+
+test("[screenplay-page-quality] accepts Act III pages that pay off setup through changed behavior", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE - NIGHT",
+      "",
+      "Mara sets the cracked phone beside the dead microphone.",
+      "The sister's voicemail crackles through the courtroom speakers, thin and undeniable.",
+      "",
+      "MARA",
+      "I buried the report because I thought protecting her meant owning the truth alone.",
+      "",
+      "She pushes the microphone toward the witness table instead of pulling it back.",
+      "Beyond the courthouse glass, rainwater trembles in the empty pool.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE - NIGHT", element: "sceneHeading" },
+      { text: "Mara sets the cracked phone beside the dead microphone.", element: "action" },
+      { text: "The sister's voicemail crackles through the courtroom speakers, thin and undeniable.", element: "action" },
+      { text: "MARA", element: "character" },
+      { text: "I buried the report because I thought protecting her meant owning the truth alone.", element: "dialogue" },
+      { text: "She pushes the microphone toward the witness table instead of pulling it back.", element: "action" },
+      { text: "Beyond the courthouse glass, rainwater trembles in the empty pool.", element: "action" },
+    ],
+    featureContext: {
+      act: "Act III",
+      pageCount: 100,
+      targetPages: 110,
+      characterArcState: "Mara can only win by choosing public truth over private control.",
+      endingImage: "The empty pool filled with rainwater at dawn.",
+      actThreePayoffPath: [
+        "The sister's voicemail becomes testimony.",
+        "The broken microphone becomes the public proof.",
+      ],
+      unresolvedSetups: [
+        "The buried first report has not been exposed.",
+      ],
+    },
+  });
+
+  assert.equal(quality.ok, true);
+});
+
 test("[screenplay-page-quality] requires screenplay shape when no trusted anchor exists", () => {
   const quality = evaluateScreenplayPageQuality({
     text: "June folds the receipt into a white square.",

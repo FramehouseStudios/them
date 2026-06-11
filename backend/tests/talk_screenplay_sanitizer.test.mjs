@@ -326,6 +326,76 @@ test("[talk-screenplay-output] rejects underfilled requested page batches", () =
   assert.equal(output.source, "guard_low_page_quality");
 });
 
+test("[talk-screenplay-output] rejects Act III page output that dodges supplied payoff memory", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. COURTHOUSE - NIGHT",
+      "",
+      "Mara steps into the center aisle and looks at everyone.",
+      "",
+      "ELI",
+      "It's over.",
+      "",
+      "Mara takes a breath.",
+    ].join("\n"),
+    transcript: "Write the next pages of act three.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act III",
+      screenplayPageCount: 100,
+      screenplayTargetPages: 110,
+      screenplayCharacterArcState: "Mara can only win by choosing public truth over private control.",
+      screenplayEndingImage: "The empty pool filled with rainwater at dawn.",
+      screenplayActThreePayoffPath: [
+        "The sister's voicemail becomes testimony.",
+        "The broken microphone becomes the public proof.",
+      ],
+      screenplayUnresolvedSetups: [
+        "The buried first report has not been exposed.",
+      ],
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+});
+
+test("[talk-screenplay-output] accepts Act III page output that spends supplied payoff memory", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. COURTHOUSE - NIGHT",
+      "",
+      "Mara sets the cracked phone beside the dead microphone.",
+      "The sister's voicemail crackles through the courtroom speakers, thin and undeniable.",
+      "",
+      "MARA",
+      "I buried the report because I thought protecting her meant owning the truth alone.",
+      "",
+      "She pushes the microphone toward the witness table instead of pulling it back.",
+      "Beyond the courthouse glass, rainwater trembles in the empty pool.",
+    ].join("\n"),
+    transcript: "Write the next pages of act three.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act III",
+      screenplayPageCount: 100,
+      screenplayTargetPages: 110,
+      screenplayCharacterArcState: "Mara can only win by choosing public truth over private control.",
+      screenplayEndingImage: "The empty pool filled with rainwater at dawn.",
+      screenplayActThreePayoffPath: [
+        "The sister's voicemail becomes testimony.",
+        "The broken microphone becomes the public proof.",
+      ],
+      screenplayUnresolvedSetups: [
+        "The buried first report has not been exposed.",
+      ],
+    },
+  });
+
+  assert.equal(output.target, "page");
+  assert.equal(output.source, "studio_target");
+});
+
 test("[talk-screenplay-output] accepts a repair-pass candidate after the live guard rejects the first draft", () => {
   const studioMeta = {
     screenplayTarget: "page",

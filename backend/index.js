@@ -4477,6 +4477,20 @@ function validateTalkAuthoritativeScreenplayOutput(screenplayOutput = null, {
     lines,
     targetPages: resolveTalkScreenplayRequestedPageBatch({ transcript, studioMeta }),
     hasSceneAnchor: Boolean(normalizeTalkScreenplayAnchorSceneLabel(studioMeta)),
+    featureContext: {
+      act: studioMeta?.screenplayAct,
+      featureSequence: studioMeta?.screenplayFeatureSequence,
+      featureObligation: studioMeta?.screenplayFeatureObligation,
+      pageCount: studioMeta?.screenplayPageCount,
+      targetPages: studioMeta?.screenplayTargetPages,
+      endingImage: studioMeta?.screenplayEndingImage,
+      actPressureState: studioMeta?.screenplayActPressureState,
+      characterArcState: studioMeta?.screenplayCharacterArcState,
+      actThreePayoffPath: studioMeta?.screenplayActThreePayoffPath,
+      unresolvedSetups: studioMeta?.screenplayUnresolvedSetups,
+      unresolvedStoryThreads: studioMeta?.screenplayUnresolvedStoryThreads,
+      imageMotifs: studioMeta?.screenplayImageMotifs,
+    },
   });
   if (!quality.ok) {
     return { ok: false, reason: quality.reason || "low_page_quality", text, lines, quality };

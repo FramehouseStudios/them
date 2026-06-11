@@ -412,6 +412,61 @@ function createTalkHandler(deps) {
         "",
       32
     );
+    const normalizeRepairList = (items, maxItems = 5, maxChars = 200) => {
+      const source = Array.isArray(items)
+        ? items
+        : String(items || "").trim()
+          ? String(items).split(/\r?\n|;/)
+          : [];
+      const out = [];
+      const seen = new Set();
+      for (const item of source) {
+        const clean = normalizeSnippet(item, maxChars);
+        if (!clean) continue;
+        const key = clean.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(clean);
+        if (out.length >= maxItems) break;
+      }
+      return out;
+    };
+    const screenplayAct = normalizeSnippet(studioMeta?.screenplayAct || studioMeta?.screenplay_act, 120);
+    const screenplayFeatureSequence = normalizeSnippet(
+      studioMeta?.screenplayFeatureSequence || studioMeta?.screenplay_feature_sequence,
+      160
+    );
+    const screenplayFeatureObligation = normalizeSnippet(
+      studioMeta?.screenplayFeatureObligation || studioMeta?.screenplay_feature_obligation,
+      220
+    );
+    const screenplayCharacterArcState = normalizeSnippet(
+      studioMeta?.screenplayCharacterArcState || studioMeta?.screenplay_character_arc_state,
+      220
+    );
+    const screenplayEndingImage = normalizeSnippet(
+      studioMeta?.screenplayEndingImage || studioMeta?.screenplay_ending_image,
+      220
+    );
+    const screenplayActThreePayoffPath = normalizeRepairList(
+      studioMeta?.screenplayActThreePayoffPath || studioMeta?.screenplay_act_three_payoff_path,
+      4,
+      200
+    );
+    const screenplayUnresolvedSetups = normalizeRepairList(
+      studioMeta?.screenplayUnresolvedSetups || studioMeta?.screenplay_unresolved_setups,
+      4,
+      200
+    );
+    const featureObligationLines = [
+      screenplayAct ? `ACT: ${screenplayAct}` : "",
+      screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
+      screenplayFeatureObligation ? `STRUCTURAL_OBLIGATION: ${screenplayFeatureObligation}` : "",
+      screenplayCharacterArcState ? `CHANGED_BEHAVIOR_DUE: ${screenplayCharacterArcState}` : "",
+      screenplayEndingImage ? `ENDING_IMAGE_PRESSURE: ${screenplayEndingImage}` : "",
+      ...screenplayActThreePayoffPath.map((item) => `ACT_THREE_PAYOFF: ${item}`),
+      ...screenplayUnresolvedSetups.map((item) => `SETUP_TO_CARRY_OR_PAY: ${item}`),
+    ].filter(Boolean);
     const repairMessages = [
       {
         role: "system",
@@ -422,6 +477,7 @@ function createTalkHandler(deps) {
           "No diagnosis, no markdown, no outline, no placeholders, no strategy note, no permission question.",
           "Use scene heading, action, character cues, dialogue, subtext, visible behavior, escalation, and a turn.",
           sceneAnchor ? `If the scene heading is missing, begin with exactly: ${sceneAnchor}` : "If no scene heading is supplied, create a specific INT./EXT. scene heading.",
+          "If Act III/finale context is supplied, pay off at least one supplied setup/path through changed behavior and final-image pressure.",
         ].join("\n"),
       },
       {
@@ -430,6 +486,8 @@ function createTalkHandler(deps) {
           `FAILED_GATE: ${currentSource || "guard_low_page_quality"}`,
           requestedPages ? `REQUESTED_PAGES: ${requestedPages}` : "",
           sceneAnchor ? `SCENE_ANCHOR: ${sceneAnchor}` : "",
+          featureObligationLines.length ? "FEATURE_OBLIGATIONS:" : "",
+          ...featureObligationLines.map((line) => `- ${line}`),
           "",
           "USER_REQUEST:",
           userRequest || "(not supplied)",

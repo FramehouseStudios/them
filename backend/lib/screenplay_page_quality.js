@@ -9,6 +9,85 @@ function countWords(value = "") {
   return Array.isArray(words) ? words.length : 0;
 }
 
+const QUALITY_TOKEN_STOPWORDS = Object.freeze(new Set([
+  "about",
+  "above",
+  "after",
+  "again",
+  "against",
+  "along",
+  "also",
+  "because",
+  "before",
+  "being",
+  "between",
+  "could",
+  "every",
+  "final",
+  "from",
+  "have",
+  "into",
+  "only",
+  "over",
+  "page",
+  "pages",
+  "payoff",
+  "scene",
+  "sequence",
+  "setup",
+  "should",
+  "still",
+  "that",
+  "their",
+  "there",
+  "these",
+  "they",
+  "this",
+  "through",
+  "under",
+  "until",
+  "where",
+  "while",
+  "with",
+  "would",
+]));
+
+function qualityTokenSet(value = "") {
+  const tokens = String(value || "")
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/'s\b/g, "")
+    .match(/[a-z0-9][a-z0-9-]{2,}/g);
+  if (!Array.isArray(tokens)) return new Set();
+  return new Set(tokens.filter((token) => token.length >= 4 && !QUALITY_TOKEN_STOPWORDS.has(token)));
+}
+
+function sanitizeQualityList(items, maxItems = 6, maxChars = 180) {
+  const source = Array.isArray(items)
+    ? items
+    : normalizeLineText(items)
+      ? String(items).split(/\r?\n|;/)
+      : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const clean = normalizeLineText(item).slice(0, Math.max(1, Number(maxChars || 180)));
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function positiveIntegerOrZero(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed);
+}
+
 function normalizeElement(value = "") {
   const clean = String(value || "").trim();
   return clean || "action";
@@ -204,11 +283,115 @@ function minimumExpectedWordsForRequestedPages(requestedPages = 0) {
   return Math.min(420, 170 + ((pages - 4) * 45));
 }
 
+function isActThreeFeatureContext(featureContext = {}) {
+  if (!featureContext || typeof featureContext !== "object") return false;
+  const actText = [
+    featureContext.act,
+    featureContext.currentAct,
+    featureContext.current_act,
+    featureContext.requestedAct,
+    featureContext.requested_act,
+    featureContext.featureSequence,
+    featureContext.feature_sequence,
+    featureContext.featureObligation,
+    featureContext.feature_obligation,
+  ].map((value) => normalizeLineText(value).toLowerCase()).filter(Boolean).join(" ");
+  if (/\bact\s*(?:iii|3|three)\b|\bthird act\b|\bfinal act\b|\bfinale\b|\bclimax\b|\bbreak into three\b/.test(actText)) {
+    return true;
+  }
+  const pageCount = positiveIntegerOrZero(featureContext.pageCount ?? featureContext.page_count);
+  const targetPages = positiveIntegerOrZero(
+    featureContext.targetPages ??
+    featureContext.target_pages ??
+    featureContext.featureTargetPages ??
+    featureContext.feature_target_pages
+  ) || 110;
+  return pageCount > 0 && pageCount >= Math.round(targetPages * (86 / 110));
+}
+
+function evaluateFeatureActObligationCoverage({
+  text = "",
+  counts = {},
+  featureContext = null,
+} = {}) {
+  if (!isActThreeFeatureContext(featureContext)) {
+    return { ok: true, reason: "not_act_three" };
+  }
+  const obligationPhrases = [
+    ...sanitizeQualityList(
+      featureContext?.actThreePayoffPath ??
+      featureContext?.act_three_payoff_path ??
+      featureContext?.payoffPath ??
+      featureContext?.payoff_path,
+      5,
+      200
+    ),
+    ...sanitizeQualityList(
+      featureContext?.unresolvedSetups ??
+      featureContext?.unresolved_setups ??
+      featureContext?.openLoops ??
+      featureContext?.open_loops,
+      6,
+      200
+    ),
+    ...sanitizeQualityList(
+      featureContext?.imageMotifs ??
+      featureContext?.image_motifs ??
+      featureContext?.visualMotifs ??
+      featureContext?.visual_motifs,
+      4,
+      120
+    ),
+    normalizeLineText(
+      featureContext?.endingImage ??
+      featureContext?.ending_image ??
+      featureContext?.finalImage ??
+      featureContext?.final_image
+    ),
+  ].filter(Boolean);
+
+  const obligationTokens = new Set();
+  for (const phrase of obligationPhrases) {
+    for (const token of qualityTokenSet(phrase)) obligationTokens.add(token);
+  }
+  const textTokens = qualityTokenSet(text);
+  const matchedTokens = [...obligationTokens].filter((token) => textTokens.has(token));
+  if (obligationTokens.size > 0 && matchedTokens.length < 1) {
+    return {
+      ok: false,
+      reason: "missing_act_three_payoff",
+      matchedTokens,
+      obligationTokenCount: obligationTokens.size,
+    };
+  }
+
+  const hasArcPressure = Boolean(
+    normalizeLineText(featureContext?.characterArcState ?? featureContext?.character_arc_state) ||
+    normalizeLineText(featureContext?.actPressureState ?? featureContext?.act_pressure_state)
+  );
+  if (hasArcPressure && Number(counts.specificAction || 0) < 2) {
+    return {
+      ok: false,
+      reason: "missing_act_three_changed_behavior",
+      matchedTokens,
+      obligationTokenCount: obligationTokens.size,
+    };
+  }
+
+  return {
+    ok: true,
+    reason: "ok",
+    matchedTokens,
+    obligationTokenCount: obligationTokens.size,
+  };
+}
+
 function evaluateScreenplayPageQuality({
   text = "",
   lines = [],
   targetPages = 0,
   hasSceneAnchor = false,
+  featureContext = null,
 } = {}) {
   const normalizedText = normalizeLineText(text);
   if (!normalizedText) {
@@ -272,12 +455,26 @@ function evaluateScreenplayPageQuality({
   if (requestedPages >= 3 && counts.sceneHeading < 1 && !hasSceneAnchor) {
     return { ok: false, reason: "missing_batch_scene_anchor", counts };
   }
+  const featureObligation = evaluateFeatureActObligationCoverage({
+    text: normalizedText,
+    counts,
+    featureContext,
+  });
+  if (!featureObligation.ok) {
+    return {
+      ok: false,
+      reason: featureObligation.reason,
+      counts,
+      featureObligation,
+    };
+  }
 
   return { ok: true, reason: "ok", counts };
 }
 
 export {
   evaluateScreenplayPageQuality,
+  evaluateFeatureActObligationCoverage,
   isLikelyOutlineOrCraftArtifactLine,
   isLikelyPlaceholderScreenplayLine,
   isLowSignalActionLine,
