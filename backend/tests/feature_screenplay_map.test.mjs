@@ -70,11 +70,26 @@ test("[feature-screenplay-map] carries feature spine, promises, and Act III payo
       endingImage: "The empty pool filled with rainwater at dawn.",
       currentBeat: "The false victory collapses into public betrayal.",
       emotionalContinuity: "Carry humiliation into a colder, more honest resolve.",
+      actPressureState: "All-is-lost pressure must make the false victory morally unusable.",
+      characterArcState: "Mara is learning that control is not the same as loyalty.",
+      lastSceneOutcome: "The public betrayal destroyed her safe legal tactic.",
+      nextThreeTurns: [
+        "Mara loses the public case.",
+        "The sister's voicemail reframes the cover-up.",
+        "Mara chooses exposure over protection.",
+      ],
+      actThreePayoffPath: [
+        "Voicemail pays off as testimony.",
+        "Empty pool image returns at dawn.",
+      ],
       characterFocus: ["Mara", "Eli"],
       unresolvedSetups: [
         "The sister's voicemail has not paid off.",
         "The opening image of the empty pool still needs its mirror.",
       ],
+      unresolvedStoryThreads: ["Who buried the first report?", "Why the sister lied"],
+      characterArcTurns: ["Mara must sacrifice control to tell the truth."],
+      imageMotifs: ["empty pool", "broken microphone"],
     },
     screenplayTask: { intent: "finish_feature" },
   });
@@ -90,7 +105,20 @@ test("[feature-screenplay-map] carries feature spine, promises, and Act III payo
   assert.ok(block.includes("protagonist_engine: want=Win the public case.; need=Stop mistaking control for loyalty."));
   assert.ok(block.includes("opposition_engine: A town that survives by burying evidence."));
   assert.ok(block.includes("final_image_pressure: The empty pool filled with rainwater at dawn."));
+  assert.ok(block.includes("act_pressure_state: All-is-lost pressure must make the false victory morally unusable."));
+  assert.ok(block.includes("character_arc_state: Mara is learning that control is not the same as loyalty."));
+  assert.ok(block.includes("last_scene_outcome_to_carry: The public betrayal destroyed her safe legal tactic."));
+  assert.ok(block.includes("next_three_turns_to_protect:"));
+  assert.ok(block.includes("Mara chooses exposure over protection."));
+  assert.ok(block.includes("act_three_payoff_path:"));
+  assert.ok(block.includes("Voicemail pays off as testimony."));
   assert.ok(block.includes("active_setups_to_carry_or_pay:"));
+  assert.ok(block.includes("unresolved_story_threads:"));
+  assert.ok(block.includes("Who buried the first report?"));
+  assert.ok(block.includes("character_arc_turns_to_pay:"));
+  assert.ok(block.includes("Mara must sacrifice control to tell the truth."));
+  assert.ok(block.includes("image_motifs_to_echo_or_transform:"));
+  assert.ok(block.includes("broken microphone"));
   assert.ok(block.includes("continuity_assets:"));
   assert.ok(block.includes("turn_engine: each scene must change leverage"));
   assert.ok(block.includes("image_system: plant, echo, and transform motifs"));
@@ -100,6 +128,8 @@ test("[feature-screenplay-map] carries feature spine, promises, and Act III payo
   assert.ok(block.includes("next_page_moves:"));
   assert.ok(block.includes("Cash in the most dangerous unresolved setup."));
   assert.ok(block.includes("Act III payoff path"));
+  assert.ok(block.includes("Preserve the remembered next-three-turns runway"));
+  assert.ok(block.includes("Aim Act III pages at the remembered payoff path"));
   assert.ok(block.includes("For Act I -> Act II -> Act III requests"));
 });
 

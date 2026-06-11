@@ -277,10 +277,25 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
       endingImage: "The empty pool filled with rainwater at dawn.",
       currentBeat: "The false victory collapses into public betrayal.",
       emotionalContinuity: "Carry humiliation into a colder, more honest resolve.",
+      actPressureState: "The all-is-lost lane must convert humiliation into a painful truth.",
+      characterArcState: "Mara has to stop confusing control with loyalty.",
+      lastSceneOutcome: "The city hall betrayal destroys her safe public strategy.",
+      nextThreeTurns: [
+        "Mara loses the public case.",
+        "The sister's voicemail reframes the cover-up.",
+        "Mara chooses exposure over protection.",
+      ],
+      actThreePayoffPath: [
+        "Voicemail pays off as testimony.",
+        "Empty pool image returns at dawn.",
+      ],
       unresolvedSetups: [
         "The sister's voicemail has not paid off.",
         "The opening image of the empty pool still needs its mirror.",
       ],
+      unresolvedStoryThreads: ["Who buried the first report?", "Why the sister lied"],
+      characterArcTurns: ["Mara must sacrifice control to tell the truth."],
+      imageMotifs: ["empty pool", "broken microphone"],
       draftExcerpt: "INT. CITY HALL - NIGHT\n\nMARA cannot make the microphone work.",
     },
     screenplayTask: inferScreenplayTask("Help me finish the entire feature from Act 1 to Act 2 to Act 3."),
@@ -310,7 +325,20 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("ending_image: The empty pool filled with rainwater"));
   assert.ok(out.includes("continuity_assets:"));
   assert.ok(out.includes("emotional_handoff: Carry humiliation"));
+  assert.ok(out.includes("act_pressure_state: The all-is-lost lane must convert humiliation"));
+  assert.ok(out.includes("character_arc_state: Mara has to stop confusing control with loyalty."));
+  assert.ok(out.includes("last_scene_outcome: The city hall betrayal destroys her safe public strategy."));
+  assert.ok(out.includes("next_three_turns:"));
+  assert.ok(out.includes("Mara chooses exposure over protection."));
+  assert.ok(out.includes("act_three_payoff_path:"));
+  assert.ok(out.includes("Voicemail pays off as testimony."));
   assert.ok(out.includes("unresolved_setups_to_track:"));
+  assert.ok(out.includes("unresolved_story_threads:"));
+  assert.ok(out.includes("Who buried the first report?"));
+  assert.ok(out.includes("character_arc_turns:"));
+  assert.ok(out.includes("Mara must sacrifice control to tell the truth."));
+  assert.ok(out.includes("image_motifs:"));
+  assert.ok(out.includes("broken microphone"));
   assert.ok(out.includes("current_position: p78 / 110"));
   assert.ok(out.includes("current_sequence: Act II - Collapse / All Is Lost"));
   assert.ok(out.includes("active_act_label: Act II"));

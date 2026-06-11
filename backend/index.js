@@ -3064,13 +3064,25 @@ function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
       : "",
     memoryProject.currentBeat ? `current beat: ${memoryProject.currentBeat}` : "",
     memoryProject.featureObligation ? `due now: ${memoryProject.featureObligation}` : "",
+    memoryProject.actPressureState ? `act pressure: ${memoryProject.actPressureState}` : "",
+    memoryProject.characterArcState ? `character arc: ${memoryProject.characterArcState}` : "",
+    memoryProject.lastSceneOutcome ? `last scene outcome: ${memoryProject.lastSceneOutcome}` : "",
     Array.isArray(memoryProject.unresolvedSetups) && memoryProject.unresolvedSetups.length
       ? `open setups: ${memoryProject.unresolvedSetups.slice(0, 3).join(" / ")}`
+      : "",
+    Array.isArray(memoryProject.unresolvedStoryThreads) && memoryProject.unresolvedStoryThreads.length
+      ? `story threads: ${memoryProject.unresolvedStoryThreads.slice(0, 3).join(" / ")}`
+      : "",
+    Array.isArray(memoryProject.nextThreeTurns) && memoryProject.nextThreeTurns.length
+      ? `next three turns: ${memoryProject.nextThreeTurns.slice(0, 3).join(" / ")}`
+      : "",
+    Array.isArray(memoryProject.actThreePayoffPath) && memoryProject.actThreePayoffPath.length
+      ? `Act III payoff path: ${memoryProject.actThreePayoffPath.slice(0, 3).join(" / ")}`
       : "",
     memoryProject.nextScenePlan ? `next: ${memoryProject.nextScenePlan}` : "",
     memoryProject.endingImage ? `ending image: ${memoryProject.endingImage}` : "",
   ].filter(Boolean);
-  return normalizeSnippet(parts.join("; "), 420);
+  return normalizeSnippet(parts.join("; "), 900);
 }
 
 function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory = null) {
@@ -3128,6 +3140,18 @@ function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory 
     body.featureObligation ?? body.feature_obligation ?? body.screenplayFeatureObligation ?? body.screenplay_feature_obligation,
     280
   ) || memoryProject?.featureObligation || "";
+  const actPressureState = normalizeSnippet(
+    body.actPressureState ?? body.act_pressure_state ?? body.screenplayActPressureState ?? body.screenplay_act_pressure_state,
+    280
+  ) || memoryProject?.actPressureState || "";
+  const characterArcState = normalizeSnippet(
+    body.characterArcState ?? body.character_arc_state ?? body.screenplayCharacterArcState ?? body.screenplay_character_arc_state,
+    280
+  ) || memoryProject?.characterArcState || "";
+  const lastSceneOutcome = normalizeSnippet(
+    body.lastSceneOutcome ?? body.last_scene_outcome ?? body.screenplayLastSceneOutcome ?? body.screenplay_last_scene_outcome,
+    240
+  ) || memoryProject?.lastSceneOutcome || "";
   const nextScenePlan = normalizeSnippet(
     body.nextScenePlan ?? body.next_scene_plan ?? body.screenplayNextScenePlan ?? body.screenplay_next_scene_plan,
     340
@@ -3156,10 +3180,19 @@ function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory 
     endingImage: normalizeSnippet(body.endingImage ?? body.ending_image ?? body.screenplayEndingImage ?? body.screenplay_ending_image, 240) || memoryProject?.endingImage || "",
     featureSequence,
     featureObligation,
+    actPressureState,
+    characterArcState,
+    lastSceneOutcome,
     featureMemoryBrief: buildTalkPersistentFeatureMemoryBrief(memoryProject),
     nextScenePlan,
     nextSceneMoves: parseTalkScreenplayContextList(body.nextSceneMoves ?? body.next_scene_moves ?? body.screenplayNextSceneMoves ?? body.screenplay_next_scene_moves, 5, 180)
       .concat(memoryProject?.nextSceneMoves || [])
+      .slice(0, 5),
+    nextThreeTurns: parseTalkScreenplayContextList(body.nextThreeTurns ?? body.next_three_turns ?? body.screenplayNextThreeTurns ?? body.screenplay_next_three_turns, 3, 180)
+      .concat(memoryProject?.nextThreeTurns || [])
+      .slice(0, 3),
+    actThreePayoffPath: parseTalkScreenplayContextList(body.actThreePayoffPath ?? body.act_three_payoff_path ?? body.screenplayActThreePayoffPath ?? body.screenplay_act_three_payoff_path ?? body.payoffPath ?? body.payoff_path, 5, 200)
+      .concat(memoryProject?.actThreePayoffPath || [])
       .slice(0, 5),
     beatSequence: parseTalkScreenplayContextList(body.beatSequence ?? body.beat_sequence ?? body.screenplayBeatSequence ?? body.screenplay_beat_sequence, 8, 180)
       .concat(memoryProject?.beatSequence || [])
@@ -3170,6 +3203,15 @@ function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory 
     unresolvedSetups: parseTalkScreenplayContextList(body.unresolvedSetups ?? body.unresolved_setups ?? body.screenplayUnresolvedSetups ?? body.screenplay_unresolved_setups, 8, 220)
       .concat(memoryProject?.unresolvedSetups || [])
       .slice(0, 8),
+    unresolvedStoryThreads: parseTalkScreenplayContextList(body.unresolvedStoryThreads ?? body.unresolved_story_threads ?? body.screenplayUnresolvedStoryThreads ?? body.screenplay_unresolved_story_threads, 8, 220)
+      .concat(memoryProject?.unresolvedStoryThreads || [])
+      .slice(0, 8),
+    characterArcTurns: parseTalkScreenplayContextList(body.characterArcTurns ?? body.character_arc_turns ?? body.screenplayCharacterArcTurns ?? body.screenplay_character_arc_turns, 6, 180)
+      .concat(memoryProject?.characterArcTurns || [])
+      .slice(0, 6),
+    imageMotifs: parseTalkScreenplayContextList(body.imageMotifs ?? body.image_motifs ?? body.screenplayImageMotifs ?? body.screenplay_image_motifs ?? body.visualMotifs ?? body.visual_motifs, 6, 140)
+      .concat(memoryProject?.imageMotifs || [])
+      .slice(0, 6),
     continuityNotes: parseTalkScreenplayContextList(body.continuityNotes ?? body.continuity_notes ?? body.screenplayContinuityNotes ?? body.screenplay_continuity_notes, 8, 220)
       .concat(memoryProject?.continuityNotes || [])
       .slice(0, 8),
@@ -10148,6 +10190,18 @@ function sanitizeStudioTurnMetadata(input) {
     input.screenplayFeatureObligation ?? input.screenplay_feature_obligation ?? input.featureObligation ?? input.feature_obligation ?? "",
     280
   );
+  const screenplayActPressureState = normalizeSnippet(
+    input.screenplayActPressureState ?? input.screenplay_act_pressure_state ?? input.actPressureState ?? input.act_pressure_state ?? "",
+    280
+  );
+  const screenplayCharacterArcState = normalizeSnippet(
+    input.screenplayCharacterArcState ?? input.screenplay_character_arc_state ?? input.characterArcState ?? input.character_arc_state ?? "",
+    280
+  );
+  const screenplayLastSceneOutcome = normalizeSnippet(
+    input.screenplayLastSceneOutcome ?? input.screenplay_last_scene_outcome ?? input.lastSceneOutcome ?? input.last_scene_outcome ?? "",
+    240
+  );
   const screenplayNextScenePlan = normalizeSnippet(
     input.screenplayNextScenePlan ?? input.screenplay_next_scene_plan ?? input.nextScenePlan ?? input.next_scene_plan ?? "",
     340
@@ -10156,6 +10210,16 @@ function sanitizeStudioTurnMetadata(input) {
     input.screenplayNextSceneMoves ?? input.screenplay_next_scene_moves ?? input.nextSceneMoves ?? input.next_scene_moves,
     5,
     180
+  );
+  const screenplayNextThreeTurns = parseTalkScreenplayContextList(
+    input.screenplayNextThreeTurns ?? input.screenplay_next_three_turns ?? input.nextThreeTurns ?? input.next_three_turns,
+    3,
+    180
+  );
+  const screenplayActThreePayoffPath = parseTalkScreenplayContextList(
+    input.screenplayActThreePayoffPath ?? input.screenplay_act_three_payoff_path ?? input.actThreePayoffPath ?? input.act_three_payoff_path ?? input.payoffPath ?? input.payoff_path,
+    5,
+    200
   );
   const screenplayBeatSequence = parseTalkScreenplayContextList(
     input.screenplayBeatSequence ?? input.screenplay_beat_sequence ?? input.beatSequence ?? input.beat_sequence,
@@ -10171,6 +10235,21 @@ function sanitizeStudioTurnMetadata(input) {
     input.screenplayUnresolvedSetups ?? input.screenplay_unresolved_setups ?? input.unresolvedSetups ?? input.unresolved_setups,
     8,
     220
+  );
+  const screenplayUnresolvedStoryThreads = parseTalkScreenplayContextList(
+    input.screenplayUnresolvedStoryThreads ?? input.screenplay_unresolved_story_threads ?? input.unresolvedStoryThreads ?? input.unresolved_story_threads,
+    8,
+    220
+  );
+  const screenplayCharacterArcTurns = parseTalkScreenplayContextList(
+    input.screenplayCharacterArcTurns ?? input.screenplay_character_arc_turns ?? input.characterArcTurns ?? input.character_arc_turns,
+    6,
+    180
+  );
+  const screenplayImageMotifs = parseTalkScreenplayContextList(
+    input.screenplayImageMotifs ?? input.screenplay_image_motifs ?? input.imageMotifs ?? input.image_motifs ?? input.visualMotifs ?? input.visual_motifs,
+    6,
+    140
   );
   const screenplayContinuityNotes = parseTalkScreenplayContextList(
     input.screenplayContinuityNotes ?? input.screenplay_continuity_notes ?? input.continuityNotes ?? input.continuity_notes,
@@ -10223,11 +10302,19 @@ function sanitizeStudioTurnMetadata(input) {
     !screenplayEndingImage &&
     !screenplayFeatureSequence &&
     !screenplayFeatureObligation &&
+    !screenplayActPressureState &&
+    !screenplayCharacterArcState &&
+    !screenplayLastSceneOutcome &&
     !screenplayNextScenePlan &&
     screenplayNextSceneMoves.length < 1 &&
+    screenplayNextThreeTurns.length < 1 &&
+    screenplayActThreePayoffPath.length < 1 &&
     screenplayBeatSequence.length < 1 &&
     screenplayCharacterFocus.length < 1 &&
     screenplayUnresolvedSetups.length < 1 &&
+    screenplayUnresolvedStoryThreads.length < 1 &&
+    screenplayCharacterArcTurns.length < 1 &&
+    screenplayImageMotifs.length < 1 &&
     screenplayContinuityNotes.length < 1 &&
     !screenplayEmotionalContinuity &&
     screenplayPageCount <= 0 &&
@@ -10271,11 +10358,19 @@ function sanitizeStudioTurnMetadata(input) {
     screenplayEndingImage,
     screenplayFeatureSequence,
     screenplayFeatureObligation,
+    screenplayActPressureState,
+    screenplayCharacterArcState,
+    screenplayLastSceneOutcome,
     screenplayNextScenePlan,
     screenplayNextSceneMoves,
+    screenplayNextThreeTurns,
+    screenplayActThreePayoffPath,
     screenplayBeatSequence,
     screenplayCharacterFocus,
     screenplayUnresolvedSetups,
+    screenplayUnresolvedStoryThreads,
+    screenplayCharacterArcTurns,
+    screenplayImageMotifs,
     screenplayContinuityNotes,
     screenplayEmotionalContinuity,
     screenplayPageCount,
@@ -14159,6 +14254,9 @@ const SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS = [
   ["endingImage", 240],
   ["featureSequence", 220],
   ["featureObligation", 280],
+  ["actPressureState", 280],
+  ["characterArcState", 280],
+  ["lastSceneOutcome", 240],
   ["nextScenePlan", 340],
   ["emotionalContinuity", 280],
   ["lastTarget", 48],
@@ -14172,9 +14270,14 @@ const SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS = [
 
 const SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS = [
   ["nextSceneMoves", 5, 180],
+  ["nextThreeTurns", 3, 180],
+  ["actThreePayoffPath", 5, 200],
   ["beatSequence", 8, 180],
   ["characterFocus", 8, 120],
   ["unresolvedSetups", 8, 220],
+  ["unresolvedStoryThreads", 8, 220],
+  ["characterArcTurns", 6, 180],
+  ["imageMotifs", 6, 140],
   ["continuityNotes", 8, 220],
 ];
 
@@ -14493,11 +14596,19 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     studio.screenplayEndingImage ||
     studio.screenplayFeatureSequence ||
     studio.screenplayFeatureObligation ||
+    studio.screenplayActPressureState ||
+    studio.screenplayCharacterArcState ||
+    studio.screenplayLastSceneOutcome ||
     studio.screenplayNextScenePlan ||
     studio.screenplayNextSceneMoves?.length ||
+    studio.screenplayNextThreeTurns?.length ||
+    studio.screenplayActThreePayoffPath?.length ||
     studio.screenplayBeatSequence?.length ||
     studio.screenplayCharacterFocus?.length ||
     studio.screenplayUnresolvedSetups?.length ||
+    studio.screenplayUnresolvedStoryThreads?.length ||
+    studio.screenplayCharacterArcTurns?.length ||
+    studio.screenplayImageMotifs?.length ||
     studio.screenplayContinuityNotes?.length ||
     studio.screenplayEmotionalContinuity ||
     studio.screenplayPageCount > 0 ||
@@ -14541,8 +14652,13 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       endingImage: studio.screenplayEndingImage,
       featureSequence: studio.screenplayFeatureSequence || position.featureSequence,
       featureObligation: studio.screenplayFeatureObligation || position.featureObligation,
+      actPressureState: studio.screenplayActPressureState,
+      characterArcState: studio.screenplayCharacterArcState,
+      lastSceneOutcome: studio.screenplayLastSceneOutcome,
       nextScenePlan: studio.screenplayNextScenePlan,
       nextSceneMoves: studio.screenplayNextSceneMoves,
+      nextThreeTurns: studio.screenplayNextThreeTurns,
+      actThreePayoffPath: studio.screenplayActThreePayoffPath,
       beatSequence: studio.screenplayBeatSequence.length
         ? studio.screenplayBeatSequence
         : distilled.beatSequence,
@@ -14550,6 +14666,9 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
         ? studio.screenplayCharacterFocus
         : distilled.characterFocus,
       unresolvedSetups: studio.screenplayUnresolvedSetups,
+      unresolvedStoryThreads: studio.screenplayUnresolvedStoryThreads,
+      characterArcTurns: studio.screenplayCharacterArcTurns,
+      imageMotifs: studio.screenplayImageMotifs,
       continuityNotes: studio.screenplayContinuityNotes,
       emotionalContinuity: studio.screenplayEmotionalContinuity,
       pageCount: studio.screenplayPageCount,
@@ -14678,6 +14797,21 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
     const setups = item.unresolvedSetups.length
       ? ` open_setups:${item.unresolvedSetups.slice(0, 3).join(" / ")}`
       : "";
+    const storyThreads = item.unresolvedStoryThreads.length
+      ? ` story_threads:${item.unresolvedStoryThreads.slice(0, 3).join(" / ")}`
+      : "";
+    const nextTurns = item.nextThreeTurns.length
+      ? ` next_three_turns:${item.nextThreeTurns.slice(0, 3).join(" / ")}`
+      : "";
+    const payoffPath = item.actThreePayoffPath.length
+      ? ` act3_payoff_path:${item.actThreePayoffPath.slice(0, 3).join(" / ")}`
+      : "";
+    const arcTurns = item.characterArcTurns.length
+      ? ` arc_turns:${item.characterArcTurns.slice(0, 3).join(" / ")}`
+      : "";
+    const motifs = item.imageMotifs.length
+      ? ` image_motifs:${item.imageMotifs.slice(0, 3).join(" / ")}`
+      : "";
     const notes = item.continuityNotes.length
       ? ` continuity_notes:${item.continuityNotes.slice(0, 3).join(" / ")}`
       : "";
@@ -14699,14 +14833,22 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
         item.emotionalContinuity ? `emotional_continuity:${item.emotionalContinuity}` : "",
         item.featureSequence ? `sequence:${item.featureSequence}` : "",
         item.featureObligation ? `obligation:${item.featureObligation}` : "",
+        item.actPressureState ? `act_pressure:${item.actPressureState}` : "",
+        item.characterArcState ? `character_arc:${item.characterArcState}` : "",
+        item.lastSceneOutcome ? `last_scene_outcome:${item.lastSceneOutcome}` : "",
         item.nextScenePlan ? `next:${item.nextScenePlan}` : "",
         item.lastWritePreview ? `last_write:${normalizeSnippet(item.lastWritePreview, 180)}` : "",
         pages.trim(),
         characters.trim(),
         setups.trim(),
+        storyThreads.trim(),
+        nextTurns.trim(),
+        payoffPath.trim(),
+        arcTurns.trim(),
+        motifs.trim(),
         notes.trim(),
       ].filter(Boolean).join("; "),
-      900
+      1500
     );
   }).join(" || ");
 }

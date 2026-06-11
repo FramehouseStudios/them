@@ -495,9 +495,21 @@ function buildSessionContextBlock(sessionContext) {
     sessionContext.featureObligation ?? sessionContext.feature_obligation ?? sessionContext.structuralObligation ?? sessionContext.structural_obligation,
     280
   );
+  const actPressureState = trimContextLine(
+    sessionContext.actPressureState ?? sessionContext.act_pressure_state,
+    280
+  );
+  const characterArcState = trimContextLine(
+    sessionContext.characterArcState ?? sessionContext.character_arc_state,
+    280
+  );
+  const lastSceneOutcome = trimContextLine(
+    sessionContext.lastSceneOutcome ?? sessionContext.last_scene_outcome,
+    240
+  );
   const featureMemoryBrief = trimContextLine(
     sessionContext.featureMemoryBrief ?? sessionContext.feature_memory_brief ?? sessionContext.persistentMemoryBrief ?? sessionContext.persistent_memory_brief,
-    420
+    900
   );
   const nextScenePlan = trimContextLine(
     sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
@@ -514,6 +526,9 @@ function buildSessionContextBlock(sessionContext) {
   if (emotionalContinuity) featureLines.push(`    emotional_handoff: ${emotionalContinuity}`);
   if (featureSequence) featureLines.push(`    feature_sequence: ${featureSequence}`);
   if (featureObligation) featureLines.push(`    structural_obligation_due_now: ${featureObligation}`);
+  if (actPressureState) featureLines.push(`    act_pressure_state: ${actPressureState}`);
+  if (characterArcState) featureLines.push(`    character_arc_state: ${characterArcState}`);
+  if (lastSceneOutcome) featureLines.push(`    last_scene_outcome: ${lastSceneOutcome}`);
   if (featureMemoryBrief) featureLines.push(`    persistent_memory_brief: ${featureMemoryBrief}`);
   if (nextScenePlan) featureLines.push(`    next_scene_plan: ${nextScenePlan}`);
   const nextSceneMoves = sanitizeContextList(
@@ -524,6 +539,24 @@ function buildSessionContextBlock(sessionContext) {
   if (nextSceneMoves.length) {
     featureLines.push("    next_scene_moves:");
     for (const move of nextSceneMoves) featureLines.push(`      - ${move}`);
+  }
+  const nextThreeTurns = sanitizeContextList(
+    sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
+    3,
+    180
+  );
+  if (nextThreeTurns.length) {
+    featureLines.push("    next_three_turns:");
+    for (const turn of nextThreeTurns) featureLines.push(`      - ${turn}`);
+  }
+  const actThreePayoffPath = sanitizeContextList(
+    sessionContext.actThreePayoffPath ?? sessionContext.act_three_payoff_path ?? sessionContext.payoffPath ?? sessionContext.payoff_path,
+    5,
+    200
+  );
+  if (actThreePayoffPath.length) {
+    featureLines.push("    act_three_payoff_path:");
+    for (const payoff of actThreePayoffPath) featureLines.push(`      - ${payoff}`);
   }
   const beatSequence = sanitizeContextList(
     sessionContext.beatSequence ?? sessionContext.beat_sequence ?? sessionContext.selectedBeats ?? sessionContext.selected_beats,
@@ -551,6 +584,33 @@ function buildSessionContextBlock(sessionContext) {
   if (unresolvedSetups.length) {
     featureLines.push("    unresolved_setups:");
     for (const setup of unresolvedSetups) featureLines.push(`      - ${setup}`);
+  }
+  const unresolvedStoryThreads = sanitizeContextList(
+    sessionContext.unresolvedStoryThreads ?? sessionContext.unresolved_story_threads,
+    8,
+    220
+  );
+  if (unresolvedStoryThreads.length) {
+    featureLines.push("    unresolved_story_threads:");
+    for (const thread of unresolvedStoryThreads) featureLines.push(`      - ${thread}`);
+  }
+  const characterArcTurns = sanitizeContextList(
+    sessionContext.characterArcTurns ?? sessionContext.character_arc_turns,
+    6,
+    180
+  );
+  if (characterArcTurns.length) {
+    featureLines.push("    character_arc_turns:");
+    for (const turn of characterArcTurns) featureLines.push(`      - ${turn}`);
+  }
+  const imageMotifs = sanitizeContextList(
+    sessionContext.imageMotifs ?? sessionContext.image_motifs ?? sessionContext.visualMotifs ?? sessionContext.visual_motifs,
+    6,
+    140
+  );
+  if (imageMotifs.length) {
+    featureLines.push("    image_motifs:");
+    for (const motif of imageMotifs) featureLines.push(`      - ${motif}`);
   }
   const continuityNotes = sanitizeContextList(
     sessionContext.continuityNotes ?? sessionContext.continuity_notes ?? sessionContext.notes,

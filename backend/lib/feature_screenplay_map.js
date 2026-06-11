@@ -354,6 +354,28 @@ function buildFeatureContinuityLedgerLines(sessionContext = {}) {
     sessionContext.endingImage ?? sessionContext.ending_image ?? sessionContext.finalImage ?? sessionContext.final_image,
     240
   );
+  const actPressureState = trimContextLine(
+    sessionContext.actPressureState ?? sessionContext.act_pressure_state,
+    280
+  );
+  const characterArcState = trimContextLine(
+    sessionContext.characterArcState ?? sessionContext.character_arc_state,
+    280
+  );
+  const lastSceneOutcome = trimContextLine(
+    sessionContext.lastSceneOutcome ?? sessionContext.last_scene_outcome,
+    240
+  );
+  const nextThreeTurns = sanitizeContextList(
+    sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
+    3,
+    180
+  );
+  const actThreePayoffPath = sanitizeContextList(
+    sessionContext.actThreePayoffPath ?? sessionContext.act_three_payoff_path ?? sessionContext.payoffPath ?? sessionContext.payoff_path,
+    5,
+    200
+  );
   const characterFocus = sanitizeContextList(
     sessionContext.characterFocus ?? sessionContext.character_focus ?? sessionContext.characters ?? sessionContext.currentCharacters,
     6,
@@ -363,6 +385,21 @@ function buildFeatureContinuityLedgerLines(sessionContext = {}) {
     sessionContext.unresolvedSetups ?? sessionContext.unresolved_setups ?? sessionContext.openLoops ?? sessionContext.open_loops,
     6,
     200
+  );
+  const unresolvedStoryThreads = sanitizeContextList(
+    sessionContext.unresolvedStoryThreads ?? sessionContext.unresolved_story_threads,
+    8,
+    220
+  );
+  const characterArcTurns = sanitizeContextList(
+    sessionContext.characterArcTurns ?? sessionContext.character_arc_turns,
+    6,
+    180
+  );
+  const imageMotifs = sanitizeContextList(
+    sessionContext.imageMotifs ?? sessionContext.image_motifs ?? sessionContext.visualMotifs ?? sessionContext.visual_motifs,
+    6,
+    140
   );
   const continuityNotes = sanitizeContextList(
     sessionContext.continuityNotes ?? sessionContext.continuity_notes ?? sessionContext.notes,
@@ -381,6 +418,17 @@ function buildFeatureContinuityLedgerLines(sessionContext = {}) {
   }
   if (antagonisticForce) lines.push(`    opposition_engine: ${antagonisticForce}`);
   if (endingImage) lines.push(`    final_image_pressure: ${endingImage}`);
+  if (actPressureState) lines.push(`    act_pressure_state: ${actPressureState}`);
+  if (characterArcState) lines.push(`    character_arc_state: ${characterArcState}`);
+  if (lastSceneOutcome) lines.push(`    last_scene_outcome_to_carry: ${lastSceneOutcome}`);
+  if (nextThreeTurns.length) {
+    lines.push("    next_three_turns_to_protect:");
+    for (const turn of nextThreeTurns) lines.push(`      - ${turn}`);
+  }
+  if (actThreePayoffPath.length) {
+    lines.push("    act_three_payoff_path:");
+    for (const payoff of actThreePayoffPath) lines.push(`      - ${payoff}`);
+  }
   if (characterFocus.length) {
     lines.push("    active_character_pressure:");
     for (const character of characterFocus) lines.push(`      - ${character}`);
@@ -389,6 +437,18 @@ function buildFeatureContinuityLedgerLines(sessionContext = {}) {
     lines.push("    active_setups_to_carry_or_pay:");
     for (const setup of unresolvedSetups) lines.push(`      - ${setup}`);
   }
+  if (unresolvedStoryThreads.length) {
+    lines.push("    unresolved_story_threads:");
+    for (const thread of unresolvedStoryThreads) lines.push(`      - ${thread}`);
+  }
+  if (characterArcTurns.length) {
+    lines.push("    character_arc_turns_to_pay:");
+    for (const turn of characterArcTurns) lines.push(`      - ${turn}`);
+  }
+  if (imageMotifs.length) {
+    lines.push("    image_motifs_to_echo_or_transform:");
+    for (const motif of imageMotifs) lines.push(`      - ${motif}`);
+  }
   if (continuityNotes.length) {
     lines.push("    continuity_promises:");
     for (const note of continuityNotes) lines.push(`      - ${note}`);
@@ -396,6 +456,8 @@ function buildFeatureContinuityLedgerLines(sessionContext = {}) {
   lines.push("    ledger_rules:");
   lines.push("      - Every new scene must alter the want/need engine, the opposition engine, or the central question.");
   lines.push("      - Spend planted setups and image echoes before inventing new solutions.");
+  lines.push("      - Preserve the remembered next-three-turns runway unless the user explicitly changes direction.");
+  lines.push("      - Aim Act III pages at the remembered payoff path; do not solve the climax with unplanted information.");
   lines.push("      - Preserve emotional residue from the previous scene; do not reset characters between sequences.");
   return lines;
 }
@@ -511,6 +573,18 @@ function buildContinuityAssetLines(sessionContext = {}) {
     sessionContext.featureObligation ?? sessionContext.feature_obligation ?? sessionContext.structuralObligation ?? sessionContext.structural_obligation,
     280
   );
+  const actPressureState = trimContextLine(
+    sessionContext.actPressureState ?? sessionContext.act_pressure_state,
+    280
+  );
+  const characterArcState = trimContextLine(
+    sessionContext.characterArcState ?? sessionContext.character_arc_state,
+    280
+  );
+  const lastSceneOutcome = trimContextLine(
+    sessionContext.lastSceneOutcome ?? sessionContext.last_scene_outcome,
+    240
+  );
   const nextScenePlan = trimContextLine(
     sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
     340
@@ -536,10 +610,31 @@ function buildContinuityAssetLines(sessionContext = {}) {
   if (emotionalHandoff) lines.push(`    emotional_handoff: ${emotionalHandoff}`);
   if (featureSequence) lines.push(`    feature_sequence: ${featureSequence}`);
   if (featureObligation) lines.push(`    structural_obligation_due_now: ${featureObligation}`);
+  if (actPressureState) lines.push(`    act_pressure_state: ${actPressureState}`);
+  if (characterArcState) lines.push(`    character_arc_state: ${characterArcState}`);
+  if (lastSceneOutcome) lines.push(`    last_scene_outcome: ${lastSceneOutcome}`);
   if (nextScenePlan) lines.push(`    next_scene_plan: ${nextScenePlan}`);
   if (nextSceneMoves.length) {
     lines.push("    next_scene_moves:");
     for (const move of nextSceneMoves) lines.push(`      - ${move}`);
+  }
+  const nextThreeTurns = sanitizeContextList(
+    sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
+    3,
+    180
+  );
+  if (nextThreeTurns.length) {
+    lines.push("    next_three_turns:");
+    for (const turn of nextThreeTurns) lines.push(`      - ${turn}`);
+  }
+  const actThreePayoffPath = sanitizeContextList(
+    sessionContext.actThreePayoffPath ?? sessionContext.act_three_payoff_path ?? sessionContext.payoffPath ?? sessionContext.payoff_path,
+    5,
+    200
+  );
+  if (actThreePayoffPath.length) {
+    lines.push("    act_three_payoff_path:");
+    for (const payoff of actThreePayoffPath) lines.push(`      - ${payoff}`);
   }
   if (characterFocus.length) {
     lines.push("    character_focus:");
@@ -548,6 +643,33 @@ function buildContinuityAssetLines(sessionContext = {}) {
   if (unresolvedSetups.length) {
     lines.push("    unresolved_setups_to_track:");
     for (const setup of unresolvedSetups) lines.push(`      - ${setup}`);
+  }
+  const unresolvedStoryThreads = sanitizeContextList(
+    sessionContext.unresolvedStoryThreads ?? sessionContext.unresolved_story_threads,
+    8,
+    220
+  );
+  if (unresolvedStoryThreads.length) {
+    lines.push("    unresolved_story_threads:");
+    for (const thread of unresolvedStoryThreads) lines.push(`      - ${thread}`);
+  }
+  const characterArcTurns = sanitizeContextList(
+    sessionContext.characterArcTurns ?? sessionContext.character_arc_turns,
+    6,
+    180
+  );
+  if (characterArcTurns.length) {
+    lines.push("    character_arc_turns:");
+    for (const turn of characterArcTurns) lines.push(`      - ${turn}`);
+  }
+  const imageMotifs = sanitizeContextList(
+    sessionContext.imageMotifs ?? sessionContext.image_motifs ?? sessionContext.visualMotifs ?? sessionContext.visual_motifs,
+    6,
+    140
+  );
+  if (imageMotifs.length) {
+    lines.push("    image_motifs:");
+    for (const motif of imageMotifs) lines.push(`      - ${motif}`);
   }
   return lines.length ? ["  continuity_assets:", ...lines] : [];
 }

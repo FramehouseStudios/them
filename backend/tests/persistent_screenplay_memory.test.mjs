@@ -56,10 +56,26 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
       screenplayCurrentBeat: "Mara sees the bailiff pocket the missing evidence.",
       screenplayFeatureSequence: "Midpoint trap",
       screenplayFeatureObligation: "Force the protagonist to act instead of investigate.",
+      screenplayActPressureState: "The midpoint truth must move Mara from observer to actor.",
+      screenplayCharacterArcState: "Mara still believes control can protect everyone.",
+      screenplayLastSceneOutcome: "The bailiff reveal makes the investigation personally dangerous.",
       screenplayNextScenePlan: "Pay off the father reveal with a private confrontation.",
+      screenplayNextThreeTurns: [
+        "Father reveal corners Mara.",
+        "Private corridor choice exposes the lie.",
+        "Mara burns the safe legal tactic.",
+      ],
+      screenplayActThreePayoffPath: [
+        "Mara uses the sealed affidavit publicly.",
+        "The sister stops hiding.",
+        "Final courtroom image answers the opening lie.",
+      ],
       screenplayBeatSequence: ["Bailiff hides the evidence."],
       screenplayCharacterFocus: ["Mara", "Bailiff", "Father"],
       screenplayUnresolvedSetups: ["Forged testimony", "Missing evidence"],
+      screenplayUnresolvedStoryThreads: ["Who forged the testimony?", "Why the father vanished"],
+      screenplayCharacterArcTurns: ["Mara must stop investigating from a distance."],
+      screenplayImageMotifs: ["missing evidence envelope", "courthouse fluorescents"],
       screenplayContinuityNotes: ["Mara distrusts the courthouse staff."],
       screenplayEmotionalContinuity: "Suspicion hardens into resolve.",
       screenplayInsertedText: "INT. COURTHOUSE HALLWAY - NIGHT\n\nMARA stops walking.",
@@ -75,6 +91,22 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.equal(first.sceneLabel, "Courthouse Hallway");
   assert.equal(first.currentBeat, "Mara sees the bailiff pocket the missing evidence.");
   assert.equal(first.nextScenePlan, "Pay off the father reveal with a private confrontation.");
+  assert.equal(first.actPressureState, "The midpoint truth must move Mara from observer to actor.");
+  assert.equal(first.characterArcState, "Mara still believes control can protect everyone.");
+  assert.equal(first.lastSceneOutcome, "The bailiff reveal makes the investigation personally dangerous.");
+  assert.deepEqual(first.nextThreeTurns, [
+    "Father reveal corners Mara.",
+    "Private corridor choice exposes the lie.",
+    "Mara burns the safe legal tactic.",
+  ]);
+  assert.deepEqual(first.actThreePayoffPath, [
+    "Mara uses the sealed affidavit publicly.",
+    "The sister stops hiding.",
+    "Final courtroom image answers the opening lie.",
+  ]);
+  assert.deepEqual(first.unresolvedStoryThreads, ["Who forged the testimony?", "Why the father vanished"]);
+  assert.deepEqual(first.characterArcTurns, ["Mara must stop investigating from a distance."]);
+  assert.deepEqual(first.imageMotifs, ["missing evidence envelope", "courthouse fluorescents"]);
   assert.deepEqual(first.characterFocus, ["Mara", "Bailiff", "Father"]);
   assert.equal(first.writeCount, 1);
   assert.equal(first.interactionCount, 1);
@@ -86,6 +118,10 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.match(prompt, /act:Act II/);
   assert.match(prompt, /current_beat:Mara sees the bailiff/);
   assert.match(prompt, /open_setups:Forged testimony/);
+  assert.match(prompt, /next_three_turns:Father reveal corners Mara/);
+  assert.match(prompt, /act3_payoff_path:Mara uses the sealed affidavit publicly/);
+  assert.match(prompt, /story_threads:Who forged the testimony/);
+  assert.match(prompt, /character_arc:Mara still believes control/);
 
   memory.turns = 13;
   memory = withMockedNow(secondTs, () => updateSessionAfterReply(
@@ -102,10 +138,13 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
       screenplayAnchorSceneLabel: "Courthouse Hallway",
       screenplayAct: "Act II",
       screenplayCurrentBeat: "The father reveal corners Mara emotionally.",
+      screenplayCharacterArcState: "Mara's control fractures into public courage.",
       screenplayNextScenePlan: "Move into a private corridor confrontation that redefines the case.",
+      screenplayNextThreeTurns: ["Private corridor confrontation redefines the case."],
       screenplayBeatSequence: ["Father turns the lie public."],
       screenplayCharacterFocus: ["Father", "Clerk"],
       screenplayUnresolvedSetups: ["Father's sealed affidavit"],
+      screenplayUnresolvedStoryThreads: ["Who leaked the sealed affidavit?"],
       screenplayContinuityNotes: ["Do not soften Mara's public humiliation."],
       screenplayEmotionalContinuity: "Resolve fractures into grief, then reforms as courage.",
       screenplayInsertedText: "FATHER\nI came because the lie finally had your face on it.",
@@ -126,11 +165,27 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
     "Father turns the lie public.",
     "Bailiff hides the evidence.",
   ]);
+  assert.equal(merged.characterArcState, "Mara's control fractures into public courage.");
+  assert.deepEqual(merged.nextThreeTurns, [
+    "Private corridor confrontation redefines the case.",
+    "Father reveal corners Mara.",
+    "Private corridor choice exposes the lie.",
+  ]);
+  assert.deepEqual(merged.actThreePayoffPath, [
+    "Mara uses the sealed affidavit publicly.",
+    "The sister stops hiding.",
+    "Final courtroom image answers the opening lie.",
+  ]);
   assert.deepEqual(merged.characterFocus, ["Father", "Clerk", "Mara", "Bailiff"]);
   assert.deepEqual(merged.unresolvedSetups, [
     "Father's sealed affidavit",
     "Forged testimony",
     "Missing evidence",
+  ]);
+  assert.deepEqual(merged.unresolvedStoryThreads, [
+    "Who leaked the sealed affidavit?",
+    "Who forged the testimony?",
+    "Why the father vanished",
   ]);
   assert.deepEqual(merged.continuityNotes, [
     "Do not soften Mara's public humiliation.",
@@ -280,7 +335,15 @@ test("[persistent-screenplay-memory] screenplay memory changes state version and
       {
         projectId: "  feature-beta  ",
         act: "Act III",
+        actPressureState: "Pay off the opening lie through changed behavior.",
+        characterArcState: "June can finally ask for help without bargaining.",
+        lastSceneOutcome: "The climax leaves her alone with the burned reel.",
         nextSceneMoves: ["Image payoff", "Silent choice", "New equilibrium"],
+        nextThreeTurns: ["Face the empty theater", "Let the sister speak", "Choose dawn over the reel"],
+        actThreePayoffPath: ["Burn the false reel", "Name the real witness"],
+        unresolvedStoryThreads: ["Who receives the final print?"],
+        characterArcTurns: ["June stops preserving the dead at the cost of the living."],
+        imageMotifs: ["burned reel", "sunrise on blank screen"],
         continuityNotes: ["Do not undo the cost of the climax."],
         updatedAt: 200,
       },
@@ -292,10 +355,32 @@ test("[persistent-screenplay-memory] screenplay memory changes state version and
 
   assert.equal(sanitized.screenplayProjectMemory.length, 1);
   assert.equal(sanitized.screenplayProjectMemory[0].projectId, "feature-beta");
+  assert.equal(sanitized.screenplayProjectMemory[0].actPressureState, "Pay off the opening lie through changed behavior.");
+  assert.equal(sanitized.screenplayProjectMemory[0].characterArcState, "June can finally ask for help without bargaining.");
+  assert.equal(sanitized.screenplayProjectMemory[0].lastSceneOutcome, "The climax leaves her alone with the burned reel.");
   assert.deepEqual(sanitized.screenplayProjectMemory[0].nextSceneMoves, [
     "Image payoff",
     "Silent choice",
     "New equilibrium",
+  ]);
+  assert.deepEqual(sanitized.screenplayProjectMemory[0].nextThreeTurns, [
+    "Face the empty theater",
+    "Let the sister speak",
+    "Choose dawn over the reel",
+  ]);
+  assert.deepEqual(sanitized.screenplayProjectMemory[0].actThreePayoffPath, [
+    "Burn the false reel",
+    "Name the real witness",
+  ]);
+  assert.deepEqual(sanitized.screenplayProjectMemory[0].unresolvedStoryThreads, [
+    "Who receives the final print?",
+  ]);
+  assert.deepEqual(sanitized.screenplayProjectMemory[0].characterArcTurns, [
+    "June stops preserving the dead at the cost of the living.",
+  ]);
+  assert.deepEqual(sanitized.screenplayProjectMemory[0].imageMotifs, [
+    "burned reel",
+    "sunrise on blank screen",
   ]);
   assert.equal(sanitized.screenplayProjectMemoryUpdatedAt, 200);
 });
@@ -313,9 +398,24 @@ test("[persistent-screenplay-memory] prompt builder rebuilds feature context fro
         currentBeat: "The father reveal corners Mara emotionally.",
         featureSequence: "Midpoint trap",
         featureObligation: "Force the protagonist to act instead of investigate.",
+        actPressureState: "Act II must turn evidence into a public cost.",
+        characterArcState: "Mara is learning that truth without exposure is another kind of control.",
+        lastSceneOutcome: "The father reveal collapses Mara's private strategy.",
         nextScenePlan: "Move into a private corridor confrontation that redefines the case.",
+        nextThreeTurns: [
+          "Father names the lie.",
+          "Mara chooses public exposure.",
+          "The forged testimony points at the judge.",
+        ],
+        actThreePayoffPath: [
+          "Mara spends the sealed affidavit in open court.",
+          "The sister's silence becomes testimony.",
+        ],
         characterFocus: ["Mara", "Father"],
         unresolvedSetups: ["Forged testimony", "Missing evidence"],
+        unresolvedStoryThreads: ["Who forged the testimony?", "Why Father stayed gone"],
+        characterArcTurns: ["Mara must choose exposure over control."],
+        imageMotifs: ["sealed affidavit", "flickering hallway light"],
         continuityNotes: ["Mara distrusts the courthouse staff."],
         emotionalContinuity: "Resolve fractures into grief, then reforms as courage.",
         lastWritePreview: "FATHER\nI came because the lie finally had your face on it.",
@@ -344,11 +444,27 @@ test("[persistent-screenplay-memory] prompt builder rebuilds feature context fro
   assert.ok(prompt.includes("current_beat: The father reveal corners Mara emotionally."));
   assert.ok(prompt.includes("feature_sequence: Midpoint trap"));
   assert.ok(prompt.includes("structural_obligation_due_now: Force the protagonist to act"));
+  assert.ok(prompt.includes("act_pressure_state: Act II must turn evidence into a public cost."));
+  assert.ok(prompt.includes("character_arc_state: Mara is learning that truth without exposure"));
+  assert.ok(prompt.includes("last_scene_outcome: The father reveal collapses Mara's private strategy."));
   assert.ok(prompt.includes("persistent_memory_brief: position: Act II / Midpoint trap"));
+  assert.ok(prompt.includes("next three turns: Father names the lie. / Mara chooses public exposure."));
+  assert.ok(prompt.includes("Act III payoff path: Mara spends the sealed affidavit in open court"));
   assert.ok(prompt.includes("open setups: Forged testimony / Missing evidence"));
+  assert.ok(prompt.includes("story threads: Who forged the testimony? / Why Father stayed gone"));
   assert.ok(prompt.includes("next_scene_plan: Move into a private corridor confrontation"));
+  assert.ok(prompt.includes("next_three_turns:"));
+  assert.ok(prompt.includes("- The forged testimony points at the judge."));
+  assert.ok(prompt.includes("act_three_payoff_path:"));
+  assert.ok(prompt.includes("The sister's silence becomes testimony."));
   assert.ok(prompt.includes("character_focus:"));
   assert.ok(prompt.includes("- Father"));
+  assert.ok(prompt.includes("unresolved_story_threads:"));
+  assert.ok(prompt.includes("Why Father stayed gone"));
+  assert.ok(prompt.includes("character_arc_turns:"));
+  assert.ok(prompt.includes("Mara must choose exposure over control."));
+  assert.ok(prompt.includes("image_motifs:"));
+  assert.ok(prompt.includes("flickering hallway light"));
   assert.ok(prompt.includes("unresolved_setups:"));
   assert.ok(prompt.includes("Missing evidence"));
   assert.ok(prompt.includes("draft_excerpt:"));

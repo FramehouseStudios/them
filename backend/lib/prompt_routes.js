@@ -132,11 +132,19 @@ function sanitizeScreenplayMemoryRecords(memory, maxItems = 8) {
       endingImage: trimToString(memoryRecordValue(item, "endingImage"), 240),
       featureSequence: trimToString(memoryRecordValue(item, "featureSequence"), 240),
       featureObligation: trimToString(memoryRecordValue(item, "featureObligation"), 360),
+      actPressureState: trimToString(memoryRecordValue(item, "actPressureState"), 280),
+      characterArcState: trimToString(memoryRecordValue(item, "characterArcState"), 280),
+      lastSceneOutcome: trimToString(memoryRecordValue(item, "lastSceneOutcome"), 240),
       nextScenePlan: trimToString(memoryRecordValue(item, "nextScenePlan"), 420),
       nextSceneMoves: sanitizeStringList(memoryRecordValue(item, "nextSceneMoves"), 5, 180),
+      nextThreeTurns: sanitizeStringList(memoryRecordValue(item, "nextThreeTurns"), 3, 180),
+      actThreePayoffPath: sanitizeStringList(memoryRecordValue(item, "actThreePayoffPath"), 5, 200),
       beatSequence: sanitizeStringList(memoryRecordValue(item, "beatSequence"), 8, 180),
       characterFocus: sanitizeStringList(memoryRecordValue(item, "characterFocus"), 8, 120),
       unresolvedSetups: sanitizeStringList(memoryRecordValue(item, "unresolvedSetups"), 8, 220),
+      unresolvedStoryThreads: sanitizeStringList(memoryRecordValue(item, "unresolvedStoryThreads"), 8, 220),
+      characterArcTurns: sanitizeStringList(memoryRecordValue(item, "characterArcTurns"), 6, 180),
+      imageMotifs: sanitizeStringList(memoryRecordValue(item, "imageMotifs"), 6, 140),
       continuityNotes: sanitizeStringList(memoryRecordValue(item, "continuityNotes"), 8, 220),
       emotionalContinuity: trimToString(memoryRecordValue(item, "emotionalContinuity"), 360),
       lastWritePreview: trimToString(memoryRecordValue(item, "lastWritePreview"), 6_000),
@@ -209,11 +217,17 @@ function buildPersistentFeatureMemoryBrief(record) {
     record.act || record.featureSequence ? `position: ${[record.act, record.featureSequence].filter(Boolean).join(" / ")}` : "",
     record.currentBeat ? `current beat: ${record.currentBeat}` : "",
     record.featureObligation ? `due now: ${record.featureObligation}` : "",
+    record.actPressureState ? `act pressure: ${record.actPressureState}` : "",
+    record.characterArcState ? `character arc: ${record.characterArcState}` : "",
+    record.lastSceneOutcome ? `last scene outcome: ${record.lastSceneOutcome}` : "",
     record.unresolvedSetups.length ? `open setups: ${record.unresolvedSetups.slice(0, 3).join(" / ")}` : "",
+    record.unresolvedStoryThreads.length ? `story threads: ${record.unresolvedStoryThreads.slice(0, 3).join(" / ")}` : "",
+    record.nextThreeTurns.length ? `next three turns: ${record.nextThreeTurns.slice(0, 3).join(" / ")}` : "",
+    record.actThreePayoffPath.length ? `Act III payoff path: ${record.actThreePayoffPath.slice(0, 3).join(" / ")}` : "",
     record.nextScenePlan ? `next: ${record.nextScenePlan}` : "",
     record.endingImage ? `ending image: ${record.endingImage}` : "",
   ].filter(Boolean);
-  return trimToString(parts.join("; "), 420);
+  return trimToString(parts.join("; "), 900);
 }
 
 function estimatePageCount(draft) {
@@ -439,14 +453,22 @@ function hydrateSessionContextFromScreenplayMemory(sessionContext, memory, {
   fillString("endingImage", record.endingImage, 240);
   fillString("featureSequence", record.featureSequence, 240);
   fillString("featureObligation", record.featureObligation, 360);
-  fillString("featureMemoryBrief", buildPersistentFeatureMemoryBrief(record), 420);
+  fillString("actPressureState", record.actPressureState, 280);
+  fillString("characterArcState", record.characterArcState, 280);
+  fillString("lastSceneOutcome", record.lastSceneOutcome, 240);
+  fillString("featureMemoryBrief", buildPersistentFeatureMemoryBrief(record), 900);
   fillString("nextScenePlan", record.nextScenePlan, 420);
   fillString("emotionalContinuity", record.emotionalContinuity, 360);
   fillString("draftExcerpt", record.lastWritePreview, 6_000);
   mergeList("nextSceneMoves", record.nextSceneMoves, 5, 180);
+  mergeList("nextThreeTurns", record.nextThreeTurns, 3, 180);
+  mergeList("actThreePayoffPath", record.actThreePayoffPath, 5, 200);
   mergeList("beatSequence", record.beatSequence, 8, 180);
   mergeList("characterFocus", record.characterFocus, 8, 120);
   mergeList("unresolvedSetups", record.unresolvedSetups, 8, 220);
+  mergeList("unresolvedStoryThreads", record.unresolvedStoryThreads, 8, 220);
+  mergeList("characterArcTurns", record.characterArcTurns, 6, 180);
+  mergeList("imageMotifs", record.imageMotifs, 6, 140);
   mergeList("continuityNotes", [
     ...record.continuityNotes,
     record.featureSequence ? `Persistent feature sequence: ${record.featureSequence}` : "",
@@ -518,9 +540,21 @@ function sanitizeSessionContext(value) {
     value.feature_obligation ?? value.featureObligation ?? value.structural_obligation ?? value.structuralObligation,
     360
   );
+  const actPressureState = trimToString(
+    value.act_pressure_state ?? value.actPressureState,
+    280
+  );
+  const characterArcState = trimToString(
+    value.character_arc_state ?? value.characterArcState,
+    280
+  );
+  const lastSceneOutcome = trimToString(
+    value.last_scene_outcome ?? value.lastSceneOutcome,
+    240
+  );
   const featureMemoryBrief = trimToString(
     value.feature_memory_brief ?? value.featureMemoryBrief ?? value.persistent_memory_brief ?? value.persistentMemoryBrief,
-    420
+    900
   );
   const nextScenePlan = trimToString(
     value.next_scene_plan ?? value.nextScenePlan ?? value.next_page_plan ?? value.nextPagePlan,
@@ -530,6 +564,16 @@ function sanitizeSessionContext(value) {
     value.next_scene_moves ?? value.nextSceneMoves ?? value.next_page_moves ?? value.nextPageMoves,
     5,
     180
+  );
+  const nextThreeTurns = sanitizeStringList(
+    value.next_three_turns ?? value.nextThreeTurns,
+    3,
+    180
+  );
+  const actThreePayoffPath = sanitizeStringList(
+    value.act_three_payoff_path ?? value.actThreePayoffPath ?? value.payoff_path ?? value.payoffPath,
+    5,
+    200
   );
   const beatSequence = sanitizeStringList(
     value.beat_sequence ?? value.beatSequence ?? value.selected_beats ?? value.selectedBeats,
@@ -545,6 +589,21 @@ function sanitizeSessionContext(value) {
     value.unresolved_setups ?? value.unresolvedSetups ?? value.open_loops ?? value.openLoops,
     8,
     220
+  );
+  const unresolvedStoryThreads = sanitizeStringList(
+    value.unresolved_story_threads ?? value.unresolvedStoryThreads,
+    8,
+    220
+  );
+  const characterArcTurns = sanitizeStringList(
+    value.character_arc_turns ?? value.characterArcTurns,
+    6,
+    180
+  );
+  const imageMotifs = sanitizeStringList(
+    value.image_motifs ?? value.imageMotifs ?? value.visual_motifs ?? value.visualMotifs,
+    6,
+    140
   );
   const continuityNotes = sanitizeStringList(
     value.continuity_notes ?? value.continuityNotes ?? value.notes,
@@ -577,12 +636,20 @@ function sanitizeSessionContext(value) {
   if (endingImage) context.endingImage = endingImage;
   if (featureSequence) context.featureSequence = featureSequence;
   if (featureObligation) context.featureObligation = featureObligation;
+  if (actPressureState) context.actPressureState = actPressureState;
+  if (characterArcState) context.characterArcState = characterArcState;
+  if (lastSceneOutcome) context.lastSceneOutcome = lastSceneOutcome;
   if (featureMemoryBrief) context.featureMemoryBrief = featureMemoryBrief;
   if (nextScenePlan) context.nextScenePlan = nextScenePlan;
   if (nextSceneMoves.length) context.nextSceneMoves = nextSceneMoves;
+  if (nextThreeTurns.length) context.nextThreeTurns = nextThreeTurns;
+  if (actThreePayoffPath.length) context.actThreePayoffPath = actThreePayoffPath;
   if (beatSequence.length) context.beatSequence = beatSequence;
   if (characterFocus.length) context.characterFocus = characterFocus;
   if (unresolvedSetups.length) context.unresolvedSetups = unresolvedSetups;
+  if (unresolvedStoryThreads.length) context.unresolvedStoryThreads = unresolvedStoryThreads;
+  if (characterArcTurns.length) context.characterArcTurns = characterArcTurns;
+  if (imageMotifs.length) context.imageMotifs = imageMotifs;
   if (continuityNotes.length) context.continuityNotes = continuityNotes;
   if (pageCount > 0) context.pageCount = pageCount;
   if (targetPages > 0) context.targetPages = targetPages;

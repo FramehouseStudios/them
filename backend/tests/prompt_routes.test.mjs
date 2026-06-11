@@ -393,15 +393,31 @@ test("POST /screenplay/prompt/build hydrates missing feature context from persis
       assert.ok(body.prompt.includes("act: Act II"));
       assert.ok(body.prompt.includes("feature_sequence: Act II - Reversal Fallout"));
       assert.ok(body.prompt.includes("structural_obligation_due_now: Mara's old tactic should stop working."));
+      assert.ok(body.prompt.includes("act_pressure_state: Act II must turn the recovered reel into a public trap."));
+      assert.ok(body.prompt.includes("character_arc_state: Mara still edits pain into control."));
+      assert.ok(body.prompt.includes("last_scene_outcome: The last page made the recovered reel feel unsafe."));
       assert.ok(body.prompt.includes("persistent_memory_brief: logline: A film editor finds the missing reel"));
+      assert.ok(body.prompt.includes("next three turns: The reel plays the wrong memory. / Marcus forces a public choice."));
+      assert.ok(body.prompt.includes("Act III payoff path: The reel exposes the fixer"));
       assert.ok(body.prompt.includes("open setups: missing reel / sealed affidavit"));
+      assert.ok(body.prompt.includes("story threads: Who replaced the reel? / Why Marcus protected the fixer"));
       assert.ok(body.prompt.includes("next_scene_plan: Mara returns to the edit bay and realizes the recovered reel is bait."));
       assert.ok(body.prompt.includes("next_scene_moves:"));
       assert.ok(body.prompt.includes("Make the win turn into a trap."));
+      assert.ok(body.prompt.includes("next_three_turns:"));
+      assert.ok(body.prompt.includes("Mara burns her safe edit."));
+      assert.ok(body.prompt.includes("act_three_payoff_path:"));
+      assert.ok(body.prompt.includes("Mara lets the unfinished frame stay visible."));
       assert.ok(body.prompt.includes("beat_sequence:"));
       assert.ok(body.prompt.includes("Mara hides the reel."));
       assert.ok(body.prompt.includes("unresolved_setups:"));
       assert.ok(body.prompt.includes("sealed affidavit"));
+      assert.ok(body.prompt.includes("unresolved_story_threads:"));
+      assert.ok(body.prompt.includes("Why Marcus protected the fixer"));
+      assert.ok(body.prompt.includes("character_arc_turns:"));
+      assert.ok(body.prompt.includes("Mara stops cutting around her own guilt."));
+      assert.ok(body.prompt.includes("image_motifs:"));
+      assert.ok(body.prompt.includes("blank frame"));
       assert.ok(body.prompt.includes("continuity_notes:"));
       assert.ok(body.prompt.includes("Persistent feature sequence: Act II - Reversal Fallout"));
       assert.ok(body.prompt.includes("draft_excerpt:"));
@@ -425,10 +441,25 @@ test("POST /screenplay/prompt/build hydrates missing feature context from persis
             logline: "A film editor finds the missing reel that can expose her brother's conviction.",
             featureSequence: "Act II - Reversal Fallout",
             featureObligation: "Mara's old tactic should stop working.",
+            actPressureState: "Act II must turn the recovered reel into a public trap.",
+            characterArcState: "Mara still edits pain into control.",
+            lastSceneOutcome: "The last page made the recovered reel feel unsafe.",
             nextScenePlan: "Mara returns to the edit bay and realizes the recovered reel is bait.",
             nextSceneMoves: ["Make the win turn into a trap.", "Push Mara into a public choice."],
+            nextThreeTurns: [
+              "The reel plays the wrong memory.",
+              "Marcus forces a public choice.",
+              "Mara burns her safe edit.",
+            ],
+            actThreePayoffPath: [
+              "The reel exposes the fixer.",
+              "Mara lets the unfinished frame stay visible.",
+            ],
             beatSequence: ["Mara hides the reel.", "The symbol repeats on the envelope."],
             unresolvedSetups: ["missing reel", "sealed affidavit"],
+            unresolvedStoryThreads: ["Who replaced the reel?", "Why Marcus protected the fixer"],
+            characterArcTurns: ["Mara stops cutting around her own guilt."],
+            imageMotifs: ["projector flare", "blank frame"],
             continuityNotes: ["Do not forgive Marcus yet."],
             lastWritePreview: "INT. EDIT BAY - NIGHT\n\nMARA pockets the reel before the projector dies.",
             pageCount: 62,
