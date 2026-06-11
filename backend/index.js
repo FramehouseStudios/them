@@ -91,6 +91,7 @@ import { mountDecisionsQueueRoute } from "./lib/decisions_queue_route.js";
 import { mountCreativeMemoryStatsRoute } from "./lib/creative_memory_stats_route.js";
 import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
 import { registerMethodNotAllowedRoutes } from "./lib/method_not_allowed_routes.js";
+import { mountStateRoute } from "./lib/state_route.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, inferScreenplayTask, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
@@ -29139,98 +29140,21 @@ app.post("/outbox/retry", express.json({ limit: "256kb" }), async (req, res) => 
   });
 });
 
-app.get("/state", (req, res) => {
-  const sinceVersion = String(req.query?.sinceVersion || "").trim();
-  const sinceTurnNumber = parseTurnIdToNumber(req.query?.sinceTurnId);
-  const historyLimit = parseQueryLimit(
-    req.query?.historyLimit ??
-      req.query?.history_limit ??
-      req.query?.limit_history ??
-      req.query?.limit,
-    60,
-    240
-  );
-  const memoriesLimit = parseQueryLimit(
-    req.query?.memoriesLimit ??
-      req.query?.memories_limit ??
-      req.query?.limit_memories,
-    24,
-    120
-  );
-
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const fullThreads = buildConversationHistoryThreads(memory, Math.max(historyLimit, 260));
-  const backfillResult = maybeBackfillThemesFromHistory(
-    memory,
-    fullThreads,
-    Date.now(),
-    { trigger: "state_read" }
-  );
-  if (backfillResult.applied && selected.ip && selected.ip !== "unknown") {
-    setPersistedUserMemoryForIp(selected.ip, memory, Date.now(), {
-      clientTokenAliases: [normalizeClientToken(req.get("X-Client-Token"))],
-    });
-    console.log(
-      `[state_backfill] source=${selected.source} ip=${selected.ip} created=${backfillResult.created} keys=${(backfillResult.keys || []).join(",") || "none"}`
-    );
-  }
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const historyDelta = sinceTurnNumber > 0
-    ? fullThreads
-        .filter((item) => Math.max(0, Number(item?.turn || 0)) > sinceTurnNumber)
-        .slice(0, historyLimit)
-    : fullThreads.slice(0, historyLimit);
-  const memoriesDelta = buildMemoryCards(memory, fullThreads, memoriesLimit);
-  const deltaNoChange = Boolean(sinceVersion && sinceVersion === readMeta.stateVersion);
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  if (deltaNoChange) {
-    return res.status(200).json({
-      source: selected.source,
-      source_ip: selected.ip,
-      session_id: readMeta.sessionId,
-      state_version: readMeta.stateVersion,
-      last_updated_at: readMeta.lastUpdatedAt || null,
-      history_updated_at: readMeta.historyUpdatedAt || null,
-      memory_updated_at: readMeta.memoryUpdatedAt || null,
-      last_turn_id: readMeta.lastTurnId || null,
-      schema_version: readMeta.schemaVersion,
-      backend_build: readMeta.backendBuild,
-      backend_boot_id: readMeta.backendBootId,
-      is_delta: true,
-      delta_no_change: true,
-      history_changed: false,
-      memory_changed: false,
-      since_version: sinceVersion || null,
-      since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
-      history_delta: [],
-      memories_delta: [],
-    });
-  }
-
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    is_delta: Boolean(sinceVersion || sinceTurnNumber > 0),
-    delta_no_change: false,
-    history_changed: historyDelta.length > 0,
-    memory_changed: memoriesDelta.length > 0,
-    since_version: sinceVersion || null,
-    since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
-    history_delta: historyDelta,
-    memories_delta: memoriesDelta,
-  });
+// GET /state extracted to lib/state_route.js (Phase 6.1a module, now wired).
+// Mounted in place to preserve Express registration order; handler body is
+// byte-identical (deps injected; logger defaults to console).
+mountStateRoute(app, {
+  applyReadStateHeaders,
+  buildConversationHistoryThreads,
+  buildMemoryCards,
+  buildReadStateMeta,
+  maybeBackfillThemesFromHistory,
+  normalizeClientToken,
+  parseQueryLimit,
+  parseTurnIdToNumber,
+  sanitizePersistedSessionMemory,
+  selectMemoryRecordForRead,
+  setPersistedUserMemoryForIp,
 });
 
 app.post("/data/history/clear", (req, res) => {
