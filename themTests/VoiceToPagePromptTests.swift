@@ -41,4 +41,13 @@ final class VoiceToPagePromptTests: XCTestCase {
         XCTAssertTrue(prompt.contains("USER: Keep the scene quiet."))
         XCTAssertTrue(prompt.contains("CLEMENTINE: INT. DINER - NIGHT"))
     }
+
+    func testPrototypeRealtimeConnectStaysOnStableTurnBasedPath() async {
+        let orchestrator = VoiceToPageOrchestrator()
+
+        await orchestrator.connectRealtime()
+
+        XCTAssertEqual(orchestrator.currentMode, .turnBased)
+        XCTAssertFalse(orchestrator.useStreamCursor)
+    }
 }

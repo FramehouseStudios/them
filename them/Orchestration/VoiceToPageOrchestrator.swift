@@ -6,7 +6,7 @@ import os
 
 @MainActor
 final class VoiceToPageOrchestrator: ObservableObject {
-    enum Mode { case turnBased, realtime }
+    enum Mode: Equatable { case turnBased }
 
     @Published var fountainDraft: String = ""
     @Published private(set) var isListening: Bool = false
@@ -22,8 +22,9 @@ final class VoiceToPageOrchestrator: ObservableObject {
     let voiceCapture = VoiceCapture()
     let backend = BackendClient()
 
-    // Realtime components
-    var realtimeSession: WebRTCRealtimeSession?
+    // Realtime preview lives in RootExperienceView through
+    // ClementineRealtimeCoordinator + ClementineRealtimeWebViewBridge.
+    // This prototype page orchestrator stays on the stable turn-based path.
     var realtimeTextReader: RealtimeTextStreamReader?
     var realtimeAudioRenderer: RealtimeAudioRenderer?
 
@@ -148,47 +149,12 @@ final class VoiceToPageOrchestrator: ObservableObject {
     // MARK: - Realtime Flow
 
     func connectRealtime() async {
-        currentMode = .realtime
-        useStreamCursor = true
-
-        do {
-            let bootstrap = try await backend.fetchRealtimeClientSecret(
-                systemPrompt: screenplaySystemPrompt(),
-                isScreenplayMode: true,
-                realtimeProvider: ClementineRealtimeSupplierMode.storedProviderParameter()
-            )
-
-            let session = WebRTCRealtimeSession()
-            realtimeSession = session
-
-            session.onAssistantTranscript = { [weak self] text in
-                Task { @MainActor [weak self] in
-                    self?.handleRealtimeTranscript(text)
-                }
-            }
-
-            session.onAssistantSpeakingChanged = { [weak self] speaking in
-                Task { @MainActor [weak self] in
-                    self?.isSpeaking = speaking
-                    if !speaking {
-                        self?.onPlaybackFinished()
-                    }
-                }
-            }
-
-            try await session.connect(bootstrap: bootstrap)
-            HerLog.realtime.info("Realtime session connected")
-
-        } catch {
-            HerLog.realtime.error("Realtime connection failed: \(error.localizedDescription)")
-            currentMode = .turnBased
-            useStreamCursor = false
-        }
+        currentMode = .turnBased
+        useStreamCursor = false
+        HerLog.realtime.info("Native WebRTC prototype disabled; use ClementineRealtimeWebViewBridge for realtime preview.")
     }
 
     func disconnectRealtime() {
-        realtimeSession?.disconnect()
-        realtimeSession = nil
         realtimeTextReader?.cancel()
         realtimeTextReader = nil
         currentMode = .turnBased
@@ -258,12 +224,7 @@ final class VoiceToPageOrchestrator: ObservableObject {
         voiceCapture.onUtteranceReady = { [weak self] transcript in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                switch self.currentMode {
-                case .turnBased:
-                    await self.handleUtterance(transcript)
-                case .realtime:
-                    await self.handleRealtimeWithStreaming(transcript)
-                }
+                await self.handleUtterance(transcript)
             }
         }
     }
@@ -286,17 +247,6 @@ final class VoiceToPageOrchestrator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.beginListening()
         }
-    }
-
-    private func handleRealtimeTranscript(_ text: String) {
-        let formatted = FountainFormatter.format(
-            rawText: text,
-            existingDraft: fountainDraft
-        )
-        guard !formatted.isEmpty else { return }
-
-        let separator = fountainDraft.isEmpty ? "" : "\n\n"
-        fountainDraft += separator + formatted
     }
 
     private func screenplaySystemPrompt() -> String {

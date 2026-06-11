@@ -3,12 +3,11 @@ import AVFoundation
 import Combine
 import os
 
-/// Manages a WebRTC-style realtime session with the OpenAI Realtime API.
+/// Disabled native WebRTC prototype.
 ///
-/// This is a simplified bridge that uses the backend's /realtime/call endpoint
-/// for SDP negotiation. In a full implementation, this would use a native
-/// WebRTC framework (like GoogleWebRTC). For now, it provides the session
-/// lifecycle and hooks for audio/text events that the orchestrator needs.
+/// The production realtime preview is ClementineRealtimeCoordinator +
+/// ClementineRealtimeWebViewBridge. This type remains only as a tombstone so
+/// old references fail at compile time instead of silently using a fake session.
 @MainActor
 final class WebRTCRealtimeSession: ObservableObject {
     enum SessionState: Equatable {
@@ -32,6 +31,9 @@ final class WebRTCRealtimeSession: ObservableObject {
 
     private var bootstrap: BackendRealtimeBootstrap?
     private var sessionTask: Task<Void, Never>?
+
+    @available(*, unavailable, message: "Use ClementineRealtimeWebViewBridge; native WebRTC is not a production transport.")
+    init() {}
 
     func connect(bootstrap: BackendRealtimeBootstrap) async throws {
         self.bootstrap = bootstrap
