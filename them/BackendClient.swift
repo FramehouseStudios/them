@@ -790,10 +790,65 @@ struct BackendTalkScreenplayOutputLine: Codable, Equatable {
     let element: String
 }
 
+struct BackendTalkScreenplayQuality: Codable, Equatable {
+    let ok: Bool
+    let reason: String
+    let source: String
+    let confidence: String
+    let featureAct: String?
+    let matchedTokens: [String]
+    let counts: [String: Int]
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case reason
+        case source
+        case confidence
+        case featureAct = "feature_act"
+        case matchedTokens = "matched_tokens"
+        case counts
+    }
+
+    init(
+        ok: Bool,
+        reason: String,
+        source: String,
+        confidence: String,
+        featureAct: String? = nil,
+        matchedTokens: [String] = [],
+        counts: [String: Int] = [:]
+    ) {
+        self.ok = ok
+        self.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.confidence = confidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanFeatureAct = featureAct?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.featureAct = cleanFeatureAct?.isEmpty == true ? nil : cleanFeatureAct
+        self.matchedTokens = matchedTokens
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.counts = counts.filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            ok: try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false,
+            reason: try container.decodeIfPresent(String.self, forKey: .reason) ?? "",
+            source: try container.decodeIfPresent(String.self, forKey: .source) ?? "",
+            confidence: try container.decodeIfPresent(String.self, forKey: .confidence) ?? "",
+            featureAct: try container.decodeIfPresent(String.self, forKey: .featureAct),
+            matchedTokens: try container.decodeIfPresent([String].self, forKey: .matchedTokens) ?? [],
+            counts: try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:]
+        )
+    }
+}
+
 struct BackendTalkScreenplayOutput: Codable, Equatable {
     let target: String
     let format: String
     let source: String
+    let quality: BackendTalkScreenplayQuality?
     let text: String
     let lines: [BackendTalkScreenplayOutputLine]
 
@@ -926,6 +981,7 @@ struct BackendTalkResult {
     let transcript: String?
     let reply: String?
     let screenplayOutput: BackendTalkScreenplayOutput?
+    let screenplayQuality: BackendTalkScreenplayQuality?
     let screenplayCues: [BackendTalkScreenplayCue]
     let dialogueTimeline: BackendTalkDialogueTimelineRevision?
     let assistantSelfName: String?
@@ -981,6 +1037,7 @@ struct BackendTalkResponseMetadata {
     let renderContract: BackendTalkRenderContract
     let timingSource: String?
     let screenplayOutput: BackendTalkScreenplayOutput?
+    let screenplayQuality: BackendTalkScreenplayQuality?
     let screenplayCues: [BackendTalkScreenplayCue]
     let dialogueTimeline: BackendTalkDialogueTimelineRevision?
     let reply: String?
@@ -3228,6 +3285,7 @@ final class BackendClient {
                     .lowercased() ?? ""
                 let shouldEmitHeaderText = screenplayTarget.isEmpty || screenplayTarget == "page"
                 let screenplayOutput = self.parseScreenplayOutput(from: http)
+                let screenplayQuality = screenplayOutput?.quality ?? self.parseScreenplayQuality(from: http)
                 let renderContract = self.parseRenderContract(
                     from: http,
                     screenplayOutput: screenplayOutput
@@ -3246,6 +3304,7 @@ final class BackendClient {
                     renderContract: renderContract,
                     timingSource: self.parseOptionalHeaderString(http, field: "x-screenplay-timing-source"),
                     screenplayOutput: screenplayOutput,
+                    screenplayQuality: screenplayQuality,
                     screenplayCues: self.parseScreenplayCues(from: http),
                     dialogueTimeline: self.parseDialogueTimeline(from: http),
                     reply: self.parseOptionalHeaderString(http, field: "x-reply")
@@ -3575,6 +3634,7 @@ final class BackendClient {
             .removingPercentEncoding?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var screenplayOutput = parseScreenplayOutput(from: http)
+        var screenplayQuality = screenplayOutput?.quality ?? parseScreenplayQuality(from: http)
         var screenplayCues = parseScreenplayCues(from: http)
         var dialogueTimeline = parseDialogueTimeline(from: http)
         var renderContract = parseRenderContract(
@@ -3642,6 +3702,9 @@ final class BackendClient {
                 }
                 if screenplayOutput == nil {
                     screenplayOutput = payload.screenplayOutput
+                }
+                if screenplayQuality == nil {
+                    screenplayQuality = screenplayOutput?.quality ?? payload.screenplayOutput?.quality
                 }
                 if screenplayCues.isEmpty {
                     screenplayCues = payload.screenplayCues ?? []
@@ -3841,6 +3904,7 @@ final class BackendClient {
             transcript: transcript,
             reply: reply,
             screenplayOutput: screenplayOutput,
+            screenplayQuality: screenplayQuality,
             screenplayCues: screenplayCues,
             dialogueTimeline: dialogueTimeline,
             assistantSelfName: assistantSelfName,
@@ -5013,6 +5077,31 @@ final class BackendClient {
             return nil
         }
         return try? JSONDecoder().decode(BackendTalkScreenplayOutput.self, from: data)
+    }
+
+    private func parseScreenplayQuality(from response: HTTPURLResponse?) -> BackendTalkScreenplayQuality? {
+        guard let response else { return nil }
+        let rawReason = parseOptionalHeaderString(response, field: "x-screenplay-quality-reason")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawConfidence = parseOptionalHeaderString(response, field: "x-screenplay-quality-confidence")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawFeatureAct = parseOptionalHeaderString(response, field: "x-screenplay-quality-feature-act")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasQualityHeaders =
+            response.value(forHTTPHeaderField: "x-screenplay-quality-ok") != nil ||
+            !rawReason.isEmpty ||
+            !rawConfidence.isEmpty ||
+            !(rawFeatureAct ?? "").isEmpty
+        guard hasQualityHeaders else { return nil }
+        return BackendTalkScreenplayQuality(
+            ok: parseHeaderBool(response, field: "x-screenplay-quality-ok", default: false),
+            reason: rawReason,
+            source: "header",
+            confidence: rawConfidence,
+            featureAct: rawFeatureAct,
+            matchedTokens: [],
+            counts: [:]
+        )
     }
 
     private func parseDialogueTimeline(from response: HTTPURLResponse?) -> BackendTalkDialogueTimelineRevision? {

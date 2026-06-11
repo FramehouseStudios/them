@@ -132,6 +132,9 @@ private struct StudioDebugVoiceTurnResultSnapshot: Codable {
     let timingSource: String
     let screenplayOutputTarget: String
     let screenplayOutputSource: String
+    let screenplayQualityReason: String
+    let screenplayQualityConfidence: String
+    let screenplayQualityFeatureAct: String
     let screenplayOutputText: String
     let screenplayCueCount: Int
     let screenplayCues: [BackendTalkScreenplayCue]
@@ -1696,6 +1699,9 @@ struct RootExperienceView: View {
         timingSource: String = "",
         screenplayOutputTarget: String = "",
         screenplayOutputSource: String = "",
+        screenplayQualityReason: String = "",
+        screenplayQualityConfidence: String = "",
+        screenplayQualityFeatureAct: String = "",
         screenplayOutputText: String = "",
         screenplayCues: [BackendTalkScreenplayCue] = [],
         dialogueTimeline: BackendTalkDialogueTimelineRevision? = nil,
@@ -1858,6 +1864,9 @@ struct RootExperienceView: View {
             timingSource: timingSource,
             screenplayOutputTarget: screenplayOutputTarget,
             screenplayOutputSource: screenplayOutputSource,
+            screenplayQualityReason: screenplayQualityReason,
+            screenplayQualityConfidence: screenplayQualityConfidence,
+            screenplayQualityFeatureAct: screenplayQualityFeatureAct,
             screenplayOutputText: screenplayOutputText,
             screenplayCueCount: screenplayCues.count,
             screenplayCues: screenplayCues,
@@ -1966,6 +1975,9 @@ struct RootExperienceView: View {
                 "timingSource": timingSource,
                 "screenplayOutputTarget": screenplayOutputTarget,
                 "screenplayOutputSource": screenplayOutputSource,
+                "screenplayQualityReason": screenplayQualityReason,
+                "screenplayQualityConfidence": screenplayQualityConfidence,
+                "screenplayQualityFeatureAct": screenplayQualityFeatureAct,
                 "screenplayOutputText": screenplayOutputText,
                 "screenplayCueCount": screenplayCues.count,
                 "screenplayCues": manualScreenplayCues,
@@ -5471,6 +5483,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var debugTimingSource = ""
         var debugScreenplayOutputTarget = ""
         var debugScreenplayOutputSource = ""
+        var debugScreenplayQualityReason = ""
+        var debugScreenplayQualityConfidence = ""
+        var debugScreenplayQualityFeatureAct = ""
         var debugScreenplayOutputText = ""
         var debugScreenplayCues: [BackendTalkScreenplayCue] = []
         var debugDialogueTimeline: BackendTalkDialogueTimelineRevision?
@@ -5550,6 +5565,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 timingSource: debugTimingSource,
                 screenplayOutputTarget: debugScreenplayOutputTarget,
                 screenplayOutputSource: debugScreenplayOutputSource,
+                screenplayQualityReason: debugScreenplayQualityReason,
+                screenplayQualityConfidence: debugScreenplayQualityConfidence,
+                screenplayQualityFeatureAct: debugScreenplayQualityFeatureAct,
                 screenplayOutputText: debugScreenplayOutputText,
                 screenplayCues: debugScreenplayCues,
                 dialogueTimeline: debugDialogueTimeline,
@@ -6156,6 +6174,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     screenplayGenerationTranscriptOverride: talkScreenplayGenerationTranscript,
                     onResponseMetadataReady: { metadata in
                         Task { @MainActor in
+                            if preparedPrompt.useScreenplayMode {
+                                screenplayDraftBridge.updateScreenplayQualityStatus(
+                                    quality: metadata.screenplayQuality,
+                                    output: metadata.screenplayOutput
+                                )
+                            }
 #if DEBUG || os(macOS)
                             debugTimingSource = metadata.timingSource?
                                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? debugTimingSource
@@ -6165,6 +6189,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 debugScreenplayOutputSource = screenplayOutput.source
                                     .trimmingCharacters(in: .whitespacesAndNewlines)
                                 debugScreenplayOutputText = screenplayOutput.text
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                            if let quality = metadata.screenplayQuality ?? metadata.screenplayOutput?.quality {
+                                debugScreenplayQualityReason = quality.reason
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                debugScreenplayQualityConfidence = quality.confidence
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                debugScreenplayQualityFeatureAct = (quality.featureAct ?? "")
                                     .trimmingCharacters(in: .whitespacesAndNewlines)
                             }
                             if !metadata.screenplayCues.isEmpty {
@@ -6180,9 +6212,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                                 let headerTimingSource = metadata.timingSource?
                                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                let headerQuality = metadata.screenplayQuality ?? metadata.screenplayOutput?.quality
+                                let headerQualityReason = headerQuality?.reason
+                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                let headerQualityConfidence = headerQuality?.confidence
+                                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                                 appendStudioDebugVoiceDraftBreadcrumb(
                                     event: "talk_response_metadata_ready",
-                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) cue_count=\(metadata.screenplayCues.count)",
+                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) quality_reason=\(headerQualityReason.isEmpty ? "none" : headerQualityReason) quality_confidence=\(headerQualityConfidence.isEmpty ? "none" : headerQualityConfidence) cue_count=\(metadata.screenplayCues.count)",
                                     replyPreview: String((metadata.screenplayOutput?.text ?? "").prefix(220)),
                                     tokenOverride: debugVoiceTurnToken,
                                     promptPreviewOverride: preparedPrompt.directorText
@@ -6370,6 +6407,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
             lastKnowledgeConfidenceClass = result.knowledgeTrace.confidenceClass
             lastKnowledgeContradictionRisk = min(max(result.knowledgeTrace.contradictionRisk, 0), 1)
             updateTransientTurnBanner(from: result)
+            if preparedPrompt.useScreenplayMode {
+                screenplayDraftBridge.updateScreenplayQualityStatus(
+                    quality: result.screenplayQuality,
+                    output: result.screenplayOutput
+                )
+            }
 #if DEBUG || os(macOS)
             debugTimingSource = (result.timingSource ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6385,6 +6428,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 debugScreenplayOutputText = screenplayOutput.text
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
+            if let quality = result.screenplayQuality ?? result.screenplayOutput?.quality {
+                debugScreenplayQualityReason = quality.reason
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                debugScreenplayQualityConfidence = quality.confidence
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                debugScreenplayQualityFeatureAct = (quality.featureAct ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             if let debugVoiceTurnToken {
                 let resolvedOutputTarget = result.screenplayOutput?.target
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -6392,9 +6443,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let resolvedTimingSource = (result.timingSource ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolvedQuality = result.screenplayQuality ?? result.screenplayOutput?.quality
+                let resolvedQualityReason = resolvedQuality?.reason
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let resolvedQualityConfidence = resolvedQuality?.confidence
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "talk_result_received_meta",
-                    detail: "Talk result received. output_target=\(resolvedOutputTarget.isEmpty ? "none" : resolvedOutputTarget) output_source=\(resolvedOutputSource.isEmpty ? "none" : resolvedOutputSource) timing_source=\(resolvedTimingSource.isEmpty ? "none" : resolvedTimingSource) cue_count=\(result.screenplayCues.count)",
+                    detail: "Talk result received. output_target=\(resolvedOutputTarget.isEmpty ? "none" : resolvedOutputTarget) output_source=\(resolvedOutputSource.isEmpty ? "none" : resolvedOutputSource) timing_source=\(resolvedTimingSource.isEmpty ? "none" : resolvedTimingSource) quality_reason=\(resolvedQualityReason.isEmpty ? "none" : resolvedQualityReason) quality_confidence=\(resolvedQualityConfidence.isEmpty ? "none" : resolvedQualityConfidence) cue_count=\(result.screenplayCues.count)",
                     replyPreview: String((result.screenplayOutput?.text ?? result.reply ?? "").prefix(220)),
                     tokenOverride: debugVoiceTurnToken,
                     promptPreviewOverride: preparedPrompt.directorText
@@ -8341,6 +8397,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             transcript: userMessage,
             reply: assistantMessage,
             screenplayOutput: nil,
+            screenplayQuality: nil,
             screenplayCues: [],
             dialogueTimeline: nil,
             assistantSelfName: nil,

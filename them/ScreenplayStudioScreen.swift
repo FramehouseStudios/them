@@ -12479,6 +12479,7 @@ private var projectsSidebarContent: some View {
                                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
 
+                            screenplayQualityStatusBanner
                             syncedVoiceTurnStatusBanner
 
                             if !screenplayIntegrityIssues.isEmpty {
@@ -12570,6 +12571,7 @@ private var projectsSidebarContent: some View {
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
 
+                    screenplayQualityStatusBanner
                     syncedVoiceTurnStatusBanner
 
                     hollywoodFormatGuideStrip
@@ -13289,6 +13291,12 @@ private var projectsSidebarContent: some View {
                         prominence: syncedVoiceTurnChipProminence
                     )
                 }
+                if let qualityStatus = liveDraftBridge.latestScreenplayQualityStatus {
+                    draftStatusChip(
+                        qualityStatus.chipTitle,
+                        prominence: screenplayQualityProminence(for: qualityStatus)
+                    )
+                }
                 if includeSyncState {
                     draftStatusChip(
                         vm.hasUnsavedDraftChanges ? "Unsaved" : "Synced",
@@ -13479,6 +13487,21 @@ private var projectsSidebarContent: some View {
         }
     }
 
+    private func screenplayQualityProminence(
+        for status: ScreenplayQualityStatus
+    ) -> DraftStatusChipProminence {
+        switch status.resolution {
+        case .accepted:
+            return .success
+        case .repaired:
+            return .warning
+        case .needsRepair:
+            return .danger
+        case .blocked:
+            return .muted
+        }
+    }
+
     private func syncedVoiceFallbackDetail(
         for state: ScreenplaySyncedVoiceTurnState
     ) -> String {
@@ -13538,6 +13561,32 @@ private var projectsSidebarContent: some View {
                 title: Color.herText.opacity(0.88),
                 detail: Color.herText.opacity(0.72)
             )
+        }
+    }
+
+    @ViewBuilder
+    private var screenplayQualityStatusBanner: some View {
+        if let status = liveDraftBridge.latestScreenplayQualityStatus {
+            let style = syncedVoiceTurnBannerStyle(for: screenplayQualityProminence(for: status))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(status.title)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(style.title)
+                Text(status.detail)
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundStyle(style.detail)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(style.fill)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(style.stroke, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 
