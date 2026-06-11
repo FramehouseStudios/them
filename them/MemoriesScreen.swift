@@ -1026,7 +1026,7 @@ struct MemoryDetailView: View {
                 .disabled(isSaving || isForgetting || isSendingQuality || isPromoting)
 
                 if currentItem.editable {
-                    Button("Edit") {
+                    Button("Correct") {
                         showingEdit = true
                     }
                     .disabled(isSaving || isForgetting || isSendingQuality || isPromoting)
@@ -1109,7 +1109,7 @@ struct MemoryDetailView: View {
 
     private var qualityActionsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Quality Feedback")
+            Text("Memory Accuracy")
                 .font(.system(size: 14, weight: .semibold, design: .default))
                 .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.92))
             HStack(spacing: 10) {
@@ -1125,9 +1125,9 @@ struct MemoryDetailView: View {
                 .disabled(!currentItem.editable || isSaving || isForgetting || isSendingQuality || isPromoting)
 
                 Button {
-                    Task { await sendQualitySignal("correction") }
+                    showingEdit = true
                 } label: {
-                    Text("Needs Fix")
+                    Text("Correct Memory")
                         .font(.system(size: 13, weight: .regular, design: .default))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -1136,7 +1136,7 @@ struct MemoryDetailView: View {
                 .disabled(!currentItem.editable || isSaving || isForgetting || isSendingQuality || isPromoting)
             }
             Text(currentItem.editable
-                ? "Use this to improve memory accuracy over time."
+                ? "Correcting a memory updates what Clementine uses next time."
                 : "Quality feedback is available for theme memories.")
                 .font(.system(size: 12, weight: .regular, design: .default))
                 .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.7))
@@ -1270,7 +1270,7 @@ private struct MemoryEditSheet: View {
                         .frame(minHeight: 90)
                 }
             }
-            .navigationTitle("Edit Memory")
+            .navigationTitle("Correct Memory")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

@@ -735,6 +735,7 @@ struct RootExperienceView: View {
     @State private var uiReflection = BackendTalkUIReflection.default
     @State private var localStateVersion = ""
     @State private var sessionContinuitySnapshot: BackendSessionContinuitySnapshot?
+    @State private var dismissedSessionContinuityFingerprint = ""
     @State private var inFlightCommitVersions: Set<String> = []
     @State private var backendHealthTask: Task<Void, Never>?
     @State private var backendHydrationTask: Task<Void, Never>?
@@ -1040,6 +1041,88 @@ struct RootExperienceView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color.white.opacity(0.20), lineWidth: 1)
             )
+        }
+    }
+
+    @ViewBuilder
+    private var homeSessionContinuityCard: some View {
+        if let snapshot = sessionContinuitySnapshot,
+           snapshot.isMeaningful,
+           sessionContinuityFingerprint(snapshot) != dismissedSessionContinuityFingerprint {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("Where We Left Off")
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundColor(.herText.opacity(0.86))
+                        .textCase(.uppercase)
+                        .tracking(0.8)
+                    Spacer(minLength: 8)
+                    Button {
+                        dismissedSessionContinuityFingerprint = sessionContinuityFingerprint(snapshot)
+                    } label: {
+                        Text("Hide")
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.74))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Hide restored memory")
+                }
+
+                Text(sessionContinuityTitle(snapshot))
+                    .font(.system(size: 15, weight: .semibold, design: .default))
+                    .foregroundColor(.herText.opacity(0.92))
+                    .lineLimit(1)
+
+                Text(sessionContinuityBody(snapshot))
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundColor(.herText.opacity(0.82))
+                    .lineSpacing(4)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Button {
+                        openStudio()
+                    } label: {
+                        Text("Continue Writing")
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.92))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Color.white.opacity(0.20))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.session-continuity.open-studio")
+
+                    Button {
+                        openMemories()
+                    } label: {
+                        Text("Review Memory")
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.86))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Color.white.opacity(0.14))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.session-continuity.open-memories")
+                }
+            }
+            .frame(maxWidth: 500, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
+            )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Where we left off. \(sessionContinuityBody(snapshot))")
         }
     }
 
@@ -2754,6 +2837,8 @@ struct RootExperienceView: View {
                     .accessibilityIdentifier("orb_reply_echo_container")
                 }
 
+                homeSessionContinuityCard
+
                 if showPrompt {
                     VStack(spacing: 14) {
                         Text("Talk")
@@ -2960,16 +3045,7 @@ struct RootExperienceView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
-                        voice.teardown()
-                        orbAudio.stop()
-                        showingConversationHistory = false
-                        showingNotes = false
-                        showingTasks = false
-                        showingEmailComposer = false
-                        showingRecap = false
-                        showingMemories = true
+                        openMemories()
                     } label: {
                         Text("Memories")
                             .font(.system(size: 12, weight: .regular, design: .default))
@@ -3504,6 +3580,19 @@ struct RootExperienceView: View {
 
     private func persistWorkspaceSurface(_ surface: PrimarySurface) {
         persistedPrimarySurfaceRaw = surface.rawValue
+    }
+
+    private func openMemories() {
+        inFlightTalkTask?.cancel()
+        inFlightTalkTask = nil
+        voice.teardown()
+        orbAudio.stop()
+        showingConversationHistory = false
+        showingNotes = false
+        showingTasks = false
+        showingEmailComposer = false
+        showingRecap = false
+        showingMemories = true
     }
 
     private func openStudio() {
@@ -9111,6 +9200,58 @@ Write this approved story direction directly into screenplay pages now. Maintain
             notes.append("Honor the user's latest correction as authoritative continuity.")
         }
         return notes
+    }
+
+    private func sessionContinuityFingerprint(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        [
+            snapshot.projectId,
+            snapshot.projectTitle,
+            snapshot.act,
+            snapshot.featureSequence,
+            snapshot.currentBeat,
+            snapshot.lastSceneOutcome,
+            snapshot.nextScenePlan,
+            String(Int(snapshot.updatedAt))
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .joined(separator: "|")
+    }
+
+    private func sessionContinuityTitle(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        let title = snapshot.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty { return title }
+        let projectId = snapshot.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !projectId.isEmpty { return projectId }
+        let act = snapshot.act.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !act.isEmpty { return act }
+        return "Your screenplay"
+    }
+
+    private func sessionContinuityBody(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        let opening = snapshot.openingLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !opening.isEmpty { return opening }
+
+        let position = [
+            snapshot.act,
+            snapshot.featureSequence
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " / ")
+        let lastThread = [
+            snapshot.lastSceneOutcome,
+            snapshot.currentBeat,
+            snapshot.memoryExcerpt
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        let nextMove = snapshot.nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var parts: [String] = []
+        if !position.isEmpty { parts.append(position) }
+        if !lastThread.isEmpty { parts.append(lastThread) }
+        if !nextMove.isEmpty { parts.append("Next: \(nextMove)") }
+        return parts.isEmpty ? "Clementine restored your latest writing context." : parts.joined(separator: " ")
     }
 
     @MainActor
