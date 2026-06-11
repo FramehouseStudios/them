@@ -141,6 +141,36 @@ test("recordTriggersFromTalkTurn extracts character traits and goals from live t
   assert.equal(mara.traits.relationships.Eli, "protects");
 });
 
+test("recordTriggersFromTalkTurn persists corrections and retrieves them before older conflicting memory", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-correction",
+    transcript: "My protagonist is named Mara. Mara hides a cassette under the rain-swollen vent before Eli can see it.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  const correctionSummary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-correction",
+    transcript: "Actually, no, Mara hides a VHS tape under the rain-swollen vent, not a cassette.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  assert.equal(correctionSummary.corrections, 1);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-correction",
+    projectId: "rain-docket",
+    query: "Continue Mara and the cassette.",
+  });
+  assert.ok(memory?.episodicMemories?.length >= 2);
+  const top = memory.episodicMemories[0];
+  assert.ok(top.tags.includes("correction"));
+  assert.match(top.summary, /Correction for Mara/);
+  assert.match(top.excerpt, /VHS tape/);
+});
+
 test("recordTriggersFromTalkTurn stores generated screenplay pages with project metadata", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   const reply = `INT. PLANETARIUM - NIGHT

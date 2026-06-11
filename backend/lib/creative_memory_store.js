@@ -94,6 +94,7 @@ const EPISODIC_CHARACTER_NAME_BLOCKLIST = new Set([
 const STORY_MEMORY_KEYWORDS = /\b(?:act\s*(?:i|ii|iii|1|2|3|one|two|three)|all[- ]is[- ]lost|antagonist|arc|beat|beats|character|climax|continue|ending|ending image|feature|film|final image|finale|first act|inciting incident|logline|midpoint|motif|movie|payoff|premise|protagonist|rewrite|scene|screenplay|script|sequence|setup|theme|third act|tone|voice|want|wound)\b/i;
 const EXPLICIT_MEMORY_KEYWORDS = /\b(?:remember|keep in mind|do not forget|don't forget|note that|important|actually,\s*no|correction|for this movie|for this film|for this screenplay|in this movie|in this film|in this script|in my movie|in my film|in my screenplay|in my script)\b/i;
 const CORRECTION_KEYWORDS = /\b(?:actually,\s*no|correction|scratch that|not that|instead|retcon|change it to|make it so)\b/i;
+const CORRECTION_TAG = "correction";
 
 function nowMs() {
   return Date.now();
@@ -218,6 +219,12 @@ function extractDeclaredCharacterNames(text = "") {
   return out;
 }
 
+function textMentionsName(text = "", name = "") {
+  const cleanName = normalizeCharacterName(name);
+  if (!cleanName) return false;
+  return new RegExp(`\\b${escapeRegex(cleanName)}\\b`, "i").test(String(text || ""));
+}
+
 function firstScreenplaySceneHeading(text = "") {
   const match = String(text || "").match(/(?:^|\n)\s*((?:INT\.|EXT\.|INT\/EXT\.|INT\.\/EXT\.)[^\n]{3,120})/i);
   return cleanText(match?.[1] || "", 140);
@@ -271,6 +278,11 @@ function sanitizeEpisodicMemoryItem(item = {}) {
   };
 }
 
+function hasTag(memory, tag) {
+  const cleanTag = String(tag || "").toLowerCase();
+  return Array.isArray(memory?.tags) && memory.tags.some((item) => String(item || "").toLowerCase() === cleanTag);
+}
+
 function scoreEpisodicMemoryForQuery(memory, query = "", {
   projectId = "",
   projectTitle = "",
@@ -287,14 +299,15 @@ function scoreEpisodicMemoryForQuery(memory, query = "", {
     ...(memory.characterNames || []),
     ...(memory.tags || []),
   ].join(" ").toLowerCase();
+  const correctionBoost = hasTag(memory, CORRECTION_TAG) ? 10 : 0;
   if (!queryTokens.size) {
     let score = Math.min(4, Number(memory.referenceCount || 0)) +
       Math.min(3, Math.floor(Number(memory.updatedAt || 0) / 86_400_000_000));
     if (cleanProjectId && cleanText(memory.projectId, 96).toLowerCase() === cleanProjectId) score += 8;
     if (cleanProjectTitle && cleanText(memory.projectTitle, 160).toLowerCase() === cleanProjectTitle) score += 5;
-    return score;
+    return score + correctionBoost;
   }
-  let score = 0;
+  let score = correctionBoost;
   for (const token of queryTokens) {
     if (searchable.includes(token)) score += 1;
   }
@@ -331,6 +344,9 @@ function selectEpisodicMemoriesForPrompt(items = [], {
     .filter((entry) => !cleanQuery || entry.score > 0)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
+      const aCorrection = hasTag(a.item, CORRECTION_TAG) ? 1 : 0;
+      const bCorrection = hasTag(b.item, CORRECTION_TAG) ? 1 : 0;
+      if (bCorrection !== aCorrection) return bCorrection - aCorrection;
       return Number(b.item.updatedAt || 0) - Number(a.item.updatedAt || 0);
     })
     .slice(0, Math.max(1, Number(maxItems || EPISODIC_MEMORY_PROMPT_MAX)))
@@ -368,7 +384,7 @@ function buildEpisodicTags({ transcript = "", source = "", projectId = "", proje
   const text = String(transcript || "");
   if (cleanText(projectId, 96) || cleanText(projectTitle, 160)) tags.push("project");
   if (EXPLICIT_MEMORY_KEYWORDS.test(text)) tags.push("user-note");
-  if (CORRECTION_KEYWORDS.test(text)) tags.push("correction");
+  if (CORRECTION_KEYWORDS.test(text)) tags.push(CORRECTION_TAG);
   if (/\boutput|page|studio\b/i.test(String(source || ""))) tags.push("generated-pages");
   return [...new Set(tags)];
 }
@@ -379,6 +395,7 @@ function buildEpisodicSummary({
   moment = "",
   projectTitle = "",
   transcript = "",
+  isCorrection = false,
 } = {}) {
   const cleanCharacters = normalizeStringList(characterNames, 8, 48)
     .map(normalizeCharacterName)
@@ -386,11 +403,17 @@ function buildEpisodicSummary({
   const cleanProjectTitle = cleanText(projectTitle, 120);
   const cleanSceneHeading = cleanText(sceneHeading, 140);
   const cleanMoment = cleanText(moment || firstMemoryMoment(transcript), 180);
-  const subject = cleanCharacters.length
-    ? `Story memory for ${cleanCharacters.join(", ")}`
-    : cleanProjectTitle
-      ? `Project memory for ${cleanProjectTitle}`
-      : "Story memory";
+  const subject = isCorrection
+    ? cleanCharacters.length
+      ? `Correction for ${cleanCharacters.join(", ")}`
+      : cleanProjectTitle
+        ? `Correction for ${cleanProjectTitle}`
+        : "Correction"
+    : cleanCharacters.length
+      ? `Story memory for ${cleanCharacters.join(", ")}`
+      : cleanProjectTitle
+        ? `Project memory for ${cleanProjectTitle}`
+        : "Story memory";
   return cleanText(
     [
       subject,
@@ -961,11 +984,19 @@ function createCreativeMemoryStore({ persistence } = {}) {
     const summary = {
       characterMentions: 0,
       episodicMemories: 0,
+      corrections: 0,
       lexicalPhrases: 0,
       sessionRecorded: false,
     };
 
     const combined = `${String(transcript || "")}\n${String(reply || "")}`;
+    const isCorrectionTurn = CORRECTION_KEYWORDS.test(combined);
+    const knownCharacterNames = await readUser(userId)
+      .then((rec) => (Array.isArray(rec?.characters) ? rec.characters : []))
+      .catch(() => [])
+      .then((characters) => characters
+        .map((character) => normalizeCharacterName(character?.name))
+        .filter(Boolean));
     const turnCharacterNames = [];
     const rememberCharacterName = async (rawName) => {
       const name = normalizeCharacterName(rawName);
@@ -994,6 +1025,12 @@ function createCreativeMemoryStore({ persistence } = {}) {
     for (const declaredName of extractDeclaredCharacterNames(transcript)) {
       if (turnCharacterNames.length >= 8) break;
       await rememberCharacterName(declaredName);
+    }
+    for (const knownName of knownCharacterNames) {
+      if (turnCharacterNames.length >= 8) break;
+      if (textMentionsName(combined, knownName)) {
+        await rememberCharacterName(knownName);
+      }
     }
 
     // Character mentions: screenplay character cue lines are CAPITALIZED
@@ -1039,6 +1076,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
         moment,
         projectTitle: cleanProjectTitle,
         transcript,
+        isCorrection: isCorrectionTurn,
       });
       try {
         const receipt = await recordEpisodicMemory({
@@ -1057,6 +1095,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
           source: cleanSource,
         });
         if (receipt?.ok) summary.episodicMemories += 1;
+        if (receipt?.ok && isCorrectionTurn) summary.corrections += 1;
       } catch (_e) { /* never block the response on memory writes */ }
     }
 

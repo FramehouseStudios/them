@@ -257,7 +257,31 @@ test("buildModelPrompt emits retrieved episodic screenplay memory", () => {
   assert.ok(out.includes("tags=screenplay,evidence"));
   assert.ok(out.includes("Eli says nobody else knew"));
   assert.ok(out.includes("durable user/project memories retrieved for this turn"));
+  assert.ok(out.includes("treat CORRECTION items as overriding older conflicting memory"));
   assert.ok(out.includes("do not invent memories not listed here"));
+});
+
+test("buildModelPrompt marks correction memories as authoritative repairs", () => {
+  const out = buildModelPrompt({
+    persona: "Persona",
+    creativeMemory: {
+      userId: "u",
+      version: 1,
+      updatedAt: 0,
+      episodicMemories: [
+        {
+          summary: "Correction for Mara: Mara hides a VHS tape, not a cassette.",
+          excerpt: "Actually, no, Mara hides a VHS tape under the vent.",
+          characterNames: ["Mara"],
+          tags: ["screenplay", "correction"],
+          projectTitle: "Rain Docket",
+        },
+      ],
+    },
+    userInput: "Continue the scene.",
+  });
+  assert.ok(out.includes("CORRECTION: Mara: Correction for Mara"));
+  assert.ok(out.includes("tags=screenplay,correction"));
 });
 
 test("buildModelPrompt orders blocks: persona → memory → session → user", () => {

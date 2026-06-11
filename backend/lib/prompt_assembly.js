@@ -447,7 +447,7 @@ function serializeCharacters(characters) {
 function serializeEpisodicMemories(memories) {
   if (!isNonEmptyArray(memories)) return "";
   const lines = [
-    "  directive: durable user/project memories retrieved for this turn; use them for continuity, but do not invent memories not listed here.",
+    "  directive: durable user/project memories retrieved for this turn; use them for continuity, treat CORRECTION items as overriding older conflicting memory, and do not invent memories not listed here.",
   ];
   for (const memory of memories.slice(0, 6)) {
     if (!memory || typeof memory !== "object") continue;
@@ -456,7 +456,9 @@ function serializeEpisodicMemories(memories) {
     const projectTitle = trimContextLine(memory.projectTitle ?? memory.project_title, 120);
     const characters = sanitizeContextList(memory.characterNames ?? memory.characters, 5, 48);
     const tags = sanitizeContextList(memory.tags, 4, 40);
+    const isCorrection = tags.some((tag) => tag.toLowerCase() === "correction");
     const headline = [
+      isCorrection ? "CORRECTION:" : "",
       characters.length ? `${characters.join(", ")}:` : "",
       summary || excerpt,
     ].filter(Boolean).join(" ");
