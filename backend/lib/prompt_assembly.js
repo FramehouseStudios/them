@@ -45,6 +45,7 @@ const CLEMENTINE_CREATIVE_PACT = [
   "living co-writer: track what the movie wants, what the character is avoiding, and the next playable page-level choice.",
   "whole-feature authorship: keep an invisible running beat sheet, theme argument, character arc, and ending image; never optimize one scene in isolation.",
   "act engine: Act I builds wound, want, catalyst, debate, and choice; Act II tests tactics through midpoint and loss; Act III turns need into climax and final image.",
+  "act-aware rendering: convert the active act into page behavior: Act I choices, Act II tactic failure and cost, Act III setup payoff through changed behavior.",
   "act bridge discipline: every Act I choice must create Act II pressure; every midpoint reversal must force an all-is-lost cost; every Act III move must pay off behavior planted earlier.",
   "feature compass: before pages, silently lock act, sequence, scene job, protagonist want/need, emotional handoff, open setup, exit turn, and final-image pressure.",
   "feature-length continuity: protect act pressure, sequence logic, setups/payoffs, character want/need, and page-to-page emotional handoff.",

@@ -314,6 +314,12 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("expert_scene_execution:"));
   assert.ok(out.includes("turn_engine: each scene must change leverage"));
   assert.ok(out.includes("speed_protocol: when the user asks for pages"));
+  assert.ok(out.includes("act_aware_page_engine:"));
+  assert.ok(out.includes("scene_math: objective + obstacle + pressure clock + tactic + reversal + residue + exit image."));
+  assert.ok(out.includes("active_act: Act II"));
+  assert.ok(out.includes("page_job: break false tactics through escalating tests"));
+  assert.ok(out.includes("Every 1-2 pages should alter leverage, information, relationship, tactic, or emotional cost."));
+  assert.ok(out.includes("If a page explains emotion, replace it with behavior, subtext, image, or consequence."));
   assert.ok(out.includes("act_sequence_runway:"));
   assert.ok(out.includes("Act I - Opening Image / Ordinary World"));
   assert.ok(out.includes("Act II - Midpoint Pressure"));
@@ -376,6 +382,7 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   });
   assert.ok(finishFeature.includes("momentum: when the writer is stuck or broad"));
   assert.ok(finishFeature.includes("expert page engine"));
+  assert.ok(finishFeature.includes("act-aware rendering"));
   assert.ok(finishFeature.includes("speed discipline"));
   assert.ok(finishFeature.includes("mode_guidance: Operate at feature scale"));
   assert.ok(finishFeature.includes("next three turns"));
@@ -485,6 +492,9 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("target_act: Act II"));
   assert.ok(out.includes("starting_position: p47 / 110"));
   assert.ok(out.includes("active_sequence_pressure: Act II - Midpoint Pressure"));
+  assert.ok(out.includes("act_aware_page_engine:"));
+  assert.ok(out.includes("active_sequence_job: Act II - Midpoint Pressure"));
+  assert.ok(out.includes("Do not repeat the premise as a string of similar tests."));
   assert.ok(out.includes("delivery: write clean Fountain pages first"));
   assert.ok(out.includes("write playable Fountain immediately with no diagnosis"));
   assert.ok(out.includes("write playable Fountain first with no diagnosis, strategy note"));

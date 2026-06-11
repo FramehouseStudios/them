@@ -44,6 +44,14 @@ test("[feature-screenplay-map] maps page position into feature sequence pressure
   assert.ok(block.includes("scene_job: make the objective, obstacle, pressure clock, and cost visible"));
   assert.ok(block.includes("speed_protocol: when the user asks for pages"));
   assert.ok(block.includes("vapor_guard: replace vague tension"));
+  assert.ok(block.includes("act_aware_page_engine:"));
+  assert.ok(block.includes("purpose: turn act position into faster, smarter playable pages"));
+  assert.ok(block.includes("scene_math: objective + obstacle + pressure clock + tactic + reversal + residue + exit image."));
+  assert.ok(block.includes("active_act: Act II"));
+  assert.ok(block.includes("page_job: break false tactics through escalating tests, midpoint pressure"));
+  assert.ok(block.includes("active_sequence_job: Act II - Midpoint Pressure"));
+  assert.ok(block.includes("Make the protagonist try a tactic that partly works and makes the next tactic more expensive."));
+  assert.ok(block.includes("If two beats use the same tactic, change tactic or cut the weaker beat."));
   assert.ok(block.includes("act_sequence_runway:"));
   assert.ok(block.includes("target: Act II"));
   assert.ok(block.includes("Act II - Promise Of The Premise"));
@@ -208,6 +216,11 @@ test("[feature-screenplay-map] gives act-targeted page batches a sequence runway
   assert.ok(block.includes("active_sequence_pressure: Act III - Break Into Three / Final Plan"));
   assert.ok(block.includes("structural_obligation_due_now: The final plan must express change"));
   assert.ok(block.includes("Let the final plan be born from the character's need"));
+  assert.ok(block.includes("act_aware_page_engine:"));
+  assert.ok(block.includes("active_act: Act III"));
+  assert.ok(block.includes("page_job: pay off planted setups through changed behavior"));
+  assert.ok(block.includes("Make the climax turn on a choice the old self could not have made."));
+  assert.ok(block.includes("Do not introduce unearned information to solve the ending."));
 });
 
 test("[feature-screenplay-map] trusts explicit Act II over a tiny restored draft estimate", () => {
@@ -259,6 +272,12 @@ test("[feature-screenplay-map] maps whole-feature targets across all act lanes",
   assert.ok(block.includes("next_three_turns:"));
   assert.ok(block.includes("Opening Image / Ordinary World: Open on behavior"));
   assert.ok(block.includes("act_handoff: every local scene must push the next sequence obligation"));
+  assert.ok(block.includes("act_aware_page_engine:"));
+  assert.ok(block.includes("whole_feature_chain:"));
+  assert.ok(block.includes("Act I: turn the wound and want into a catalyst"));
+  assert.ok(block.includes("Act II: break false tactics through escalating tests"));
+  assert.ok(block.includes("Act III: pay off planted setups through changed behavior"));
+  assert.ok(block.includes("whole_feature_rule: if the user asks for Act I to Act II to Act III"));
 });
 
 test("[feature-screenplay-map] stays silent without screenplay intent or feature context", () => {

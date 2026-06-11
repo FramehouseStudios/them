@@ -125,6 +125,51 @@ const FEATURE_ACT_BRIDGES = Object.freeze([
   "Act III -> Final Image: resolve the central dramatic question through visible behavior, then echo the opening image with changed meaning.",
 ]);
 
+const ACT_PAGE_ENGINE_TEMPLATE = Object.freeze({
+  act1: {
+    label: "Act I",
+    pageJob: "turn the wound and want into a catalyst, debate under pressure, and an irreversible choice.",
+    mandates: [
+      "Make the protagonist's ordinary-world behavior reveal the wound before anyone explains it.",
+      "Turn the catalyst into a personal dilemma with a cost for staying and a cost for moving.",
+      "Escalate debate through action, interruption, and consequence, not repetitive discussion.",
+      "End the act lane by burning a safe exit so Act II becomes active and necessary.",
+    ],
+    traps: [
+      "Do not front-load mythology or backstory before the audience can watch desire under pressure.",
+      "Do not let the protagonist merely receive the plot; force a visible choice.",
+    ],
+  },
+  act2: {
+    label: "Act II",
+    pageJob: "break false tactics through escalating tests, midpoint pressure, relationship cost, and all-is-lost truth.",
+    mandates: [
+      "Make the protagonist try a tactic that partly works and makes the next tactic more expensive.",
+      "Every 1-2 pages should alter leverage, information, relationship, tactic, or emotional cost.",
+      "Aim midpoint pages at revelation or reversal; aim late Act II pages at the collapse of the false tactic.",
+      "Use B-story pressure as a live force that changes the A-story tactic.",
+    ],
+    traps: [
+      "Do not repeat the premise as a string of similar tests.",
+      "Do not solve pressure through explanation when a cost, reveal, or betrayal can change the scene state.",
+    ],
+  },
+  act3: {
+    label: "Act III",
+    pageJob: "pay off planted setups through changed behavior, final plan, climax choice, and final image contrast.",
+    mandates: [
+      "Build the final plan from the protagonist's need, not from a clever unplanted trick.",
+      "Pay off at least one remembered setup, motif, or relationship fracture through action.",
+      "Make the climax turn on a choice the old self could not have made.",
+      "Echo the opening image with changed meaning before the final handoff.",
+    ],
+    traps: [
+      "Do not introduce unearned information to solve the ending.",
+      "Do not make the climax merely competent; make it emotionally transformed.",
+    ],
+  },
+});
+
 function trimToString(value, maxLength = 500) {
   return String(value ?? "").trim().slice(0, Math.max(1, Number(maxLength || 500)));
 }
@@ -213,6 +258,7 @@ function isWholeFeatureActTarget(actLabel) {
 function inferActKind(actLabel) {
   const text = trimToString(actLabel, 120).toLowerCase();
   if (!text) return "";
+  if (isWholeFeatureActTarget(text)) return "";
   if (/\b(?:act\s*)?(?:i|1|one|first)\b/.test(text)) return "act1";
   if (/\b(?:act\s*)?(?:ii|2|two|second)\b/.test(text)) return "act2";
   if (/\b(?:act\s*)?(?:iii|3|three|third)\b/.test(text)) return "act3";
@@ -319,6 +365,67 @@ function buildExpertExecutionLines() {
     "    - page_first_protocol: when the target is page text, output screenplay pages without markdown, menu choices, or permission language.",
     "    - vapor_guard: replace vague tension, staring, silence, and abstract emotional prose with concrete behavior that changes story state.",
   ];
+}
+
+function actPageEngineForLabel(actLabel = "") {
+  const kind = inferActKind(actLabel);
+  return kind ? ACT_PAGE_ENGINE_TEMPLATE[kind] : null;
+}
+
+function isWholeFeatureTask({ screenplayTask = null, explicitAct = "", requestedAct = "" } = {}) {
+  const featureScope = trimContextLine(screenplayTask?.featureScope ?? screenplayTask?.feature_scope, 80).toLowerCase();
+  return featureScope === "whole_feature" ||
+    isWholeFeatureActTarget(requestedAct) ||
+    isWholeFeatureActTarget(explicitAct);
+}
+
+function buildActAwarePageEngineLines({
+  sequence = null,
+  screenplayTask = null,
+  explicitAct = "",
+  requestedAct = "",
+} = {}) {
+  const wholeFeature = isWholeFeatureTask({ screenplayTask, explicitAct, requestedAct });
+  const activeActLabel = wholeFeature
+    ? String(sequence?.act || requestedAct || explicitAct || "").trim()
+    : String(requestedAct || sequence?.act || explicitAct || "").trim();
+  const activeEngine = actPageEngineForLabel(activeActLabel);
+  if (!wholeFeature && !activeEngine) return [];
+
+  const lines = [
+    "  act_aware_page_engine:",
+    "    purpose: turn act position into faster, smarter playable pages instead of generic scene continuation.",
+    "    scene_math: objective + obstacle + pressure clock + tactic + reversal + residue + exit image.",
+    "    render_order: inherit previous emotional state, apply act job, force a visible tactic, change story state, leave a handoff.",
+  ];
+
+  if (activeEngine) {
+    lines.push(`    active_act: ${activeEngine.label}`);
+    lines.push(`    page_job: ${activeEngine.pageJob}`);
+    if (sequence?.label) {
+      lines.push(`    active_sequence_job: ${sequence.act} - ${sequence.label}: ${sequence.obligation}`);
+    }
+    lines.push("    act_specific_mandates:");
+    for (const mandate of activeEngine.mandates) lines.push(`      - ${mandate}`);
+    lines.push("    act_failure_modes_to_avoid:");
+    for (const trap of activeEngine.traps) lines.push(`      - ${trap}`);
+  }
+
+  if (wholeFeature) {
+    lines.push("    whole_feature_chain:");
+    for (const key of ["act1", "act2", "act3"]) {
+      const engine = ACT_PAGE_ENGINE_TEMPLATE[key];
+      lines.push(`      - ${engine.label}: ${engine.pageJob}`);
+    }
+    lines.push("    whole_feature_rule: if the user asks for Act I to Act II to Act III, build a causal bridge first, then write the immediate next pages that serve that bridge.");
+  }
+
+  lines.push("    page_sprint_checks:");
+  lines.push("      - If a scene has no pressure clock, add one before writing dialogue.");
+  lines.push("      - If two beats use the same tactic, change tactic or cut the weaker beat.");
+  lines.push("      - If a page explains emotion, replace it with behavior, subtext, image, or consequence.");
+  lines.push("      - If the batch reaches a natural turn early, continue through the aftermath cost instead of stopping.");
+  return lines;
 }
 
 function buildFeatureScaleOutputContractLines() {
@@ -821,6 +928,12 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     ...buildActBridgeLines(),
     ...buildFeatureCompassLines(),
     ...buildExpertExecutionLines(),
+    ...buildActAwarePageEngineLines({
+      sequence,
+      screenplayTask,
+      explicitAct,
+      requestedAct,
+    }),
     ...buildFeatureScaleOutputContractLines(),
     ...buildFeatureContinuityLedgerLines(sessionContext || {}),
     ...buildActExitChecklistLines({ sequence, explicitAct }),
