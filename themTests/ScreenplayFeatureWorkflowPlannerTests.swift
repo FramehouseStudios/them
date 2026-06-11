@@ -164,12 +164,22 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(snapshot.currentActTitle, "Act I")
         XCTAssertEqual(snapshot.actProgressLabel, "Scene 1/2")
         XCTAssertEqual(snapshot.nextSceneTitle, "INT. KITCHEN - DAY")
-        XCTAssertEqual(snapshot.nextMoves.count, 3)
+        XCTAssertEqual(snapshot.nextMoves.count, 4)
+        XCTAssertEqual(snapshot.nextMoves[2].id, "sequence-turn")
+        XCTAssertTrue(snapshot.nextMoves[2].title.contains("Advance Opening Image"))
         XCTAssertTrue(snapshot.nextMoves[0].prompt.contains("Write 3-5 pages in Fountain format only"))
+        XCTAssertTrue(snapshot.nextMoves[0].prompt.contains("Feature sequence guide:"))
+        XCTAssertTrue(snapshot.nextMoves[0].prompt.contains("Coming next: Act I - Catalyst To Commitment"))
         XCTAssertTrue(snapshot.pageWritePrompt.contains("Clementine standard"))
         XCTAssertTrue(snapshot.pageWritePrompt.contains("Feature Compass:"))
         XCTAssertTrue(snapshot.pageWritePrompt.contains("Silent preflight: lock act, sequence, scene job"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Sequence engine: write this scene as a step in Act I - Opening Image"))
+        XCTAssertTrue(snapshot.pageWritePrompt.contains("Act-to-act causality"))
         XCTAssertTrue(snapshot.pageWritePrompt.contains("Page quality gate: no placeholder scenes"))
+        XCTAssertTrue(snapshot.featureSequenceTitle.contains("Act I - Opening Image"))
+        XCTAssertTrue(snapshot.featureSequenceDetail.contains("Plant the emotional question"))
+        XCTAssertTrue(snapshot.featureSequenceMoves.contains("Echo the ending image in a smaller, incomplete form."))
+        XCTAssertTrue(snapshot.comingNextSequence.contains("Act I - Catalyst To Commitment"))
         XCTAssertTrue(snapshot.acceptedBatchDetail.contains("L45-L49"))
         XCTAssertTrue(snapshot.hasAcceptedBatch)
     }
@@ -207,9 +217,13 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         )
 
         XCTAssertEqual(snapshot.currentActTitle, "Act II")
+        XCTAssertTrue(snapshot.featureSequenceTitle.contains("Act II - Promise Of The Premise"))
         XCTAssertEqual(snapshot.nextSceneTitle, "the next scene")
         XCTAssertTrue(snapshot.planningPrompt.contains("Give exactly three turns"))
+        XCTAssertTrue(snapshot.planningPrompt.contains("Feature sequence guide:"))
+        XCTAssertTrue(snapshot.planningPrompt.contains("Coming next: Act II - Midpoint Pressure"))
         XCTAssertTrue(snapshot.sceneDoctorPrompt.contains("Scene doctor"))
+        XCTAssertTrue(snapshot.sceneDoctorPrompt.contains("Sequence page moves:"))
         XCTAssertFalse(snapshot.hasAcceptedBatch)
     }
 
@@ -260,7 +274,14 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
             Structural obligation: Escalate the midpoint fallout.
             """,
             planningPrompt: "",
-            sceneDoctorPrompt: ""
+            sceneDoctorPrompt: "",
+            featureSequenceTitle: "Act II - Midpoint Pressure (p41-p55)",
+            featureSequenceDetail: "p42 / 110. The midpoint must turn victory into a trap.",
+            featureSequenceMoves: [
+                "Build to a reversal that redefines what the protagonist thought they wanted.",
+                "Let the emotional truth arrive before the exposition."
+            ],
+            comingNextSequence: "Act II - Reversal Fallout"
         )
 
         let prompt = ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
@@ -277,6 +298,11 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertTrue(prompt?.contains("Act II (Scene 7/14); 42 pages drafted") == true)
         XCTAssertTrue(prompt?.contains("Latest: L210-L248") == true)
         XCTAssertTrue(prompt?.contains("INT. COURTHOUSE HALLWAY - NIGHT") == true)
+        XCTAssertTrue(prompt?.contains("Feature sequence guide:") == true)
+        XCTAssertTrue(prompt?.contains("Act II - Midpoint Pressure (p41-p55)") == true)
+        XCTAssertTrue(prompt?.contains("The midpoint must turn victory into a trap.") == true)
+        XCTAssertTrue(prompt?.contains("Coming next: Act II - Reversal Fallout") == true)
+        XCTAssertTrue(prompt?.contains("Sequence page moves: Build to a reversal") == true)
         XCTAssertTrue(prompt?.contains("Next story turns:") == true)
         XCTAssertTrue(prompt?.contains("Restored Studio memory:") == true)
         XCTAssertTrue(prompt?.contains("Make Mara's public lie cost her the brother scene.") == true)

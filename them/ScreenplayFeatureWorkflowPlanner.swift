@@ -29,6 +29,50 @@ struct ScreenplayFeatureWorkflowSnapshot: Equatable, Hashable {
     let pageWritePrompt: String
     let planningPrompt: String
     let sceneDoctorPrompt: String
+    let featureSequenceTitle: String
+    let featureSequenceDetail: String
+    let featureSequenceMoves: [String]
+    let comingNextSequence: String
+
+    init(
+        currentActTitle: String,
+        currentActDetail: String,
+        actProgressLabel: String,
+        draftProgressLabel: String,
+        acceptedBatchTitle: String,
+        acceptedBatchDetail: String,
+        acceptedBatchLineRange: ClosedRange<Int>?,
+        structuralObligation: String,
+        nextSceneTitle: String,
+        nextSceneDetail: String,
+        nextMoves: [ScreenplayFeatureWorkflowMove],
+        pageWritePrompt: String,
+        planningPrompt: String,
+        sceneDoctorPrompt: String,
+        featureSequenceTitle: String = "",
+        featureSequenceDetail: String = "",
+        featureSequenceMoves: [String] = [],
+        comingNextSequence: String = ""
+    ) {
+        self.currentActTitle = currentActTitle
+        self.currentActDetail = currentActDetail
+        self.actProgressLabel = actProgressLabel
+        self.draftProgressLabel = draftProgressLabel
+        self.acceptedBatchTitle = acceptedBatchTitle
+        self.acceptedBatchDetail = acceptedBatchDetail
+        self.acceptedBatchLineRange = acceptedBatchLineRange
+        self.structuralObligation = structuralObligation
+        self.nextSceneTitle = nextSceneTitle
+        self.nextSceneDetail = nextSceneDetail
+        self.nextMoves = nextMoves
+        self.pageWritePrompt = pageWritePrompt
+        self.planningPrompt = planningPrompt
+        self.sceneDoctorPrompt = sceneDoctorPrompt
+        self.featureSequenceTitle = featureSequenceTitle
+        self.featureSequenceDetail = featureSequenceDetail
+        self.featureSequenceMoves = featureSequenceMoves
+        self.comingNextSequence = comingNextSequence
+    }
 
     var hasAcceptedBatch: Bool {
         acceptedBatchLineRange != nil
@@ -86,16 +130,24 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         )
         self.currentBeat = Self.clean(snapshot.structuralObligation, limit: 220)
         self.featureSequence = Self.clean(
-            "\(snapshot.currentActTitle) - \(snapshot.actProgressLabel); \(snapshot.draftProgressLabel)",
+            snapshot.featureSequenceTitle.isEmpty
+                ? "\(snapshot.currentActTitle) - \(snapshot.actProgressLabel); \(snapshot.draftProgressLabel)"
+                : "\(snapshot.featureSequenceTitle); \(snapshot.draftProgressLabel)",
             limit: 220
         )
-        self.featureObligation = Self.clean(snapshot.structuralObligation, limit: 280)
+        self.featureObligation = Self.clean(
+            snapshot.featureSequenceDetail.isEmpty
+                ? snapshot.structuralObligation
+                : "\(snapshot.structuralObligation) \(snapshot.featureSequenceDetail)",
+            limit: 280
+        )
         self.nextScenePlan = Self.clean(
             "Next scene: \(snapshot.nextSceneTitle). \(snapshot.nextSceneDetail)",
             limit: 340
         )
         self.nextSceneMoves = Self.cleanList(
-            snapshot.nextMoves.map { "\($0.title): \($0.detail)" },
+            snapshot.nextMoves.map { "\($0.title): \($0.detail)" } +
+                snapshot.featureSequenceMoves.map { "Sequence move: \($0)" },
             limit: 5,
             itemLimit: 180
         )
@@ -114,7 +166,9 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         self.continuityNotes = Self.cleanList([
             "Feature Compass accepted batch: \(snapshot.acceptedBatchDetail)",
             "Feature Compass next scene: \(snapshot.nextSceneTitle)",
-            "Feature Compass structural obligation: \(snapshot.structuralObligation)"
+            "Feature Compass structural obligation: \(snapshot.structuralObligation)",
+            snapshot.featureSequenceTitle.isEmpty ? "" : "Feature sequence: \(snapshot.featureSequenceTitle)",
+            snapshot.comingNextSequence.isEmpty ? "" : "Coming next sequence: \(snapshot.comingNextSequence)"
         ], limit: 5, itemLimit: 220)
         self.emotionalContinuity = Self.clean(snapshot.nextSceneDetail, limit: 280)
         self.pageCount = max(0, pageCount)
@@ -259,6 +313,10 @@ enum ScreenplayFeatureWorkflowPlanner {
         let currentOutlineScene = currentBinding?.outlineSceneID.flatMap { sceneID in
             sortedScenes.first(where: { $0.id == sceneID })
         }
+        let draftLineCount = max(structuredDraft.lineCount, lineCount(in: draftText))
+        let estimatedPageCount = draftLineCount > 0
+            ? max(1, Int(ceil(Double(draftLineCount) / 55.0)))
+            : 0
 
         let currentAct = resolveCurrentAct(
             sortedActs: sortedActs,
@@ -266,7 +324,15 @@ enum ScreenplayFeatureWorkflowPlanner {
             currentBinding: currentBinding,
             featureSpine: featureSpine,
             currentCursorLine: currentCursorLine,
-            lineCount: max(structuredDraft.lineCount, lineCount(in: draftText))
+            lineCount: draftLineCount
+        )
+        let sequenceGuide = ScreenplayFeatureProgressionGuide.guide(
+            actPosition: currentAct.title,
+            currentPage: guidePageCount(
+                currentActTitle: currentAct.title,
+                estimatedPageCount: estimatedPageCount
+            ),
+            targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
         )
         let nextScene = resolveNextScene(
             sortedScenes: sortedScenes,
@@ -291,7 +357,7 @@ enum ScreenplayFeatureWorkflowPlanner {
         let nextSceneTitle = sceneTitle(nextScene)
         let nextSceneDetail = sceneDetail(nextScene, fallback: currentDraftScene?.shortLabel ?? "")
         let actDetail = currentAct.detail.isEmpty ? structuralObligation : currentAct.detail
-        let draftProgressLabel = draftProgress(lineCount: max(structuredDraft.lineCount, lineCount(in: draftText)))
+        let draftProgressLabel = draftProgress(lineCount: draftLineCount)
         let acceptedBatch = acceptedBatchSummary(
             lastCommittedWrite: lastCommittedWrite,
             acceptedPageBatchCount: acceptedPageBatchCount
@@ -304,6 +370,7 @@ enum ScreenplayFeatureWorkflowPlanner {
             nextSceneDetail: nextSceneDetail,
             structuralObligation: structuralObligation,
             continuityAnchors: continuityAnchors,
+            sequenceGuide: sequenceGuide,
             moveTitle: "Continue the feature"
         )
         let planningPrompt = buildPlanningPrompt(
@@ -311,14 +378,16 @@ enum ScreenplayFeatureWorkflowPlanner {
             nextSceneTitle: nextSceneTitle,
             nextSceneDetail: nextSceneDetail,
             structuralObligation: structuralObligation,
-            continuityAnchors: continuityAnchors
+            continuityAnchors: continuityAnchors,
+            sequenceGuide: sequenceGuide
         )
         let sceneDoctorPrompt = buildSceneDoctorPrompt(
             actTitle: currentAct.title,
             nextSceneTitle: nextSceneTitle,
             nextSceneDetail: nextSceneDetail,
             structuralObligation: structuralObligation,
-            continuityAnchors: continuityAnchors
+            continuityAnchors: continuityAnchors,
+            sequenceGuide: sequenceGuide
         )
         let moves = buildMoves(
             actTitle: currentAct.title,
@@ -327,7 +396,8 @@ enum ScreenplayFeatureWorkflowPlanner {
             fallbackSceneTitle: nextSceneTitle,
             fallbackSceneDetail: nextSceneDetail,
             structuralObligation: structuralObligation,
-            continuityAnchors: continuityAnchors
+            continuityAnchors: continuityAnchors,
+            sequenceGuide: sequenceGuide
         )
 
         return ScreenplayFeatureWorkflowSnapshot(
@@ -344,7 +414,11 @@ enum ScreenplayFeatureWorkflowPlanner {
             nextMoves: moves,
             pageWritePrompt: pageWritePrompt,
             planningPrompt: planningPrompt,
-            sceneDoctorPrompt: sceneDoctorPrompt
+            sceneDoctorPrompt: sceneDoctorPrompt,
+            featureSequenceTitle: featureSequenceTitle(sequenceGuide),
+            featureSequenceDetail: featureSequenceDetail(sequenceGuide),
+            featureSequenceMoves: sequenceGuide.nextMoves,
+            comingNextSequence: sequenceGuide.comingNext
         )
     }
 
@@ -450,6 +524,23 @@ enum ScreenplayFeatureWorkflowPlanner {
             "",
             "Use this as a feature continuation, not a generic response. Pick up at the current insertion point, preserve emotional tone continuity, honor accepted pages, and write the next 3-5 pages as finished Fountain screenplay pages."
         ]
+
+        if !snapshot.featureSequenceTitle.isEmpty || !snapshot.featureSequenceDetail.isEmpty || !snapshot.comingNextSequence.isEmpty {
+            lines.insert("", at: lines.count - 1)
+            lines.insert("Feature sequence guide:", at: lines.count - 1)
+            if !snapshot.featureSequenceTitle.isEmpty {
+                lines.insert("- Current sequence: \(snapshot.featureSequenceTitle)", at: lines.count - 1)
+            }
+            if !snapshot.featureSequenceDetail.isEmpty {
+                lines.insert("- Sequence obligation: \(snapshot.featureSequenceDetail)", at: lines.count - 1)
+            }
+            if !snapshot.comingNextSequence.isEmpty {
+                lines.insert("- Coming next: \(snapshot.comingNextSequence)", at: lines.count - 1)
+            }
+            if !snapshot.featureSequenceMoves.isEmpty {
+                lines.insert("- Sequence page moves: \(snapshot.featureSequenceMoves.joined(separator: " -> "))", at: lines.count - 1)
+            }
+        }
 
         let nextMoves = snapshot.nextMoves.prefix(3).map { "\($0.title): \($0.detail)" }
         if !nextMoves.isEmpty {
@@ -626,7 +717,8 @@ enum ScreenplayFeatureWorkflowPlanner {
         fallbackSceneTitle: String,
         fallbackSceneDetail: String,
         structuralObligation: String,
-        continuityAnchors: [String]
+        continuityAnchors: [String],
+        sequenceGuide: ScreenplayFeatureProgressionGuide
     ) -> [ScreenplayFeatureWorkflowMove] {
         let sceneMove = ScreenplayFeatureWorkflowMove(
             id: "next-scene",
@@ -639,6 +731,7 @@ enum ScreenplayFeatureWorkflowPlanner {
                 nextSceneDetail: fallbackSceneDetail,
                 structuralObligation: structuralObligation,
                 continuityAnchors: continuityAnchors,
+                sequenceGuide: sequenceGuide,
                 moveTitle: "Write the next scene"
             )
         )
@@ -657,7 +750,24 @@ enum ScreenplayFeatureWorkflowPlanner {
                 nextSceneDetail: "Beat target: \(beatTitle). \(beatDetail)",
                 structuralObligation: structuralObligation,
                 continuityAnchors: continuityAnchors,
+                sequenceGuide: sequenceGuide,
                 moveTitle: "Write the next beat"
+            )
+        )
+
+        let sequenceMove = ScreenplayFeatureWorkflowMove(
+            id: "sequence-turn",
+            title: "Advance \(sequenceGuide.sequenceLabel)",
+            detail: sequenceGuide.dueNow,
+            prompt: buildPageWritePrompt(
+                projectTitle: "",
+                actTitle: actTitle,
+                nextSceneTitle: fallbackSceneTitle,
+                nextSceneDetail: "\(fallbackSceneDetail) Sequence target: \(sequenceGuide.nextScenePlan)",
+                structuralObligation: structuralObligation,
+                continuityAnchors: continuityAnchors,
+                sequenceGuide: sequenceGuide,
+                moveTitle: "Write the next sequence turn"
             )
         )
 
@@ -672,11 +782,35 @@ enum ScreenplayFeatureWorkflowPlanner {
                 nextSceneDetail: fallbackSceneDetail,
                 structuralObligation: structuralObligation,
                 continuityAnchors: continuityAnchors,
+                sequenceGuide: sequenceGuide,
                 moveTitle: "Write toward the act turn"
             )
         )
 
-        return [sceneMove, beatMove, turnMove]
+        return [sceneMove, beatMove, sequenceMove, turnMove]
+    }
+
+    private static func appendSequenceGuide(
+        _ guide: ScreenplayFeatureProgressionGuide,
+        to lines: inout [String]
+    ) {
+        lines.append("")
+        lines.append("Feature sequence guide:")
+        lines.append("- Current sequence: \(featureSequenceTitle(guide)); \(guide.progressText).")
+        lines.append("- Sequence obligation: \(guide.dueNow)")
+        lines.append("- Next scene plan: \(guide.nextScenePlan)")
+        lines.append("- Coming next: \(guide.comingNext)")
+        if !guide.nextMoves.isEmpty {
+            lines.append("- Sequence page moves: \(guide.nextMoves.joined(separator: " -> "))")
+        }
+    }
+
+    private static func featureSequenceTitle(_ guide: ScreenplayFeatureProgressionGuide) -> String {
+        "\(guide.currentAct) - \(guide.sequenceLabel) (\(guide.pageRangeText))"
+    }
+
+    private static func featureSequenceDetail(_ guide: ScreenplayFeatureProgressionGuide) -> String {
+        "\(guide.progressText). \(guide.dueNow)"
     }
 
     private static func buildPageWritePrompt(
@@ -686,6 +820,7 @@ enum ScreenplayFeatureWorkflowPlanner {
         nextSceneDetail: String,
         structuralObligation: String,
         continuityAnchors: [String],
+        sequenceGuide: ScreenplayFeatureProgressionGuide,
         moveTitle: String
     ) -> String {
         var lines: [String] = [
@@ -706,10 +841,13 @@ enum ScreenplayFeatureWorkflowPlanner {
             lines.append("Continuity anchors:")
             lines.append(contentsOf: continuityAnchors.map { "- \($0)" })
         }
+        appendSequenceGuide(sequenceGuide, to: &lines)
         lines.append("")
         lines.append("Feature Compass:")
         lines.append("- Silent preflight: lock act, sequence, scene job, protagonist want/need, emotional handoff, open setup, exit turn, and final-image pressure.")
+        lines.append("- Sequence engine: write this scene as a step in \(featureSequenceTitle(sequenceGuide)); the scene must turn the sequence, not merely fill pages.")
         lines.append("- Scene-to-feature loop: satisfy the local scene objective while changing the whole movie's pressure.")
+        lines.append("- Act-to-act causality: make the last image or decision of the batch create pressure for \(sequenceGuide.comingNext).")
         lines.append("- Page quality gate: no placeholder scenes, generic banter, prose summary, or invented deus-ex-machina information; use visual action, conflict, subtext, and consequence.")
         lines.append("")
         lines.append("Clementine standard: elite feature screenwriting, playable behavior, sharp dialogue, emotional continuity, visual action, no generic prose.")
@@ -721,7 +859,8 @@ enum ScreenplayFeatureWorkflowPlanner {
         nextSceneTitle: String,
         nextSceneDetail: String,
         structuralObligation: String,
-        continuityAnchors: [String]
+        continuityAnchors: [String],
+        sequenceGuide: ScreenplayFeatureProgressionGuide
     ) -> String {
         var lines: [String] = [
             "Plan the next three screenplay turns for this feature.",
@@ -733,6 +872,7 @@ enum ScreenplayFeatureWorkflowPlanner {
             "",
             "Give exactly three turns. For each: dramatic purpose, character pressure, page action, and what it sets up or pays off. Do not write screenplay pages yet."
         ]
+        appendSequenceGuide(sequenceGuide, to: &lines)
         if !continuityAnchors.isEmpty {
             lines.append("")
             lines.append("Continuity anchors:")
@@ -746,7 +886,8 @@ enum ScreenplayFeatureWorkflowPlanner {
         nextSceneTitle: String,
         nextSceneDetail: String,
         structuralObligation: String,
-        continuityAnchors: [String]
+        continuityAnchors: [String],
+        sequenceGuide: ScreenplayFeatureProgressionGuide
     ) -> String {
         var lines: [String] = [
             "Scene doctor the current feature-film section.",
@@ -758,6 +899,7 @@ enum ScreenplayFeatureWorkflowPlanner {
             "",
             "Give concise, specific notes on want, conflict, subtext, act movement, emotional continuity, pacing, and the next page-level fix. Do not write screenplay pages unless asked."
         ]
+        appendSequenceGuide(sequenceGuide, to: &lines)
         if !continuityAnchors.isEmpty {
             lines.append("")
             lines.append("Continuity anchors:")
@@ -890,6 +1032,21 @@ enum ScreenplayFeatureWorkflowPlanner {
         if ratio < 0.25 { return "Act I" }
         if ratio < 0.78 { return "Act II" }
         return "Act III"
+    }
+
+    private static func guidePageCount(currentActTitle: String, estimatedPageCount: Int) -> Int {
+        let title = currentActTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard estimatedPageCount > 0,
+              estimatedPageCount <= 5,
+              title.contains("act ii") ||
+                title.contains("act 2") ||
+                title.contains("second") ||
+                title.contains("act iii") ||
+                title.contains("act 3") ||
+                title.contains("third") else {
+            return estimatedPageCount
+        }
+        return 0
     }
 
     private static func sceneTitle(_ scene: BackendScreenplayScene?) -> String {
