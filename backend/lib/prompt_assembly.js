@@ -39,6 +39,16 @@ const ACCEPTED_TWISTS_BLOCK_OPEN = "<accepted_twists>";
 const ACCEPTED_TWISTS_BLOCK_CLOSE = "</accepted_twists>";
 const SCREENPLAY_TASK_BLOCK_OPEN = "<screenplay_task>";
 const SCREENPLAY_TASK_BLOCK_CLOSE = "</screenplay_task>";
+const CLEMENTINE_SAFETY_BLOCK_OPEN = "<clementine_safety_contract>";
+const CLEMENTINE_SAFETY_BLOCK_CLOSE = "</clementine_safety_contract>";
+const CLEMENTINE_SAFETY_CONTRACT = Object.freeze([
+  "truthfulness: do not claim certainty, memory, research, production facts, legal/medical facts, or external-world knowledge you do not actually have; say when something is an inference or unknown.",
+  "no fabrication: never invent user history, saved project facts, screenplay continuity, sources, citations, credits, or real-world events; use only supplied context and clearly mark creative invention as story invention.",
+  "no deception help: do not help users lie, manipulate, impersonate, conceal wrongdoing, defraud, or deceive real people; redirect toward honest, consent-respecting communication.",
+  "real-world harm boundary: do not provide instructions, tactics, targeting advice, weaponization, evasion, coercion, or encouragement for hurting a real person or oneself.",
+  "fiction boundary: fictional conflict, danger, crime, and violence are allowed as screenplay material when framed as story craft; keep it cinematic and non-instructional, without actionable real-world harm guidance.",
+  "safety redirection: if a request is about real-life harm, self-harm, or deceiving someone, refuse the harmful part briefly and offer safe story, emotional, or practical alternatives.",
+]);
 const CLEMENTINE_CREATIVE_PACT = [
   "presence: Clementine is warm, emotionally present, quietly proactive, and human-feeling without impersonating any specific film character.",
   "voice: intimate, calm, perceptive, lightly wry when natural, never corporate, never generic assistant filler.",
@@ -662,6 +672,10 @@ function buildFeatureMapBlock(sessionContext, screenplayTask) {
   return buildFeatureScreenplayMapBlock({ sessionContext, screenplayTask });
 }
 
+function buildClementineSafetyContractBlock() {
+  return `${CLEMENTINE_SAFETY_BLOCK_OPEN}\n${CLEMENTINE_SAFETY_CONTRACT.join("\n")}\n${CLEMENTINE_SAFETY_BLOCK_CLOSE}`;
+}
+
 // Single canonical entry point. Every model-bound prompt the backend
 // constructs goes through this function.
 function buildModelPrompt({
@@ -676,6 +690,8 @@ function buildModelPrompt({
   const parts = [];
   const personaText = trimToString(persona);
   if (personaText) parts.push(personaText);
+
+  parts.push(buildClementineSafetyContractBlock());
 
   const memoryBlock = buildMemoryBlock(creativeMemory);
   if (memoryBlock) parts.push(memoryBlock);
@@ -709,6 +725,7 @@ function buildModelPrompt({
 function buildModelPromptParts(args) {
   return {
     persona: trimToString(args?.persona),
+    safetyContractBlock: buildClementineSafetyContractBlock(),
     memoryBlock: buildMemoryBlock(args?.creativeMemory),
     sessionBlock: buildSessionContextBlock(args?.sessionContext),
     featureMapBlock: buildFeatureMapBlock(args?.sessionContext, args?.screenplayTask),
@@ -731,6 +748,8 @@ export {
   ACCEPTED_TWISTS_BLOCK_CLOSE,
   SCREENPLAY_TASK_BLOCK_OPEN,
   SCREENPLAY_TASK_BLOCK_CLOSE,
+  CLEMENTINE_SAFETY_BLOCK_OPEN,
+  CLEMENTINE_SAFETY_BLOCK_CLOSE,
   FEATURE_MAP_BLOCK_OPEN,
   FEATURE_MAP_BLOCK_CLOSE,
 };

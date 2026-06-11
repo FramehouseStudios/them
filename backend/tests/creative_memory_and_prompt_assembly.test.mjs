@@ -21,6 +21,8 @@ import {
   MEMORY_BLOCK_CLOSE,
   BLOCK_SIGNAL_BLOCK_OPEN,
   SCREENPLAY_TASK_BLOCK_OPEN,
+  CLEMENTINE_SAFETY_BLOCK_OPEN,
+  CLEMENTINE_SAFETY_BLOCK_CLOSE,
   FEATURE_MAP_BLOCK_OPEN,
 } from "../lib/prompt_assembly.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
@@ -128,6 +130,23 @@ test("buildModelPrompt emits no memory block when memory is null", () => {
   assert.ok(out.endsWith("Write the next beat."));
 });
 
+test("buildModelPrompt always carries Clementine safety and truthfulness contract", () => {
+  const out = buildModelPrompt({
+    persona: "You are Clementine.",
+    userInput: "Help me write a thriller scene.",
+  });
+  assert.ok(out.includes(CLEMENTINE_SAFETY_BLOCK_OPEN));
+  assert.ok(out.includes("do not claim certainty"));
+  assert.ok(out.includes("never invent user history"));
+  assert.ok(out.includes("do not help users lie"));
+  assert.ok(out.includes("do not provide instructions"));
+  assert.ok(out.includes("fictional conflict, danger, crime, and violence are allowed as screenplay material"));
+  assert.ok(out.includes("non-instructional"));
+  assert.ok(out.includes(CLEMENTINE_SAFETY_BLOCK_CLOSE));
+  assert.ok(out.indexOf("You are Clementine.") < out.indexOf(CLEMENTINE_SAFETY_BLOCK_OPEN));
+  assert.ok(out.indexOf(CLEMENTINE_SAFETY_BLOCK_CLOSE) < out.indexOf("Help me write a thriller scene."));
+});
+
 test("buildModelPrompt emits no memory block when memory is empty", () => {
   const out = buildModelPrompt({
     persona: "x",
@@ -161,10 +180,11 @@ test("buildModelPrompt orders blocks: persona → memory → session → user", 
     userInput: "USER-MARK",
   });
   const personaIdx = out.indexOf("PERSONA-MARK");
+  const safetyIdx = out.indexOf(CLEMENTINE_SAFETY_BLOCK_OPEN);
   const memoryIdx = out.indexOf(MEMORY_BLOCK_OPEN);
   const sessionIdx = out.indexOf("<session>");
   const userIdx = out.indexOf("USER-MARK");
-  assert.ok(personaIdx >= 0 && memoryIdx > personaIdx && sessionIdx > memoryIdx && userIdx > sessionIdx);
+  assert.ok(personaIdx >= 0 && safetyIdx > personaIdx && memoryIdx > safetyIdx && sessionIdx > memoryIdx && userIdx > sessionIdx);
 });
 
 test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs", () => {
@@ -527,6 +547,7 @@ test("buildModelPromptParts returns the inspectable parts", () => {
     userInput: "U",
   });
   assert.equal(parts.persona, "P");
+  assert.ok(parts.safetyContractBlock.includes(CLEMENTINE_SAFETY_BLOCK_OPEN));
   assert.ok(parts.memoryBlock.includes("Alice"));
   assert.equal(parts.userInput, "U");
 });
@@ -641,12 +662,14 @@ test("[prompt-wire] block order: persona → memory → session → accepted_twi
     userInput: "USER",
   });
   const personaIdx = out.indexOf("PERSONA");
+  const safetyIdx = out.indexOf(CLEMENTINE_SAFETY_BLOCK_OPEN);
   const memoryIdx = out.indexOf(MEMORY_BLOCK_OPEN);
   const sessionIdx = out.indexOf("<session>");
   const twistsIdx = out.indexOf("<accepted_twists>");
   const blockSignalIdx = out.indexOf(BLOCK_SIGNAL_BLOCK_OPEN);
   const userIdx = out.indexOf("USER");
-  assert.ok(personaIdx >= 0 && personaIdx < memoryIdx);
+  assert.ok(personaIdx >= 0 && personaIdx < safetyIdx);
+  assert.ok(safetyIdx < memoryIdx);
   assert.ok(memoryIdx < sessionIdx);
   assert.ok(sessionIdx < twistsIdx);
   assert.ok(twistsIdx < blockSignalIdx);
