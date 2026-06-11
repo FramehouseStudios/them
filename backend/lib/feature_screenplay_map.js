@@ -242,6 +242,26 @@ function nextSequenceAfter(sequence) {
   return FEATURE_SEQUENCE_TEMPLATE[Math.min(index + 1, FEATURE_SEQUENCE_TEMPLATE.length - 1)];
 }
 
+function bridgePressureForSequence(sequence = null) {
+  switch (trimToString(sequence?.id, 40)) {
+    case "sequence-1":
+    case "sequence-2":
+      return FEATURE_ACT_BRIDGES[0];
+    case "sequence-3":
+    case "sequence-4":
+      return FEATURE_ACT_BRIDGES[1];
+    case "sequence-5":
+      return FEATURE_ACT_BRIDGES[2];
+    case "sequence-6":
+      return FEATURE_ACT_BRIDGES[3];
+    case "sequence-7":
+    case "sequence-8":
+      return FEATURE_ACT_BRIDGES[4];
+    default:
+      return "";
+  }
+}
+
 function isWholeFeatureActTarget(actLabel) {
   const text = trimToString(actLabel, 160).toLowerCase();
   if (!text) return false;
@@ -643,6 +663,119 @@ function buildFeaturePageBatchPlanLines({
   return lines;
 }
 
+function buildActSequenceObligationStackLines({
+  sessionContext = {},
+  screenplayTask = null,
+  sequence = null,
+  targetPages = DEFAULT_FEATURE_TARGET_PAGES,
+  currentPage = 0,
+  explicitAct = "",
+  requestedAct = "",
+} = {}) {
+  const requestedPages = requestedPageBatchFromTask(screenplayTask);
+  const targetAct = requestedAct || explicitAct;
+  const activeSequence = sequence || firstSequenceForActLabel(targetAct);
+  const activeEngine = actPageEngineForLabel(activeSequence?.act || targetAct);
+  const bridgePressure = bridgePressureForSequence(activeSequence);
+  const nextSequence = nextSequenceAfter(activeSequence);
+  const hasUsefulContext = Boolean(
+    activeSequence ||
+    activeEngine ||
+    requestedPages > 0 ||
+    currentPage > 0 ||
+    targetAct ||
+    sessionContext?.actPressureState ||
+    sessionContext?.act_pressure_state ||
+    sessionContext?.characterArcState ||
+    sessionContext?.character_arc_state ||
+    sessionContext?.nextThreeTurns ||
+    sessionContext?.next_three_turns ||
+    sessionContext?.actThreePayoffPath ||
+    sessionContext?.act_three_payoff_path ||
+    sessionContext?.unresolvedSetups ||
+    sessionContext?.unresolved_setups
+  );
+  if (!hasUsefulContext) return [];
+
+  const nextThreeTurns = sanitizeContextList(
+    sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
+    3,
+    180
+  );
+  const unresolvedSetups = sanitizeContextList(
+    sessionContext.unresolvedSetups ?? sessionContext.unresolved_setups ?? sessionContext.openLoops ?? sessionContext.open_loops,
+    4,
+    200
+  );
+  const actThreePayoffPath = sanitizeContextList(
+    sessionContext.actThreePayoffPath ?? sessionContext.act_three_payoff_path ?? sessionContext.payoffPath ?? sessionContext.payoff_path,
+    4,
+    200
+  );
+  const characterArcState = trimContextLine(
+    sessionContext.characterArcState ?? sessionContext.character_arc_state,
+    240
+  );
+  const endingImage = trimContextLine(
+    sessionContext.endingImage ?? sessionContext.ending_image ?? sessionContext.finalImage ?? sessionContext.final_image,
+    220
+  );
+  const actPressureState = trimContextLine(
+    sessionContext.actPressureState ?? sessionContext.act_pressure_state,
+    260
+  );
+  const lines = [
+    "  act_sequence_obligation_stack:",
+    "    purpose: force every requested page to advance the whole feature, not just decorate the next scene.",
+  ];
+
+  if (activeEngine) lines.push(`    active_act: ${activeEngine.label}`);
+  if (activeSequence) {
+    const range = scaledRange(activeSequence, targetPages);
+    lines.push(`    active_lane: ${activeSequence.act} - ${activeSequence.label} (p${range.start}-${range.end})`);
+    lines.push(`    pressure_now: ${activeSequence.pressure}`);
+    lines.push(`    due_now: ${activeSequence.obligation}`);
+  } else if (targetAct) {
+    lines.push(`    active_lane: ${targetAct}`);
+    lines.push(`    pressure_now: ${actPressureForLabel(targetAct)}`);
+  }
+
+  if (requestedPages > 0) lines.push(`    requested_batch: ${requestedPages} pages`);
+  if (currentPage > 0) lines.push(`    page_position: p${clamp(currentPage, 1, targetPages)} / ${targetPages}`);
+  if (actPressureState) lines.push(`    remembered_act_pressure: ${actPressureState}`);
+  if (characterArcState) lines.push(`    changed_behavior_due: ${characterArcState}`);
+
+  if (activeEngine) {
+    lines.push("    act_mandates:");
+    for (const mandate of activeEngine.mandates) lines.push(`      - ${mandate}`);
+  }
+
+  if (nextThreeTurns.length || unresolvedSetups.length || actThreePayoffPath.length || endingImage) {
+    lines.push("    memory_obligations:");
+    for (const turn of nextThreeTurns) lines.push(`      - next_turn: ${turn}`);
+    for (const setup of unresolvedSetups) lines.push(`      - setup_to_carry_or_pay: ${setup}`);
+    for (const payoff of actThreePayoffPath) lines.push(`      - act_three_payoff: ${payoff}`);
+    if (endingImage) lines.push(`      - final_image_pressure: ${endingImage}`);
+  }
+
+  if (bridgePressure) lines.push(`    bridge_pressure: ${bridgePressure}`);
+  if (activeSequence && nextSequence && nextSequence.id !== activeSequence.id) {
+    const nextRange = scaledRange(nextSequence, targetPages);
+    lines.push(`    next_sequence_handoff: ${nextSequence.act} - ${nextSequence.label} (p${nextRange.start}-${nextRange.end}): ${nextSequence.obligation}`);
+  } else if (activeSequence?.id === "sequence-8") {
+    lines.push("    final_image_handoff: resolve the central question through changed behavior, then echo the opening image with transformed meaning.");
+  }
+
+  lines.push("    page_turn_contract:");
+  lines.push("      - launch: begin from inherited residue as visible behavior, not explanation.");
+  lines.push("      - tactic: make the protagonist try a playable action that can fail or cost them.");
+  lines.push("      - turn: every page must shift leverage, information, relationship, tactic, or emotional cost.");
+  lines.push("      - payoff: spend remembered setups before inventing new solutions.");
+  lines.push("      - residue: end on a decision, reveal, cost, image, or irreversible choice that feeds the next sequence.");
+  lines.push("      - final_act_rule: Act III pages must resolve through changed behavior and final image contrast, never unearned new information.");
+  return lines;
+}
+
 function buildStorySpineLines(sessionContext = {}) {
   const spineFields = [
     ["logline", sessionContext.logline],
@@ -949,6 +1082,15 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
       targetPages,
       currentPage,
       explicitAct,
+    }),
+    ...buildActSequenceObligationStackLines({
+      sessionContext: sessionContext || {},
+      screenplayTask,
+      sequence,
+      targetPages,
+      currentPage,
+      explicitAct,
+      requestedAct,
     }),
     ...buildStorySpineLines(sessionContext || {}),
     ...buildContinuityAssetLines(sessionContext || {}),

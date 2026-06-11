@@ -428,6 +428,16 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("current_position: p78 / 110"));
   assert.ok(out.includes("current_sequence: Act II - Collapse / All Is Lost"));
   assert.ok(out.includes("active_act_label: Act II"));
+  assert.ok(out.includes("act_sequence_obligation_stack:"));
+  assert.ok(out.includes("active_lane: Act II - Collapse / All Is Lost (p71-85)"));
+  assert.ok(out.includes("due_now: Pay off planted dread"));
+  assert.ok(out.includes("remembered_act_pressure: The all-is-lost lane must convert humiliation"));
+  assert.ok(out.includes("changed_behavior_due: Mara has to stop confusing control with loyalty."));
+  assert.ok(out.includes("memory_obligations:"));
+  assert.ok(out.includes("setup_to_carry_or_pay: The sister's voicemail has not paid off."));
+  assert.ok(out.includes("bridge_pressure: All Is Lost -> Act III"));
+  assert.ok(out.includes("next_sequence_handoff: Act III - Break Into Three / Final Plan"));
+  assert.ok(out.includes("page_turn_contract:"));
   assert.ok(out.includes("due_now:"));
   assert.ok(out.includes("confront the need beneath the want"));
   assert.ok(out.includes("next_page_moves:"));
@@ -574,6 +584,13 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("target_act: Act II"));
   assert.ok(out.includes("starting_position: p47 / 110"));
   assert.ok(out.includes("active_sequence_pressure: Act II - Midpoint Pressure"));
+  assert.ok(out.includes("act_sequence_obligation_stack:"));
+  assert.ok(out.includes("active_lane: Act II - Midpoint Pressure (p41-55)"));
+  assert.ok(out.includes("pressure_now: Drive toward a midpoint reversal"));
+  assert.ok(out.includes("due_now: The midpoint must raise stakes"));
+  assert.ok(out.includes("bridge_pressure: Act IIa -> Midpoint"));
+  assert.ok(out.includes("next_sequence_handoff: Act II - Reversal Fallout"));
+  assert.ok(out.includes("page_turn_contract:"));
   assert.ok(out.includes("act_aware_page_engine:"));
   assert.ok(out.includes("active_sequence_job: Act II - Midpoint Pressure"));
   assert.ok(out.includes("Do not repeat the premise as a string of similar tests."));
@@ -585,6 +602,51 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(!out.includes("keep diagnosis to one sentence"));
   assert.ok(!out.includes("give one concise strategy note then write playable Fountain"));
   assert.ok(out.includes("end_condition: finish the batch on a decision, reveal, cost, or image"));
+});
+
+test("[screenplay-task] act three page requests carry payoff and final-image obligations", () => {
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    sessionContext: {
+      projectId: "feature-act-three-1",
+      act: "Act III",
+      pageCount: 100,
+      targetPages: 110,
+      endingImage: "The empty pool filled with rainwater at dawn.",
+      characterArcState: "Mara can only win by choosing public truth over private control.",
+      actPressureState: "The final sequence must turn the old need into changed behavior.",
+      actThreePayoffPath: [
+        "The sister's voicemail becomes testimony.",
+        "The broken microphone becomes the public proof.",
+      ],
+      unresolvedSetups: [
+        "The opening empty-pool image still needs its transformed mirror.",
+        "The buried first report has not been exposed.",
+      ],
+      draftExcerpt: "INT. COURTHOUSE - NIGHT\n\nMARA looks at the dead microphone.",
+    },
+    screenplayTask: inferScreenplayTask("Write the next 5 pages of act three."),
+    userInput: "Write the next 5 pages of act three.",
+  });
+
+  assert.ok(out.includes("feature_scope: page_batch"));
+  assert.ok(out.includes("requested_act: Act III"));
+  assert.ok(out.includes("requested_page_batch: 5"));
+  assert.ok(out.includes("act_sequence_obligation_stack:"));
+  assert.ok(out.includes("active_act: Act III"));
+  assert.ok(out.includes("active_lane: Act III - Climax / Final Image (p99-110)"));
+  assert.ok(out.includes("due_now: The climax should make the inner arc visible"));
+  assert.ok(out.includes("changed_behavior_due: Mara can only win by choosing public truth over private control."));
+  assert.ok(out.includes("memory_obligations:"));
+  assert.ok(out.includes("act_three_payoff: The sister's voicemail becomes testimony."));
+  assert.ok(out.includes("setup_to_carry_or_pay: The opening empty-pool image still needs its transformed mirror."));
+  assert.ok(out.includes("final_image_pressure: The empty pool filled with rainwater at dawn."));
+  assert.ok(out.includes("bridge_pressure: Act III -> Final Image"));
+  assert.ok(out.includes("final_image_handoff: resolve the central question through changed behavior"));
+  assert.ok(out.includes("page_turn_contract:"));
+  assert.ok(out.includes("final_act_rule: Act III pages must resolve through changed behavior and final image contrast"));
+  assert.ok(out.includes("Aim Act III pages at the remembered payoff path"));
+  assert.ok(out.includes("Never solve Act III by adding information the movie has not earned"));
 });
 
 test("buildModelPrompt is deterministic (same inputs → same output)", () => {
