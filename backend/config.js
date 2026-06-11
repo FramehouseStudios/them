@@ -42,9 +42,9 @@ const AUTH_APPLE_AUDIENCE = String(process.env.AUTH_APPLE_AUDIENCE || "").trim()
 const AUTH_APPLE_TEST_JWT_SECRET = String(process.env.AUTH_APPLE_TEST_JWT_SECRET || "").trim();
 const AUTH_APPLE_JWT_PUBLIC_KEY = String(process.env.AUTH_APPLE_JWT_PUBLIC_KEY || "").trim();
 
-// Protected routes are secure-by-default in production. A deliberate guest
-// posture is a product decision, so production boot rejects explicit false-ish
-// values in assertProductionEnv instead of quietly exposing user data routes.
+// Protected routes are secure-by-default in production. V1 requires login:
+// production boot rejects explicit false-ish values instead of quietly
+// exposing user data routes.
 function resolveRequireUserAuth(env = process.env) {
   const nodeEnv = String(env.NODE_ENV || "development").trim().toLowerCase();
   if (nodeEnv === "production") return true;

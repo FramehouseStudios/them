@@ -35,23 +35,32 @@ Rules:
 
 ## Open
 
-### D-guest-mode-vs-required-login — Does V1 require login, or allow guest use?
-- **Asked by:** claude
-- **Asked at:** 2026-06-10
-- **Why it matters:** `REQUIRE_USER_AUTH` previously defaulted off in
-  production, silently leaving `/talk`, `/state`, `/memories`, `/screenplay`,
-  and related protected routes reachable by any client with the app token.
-  Production is now secure-by-default and refuses to boot if user auth is
-  explicitly disabled. The remaining product question is whether a future V1
-  guest mode should be intentionally designed instead of accidentally exposed.
-- **Question:** For V1, must every user sign in before reaching the protected
-  routes, or should a scoped unauthenticated guest mode be approved and built?
-- **Default if no answer:** Require login. Production runs with
-  `REQUIRE_USER_AUTH=true`; no guest mode ships until explicitly approved.
+No open decisions.
 
 ---
 
 ## Resolved
+
+### D-guest-mode-vs-required-login — Does V1 require login, or allow guest use?
+- **Asked by:** claude
+- **Asked at:** 2026-06-10
+- **Resolved at:** 2026-06-11
+- **Resolution:** **Require login. No guest mode in production.** Production
+  must enforce user auth on protected routes. An unset value remains
+  secure-by-default; an explicit `REQUIRE_USER_AUTH=false`/`0`/`no`
+  misconfiguration fails startup loudly.
+- **Resolved by:** Human product lead, 2026-06-11. Implementation evidence:
+  `resolveRequireUserAuth()` and `assertProductionEnv()` in
+  `backend/config.js`; regression coverage in
+  `backend/tests/config_assert_production_env.test.mjs`.
+- **Original why it mattered:** `REQUIRE_USER_AUTH` previously defaulted off in
+  production, silently leaving `/talk`, `/state`, `/memories`, `/screenplay`,
+  and related protected routes reachable by any client with the app token.
+- **Question answered:** For V1, must every user sign in before reaching the
+  protected routes, or should a scoped unauthenticated guest mode be approved
+  and built?
+- **Default if no answer was:** Require login. Production runs with user auth
+  enforced; no guest mode ships until explicitly approved.
 
 ### D-account-export-key-scope — How is per-user data keyed for export?
 - **Asked by:** claude
