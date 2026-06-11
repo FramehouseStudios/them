@@ -5443,6 +5443,33 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
   };
 }
 
+function applyTalkScreenplayRepairCandidate({
+  currentOutput = null,
+  candidateReply = "",
+  transcript = "",
+  studioMeta = null,
+} = {}) {
+  if (!studioMeta || typeof studioMeta !== "object") return null;
+  if (String(studioMeta.screenplayTarget || "").trim().toLowerCase() !== "page") return null;
+  const currentSource = String(currentOutput?.source || "").trim().toLowerCase();
+  const currentTarget = String(currentOutput?.target || "").trim().toLowerCase();
+  if (currentTarget === "page" && !currentSource.startsWith("guard_")) return null;
+  if (currentSource && !currentSource.startsWith("guard_")) return null;
+
+  const repaired = buildTalkScreenplayOutput({
+    reply: candidateReply,
+    transcript,
+    studioMeta,
+  });
+  if (String(repaired?.target || "").trim().toLowerCase() !== "page") return null;
+  return {
+    ...repaired,
+    source: repaired.source === "repaired_scene_anchor"
+      ? "repair_pass_scene_anchor"
+      : "repair_pass",
+  };
+}
+
 function buildTalkReplyPreview({ reply = "", screenplayOutput = null } = {}) {
   const normalizedReply = normalizeSnippet(reply, 8_000);
   if (!screenplayOutput || String(screenplayOutput.target || "").trim().toLowerCase() !== "page") {
@@ -30172,6 +30199,7 @@ const handleTalkRequest = createTalkHandler({
   WEEKLY_EXPANSION_EXISTENTIAL_TURNS,
   WEEKLY_EXPANSION_SELF_AWARENESS_TURNS,
   appendCraftContextToSystem,
+  applyTalkScreenplayRepairCandidate,
   appendDirectorAddendum,
   applyAdaptiveTurnLearning,
   applyTtsLeadIn,
@@ -30639,6 +30667,7 @@ export {
   directorFlagsFromTranscript,
   inferRoutingPriorityLane,
   buildTalkScreenplayOutput,
+  applyTalkScreenplayRepairCandidate,
   isAuthoritativeTalkScreenplayOutput,
   buildTurnPlanner,
   selectChatModelForTurn,

@@ -6,6 +6,7 @@ process.env.OPENAI_API_KEY ||= "test-openai-key";
 process.env.REALTIME_PROVIDER ||= "stub";
 
 const {
+  applyTalkScreenplayRepairCandidate,
   buildTalkScreenplayOutput,
   isAuthoritativeTalkScreenplayOutput,
   normalizeTalkPageReply,
@@ -323,6 +324,78 @@ test("[talk-screenplay-output] rejects underfilled requested page batches", () =
 
   assert.equal(output.target, "voice_pin");
   assert.equal(output.source, "guard_low_page_quality");
+});
+
+test("[talk-screenplay-output] accepts a repair-pass candidate after the live guard rejects the first draft", () => {
+  const studioMeta = {
+    screenplayTarget: "page",
+    screenplayAnchorSceneLabel: "INT. MOTEL ROOM - NIGHT",
+  };
+  const transcript = "Continue the motel scene as screenplay pages.";
+  const failed = buildTalkScreenplayOutput({
+    reply: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "Beat 1: June confronts Marcus about the receipt.",
+      "The scene should escalate suspicion before the reveal.",
+    ].join("\n"),
+    transcript,
+    studioMeta,
+  });
+  assert.equal(failed.target, "voice_pin");
+  assert.equal(failed.source, "guard_low_page_quality");
+
+  const repaired = applyTalkScreenplayRepairCandidate({
+    currentOutput: failed,
+    candidateReply: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June folds the receipt into a white square and slides it under the motel Bible.",
+      "",
+      "MARCUS",
+      "You kept it.",
+      "",
+      "The bathroom faucet knocks once inside the wall. June looks at his wet cuffs before she looks at his face.",
+      "",
+      "JUNE",
+      "I kept everything you were afraid to touch.",
+    ].join("\n"),
+    transcript,
+    studioMeta,
+  });
+
+  assert.equal(repaired.target, "page");
+  assert.equal(repaired.source, "repair_pass");
+  assert.equal(
+    isAuthoritativeTalkScreenplayOutput(repaired, { studioMeta, transcript }),
+    true
+  );
+});
+
+test("[talk-screenplay-output] rejects repair-pass candidates that still look like outlines", () => {
+  const studioMeta = {
+    screenplayTarget: "page",
+    screenplayAnchorSceneLabel: "INT. MOTEL ROOM - NIGHT",
+  };
+  const failed = {
+    target: "voice_pin",
+    source: "guard_low_page_quality",
+    text: "",
+    lines: [],
+  };
+  const repaired = applyTalkScreenplayRepairCandidate({
+    currentOutput: failed,
+    candidateReply: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "Next three turns: June hides the receipt, Marcus admits the lie, the truth lands.",
+      "The scene should create more pressure.",
+    ].join("\n"),
+    transcript: "Write the next page.",
+    studioMeta,
+  });
+
+  assert.equal(repaired, null);
 });
 
 test("[talk-screenplay-output] final authority gate rejects outline drift", () => {

@@ -174,6 +174,7 @@ function createTalkHandler(deps) {
     buildTalkDirectTranscriptScreenplayOutput,
     buildTalkReplyPreview,
     buildTalkScreenplayOutput,
+    applyTalkScreenplayRepairCandidate,
     buildTalkTestDebugOfflineReply,
     buildTaskActionReply,
     buildTherapeuticDepthAddendum,
@@ -376,6 +377,121 @@ function createTalkHandler(deps) {
         String(talkScreenplayOutput?.source || "").trim().toLowerCase().startsWith("repaired_")
       ),
     };
+  }
+
+  async function attemptTalkScreenplayRepairPass({
+    currentOutput = null,
+    rawReply = "",
+    transcript = "",
+    studioMeta = null,
+    chatModelPlan = null,
+    chatTemperature = 0.4,
+    chatMaxTokens = 1_500,
+    rid = "",
+  } = {}) {
+    if (typeof applyTalkScreenplayRepairCandidate !== "function") return null;
+    if (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() !== "page") return null;
+    const currentSource = String(currentOutput?.source || "").trim().toLowerCase();
+    const currentTarget = String(currentOutput?.target || "").trim().toLowerCase();
+    if (currentTarget === "page" && !currentSource.startsWith("guard_")) return null;
+    if (currentSource && !currentSource.startsWith("guard_")) return null;
+
+    const failedDraft = normalizeTalkMultilineSnippet(rawReply, 6_000);
+    const userRequest = normalizeTalkMultilineSnippet(transcript, 2_000);
+    if (!failedDraft && !userRequest) return null;
+    const sceneAnchor = normalizeSnippet(
+      studioMeta?.screenplayAnchorSceneLabel || studioMeta?.screenplaySceneLabel || studioMeta?.sceneLabel,
+      180
+    );
+    const requestedPages = normalizeSnippet(
+      studioMeta?.screenplayRequestedPages ??
+        studioMeta?.screenplay_requested_pages ??
+        studioMeta?.screenplayPageBatch ??
+        studioMeta?.screenplay_page_batch ??
+        studioMeta?.screenplayTargetPages ??
+        "",
+      32
+    );
+    const repairMessages = [
+      {
+        role: "system",
+        content: [
+          "You are Clementine's screenplay page repair pass.",
+          "The previous answer failed the live page-quality gate.",
+          "Return only clean playable Fountain screenplay text.",
+          "No diagnosis, no markdown, no outline, no placeholders, no strategy note, no permission question.",
+          "Use scene heading, action, character cues, dialogue, subtext, visible behavior, escalation, and a turn.",
+          sceneAnchor ? `If the scene heading is missing, begin with exactly: ${sceneAnchor}` : "If no scene heading is supplied, create a specific INT./EXT. scene heading.",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          `FAILED_GATE: ${currentSource || "guard_low_page_quality"}`,
+          requestedPages ? `REQUESTED_PAGES: ${requestedPages}` : "",
+          sceneAnchor ? `SCENE_ANCHOR: ${sceneAnchor}` : "",
+          "",
+          "USER_REQUEST:",
+          userRequest || "(not supplied)",
+          "",
+          "FAILED_DRAFT:",
+          failedDraft || "(empty)",
+          "",
+          "Repair it into usable screenplay pages now. Output only the screenplay text.",
+        ].filter((line) => line !== "").join("\n"),
+      },
+    ];
+    const startedAt = Date.now();
+    try {
+      const repairResult = await chatSupplier.chat({
+        model: String(chatModelPlan?.model || ""),
+        temperature: Math.min(0.35, Math.max(0, Number(chatTemperature || 0.4))),
+        maxTokens: Math.max(512, Math.min(6_000, Number(chatMaxTokens || 1_500))),
+        messages: repairMessages,
+      });
+      const repairMs = Date.now() - startedAt;
+      if (!repairResult?.response?.ok) {
+        logger.log(
+          `[${rid}] screenplay_repair_pass failed status=${Number(repairResult?.response?.status || 0)} source=${currentSource || "unknown"}`
+        );
+        return { repaired: false, elapsedMs: repairMs };
+      }
+      let repairJson;
+      try {
+        repairJson = JSON.parse(String(repairResult.rawText || ""));
+      } catch (_err) {
+        logger.log(`[${rid}] screenplay_repair_pass invalid_json=1 source=${currentSource || "unknown"}`);
+        return { repaired: false, elapsedMs: repairMs };
+      }
+      const candidateReply = normalizeTalkMultilineSnippet(
+        repairJson?.choices?.[0]?.message?.content || "",
+        8_000
+      );
+      const repairedOutput = applyTalkScreenplayRepairCandidate({
+        currentOutput,
+        candidateReply,
+        transcript,
+        studioMeta,
+      });
+      if (!repairedOutput) {
+        logger.log(`[${rid}] screenplay_repair_pass rejected_by_gate=1 source=${currentSource || "unknown"}`);
+        return { repaired: false, elapsedMs: repairMs };
+      }
+      logger.log(
+        `[${rid}] screenplay_repair_pass repaired=1 source=${currentSource || "unknown"} chars=${candidateReply.length}`
+      );
+      return {
+        repaired: true,
+        elapsedMs: repairMs,
+        reply: normalizeTalkScreenplayText(repairedOutput.text || candidateReply),
+        output: repairedOutput,
+      };
+    } catch (err) {
+      logger.log(
+        `[${rid}] screenplay_repair_pass error=${normalizeSnippet(String(err?.message || err || "unknown"), 180)}`
+      );
+      return { repaired: false, elapsedMs: Date.now() - startedAt };
+    }
   }
 
   return async function handleTalkRequest(req, res) {
@@ -3249,11 +3365,36 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     const talkScreenplayPhase = talkScreenplayModeEnabled
       ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page" ? "scene_draft" : "voice_pin")
       : "";
-    const talkScreenplayOutput = buildTalkScreenplayOutput({
+    let talkScreenplayOutput = buildTalkScreenplayOutput({
       reply,
       transcript: talkGenerationTranscript,
       studioMeta,
     });
+    if (
+      isScreenplayPageWriteTurn &&
+      !localActionReply &&
+      String(talkScreenplayOutput?.target || "").trim().toLowerCase() !== "page"
+    ) {
+      const repairPass = await attemptTalkScreenplayRepairPass({
+        currentOutput: talkScreenplayOutput,
+        rawReply,
+        transcript: talkGenerationTranscript,
+        studioMeta,
+        chatModelPlan,
+        chatTemperature,
+        chatMaxTokens,
+        rid,
+      });
+      if (repairPass?.elapsedMs) {
+        chatMs += Math.max(0, Number(repairPass.elapsedMs || 0));
+      }
+      if (repairPass?.repaired && repairPass.output) {
+        talkScreenplayOutput = repairPass.output;
+        reply = repairPass.reply || normalizeTalkScreenplayText(repairPass.output.text || reply);
+        rawReply = reply;
+        replyRepaired = true;
+      }
+    }
     const talkReplyPreview = buildTalkReplyPreview({
       reply,
       screenplayOutput: talkScreenplayOutput,
