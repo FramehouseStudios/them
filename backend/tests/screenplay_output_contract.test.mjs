@@ -121,6 +121,30 @@ test("screenplay output contract strips echoed page velocity labels before pages
   ].join("\n"));
 });
 
+test("screenplay output contract strips echoed feature-memory labels before pages", () => {
+  const input = [
+    "Next three turns: Father names the lie; Mara chooses public exposure.",
+    "Act III payoff path: The sealed affidavit pays off in open court.",
+    "Memory to page execution: dramatize turn one first.",
+    "",
+    "INT. COURTHOUSE HALLWAY - NIGHT",
+    "",
+    "Mara presses the affidavit against the glass until the clerk looks up.",
+    "",
+    "MARA",
+    "Then stamp it where everyone can see."
+  ].join("\n");
+
+  assert.equal(normalizeScreenplayOutputContractText(input), [
+    "INT. COURTHOUSE HALLWAY - NIGHT",
+    "",
+    "Mara presses the affidavit against the glass until the clerk looks up.",
+    "",
+    "MARA",
+    "Then stamp it where everyone can see."
+  ].join("\n"));
+});
+
 test("screenplay output contract strips markdown headings, labels, and dividers before pages", () => {
   const input = [
     "## Screenplay Pages",
@@ -228,6 +252,9 @@ test("screenplay output starter and drift classifiers stay conservative", () => 
   assert.equal(looksLikeScreenplayChatDriftLine("END SCENE."), true);
   assert.equal(looksLikeScreenplayStrategyLeadInLine("One strategy note: start on the door."), true);
   assert.equal(looksLikeScreenplayStrategyLeadInLine("Page velocity: start on the door."), true);
+  assert.equal(looksLikeScreenplayStrategyLeadInLine("Next three turns: start with the affidavit."), true);
+  assert.equal(looksLikeScreenplayStrategyLeadInLine("Act III payoff path: spend the opening image."), true);
+  assert.equal(looksLikeScreenplayStrategyLeadInLine("Memory to page execution: dramatize turn one."), true);
   assert.equal(looksLikeScreenplayStrategyLeadInLine("The scene needs one irreversible turn."), true);
   assert.equal(looksLikeScreenplayStrategyLeadInLine("This keeps the scene under pressure."), true);
   assert.equal(looksLikeScreenplayStrategyLeadInLine("June studies the receipt."), false);

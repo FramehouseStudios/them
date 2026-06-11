@@ -139,7 +139,7 @@ export function looksLikeScreenplayStrategyLeadInLine(line = "") {
   if (looksLikeScreenplayOutputStarterLine(line)) return false;
 
   return [
-    /^(?:one\s+)?(?:quick\s+)?(?:strategy|craft|diagnosis|note|page-first note|page velocity|output contract|highest-leverage fix)\b/,
+    /^(?:one\s+)?(?:quick\s+)?(?:strategy|craft|diagnosis|note|page-first note|page velocity|output contract|highest-leverage fix|next three turns?|act iii payoff path|payoff path|memory to page execution|turn runway)\b/,
     /^the (?:move|turn|pressure|subtext|engine|page|scene|beat) (?:is|here is)\b/,
     /^(?:this|the) (?:scene|beat|page|moment|exchange|pass) (?:needs|wants|should|must|can)\b/,
     /^this (?:gives|keeps|lets|makes|should give|should keep)\b.*\b(?:scene|beat|page|moment|exchange|dialogue|character|pressure|subtext|tension|emotion|turn)\b/,

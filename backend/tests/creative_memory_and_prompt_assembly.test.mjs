@@ -379,6 +379,7 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   assert.ok(finishFeature.includes("next three turns"));
   assert.ok(finishFeature.includes("Act III payoff path"));
   assert.ok(finishFeature.includes("unresolved promises"));
+  assert.ok(finishFeature.includes("When memory contains a next-turn runway, turn the first remembered turn into playable behavior"));
 
   const sceneDoctor = buildModelPrompt({
     persona: "PERSONA",
@@ -441,6 +442,8 @@ Feature workflow context:
   assert.ok(out.includes("page_batch_contract:"));
   assert.ok(out.includes("Begin with playable Fountain text; do not preface with diagnosis"));
   assert.ok(out.includes("Page velocity: the first non-empty line must be a scene heading"));
+  assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
+  assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("write the next playable Fountain pages immediately"));
   assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));
@@ -470,6 +473,8 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("page_batch_contract:"));
   assert.ok(out.includes("Begin with playable Fountain text; do not preface with diagnosis"));
   assert.ok(out.includes("Page velocity: the first non-empty line must be a scene heading"));
+  assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
+  assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("Start from the active draft/scene state; do not restart"));
   assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));

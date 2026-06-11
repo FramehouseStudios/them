@@ -352,6 +352,8 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - Page velocity: the first non-empty line must be a scene heading, action line, character cue, or dialogue continuation; no labels before pages.");
     lines.push("  - Split the batch internally into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.");
     lines.push("  - Start from the active draft/scene state; do not restart, recap, or outline unless the user explicitly asks.");
+    lines.push("  - If feature memory supplies next_three_turns, act_pressure_state, character_arc_state, payoff path, story threads, or image motifs, dramatize them as action/dialogue; never list those labels in the answer.");
+    lines.push("  - Use the first remembered next turn as the immediate page engine before inventing a new plot lane.");
     lines.push("  - Change leverage, information, relationship, tactic, or emotional cost every 1-2 pages.");
     lines.push("  - Avoid cinematic vapor: no vague tension, generic staring, abstract emotion, or repeated conversation beats without a concrete behavior or consequence.");
     lines.push("  - Track act math: Act I earns commitment; Act II breaks false tactics; Act III spends setups through changed behavior.");
@@ -385,7 +387,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "pacing_pass":
       return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
     case "finish_feature":
-      return "Operate at feature scale. Locate the current act/sequence, name the due obligation, preserve promises, setups/payoffs, and character need, then make the next act-to-act move. Use the feature compass: current sequence, next three turns, Act III payoff path, final-image pressure, and immediate next page move. For page requests, start Fountain pages immediately with no diagnosis or strategy note; if Studio provided a page-targeted continuation brief, output only playable screenplay pages. For planning, give an act engine, next three turns, Act III payoff path, and final-image handoff.";
+      return "Operate at feature scale. Locate the current act/sequence, name the due obligation, preserve promises, setups/payoffs, and character need, then make the next act-to-act move. Use the feature compass: current sequence, next three turns, Act III payoff path, final-image pressure, and immediate next page move. When memory contains a next-turn runway, turn the first remembered turn into playable behavior before adding new plot. For page requests, start Fountain pages immediately with no diagnosis or strategy note; if Studio provided a page-targeted continuation brief, output only playable screenplay pages. For planning, give an act engine, next three turns, Act III payoff path, and final-image handoff.";
     case "momentum_rescue":
       return "Do not turn stuckness into a lecture. Give one emotionally precise diagnosis, one decisive next move, and a small playable beat or page sample if there is enough context. Prefer forward motion over options.";
     default:

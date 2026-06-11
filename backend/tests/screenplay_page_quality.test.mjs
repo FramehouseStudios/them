@@ -31,18 +31,25 @@ test("[screenplay-page-quality] rejects outline and craft artifacts masquerading
       "INT. MOTEL ROOM - NIGHT",
       "",
       "Beat 1: June confronts Marcus about the receipt.",
+      "Next three turns: June hides the reel; Marcus forces a public choice.",
+      "Act III payoff path: the reel exposes the fixer.",
       "The scene should escalate suspicion before the reveal.",
     ].join("\n"),
     lines: [
       { text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading" },
       { text: "", element: "blank" },
       { text: "Beat 1: June confronts Marcus about the receipt.", element: "action" },
+      { text: "Next three turns: June hides the reel; Marcus forces a public choice.", element: "action" },
+      { text: "Act III payoff path: the reel exposes the fixer.", element: "action" },
       { text: "The scene should escalate suspicion before the reveal.", element: "action" },
     ],
   });
 
   assert.equal(quality.ok, false);
   assert.equal(quality.reason, "outline_or_craft_artifact");
+  assert.equal(isLikelyOutlineOrCraftArtifactLine("Next three turns: June hides the reel."), true);
+  assert.equal(isLikelyOutlineOrCraftArtifactLine("Act III payoff path: the reel exposes the fixer."), true);
+  assert.equal(isLikelyOutlineOrCraftArtifactLine("Memory to page execution: dramatize turn one first."), true);
 });
 
 test("[screenplay-page-quality] rejects placeholder screenplay scaffolding", () => {

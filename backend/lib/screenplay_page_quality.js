@@ -28,6 +28,7 @@ function isLikelyOutlineOrCraftArtifactLine(line = "", element = "action") {
   return [
     /^\d+[.)]\s+/,
     /^(?:beat|act|sequence|outline|note|notes|analysis|diagnosis|strategy|structure|theme|pacing|character arc|scene objective|scene job|turn|payoff|setup)\s*(?:\d+)?\s*:/,
+    /^(?:next three turns?|act iii payoff path|payoff path|memory to page execution|turn runway|arc turns?|story threads?|image motifs?)\s*:/,
     /^(?:what works|what's working|what is working|what is not working|highest-leverage fix)\s*:/,
     /^the (?:scene|sequence|act|page|moment|exchange|dialogue) (?:should|needs|wants|must|can|is here to)\b/,
     /^this (?:scene|sequence|act|page|moment|exchange|dialogue) (?:should|needs|wants|must|can|is here to)\b/,

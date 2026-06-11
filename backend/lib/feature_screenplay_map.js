@@ -674,6 +674,95 @@ function buildContinuityAssetLines(sessionContext = {}) {
   return lines.length ? ["  continuity_assets:", ...lines] : [];
 }
 
+function buildMemoryToPageExecutionLines(sessionContext = {}) {
+  const actPressureState = trimContextLine(
+    sessionContext.actPressureState ?? sessionContext.act_pressure_state,
+    280
+  );
+  const characterArcState = trimContextLine(
+    sessionContext.characterArcState ?? sessionContext.character_arc_state,
+    280
+  );
+  const lastSceneOutcome = trimContextLine(
+    sessionContext.lastSceneOutcome ?? sessionContext.last_scene_outcome,
+    240
+  );
+  const nextThreeTurns = sanitizeContextList(
+    sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
+    3,
+    180
+  );
+  const actThreePayoffPath = sanitizeContextList(
+    sessionContext.actThreePayoffPath ?? sessionContext.act_three_payoff_path ?? sessionContext.payoffPath ?? sessionContext.payoff_path,
+    5,
+    200
+  );
+  const unresolvedStoryThreads = sanitizeContextList(
+    sessionContext.unresolvedStoryThreads ?? sessionContext.unresolved_story_threads,
+    8,
+    220
+  );
+  const characterArcTurns = sanitizeContextList(
+    sessionContext.characterArcTurns ?? sessionContext.character_arc_turns,
+    6,
+    180
+  );
+  const imageMotifs = sanitizeContextList(
+    sessionContext.imageMotifs ?? sessionContext.image_motifs ?? sessionContext.visualMotifs ?? sessionContext.visual_motifs,
+    6,
+    140
+  );
+  const hasFeatureMemoryCompass = Boolean(
+    actPressureState ||
+    characterArcState ||
+    lastSceneOutcome ||
+    nextThreeTurns.length ||
+    actThreePayoffPath.length ||
+    unresolvedStoryThreads.length ||
+    characterArcTurns.length ||
+    imageMotifs.length
+  );
+  if (!hasFeatureMemoryCompass) return [];
+
+  const lines = [
+    "  memory_to_page_execution:",
+    "    purpose: convert persistent feature memory into immediate playable screenplay behavior, not outline prose.",
+  ];
+  if (lastSceneOutcome) lines.push(`    inherited_state: ${lastSceneOutcome}`);
+  if (actPressureState) lines.push(`    act_pressure_to_dramatize: ${actPressureState}`);
+  if (characterArcState) lines.push(`    character_arc_pressure: ${characterArcState}`);
+  if (nextThreeTurns.length) {
+    lines.push("    turn_runway_to_dramatize:");
+    nextThreeTurns.forEach((turn, index) => {
+      lines.push(`      - turn_${index + 1}: ${turn}`);
+    });
+  }
+  if (actThreePayoffPath.length) {
+    lines.push("    payoff_path_to_aim_toward:");
+    for (const payoff of actThreePayoffPath) lines.push(`      - ${payoff}`);
+  }
+  if (unresolvedStoryThreads.length) {
+    lines.push("    story_threads_to_touch:");
+    for (const thread of unresolvedStoryThreads.slice(0, 4)) lines.push(`      - ${thread}`);
+  }
+  if (characterArcTurns.length) {
+    lines.push("    arc_turns_to_make_visible:");
+    for (const turn of characterArcTurns.slice(0, 4)) lines.push(`      - ${turn}`);
+  }
+  if (imageMotifs.length) {
+    lines.push("    image_motifs_to_use_as_action:");
+    for (const motif of imageMotifs.slice(0, 4)) lines.push(`      - ${motif}`);
+  }
+  lines.push("    page_rules:");
+  lines.push("      - Open by carrying the inherited state through a visible behavior or image.");
+  lines.push("      - Dramatize turn_1 before inventing a new plot lane; use turn_2 and turn_3 only as escalation runway.");
+  lines.push("      - Touch one unresolved story thread through consequence, discovery, or pressure.");
+  lines.push("      - Make one character arc turn visible as a choice under pressure.");
+  lines.push("      - Echo or transform one remembered image motif on the page.");
+  lines.push("      - Never print these memory labels in the answer; convert them into Fountain action, dialogue, and scene turns.");
+  return lines;
+}
+
 function buildNextPageMoveLines(sequence) {
   const moves = Array.isArray(sequence?.nextMoves) ? sequence.nextMoves : [];
   if (!moves.length) return [];
@@ -748,6 +837,7 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     }),
     ...buildStorySpineLines(sessionContext || {}),
     ...buildContinuityAssetLines(sessionContext || {}),
+    ...buildMemoryToPageExecutionLines(sessionContext || {}),
   ];
 
   if (currentPage > 0) {
