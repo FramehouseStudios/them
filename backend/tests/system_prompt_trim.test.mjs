@@ -107,3 +107,44 @@ test("[system-prompt-trim] preserves prior head-tail behavior when no protected 
   assert.ok(out.includes("..."));
   assert.ok(!out.includes("<session>"));
 });
+
+test("[system-prompt-trim] does not slice through protected correction memory blocks", () => {
+  const protectedBlocks = [
+    ["clementine_core", `identity: Clementine\n${"core voice. ".repeat(80)}`],
+    ["clementine_safety_contract", `truthfulness: never invent memory.\n${"safety. ".repeat(80)}`],
+    ["creative_memory", `episodic-memory:\n  directive: treat CORRECTION items as overriding older conflicting memory.\n  - CORRECTION: Mara: Correction for Mara: VHS tape, not cassette.\n${"memory. ".repeat(80)}`],
+    ["session", `project: rain-docket\n${"session. ".repeat(80)}`],
+    ["feature_film_map", `act: II\n${"feature. ".repeat(80)}`],
+    ["accepted_twists", `twist: Mara burns the false evidence.\n${"twist. ".repeat(80)}`],
+    ["screenplay_task", `intent: continue_script\n${"task. ".repeat(80)}`],
+    ["block_signal", `level: low\n${"block. ".repeat(80)}`],
+  ].map(([tag, body]) => `<${tag}>\n${body}\n</${tag}>`);
+  const prompt = [
+    "PERSONA ".repeat(300),
+    ...protectedBlocks,
+    "DIRECTOR ".repeat(300),
+  ].join("\n\n");
+
+  const out = fitSystemPromptForTurnLatency(prompt, {
+    chatModelPlan: { tier: "fast" },
+    fastMaxChars: 1_500,
+    richMaxChars: 2_000,
+  });
+
+  assert.ok(out.length <= 1_500);
+  for (const tag of [
+    "clementine_core",
+    "clementine_safety_contract",
+    "creative_memory",
+    "session",
+    "feature_film_map",
+    "accepted_twists",
+    "screenplay_task",
+    "block_signal",
+  ]) {
+    assert.ok(out.includes(`<${tag}>`), `missing <${tag}>`);
+    assert.ok(out.includes(`</${tag}>`), `missing </${tag}>`);
+  }
+  assert.ok(out.includes("CORRECTION: Mara"));
+  assert.ok(out.includes("VHS"));
+});

@@ -69,24 +69,60 @@ function compactTaggedBlock(block, maxChars) {
     .trim();
   const marker = "\n...\n";
   const bodyLimit = Math.max(40, limit - openTag.length - closeTag.length - marker.length - 2);
+  if (tag.toLowerCase() === "creative_memory" && /\bCORRECTION:/i.test(body)) {
+    const priorityLines = body
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter((line) => /\bCORRECTION:|^episodic-memory:/i.test(line));
+    const priorityBody = priorityLines.join("\n").slice(0, bodyLimit).trim();
+    if (priorityBody) {
+      return `${openTag}\n${priorityBody}\n${closeTag}`.trim();
+    }
+  }
   const headLen = Math.max(20, Math.floor(bodyLimit * 0.62));
   const tailLen = Math.max(20, bodyLimit - headLen);
   const head = body.slice(0, headLen).trimEnd();
   const tail = body.slice(Math.max(0, body.length - tailLen)).trimStart();
-  return `${openTag}\n${head}${marker}${tail}\n${closeTag}`.slice(0, limit).trim();
+  const rendered = `${openTag}\n${head}${marker}${tail}\n${closeTag}`.trim();
+  if (rendered.length <= limit) return rendered;
+
+  const overflow = rendered.length - limit;
+  const tighterTailLen = Math.max(0, tailLen - overflow - 4);
+  const tighterTail = tighterTailLen > 0
+    ? body.slice(Math.max(0, body.length - tighterTailLen)).trimStart()
+    : "";
+  const tighterBody = tighterTail
+    ? `${head}${marker}${tighterTail}`
+    : head.slice(0, Math.max(20, limit - openTag.length - closeTag.length - marker.length - 4)).trimEnd();
+  return `${openTag}\n${tighterBody}\n${closeTag}`.trim();
 }
 
 function buildProtectedSection(blocks, budget) {
   if (!Array.isArray(blocks) || blocks.length === 0) return "";
   const totalBudget = Math.max(0, Math.floor(Number(budget || 0)));
   if (totalBudget < 160) return "";
-  const perBlockBudget = Math.max(160, Math.floor(totalBudget / blocks.length) - 2);
-  return blocks
-    .map((entry) => compactTaggedBlock(entry.block, perBlockBudget))
-    .filter(Boolean)
-    .join("\n\n")
-    .slice(0, totalBudget)
-    .trim();
+  const parts = [];
+  for (let i = 0; i < blocks.length; i += 1) {
+    const entry = blocks[i];
+    const used = parts.join("\n\n").length;
+    const separatorBudget = parts.length ? 2 : 0;
+    const remaining = totalBudget - used - separatorBudget;
+    if (remaining < 120) break;
+    const slotsLeft = blocks.length - i;
+    const perBlockBudget = Math.max(120, Math.floor(remaining / slotsLeft) - 2);
+    const compacted = compactTaggedBlock(entry.block, Math.min(remaining, perBlockBudget));
+    if (!compacted) continue;
+    const projected = used + separatorBudget + compacted.length;
+    if (projected <= totalBudget) {
+      parts.push(compacted);
+      continue;
+    }
+    const finalAttempt = compactTaggedBlock(entry.block, remaining);
+    if (finalAttempt && used + separatorBudget + finalAttempt.length <= totalBudget) {
+      parts.push(finalAttempt);
+    }
+  }
+  return parts.join("\n\n").trim();
 }
 
 function fitSystemPromptForTurnLatency(
@@ -138,7 +174,15 @@ function fitSystemPromptForTurnLatency(
   const tailBudget = Math.max(120, remainingBudget - headBudget - 5);
   const head = base.slice(0, headBudget).trimEnd();
   const tail = base.slice(Math.max(0, base.length - tailBudget)).trimStart();
-  return `${head}\n...\n${tail}\n\n${protectedSection}`.slice(0, budget).trim();
+  let baseSection = `${head}\n...\n${tail}`.trim();
+  const baseBudget = Math.max(0, budget - protectedSection.length - (baseSection ? 2 : 0));
+  if (baseSection.length > baseBudget) {
+    baseSection = baseSection.slice(0, baseBudget).trim();
+  }
+  const joined = baseSection
+    ? `${baseSection}\n\n${protectedSection}`
+    : protectedSection;
+  return joined.length <= budget ? joined.trim() : protectedSection.trim();
 }
 
 export {
