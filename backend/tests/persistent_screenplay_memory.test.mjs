@@ -10,6 +10,7 @@ const {
   buildMemoryAddendum,
   buildMemoryCards,
   buildMemoryStateVersion,
+  buildSessionContinuitySnapshot,
   buildScreenplayProjectMemoryRecordFromStudioMeta,
   createEmptyEmotionMemory,
   sanitizeScreenplayProjectMemoryItems,
@@ -526,4 +527,80 @@ test("[persistent-screenplay-memory] non-screenplay turns do not inject project 
   );
 
   assert.equal(prompt, "PERSONA");
+});
+
+test("[persistent-screenplay-memory] builds session continuity snapshot from latest project memory", () => {
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      {
+        projectId: "rain-docket",
+        act: "Act II",
+        featureSequence: "Act II - Midpoint Pressure",
+        currentBeat: "Mara realizes the forged testimony points at the judge.",
+        lastSceneOutcome: "The father reveal collapses Mara's private strategy.",
+        nextScenePlan: "Move into a private corridor confrontation.",
+        nextThreeTurns: [
+          "Father names the lie.",
+          "Mara chooses public exposure.",
+          "The sealed affidavit becomes dangerous.",
+        ],
+        characterFocus: ["Mara", "Father"],
+        pageCount: 47,
+        targetPages: 105,
+        updatedAt: 900,
+      },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 900,
+  };
+
+  const snapshot = buildSessionContinuitySnapshot(memory, {
+    episodicMemories: [
+      {
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        summary: "Mara hides the affidavit behind the courthouse vent.",
+        excerpt: "The sealed affidavit becomes dangerous.",
+        characterNames: ["Mara"],
+        tags: ["screenplay"],
+        updatedAt: 950,
+      },
+    ],
+  });
+
+  assert.equal(snapshot.has_continuity, true);
+  assert.equal(snapshot.source, "screenplay_project_memory+creative_memory");
+  assert.equal(snapshot.project_id, "rain-docket");
+  assert.equal(snapshot.project_title, "Rain Docket");
+  assert.equal(snapshot.act, "Act II");
+  assert.deepEqual(snapshot.next_three_turns.slice(0, 2), [
+    "Father names the lie.",
+    "Mara chooses public exposure.",
+  ]);
+  assert.ok(snapshot.opening_line.includes("Welcome back."));
+  assert.ok(snapshot.opening_line.includes("Rain Docket"));
+  assert.ok(snapshot.opening_line.includes("Next move: Move into a private corridor confrontation."));
+});
+
+test("[persistent-screenplay-memory] session continuity honors correction-only creative memory", () => {
+  const snapshot = buildSessionContinuitySnapshot(createEmptyEmotionMemory(), {
+    episodicMemories: [
+      {
+        projectId: "black-salt",
+        projectTitle: "Black Salt",
+        summary: "Correction for lighthouse: it is a weather station, not haunted.",
+        excerpt: "Actually, no, the lighthouse is a coded weather station.",
+        characterNames: [],
+        tags: ["screenplay", "correction"],
+        updatedAt: 1_200,
+      },
+    ],
+  });
+
+  assert.equal(snapshot.has_continuity, true);
+  assert.equal(snapshot.source, "creative_memory");
+  assert.equal(snapshot.project_title, "Black Salt");
+  assert.equal(snapshot.is_correction, true);
+  assert.ok(snapshot.opening_line.includes("I'll honor your latest correction first."));
+  assert.ok(snapshot.memory_excerpt.includes("coded weather station"));
 });

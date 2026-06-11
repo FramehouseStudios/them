@@ -3150,6 +3150,126 @@ function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
   return normalizeSnippet(parts.join("; "), 900);
 }
 
+function buildSessionContinuityOpeningLine(snapshot = {}) {
+  const project = normalizeSnippet(snapshot.projectTitle || snapshot.projectId || "", 120);
+  const position = normalizeSnippet(
+    [snapshot.act, snapshot.featureSequence].filter(Boolean).join(" / "),
+    180
+  );
+  const characters = Array.isArray(snapshot.characterFocus)
+    ? snapshot.characterFocus.slice(0, 2).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
+    : [];
+  const lastState = normalizeSnippet(
+    snapshot.lastSceneOutcome || snapshot.currentBeat || snapshot.memoryExcerpt || "",
+    180
+  );
+  const nextMove = normalizeSnippet(
+    snapshot.nextScenePlan ||
+      (Array.isArray(snapshot.nextThreeTurns) ? snapshot.nextThreeTurns[0] : "") ||
+      "",
+    180
+  );
+  const parts = ["Welcome back."];
+  if (project || position) {
+    parts.push(`We were in ${[project, position].filter(Boolean).join(" - ")}.`);
+  }
+  if (characters.length && lastState) {
+    parts.push(`${characters.join(" and ")} were carrying this: ${lastState}.`);
+  } else if (lastState) {
+    parts.push(`The last live thread was: ${lastState}.`);
+  }
+  if (snapshot.isCorrection) {
+    parts.push("I'll honor your latest correction first.");
+  }
+  if (nextMove) {
+    parts.push(`Next move: ${nextMove}.`);
+  }
+  return normalizeSnippet(parts.join(" "), 420);
+}
+
+function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
+  const projects = sanitizeScreenplayProjectMemoryItems(
+    memory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  const project = projects[0] || null;
+  const episodes = Array.isArray(creativeMemory?.episodicMemories)
+    ? creativeMemory.episodicMemories
+    : [];
+  const episode = episodes[0] || null;
+  if (!project && !episode) {
+    return {
+      has_continuity: false,
+      source: "none",
+      opening_line: "",
+      project_id: "",
+      project_title: "",
+      act: "",
+      feature_sequence: "",
+      current_beat: "",
+      last_scene_outcome: "",
+      next_scene_plan: "",
+      next_three_turns: [],
+      character_focus: [],
+      memory_excerpt: "",
+      is_correction: false,
+      updated_at: 0,
+    };
+  }
+
+  const episodeTags = Array.isArray(episode?.tags)
+    ? episode.tags.map((tag) => String(tag || "").toLowerCase())
+    : [];
+  const characterFocus = mergeScreenplayProjectMemoryList(
+    project?.characterFocus || [],
+    episode?.characterNames || [],
+    4,
+    80
+  );
+  const snapshot = {
+    has_continuity: true,
+    source: project && episode
+      ? "screenplay_project_memory+creative_memory"
+      : project
+        ? "screenplay_project_memory"
+        : "creative_memory",
+    project_id: normalizeSnippet(project?.projectId || episode?.projectId || "", 96),
+    project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || project?.projectId || "", 160),
+    act: normalizeSnippet(project?.act || "", 120),
+    feature_sequence: normalizeSnippet(project?.featureSequence || "", 220),
+    current_beat: normalizeSnippet(project?.currentBeat || episode?.summary || "", 220),
+    last_scene_outcome: normalizeSnippet(project?.lastSceneOutcome || "", 240),
+    next_scene_plan: normalizeSnippet(project?.nextScenePlan || "", 340),
+    next_three_turns: Array.isArray(project?.nextThreeTurns)
+      ? project.nextThreeTurns.slice(0, 3).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
+      : [],
+    character_focus: characterFocus,
+    memory_excerpt: normalizeSnippet(episode?.excerpt || episode?.summary || project?.lastWritePreview || "", 280),
+    is_correction: episodeTags.includes("correction"),
+    updated_at: Math.max(
+      0,
+      Number(project?.updatedAt || 0),
+      Number(episode?.updatedAt || episode?.lastReferencedAt || 0)
+    ),
+  };
+  return {
+    ...snapshot,
+    opening_line: buildSessionContinuityOpeningLine({
+      projectId: snapshot.project_id,
+      projectTitle: snapshot.project_title,
+      act: snapshot.act,
+      featureSequence: snapshot.feature_sequence,
+      currentBeat: snapshot.current_beat,
+      lastSceneOutcome: snapshot.last_scene_outcome,
+      nextScenePlan: snapshot.next_scene_plan,
+      nextThreeTurns: snapshot.next_three_turns,
+      characterFocus: snapshot.character_focus,
+      memoryExcerpt: snapshot.memory_excerpt,
+      isCorrection: snapshot.is_correction,
+    }),
+  };
+}
+
 function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory = null) {
   const body = req?.body && typeof req.body === "object" ? req.body : {};
   const memoryProject = selectScreenplayProjectMemoryForPrompt(memory, studioMeta, body);
@@ -29727,7 +29847,7 @@ app.post("/secretary/calendar", express.json({ limit: "512kb" }), async (req, re
   });
 });
 
-app.post("/session", sessionRateLimitGuard, (req, res) => {
+app.post("/session", sessionRateLimitGuard, async (req, res) => {
   console.log(`[session] has_app_token_header=${Boolean(req.get("X-APP-TOKEN"))}`);
   const requesterIp = clientIp(req);
   const authUserId = resolveAuthenticatedUserId(req);
@@ -29841,6 +29961,43 @@ app.post("/session", sessionRateLimitGuard, (req, res) => {
     is_screenwriter: Boolean(restoredEvolutionSync.isScreenwriter || restoredMemory?.isScreenwriter || false),
   };
   const sanitizedRestoredMemory = sanitizePersistedSessionMemory(restoredMemory);
+  const sessionProjectMemoryItems = sanitizeScreenplayProjectMemoryItems(
+    sanitizedRestoredMemory?.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  const sessionProjectMemory = sessionProjectMemoryItems[0] || null;
+  let sessionCreativeMemory = null;
+  if (authUserId) {
+    try {
+      const continuityQuery = normalizeSnippet(
+        [
+          sessionProjectMemory?.projectId,
+          sessionProjectMemory?.act,
+          sessionProjectMemory?.featureSequence,
+          sessionProjectMemory?.currentBeat,
+          sessionProjectMemory?.lastSceneOutcome,
+          Array.isArray(sessionProjectMemory?.characterFocus)
+            ? sessionProjectMemory.characterFocus.join(" ")
+            : "",
+          "continue screenplay session restore",
+        ].filter(Boolean).join(" "),
+        1_000
+      );
+      sessionCreativeMemory = await creativeMemoryStore.getCreativeMemoryForPrompt({
+        userId: authUserId,
+        projectId: sessionProjectMemory?.projectId || "",
+        projectTitle: sessionProjectMemory?.projectTitle || sessionProjectMemory?.projectId || "",
+        query: continuityQuery,
+        maxEpisodicMemories: 3,
+      });
+    } catch (_e) {
+      sessionCreativeMemory = null;
+    }
+  }
+  const sessionContinuity = buildSessionContinuitySnapshot(
+    sanitizedRestoredMemory,
+    sessionCreativeMemory
+  );
   const sessionStateVersion = buildMemoryStateVersion(sanitizedRestoredMemory);
   const sessionLastUpdatedAt = deriveMemoryLastUpdatedAt(sanitizedRestoredMemory);
   const sessionHistoryUpdatedAt = deriveHistoryUpdatedAt(sanitizedRestoredMemory);
@@ -29881,6 +30038,7 @@ app.post("/session", sessionRateLimitGuard, (req, res) => {
     last_conversation_recap: lastConversationRecap,
     last_conversation_snapshot: lastConversationSnapshot,
     last_conversation_at: lastConversationAt || null,
+    continuity: sessionContinuity,
     evolution_sync: evolutionSync,
     state_version: sessionStateVersion,
     last_updated_at: sessionLastUpdatedAt || null,
@@ -30454,6 +30612,7 @@ const handleTalkRequest = createTalkHandler({
   buildMelancholySeedAddendum,
   buildMemoryAddendum,
   buildMemoryStateVersion,
+  buildSessionContinuitySnapshot,
   buildMemoryUsefulnessGuardrails,
   buildMovementArcAddendum,
   buildNoPendingLocalActionReply,
@@ -30906,6 +31065,7 @@ export {
   buildMemoryAddendum,
   buildMemoryCards,
   buildMemoryStateVersion,
+  buildSessionContinuitySnapshot,
   buildScreenplayProjectMemoryRecordFromStudioMeta,
   evaluateTurnQualityHeuristics,
   validateAndDirectHerReply,

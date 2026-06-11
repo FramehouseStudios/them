@@ -657,6 +657,76 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let backendBootId: String?
 }
 
+nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
+    let hasContinuity: Bool
+    let source: String
+    let openingLine: String
+    let projectId: String
+    let projectTitle: String
+    let act: String
+    let featureSequence: String
+    let currentBeat: String
+    let lastSceneOutcome: String
+    let nextScenePlan: String
+    let nextThreeTurns: [String]
+    let characterFocus: [String]
+    let memoryExcerpt: String
+    let isCorrection: Bool
+    let updatedAt: TimeInterval
+
+    var isMeaningful: Bool {
+        hasContinuity && [
+            openingLine,
+            projectTitle,
+            projectId,
+            act,
+            featureSequence,
+            currentBeat,
+            lastSceneOutcome,
+            nextScenePlan,
+            memoryExcerpt
+        ]
+            .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hasContinuity
+        case source
+        case openingLine
+        case projectId
+        case projectTitle
+        case act
+        case featureSequence
+        case currentBeat
+        case lastSceneOutcome
+        case nextScenePlan
+        case nextThreeTurns
+        case characterFocus
+        case memoryExcerpt
+        case isCorrection
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hasContinuity = try container.decodeIfPresent(Bool.self, forKey: .hasContinuity) ?? false
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? ""
+        openingLine = try container.decodeIfPresent(String.self, forKey: .openingLine) ?? ""
+        projectId = try container.decodeIfPresent(String.self, forKey: .projectId) ?? ""
+        projectTitle = try container.decodeIfPresent(String.self, forKey: .projectTitle) ?? ""
+        act = try container.decodeIfPresent(String.self, forKey: .act) ?? ""
+        featureSequence = try container.decodeIfPresent(String.self, forKey: .featureSequence) ?? ""
+        currentBeat = try container.decodeIfPresent(String.self, forKey: .currentBeat) ?? ""
+        lastSceneOutcome = try container.decodeIfPresent(String.self, forKey: .lastSceneOutcome) ?? ""
+        nextScenePlan = try container.decodeIfPresent(String.self, forKey: .nextScenePlan) ?? ""
+        nextThreeTurns = try container.decodeIfPresent([String].self, forKey: .nextThreeTurns) ?? []
+        characterFocus = try container.decodeIfPresent([String].self, forKey: .characterFocus) ?? []
+        memoryExcerpt = try container.decodeIfPresent(String.self, forKey: .memoryExcerpt) ?? ""
+        isCorrection = try container.decodeIfPresent(Bool.self, forKey: .isCorrection) ?? false
+        updatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
+    }
+}
+
 nonisolated struct BackendSessionResponse: Decodable {
     let userId: String?
     let authenticated: Bool?
@@ -679,6 +749,7 @@ nonisolated struct BackendSessionResponse: Decodable {
     let backendBuild: String?
     let backendBootId: String?
     let evolutionSync: BackendEvolutionSyncSnapshot?
+    let continuity: BackendSessionContinuitySnapshot?
 }
 
 nonisolated struct BackendAuthUser: Codable, Hashable {
@@ -3179,7 +3250,8 @@ actor BackendMemoryAPI {
             schemaVersion: nil,
             backendBuild: nil,
             backendBootId: nil,
-            evolutionSync: nil
+            evolutionSync: nil,
+            continuity: nil
         )
     }
 

@@ -734,6 +734,7 @@ struct RootExperienceView: View {
     @State private var promptSpeaker = PersonalityPromptSpeaker()
     @State private var uiReflection = BackendTalkUIReflection.default
     @State private var localStateVersion = ""
+    @State private var sessionContinuitySnapshot: BackendSessionContinuitySnapshot?
     @State private var inFlightCommitVersions: Set<String> = []
     @State private var backendHealthTask: Task<Void, Never>?
     @State private var backendHydrationTask: Task<Void, Never>?
@@ -5320,6 +5321,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if let evolutionSync = session?.evolutionSync {
                 evolution.seedFromBackend(evolutionSync)
             }
+            applySessionContinuity(session?.continuity)
             let health = try await BackendMemoryAPI.shared.fetchHealth()
             lastHealthStatus = health
             if health.ok {
@@ -5346,6 +5348,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         } catch {
             markBackendUnavailable(reason: error.localizedDescription)
         }
+    }
+
+    @MainActor
+    private func applySessionContinuity(_ continuity: BackendSessionContinuitySnapshot?) {
+        guard let continuity, continuity.isMeaningful else {
+            sessionContinuitySnapshot = nil
+            return
+        }
+        sessionContinuitySnapshot = continuity
     }
 
     @MainActor
@@ -9076,6 +9087,32 @@ Write this approved story direction directly into screenplay pages now. Maintain
         )
     }
 
+    private func sessionContinuityPromptNotes(from snapshot: BackendSessionContinuitySnapshot) -> [String] {
+        var notes: [String] = []
+        let opening = snapshot.openingLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !opening.isEmpty {
+            notes.append("Session reopen continuity: \(opening)")
+        }
+        let title = snapshot.projectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectId = snapshot.projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty || !projectId.isEmpty {
+            let label = title.isEmpty ? projectId : title
+            notes.append("Restored feature project: \(label).")
+        }
+        let lastOutcome = snapshot.lastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !lastOutcome.isEmpty {
+            notes.append("Last remembered scene outcome: \(lastOutcome)")
+        }
+        let excerpt = snapshot.memoryExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !excerpt.isEmpty {
+            notes.append("Relationship memory: \(excerpt)")
+        }
+        if snapshot.isCorrection {
+            notes.append("Honor the user's latest correction as authoritative continuity.")
+        }
+        return notes
+    }
+
     @MainActor
     private func screenplayPromptContinuityContext(
         featureWorkflowRequestID: String? = nil
@@ -9234,6 +9271,38 @@ Write this approved story direction directly into screenplay pages now. Maintain
             draftBeatSequence,
             limit: 8
         )
+
+        if let sessionContinuitySnapshot, sessionContinuitySnapshot.isMeaningful {
+            let sessionNotes = sessionContinuityPromptNotes(from: sessionContinuitySnapshot)
+            continuityNotes = mergedContextList(sessionNotes, continuityNotes, limit: 8)
+            if promptAct.isEmpty { promptAct = sessionContinuitySnapshot.act }
+            if promptFeatureSequence.isEmpty { promptFeatureSequence = sessionContinuitySnapshot.featureSequence }
+            if promptCurrentBeat.isEmpty { promptCurrentBeat = sessionContinuitySnapshot.currentBeat }
+            if promptSceneSummary.isEmpty { promptSceneSummary = sessionContinuitySnapshot.lastSceneOutcome }
+            if promptNextScenePlan.isEmpty { promptNextScenePlan = sessionContinuitySnapshot.nextScenePlan }
+            if promptNextSceneMoves.isEmpty {
+                promptNextSceneMoves = Array(sessionContinuitySnapshot.nextThreeTurns.prefix(5))
+            } else {
+                promptNextSceneMoves = mergedContextList(
+                    promptNextSceneMoves,
+                    sessionContinuitySnapshot.nextThreeTurns,
+                    limit: 5
+                )
+            }
+            if promptEmotionalContinuity.isEmpty {
+                promptEmotionalContinuity = [
+                    sessionContinuitySnapshot.lastSceneOutcome,
+                    sessionContinuitySnapshot.memoryExcerpt,
+                    sessionContinuitySnapshot.currentBeat
+                ]
+                    .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
+            }
+            characterFocus = mergedContextList(
+                characterFocus,
+                sessionContinuitySnapshot.characterFocus,
+                limit: 8
+            )
+        }
 
         if let workflowContext = screenplayDraftBridge.featureWorkflowContext(for: featureWorkflowRequestID) {
             if !workflowContext.act.isEmpty { promptAct = workflowContext.act }
