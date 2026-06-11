@@ -1,6 +1,11 @@
 import { createHash, pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 let configuredDeps = null;
+let lastUserStorePersistenceWrite = Promise.resolve({
+  ok: true,
+  persistenceStatus: "not_configured",
+  persistenceFailureCount: 0,
+});
 
 const PASSWORD_MIN_LENGTH = 8;
 
@@ -14,6 +19,11 @@ const emailVerificationTokensByHash = new Map();
 
 function configureUserStore(deps = {}) {
   configuredDeps = deps;
+  lastUserStorePersistenceWrite = Promise.resolve({
+    ok: true,
+    persistenceStatus: "not_configured",
+    persistenceFailureCount: 0,
+  });
 }
 
 function userStoreDeps() {
@@ -244,52 +254,9 @@ function cleanupExpiredAuthRecords(now = Date.now()) {
   }
 }
 
-function loadUserStore() {
-  const { USER_STORE_PATH, fs } = userStoreDeps();
-  usersById.clear();
-  usersByEmail.clear();
-  usersByAppleSubject.clear();
-  authSessionsById.clear();
-  authSessionIdByTokenHash.clear();
-  passwordResetTokensByHash.clear();
-  emailVerificationTokensByHash.clear();
-  try {
-    if (!fs.existsSync(USER_STORE_PATH)) return;
-    const raw = fs.readFileSync(USER_STORE_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    const users = Array.isArray(parsed?.users) ? parsed.users : [];
-    const authSessions = Array.isArray(parsed?.authSessions)
-      ? parsed.authSessions
-      : (Array.isArray(parsed?.auth_sessions) ? parsed.auth_sessions : []);
-    const passwordResetTokens = Array.isArray(parsed?.passwordResetTokens)
-      ? parsed.passwordResetTokens
-      : (Array.isArray(parsed?.password_reset_tokens) ? parsed.password_reset_tokens : []);
-    const emailVerificationTokens = Array.isArray(parsed?.emailVerificationTokens)
-      ? parsed.emailVerificationTokens
-      : (Array.isArray(parsed?.email_verification_tokens) ? parsed.email_verification_tokens : []);
-
-    for (const entry of users) {
-      replaceUserRecord(entry);
-    }
-    for (const entry of authSessions) {
-      replaceAuthSessionRecord(entry);
-    }
-    for (const entry of passwordResetTokens) {
-      replaceOneTimeTokenRecord(passwordResetTokensByHash, entry);
-    }
-    for (const entry of emailVerificationTokens) {
-      replaceOneTimeTokenRecord(emailVerificationTokensByHash, entry);
-    }
-    cleanupExpiredAuthRecords(Date.now());
-  } catch (err) {
-    console.error("[user_store] Failed to load store " + USER_STORE_PATH + ":", err);
-  }
-}
-
-function saveUserStore(now = Date.now()) {
-  const { USER_STORE_PATH, writeJsonFileAtomic } = userStoreDeps();
+function buildUserStorePayload(now = Date.now()) {
   cleanupExpiredAuthRecords(now);
-  const payload = {
+  return {
     version: 2,
     updatedAt: now,
     users: [...usersById.values()].map((user) => ({
@@ -337,7 +304,194 @@ function saveUserStore(now = Date.now()) {
       usedAt: Math.max(0, Number(record.usedAt || 0)),
     })),
   };
-  writeJsonFileAtomic(USER_STORE_PATH, payload, "user_store");
+}
+
+async function writeUserStoreToAdapter(persistence, payload) {
+  if (!persistence || typeof persistence.put !== "function") {
+    return {
+      ok: true,
+      persistenceStatus: "not_configured",
+      persistenceFailureCount: 0,
+    };
+  }
+  const domainEntries = new Map([
+    ["auth_users", (payload.users || []).map((user) => ({ key: user.id, value: user }))],
+    ["auth_sessions", (payload.authSessions || []).map((session) => ({ key: session.sessionId, value: session }))],
+    ["auth_password_reset_tokens", (payload.passwordResetTokens || []).map((token) => ({ key: token.tokenHash, value: token }))],
+    ["auth_email_verification_tokens", (payload.emailVerificationTokens || []).map((token) => ({ key: token.tokenHash, value: token }))],
+  ]);
+  let failureCount = 0;
+  let recordCount = 0;
+  for (const [domain, rawEntries] of domainEntries.entries()) {
+    const entries = rawEntries.filter((entry) => entry.key);
+    const expectedKeys = new Set(entries.map((entry) => entry.key));
+    recordCount += entries.length;
+    for (const entry of entries) {
+      try {
+        await persistence.put({ domain, key: entry.key, value: entry.value });
+      } catch (err) {
+        failureCount += 1;
+        console.error(`[user_store] adapter put ${domain}:${entry.key} failed:`, err?.message || err);
+      }
+    }
+    if (typeof persistence.list !== "function" || typeof persistence.delete !== "function") continue;
+    try {
+      const existing = await persistence.list({ domain, limit: 10_000 });
+      for (const row of existing || []) {
+        const key = String(row?.key || "").trim();
+        if (!key || expectedKeys.has(key)) continue;
+        await persistence.delete({ domain, key });
+      }
+    } catch (err) {
+      failureCount += 1;
+      console.error(`[user_store] adapter prune ${domain} failed:`, err?.message || err);
+    }
+  }
+  return {
+    ok: failureCount === 0,
+    persistenceStatus: failureCount === 0 ? "ok" : "failed",
+    persistenceFailureCount: failureCount,
+    persistenceRecordCount: recordCount,
+  };
+}
+
+async function loadUserStoreFromAdapter() {
+  const { persistence } = userStoreDeps();
+  if (!persistence || typeof persistence.list !== "function") return false;
+  let records;
+  try {
+    records = await Promise.all([
+      persistence.list({ domain: "auth_users", limit: 10_000 }),
+      persistence.list({ domain: "auth_sessions", limit: 10_000 }),
+      persistence.list({ domain: "auth_password_reset_tokens", limit: 10_000 }),
+      persistence.list({ domain: "auth_email_verification_tokens", limit: 10_000 }),
+    ]);
+  } catch (err) {
+    console.error("[user_store] adapter list failed:", err?.message || err);
+    return false;
+  }
+  const [users, sessions, passwordResetTokens, emailVerificationTokens] = records;
+  const total = records.reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
+  if (total === 0) return false;
+
+  usersById.clear();
+  usersByEmail.clear();
+  usersByAppleSubject.clear();
+  authSessionsById.clear();
+  authSessionIdByTokenHash.clear();
+  passwordResetTokensByHash.clear();
+  emailVerificationTokensByHash.clear();
+
+  for (const entry of users || []) {
+    replaceUserRecord(entry.value);
+  }
+  for (const entry of sessions || []) {
+    replaceAuthSessionRecord(entry.value);
+  }
+  for (const entry of passwordResetTokens || []) {
+    replaceOneTimeTokenRecord(passwordResetTokensByHash, entry.value);
+  }
+  for (const entry of emailVerificationTokens || []) {
+    replaceOneTimeTokenRecord(emailVerificationTokensByHash, entry.value);
+  }
+  cleanupExpiredAuthRecords(Date.now());
+  return true;
+}
+
+function loadUserStore() {
+  const { USER_STORE_PATH, fs } = userStoreDeps();
+  usersById.clear();
+  usersByEmail.clear();
+  usersByAppleSubject.clear();
+  authSessionsById.clear();
+  authSessionIdByTokenHash.clear();
+  passwordResetTokensByHash.clear();
+  emailVerificationTokensByHash.clear();
+  try {
+    if (!fs.existsSync(USER_STORE_PATH)) return;
+    const raw = fs.readFileSync(USER_STORE_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const users = Array.isArray(parsed?.users) ? parsed.users : [];
+    const authSessions = Array.isArray(parsed?.authSessions)
+      ? parsed.authSessions
+      : (Array.isArray(parsed?.auth_sessions) ? parsed.auth_sessions : []);
+    const passwordResetTokens = Array.isArray(parsed?.passwordResetTokens)
+      ? parsed.passwordResetTokens
+      : (Array.isArray(parsed?.password_reset_tokens) ? parsed.password_reset_tokens : []);
+    const emailVerificationTokens = Array.isArray(parsed?.emailVerificationTokens)
+      ? parsed.emailVerificationTokens
+      : (Array.isArray(parsed?.email_verification_tokens) ? parsed.email_verification_tokens : []);
+
+    for (const entry of users) {
+      replaceUserRecord(entry);
+    }
+    for (const entry of authSessions) {
+      replaceAuthSessionRecord(entry);
+    }
+    for (const entry of passwordResetTokens) {
+      replaceOneTimeTokenRecord(passwordResetTokensByHash, entry);
+    }
+    for (const entry of emailVerificationTokens) {
+      replaceOneTimeTokenRecord(emailVerificationTokensByHash, entry);
+    }
+    cleanupExpiredAuthRecords(Date.now());
+  } catch (err) {
+    console.error("[user_store] Failed to load store " + USER_STORE_PATH + ":", err);
+  }
+}
+
+function saveUserStore(now = Date.now()) {
+  const { USER_STORE_PATH, writeJsonFileAtomic, persistence } = userStoreDeps();
+  const payload = buildUserStorePayload(now);
+  const fileOk = typeof writeJsonFileAtomic === "function"
+    ? writeJsonFileAtomic(USER_STORE_PATH, payload, "user_store")
+    : true;
+  const result = {
+    ok: Boolean(fileOk),
+    fileOk: Boolean(fileOk),
+    persistenceKind: persistence?.kind || "",
+    persistenceStatus: "not_configured",
+    persistenceFailureCount: 0,
+    persistencePromise: null,
+  };
+  if (persistence && typeof persistence.put === "function") {
+    result.persistenceStatus = "pending";
+    const persistencePromise = lastUserStorePersistenceWrite
+      .catch(() => {})
+      .then(() => writeUserStoreToAdapter(persistence, payload))
+      .then((adapterResult) => {
+        result.persistenceStatus = adapterResult.persistenceStatus;
+        result.persistenceFailureCount = adapterResult.persistenceFailureCount;
+        result.ok = result.fileOk && adapterResult.ok;
+        return {
+          ...adapterResult,
+          fileOk: result.fileOk,
+          ok: result.ok,
+          persistenceKind: result.persistenceKind,
+        };
+      })
+      .catch((err) => {
+        console.error("[user_store] adapter save failed:", err?.message || err);
+        result.persistenceStatus = "failed";
+        result.persistenceFailureCount += 1;
+        result.ok = false;
+        return {
+          ok: false,
+          fileOk: result.fileOk,
+          persistenceKind: result.persistenceKind,
+          persistenceStatus: "failed",
+          persistenceFailureCount: result.persistenceFailureCount,
+        };
+      });
+    lastUserStorePersistenceWrite = persistencePromise;
+    result.persistencePromise = persistencePromise;
+    void persistencePromise;
+  }
+  return result;
+}
+
+function flushUserStorePersistenceWrites() {
+  return lastUserStorePersistenceWrite;
 }
 
 function getUserByEmail(email) {
@@ -686,6 +840,7 @@ export {
   createOrAttachAppleUser,
   createUser,
   emailVerificationTokensByHash,
+  flushUserStorePersistenceWrites,
   getAuthSessionById,
   getAuthSessionByToken,
   getUserByAppleSubject,
@@ -694,6 +849,7 @@ export {
   issueAuthSession,
   issueEmailVerificationToken,
   issuePasswordResetToken,
+  loadUserStoreFromAdapter,
   listAuthSessionsForUser,
   loadUserStore,
   markUserEmailVerified,

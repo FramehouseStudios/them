@@ -146,8 +146,11 @@ import { mountFirstPageTelemetryRoute } from "./lib/first_page_telemetry_route.j
 import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
+  flushUserStorePersistenceWrites,
+  loadUserStoreFromAdapter,
   loadUserStore,
   revokeAllAuthSessionsForUser,
+  saveUserStore,
 } from "./lib/user_store.js";
 import { createUserAuthSubsystem } from "./lib/user_auth.js";
 import { createRateLimiter } from "./lib/rate_limit.js";
@@ -3427,9 +3430,17 @@ configureUserStore({
   USER_STORE_PATH,
   fs,
   normalizeSnippet,
+  persistence: sharedPersistence,
   writeJsonFileAtomic,
 });
-loadUserStore();
+const loadedUserStoreFromAdapter = await loadUserStoreFromAdapter();
+if (!loadedUserStoreFromAdapter) {
+  loadUserStore();
+  const authBackfill = saveUserStore(Date.now());
+  if (authBackfill?.persistencePromise) {
+    await flushUserStorePersistenceWrites();
+  }
+}
 const userAuth = createUserAuthSubsystem({
   accessTtlSeconds: JWT_TTL_SECONDS,
   appleAudience: AUTH_APPLE_AUDIENCE,

@@ -20,6 +20,10 @@ import { createJsonPersistence } from "./persistence_json.js";
 import { createPostgresPersistence } from "./persistence_postgres.js";
 
 const KNOWN_DOMAINS = Object.freeze([
+  "auth_users",
+  "auth_sessions",
+  "auth_password_reset_tokens",
+  "auth_email_verification_tokens",
   "outbox",
   "user_memory",
   "screenplay",

@@ -41,7 +41,7 @@ const AUTH_AUTO_VERIFY_EMAILS = parseBool(process.env.AUTH_AUTO_VERIFY_EMAILS);
 const AUTH_APPLE_AUDIENCE = String(process.env.AUTH_APPLE_AUDIENCE || "").trim();
 const AUTH_APPLE_TEST_JWT_SECRET = String(process.env.AUTH_APPLE_TEST_JWT_SECRET || "").trim();
 const AUTH_APPLE_JWT_PUBLIC_KEY = String(process.env.AUTH_APPLE_JWT_PUBLIC_KEY || "").trim();
-const REQUIRE_USER_AUTH = parseBool(process.env.REQUIRE_USER_AUTH);
+const REQUIRE_USER_AUTH = NODE_ENV === "production" || parseBool(process.env.REQUIRE_USER_AUTH);
 const STUDIO_RENDER_TEST_REPLY = NODE_ENV === "production"
   ? ""
   : String(process.env.STUDIO_RENDER_TEST_REPLY || "").trim();
@@ -76,6 +76,11 @@ function assertProductionEnv(env = process.env) {
   }
   if (!String(env.APP_TOKEN || "").trim()) {
     missing.push("APP_TOKEN — required when NODE_ENV=production (X-APP-TOKEN gate).");
+  }
+  if (String(env.REQUIRE_USER_AUTH || "").trim().toLowerCase() === "0"
+    || String(env.REQUIRE_USER_AUTH || "").trim().toLowerCase() === "false"
+    || String(env.REQUIRE_USER_AUTH || "").trim().toLowerCase() === "no") {
+    missing.push("REQUIRE_USER_AUTH — production must not disable authenticated user routes.");
   }
   if (missing.length === 0) return;
   const banner = "Refusing to boot: required production environment variables are missing.";

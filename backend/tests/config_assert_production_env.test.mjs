@@ -41,6 +41,17 @@ test("[assertProductionEnv] throws when APP_TOKEN is missing", () => {
   assert.throws(() => assertProductionEnv(env), /APP_TOKEN/);
 });
 
+test("[assertProductionEnv] throws when production user auth is explicitly disabled", () => {
+  assert.throws(
+    () => assertProductionEnv({ ...FULL_PROD_ENV, REQUIRE_USER_AUTH: "0" }),
+    /REQUIRE_USER_AUTH/,
+  );
+  assert.throws(
+    () => assertProductionEnv({ ...FULL_PROD_ENV, REQUIRE_USER_AUTH: "false" }),
+    /REQUIRE_USER_AUTH/,
+  );
+});
+
 test("[assertProductionEnv] lists every missing variable, not just the first", () => {
   const env = { NODE_ENV: "production" };
   let caught;

@@ -108,6 +108,47 @@ const SOURCES = [
       return Object.entries(data);
     },
   },
+  {
+    file: "user_store.json",
+    domain: "auth_users",
+    extract: (data) => {
+      const users = Array.isArray(data?.users) ? data.users : [];
+      return users.map((user) => [String(user?.id || ""), user]).filter(([key]) => key.length > 0);
+    },
+  },
+  {
+    file: "user_store.json",
+    domain: "auth_sessions",
+    extract: (data) => {
+      const sessions = Array.isArray(data?.authSessions)
+        ? data.authSessions
+        : (Array.isArray(data?.auth_sessions) ? data.auth_sessions : []);
+      return sessions.map((session) => [String(session?.sessionId || session?.session_id || ""), session])
+        .filter(([key]) => key.length > 0);
+    },
+  },
+  {
+    file: "user_store.json",
+    domain: "auth_password_reset_tokens",
+    extract: (data) => {
+      const tokens = Array.isArray(data?.passwordResetTokens)
+        ? data.passwordResetTokens
+        : (Array.isArray(data?.password_reset_tokens) ? data.password_reset_tokens : []);
+      return tokens.map((token) => [String(token?.tokenHash || token?.token_hash || ""), token])
+        .filter(([key]) => key.length > 0);
+    },
+  },
+  {
+    file: "user_store.json",
+    domain: "auth_email_verification_tokens",
+    extract: (data) => {
+      const tokens = Array.isArray(data?.emailVerificationTokens)
+        ? data.emailVerificationTokens
+        : (Array.isArray(data?.email_verification_tokens) ? data.email_verification_tokens : []);
+      return tokens.map((token) => [String(token?.tokenHash || token?.token_hash || ""), token])
+        .filter(([key]) => key.length > 0);
+    },
+  },
 ];
 
 async function applySchema() {
@@ -118,10 +159,16 @@ async function applySchema() {
   const { Pool } = pg.default ?? pg;
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
-    const sqlPath = path.resolve(__dirname, "..", "backend", "migrations", "001_init_persistence.sql");
-    const sql = fs.readFileSync(sqlPath, "utf8");
-    await pool.query(sql);
-    console.log("schema applied:", sqlPath);
+    const migrationNames = [
+      "001_init_persistence.sql",
+      "009_auth_persistence.sql",
+    ];
+    for (const name of migrationNames) {
+      const sqlPath = path.resolve(__dirname, "..", "backend", "migrations", name);
+      const sql = fs.readFileSync(sqlPath, "utf8");
+      await pool.query(sql);
+      console.log("schema applied:", sqlPath);
+    }
   } finally {
     await pool.end();
   }
