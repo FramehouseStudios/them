@@ -492,6 +492,10 @@ function buildSessionContextBlock(sessionContext) {
     sessionContext.featureObligation ?? sessionContext.feature_obligation ?? sessionContext.structuralObligation ?? sessionContext.structural_obligation,
     280
   );
+  const featureMemoryBrief = trimContextLine(
+    sessionContext.featureMemoryBrief ?? sessionContext.feature_memory_brief ?? sessionContext.persistentMemoryBrief ?? sessionContext.persistent_memory_brief,
+    420
+  );
   const nextScenePlan = trimContextLine(
     sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
     340
@@ -507,6 +511,7 @@ function buildSessionContextBlock(sessionContext) {
   if (emotionalContinuity) featureLines.push(`    emotional_handoff: ${emotionalContinuity}`);
   if (featureSequence) featureLines.push(`    feature_sequence: ${featureSequence}`);
   if (featureObligation) featureLines.push(`    structural_obligation_due_now: ${featureObligation}`);
+  if (featureMemoryBrief) featureLines.push(`    persistent_memory_brief: ${featureMemoryBrief}`);
   if (nextScenePlan) featureLines.push(`    next_scene_plan: ${nextScenePlan}`);
   const nextSceneMoves = sanitizeContextList(
     sessionContext.nextSceneMoves ?? sessionContext.next_scene_moves ?? sessionContext.nextPageMoves ?? sessionContext.next_page_moves,

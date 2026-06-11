@@ -73,6 +73,149 @@ function firstNonEmptyList(...values) {
   return [];
 }
 
+const SCREENPLAY_MEMORY_ROUTE_INTENTS = new Set([
+  "write_scene",
+  "rewrite_scene",
+  "continue_script",
+  "scene_doctor",
+  "outline_structure",
+  "character_development",
+  "dialogue_punchup",
+  "emotional_continuity",
+  "pacing_pass",
+  "finish_feature",
+  "momentum_rescue",
+]);
+
+function snakeCaseKey(key) {
+  return String(key || "").replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+}
+
+function screenplayPrefixedKey(key) {
+  const clean = String(key || "");
+  return clean ? `screenplay${clean.charAt(0).toUpperCase()}${clean.slice(1)}` : "";
+}
+
+function memoryRecordValue(item, key) {
+  if (!item || typeof item !== "object") return undefined;
+  const snakeKey = snakeCaseKey(key);
+  const screenplayKey = screenplayPrefixedKey(key);
+  const screenplaySnakeKey = screenplayKey ? snakeCaseKey(screenplayKey) : "";
+  return item[key] ??
+    item[snakeKey] ??
+    (screenplayKey ? item[screenplayKey] : undefined) ??
+    (screenplaySnakeKey ? item[screenplaySnakeKey] : undefined);
+}
+
+function sanitizeScreenplayMemoryRecords(memory, maxItems = 8) {
+  const source = Array.isArray(memory?.screenplayProjectMemory)
+    ? memory.screenplayProjectMemory
+    : [];
+  const records = [];
+
+  for (const item of source) {
+    if (!item || typeof item !== "object") continue;
+    const record = {
+      projectId: trimToString(memoryRecordValue(item, "projectId"), 160),
+      documentRevisionId: trimToString(memoryRecordValue(item, "documentRevisionId"), 160),
+      act: trimToString(memoryRecordValue(item, "act"), 120),
+      sceneLabel: trimToString(memoryRecordValue(item, "sceneLabel"), 240),
+      sceneObjective: trimToString(memoryRecordValue(item, "sceneObjective"), 360),
+      sceneSummary: trimToString(memoryRecordValue(item, "sceneSummary"), 360),
+      currentBeat: trimToString(memoryRecordValue(item, "currentBeat"), 240),
+      logline: trimToString(memoryRecordValue(item, "logline"), 360),
+      themeArgument: trimToString(memoryRecordValue(item, "themeArgument"), 360),
+      centralQuestion: trimToString(memoryRecordValue(item, "centralQuestion"), 360),
+      protagonistWant: trimToString(memoryRecordValue(item, "protagonistWant"), 240),
+      protagonistNeed: trimToString(memoryRecordValue(item, "protagonistNeed"), 240),
+      antagonisticForce: trimToString(memoryRecordValue(item, "antagonisticForce"), 240),
+      endingImage: trimToString(memoryRecordValue(item, "endingImage"), 240),
+      featureSequence: trimToString(memoryRecordValue(item, "featureSequence"), 240),
+      featureObligation: trimToString(memoryRecordValue(item, "featureObligation"), 360),
+      nextScenePlan: trimToString(memoryRecordValue(item, "nextScenePlan"), 420),
+      nextSceneMoves: sanitizeStringList(memoryRecordValue(item, "nextSceneMoves"), 5, 180),
+      beatSequence: sanitizeStringList(memoryRecordValue(item, "beatSequence"), 8, 180),
+      characterFocus: sanitizeStringList(memoryRecordValue(item, "characterFocus"), 8, 120),
+      unresolvedSetups: sanitizeStringList(memoryRecordValue(item, "unresolvedSetups"), 8, 220),
+      continuityNotes: sanitizeStringList(memoryRecordValue(item, "continuityNotes"), 8, 220),
+      emotionalContinuity: trimToString(memoryRecordValue(item, "emotionalContinuity"), 360),
+      lastWritePreview: trimToString(memoryRecordValue(item, "lastWritePreview"), 6_000),
+      pageCount: positiveIntegerOrZero(memoryRecordValue(item, "pageCount")),
+      targetPages: positiveIntegerOrZero(memoryRecordValue(item, "targetPages")),
+      updatedAt: Math.max(
+        0,
+        Number(item.updatedAt ?? item.updated_at ?? item.lastUpdatedAt ?? item.last_updated_at ?? 0)
+      ),
+    };
+    const hasContext = Object.entries(record).some(([key, value]) => {
+      if (key === "updatedAt") return false;
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "number") return value > 0;
+      return trimToString(value).length > 0;
+    });
+    if (hasContext) records.push(record);
+  }
+
+  return records
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, Math.max(1, Number(maxItems || 8)));
+}
+
+function screenplayTaskCanUsePersistentMemory(task, hint = "") {
+  const intent = trimToString(task?.intent, 80);
+  if (!SCREENPLAY_MEMORY_ROUTE_INTENTS.has(intent)) return false;
+  const lowerHint = String(hint || "").toLowerCase();
+  if (!lowerHint.trim()) return false;
+  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup"].includes(intent)) {
+    return true;
+  }
+  return /\b(screenplay|script|scene|pages?|act|feature|movie|film|draft|dialogue|beat|sequence|fountain|character|ending|outline|story|emotional continuity|pacing)\b/.test(lowerHint);
+}
+
+function selectScreenplayMemoryRecord(memory, context = null, body = {}, allowFallback = false) {
+  const records = sanitizeScreenplayMemoryRecords(memory);
+  if (!records.length) return null;
+  const projectId = trimToString(
+    context?.projectId ??
+      body.project_id ??
+      body.projectId ??
+      body.screenplay_project_id ??
+      body.screenplayProjectId,
+    160
+  );
+  const versionId = trimToString(
+    context?.versionId ??
+      body.version_id ??
+      body.versionId ??
+      body.screenplay_document_revision_id ??
+      body.screenplayDocumentRevisionId,
+    160
+  );
+  if (projectId) {
+    const byProject = records.find((item) => item.projectId === projectId);
+    if (byProject) return byProject;
+  }
+  if (versionId) {
+    const byVersion = records.find((item) => item.documentRevisionId === versionId);
+    if (byVersion) return byVersion;
+  }
+  return allowFallback ? records[0] : null;
+}
+
+function buildPersistentFeatureMemoryBrief(record) {
+  if (!record) return "";
+  const parts = [
+    record.logline ? `logline: ${record.logline}` : "",
+    record.act || record.featureSequence ? `position: ${[record.act, record.featureSequence].filter(Boolean).join(" / ")}` : "",
+    record.currentBeat ? `current beat: ${record.currentBeat}` : "",
+    record.featureObligation ? `due now: ${record.featureObligation}` : "",
+    record.nextScenePlan ? `next: ${record.nextScenePlan}` : "",
+    record.unresolvedSetups.length ? `open setups: ${record.unresolvedSetups.slice(0, 3).join(" / ")}` : "",
+    record.endingImage ? `ending image: ${record.endingImage}` : "",
+  ].filter(Boolean);
+  return trimToString(parts.join("; "), 420);
+}
+
 function estimatePageCount(draft) {
   const text = trimToString(draft, 200_000);
   if (!text) return 0;
@@ -239,6 +382,86 @@ function hydrateSessionContextFromProject(req, sessionContext, {
   return { context, hydrated };
 }
 
+function hydrateSessionContextFromScreenplayMemory(sessionContext, memory, {
+  body = {},
+  screenplayTask = null,
+  taskHint = "",
+} = {}) {
+  const allowFallback = Boolean(
+    sessionContext?.projectId ||
+      sessionContext?.versionId ||
+      screenplayTaskCanUsePersistentMemory(screenplayTask, taskHint)
+  );
+  const record = selectScreenplayMemoryRecord(memory, sessionContext, body, allowFallback);
+  if (!record) {
+    return { context: sessionContext, hydrated: false };
+  }
+
+  const context = sessionContext ? { ...sessionContext } : {};
+  let hydrated = false;
+
+  function fillString(key, value, maxLength = 16_000) {
+    if (trimToString(context[key], maxLength)) return;
+    const clean = trimToString(value, maxLength);
+    if (!clean) return;
+    context[key] = clean;
+    hydrated = true;
+  }
+  function fillNumber(key, value) {
+    if (positiveIntegerOrZero(context[key]) > 0) return;
+    const clean = positiveIntegerOrZero(value);
+    if (clean <= 0) return;
+    context[key] = clean;
+    hydrated = true;
+  }
+  function mergeList(key, value, maxItems = 8, maxLength = 180) {
+    const existing = sanitizeStringList(context[key], maxItems, maxLength);
+    const merged = sanitizeStringList([...existing, ...sanitizeStringList(value, maxItems, maxLength)], maxItems, maxLength);
+    if (!merged.length) return;
+    if (existing.length === merged.length && existing.every((item, index) => item === merged[index])) return;
+    context[key] = merged;
+    hydrated = true;
+  }
+
+  fillString("projectId", record.projectId, 160);
+  fillString("versionId", record.documentRevisionId, 160);
+  fillString("scene", record.sceneLabel, 240);
+  fillString("act", record.act, 120);
+  fillString("sceneObjective", record.sceneObjective, 360);
+  fillString("sceneSummary", record.sceneSummary, 360);
+  fillString("currentBeat", record.currentBeat, 240);
+  fillString("logline", record.logline, 360);
+  fillString("themeArgument", record.themeArgument, 360);
+  fillString("centralQuestion", record.centralQuestion, 360);
+  fillString("protagonistWant", record.protagonistWant, 240);
+  fillString("protagonistNeed", record.protagonistNeed, 240);
+  fillString("antagonisticForce", record.antagonisticForce, 240);
+  fillString("endingImage", record.endingImage, 240);
+  fillString("featureSequence", record.featureSequence, 240);
+  fillString("featureObligation", record.featureObligation, 360);
+  fillString("featureMemoryBrief", buildPersistentFeatureMemoryBrief(record), 420);
+  fillString("nextScenePlan", record.nextScenePlan, 420);
+  fillString("emotionalContinuity", record.emotionalContinuity, 360);
+  fillString("draftExcerpt", record.lastWritePreview, 6_000);
+  mergeList("nextSceneMoves", record.nextSceneMoves, 5, 180);
+  mergeList("beatSequence", record.beatSequence, 8, 180);
+  mergeList("characterFocus", record.characterFocus, 8, 120);
+  mergeList("unresolvedSetups", record.unresolvedSetups, 8, 220);
+  mergeList("continuityNotes", [
+    ...record.continuityNotes,
+    record.featureSequence ? `Persistent feature sequence: ${record.featureSequence}` : "",
+    record.nextScenePlan ? `Persistent next scene: ${record.nextScenePlan}` : "",
+    record.endingImage ? `Protect ending image: ${record.endingImage}` : "",
+  ], 8, 220);
+  fillNumber("pageCount", record.pageCount);
+  fillNumber("targetPages", record.targetPages);
+
+  return {
+    context: Object.keys(context).length ? context : null,
+    hydrated,
+  };
+}
+
 function resolvePromptUserId(req) {
   return trimToString(
     req?.authUser?.id ||
@@ -295,6 +518,10 @@ function sanitizeSessionContext(value) {
     value.feature_obligation ?? value.featureObligation ?? value.structural_obligation ?? value.structuralObligation,
     360
   );
+  const featureMemoryBrief = trimToString(
+    value.feature_memory_brief ?? value.featureMemoryBrief ?? value.persistent_memory_brief ?? value.persistentMemoryBrief,
+    420
+  );
   const nextScenePlan = trimToString(
     value.next_scene_plan ?? value.nextScenePlan ?? value.next_page_plan ?? value.nextPagePlan,
     420
@@ -350,6 +577,7 @@ function sanitizeSessionContext(value) {
   if (endingImage) context.endingImage = endingImage;
   if (featureSequence) context.featureSequence = featureSequence;
   if (featureObligation) context.featureObligation = featureObligation;
+  if (featureMemoryBrief) context.featureMemoryBrief = featureMemoryBrief;
   if (nextScenePlan) context.nextScenePlan = nextScenePlan;
   if (nextSceneMoves.length) context.nextSceneMoves = nextSceneMoves;
   if (beatSequence.length) context.beatSequence = beatSequence;
@@ -393,18 +621,26 @@ function mountPromptRoutes(app, {
     const creativeMemory = userId && creativeMemoryStore?.getCreativeMemoryForPrompt
       ? await creativeMemoryStore.getCreativeMemoryForPrompt({ userId })
       : null;
+    const screenplayTask = inferScreenplayTask(userInput || screenplayTaskHint);
     const sanitizedSessionContext = sanitizeSessionContext(
       req.body?.session_context ?? req.body?.sessionContext
     );
-    const {
-      context: sessionContext,
-      hydrated: sessionContextHydrated,
-    } = hydrateSessionContextFromProject(req, sanitizedSessionContext, {
+    const projectHydration = hydrateSessionContextFromProject(req, sanitizedSessionContext, {
       getOrCreateScreenplayOwnerRecord,
       getScreenplayProjectRecord,
       getLatestScreenplayVersion,
     });
-    const screenplayTask = inferScreenplayTask(userInput || screenplayTaskHint);
+    const memoryHydration = hydrateSessionContextFromScreenplayMemory(
+      projectHydration.context,
+      creativeMemory,
+      {
+        body: req.body || {},
+        screenplayTask,
+        taskHint: userInput || screenplayTaskHint,
+      }
+    );
+    const sessionContext = memoryHydration.context;
+    const sessionContextHydrated = Boolean(projectHydration.hydrated || memoryHydration.hydrated);
 
     let prompt = buildModelPrompt({
       persona,

@@ -344,6 +344,8 @@ test("[persistent-screenplay-memory] prompt builder rebuilds feature context fro
   assert.ok(prompt.includes("current_beat: The father reveal corners Mara emotionally."));
   assert.ok(prompt.includes("feature_sequence: Midpoint trap"));
   assert.ok(prompt.includes("structural_obligation_due_now: Force the protagonist to act"));
+  assert.ok(prompt.includes("persistent_memory_brief: position: Act II / Midpoint trap"));
+  assert.ok(prompt.includes("open setups: Forged testimony / Missing evidence"));
   assert.ok(prompt.includes("next_scene_plan: Move into a private corridor confrontation"));
   assert.ok(prompt.includes("character_focus:"));
   assert.ok(prompt.includes("- Father"));

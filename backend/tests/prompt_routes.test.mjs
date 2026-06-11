@@ -365,6 +365,78 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
   );
 });
 
+test("POST /screenplay/prompt/build hydrates missing feature context from persistent screenplay memory", async () => {
+  await withTestServer(
+    async ({ baseURL }) => {
+      const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+        persona: "You are Clementine, a cinematic screenwriting partner.",
+        user_input: "",
+        screenplay_task_hint: "Continue the script from the last accepted pages.",
+        session_context: {
+          project_id: "memory-feature-1",
+        },
+      });
+
+      assert.equal(status, 200);
+      assert.equal(body.ok, true);
+      assert.equal(body.memory_applied, true);
+      assert.equal(body.session_context_applied, true);
+      assert.equal(body.session_context_hydrated, true);
+      assert.equal(body.screenplay_task_intent, "continue_script");
+      assert.ok(body.prompt.includes("project: memory-feature-1"));
+      assert.ok(body.prompt.includes("version: rev-21"));
+      assert.ok(body.prompt.includes("scene: INT. EDIT BAY - NIGHT"));
+      assert.ok(body.prompt.includes("act: Act II"));
+      assert.ok(body.prompt.includes("feature_sequence: Act II - Reversal Fallout"));
+      assert.ok(body.prompt.includes("structural_obligation_due_now: Mara's old tactic should stop working."));
+      assert.ok(body.prompt.includes("persistent_memory_brief: logline: A film editor finds the missing reel"));
+      assert.ok(body.prompt.includes("open setups: missing reel / sealed affidavit"));
+      assert.ok(body.prompt.includes("next_scene_plan: Mara returns to the edit bay and realizes the recovered reel is bait."));
+      assert.ok(body.prompt.includes("next_scene_moves:"));
+      assert.ok(body.prompt.includes("Make the win turn into a trap."));
+      assert.ok(body.prompt.includes("beat_sequence:"));
+      assert.ok(body.prompt.includes("Mara hides the reel."));
+      assert.ok(body.prompt.includes("unresolved_setups:"));
+      assert.ok(body.prompt.includes("sealed affidavit"));
+      assert.ok(body.prompt.includes("continuity_notes:"));
+      assert.ok(body.prompt.includes("Persistent feature sequence: Act II - Reversal Fallout"));
+      assert.ok(body.prompt.includes("draft_excerpt:"));
+      assert.ok(body.prompt.includes("MARA pockets the reel"));
+      assert.ok(body.prompt.includes("<feature_film_map>"));
+      assert.ok(body.prompt.includes("current_position: p62 / 110"));
+      assert.ok(body.prompt.includes("current_sequence: Act II - Reversal Fallout"));
+    },
+    {
+      memory: {
+        userId: "user-prompt-1",
+        version: 1,
+        updatedAt: 0,
+        screenplayProjectMemory: [
+          {
+            projectId: "memory-feature-1",
+            documentRevisionId: "rev-21",
+            act: "Act II",
+            sceneLabel: "INT. EDIT BAY - NIGHT",
+            currentBeat: "Mara pockets the reel and sees the same symbol on the envelope.",
+            logline: "A film editor finds the missing reel that can expose her brother's conviction.",
+            featureSequence: "Act II - Reversal Fallout",
+            featureObligation: "Mara's old tactic should stop working.",
+            nextScenePlan: "Mara returns to the edit bay and realizes the recovered reel is bait.",
+            nextSceneMoves: ["Make the win turn into a trap.", "Push Mara into a public choice."],
+            beatSequence: ["Mara hides the reel.", "The symbol repeats on the envelope."],
+            unresolvedSetups: ["missing reel", "sealed affidavit"],
+            continuityNotes: ["Do not forgive Marcus yet."],
+            lastWritePreview: "INT. EDIT BAY - NIGHT\n\nMARA pockets the reel before the projector dies.",
+            pageCount: 62,
+            targetPages: 110,
+            updatedAt: 1_800_000_400_000,
+          },
+        ],
+      },
+    }
+  );
+});
+
 test("POST /screenplay/prompt/build rejects empty prompt payloads", async () => {
   await withTestServer(async ({ baseURL }) => {
     const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {});

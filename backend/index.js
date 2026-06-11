@@ -3055,6 +3055,24 @@ function selectScreenplayProjectMemoryForPrompt(memory, studioMeta = null, body 
   return items[0] || null;
 }
 
+function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
+  if (!memoryProject) return "";
+  const parts = [
+    memoryProject.logline ? `logline: ${memoryProject.logline}` : "",
+    memoryProject.act || memoryProject.featureSequence
+      ? `position: ${[memoryProject.act, memoryProject.featureSequence].filter(Boolean).join(" / ")}`
+      : "",
+    memoryProject.currentBeat ? `current beat: ${memoryProject.currentBeat}` : "",
+    memoryProject.featureObligation ? `due now: ${memoryProject.featureObligation}` : "",
+    memoryProject.nextScenePlan ? `next: ${memoryProject.nextScenePlan}` : "",
+    Array.isArray(memoryProject.unresolvedSetups) && memoryProject.unresolvedSetups.length
+      ? `open setups: ${memoryProject.unresolvedSetups.slice(0, 3).join(" / ")}`
+      : "",
+    memoryProject.endingImage ? `ending image: ${memoryProject.endingImage}` : "",
+  ].filter(Boolean);
+  return normalizeSnippet(parts.join("; "), 420);
+}
+
 function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory = null) {
   const body = req?.body && typeof req.body === "object" ? req.body : {};
   const memoryProject = selectScreenplayProjectMemoryForPrompt(memory, studioMeta, body);
@@ -3138,6 +3156,7 @@ function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory 
     endingImage: normalizeSnippet(body.endingImage ?? body.ending_image ?? body.screenplayEndingImage ?? body.screenplay_ending_image, 240) || memoryProject?.endingImage || "",
     featureSequence,
     featureObligation,
+    featureMemoryBrief: buildTalkPersistentFeatureMemoryBrief(memoryProject),
     nextScenePlan,
     nextSceneMoves: parseTalkScreenplayContextList(body.nextSceneMoves ?? body.next_scene_moves ?? body.screenplayNextSceneMoves ?? body.screenplay_next_scene_moves, 5, 180)
       .concat(memoryProject?.nextSceneMoves || [])
