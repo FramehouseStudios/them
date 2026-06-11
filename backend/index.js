@@ -3064,10 +3064,10 @@ function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
       : "",
     memoryProject.currentBeat ? `current beat: ${memoryProject.currentBeat}` : "",
     memoryProject.featureObligation ? `due now: ${memoryProject.featureObligation}` : "",
-    memoryProject.nextScenePlan ? `next: ${memoryProject.nextScenePlan}` : "",
     Array.isArray(memoryProject.unresolvedSetups) && memoryProject.unresolvedSetups.length
       ? `open setups: ${memoryProject.unresolvedSetups.slice(0, 3).join(" / ")}`
       : "",
+    memoryProject.nextScenePlan ? `next: ${memoryProject.nextScenePlan}` : "",
     memoryProject.endingImage ? `ending image: ${memoryProject.endingImage}` : "",
   ].filter(Boolean);
   return normalizeSnippet(parts.join("; "), 420);

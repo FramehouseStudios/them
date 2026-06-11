@@ -209,8 +209,8 @@ function buildPersistentFeatureMemoryBrief(record) {
     record.act || record.featureSequence ? `position: ${[record.act, record.featureSequence].filter(Boolean).join(" / ")}` : "",
     record.currentBeat ? `current beat: ${record.currentBeat}` : "",
     record.featureObligation ? `due now: ${record.featureObligation}` : "",
-    record.nextScenePlan ? `next: ${record.nextScenePlan}` : "",
     record.unresolvedSetups.length ? `open setups: ${record.unresolvedSetups.slice(0, 3).join(" / ")}` : "",
+    record.nextScenePlan ? `next: ${record.nextScenePlan}` : "",
     record.endingImage ? `ending image: ${record.endingImage}` : "",
   ].filter(Boolean);
   return trimToString(parts.join("; "), 420);
