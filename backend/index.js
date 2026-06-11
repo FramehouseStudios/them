@@ -93,6 +93,7 @@ import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
 import { registerMethodNotAllowedRoutes } from "./lib/method_not_allowed_routes.js";
 import { mountStateRoute } from "./lib/state_route.js";
 import { mountDataRoutes } from "./lib/data_routes.js";
+import { mountOutboxRoutes } from "./lib/outbox_routes.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, inferScreenplayTask, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
@@ -29101,44 +29102,17 @@ mountOpsAlertsRoute(app, {
   scaleBackplaneStatus: () => scaleBackplane.status(),
 });
 
-app.get("/outbox", async (req, res) => {
-  const status = String(req.query?.status || "all").trim().toLowerCase();
-  const limit = parseQueryLimit(req.query?.limit, 80, 500);
-  const rows = await scaleBackplane.listOutbox({
-    status: ["all", "pending", "completed", "failed"].includes(status) ? status : "all",
-    limit,
-  });
-  return res.status(200).json({
-    ok: true,
-    status_filter: status,
-    limit,
-    count: rows.length,
-    items: rows,
-  });
-});
-
-app.post("/outbox/retry", express.json({ limit: "256kb" }), async (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const id = String(req.body?.id || "").trim();
-  if (id) {
-    const result = await processSingleOutboxItemById(id, rid);
-    const code = result.ok ? 200 : (result.error === "not_found" ? 404 : 409);
-    return res.status(code).json({
-      ok: Boolean(result.ok),
-      id,
-      status: result.status || "",
-      error: result.error || null,
-      item: result.item || null,
-    });
-  }
-  const batch = await processOutboxBatch({
-    limit: parseQueryLimit(req.body?.limit, OUTBOX_WORKER_BATCH_SIZE, 200),
-    reqId: rid,
-  });
-  return res.status(200).json({
-    ok: true,
-    ...batch,
-  });
+// GET /outbox + POST /outbox/retry extracted to lib/outbox_routes.js
+// (Phase 6.1a module, now wired). Mounted in place to preserve Express
+// registration order; handler bodies are byte-identical, including the
+// route-local express.json({limit:"256kb"}) parser on /outbox/retry.
+mountOutboxRoutes(app, {
+  OUTBOX_WORKER_BATCH_SIZE,
+  createRequestId,
+  parseQueryLimit,
+  processOutboxBatch,
+  processSingleOutboxItemById,
+  scaleBackplane,
 });
 
 // GET /state extracted to lib/state_route.js (Phase 6.1a module, now wired).
