@@ -40,6 +40,7 @@ import {
   configureMemoryStore,
   getPersistedIpForClientToken,
   getPersistedUserMemoryForClientToken,
+  getPersistedUserMemoryForUserId,
   getPersistedUserMemoryForIp,
   loadUserMemoryStore,
   loadUserMemoryStoreFromAdapter,
@@ -47,8 +48,10 @@ import {
   sanitizeClientTokenAliasList,
   saveUserMemoryStore,
   setPersistedUserMemoryForIp,
+  setPersistedUserMemoryForUserId,
   userMemoryByClientToken,
   userMemoryByIp,
+  userMemoryByUserId,
 } from "./lib/memory_store.js";
 import {
   buildOutboxActionKey,
@@ -3649,7 +3652,7 @@ if (!loadedFromAdapter) {
   loadScreenplayStore(screenplayStoreByOwner);
 }
 console.log(
-  `[user_memory] loaded records=${userMemoryByIp.size} token_aliases=${userMemoryByClientToken.size}`
+  `[user_memory] loaded records=${userMemoryByIp.size} users=${userMemoryByUserId.size} token_aliases=${userMemoryByClientToken.size}`
 );
 setTimeout(() => {
   void hydrateUserMemoryStoreFromBackplane();
@@ -16301,6 +16304,41 @@ function markRecentCheckInForIp(ip, now = Date.now()) {
   checkInCooldownByIp.set(key, now + CHECKIN_COOLDOWN_MS);
 }
 
+function normalizeAuthenticatedUserId(value) {
+  return String(value || "").trim();
+}
+
+function resolveAuthenticatedUserId(req) {
+  return normalizeAuthenticatedUserId(req?.authUser?.id || req?.userId || req?.user?.id || "");
+}
+
+function legacyAuthMemoryIp(userId) {
+  const normalizedUserId = normalizeAuthenticatedUserId(userId);
+  return normalizedUserId ? normalizeClientIp(`authuser:${normalizedUserId}`) : "";
+}
+
+function getPersistedUserMemoryForAccount(userId, now = Date.now()) {
+  const normalizedUserId = normalizeAuthenticatedUserId(userId);
+  if (!normalizedUserId) return null;
+  return (
+    getPersistedUserMemoryForUserId(normalizedUserId, now) ||
+    getPersistedUserMemoryForIp(legacyAuthMemoryIp(normalizedUserId), now)
+  );
+}
+
+function setPersistedUserMemoryForAccount(userId, memory, now = Date.now(), options = {}) {
+  const normalizedUserId = normalizeAuthenticatedUserId(userId);
+  if (!normalizedUserId) {
+    return sanitizePersistedSessionMemory(memory || createEmptyEmotionMemory());
+  }
+  const persisted = setPersistedUserMemoryForUserId(normalizedUserId, memory, now);
+  const legacyIp = legacyAuthMemoryIp(normalizedUserId);
+  if (legacyIp) {
+    setPersistedUserMemoryForIp(legacyIp, persisted, now, options);
+  }
+  return persisted;
+}
+
 function issueSessionToken(ip, previousClientToken = "", userId = "") {
   const now = Date.now();
   cleanupExpiredSessions(now);
@@ -16316,11 +16354,12 @@ function issueSessionToken(ip, previousClientToken = "", userId = "") {
   const token = createSessionToken();
   const expiresAt = now + SESSION_TTL_MS;
   const previousToken = normalizeClientToken(previousClientToken);
-  const normalizedUserId = String(userId || "").trim();
+  const normalizedUserId = normalizeAuthenticatedUserId(userId);
   const shouldReusePreviousMemory = !normalizedUserId;
+  const legacyUserIp = legacyAuthMemoryIp(normalizedUserId) || normalizeClientIp(ip);
   const persistedMemory = shouldReusePreviousMemory
     ? (getPersistedUserMemoryForClientToken(previousToken, now) || getPersistedUserMemoryForIp(ip, now))
-    : getPersistedUserMemoryForIp(ip, now);
+    : (getPersistedUserMemoryForAccount(normalizedUserId, now) || getPersistedUserMemoryForIp(legacyUserIp, now));
   const memory = persistedMemory
     ? sanitizePersistedSessionMemory(persistedMemory)
     : createEmptyEmotionMemory();
@@ -16340,10 +16379,13 @@ function issueSessionToken(ip, previousClientToken = "", userId = "") {
   }
   memory.relationshipDepthDailyStamp = formatLocalDateStamp(now);
   memory.lastUpdatedAt = now;
-  clientSessions.set(token, { expiresAt, ip, memory, userId: normalizedUserId });
-  setPersistedUserMemoryForIp(ip, memory, now, {
-    clientTokenAliases: shouldReusePreviousMemory ? [token, previousToken] : [token],
-  });
+  const sessionIp = normalizedUserId ? legacyUserIp : normalizeClientIp(ip);
+  const persisted = normalizedUserId
+    ? setPersistedUserMemoryForAccount(normalizedUserId, memory, now, { clientTokenAliases: [token] })
+    : setPersistedUserMemoryForIp(sessionIp, memory, now, {
+      clientTokenAliases: shouldReusePreviousMemory ? [token, previousToken] : [token],
+    });
+  clientSessions.set(token, { expiresAt, ip: sessionIp, memory: persisted, userId: normalizedUserId });
   return { token, expiresAt };
 }
 
@@ -27064,9 +27106,9 @@ function applyReadStateHeaders(res, meta) {
 function selectMemoryRecordForRead(req, now = Date.now()) {
   cleanupUserMemoryStore(now);
   const clientToken = normalizeClientToken(req.get("X-Client-Token"));
-  const authenticatedUserId = String(req?.authUser?.id || req?.userId || "").trim();
+  const authenticatedUserId = resolveAuthenticatedUserId(req);
   if (authenticatedUserId) {
-    const authMemoryKey = normalizeClientIp(`authuser:${authenticatedUserId}`);
+    const authMemoryKey = legacyAuthMemoryIp(authenticatedUserId);
     const session = clientToken ? getValidSession(clientToken) : null;
     if (
       session?.memory &&
@@ -27079,11 +27121,19 @@ function selectMemoryRecordForRead(req, now = Date.now()) {
         memory: sanitizePersistedSessionMemory(session.memory),
       };
     }
+    const userMemory = getPersistedUserMemoryForUserId(authenticatedUserId, now);
+    if (userMemory) {
+      return {
+        ip: authMemoryKey || "unknown",
+        source: "auth_user",
+        memory: sanitizePersistedSessionMemory(userMemory),
+      };
+    }
     const authMemory = getPersistedUserMemoryForIp(authMemoryKey, now);
     if (authMemory) {
       return {
         ip: authMemoryKey || "unknown",
-        source: "auth_user",
+        source: "auth_user_legacy",
         memory: sanitizePersistedSessionMemory(authMemory),
       };
     }
@@ -28321,7 +28371,7 @@ function buildDailyRecapPayload(memory, historyThreads = [], nowTs = Date.now(),
 function resolveWritableMemoryContext(req, nowTs = Date.now()) {
   const requesterIp = normalizeClientIp(clientIp(req));
   const clientToken = normalizeClientToken(req.get("X-Client-Token"));
-  const authenticatedUserId = String(req?.authUser?.id || req?.userId || "").trim();
+  const authenticatedUserId = resolveAuthenticatedUserId(req);
   const activeSessionCandidate = clientToken ? getValidSession(clientToken) : null;
   const activeSession = activeSessionCandidate && (
     !authenticatedUserId ||
@@ -28330,12 +28380,12 @@ function resolveWritableMemoryContext(req, nowTs = Date.now()) {
     ? activeSessionCandidate
     : null;
   const tokenIp = clientToken ? getPersistedIpForClientToken(clientToken, nowTs) : "";
-  const authMemoryKey = authenticatedUserId ? normalizeClientIp(`authuser:${authenticatedUserId}`) : "";
+  const authMemoryKey = authenticatedUserId ? legacyAuthMemoryIp(authenticatedUserId) : "";
   const sessionIp = authenticatedUserId
     ? authMemoryKey
     : normalizeClientIp(activeSession?.ip || tokenIp || requesterIp);
   const persistedMemory = authenticatedUserId
-    ? getPersistedUserMemoryForIp(sessionIp, nowTs)
+    ? (getPersistedUserMemoryForAccount(authenticatedUserId, nowTs) || getPersistedUserMemoryForIp(sessionIp, nowTs))
     : (clientToken
       ? (getPersistedUserMemoryForClientToken(clientToken, nowTs) || getPersistedUserMemoryForIp(sessionIp, nowTs))
       : getPersistedUserMemoryForIp(sessionIp, nowTs));
@@ -28345,6 +28395,7 @@ function resolveWritableMemoryContext(req, nowTs = Date.now()) {
   return {
     requesterIp: sessionIp,
     clientToken,
+    authenticatedUserId,
     activeSession,
     memory: sanitizePersistedSessionMemory(candidateMemory || createEmptyEmotionMemory()),
   };
@@ -28357,6 +28408,12 @@ function persistWritableMemoryContext(context, nextMemory, nowTs = Date.now()) {
   memory.lastUpdatedAt = Math.max(0, Number(nowTs || Date.now()));
   if (safeContext.activeSession && typeof safeContext.activeSession === "object") {
     safeContext.activeSession.memory = memory;
+  }
+  const authenticatedUserId = normalizeAuthenticatedUserId(safeContext.authenticatedUserId);
+  if (authenticatedUserId) {
+    return setPersistedUserMemoryForAccount(authenticatedUserId, memory, nowTs, {
+      clientTokenAliases: [normalizeClientToken(safeContext.clientToken)],
+    });
   }
   if (ip && ip !== "unknown") {
     setPersistedUserMemoryForIp(ip, memory, nowTs, {
@@ -29658,7 +29715,7 @@ app.post("/secretary/calendar", express.json({ limit: "512kb" }), async (req, re
 app.post("/session", sessionRateLimitGuard, (req, res) => {
   console.log(`[session] has_app_token_header=${Boolean(req.get("X-APP-TOKEN"))}`);
   const requesterIp = clientIp(req);
-  const authUserId = String(req.authUser?.id || "").trim();
+  const authUserId = resolveAuthenticatedUserId(req);
   const requestedClientToken = normalizeClientToken(req.get("X-Client-Token"));
   const existingSessionCandidate = requestedClientToken ? getValidSession(requestedClientToken) : null;
   const existingSession = existingSessionCandidate && (!authUserId || String(existingSessionCandidate.userId || "").trim() === authUserId)
@@ -29669,15 +29726,21 @@ app.post("/session", sessionRateLimitGuard, (req, res) => {
 
   if (existingSession) {
     existingSession.expiresAt = Date.now() + SESSION_TTL_MS;
-    existingSession.ip = normalizeClientIp(requesterIp);
+    existingSession.ip = authUserId ? legacyAuthMemoryIp(authUserId) : normalizeClientIp(requesterIp);
     if (authUserId) {
       existingSession.userId = authUserId;
     }
     token = requestedClientToken;
     expiresAt = existingSession.expiresAt;
-    setPersistedUserMemoryForIp(existingSession.ip, existingSession.memory, Date.now(), {
-      clientTokenAliases: [requestedClientToken],
-    });
+    if (authUserId) {
+      existingSession.memory = setPersistedUserMemoryForAccount(authUserId, existingSession.memory, Date.now(), {
+        clientTokenAliases: [requestedClientToken],
+      });
+    } else {
+      setPersistedUserMemoryForIp(existingSession.ip, existingSession.memory, Date.now(), {
+        clientTokenAliases: [requestedClientToken],
+      });
+    }
   } else {
     const issued = issueSessionToken(requesterIp, authUserId ? "" : requestedClientToken, authUserId);
     token = issued.token;
@@ -29702,9 +29765,15 @@ app.post("/session", sessionRateLimitGuard, (req, res) => {
     if (active && typeof active === "object") {
       active.memory = restoredMemory;
     }
-    setPersistedUserMemoryForIp(normalizeClientIp(requesterIp), restoredMemory, Date.now(), {
-      clientTokenAliases: [token],
-    });
+    if (authUserId) {
+      restoredMemory = setPersistedUserMemoryForAccount(authUserId, restoredMemory, Date.now(), {
+        clientTokenAliases: [token],
+      });
+    } else {
+      setPersistedUserMemoryForIp(normalizeClientIp(requesterIp), restoredMemory, Date.now(), {
+        clientTokenAliases: [token],
+      });
+    }
     console.log(
       `[session_backfill] token=${token.slice(0, 8)} created=${backfillResult.created} trigger=${backfillResult.trigger} keys=${(backfillResult.keys || []).join(",") || "none"}`
     );
@@ -29966,18 +30035,14 @@ app.patch("/session/evolution", express.json({ limit: "256kb" }), (req, res) => 
   if (romanceTension != null) memory.romanceTensionHint = romanceTension;
   memory.lastUpdatedAt = now;
 
-  const persisted = setPersistedUserMemoryForIp(
-    requesterIp,
-    memory,
-    now,
-    { clientTokenAliases: clientToken ? [clientToken] : [] }
-  );
+  const context = resolveWritableMemoryContext(req, now);
+  const persisted = persistWritableMemoryContext(context, memory, now);
   if (validSession && typeof validSession === "object") {
     validSession.memory = persisted;
-    validSession.ip = requesterIp;
+    validSession.ip = context.requesterIp || requesterIp;
   }
 
-  const meta = buildReadStateMeta(req, persisted, requesterIp);
+  const meta = buildReadStateMeta(req, persisted, context.requesterIp || requesterIp);
   applyReadStateHeaders(res, meta);
   console.log(
     `[${rid}] session_evolution synced stage=${stage ?? "n/a"} depth=${depthScore ?? "n/a"} romance=${romanceTension ?? "n/a"} reassure_style=${reassuranceStyleHint || "n/a"} affection=${affectionStyleHint || "n/a"} love_topic=${loveTopicActive == null ? "n/a" : (loveTopicActive ? "1" : "0")} ip=${requesterIp}`
@@ -30515,6 +30580,7 @@ const handleTalkRequest = createTalkHandler({
   recordUserTurnQualityMetric,
   resolveEmailSendIntentWithPending,
   resolveTalkSessionKey,
+  resolveWritableMemoryContext,
   sanitizeActiveThemes,
   sanitizeAdaptiveBias,
   sanitizeAdaptiveQualityTags,
@@ -30528,7 +30594,7 @@ const handleTalkRequest = createTalkHandler({
   setAssistantSelfNameForIp,
   setPendingEmailDraft,
   setPendingLocalAction,
-  setPersistedUserMemoryForIp,
+  persistWritableMemoryContext,
   shouldForceSessionCheckInOpener,
   shouldHoldForContinuation,
   shouldPrioritizeReassurance,

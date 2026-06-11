@@ -461,6 +461,7 @@ async function loadUserMemoryStoreFromAdapter(
   if (!Array.isArray(records) || records.length === 0) return false;
   targetByIp.clear();
   targetByToken.clear();
+  userMemoryByUserId.clear();
   for (const { key, value } of records) {
     if (key.startsWith("byIp:")) {
       const ip = (typeof normalizeClientIp === "function") ? normalizeClientIp(value?.ip) : value?.ip;
@@ -487,6 +488,7 @@ function loadUserMemoryStore(targetByIp = userMemoryByIp, targetByToken = userMe
   } = memoryStoreDeps();
   targetByIp.clear();
   targetByToken.clear();
+  userMemoryByUserId.clear();
   try {
     if (!fs.existsSync(USER_MEMORY_STORE_PATH)) {
       return;

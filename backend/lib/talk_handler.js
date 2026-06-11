@@ -41,7 +41,7 @@ import {
   createTalkFailureError,
 } from "./talk_failure_diagnostics.js";
 
-const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","setPersistedUserMemoryForIp","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput"]);
+const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput"]);
 
 function createTalkHandler(deps) {
   if (!deps || typeof deps !== "object") {
@@ -298,6 +298,7 @@ function createTalkHandler(deps) {
     recordUserTurnQualityMetric,
     resolveEmailSendIntentWithPending,
     resolveTalkSessionKey,
+    resolveWritableMemoryContext,
     sanitizeActiveThemes,
     sanitizeAdaptiveBias,
     sanitizeAdaptiveQualityTags,
@@ -311,7 +312,7 @@ function createTalkHandler(deps) {
     setAssistantSelfNameForIp,
     setPendingEmailDraft,
     setPendingLocalAction,
-    setPersistedUserMemoryForIp,
+    persistWritableMemoryContext,
     shouldForceSessionCheckInOpener,
     shouldHoldForContinuation,
     shouldPrioritizeReassurance,
@@ -691,16 +692,35 @@ function createTalkHandler(deps) {
         .json({ stage: "upload", error: `Unsupported file type: ${mime || "unknown"}` });
     }
 
+    const memoryContext = resolveWritableMemoryContext(req, Date.now());
+    const requesterIp = normalizeClientIp(memoryContext?.requesterIp || ip);
+    const persistTalkMemory = (nextMemory, nowTs = Date.now()) => {
+      return persistWritableMemoryContext(memoryContext, nextMemory, nowTs);
+    };
+    const trustedUserId = String(
+      req?.authUser?.id ||
+      req?.userId ||
+      req?.user?.id ||
+      memoryContext?.authenticatedUserId ||
+      ""
+    ).trim();
     const clientTokenHeader = normalizeClientToken(req.get("X-Client-Token"));
-    const activeSession = req.clientSession && typeof req.clientSession === "object"
-      ? req.clientSession
-      : (clientTokenHeader ? getValidSession(clientTokenHeader) : null);
+    const activeSession = memoryContext?.activeSession && typeof memoryContext.activeSession === "object"
+      ? memoryContext.activeSession
+      : (req.clientSession && typeof req.clientSession === "object"
+        ? req.clientSession
+        : (clientTokenHeader ? getValidSession(clientTokenHeader) : null));
     if (activeSession && !req.clientSession) {
       req.clientSession = activeSession;
     }
-    const previousMemory = activeSession?.memory && typeof activeSession.memory === "object"
-      ? activeSession.memory
-      : null;
+    const previousMemory = memoryContext?.memory && typeof memoryContext.memory === "object"
+      ? memoryContext.memory
+      : (activeSession?.memory && typeof activeSession.memory === "object"
+        ? activeSession.memory
+        : null);
+    if (activeSession && previousMemory) {
+      activeSession.memory = previousMemory;
+    }
     debugTranscriptOverride = TALK_TEST_DEBUG_TRANSCRIPT_ENABLED
       ? normalizeSnippet(req.body?.debug_transcript ?? req.body?.debugTranscript, 1_200)
       : "";
@@ -885,7 +905,7 @@ function createTalkHandler(deps) {
           emptyMemory.lastEmptyTranscriptAt = now;
           emptyMemory.lastUpdatedAt = now;
           activeSession.memory = emptyMemory;
-          setPersistedUserMemoryForIp(ip, emptyMemory, now);
+          persistTalkMemory(emptyMemory, now);
         }
         const allowEmptyPromptVoice = parseBool(
           req.body?.allow_empty_prompt ??
@@ -939,7 +959,7 @@ function createTalkHandler(deps) {
         previousMemory.lastEmptyTranscriptAt = 0;
         previousMemory.lastUpdatedAt = Date.now();
         activeSession.memory = previousMemory;
-        setPersistedUserMemoryForIp(ip, previousMemory, Date.now());
+        persistTalkMemory(previousMemory, Date.now());
       }
     }
     const forcedErrorStageRaw = TALK_TEST_DEBUG_FAILURE_ENABLED
@@ -1394,7 +1414,7 @@ function createTalkHandler(deps) {
         holdMemory.lastContinuationReason = continuationGate.reason;
         holdMemory.lastUpdatedAt = Date.now();
         activeSession.memory = holdMemory;
-        setPersistedUserMemoryForIp(ip, holdMemory, Date.now());
+        persistTalkMemory(holdMemory, Date.now());
       }
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("x-turn-status", "continue_listening");
@@ -1444,7 +1464,6 @@ function createTalkHandler(deps) {
       thinkingDelayMs = Math.min(thinkingDelayMs, 55);
     }
 
-    const requesterIp = ip;
     const metricStateBeforeTurn = getUserMetricState(requesterIp);
     const sameDaySessionStartCount = countSessionStartsForDay(
       metricStateBeforeTurn,
@@ -1461,7 +1480,7 @@ function createTalkHandler(deps) {
       : null;
     if (activeSession) activeSession.memory = sessionMemory;
     if (sessionMemory) {
-      setPersistedUserMemoryForIp(requesterIp, sessionMemory, Date.now());
+      persistTalkMemory(sessionMemory, Date.now());
     }
     const activeThemeRefreshPromise = talkTestDebugOfflineMode
       ? null
@@ -2139,7 +2158,7 @@ function createTalkHandler(deps) {
         : null;
       if (committedMemory) {
         activeSession.memory = committedMemory;
-        setPersistedUserMemoryForIp(requesterIp, committedMemory, Date.now());
+        persistTalkMemory(committedMemory, Date.now());
       }
       const committedSessionId =
         String(req.get("X-Client-Token") || "").trim() || `ip:${normalizeClientIp(requesterIp)}`;
@@ -2165,7 +2184,7 @@ function createTalkHandler(deps) {
         storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
-          userId: req.get("X-User-Id"),
+          userId: trustedUserId,
           stateVersion: committedStateVersion,
           transcript,
           reply: talkReplyPreview,
@@ -3392,7 +3411,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       activeSession.memory.kpiTargetsMetCount = qualityTargetStatus.metCount;
       activeSession.memory.kpiTargetsTotal = qualityTargetStatus.total;
       activeSession.memory.kpiTargetsAllMet = Boolean(qualityTargetStatus.allMet);
-      setPersistedUserMemoryForIp(requesterIp, activeSession.memory, qualityAppliedAt);
+      persistTalkMemory(activeSession.memory, qualityAppliedAt);
 
       if (process.env.NODE_ENV !== "production") {
         logger.log(
@@ -3421,7 +3440,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
                 Number(activeSession.memory.adaptiveEvalFailureCount || 0)
               ) + 1;
               activeSession.memory.lastUpdatedAt = evalAt;
-              setPersistedUserMemoryForIp(requesterIp, activeSession.memory, evalAt);
+              persistTalkMemory(activeSession.memory, evalAt);
               if (process.env.NODE_ENV !== "production") {
                 logger.log(`[${rid}] adaptive_eval skipped=no_result`);
               }
@@ -3435,7 +3454,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
               evalAt,
               { countAsTurn: false }
             );
-            setPersistedUserMemoryForIp(requesterIp, activeSession.memory, evalAt);
+            persistTalkMemory(activeSession.memory, evalAt);
             if (process.env.NODE_ENV !== "production") {
               logger.log(
                 `[${rid}] adaptive_eval score=${clampUnit(llmEval.score, 0.66).toFixed(2)} merged=${clampUnit(mergedQuality.score, 0.66).toFixed(2)} tags=${sanitizeAdaptiveQualityTags(llmEval.tags, 8).join(",") || "none"}`
@@ -3450,7 +3469,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
               Number(activeSession.memory.adaptiveEvalFailureCount || 0)
             ) + 1;
             activeSession.memory.lastUpdatedAt = failAt;
-            setPersistedUserMemoryForIp(requesterIp, activeSession.memory, failAt);
+            persistTalkMemory(activeSession.memory, failAt);
             if (process.env.NODE_ENV !== "production") {
               logger.log(`[${rid}] adaptive_eval error=${String(err?.message || err)}`);
             }
@@ -3861,7 +3880,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
-          userId: req.get("X-User-Id"),
+          userId: trustedUserId,
           stateVersion: committedStateVersion,
           transcript,
           reply: talkReplyPreview,
