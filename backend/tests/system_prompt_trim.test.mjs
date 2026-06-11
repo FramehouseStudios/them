@@ -9,6 +9,9 @@ import {
 test("[system-prompt-trim] extracts screenplay-critical tagged blocks in source order", () => {
   const prompt = [
     "PERSONA",
+    "<clementine_core>",
+    "identity: CLEMENTINE",
+    "</clementine_core>",
     "<session>",
     "  project: p1",
     "</session>",
@@ -19,13 +22,27 @@ test("[system-prompt-trim] extracts screenplay-critical tagged blocks in source 
   ].join("\n");
 
   const blocks = extractTaggedBlocks(prompt);
-  assert.equal(blocks.length, 2);
-  assert.equal(blocks[0].tag, "session");
-  assert.equal(blocks[1].tag, "screenplay_task");
+  assert.equal(blocks.length, 3);
+  assert.equal(blocks[0].tag, "clementine_core");
+  assert.equal(blocks[1].tag, "session");
+  assert.equal(blocks[2].tag, "screenplay_task");
 });
 
 test("[system-prompt-trim] preserves session and screenplay task when trimming large prompts", () => {
-  const persona = `PERSONA\n${"A cinematic system line. ".repeat(160)}`;
+  const persona = [
+    "PERSONA",
+    "<clementine_core>",
+    "identity: CLEMENTINE protects truth, memory, feature continuity, and direct page writing.",
+    "</clementine_core>",
+    "<clementine_safety_contract>",
+    "truthfulness: never fabricate memory or certainty.",
+    "</clementine_safety_contract>",
+    "<creative_memory>",
+    "recurring-characters:",
+    "  - JUNE - sparse, wounded, dry",
+    "</creative_memory>",
+    "A cinematic system line. ".repeat(160),
+  ].join("\n");
   const draft = [
     "INT. DINER - NIGHT",
     "",
@@ -62,6 +79,12 @@ test("[system-prompt-trim] preserves session and screenplay task when trimming l
   });
 
   assert.ok(out.length <= 1_600);
+  assert.ok(out.includes("<clementine_core>"));
+  assert.ok(out.includes("feature continuity"));
+  assert.ok(out.includes("<clementine_safety_contract>"));
+  assert.ok(out.includes("never fabricate"));
+  assert.ok(out.includes("<creative_memory>"));
+  assert.ok(out.includes("JUNE"));
   assert.ok(out.includes("<session>"));
   assert.ok(out.includes("project: proj-7"));
   assert.ok(out.includes("draft_excerpt:"));

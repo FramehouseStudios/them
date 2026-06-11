@@ -1,4 +1,13 @@
-const DEFAULT_PROTECTED_TAGS = Object.freeze(["session", "screenplay_task"]);
+const DEFAULT_PROTECTED_TAGS = Object.freeze([
+  "clementine_core",
+  "clementine_safety_contract",
+  "creative_memory",
+  "session",
+  "feature_film_map",
+  "accepted_twists",
+  "screenplay_task",
+  "block_signal",
+]);
 
 function normalizePromptText(value) {
   return String(value || "")
@@ -121,7 +130,7 @@ function fitSystemPromptForTurnLatency(
     return `${head}\n...\n${tail}`.slice(0, budget).trim();
   }
 
-  const protectedBudget = Math.max(240, Math.floor(budget * 0.44));
+  const protectedBudget = Math.max(240, Math.floor(budget * 0.68));
   const protectedSection = buildProtectedSection(protectedBlocks, protectedBudget);
   const base = removeTaggedBlocks(normalized, protectedBlocks);
   const remainingBudget = Math.max(240, budget - protectedSection.length - 8);

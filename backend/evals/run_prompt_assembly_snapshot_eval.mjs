@@ -4,7 +4,8 @@
 //
 // buildModelPrompt() concatenates labelled blocks in a fixed order:
 //
-//   persona → <creative_memory> → <session> → <accepted_twists> → <screenplay_task> → <block_signal> → userInput
+//   persona → <clementine_safety_contract> → <creative_memory> → <session>
+//   → <accepted_twists> → <screenplay_task> → <block_signal> → userInput
 //
 // Several downstream concerns depend on that ordering (model
 // attention, the prompt-regression baseline, iOS prompt previews).
@@ -52,6 +53,15 @@ const fixture = {
 const expected = [
   "You are the companion.",
   "",
+  "<clementine_safety_contract>",
+  "truthfulness: do not claim certainty, memory, research, production facts, legal/medical facts, or external-world knowledge you do not actually have; say when something is an inference or unknown.",
+  "no fabrication: never invent user history, saved project facts, screenplay continuity, sources, citations, credits, or real-world events; use only supplied context and clearly mark creative invention as story invention.",
+  "no deception help: do not help users lie, manipulate, impersonate, conceal wrongdoing, defraud, or deceive real people; redirect toward honest, consent-respecting communication.",
+  "real-world harm boundary: do not provide instructions, tactics, targeting advice, weaponization, evasion, coercion, or encouragement for hurting a real person or oneself.",
+  "fiction boundary: fictional conflict, danger, crime, and violence are allowed as screenplay material when framed as story craft; keep it cinematic and non-instructional, without actionable real-world harm guidance.",
+  "safety redirection: if a request is about real-life harm, self-harm, or deceiving someone, refuse the harmful part briefly and offer safe story, emotional, or practical alternatives.",
+  "</clementine_safety_contract>",
+  "",
   "<creative_memory>",
   "recurring-characters:",
   "  - June [protagonist] — wry",
@@ -86,6 +96,7 @@ check(
 
 // Sanity: the block boundary tags appear in the canonical order.
 const indexOfPersona = actual.indexOf("You are the companion");
+const indexOfSafety = actual.indexOf("<clementine_safety_contract>");
 const indexOfMemory = actual.indexOf("<creative_memory>");
 const indexOfSession = actual.indexOf("<session>");
 const indexOfAcceptedTwists = actual.indexOf("<accepted_twists>");
@@ -93,9 +104,10 @@ const indexOfBlockSignal = actual.indexOf("<block_signal>");
 const indexOfUserInput = actual.indexOf("Write the next beat");
 
 check(
-  "ordering: persona < memory < session < accepted-twists < block-signal < userInput",
+  "ordering: persona < safety < memory < session < accepted-twists < block-signal < userInput",
   indexOfPersona >= 0 &&
-    indexOfPersona < indexOfMemory &&
+    indexOfPersona < indexOfSafety &&
+    indexOfSafety < indexOfMemory &&
     indexOfMemory < indexOfSession &&
     indexOfSession < indexOfAcceptedTwists &&
     indexOfAcceptedTwists < indexOfBlockSignal &&
@@ -120,14 +132,19 @@ check(
     taskIndexOfScreenplayTask < taskIndexOfBlockSignal,
 );
 
-// A cold-fixture variant: only persona + userInput, no extra blocks.
+// A cold-fixture variant still carries the safety block, but no optional tags.
 const cold = buildModelPrompt({
   persona: "P",
   userInput: "U",
 });
 check(
-  "cold: just persona + user input, no tag markup",
-  cold === "P\n\nU",
+  "cold: persona + safety + user input, no optional tag markup",
+  cold.includes("<clementine_safety_contract>") &&
+    cold.startsWith("P\n\n") &&
+    cold.endsWith("\n\nU") &&
+    !cold.includes("<creative_memory>") &&
+    !cold.includes("<session>") &&
+    !cold.includes("<block_signal>"),
   cold,
 );
 

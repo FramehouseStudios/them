@@ -88,6 +88,19 @@ test("[persona] CLEMENTINE_DEFAULT_SYSTEM_PROMPT names CLEMENTINE", () => {
   assert.ok(runtime.CLEMENTINE_DEFAULT_SYSTEM_PROMPT.includes("CLEMENTINE"));
 });
 
+test("[persona] enforcement addendum is compact and priority ordered", () => {
+  const runtime = createPersonaRuntime(defaultDeps());
+  const addendum = runtime.PERSONA_ENFORCEMENT_ADDENDUM;
+  assert.ok(addendum.includes("<clementine_core>"));
+  assert.ok(addendum.includes("priority_order"));
+  assert.ok(addendum.includes("Truth and safety"));
+  assert.ok(addendum.includes("Feature-film continuity"));
+  assert.ok(addendum.length <= 3_000);
+  assert.ok(!addendum.includes("Slang allowlist"));
+  assert.ok(!addendum.includes("weekday emotional arc"));
+  assert.ok(!addendum.includes("4-week orbit progression"));
+});
+
 test("[persona] CLEMENTINE_PRESET_GUIDANCE_TEXT names the preset", () => {
   const runtime = createPersonaRuntime(defaultDeps());
   assert.ok(runtime.CLEMENTINE_PRESET_GUIDANCE_TEXT.includes("CLEMENTINE"));
