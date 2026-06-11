@@ -94,6 +94,8 @@ import { registerMethodNotAllowedRoutes } from "./lib/method_not_allowed_routes.
 import { mountStateRoute } from "./lib/state_route.js";
 import { mountDataRoutes } from "./lib/data_routes.js";
 import { mountOutboxRoutes } from "./lib/outbox_routes.js";
+import { mountHistoryRoutes } from "./lib/history_routes.js";
+import { mountRecapRoutes } from "./lib/recap_routes.js";
 import { createReadStateHelpers } from "./lib/read_state.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
@@ -28715,136 +28717,28 @@ mountDataRoutes(app, {
   resolveWritableMemoryContext,
 });
 
-app.get("/history", (req, res) => {
-  const limit = parseQueryLimit(req.query?.limit, 60, 240);
-  const sinceTurnNumber = parseTurnIdToNumber(req.query?.sinceTurnId);
-  const screenplayProjectId = normalizeSnippet(req.query?.screenplayProjectId ?? "", 96);
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const fullThreads = buildConversationHistoryThreads(
-    memory,
-    Math.max(limit, 260),
-    screenplayProjectId ? { screenplayProjectId } : {}
-  );
-  const threads = sinceTurnNumber > 0
-    ? fullThreads.filter((item) => Math.max(0, Number(item?.turn || 0)) > sinceTurnNumber).slice(0, limit)
-    : fullThreads.slice(0, limit);
-  const rememberedPeople = sanitizeRememberedPeople(
-    memory?.rememberedPeople,
-    USER_MEMORY_REMEMBERED_PEOPLE_MAX
-  ).map((person) => ({
-    name: person.name,
-    relation: String(person.relation || ""),
-  }));
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
-    return res.status(304).end();
-  }
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    assistant_name:
-      normalizeAssistantSelfName(memory?.assistantSelfName) || getAssistantSelfNameForIp(selected.ip),
-    user_name: normalizeUserPersonName(memory?.userPrimaryName),
-    remembered_names: rememberedPeople,
-    conversation_count: Math.max(0, Number(memory?.conversationCount || 0)),
-    last_conversation_recap: normalizeSnippet(memory?.lastConversationRecap, 220),
-    last_conversation_at: Math.max(0, Number(memory?.lastConversationAt || 0)) || null,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    is_delta: sinceTurnNumber > 0,
-    since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
-    threads,
-  });
-});
-
-app.post("/history/annotate_turn", express.json({ limit: "256kb" }), (req, res) => {
-  const nowTs = Date.now();
-  const turnNumber = parseTurnIdToNumber(req.body?.turn_id ?? req.body?.turnId);
-  const studioMeta = sanitizeStudioTurnMetadata(req.body?.studio || req.body || null);
-  if (turnNumber <= 0) {
-    return res.status(400).json({
-      stage: "history_annotate_turn",
-      error: "valid_turn_id_required",
-    });
-  }
-  if (!studioMeta) {
-    return res.status(400).json({
-      stage: "history_annotate_turn",
-      error: "studio_metadata_required",
-    });
-  }
-
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const nextMemory = sanitizePersistedSessionMemory(context.memory);
-  const history = sanitizeTurnHistoryItems(nextMemory.turnHistory);
-  let touched = 0;
-  let matchedUserTurn = "";
-  let matchedAssistantTurn = "";
-  nextMemory.turnHistory = history.map((item) => {
-    if (Math.max(0, Number(item?.turn || 0)) !== turnNumber) {
-      return item;
-    }
-    touched += 1;
-    if (item.role === "assistant") {
-      matchedAssistantTurn = normalizeSnippet(item.content, 280) || matchedAssistantTurn;
-    } else {
-      matchedUserTurn = normalizeSnippet(item.content, 280) || matchedUserTurn;
-    }
-    const mergedStudio = sanitizeStudioTurnMetadata({
-      ...(item?.studio && typeof item.studio === "object" ? item.studio : {}),
-      ...studioMeta,
-    });
-    return {
-      ...item,
-      studio: mergedStudio,
-    };
-  });
-
-  if (touched < 1) {
-    return res.status(404).json({
-      stage: "history_annotate_turn",
-      error: "turn_not_found",
-    });
-  }
-  upsertScreenplayProjectMemory(nextMemory, studioMeta, {
-    transcript: matchedUserTurn,
-    reply: matchedAssistantTurn,
-    nowTs,
-  });
-  nextMemory.lastUpdatedAt = Math.max(0, Number(nextMemory.lastUpdatedAt || 0), nowTs);
-
-  const persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  res.setHeader("x-turn-id", `turn-${turnNumber}`);
-  res.setHeader("x-turn-meta-available", "1");
-  return res.status(200).json({
-    ok: true,
-    action: "annotate_turn",
-    status: "updated",
-    turn_id: `turn-${turnNumber}`,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-  });
+// GET /history + POST /history/annotate_turn extracted to lib/history_routes.js.
+// Mounted in place to preserve Express registration order and response contracts.
+mountHistoryRoutes(app, {
+  applyReadStateHeaders,
+  buildConversationHistoryThreads,
+  buildReadStateMeta,
+  getAssistantSelfNameForIp,
+  ifNoneMatchStateHit,
+  normalizeAssistantSelfName,
+  normalizeSnippet,
+  normalizeUserPersonName,
+  parseQueryLimit,
+  parseTurnIdToNumber,
+  persistWritableMemoryContext,
+  resolveWritableMemoryContext,
+  sanitizePersistedSessionMemory,
+  sanitizeRememberedPeople,
+  sanitizeStudioTurnMetadata,
+  sanitizeTurnHistoryItems,
+  selectMemoryRecordForRead,
+  upsertScreenplayProjectMemory,
+  USER_MEMORY_REMEMBERED_PEOPLE_MAX,
 });
 
 // T-decompose-phase6-memories: 6 /memories/* routes moved to
@@ -29018,53 +28912,16 @@ app.post("/tasks/update", express.json({ limit: "256kb" }), (req, res) => {
   });
 });
 
-function sendRecapResponse(req, res, windowKey = "today") {
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const historyThreads = buildConversationHistoryThreads(memory, 140);
-  const recap = buildDailyRecapPayload(memory, historyThreads, Date.now(), windowKey);
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
-    return res.status(304).end();
-  }
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    window: recap.window,
-    window_label: recap.windowLabel,
-    window_start_at: recap.windowStartAt,
-    window_end_at: recap.windowEndAt,
-    local_day: recap.localDay,
-    generated_at: recap.generatedAt,
-    recap: recap.recap,
-    highlights: recap.highlights,
-    outcomes: recap.outcomes,
-    next_actions: recap.nextActions,
-    open_tasks: recap.openTasks,
-    completed_today: recap.completedToday,
-    stats: recap.stats,
-  });
-}
-
-app.get("/recap", (req, res) => {
-  const requestedWindow = String(req.query?.window || "today").trim().toLowerCase();
-  return sendRecapResponse(req, res, requestedWindow);
-});
-
-app.get("/recap/today", (req, res) => {
-  return sendRecapResponse(req, res, "today");
+// GET /recap + GET /recap/today extracted to lib/recap_routes.js.
+// Mounted in place to preserve Express registration order and response contracts.
+mountRecapRoutes(app, {
+  applyReadStateHeaders,
+  buildConversationHistoryThreads,
+  buildDailyRecapPayload,
+  buildReadStateMeta,
+  ifNoneMatchStateHit,
+  sanitizePersistedSessionMemory,
+  selectMemoryRecordForRead,
 });
 
 app.post("/linkedin/analyze", express.json({ limit: "1mb" }), async (req, res) => {
