@@ -111,6 +111,52 @@ test("[screenplay-budget] page-write turns get enough budget for feature page sp
     chatModelPlan: modelPlan,
     screenplayPageWrite: true,
   });
-  assert.ok(maxTokens >= 1600, `ten-page page-write needs a larger budget, got ${maxTokens}`);
-  assert.ok(maxTokens <= 2200, `screenplay page-write budget should remain bounded, got ${maxTokens}`);
+  assert.ok(maxTokens >= 2300, `ten-page page-write needs a larger budget, got ${maxTokens}`);
+  assert.ok(maxTokens <= 3200, `screenplay page-write budget should remain bounded, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] range-based feature continuation briefs get batch budget", () => {
+  const transcript = "Continue the feature as feature-film screenplay pages. Write 3-5 pages in Fountain format only.";
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan(transcript);
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+  });
+  assert.ok(maxTokens >= 1750, `3-5 page continuation needs five-page budget, got ${maxTokens}`);
+  assert.ok(maxTokens <= 3200, `range-based page-write budget should remain bounded, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] long feature page batches can use the expanded bounded cap", () => {
+  const transcript = "Write the next fifteen pages of act three and pay off the ending image.";
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan(transcript);
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+  });
+  assert.ok(maxTokens >= 3200, `fifteen-page page-write needs expanded cap, got ${maxTokens}`);
+  assert.ok(maxTokens <= 3200, `default long page-write budget should stay at configured cap, got ${maxTokens}`);
+});
+
+test("[screenplay-budget] explicit requested page count overrides missing transcript count", () => {
+  const transcript = "Continue the feature from the remembered turn.";
+  const { flags, routingPlan, turnPlanner, modelPlan } = plan(transcript);
+  const maxTokens = computeChatMaxTokensForTurn({
+    transcript,
+    turnPlanner,
+    flags,
+    routingLane: routingPlan?.lane,
+    chatModelPlan: modelPlan,
+    screenplayPageWrite: true,
+    screenplayRequestedPages: 8,
+  });
+  assert.ok(maxTokens >= 2300, `explicit eight-page request needs batch budget, got ${maxTokens}`);
+  assert.ok(maxTokens <= 3200, `explicit requested-page budget should remain bounded, got ${maxTokens}`);
 });

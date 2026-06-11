@@ -368,7 +368,7 @@ const RICH_TURN_SYSTEM_PROMPT_MAX_CHARS = Math.max(
 );
 const CHAT_MAX_TOKENS = parsePositiveInt(process.env.CHAT_MAX_TOKENS, 124);
 const CHAT_SCREENPLAY_PAGE_MAX_TOKENS = parsePositiveInt(process.env.CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 900);
-const CHAT_SCREENPLAY_BATCH_MAX_TOKENS = parsePositiveInt(process.env.CHAT_SCREENPLAY_BATCH_MAX_TOKENS, 2200);
+const CHAT_SCREENPLAY_BATCH_MAX_TOKENS = parsePositiveInt(process.env.CHAT_SCREENPLAY_BATCH_MAX_TOKENS, 3200);
 const CHAT_TEMPERATURE = parseNumberInRange(process.env.CHAT_TEMPERATURE, 0, 2, 0.45);
 const USER_NAME_MENTION_EVERY_TURNS = Math.max(
   2,
@@ -22029,9 +22029,14 @@ function inferRequestedScreenplayPagesFromText(text = "") {
   const lower = String(text || "").toLowerCase();
   if (!lower) return 0;
   const token = "(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)";
+  const rangePattern = new RegExp(`\\b(${token})\\s*(?:-|to|\\u2013|\\u2014)\\s*(${token})\\s+pages?\\b`);
+  const rangeMatch = lower.match(rangePattern);
+  const rangeEnd = screenplayPageCountFromToken(rangeMatch?.[2]);
+  if (rangeEnd > 0 && rangeEnd <= 30) return rangeEnd;
+
   const patterns = [
     new RegExp(`\\b(?:next|another|first|final|last)\\s+(${token})\\s+pages?\\b`),
-    new RegExp(`\\b(?:write|draft|continue|generate|give me|do)\\b[\\s\\S]{0,56}\\b(${token})\\s+pages?\\b`),
+    new RegExp(`\\b(?:write|draft|continue|generate|give me|do|finish|complete)\\b[\\s\\S]{0,80}\\b(${token})\\s+pages?\\b`),
   ];
   for (const pattern of patterns) {
     const match = lower.match(pattern);
@@ -22049,10 +22054,12 @@ function screenplayPageWriteTokenFloor({ transcript = "", requestedPages = 0 } =
       Math.round(Number(requestedPages || inferRequestedScreenplayPagesFromText(transcript) || 0))
     )
   );
-  if (pages >= 12) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 2100);
-  if (pages >= 8) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1700);
-  if (pages >= 5) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1300);
-  if (pages >= 2) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 980);
+  if (pages >= 15) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 3200);
+  if (pages >= 12) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 2800);
+  if (pages >= 8) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 2300);
+  if (pages >= 5) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1750);
+  if (pages >= 3) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1350);
+  if (pages >= 2) return Math.max(CHAT_SCREENPLAY_PAGE_MAX_TOKENS, 1100);
   return CHAT_SCREENPLAY_PAGE_MAX_TOKENS;
 }
 
@@ -22177,7 +22184,7 @@ function computeChatMaxTokensForTurn({
       : (substantial ? 0.90 : 0.82);
   maxTokens = maxTokens * brevityScale;
   const hardCap = screenplayPageWrite
-    ? Math.max(900, Math.min(2600, CHAT_SCREENPLAY_BATCH_MAX_TOKENS))
+    ? Math.max(1200, Math.min(3600, CHAT_SCREENPLAY_BATCH_MAX_TOKENS))
     : 420;
   const minimum = screenplayPageWrite ? Math.min(900, screenplayFloor || 900) : 88;
   return Math.max(minimum, Math.min(hardCap, Math.round(maxTokens)));
