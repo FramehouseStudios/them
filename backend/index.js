@@ -90,6 +90,7 @@ import { mountOpsAlertsRoute } from "./lib/ops_alerts_route.js";
 import { mountDecisionsQueueRoute } from "./lib/decisions_queue_route.js";
 import { mountCreativeMemoryStatsRoute } from "./lib/creative_memory_stats_route.js";
 import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
+import { registerMethodNotAllowedRoutes } from "./lib/method_not_allowed_routes.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, inferScreenplayTask, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
@@ -18466,13 +18467,6 @@ async function streamChatReplyWithFirstSentence({
   };
 }
 
-function methodNotAllowed(allow) {
-  return (req, res) => {
-    res.setHeader("Allow", allow);
-    return res.status(405).json({ stage: "method", error: `Method ${req.method} not allowed.` });
-  };
-}
-
 function normalizeVisualContextImageDataUrl(value) {
   if (!value) return "";
   const clipped = String(value).trim().slice(0, VISUAL_CONTEXT_IMAGE_DATA_URL_MAX_CHARS);
@@ -30930,63 +30924,10 @@ mountCreativeMemoryStatsRoute(app, { creativeMemoryStore });
 mountTalkTurnStatsRoute(app, {
   getAllTalkTurns: () => [...talkTurnMetaById.values()],
 });
-app.all("/auth/signup", methodNotAllowed("POST"));
-app.all("/auth/login", methodNotAllowed("POST"));
-app.all("/auth/apple", methodNotAllowed("POST"));
-app.all("/auth/refresh", methodNotAllowed("POST"));
-app.all("/auth/logout", methodNotAllowed("POST"));
-app.all("/auth/sessions", methodNotAllowed("GET"));
-app.all("/auth/sessions/revoke", methodNotAllowed("POST"));
-app.all("/auth/request_password_reset", methodNotAllowed("POST"));
-app.all("/auth/reset_password", methodNotAllowed("POST"));
-app.all("/auth/request_email_verification", methodNotAllowed("POST"));
-app.all("/auth/verify_email", methodNotAllowed("POST"));
-app.all("/health", methodNotAllowed("GET"));
-app.all("/bridge", methodNotAllowed("GET"));
-app.all("/ops/metrics", methodNotAllowed("GET"));
-app.all("/ops/alerts", methodNotAllowed("GET"));
-app.all("/outbox", methodNotAllowed("GET"));
-app.all("/outbox/retry", methodNotAllowed("POST"));
-app.all("/state", methodNotAllowed("GET"));
-app.all("/history", methodNotAllowed("GET"));
-app.all("/memories", methodNotAllowed("GET"));
-app.all("/memories/export", methodNotAllowed("GET"));
-app.all("/memories/update", methodNotAllowed("POST"));
-app.all("/memories/forget", methodNotAllowed("POST"));
-app.all("/memories/promote", methodNotAllowed("POST"));
-app.all("/memories/feedback", methodNotAllowed("POST"));
-app.all("/tasks", methodNotAllowed("GET"));
-app.all("/tasks/update", methodNotAllowed("POST"));
-app.all("/recap", methodNotAllowed("GET"));
-app.all("/recap/today", methodNotAllowed("GET"));
-app.all("/screenplay/projects", methodNotAllowed("GET, POST"));
-app.all("/screenplay/projects/:projectId", methodNotAllowed("GET"));
-app.all("/screenplay/projects/:projectId/outline", methodNotAllowed("GET, POST"));
-app.all("/screenplay/projects/:projectId/scenes", methodNotAllowed("POST"));
-app.all("/screenplay/projects/:projectId/beats", methodNotAllowed("POST"));
-app.all("/screenplay/projects/:projectId/collaborators", methodNotAllowed("GET, POST"));
-app.all("/screenplay/projects/:projectId/comments", methodNotAllowed("GET, POST"));
-app.all("/screenplay/projects/:projectId/version", methodNotAllowed("POST"));
-app.all("/screenplay/prompt/build", methodNotAllowed("POST"));
-app.all("/screenplay/paginate", methodNotAllowed("POST"));
-app.all("/screenplay/revision-colors", methodNotAllowed("POST"));
-app.all("/screenplay/export", methodNotAllowed("POST"));
-app.all("/history/annotate_turn", methodNotAllowed("POST"));
-app.all("/data/history/clear", methodNotAllowed("POST"));
-app.all("/data/memories/clear", methodNotAllowed("POST"));
-app.all("/linkedin/analyze", methodNotAllowed("POST"));
-app.all("/secretary/email", methodNotAllowed("POST"));
-app.all("/secretary/calendar", methodNotAllowed("POST"));
-app.all("/session", methodNotAllowed("POST, PATCH"));
-app.all("/realtime/client_secret", methodNotAllowed("POST"));
-app.all("/realtime/studio_render", methodNotAllowed("POST"));
-app.all("/realtime/studio_render_stream", methodNotAllowed("POST"));
-app.all("/visual/context", methodNotAllowed("POST"));
-app.all("/realtime/bridge", methodNotAllowed("GET"));
-app.all("/realtime/turn_commit", methodNotAllowed("POST"));
-app.all("/realtime/call", methodNotAllowed("POST"));
-app.all("/talk", methodNotAllowed("POST"));
-app.all("/talk/turn/:turnId", methodNotAllowed("GET"));
+// 405 method guards (extracted to lib/method_not_allowed_routes.js).
+// Registered here — after the real handlers, before the final 404 — so
+// Express still matches specific methods first and order is unchanged.
+registerMethodNotAllowedRoutes(app);
 
 app.use((req, res) => {
   return res.status(404).json({ stage: "route", error: "Not found." });
