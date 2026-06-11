@@ -3300,16 +3300,36 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
   const hasMemoryBlock = basePrompt.includes(MEMORY_BLOCK_OPEN);
   const hasScreenplayTaskBlock = basePrompt.includes("<screenplay_task>");
   const hasFeatureMapBlock = basePrompt.includes("<feature_film_map>");
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const projectId = normalizeSnippet(
+    body.projectId ??
+      body.project_id ??
+      body.screenplayProjectId ??
+      body.screenplay_project_id,
+    96
+  );
+  const projectTitle = normalizeSnippet(
+    body.projectTitle ??
+      body.project_title ??
+      body.screenplayProjectTitle ??
+      body.screenplay_project_title ??
+      body.pack ??
+      body.screenplayPack ??
+      body.screenplay_pack,
+    160
+  );
   const userId = req?.authUser?.id || req?.user?.id || req?.userId || null;
   const memory = userId && !hasMemoryBlock
     ? await creativeMemoryStore.getCreativeMemoryForPrompt({
       userId,
+      projectId,
+      projectTitle,
       query: screenplayTaskHint ||
-        req?.body?.client_transcript ||
-        req?.body?.clientTranscript ||
-        req?.body?.transcript ||
-        req?.body?.debug_transcript ||
-        req?.body?.debugTranscript ||
+        body.client_transcript ||
+        body.clientTranscript ||
+        body.transcript ||
+        body.debug_transcript ||
+        body.debugTranscript ||
         "",
     })
     : null;
@@ -3331,11 +3351,6 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
   // model sees the writer's chosen reversals. Best-effort — never
   // fails the request on a storage error.
   let acceptedTwists = null;
-  const projectId = (typeof req?.body?.projectId === "string" && req.body.projectId)
-    || (typeof req?.body?.project_id === "string" && req.body.project_id)
-    || (typeof req?.body?.screenplayProjectId === "string" && req.body.screenplayProjectId)
-    || (typeof req?.body?.screenplay_project_id === "string" && req.body.screenplay_project_id)
-    || null;
   if (projectId) {
     try {
       const { persistence } = acceptedTwistLogDeps();

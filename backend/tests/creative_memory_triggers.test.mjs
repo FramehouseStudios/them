@@ -151,6 +151,31 @@ Eli watches the burned star map curl in her hand.`;
   assert.deepEqual(episode.characterNames, ["MARA"]);
 });
 
+test("recordTriggersFromTalkTurn stores explicit project memory without named characters", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-project-fact",
+    transcript: "Remember for Black Salt: the lighthouse is not haunted; it is a coded weather station, and the ending image is a child turning off the beacon.",
+    reply: "",
+    projectId: "black-salt",
+    projectTitle: "Black Salt",
+    source: "talk_turn",
+  });
+  assert.equal(summary.characterMentions, 0);
+  assert.equal(summary.episodicMemories, 1);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-project-fact",
+    projectId: "black-salt",
+    query: "continue the beacon ending at the weather station",
+  });
+  assert.equal(memory?.episodicMemories?.length, 1);
+  assert.equal(memory.episodicMemories[0].projectTitle, "Black Salt");
+  assert.match(memory.episodicMemories[0].summary, /Project memory for Black Salt/);
+  assert.match(memory.episodicMemories[0].excerpt, /coded weather station/);
+  assert.ok(memory.episodicMemories[0].tags.includes("user-note"));
+});
+
 test("recordTriggersFromTalkTurn caps at 8 character mentions per turn", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   const lines = [];

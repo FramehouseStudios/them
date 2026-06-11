@@ -139,6 +139,34 @@ test("recordEpisodicMemory retrieves relevant named-character story memory", asy
   assert.equal("text" in mem.episodicMemories[0], false);
 });
 
+test("getCreativeMemoryForPrompt prioritizes active project memory on broad continuation turns", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordEpisodicMemory({
+    userId: "u-episode-project-scope",
+    summary: "Mara hides the cassette under the courthouse vent.",
+    text: "Rain Docket keeps returning to wet evidence and courthouse power failures.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    tags: ["screenplay"],
+  });
+  await store.recordEpisodicMemory({
+    userId: "u-episode-project-scope",
+    summary: "June waits by the empty swimming pool.",
+    text: "Pool Light is built around chlorine, silence, and a missing brother.",
+    projectId: "pool-light",
+    projectTitle: "Pool Light",
+    tags: ["screenplay"],
+  });
+
+  const mem = await store.getCreativeMemoryForPrompt({
+    userId: "u-episode-project-scope",
+    projectId: "pool-light",
+    query: "continue the next scene",
+  });
+  assert.equal(mem.episodicMemories[0].projectId, "pool-light");
+  assert.match(mem.episodicMemories[0].summary, /June/);
+});
+
 test("getCreativeMemoryForPrompt strips empty containers", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({ userId: "u7", characterName: "Alice" });
@@ -228,6 +256,8 @@ test("buildModelPrompt emits retrieved episodic screenplay memory", () => {
   assert.ok(out.includes("project=Rain Docket"));
   assert.ok(out.includes("tags=screenplay,evidence"));
   assert.ok(out.includes("Eli says nobody else knew"));
+  assert.ok(out.includes("durable user/project memories retrieved for this turn"));
+  assert.ok(out.includes("do not invent memories not listed here"));
 });
 
 test("buildModelPrompt orders blocks: persona → memory → session → user", () => {

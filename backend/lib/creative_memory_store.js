@@ -88,6 +88,9 @@ const EPISODIC_CHARACTER_NAME_BLOCKLIST = new Set([
   "My",
   "Our",
 ]);
+const STORY_MEMORY_KEYWORDS = /\b(?:act\s*(?:i|ii|iii|1|2|3|one|two|three)|all[- ]is[- ]lost|antagonist|arc|beat|beats|character|climax|continue|ending|ending image|feature|film|final image|finale|first act|inciting incident|logline|midpoint|motif|movie|payoff|premise|protagonist|rewrite|scene|screenplay|script|sequence|setup|theme|third act|tone|voice|want|wound)\b/i;
+const EXPLICIT_MEMORY_KEYWORDS = /\b(?:remember|keep in mind|do not forget|don't forget|note that|important|actually,\s*no|correction|for this movie|for this film|for this screenplay|in this movie|in this film|in this script|in my movie|in my film|in my screenplay|in my script)\b/i;
+const CORRECTION_KEYWORDS = /\b(?:actually,\s*no|correction|scratch that|not that|instead|retcon|change it to|make it so)\b/i;
 
 function nowMs() {
   return Date.now();
@@ -261,8 +264,13 @@ function sanitizeEpisodicMemoryItem(item = {}) {
   };
 }
 
-function scoreEpisodicMemoryForQuery(memory, query = "") {
+function scoreEpisodicMemoryForQuery(memory, query = "", {
+  projectId = "",
+  projectTitle = "",
+} = {}) {
   const cleanQuery = cleanText(query, 2_000).toLowerCase();
+  const cleanProjectId = cleanText(projectId, 96).toLowerCase();
+  const cleanProjectTitle = cleanText(projectTitle, 160).toLowerCase();
   const queryTokens = new Set(tokenizeMemoryText(cleanQuery));
   const searchable = [
     memory.summary,
@@ -273,8 +281,11 @@ function scoreEpisodicMemoryForQuery(memory, query = "") {
     ...(memory.tags || []),
   ].join(" ").toLowerCase();
   if (!queryTokens.size) {
-    return Math.min(4, Number(memory.referenceCount || 0)) +
+    let score = Math.min(4, Number(memory.referenceCount || 0)) +
       Math.min(3, Math.floor(Number(memory.updatedAt || 0) / 86_400_000_000));
+    if (cleanProjectId && cleanText(memory.projectId, 96).toLowerCase() === cleanProjectId) score += 8;
+    if (cleanProjectTitle && cleanText(memory.projectTitle, 160).toLowerCase() === cleanProjectTitle) score += 5;
+    return score;
   }
   let score = 0;
   for (const token of queryTokens) {
@@ -289,11 +300,15 @@ function scoreEpisodicMemoryForQuery(memory, query = "") {
     if (cleanTag && cleanQuery.includes(cleanTag)) score += 2;
   }
   if (memory.projectTitle && cleanQuery.includes(String(memory.projectTitle).toLowerCase())) score += 4;
+  if (cleanProjectId && cleanText(memory.projectId, 96).toLowerCase() === cleanProjectId) score += 8;
+  if (cleanProjectTitle && cleanText(memory.projectTitle, 160).toLowerCase() === cleanProjectTitle) score += 5;
   return score;
 }
 
 function selectEpisodicMemoriesForPrompt(items = [], {
   query = "",
+  projectId = "",
+  projectTitle = "",
   maxItems = EPISODIC_MEMORY_PROMPT_MAX,
 } = {}) {
   const sanitized = (Array.isArray(items) ? items : [])
@@ -304,7 +319,7 @@ function selectEpisodicMemoriesForPrompt(items = [], {
   return sanitized
     .map((item) => ({
       item,
-      score: scoreEpisodicMemoryForQuery(item, cleanQuery),
+      score: scoreEpisodicMemoryForQuery(item, cleanQuery, { projectId, projectTitle }),
     }))
     .filter((entry) => !cleanQuery || entry.score > 0)
     .sort((a, b) => {
@@ -317,6 +332,66 @@ function selectEpisodicMemoriesForPrompt(items = [], {
       delete out.text;
       return out;
     });
+}
+
+function isStoryMemoryCandidate({
+  transcript = "",
+  reply = "",
+  projectId = "",
+  projectTitle = "",
+  sceneHeading = "",
+  characterNames = [],
+  source = "",
+  moment = "",
+} = {}) {
+  if (characterNames.length || sceneHeading) return true;
+  const cleanTranscript = cleanText(transcript, 2_000);
+  const cleanReply = cleanText(reply, 2_000);
+  const combined = `${cleanTranscript} ${cleanReply}`.trim();
+  if (!combined || !moment) return false;
+  const hasProjectIdentity = Boolean(cleanText(projectId, 96) || cleanText(projectTitle, 160));
+  const sourceLooksLikeScreenplay = /\bscreenplay|page|studio|script\b/i.test(String(source || ""));
+  if (hasProjectIdentity && tokenizeMemoryText(combined).length >= 6) return true;
+  if (sourceLooksLikeScreenplay && tokenizeMemoryText(combined).length >= 8) return true;
+  return EXPLICIT_MEMORY_KEYWORDS.test(combined) || STORY_MEMORY_KEYWORDS.test(combined);
+}
+
+function buildEpisodicTags({ transcript = "", source = "", projectId = "", projectTitle = "" } = {}) {
+  const tags = ["screenplay"];
+  const text = String(transcript || "");
+  if (cleanText(projectId, 96) || cleanText(projectTitle, 160)) tags.push("project");
+  if (EXPLICIT_MEMORY_KEYWORDS.test(text)) tags.push("user-note");
+  if (CORRECTION_KEYWORDS.test(text)) tags.push("correction");
+  if (/\boutput|page|studio\b/i.test(String(source || ""))) tags.push("generated-pages");
+  return [...new Set(tags)];
+}
+
+function buildEpisodicSummary({
+  characterNames = [],
+  sceneHeading = "",
+  moment = "",
+  projectTitle = "",
+  transcript = "",
+} = {}) {
+  const cleanCharacters = normalizeStringList(characterNames, 8, 48)
+    .map(normalizeCharacterName)
+    .filter(Boolean);
+  const cleanProjectTitle = cleanText(projectTitle, 120);
+  const cleanSceneHeading = cleanText(sceneHeading, 140);
+  const cleanMoment = cleanText(moment || firstMemoryMoment(transcript), 180);
+  const subject = cleanCharacters.length
+    ? `Story memory for ${cleanCharacters.join(", ")}`
+    : cleanProjectTitle
+      ? `Project memory for ${cleanProjectTitle}`
+      : "Story memory";
+  return cleanText(
+    [
+      subject,
+      cleanSceneHeading,
+      cleanMoment,
+    ].filter(Boolean).join(": "),
+    280
+  );
 }
 
 function createCreativeMemoryStore({ persistence } = {}) {
@@ -362,6 +437,8 @@ function createCreativeMemoryStore({ persistence } = {}) {
   async function getCreativeMemoryForPrompt({
     userId,
     query = "",
+    projectId = "",
+    projectTitle = "",
     maxEpisodicMemories = EPISODIC_MEMORY_PROMPT_MAX,
   } = {}) {
     const rec = await readUser(userId);
@@ -381,6 +458,8 @@ function createCreativeMemoryStore({ persistence } = {}) {
     if (Array.isArray(rec.characters) && rec.characters.length) out.characters = clone(rec.characters);
     const episodicMemories = selectEpisodicMemoriesForPrompt(rec.episodicMemories, {
       query,
+      projectId,
+      projectTitle,
       maxItems: maxEpisodicMemories,
     });
     if (episodicMemories.length) out.episodicMemories = episodicMemories;
@@ -842,22 +921,35 @@ function createCreativeMemoryStore({ persistence } = {}) {
 
     const sceneHeading = firstScreenplaySceneHeading(combined);
     const moment = firstMemoryMoment(transcript) || firstMemoryMoment(reply);
-    if (turnCharacterNames.length || sceneHeading) {
-      const memorySummary = cleanText(
-        [
-          turnCharacterNames.length ? `Story memory for ${turnCharacterNames.join(", ")}` : "Story memory",
-          sceneHeading || "",
-          moment || "",
-        ].filter(Boolean).join(": "),
-        280
-      );
+    if (isStoryMemoryCandidate({
+      transcript,
+      reply,
+      projectId: cleanProjectId,
+      projectTitle: cleanProjectTitle,
+      sceneHeading,
+      characterNames: turnCharacterNames,
+      source: cleanSource,
+      moment,
+    })) {
+      const memorySummary = buildEpisodicSummary({
+        characterNames: turnCharacterNames,
+        sceneHeading,
+        moment,
+        projectTitle: cleanProjectTitle,
+        transcript,
+      });
       try {
         const receipt = await recordEpisodicMemory({
           userId,
           summary: memorySummary,
           text: combined,
           characterNames: turnCharacterNames,
-          tags: ["screenplay"],
+          tags: buildEpisodicTags({
+            transcript,
+            source: cleanSource,
+            projectId: cleanProjectId,
+            projectTitle: cleanProjectTitle,
+          }),
           projectId: cleanProjectId,
           projectTitle: cleanProjectTitle,
           source: cleanSource,

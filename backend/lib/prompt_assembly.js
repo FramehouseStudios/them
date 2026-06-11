@@ -446,7 +446,9 @@ function serializeCharacters(characters) {
 
 function serializeEpisodicMemories(memories) {
   if (!isNonEmptyArray(memories)) return "";
-  const lines = [];
+  const lines = [
+    "  directive: durable user/project memories retrieved for this turn; use them for continuity, but do not invent memories not listed here.",
+  ];
   for (const memory of memories.slice(0, 6)) {
     if (!memory || typeof memory !== "object") continue;
     const summary = trimContextLine(memory.summary, 260);
@@ -466,7 +468,7 @@ function serializeEpisodicMemories(memories) {
     ].filter(Boolean);
     lines.push(`  - ${headline}${suffix.length ? ` (${suffix.join("; ")})` : ""}`);
   }
-  return lines.length ? `episodic-memory:\n${lines.join("\n")}` : "";
+  return lines.length > 1 ? `episodic-memory:\n${lines.join("\n")}` : "";
 }
 
 function serializeTone(tone) {
