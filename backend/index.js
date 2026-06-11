@@ -96,6 +96,7 @@ import { mountDataRoutes } from "./lib/data_routes.js";
 import { mountOutboxRoutes } from "./lib/outbox_routes.js";
 import { mountHistoryRoutes } from "./lib/history_routes.js";
 import { mountRecapRoutes } from "./lib/recap_routes.js";
+import { mountTasksRoutes } from "./lib/tasks_routes.js";
 import { createReadStateHelpers } from "./lib/read_state.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
@@ -28783,133 +28784,34 @@ mountMemoriesRoutes(app, {
   USER_MEMORY_REMEMBERED_PEOPLE_MAX,
 });
 
-app.get("/tasks", (req, res) => {
-  const limit = parseQueryLimit(req.query?.limit, TASKS_LIST_DEFAULT_LIMIT, TASKS_MAX_STORED);
-  const status = parseOneOf(
-    String(req.query?.status || "all").trim().toLowerCase(),
-    TASK_STATUS_FILTERS,
-    "all"
-  );
-  const selected = selectMemoryRecordForRead(req, Date.now());
-  const memory = sanitizePersistedSessionMemory(selected.memory);
-  const readMeta = buildReadStateMeta(req, memory, selected.ip);
-  const snapshot = buildTaskSnapshot(memory, { status, limit });
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  if (ifNoneMatchStateHit(req, readMeta.etag, readMeta.stateVersion)) {
-    return res.status(304).end();
-  }
-  return res.status(200).json({
-    source: selected.source,
-    source_ip: selected.ip,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    last_turn_id: readMeta.lastTurnId || null,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-    backend_boot_id: readMeta.backendBootId,
-    status_filter: snapshot.status,
-    task_last_updated_at: snapshot.taskLastUpdatedAt || null,
-    total_count: snapshot.totalCount,
-    open_count: snapshot.openCount,
-    completed_count: snapshot.completedCount,
-    tasks: snapshot.tasks,
-  });
-});
-
-app.post("/tasks/update", express.json({ limit: "256kb" }), (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const memory = sanitizePersistedSessionMemory(context.memory);
-  const action = parseOneOf(
-    String(req.body?.action || "complete").trim().toLowerCase(),
-    TASK_UPDATE_ACTIONS,
-    "complete"
-  );
-  const title = normalizeSnippet(req.body?.title ?? req.body?.text ?? "", 160);
-  const query = normalizeSnippet(
-    req.body?.query ?? req.body?.task_id ?? req.body?.taskId ?? title,
-    160
-  );
-  const dueAt = Math.max(0, Number(req.body?.due_at ?? req.body?.dueAt ?? 0));
-  const priority = normalizeTaskPriority(req.body?.priority);
-  let status = "ok";
-  let message = "";
-  let task = null;
-  let removedCount = 0;
-
-  if (action === "add") {
-    if (!title) {
-      status = "failed";
-      message = "Missing task title.";
-    } else {
-      task = createTaskInMemory(memory, {
-        title,
-        dueAt,
-        priority,
-        source: "api",
-      }, nowTs);
-      if (!task) {
-        status = "failed";
-        message = "Task was not created.";
-      } else if (task.duplicate) {
-        status = "duplicate";
-      } else {
-        status = "created";
-      }
-    }
-  } else if (action === "complete") {
-    task = completeTaskInMemory(memory, query, nowTs);
-    status = task ? "completed" : "none";
-  } else if (action === "reopen") {
-    task = reopenTaskInMemory(memory, query, nowTs);
-    status = task ? "reopened" : "none";
-  } else if (action === "delete") {
-    task = deleteTaskInMemory(memory, query, nowTs);
-    status = task ? "deleted" : "none";
-  } else if (action === "clear_completed") {
-    removedCount = clearCompletedTasksInMemory(memory, nowTs);
-    status = removedCount > 0 ? "cleared_completed" : "none";
-  }
-
-  const persisted = persistWritableMemoryContext(context, memory, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-  const snapshot = buildTaskSnapshot(persisted, { status: "all", limit: TASKS_LIST_DEFAULT_LIMIT });
-  const payloadTask = toTaskPayload(task);
-  const ok = status !== "failed";
-  const statusCode = ok ? 200 : 400;
-  console.log(
-    `[${rid}] tasks_update action=${action} status=${status} removed=${removedCount} title="${trimToMax(String(payloadTask?.title || title || ""), 96)}"`
-  );
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  return res.status(statusCode).json({
-    ok,
-    action,
-    status,
-    message: message || null,
-    task: payloadTask,
-    removed_count: removedCount,
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    task_last_updated_at: snapshot.taskLastUpdatedAt || null,
-    total_count: snapshot.totalCount,
-    open_count: snapshot.openCount,
-    completed_count: snapshot.completedCount,
-    backend_boot_id: readMeta.backendBootId,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
+// GET /tasks + POST /tasks/update extracted to lib/tasks_routes.js.
+// Mounted in place to preserve Express registration order and response contracts.
+mountTasksRoutes(app, {
+  applyReadStateHeaders,
+  buildReadStateMeta,
+  buildTaskSnapshot,
+  clearCompletedTasksInMemory,
+  completeTaskInMemory,
+  createRequestId,
+  createTaskInMemory,
+  deleteTaskInMemory,
+  ifNoneMatchStateHit,
+  normalizeSnippet,
+  normalizeTaskPriority,
+  parseOneOf,
+  parseQueryLimit,
+  persistWritableMemoryContext,
+  reopenTaskInMemory,
+  resolveWritableMemoryContext,
+  sanitizePersistedSessionMemory,
+  selectMemoryRecordForRead,
+  toTaskPayload,
+  trimToMax,
+  logger: console,
+  TASKS_LIST_DEFAULT_LIMIT,
+  TASKS_MAX_STORED,
+  TASK_STATUS_FILTERS,
+  TASK_UPDATE_ACTIONS,
 });
 
 // GET /recap + GET /recap/today extracted to lib/recap_routes.js.
