@@ -686,7 +686,10 @@ function mountPromptRoutes(app, {
 
     const userId = resolvePromptUserId(req);
     const creativeMemory = userId && creativeMemoryStore?.getCreativeMemoryForPrompt
-      ? await creativeMemoryStore.getCreativeMemoryForPrompt({ userId })
+      ? await creativeMemoryStore.getCreativeMemoryForPrompt({
+        userId,
+        query: userInput || screenplayTaskHint,
+      })
       : null;
     const screenplayTask = inferScreenplayTask(userInput || screenplayTaskHint);
     const sanitizedSessionContext = sanitizeSessionContext(

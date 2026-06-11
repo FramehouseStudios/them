@@ -99,6 +99,27 @@ test("recordTriggersFromTalkTurn captures lexical phrases from user transcript",
   assert.ok(memory.style?.lexicalFingerprint?.length >= 1);
 });
 
+test("recordTriggersFromTalkTurn stores spoken named-character story memory for later recall", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-voice-memory",
+    transcript: "My protagonist is named Mara. She hides a cassette under the rain-swollen vent before Eli can see it.",
+    reply: "",
+  });
+  assert.equal(summary.characterMentions, 1);
+  assert.equal(summary.episodicMemories, 1);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-voice-memory",
+    query: "Continue Mara and the cassette.",
+  });
+  const names = (memory?.characters || []).map((c) => c.name);
+  assert.ok(names.includes("Mara"));
+  assert.equal(memory?.episodicMemories?.length, 1);
+  assert.match(memory.episodicMemories[0].summary, /Mara/);
+  assert.match(memory.episodicMemories[0].excerpt, /cassette/);
+});
+
 test("recordTriggersFromTalkTurn caps at 8 character mentions per turn", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   const lines = [];

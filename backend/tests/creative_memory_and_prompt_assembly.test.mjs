@@ -107,6 +107,38 @@ test("recordLexicalFingerprint accumulates and dedupes case-insensitively", asyn
   assert.deepEqual(mem.style.lexicalFingerprint, ["she stared at the door", "he waited", "she walked away"]);
 });
 
+test("recordEpisodicMemory retrieves relevant named-character story memory", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordEpisodicMemory({
+    userId: "u-episode-1",
+    summary: "Mara hides a cassette under the rain-swollen vent before the courthouse lights die.",
+    text: "Mara hides a cassette under the rain-swollen vent. Eli says nobody else knew.",
+    characterNames: ["Mara", "Eli"],
+    tags: ["screenplay", "evidence"],
+    projectTitle: "Rain Docket",
+    source: "test",
+  });
+  await store.recordEpisodicMemory({
+    userId: "u-episode-1",
+    summary: "June waits in the empty pool for Marcus.",
+    text: "June waits by the empty pool.",
+    characterNames: ["June"],
+    tags: ["screenplay"],
+    projectTitle: "Pool Light",
+    source: "test",
+  });
+
+  const mem = await store.getCreativeMemoryForPrompt({
+    userId: "u-episode-1",
+    query: "Where were we with Mara and the cassette?",
+  });
+  assert.equal(mem.episodicMemories.length, 1);
+  assert.equal(mem.episodicMemories[0].projectTitle, "Rain Docket");
+  assert.deepEqual(mem.episodicMemories[0].characterNames, ["Mara", "Eli"]);
+  assert.match(mem.episodicMemories[0].summary, /cassette/);
+  assert.equal("text" in mem.episodicMemories[0], false);
+});
+
 test("getCreativeMemoryForPrompt strips empty containers", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({ userId: "u7", characterName: "Alice" });
@@ -170,6 +202,32 @@ test("buildModelPrompt emits memory block when style is present", () => {
   assert.ok(out.includes(MEMORY_BLOCK_OPEN));
   assert.ok(out.includes("tone: wry"));
   assert.ok(out.includes(MEMORY_BLOCK_CLOSE));
+});
+
+test("buildModelPrompt emits retrieved episodic screenplay memory", () => {
+  const out = buildModelPrompt({
+    persona: "Persona",
+    creativeMemory: {
+      userId: "u",
+      version: 1,
+      updatedAt: 0,
+      episodicMemories: [
+        {
+          summary: "Mara hides the cassette before the courthouse lights die.",
+          excerpt: "Eli says nobody else knew about the cassette.",
+          characterNames: ["Mara", "Eli"],
+          tags: ["screenplay", "evidence"],
+          projectTitle: "Rain Docket",
+        },
+      ],
+    },
+    userInput: "Continue Mara's scene.",
+  });
+  assert.ok(out.includes("episodic-memory:"));
+  assert.ok(out.includes("Mara, Eli: Mara hides the cassette"));
+  assert.ok(out.includes("project=Rain Docket"));
+  assert.ok(out.includes("tags=screenplay,evidence"));
+  assert.ok(out.includes("Eli says nobody else knew"));
 });
 
 test("buildModelPrompt orders blocks: persona → memory → session → user", () => {

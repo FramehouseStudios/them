@@ -3243,7 +3243,16 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
   const hasFeatureMapBlock = basePrompt.includes("<feature_film_map>");
   const userId = req?.authUser?.id || req?.user?.id || req?.userId || null;
   const memory = userId && !hasMemoryBlock
-    ? await creativeMemoryStore.getCreativeMemoryForPrompt({ userId })
+    ? await creativeMemoryStore.getCreativeMemoryForPrompt({
+      userId,
+      query: screenplayTaskHint ||
+        req?.body?.client_transcript ||
+        req?.body?.clientTranscript ||
+        req?.body?.transcript ||
+        req?.body?.debug_transcript ||
+        req?.body?.debugTranscript ||
+        "",
+    })
     : null;
 
   // T-block-signal-system-prompt: when the writer's habits indicate

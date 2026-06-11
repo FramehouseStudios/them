@@ -22,7 +22,72 @@ import { mergeTraits as mergeCharacterTraits } from "./trait_library.js";
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
 const CHARACTERS_MAX = 32;
+const EPISODIC_MEMORIES_MAX = 64;
+const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const DOMAIN = "creative_memory";
+const EPISODIC_MEMORY_STOPWORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "also",
+  "and",
+  "are",
+  "because",
+  "before",
+  "between",
+  "character",
+  "characters",
+  "could",
+  "feature",
+  "for",
+  "from",
+  "have",
+  "help",
+  "into",
+  "just",
+  "like",
+  "movie",
+  "need",
+  "next",
+  "page",
+  "pages",
+  "scene",
+  "screenplay",
+  "script",
+  "should",
+  "story",
+  "the",
+  "that",
+  "their",
+  "there",
+  "they",
+  "this",
+  "was",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "with",
+  "write",
+]);
+const EPISODIC_CHARACTER_NAME_BLOCKLIST = new Set([
+  "A",
+  "An",
+  "And",
+  "Act",
+  "The",
+  "This",
+  "That",
+  "She",
+  "He",
+  "They",
+  "We",
+  "You",
+  "My",
+  "Our",
+]);
 
 function nowMs() {
   return Date.now();
@@ -37,6 +102,7 @@ function makeEmptyMemory(userId) {
       lexicalFingerprint: [],
     },
     characters: [],
+    episodicMemories: [],
     tone: {},
     habits: {},
   };
@@ -44,6 +110,213 @@ function makeEmptyMemory(userId) {
 
 function clone(v) {
   return JSON.parse(JSON.stringify(v));
+}
+
+function cleanText(value, maxChars = 800) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, Math.max(1, Number(maxChars || 800)))
+    .trim();
+}
+
+function titleCaseName(value) {
+  return String(value || "")
+    .trim()
+    .split(/\s+/)
+    .map((part) => {
+      const clean = part.trim();
+      if (!clean) return "";
+      if (/^[A-Z0-9 .'-]+$/.test(clean) && clean.length > 1) return clean;
+      return clean.charAt(0).toUpperCase() + clean.slice(1);
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+function normalizeCharacterName(value) {
+  const clean = titleCaseName(
+    String(value ?? "")
+      .replace(/[^A-Za-z0-9 .'-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 48)
+  );
+  if (!clean || EPISODIC_CHARACTER_NAME_BLOCKLIST.has(clean)) return "";
+  if (clean.length < 2) return "";
+  return clean;
+}
+
+function normalizeStringList(items, maxItems = 8, maxChars = 80) {
+  const source = Array.isArray(items)
+    ? items
+    : cleanText(items, maxItems * maxChars)
+      ? String(items).split(/\r?\n|;|,/)
+      : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const clean = cleanText(item, maxChars);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function tokenizeMemoryText(value) {
+  const tokens = String(value || "")
+    .toLowerCase()
+    .match(/[a-z0-9][a-z0-9'-]{1,}/g) || [];
+  return tokens.filter((token) => token.length > 2 && !EPISODIC_MEMORY_STOPWORDS.has(token));
+}
+
+function stableHash(value) {
+  let hash = 2166136261;
+  const text = String(value || "");
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function extractDeclaredCharacterNames(text = "") {
+  const source = String(text || "");
+  if (!source.trim()) return [];
+  const patterns = [
+    /\b(?:my|the|our)\s+(?:protagonist|lead|main character|hero|heroine|detective|writer|lawyer|mother|father|sister|brother|villain|antagonist)\s+(?:is\s+)?(?:named|called)?\s*([A-Za-z][A-Za-z'-]{1,32})\b/gi,
+    /\b(?:character|protagonist|lead|hero|heroine)\s+(?:named|called)\s+([A-Za-z][A-Za-z'-]{1,32})\b/gi,
+    /\b([A-Z][A-Za-z'-]{2,32})\s+is\s+(?:a|an|the)\s+(?:protagonist|lead|detective|writer|lawyer|courier|public defender|mother|father|sister|brother)\b/g,
+  ];
+  const out = [];
+  const seen = new Set();
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(source)) !== null) {
+      const name = normalizeCharacterName(match[1]);
+      const key = name.toLowerCase();
+      if (!name || seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+      if (out.length >= 8) return out;
+    }
+  }
+  return out;
+}
+
+function firstScreenplaySceneHeading(text = "") {
+  const match = String(text || "").match(/(?:^|\n)\s*((?:INT\.|EXT\.|INT\/EXT\.|INT\.\/EXT\.)[^\n]{3,120})/i);
+  return cleanText(match?.[1] || "", 140);
+}
+
+function firstMemoryMoment(text = "") {
+  const lines = String(text || "")
+    .split(/\r?\n|[.!?]\s+/)
+    .map((line) => cleanText(line, 220))
+    .filter((line) => {
+      if (!line) return false;
+      if (/^(INT\.|EXT\.|CUT TO|FADE|TITLE|END)$/i.test(line)) return false;
+      return tokenizeMemoryText(line).length >= 4;
+    });
+  return lines[0] || "";
+}
+
+function sanitizeEpisodicMemoryItem(item = {}) {
+  if (!item || typeof item !== "object") return null;
+  const characterNames = normalizeStringList(item.characterNames ?? item.characters, 8, 48)
+    .map(normalizeCharacterName)
+    .filter(Boolean);
+  const tags = normalizeStringList(item.tags, 8, 48)
+    .map((tag) => tag.toLowerCase())
+    .filter(Boolean);
+  const summary = cleanText(item.summary, 280);
+  const text = cleanText(item.text ?? item.excerpt, 900);
+  const projectId = cleanText(item.projectId ?? item.project_id, 96);
+  const projectTitle = cleanText(item.projectTitle ?? item.project_title, 160);
+  if (!summary && !text && !characterNames.length && !projectTitle) return null;
+  const createdAt = Math.max(0, Number(item.createdAt ?? item.created_at ?? nowMs()));
+  const updatedAt = Math.max(createdAt, Number(item.updatedAt ?? item.updated_at ?? createdAt));
+  const id = cleanText(
+    item.id || `episode_${stableHash([projectId, projectTitle, summary, text, characterNames.join("|")].join("|"))}`,
+    80
+  );
+  return {
+    id,
+    summary: summary || firstMemoryMoment(text) || (characterNames.length ? `Story memory for ${characterNames.join(", ")}` : "Story memory"),
+    excerpt: cleanText(item.excerpt || text, 420),
+    text,
+    characterNames,
+    tags,
+    projectId,
+    projectTitle,
+    source: cleanText(item.source, 64),
+    createdAt,
+    updatedAt,
+    lastReferencedAt: Math.max(0, Number(item.lastReferencedAt ?? item.last_referenced_at ?? updatedAt)),
+    referenceCount: Math.max(0, Number(item.referenceCount ?? item.reference_count ?? 0)),
+  };
+}
+
+function scoreEpisodicMemoryForQuery(memory, query = "") {
+  const cleanQuery = cleanText(query, 2_000).toLowerCase();
+  const queryTokens = new Set(tokenizeMemoryText(cleanQuery));
+  const searchable = [
+    memory.summary,
+    memory.excerpt,
+    memory.text,
+    memory.projectTitle,
+    ...(memory.characterNames || []),
+    ...(memory.tags || []),
+  ].join(" ").toLowerCase();
+  if (!queryTokens.size) {
+    return Math.min(4, Number(memory.referenceCount || 0)) +
+      Math.min(3, Math.floor(Number(memory.updatedAt || 0) / 86_400_000_000));
+  }
+  let score = 0;
+  for (const token of queryTokens) {
+    if (searchable.includes(token)) score += 1;
+  }
+  for (const name of memory.characterNames || []) {
+    const cleanName = String(name || "").toLowerCase();
+    if (cleanName && cleanQuery.includes(cleanName)) score += 6;
+  }
+  for (const tag of memory.tags || []) {
+    const cleanTag = String(tag || "").toLowerCase();
+    if (cleanTag && cleanQuery.includes(cleanTag)) score += 2;
+  }
+  if (memory.projectTitle && cleanQuery.includes(String(memory.projectTitle).toLowerCase())) score += 4;
+  return score;
+}
+
+function selectEpisodicMemoriesForPrompt(items = [], {
+  query = "",
+  maxItems = EPISODIC_MEMORY_PROMPT_MAX,
+} = {}) {
+  const sanitized = (Array.isArray(items) ? items : [])
+    .map(sanitizeEpisodicMemoryItem)
+    .filter(Boolean);
+  if (!sanitized.length) return [];
+  const cleanQuery = cleanText(query, 2_000);
+  return sanitized
+    .map((item) => ({
+      item,
+      score: scoreEpisodicMemoryForQuery(item, cleanQuery),
+    }))
+    .filter((entry) => !cleanQuery || entry.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return Number(b.item.updatedAt || 0) - Number(a.item.updatedAt || 0);
+    })
+    .slice(0, Math.max(1, Number(maxItems || EPISODIC_MEMORY_PROMPT_MAX)))
+    .map(({ item }) => {
+      const out = clone(item);
+      delete out.text;
+      return out;
+    });
 }
 
 function createCreativeMemoryStore({ persistence } = {}) {
@@ -86,7 +359,11 @@ function createCreativeMemoryStore({ persistence } = {}) {
 
   // ---------- public reads ----------
 
-  async function getCreativeMemoryForPrompt({ userId }) {
+  async function getCreativeMemoryForPrompt({
+    userId,
+    query = "",
+    maxEpisodicMemories = EPISODIC_MEMORY_PROMPT_MAX,
+  } = {}) {
     const rec = await readUser(userId);
     if (!rec) return null;
     const out = {
@@ -102,6 +379,11 @@ function createCreativeMemoryStore({ persistence } = {}) {
       if (Object.keys(style).length) out.style = style;
     }
     if (Array.isArray(rec.characters) && rec.characters.length) out.characters = clone(rec.characters);
+    const episodicMemories = selectEpisodicMemoriesForPrompt(rec.episodicMemories, {
+      query,
+      maxItems: maxEpisodicMemories,
+    });
+    if (episodicMemories.length) out.episodicMemories = episodicMemories;
     if (rec.tone && Object.keys(rec.tone).length) out.tone = clone(rec.tone);
     if (rec.habits && Object.keys(rec.habits).length) out.habits = clone(rec.habits);
     return out;
@@ -191,6 +473,88 @@ function createCreativeMemoryStore({ persistence } = {}) {
       return rec;
     });
     return { ok: true, action: resolvedAction, characterName: name, source: cleanSource };
+  }
+
+  async function recordEpisodicMemory({
+    userId,
+    summary = "",
+    text = "",
+    characterNames = [],
+    tags = [],
+    projectId = "",
+    projectTitle = "",
+    source = "",
+  } = {}) {
+    if (!userId) return { ok: false, action: "skipped", reason: "missing_userId" };
+    const item = sanitizeEpisodicMemoryItem({
+      summary,
+      text,
+      characterNames,
+      tags,
+      projectId,
+      projectTitle,
+      source,
+      createdAt: nowMs(),
+      updatedAt: nowMs(),
+      lastReferencedAt: nowMs(),
+      referenceCount: 1,
+    });
+    if (!item) return { ok: false, action: "skipped", reason: "empty_memory" };
+    let action = "recorded";
+    await updateUser(userId, (rec) => {
+      const memories = Array.isArray(rec.episodicMemories)
+        ? rec.episodicMemories.map(sanitizeEpisodicMemoryItem).filter(Boolean)
+        : [];
+      const itemCharacters = new Set((item.characterNames || []).map((name) => name.toLowerCase()));
+      const duplicateIdx = memories.findIndex((memory) => {
+        if (memory.id === item.id) return true;
+        if (memory.summary.toLowerCase() === item.summary.toLowerCase()) return true;
+        if (!itemCharacters.size) return false;
+        const memoryCharacters = new Set((memory.characterNames || []).map((name) => name.toLowerCase()));
+        const overlap = [...itemCharacters].some((name) => memoryCharacters.has(name));
+        if (!overlap) return false;
+        const projectMatches = item.projectId && memory.projectId
+          ? item.projectId === memory.projectId
+          : item.projectTitle && memory.projectTitle
+            ? item.projectTitle.toLowerCase() === memory.projectTitle.toLowerCase()
+            : true;
+        return projectMatches && memory.summary.toLowerCase().includes(item.summary.toLowerCase().slice(0, 80));
+      });
+      if (duplicateIdx >= 0) {
+        action = "updated";
+        const existing = memories[duplicateIdx];
+        const mergedCharacters = normalizeStringList(
+          [...(existing.characterNames || []), ...(item.characterNames || [])],
+          8,
+          48
+        ).map(normalizeCharacterName).filter(Boolean);
+        const mergedTags = normalizeStringList(
+          [...(existing.tags || []), ...(item.tags || [])],
+          8,
+          48
+        ).map((tag) => tag.toLowerCase());
+        memories[duplicateIdx] = {
+          ...existing,
+          summary: item.summary || existing.summary,
+          excerpt: item.excerpt || existing.excerpt,
+          text: item.text || existing.text,
+          characterNames: mergedCharacters,
+          tags: mergedTags,
+          projectId: item.projectId || existing.projectId,
+          projectTitle: item.projectTitle || existing.projectTitle,
+          source: item.source || existing.source,
+          updatedAt: nowMs(),
+          lastReferencedAt: nowMs(),
+          referenceCount: Math.max(0, Number(existing.referenceCount || 0)) + 1,
+        };
+      } else {
+        memories.push(item);
+      }
+      memories.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+      rec.episodicMemories = memories.slice(0, EPISODIC_MEMORIES_MAX);
+      return rec;
+    });
+    return { ok: true, action, memoryId: item.id };
   }
 
   // T-trait-library: reader for one or all character trait records.
@@ -419,11 +783,31 @@ function createCreativeMemoryStore({ persistence } = {}) {
     if (!userId) return { skipped: true, reason: "no userId" };
     const summary = {
       characterMentions: 0,
+      episodicMemories: 0,
       lexicalPhrases: 0,
       sessionRecorded: false,
     };
 
     const combined = `${String(transcript || "")}\n${String(reply || "")}`;
+    const turnCharacterNames = [];
+    const rememberCharacterName = async (rawName) => {
+      const name = normalizeCharacterName(rawName);
+      if (!name) return false;
+      const key = name.toUpperCase();
+      if (turnCharacterNames.map((item) => item.toUpperCase()).includes(key)) return false;
+      if (turnCharacterNames.length >= 8) return false;
+      turnCharacterNames.push(name);
+      try {
+        await recordCharacterMention({ userId, characterName: name, source: "talk_turn" });
+        summary.characterMentions += 1;
+      } catch (_e) { /* never block the response on memory writes */ }
+      return true;
+    };
+
+    for (const declaredName of extractDeclaredCharacterNames(transcript)) {
+      if (turnCharacterNames.length >= 8) break;
+      await rememberCharacterName(declaredName);
+    }
 
     // Character mentions: screenplay character cue lines are CAPITALIZED
     // names on their own line, optionally followed by a parenthetical.
@@ -446,11 +830,32 @@ function createCreativeMemoryStore({ persistence } = {}) {
       const key = raw.toUpperCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      try {
-        await recordCharacterMention({ userId, characterName: raw });
-        summary.characterMentions += 1;
-      } catch (_e) { /* never block the response on memory writes */ }
+      await rememberCharacterName(raw);
       limit -= 1;
+    }
+
+    const sceneHeading = firstScreenplaySceneHeading(combined);
+    const moment = firstMemoryMoment(transcript) || firstMemoryMoment(reply);
+    if (turnCharacterNames.length || sceneHeading) {
+      const memorySummary = cleanText(
+        [
+          turnCharacterNames.length ? `Story memory for ${turnCharacterNames.join(", ")}` : "Story memory",
+          sceneHeading || "",
+          moment || "",
+        ].filter(Boolean).join(": "),
+        280
+      );
+      try {
+        const receipt = await recordEpisodicMemory({
+          userId,
+          summary: memorySummary,
+          text: combined,
+          characterNames: turnCharacterNames,
+          tags: ["screenplay"],
+          source: "talk_turn",
+        });
+        if (receipt?.ok) summary.episodicMemories += 1;
+      } catch (_e) { /* never block the response on memory writes */ }
     }
 
     // Lexical fingerprint: capture short evocative phrases from the
@@ -506,6 +911,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     getCharacterTraits,
     getHabitsForUser,
     hasMemoryForUser,
+    recordEpisodicMemory,
     recordCharacterMention,
     recordSceneCompletion,
     recordSceneAttempt,

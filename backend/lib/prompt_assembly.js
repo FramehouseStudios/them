@@ -444,6 +444,31 @@ function serializeCharacters(characters) {
   return `recurring-characters:\n${lines.join("\n")}`;
 }
 
+function serializeEpisodicMemories(memories) {
+  if (!isNonEmptyArray(memories)) return "";
+  const lines = [];
+  for (const memory of memories.slice(0, 6)) {
+    if (!memory || typeof memory !== "object") continue;
+    const summary = trimContextLine(memory.summary, 260);
+    const excerpt = trimContextLine(memory.excerpt, 220);
+    const projectTitle = trimContextLine(memory.projectTitle ?? memory.project_title, 120);
+    const characters = sanitizeContextList(memory.characterNames ?? memory.characters, 5, 48);
+    const tags = sanitizeContextList(memory.tags, 4, 40);
+    const headline = [
+      characters.length ? `${characters.join(", ")}:` : "",
+      summary || excerpt,
+    ].filter(Boolean).join(" ");
+    if (!headline) continue;
+    const suffix = [
+      projectTitle ? `project=${projectTitle}` : "",
+      tags.length ? `tags=${tags.join(",")}` : "",
+      excerpt && summary && excerpt !== summary ? `excerpt=${excerpt}` : "",
+    ].filter(Boolean);
+    lines.push(`  - ${headline}${suffix.length ? ` (${suffix.join("; ")})` : ""}`);
+  }
+  return lines.length ? `episodic-memory:\n${lines.join("\n")}` : "";
+}
+
 function serializeTone(tone) {
   if (!isNonEmptyObject(tone)) return "";
   const lines = [];
@@ -471,6 +496,7 @@ function buildMemoryBlock(creativeMemory) {
   const sections = [
     serializeStyle(creativeMemory.style),
     serializeCharacters(creativeMemory.characters),
+    serializeEpisodicMemories(creativeMemory.episodicMemories),
     serializeTone(creativeMemory.tone),
     serializeHabits(creativeMemory.habits),
   ].filter(Boolean);
