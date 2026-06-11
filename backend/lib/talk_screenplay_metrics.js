@@ -53,6 +53,8 @@ function normalizeTalkScreenplayMetricSample(sample = {}) {
   const screenplayRequestedTarget = normalizeMetricToken(sample?.screenplayRequestedTarget);
   const screenplayFinalTarget = normalizeMetricToken(sample?.screenplayFinalTarget);
   const screenplayOutputSource = normalizeMetricToken(sample?.screenplayOutputSource, "none", 64);
+  const screenplayQualityReason = normalizeMetricToken(sample?.screenplayQualityReason, "none", 64);
+  const screenplayQualityConfidence = normalizeMetricToken(sample?.screenplayQualityConfidence, "none", 48);
   const screenplayAuthoritative = Boolean(sample?.screenplayAuthoritative);
   const screenplayReplyRepaired = Boolean(sample?.screenplayReplyRepaired);
   const screenplayOutcome = normalizeMetricToken(
@@ -73,6 +75,8 @@ function normalizeTalkScreenplayMetricSample(sample = {}) {
     screenplayRequestedTarget,
     screenplayFinalTarget,
     screenplayOutputSource,
+    screenplayQualityReason,
+    screenplayQualityConfidence,
     screenplayOutcome,
     screenplayAuthoritative,
     screenplayReplyRepaired,
@@ -119,6 +123,8 @@ function summarizeTalkScreenplayMetrics(samples = []) {
     pageAcceptanceRate: pageRequested.length > 0 ? accepted.length / pageRequested.length : 0,
     outcomeCounts: countBy(screenplaySamples, "screenplayOutcome"),
     outputSourceCounts: countBy(screenplaySamples, "screenplayOutputSource"),
+    qualityReasonCounts: countBy(screenplaySamples, "screenplayQualityReason"),
+    qualityConfidenceCounts: countBy(screenplaySamples, "screenplayQualityConfidence"),
   };
 }
 

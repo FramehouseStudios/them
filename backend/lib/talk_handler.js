@@ -366,17 +366,36 @@ function createTalkHandler(deps) {
     const requestedTarget = talkScreenplayModeEnabled
       ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() || "unspecified")
       : "none";
+    const quality = talkScreenplayOutput?.quality && typeof talkScreenplayOutput.quality === "object"
+      ? talkScreenplayOutput.quality
+      : null;
     return {
       screenplayMode: Boolean(talkScreenplayModeEnabled),
       screenplayRequestedTarget: requestedTarget,
       screenplayFinalTarget: String(talkScreenplayOutput?.target || "").trim().toLowerCase() || "none",
       screenplayOutputSource: String(talkScreenplayOutput?.source || "").trim().toLowerCase() || "none",
+      screenplayQualityReason: String(quality?.reason || "").trim().toLowerCase() || "none",
+      screenplayQualityConfidence: String(quality?.confidence || "").trim().toLowerCase() || "none",
       screenplayAuthoritative: Boolean(hasAuthoritativeScreenplayText),
       screenplayReplyRepaired: Boolean(
         replyRepaired ||
-        String(talkScreenplayOutput?.source || "").trim().toLowerCase().startsWith("repaired_")
+        String(talkScreenplayOutput?.source || "").trim().toLowerCase().startsWith("repaired_") ||
+        String(talkScreenplayOutput?.source || "").trim().toLowerCase().startsWith("repair_pass")
       ),
     };
+  }
+
+  function applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput = null) {
+    const quality = talkScreenplayOutput?.quality && typeof talkScreenplayOutput.quality === "object"
+      ? talkScreenplayOutput.quality
+      : null;
+    if (!quality) return;
+    res.setHeader("x-screenplay-quality-ok", quality.ok ? "1" : "0");
+    res.setHeader("x-screenplay-quality-reason", encodeURIComponent(normalizeSnippet(quality.reason, 80)));
+    res.setHeader("x-screenplay-quality-confidence", encodeURIComponent(normalizeSnippet(quality.confidence, 40)));
+    if (quality.feature_act) {
+      res.setHeader("x-screenplay-quality-feature-act", encodeURIComponent(normalizeSnippet(quality.feature_act, 40)));
+    }
   }
 
   async function attemptTalkScreenplayRepairPass({
@@ -2212,6 +2231,7 @@ function createTalkHandler(deps) {
       if (talkScreenplayOutput?.target) {
         res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
       }
+      applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
       if (talkScreenplayOutput) {
         const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
         if (screenplayOutputJson.length <= 5000) {
@@ -3788,6 +3808,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     if (talkScreenplayOutput?.target) {
       res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
     }
+    applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
     if (talkScreenplayOutput) {
       const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
       if (screenplayOutputJson.length <= 5000) {

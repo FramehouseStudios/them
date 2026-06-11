@@ -201,6 +201,8 @@ test("[ops-metrics-route] normalizes boolean flags to 0/1", async () => {
     screenplayRequestedTarget: "page",
     screenplayFinalTarget: "page",
     screenplayOutputSource: "studio_target",
+    screenplayQualityReason: "ok",
+    screenplayQualityConfidence: "repaired",
     screenplayOutcome: "accepted_repaired_page",
     screenplayAuthoritative: true,
     screenplayReplyRepaired: true,
@@ -213,6 +215,8 @@ test("[ops-metrics-route] normalizes boolean flags to 0/1", async () => {
     assert.equal(r.body.recent[0].screenplay_requested_target, "page");
     assert.equal(r.body.recent[0].screenplay_final_target, "page");
     assert.equal(r.body.recent[0].screenplay_output_source, "studio_target");
+    assert.equal(r.body.recent[0].screenplay_quality_reason, "ok");
+    assert.equal(r.body.recent[0].screenplay_quality_confidence, "repaired");
     assert.equal(r.body.recent[0].screenplay_outcome, "accepted_repaired_page");
     assert.equal(r.body.recent[0].screenplay_authoritative, 1);
     assert.equal(r.body.recent[0].screenplay_reply_repaired, 1);

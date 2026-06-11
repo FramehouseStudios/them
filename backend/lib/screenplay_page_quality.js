@@ -523,7 +523,12 @@ function evaluateScreenplayPageQuality({
     };
   }
 
-  return { ok: true, reason: "ok", counts };
+  return {
+    ok: true,
+    reason: "ok",
+    counts,
+    featureObligation: featureObligation.reason === "not_feature_act" ? null : featureObligation,
+  };
 }
 
 export {

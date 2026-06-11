@@ -80,6 +80,8 @@ function mountOpsMetricsRoute(app, deps = {}) {
         screenplay_requested_target: sample.screenplayRequestedTarget || "none",
         screenplay_final_target: sample.screenplayFinalTarget || "none",
         screenplay_output_source: sample.screenplayOutputSource || "none",
+        screenplay_quality_reason: sample.screenplayQualityReason || "none",
+        screenplay_quality_confidence: sample.screenplayQualityConfidence || "none",
         screenplay_outcome: sample.screenplayOutcome || "none",
         screenplay_authoritative: sample.screenplayAuthoritative ? 1 : 0,
         screenplay_reply_repaired: sample.screenplayReplyRepaired ? 1 : 0,

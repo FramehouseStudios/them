@@ -3943,6 +3943,25 @@ function storeTalkTurnMeta({
         target: normalizeSnippet(screenplayOutput.target, 24) || "voice_pin",
         format: normalizeSnippet(screenplayOutput.format, 24) || "note",
         source: normalizeSnippet(screenplayOutput.source, 32) || "unknown",
+        quality: screenplayOutput.quality && typeof screenplayOutput.quality === "object"
+          ? buildTalkScreenplayQualityEnvelope({
+            ok: Boolean(screenplayOutput.quality.ok),
+            reason: screenplayOutput.quality.reason,
+            source: screenplayOutput.quality.source || screenplayOutput.source,
+            quality: {
+              reason: screenplayOutput.quality.reason,
+              counts: screenplayOutput.quality.counts,
+              featureObligation: {
+                featureActKind: screenplayOutput.quality.feature_act,
+                matchedTokens: screenplayOutput.quality.matched_tokens,
+              },
+            },
+          })
+          : buildTalkScreenplayQualityEnvelope({
+            ok: String(screenplayOutput.target || "").trim().toLowerCase() === "page",
+            reason: String(screenplayOutput.target || "").trim().toLowerCase() === "page" ? "ok" : "unavailable",
+            source: screenplayOutput.source,
+          }),
         text: normalizeTalkMultilineSnippet(screenplayOutput.text, 8_000),
         lines: Array.isArray(screenplayOutput.lines)
           ? screenplayOutput.lines
@@ -4452,6 +4471,55 @@ function resolveTalkScreenplayRequestedPageBatch({ transcript = "", studioMeta =
   return targetPages > 0 && targetPages <= 30 ? targetPages : 0;
 }
 
+function compactTalkScreenplayQualityCounts(counts = {}) {
+  if (!counts || typeof counts !== "object") return {};
+  return {
+    non_empty: Math.max(0, Number(counts.nonEmpty ?? counts.non_empty ?? 0)),
+    scene_heading: Math.max(0, Number(counts.sceneHeading ?? counts.scene_heading ?? 0)),
+    action: Math.max(0, Number(counts.action ?? 0)),
+    playable_action: Math.max(0, Number(counts.playableAction ?? counts.playable_action ?? 0)),
+    specific_action: Math.max(0, Number(counts.specificAction ?? counts.specific_action ?? 0)),
+    character: Math.max(0, Number(counts.character ?? 0)),
+    dialogue: Math.max(0, Number(counts.dialogue ?? 0)),
+    words: Math.max(0, Number(counts.words ?? 0)),
+    artifact: Math.max(0, Number(counts.artifact ?? 0)),
+    placeholder: Math.max(0, Number(counts.placeholder ?? 0)),
+    low_signal_action: Math.max(0, Number(counts.lowSignalAction ?? counts.low_signal_action ?? 0)),
+    low_subtext_dialogue: Math.max(0, Number(counts.lowSubtextDialogue ?? counts.low_subtext_dialogue ?? 0)),
+  };
+}
+
+function buildTalkScreenplayQualityEnvelope({
+  ok = false,
+  reason = "",
+  source = "",
+  authority = null,
+  quality = null,
+} = {}) {
+  const normalizedReason = normalizeSnippet(
+    reason || authority?.reason || quality?.reason || (ok ? "ok" : "unknown"),
+    80
+  ) || (ok ? "ok" : "unknown");
+  const sourceKey = normalizeSnippet(source, 48) || "unknown";
+  const featureObligation = quality?.featureObligation || authority?.quality?.featureObligation || null;
+  const featureActKind = normalizeSnippet(featureObligation?.featureActKind, 32);
+  const counts = compactTalkScreenplayQualityCounts(quality?.counts || authority?.quality?.counts || {});
+  const confidence = ok
+    ? (sourceKey.startsWith("repair_pass") || sourceKey.startsWith("repaired_") ? "repaired" : "authoritative")
+    : (sourceKey.startsWith("guard_") ? "needs_repair" : "blocked");
+  return {
+    ok: Boolean(ok),
+    reason: normalizedReason,
+    source: sourceKey,
+    confidence,
+    feature_act: featureActKind || null,
+    matched_tokens: Array.isArray(featureObligation?.matchedTokens)
+      ? featureObligation.matchedTokens.slice(0, 8).map((token) => normalizeSnippet(token, 48)).filter(Boolean)
+      : [],
+    counts,
+  };
+}
+
 function validateTalkAuthoritativeScreenplayOutput(screenplayOutput = null, {
   studioMeta = null,
   transcript = "",
@@ -4538,7 +4606,19 @@ function buildTalkPromptBlockScreenplayOutput(transcript = "", studioMeta = null
     lines,
   };
   const authority = validateTalkAuthoritativeScreenplayOutput(output, { studioMeta, transcript });
-  return authority.ok ? { ...output, text: authority.text, lines: authority.lines } : null;
+  return authority.ok
+    ? {
+      ...output,
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: true,
+        reason: "ok",
+        source: output.source,
+        authority,
+      }),
+      text: authority.text,
+      lines: authority.lines,
+    }
+    : null;
 }
 
 function buildTalkDirectTranscriptScreenplayOutput(transcript = "", studioMeta = null) {
@@ -4561,7 +4641,19 @@ function buildTalkDirectTranscriptScreenplayOutput(transcript = "", studioMeta =
     lines,
   };
   const authority = validateTalkAuthoritativeScreenplayOutput(output, { studioMeta, transcript: "" });
-  return authority.ok ? { ...output, text: authority.text, lines: authority.lines } : null;
+  return authority.ok
+    ? {
+      ...output,
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: true,
+        reason: "ok",
+        source: output.source,
+        authority,
+      }),
+      text: authority.text,
+      lines: authority.lines,
+    }
+    : null;
 }
 
 function normalizeTalkScreenplayAnchorSceneLabel(studioMeta = null) {
@@ -5406,6 +5498,11 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
       target: "voice_pin",
       format: "note",
       source: "studio_target",
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: false,
+        reason: "voice_pin_target",
+        source: "studio_target",
+      }),
       text: "",
       lines: [],
     };
@@ -5418,6 +5515,11 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
       target: "voice_pin",
       format: "note",
       source: "guard_invalid_page_format",
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: false,
+        reason: "empty_page_text",
+        source: "guard_invalid_page_format",
+      }),
       text: "",
       lines: [],
     };
@@ -5429,6 +5531,11 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
       target: "voice_pin",
       format: "note",
       source: "guard_non_screenplay",
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: false,
+        reason: "non_screenplay_output",
+        source: "guard_non_screenplay",
+      }),
       text: "",
       lines: [],
     };
@@ -5452,6 +5559,12 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
       target: "voice_pin",
       format: "note",
       source: "guard_low_page_quality",
+      quality: buildTalkScreenplayQualityEnvelope({
+        ok: false,
+        reason: authority.reason || "low_page_quality",
+        source: "guard_low_page_quality",
+        authority,
+      }),
       text: "",
       lines: [],
     };
@@ -5461,6 +5574,12 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
     target: "page",
     format: "hollywood",
     source: repaired?.source || "studio_target",
+    quality: buildTalkScreenplayQualityEnvelope({
+      ok: true,
+      reason: "ok",
+      source: repaired?.source || "studio_target",
+      authority,
+    }),
     text: authority.text,
     lines: authority.lines,
   };
@@ -5485,11 +5604,18 @@ function applyTalkScreenplayRepairCandidate({
     studioMeta,
   });
   if (String(repaired?.target || "").trim().toLowerCase() !== "page") return null;
+  const repairSource = repaired.source === "repaired_scene_anchor"
+    ? "repair_pass_scene_anchor"
+    : "repair_pass";
   return {
     ...repaired,
-    source: repaired.source === "repaired_scene_anchor"
-      ? "repair_pass_scene_anchor"
-      : "repair_pass",
+    source: repairSource,
+    quality: buildTalkScreenplayQualityEnvelope({
+      ok: true,
+      reason: "ok",
+      source: repairSource,
+      quality: repaired.quality,
+    }),
   };
 }
 

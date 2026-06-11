@@ -164,6 +164,8 @@ test("[talk-screenplay-output] repairs missing scene heading from trusted page a
 
   assert.equal(output.target, "page");
   assert.equal(output.source, "repaired_scene_anchor");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.confidence, "repaired");
   assert.equal(output.text, [
     "INT. MOTEL ROOM - NIGHT",
     "",
@@ -212,6 +214,10 @@ test("[talk-screenplay-output] accepts playable page output after quality gate",
 
   assert.equal(output.target, "page");
   assert.equal(output.source, "studio_target");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.reason, "ok");
+  assert.equal(output.quality.confidence, "authoritative");
+  assert.ok(output.quality.counts.scene_heading >= 1);
   assert.ok(output.lines.some((line) => line.element === "sceneHeading"));
   assert.ok(output.lines.some((line) => line.element === "dialogue"));
 });
@@ -232,6 +238,9 @@ test("[talk-screenplay-output] rejects outline prose masquerading as page text",
 
   assert.equal(output.target, "voice_pin");
   assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.ok, false);
+  assert.equal(output.quality.reason, "outline_or_craft_artifact");
+  assert.equal(output.quality.confidence, "needs_repair");
 });
 
 test("[talk-screenplay-output] rejects placeholder page scaffolding", () => {
@@ -251,6 +260,8 @@ test("[talk-screenplay-output] rejects placeholder page scaffolding", () => {
 
   assert.equal(output.target, "voice_pin");
   assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "placeholder_page_text");
+  assert.equal(output.quality.confidence, "needs_repair");
 });
 
 test("[talk-screenplay-output] rejects generic low-density page action", () => {
@@ -269,6 +280,7 @@ test("[talk-screenplay-output] rejects generic low-density page action", () => {
 
   assert.equal(output.target, "voice_pin");
   assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "low_dramatic_density");
 });
 
 test("[talk-screenplay-output] rejects craft notes even with a scene anchor", () => {
@@ -324,6 +336,7 @@ test("[talk-screenplay-output] rejects underfilled requested page batches", () =
 
   assert.equal(output.target, "voice_pin");
   assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "underfilled_page_text");
 });
 
 test("[talk-screenplay-output] rejects Act I page output that dodges supplied commitment memory", () => {
@@ -350,6 +363,8 @@ test("[talk-screenplay-output] rejects Act I page output that dodges supplied co
 
   assert.equal(output.target, "voice_pin");
   assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "missing_act_one_commitment");
+  assert.equal(output.quality.feature_act, "act1");
 });
 
 test("[talk-screenplay-output] accepts Act I page output that spends supplied commitment memory", () => {
@@ -378,6 +393,8 @@ test("[talk-screenplay-output] accepts Act I page output that spends supplied co
 
   assert.equal(output.target, "page");
   assert.equal(output.source, "studio_target");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.feature_act, "act1");
 });
 
 test("[talk-screenplay-output] rejects Act II page output that dodges supplied reversal memory", () => {
@@ -405,6 +422,8 @@ test("[talk-screenplay-output] rejects Act II page output that dodges supplied r
 
   assert.equal(output.target, "voice_pin");
   assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "missing_act_two_reversal");
+  assert.equal(output.quality.feature_act, "act2");
 });
 
 test("[talk-screenplay-output] accepts Act II page output that spends supplied reversal memory", () => {
@@ -436,6 +455,8 @@ test("[talk-screenplay-output] accepts Act II page output that spends supplied r
 
   assert.equal(output.target, "page");
   assert.equal(output.source, "studio_target");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.feature_act, "act2");
 });
 
 test("[talk-screenplay-output] rejects Act III page output that dodges supplied payoff memory", () => {
@@ -470,6 +491,8 @@ test("[talk-screenplay-output] rejects Act III page output that dodges supplied 
 
   assert.equal(output.target, "voice_pin");
   assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "missing_act_three_payoff");
+  assert.equal(output.quality.feature_act, "act3");
 });
 
 test("[talk-screenplay-output] accepts Act III page output that spends supplied payoff memory", () => {
@@ -506,6 +529,8 @@ test("[talk-screenplay-output] accepts Act III page output that spends supplied 
 
   assert.equal(output.target, "page");
   assert.equal(output.source, "studio_target");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.feature_act, "act3");
 });
 
 test("[talk-screenplay-output] accepts a repair-pass candidate after the live guard rejects the first draft", () => {
@@ -526,6 +551,7 @@ test("[talk-screenplay-output] accepts a repair-pass candidate after the live gu
   });
   assert.equal(failed.target, "voice_pin");
   assert.equal(failed.source, "guard_low_page_quality");
+  assert.equal(failed.quality.reason, "outline_or_craft_artifact");
 
   const repaired = applyTalkScreenplayRepairCandidate({
     currentOutput: failed,
@@ -548,6 +574,8 @@ test("[talk-screenplay-output] accepts a repair-pass candidate after the live gu
 
   assert.equal(repaired.target, "page");
   assert.equal(repaired.source, "repair_pass");
+  assert.equal(repaired.quality.ok, true);
+  assert.equal(repaired.quality.confidence, "repaired");
   assert.equal(
     isAuthoritativeTalkScreenplayOutput(repaired, { studioMeta, transcript }),
     true

@@ -56,6 +56,8 @@ test("[talk-screenplay-metrics] normalizes sample fields without content", () =>
     screenplayRequestedTarget: "Page!!",
     screenplayFinalTarget: "VOICE PIN",
     screenplayOutputSource: "guard_non_screenplay",
+    screenplayQualityReason: "Missing Shape!",
+    screenplayQualityConfidence: "Needs Repair",
     screenplayAuthoritative: false,
     screenplayReplyRepaired: false,
   });
@@ -65,6 +67,8 @@ test("[talk-screenplay-metrics] normalizes sample fields without content", () =>
     screenplayRequestedTarget: "page",
     screenplayFinalTarget: "voice_pin",
     screenplayOutputSource: "guard_non_screenplay",
+    screenplayQualityReason: "missing_shape",
+    screenplayQualityConfidence: "needs_repair",
     screenplayOutcome: "rejected_non_screenplay",
     screenplayAuthoritative: false,
     screenplayReplyRepaired: false,
@@ -78,6 +82,8 @@ test("[talk-screenplay-metrics] summarizes page-write outcome counters", () => {
       screenplayRequestedTarget: "page",
       screenplayFinalTarget: "page",
       screenplayOutputSource: "studio_target",
+      screenplayQualityReason: "ok",
+      screenplayQualityConfidence: "authoritative",
       screenplayAuthoritative: true,
       screenplayReplyRepaired: false,
     },
@@ -86,6 +92,8 @@ test("[talk-screenplay-metrics] summarizes page-write outcome counters", () => {
       screenplayRequestedTarget: "page",
       screenplayFinalTarget: "page",
       screenplayOutputSource: "studio_target",
+      screenplayQualityReason: "ok",
+      screenplayQualityConfidence: "repaired",
       screenplayAuthoritative: true,
       screenplayReplyRepaired: true,
     },
@@ -94,18 +102,24 @@ test("[talk-screenplay-metrics] summarizes page-write outcome counters", () => {
       screenplayRequestedTarget: "page",
       screenplayFinalTarget: "voice_pin",
       screenplayOutputSource: "guard_non_screenplay",
+      screenplayQualityReason: "non_screenplay_output",
+      screenplayQualityConfidence: "needs_repair",
     },
     {
       screenplayMode: true,
       screenplayRequestedTarget: "voice_pin",
       screenplayFinalTarget: "voice_pin",
       screenplayOutputSource: "studio_target",
+      screenplayQualityReason: "voice_pin_target",
+      screenplayQualityConfidence: "blocked",
     },
     {
       screenplayMode: true,
       screenplayRequestedTarget: "page",
       screenplayFinalTarget: "voice_pin",
       screenplayOutputSource: "guard_low_page_quality",
+      screenplayQualityReason: "missing_act_two_reversal",
+      screenplayQualityConfidence: "needs_repair",
     },
     {
       screenplayMode: false,
@@ -126,6 +140,12 @@ test("[talk-screenplay-metrics] summarizes page-write outcome counters", () => {
   assert.equal(summary.outcomeCounts.rejected_non_screenplay, 1);
   assert.equal(summary.outcomeCounts.rejected_low_page_quality, 1);
   assert.equal(summary.outcomeCounts.voice_pin, 1);
+  assert.equal(summary.qualityReasonCounts.ok, 2);
+  assert.equal(summary.qualityReasonCounts.non_screenplay_output, 1);
+  assert.equal(summary.qualityReasonCounts.missing_act_two_reversal, 1);
+  assert.equal(summary.qualityConfidenceCounts.authoritative, 1);
+  assert.equal(summary.qualityConfidenceCounts.repaired, 1);
+  assert.equal(summary.qualityConfidenceCounts.needs_repair, 2);
 });
 
 test("[talk-screenplay-metrics] quality signal gates on enough page requests", () => {
