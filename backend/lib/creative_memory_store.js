@@ -779,8 +779,14 @@ function createCreativeMemoryStore({ persistence } = {}) {
     reply = "",
     sessionStartedAt = null,
     sessionDurationMs = null,
+    projectId = "",
+    projectTitle = "",
+    source = "talk_turn",
   } = {}) {
     if (!userId) return { skipped: true, reason: "no userId" };
+    const cleanProjectId = cleanText(projectId, 96);
+    const cleanProjectTitle = cleanText(projectTitle, 160);
+    const cleanSource = cleanText(source || "talk_turn", 64) || "talk_turn";
     const summary = {
       characterMentions: 0,
       episodicMemories: 0,
@@ -852,7 +858,9 @@ function createCreativeMemoryStore({ persistence } = {}) {
           text: combined,
           characterNames: turnCharacterNames,
           tags: ["screenplay"],
-          source: "talk_turn",
+          projectId: cleanProjectId,
+          projectTitle: cleanProjectTitle,
+          source: cleanSource,
         });
         if (receipt?.ok) summary.episodicMemories += 1;
       } catch (_e) { /* never block the response on memory writes */ }

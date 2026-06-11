@@ -2944,32 +2944,85 @@ function appendCraftContextToSystem(systemPrompt, { req } = {}) {
   return `${systemPrompt}\n\n${block}`;
 }
 
-// T08w-triggers: fire creative-memory write triggers from a /talk turn.
-// Best-effort, fire-and-forget — never blocks the response. Uses
-// transcript candidates from req.body to detect character mentions and
-// capture lexical phrases. Reply-side detection is a follow-up that
-// requires capturing the final assembled reply; user-side signals here
-// are reliable and the highest-leverage starting point.
-function recordCreativeMemoryTriggersForRequest(req) {
-  const userId = req?.user?.id || null;
+// T08w-triggers: fire creative-memory write triggers from a completed
+// /talk turn. Best-effort, fire-and-forget — never blocks the response.
+// Uses trusted auth identity, final transcript, final reply/page text,
+// and project metadata so generated screenplay pages become continuity.
+function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
+  const userId = req?.authUser?.id || req?.user?.id || req?.userId || null;
   if (!userId) return Promise.resolve({ skipped: true, reason: "no userId" });
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const studioMeta = turn?.studioMeta && typeof turn.studioMeta === "object"
+    ? turn.studioMeta
+    : sanitizeStudioTurnMetadata(body || null);
+  const screenplayOutput = turn?.screenplayOutput && typeof turn.screenplayOutput === "object"
+    ? turn.screenplayOutput
+    : null;
   const transcriptCandidates = [
-    req?.body?.client_transcript,
-    req?.body?.clientTranscript,
-    req?.body?.transcript,
-    req?.body?.debug_transcript,
-    req?.body?.debugTranscript,
+    turn?.transcript,
+    body.client_transcript,
+    body.clientTranscript,
+    body.transcript,
+    body.debug_transcript,
+    body.debugTranscript,
   ];
   const transcript = transcriptCandidates
     .map((t) => (typeof t === "string" ? t : ""))
     .find((t) => t.trim().length > 0) || "";
-  if (!transcript) return Promise.resolve({ skipped: true, reason: "no transcript" });
-  const startedAt = Number(req?.body?.session_started_at) || Number(req?.body?.sessionStartedAt) || null;
+  const replyCandidates = [
+    turn?.reply,
+    turn?.pageText,
+    screenplayOutput?.text,
+    body.reply,
+  ];
+  const reply = replyCandidates
+    .map((t) => (typeof t === "string" ? t : ""))
+    .find((t) => t.trim().length > 0) || "";
+  if (!transcript && !reply) {
+    return Promise.resolve({ skipped: true, reason: "no transcript_or_reply" });
+  }
+  const startedAt = Number(turn?.sessionStartedAt) ||
+    Number(body.session_started_at) ||
+    Number(body.sessionStartedAt) ||
+    null;
+  const durationMs = Number(turn?.sessionDurationMs) ||
+    Number(body.session_duration_ms) ||
+    Number(body.sessionDurationMs) ||
+    null;
+  const projectId = normalizeSnippet(
+    turn?.projectId ??
+      body.projectId ??
+      body.project_id ??
+      body.screenplayProjectId ??
+      body.screenplay_project_id ??
+      studioMeta?.screenplayProjectId,
+    96
+  );
+  const projectTitle = normalizeSnippet(
+    turn?.projectTitle ??
+      body.projectTitle ??
+      body.project_title ??
+      body.screenplayProjectTitle ??
+      body.screenplay_project_title ??
+      body.pack ??
+      body.screenplayPack ??
+      body.screenplay_pack,
+    160
+  );
+  const source = normalizeSnippet(
+    turn?.source ||
+      (screenplayOutput?.target === "page" ? "talk_screenplay_output" : "talk_turn"),
+    64
+  );
   return creativeMemoryStore.recordTriggersFromTalkTurn({
     userId,
     transcript,
-    reply: "",
+    reply,
     sessionStartedAt: Number.isFinite(startedAt) ? startedAt : null,
+    sessionDurationMs: Number.isFinite(durationMs) ? durationMs : null,
+    projectId,
+    projectTitle,
+    source,
   });
 }
 

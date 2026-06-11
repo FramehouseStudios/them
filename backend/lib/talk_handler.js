@@ -385,12 +385,6 @@ function createTalkHandler(deps) {
   const rid = req.requestId || reqId;
   const ts = new Date().toISOString();
   const ip = clientIp(req);
-  // T08w-triggers: fire-and-forget creative-memory writes based on the
-  // request transcript. Never blocks the response. Errors are logged
-  // and swallowed — memory writes must not affect the /talk contract.
-  void recordCreativeMemoryTriggersForRequest(req).catch((err) => {
-    console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
-  });
   const talkStreamMode = parseTalkStreamMode(req);
   const streamAudioRequested = TALK_STREAM_AUDIO_ENABLED && talkStreamMode === "audio";
   const interactiveVoiceProfile = {
@@ -404,6 +398,32 @@ function createTalkHandler(deps) {
   let sttMs = 0, chatMs = 0, ttsMs = 0;
   let debugTranscriptOverride = "";
   let talkTestDebugOfflineMode = false;
+  const commitCreativeMemoryAfterTurn = ({
+    transcript = "",
+    reply = "",
+    studioMeta = null,
+    screenplayOutput = null,
+    sessionStartedAt = null,
+    sessionDurationMs = null,
+    source = "",
+  } = {}) => {
+    const screenplayText = screenplayOutput?.target === "page"
+      ? normalizeTalkScreenplayText(screenplayOutput?.text || "")
+      : "";
+    const memoryReply = screenplayText || reply;
+    if (!String(transcript || "").trim() && !String(memoryReply || "").trim()) return;
+    void recordCreativeMemoryTriggersForRequest(req, {
+      transcript,
+      reply: memoryReply,
+      studioMeta,
+      screenplayOutput,
+      sessionStartedAt,
+      sessionDurationMs,
+      source: source || (screenplayText ? "talk_screenplay_output" : "talk_turn"),
+    }).catch((err) => {
+      console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
+    });
+  };
 
   const uploadedFile = req.file ||
     req.files?.file?.[0] ||
@@ -1885,6 +1905,13 @@ function createTalkHandler(deps) {
         authoritative_page_text_available: hasAuthoritativeScreenplayText,
         sync_ready: hasAuthoritativeScreenplayText,
       };
+      commitCreativeMemoryAfterTurn({
+        transcript,
+        reply,
+        studioMeta,
+        screenplayOutput: talkScreenplayOutput,
+        source: hasAuthoritativeScreenplayText ? "talk_screenplay_output" : "talk_turn",
+      });
       const committedMemory = activeSession
         ? updateSessionAfterReply(
           activeSession.memory,
@@ -3240,6 +3267,13 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       talkScreenplayOutput,
       talkAudioDurationMs
     );
+    commitCreativeMemoryAfterTurn({
+      transcript,
+      reply,
+      studioMeta,
+      screenplayOutput: talkScreenplayOutput,
+      source: talkScreenplayOutput?.target === "page" ? "talk_screenplay_output" : "talk_turn",
+    });
     let talkTtsSegmentCount = 1;
     if (talkScreenplayOutput?.target === "page" && speculativeReuseApplied) {
       logger.log(`[${rid}] speculative_reuse audio_disabled_for_page_sync=1`);

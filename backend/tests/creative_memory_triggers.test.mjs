@@ -120,6 +120,37 @@ test("recordTriggersFromTalkTurn stores spoken named-character story memory for 
   assert.match(memory.episodicMemories[0].excerpt, /cassette/);
 });
 
+test("recordTriggersFromTalkTurn stores generated screenplay pages with project metadata", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const reply = `INT. PLANETARIUM - NIGHT
+
+MARA
+The sky is lying to us.
+
+Eli watches the burned star map curl in her hand.`;
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-page-memory",
+    transcript: "Continue the Rain Docket planetarium scene.",
+    reply,
+    projectId: "feature-rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_screenplay_output",
+  });
+  assert.equal(summary.episodicMemories, 1);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-page-memory",
+    query: "Rain Docket Mara planetarium burned star map",
+  });
+  assert.equal(memory?.episodicMemories?.length, 1);
+  const episode = memory.episodicMemories[0];
+  assert.equal(episode.projectId, "feature-rain-docket");
+  assert.equal(episode.projectTitle, "Rain Docket");
+  assert.equal(episode.source, "talk_screenplay_output");
+  assert.match(episode.excerpt, /PLANETARIUM/);
+  assert.deepEqual(episode.characterNames, ["MARA"]);
+});
+
 test("recordTriggersFromTalkTurn caps at 8 character mentions per turn", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   const lines = [];
