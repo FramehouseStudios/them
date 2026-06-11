@@ -382,10 +382,12 @@ enum ScreenplayFeatureWorkflowPlanner {
 
     static func enrichedContinuationPrompt(
         for rawPrompt: String,
-        snapshot: ScreenplayFeatureWorkflowSnapshot
+        snapshot: ScreenplayFeatureWorkflowSnapshot,
+        recentStudioContext: [String] = []
     ) -> String? {
         let prompt = clean(rawPrompt, fallback: "")
         guard shouldElevateContinuationPrompt(prompt) else { return nil }
+        let restoredStudioContext = cleanContextList(recentStudioContext, limit: 5, itemLimit: 220)
 
         var lines: [String] = [
             snapshot.pageWritePrompt,
@@ -407,7 +409,31 @@ enum ScreenplayFeatureWorkflowPlanner {
             lines.insert(contentsOf: nextMoves.map { "- \($0)" }, at: lines.count - 1)
         }
 
+        if !restoredStudioContext.isEmpty {
+            lines.insert("", at: lines.count - 1)
+            lines.insert("Restored Studio memory:", at: lines.count - 1)
+            lines.insert(contentsOf: restoredStudioContext.map { "- \($0)" }, at: lines.count - 1)
+        }
+
         return lines.joined(separator: "\n")
+    }
+
+    private static func cleanContextList(_ values: [String], limit: Int, itemLimit: Int) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            let clean = clean(value, fallback: "")
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { continue }
+            let clipped = String(clean.prefix(max(0, itemLimit)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = clipped.lowercased()
+            guard !clipped.isEmpty, seen.insert(key).inserted else { continue }
+            result.append(clipped)
+            if result.count >= limit { break }
+        }
+        return result
     }
 
     private static func orderedActs(_ lhs: BackendScreenplayAct, _ rhs: BackendScreenplayAct) -> Bool {

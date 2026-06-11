@@ -10347,6 +10347,58 @@ Detail:
         )
     }
 
+    private var restoredStudioPromptContinuityContext: [String] {
+        studioPromptContinuityContext(from: studioAskNoteHistory)
+    }
+
+    private func studioPromptContinuityContext(
+        from entries: [StudioAskNoteExchange],
+        limit: Int = 5
+    ) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for exchange in entries.prefix(12) {
+            let prompt = compactStudioContinuitySnippet(exchange.prompt, limit: 110)
+            let responseSource = [
+                exactInsertedText(for: exchange),
+                exchange.revisedBlockText ?? "",
+                exchange.developmentText ?? "",
+                exchange.noteBody,
+                exchange.resolvedAnchorExcerpt ?? "",
+                exchange.anchorExcerpt ?? ""
+            ]
+                .map { compactStudioContinuitySnippet($0, limit: 140) }
+                .first(where: { !$0.isEmpty }) ?? ""
+
+            guard !prompt.isEmpty || !responseSource.isEmpty else { continue }
+            let label = exchange.target == .page ? "Prior page direction" : "Prior Clementine note"
+            let scene = compactStudioContinuitySnippet(exchange.anchorSceneLabel ?? "", limit: 60)
+            let core = prompt.isEmpty ? responseSource : prompt
+            var line = "\(label): \(core)"
+            if !scene.isEmpty {
+                line += " [\(scene)]"
+            }
+            if !prompt.isEmpty, !responseSource.isEmpty {
+                line += " -> \(responseSource)"
+            }
+            let key = line.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(line)
+            if result.count >= limit { break }
+        }
+
+        return result
+    }
+
+    private func compactStudioContinuitySnippet(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !compact.isEmpty else { return "" }
+        return String(compact.prefix(max(0, limit))).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func featureWorkflowCompassCard(_ snapshot: ScreenplayFeatureWorkflowSnapshot) -> some View {
         intelligenceCollectionCard(title: "Feature Compass", icon: "map") {
             VStack(alignment: .leading, spacing: 12) {
@@ -25008,10 +25060,12 @@ Return revised screenplay lines only.
         guard !isSubmittingStudioPrompt, !isSubmittingPrompt else { return }
         let routesToPage = shouldRoutePromptToPage(text, routingMode)
         let featureSnapshotForSubmission = routesToPage ? featureWorkflowSnapshot : nil
+        let restoredStudioContextForSubmission = routesToPage ? restoredStudioPromptContinuityContext : []
         let featureContinuationPrompt = featureSnapshotForSubmission.flatMap { snapshot in
             ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
                 for: text,
-                snapshot: snapshot
+                snapshot: snapshot,
+                recentStudioContext: restoredStudioContextForSubmission
             )
         }
         let submittedText = featureContinuationPrompt ?? text

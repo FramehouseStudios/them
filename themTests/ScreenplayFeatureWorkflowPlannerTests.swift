@@ -265,7 +265,11 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
 
         let prompt = ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
             for: "continue from here",
-            snapshot: snapshot
+            snapshot: snapshot,
+            recentStudioContext: [
+                "Prior page direction: Make Mara's public lie cost her the brother scene.",
+                "Prior Clementine note: Keep the midpoint victory emotionally contaminated."
+            ]
         )
 
         XCTAssertNotNil(prompt)
@@ -274,12 +278,52 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertTrue(prompt?.contains("Latest: L210-L248") == true)
         XCTAssertTrue(prompt?.contains("INT. COURTHOUSE HALLWAY - NIGHT") == true)
         XCTAssertTrue(prompt?.contains("Next story turns:") == true)
+        XCTAssertTrue(prompt?.contains("Restored Studio memory:") == true)
+        XCTAssertTrue(prompt?.contains("Make Mara's public lie cost her the brother scene.") == true)
+        XCTAssertTrue(prompt?.contains("Keep the midpoint victory emotionally contaminated.") == true)
         XCTAssertTrue(prompt?.contains("finished Fountain screenplay pages") == true)
 
         XCTAssertNil(ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
             for: "Rewrite this as a colder confrontation.",
             snapshot: snapshot
         ))
+    }
+
+    func testContinuationPromptMemoryContextIsDedupedAndCapped() {
+        let snapshot = ScreenplayFeatureWorkflowSnapshot(
+            currentActTitle: "Act II",
+            currentActDetail: "Midpoint pressure.",
+            actProgressLabel: "Scene 7/14",
+            draftProgressLabel: "42 pages drafted",
+            acceptedBatchTitle: "3 accepted batches",
+            acceptedBatchDetail: "Latest: L210-L248, 39 lines",
+            acceptedBatchLineRange: 210...248,
+            structuralObligation: "Turn the midpoint victory into irreversible fallout.",
+            nextSceneTitle: "INT. COURTHOUSE HALLWAY - NIGHT",
+            nextSceneDetail: "Mara must lie in public to protect the person she is starting to trust.",
+            nextMoves: [],
+            pageWritePrompt: "Continue the feature as feature-film screenplay pages.",
+            planningPrompt: "",
+            sceneDoctorPrompt: ""
+        )
+
+        let prompt = ScreenplayFeatureWorkflowPlanner.enrichedContinuationPrompt(
+            for: "continue",
+            snapshot: snapshot,
+            recentStudioContext: [
+                "  A remembered pressure.  ",
+                "A remembered pressure.",
+                "Second memory.",
+                "Third memory.",
+                "Fourth memory.",
+                "Fifth memory.",
+                "Sixth memory should not appear."
+            ]
+        )
+
+        XCTAssertEqual(prompt?.components(separatedBy: "- A remembered pressure.").count, 2)
+        XCTAssertTrue(prompt?.contains("- Fifth memory.") == true)
+        XCTAssertFalse(prompt?.contains("Sixth memory should not appear.") == true)
     }
 
     func testFeatureWorkflowSnapshotBuildsSessionContextForBackendMetadata() {
