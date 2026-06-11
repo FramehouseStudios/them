@@ -361,6 +361,19 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
             requestID: " studio-123 ",
             submittedPrompt: " continue ",
             snapshot: snapshot,
+            featureSpine: ScreenplayFeatureSpine(
+                logline: "A woman receives emergency calls from tomorrow.",
+                themeArgument: "Control fails when love becomes avoidance.",
+                centralQuestion: "Can Mara save tomorrow without abandoning today?",
+                protagonistWant: "Mara wants to outrun the warning.",
+                protagonistNeed: "Mara needs to trust someone else.",
+                antagonisticForce: "A future disaster closing in.",
+                endingImage: "Mara answers the phone in daylight.",
+                unresolvedSetups: [
+                    "The first call has no caller ID.",
+                    "The missing tape has not paid off."
+                ]
+            ),
             createdAt: Date(timeIntervalSince1970: 100),
             pageCount: 42,
             targetPages: 110
@@ -376,6 +389,17 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(context.featureObligation, "Turn the midpoint victory into irreversible fallout.")
         XCTAssertTrue(context.nextScenePlan.contains("Next scene: INT. COURTHOUSE HALLWAY - NIGHT"))
         XCTAssertEqual(context.nextSceneMoves.count, 2)
+        XCTAssertEqual(context.logline, "A woman receives emergency calls from tomorrow.")
+        XCTAssertEqual(context.themeArgument, "Control fails when love becomes avoidance.")
+        XCTAssertEqual(context.centralQuestion, "Can Mara save tomorrow without abandoning today?")
+        XCTAssertEqual(context.protagonistWant, "Mara wants to outrun the warning.")
+        XCTAssertEqual(context.protagonistNeed, "Mara needs to trust someone else.")
+        XCTAssertEqual(context.antagonisticForce, "A future disaster closing in.")
+        XCTAssertEqual(context.endingImage, "Mara answers the phone in daylight.")
+        XCTAssertEqual(context.unresolvedSetups, [
+            "The first call has no caller ID.",
+            "The missing tape has not paid off."
+        ])
         XCTAssertTrue(context.continuityNotes.contains("Feature Compass accepted batch: Latest: L210-L248, 39 lines"))
         XCTAssertEqual(context.emotionalContinuity, "Mara must lie in public to protect the person she is starting to trust.")
         XCTAssertEqual(context.pageCount, 42)
@@ -414,6 +438,16 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
             versionID: " version-7 ",
             submittedPrompt: " continue ",
             snapshot: snapshot,
+            featureSpine: ScreenplayFeatureSpine(
+                logline: "A woman receives emergency calls from tomorrow.",
+                themeArgument: "Control fails when love becomes avoidance.",
+                centralQuestion: "Can Mara save tomorrow without abandoning today?",
+                protagonistWant: "Mara wants to outrun the warning.",
+                protagonistNeed: "Mara needs to trust someone else.",
+                antagonisticForce: "A future disaster closing in.",
+                endingImage: "Mara answers the phone in daylight.",
+                unresolvedSetups: ["The first call has no caller ID."]
+            ),
             createdAt: createdAt,
             pageCount: 48,
             targetPages: 110
@@ -430,6 +464,14 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(restored.act, "Act II")
         XCTAssertEqual(restored.featureSequence, "Act II - Scene 8/14; 48 pages drafted")
         XCTAssertEqual(restored.nextSceneMoves, ["Write the flood-channel discovery: Mara turns the clue into a wound."])
+        XCTAssertEqual(restored.logline, "A woman receives emergency calls from tomorrow.")
+        XCTAssertEqual(restored.themeArgument, "Control fails when love becomes avoidance.")
+        XCTAssertEqual(restored.centralQuestion, "Can Mara save tomorrow without abandoning today?")
+        XCTAssertEqual(restored.protagonistWant, "Mara wants to outrun the warning.")
+        XCTAssertEqual(restored.protagonistNeed, "Mara needs to trust someone else.")
+        XCTAssertEqual(restored.antagonisticForce, "A future disaster closing in.")
+        XCTAssertEqual(restored.endingImage, "Mara answers the phone in daylight.")
+        XCTAssertEqual(restored.unresolvedSetups, ["The first call has no caller ID."])
         XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.isFreshForLiveRequest(
             restored,
             now: createdAt.addingTimeInterval(120)

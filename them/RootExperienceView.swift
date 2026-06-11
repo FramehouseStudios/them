@@ -9072,7 +9072,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if characterFocus.count >= 8 { break }
         }
 
-        let unresolvedSetups = featureSpine.unresolvedSetups + bindingSnapshot.sceneBindings
+        var promptLogline = featureSpine.logline
+        var promptThemeArgument = featureSpine.themeArgument
+        var promptCentralQuestion = featureSpine.centralQuestion
+        var promptProtagonistWant = featureSpine.protagonistWant
+        var promptProtagonistNeed = featureSpine.protagonistNeed
+        var promptAntagonisticForce = featureSpine.antagonisticForce
+        var promptEndingImage = featureSpine.endingImage
+        var promptUnresolvedSetups = featureSpine.unresolvedSetups + bindingSnapshot.sceneBindings
             .filter { !$0.isBound }
             .prefix(4)
             .map { "Unbound draft scene: \($0.draftShortLabel)" }
@@ -9181,6 +9188,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if !workflowContext.nextScenePlan.isEmpty { promptNextScenePlan = workflowContext.nextScenePlan }
             promptNextSceneMoves = mergedContextList(workflowContext.nextSceneMoves, promptNextSceneMoves, limit: 5)
             continuityNotes = mergedContextList(workflowContext.continuityNotes, continuityNotes, limit: 8)
+            if !workflowContext.logline.isEmpty { promptLogline = workflowContext.logline }
+            if !workflowContext.themeArgument.isEmpty { promptThemeArgument = workflowContext.themeArgument }
+            if !workflowContext.centralQuestion.isEmpty { promptCentralQuestion = workflowContext.centralQuestion }
+            if !workflowContext.protagonistWant.isEmpty { promptProtagonistWant = workflowContext.protagonistWant }
+            if !workflowContext.protagonistNeed.isEmpty { promptProtagonistNeed = workflowContext.protagonistNeed }
+            if !workflowContext.antagonisticForce.isEmpty { promptAntagonisticForce = workflowContext.antagonisticForce }
+            if !workflowContext.endingImage.isEmpty { promptEndingImage = workflowContext.endingImage }
+            promptUnresolvedSetups = mergedContextList(
+                workflowContext.unresolvedSetups,
+                promptUnresolvedSetups,
+                limit: 8
+            )
             if !workflowContext.emotionalContinuity.isEmpty {
                 promptEmotionalContinuity = workflowContext.emotionalContinuity
             }
@@ -9197,20 +9216,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
             sceneObjective: promptSceneObjective,
             sceneSummary: promptSceneSummary,
             currentBeat: promptCurrentBeat,
-            logline: featureSpine.logline,
-            themeArgument: featureSpine.themeArgument,
-            centralQuestion: featureSpine.centralQuestion,
-            protagonistWant: featureSpine.protagonistWant,
-            protagonistNeed: featureSpine.protagonistNeed,
-            antagonisticForce: featureSpine.antagonisticForce,
-            endingImage: featureSpine.endingImage,
+            logline: promptLogline,
+            themeArgument: promptThemeArgument,
+            centralQuestion: promptCentralQuestion,
+            protagonistWant: promptProtagonistWant,
+            protagonistNeed: promptProtagonistNeed,
+            antagonisticForce: promptAntagonisticForce,
+            endingImage: promptEndingImage,
             featureSequence: promptFeatureSequence,
             featureObligation: promptFeatureObligation,
             nextScenePlan: promptNextScenePlan,
             nextSceneMoves: promptNextSceneMoves,
             beatSequence: promptBeatSequence,
             characterFocus: characterFocus,
-            unresolvedSetups: Array(unresolvedSetups),
+            unresolvedSetups: promptUnresolvedSetups,
             continuityNotes: continuityNotes,
             emotionalContinuity: promptEmotionalContinuity,
             pageCount: promptPageCount,

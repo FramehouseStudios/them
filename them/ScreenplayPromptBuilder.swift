@@ -355,6 +355,7 @@ struct ScreenplayPromptBuilder {
         let featureSequence = request.featureSequence.trimmingCharacters(in: .whitespacesAndNewlines)
         let featureObligation = request.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextScenePlan = request.nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines)
+        let emotionalContinuity = request.emotionalContinuity.trimmingCharacters(in: .whitespacesAndNewlines)
         let draftExcerpt = request.draftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
         let pageCount = max(0, request.pageCount)
         let targetPages = max(0, request.targetPages)
@@ -374,6 +375,7 @@ struct ScreenplayPromptBuilder {
             !featureSequence.isEmpty ||
             !featureObligation.isEmpty ||
             !nextScenePlan.isEmpty ||
+            !emotionalContinuity.isEmpty ||
             !draftExcerpt.isEmpty ||
             pageCount > 0 ||
             targetPages > 0
@@ -461,6 +463,9 @@ struct ScreenplayPromptBuilder {
         if !nextScenePlan.isEmpty {
             lines.append("- Next scene planner: \(String(nextScenePlan.prefix(320)))")
         }
+        if !emotionalContinuity.isEmpty {
+            lines.append("- Emotional continuity: \(String(emotionalContinuity.prefix(260)))")
+        }
         lines.append("- Next page moves: name the active structural obligation; advance one irreversible character choice; preserve the emotional handoff.")
 
         let nextSceneMoves = Self.sanitizedContextList(request.nextSceneMoves, limit: 4)
@@ -474,6 +479,10 @@ struct ScreenplayPromptBuilder {
         let unresolvedSetups = Self.sanitizedContextList(request.unresolvedSetups, limit: 4)
         if !unresolvedSetups.isEmpty {
             lines.append("- Unresolved setups: \(unresolvedSetups.joined(separator: "; "))")
+        }
+        let characterFocus = Self.sanitizedContextList(request.characterFocus, limit: 5)
+        if !characterFocus.isEmpty {
+            lines.append("- Character focus: \(characterFocus.joined(separator: "; "))")
         }
         let continuityNotes = Self.sanitizedContextList(request.continuityNotes, limit: 4)
         if !continuityNotes.isEmpty {

@@ -172,7 +172,9 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 featureObligation: "The old tactic should stop working under public pressure.",
                 nextScenePlan: "Act II - Reversal Fallout: Mara's observation habit fails in front of the court.",
                 nextSceneMoves: ["Show the old tactic failing.", "Let the relationship cost sharpen the theme argument."],
+                characterFocus: ["MARA", "JUDGE VALE"],
                 unresolvedSetups: ["The courthouse key has not paid off."],
+                emotionalContinuity: "Mara is angry because observation finally cost someone else.",
                 pageCount: 62,
                 targetPages: 110,
                 screenplayTaskHint: "Write the next ten pages of act two.",
@@ -218,9 +220,11 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertTrue(result.prompt.contains("Active feature sequence: Act II - Reversal Fallout"))
         XCTAssertTrue(result.prompt.contains("Structural obligation due now: The old tactic should stop working"))
         XCTAssertTrue(result.prompt.contains("Next scene planner: Act II - Reversal Fallout"))
+        XCTAssertTrue(result.prompt.contains("Emotional continuity: Mara is angry because observation finally cost someone else."))
         XCTAssertTrue(result.prompt.contains("Next scene moves: Show the old tactic failing. -> Let the relationship cost sharpen the theme argument."))
         XCTAssertTrue(result.prompt.contains("Next page moves: name the active structural obligation"))
         XCTAssertTrue(result.prompt.contains("Unresolved setups: The courthouse key has not paid off."))
+        XCTAssertTrue(result.prompt.contains("Character focus: MARA; JUDGE VALE"))
         XCTAssertFalse(result.usedBackendAssembly)
         XCTAssertFalse(result.fallbackReason.isEmpty)
     }

@@ -25077,7 +25077,8 @@ Return revised screenplay lines only.
                     projectID: liveDraftBridge.committedWriteProjectIDSnapshot(),
                     versionID: liveDraftBridge.committedWriteVersionIDSnapshot(),
                     submittedPrompt: submittedText,
-                    snapshot: featureSnapshotForSubmission
+                    snapshot: featureSnapshotForSubmission,
+                    featureSpine: liveDraftBridge.featureSpine
                 )
             )
         }
@@ -29642,6 +29643,7 @@ Look at the city.
                 versionID: versionID,
                 submittedPrompt: "Restored project continuity",
                 snapshot: featureWorkflowSnapshot,
+                featureSpine: liveDraftBridge.featureSpine,
                 pageCount: vm.estimatedFeaturePageCount,
                 targetPages: ScreenplayFeatureProgressionGuide.defaultTargetPages
             )

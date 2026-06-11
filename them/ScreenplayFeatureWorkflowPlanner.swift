@@ -49,6 +49,14 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
     let featureObligation: String
     let nextScenePlan: String
     let nextSceneMoves: [String]
+    let logline: String
+    let themeArgument: String
+    let centralQuestion: String
+    let protagonistWant: String
+    let protagonistNeed: String
+    let antagonisticForce: String
+    let endingImage: String
+    let unresolvedSetups: [String]
     let continuityNotes: [String]
     let emotionalContinuity: String
     let pageCount: Int
@@ -60,6 +68,7 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         versionID: String = "",
         submittedPrompt: String,
         snapshot: ScreenplayFeatureWorkflowSnapshot,
+        featureSpine: ScreenplayFeatureSpine = .empty,
         createdAt: Date = Date(),
         pageCount: Int = 0,
         targetPages: Int = 0
@@ -90,6 +99,18 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
             limit: 5,
             itemLimit: 180
         )
+        self.logline = Self.clean(featureSpine.logline, limit: 500)
+        self.themeArgument = Self.clean(featureSpine.themeArgument, limit: 500)
+        self.centralQuestion = Self.clean(featureSpine.centralQuestion, limit: 500)
+        self.protagonistWant = Self.clean(featureSpine.protagonistWant, limit: 500)
+        self.protagonistNeed = Self.clean(featureSpine.protagonistNeed, limit: 500)
+        self.antagonisticForce = Self.clean(featureSpine.antagonisticForce, limit: 500)
+        self.endingImage = Self.clean(featureSpine.endingImage, limit: 500)
+        self.unresolvedSetups = Self.cleanList(
+            featureSpine.unresolvedSetups,
+            limit: 8,
+            itemLimit: 220
+        )
         self.continuityNotes = Self.cleanList([
             "Feature Compass accepted batch: \(snapshot.acceptedBatchDetail)",
             "Feature Compass next scene: \(snapshot.nextSceneTitle)",
@@ -110,6 +131,14 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
             featureObligation.isEmpty &&
             nextScenePlan.isEmpty &&
             nextSceneMoves.isEmpty &&
+            logline.isEmpty &&
+            themeArgument.isEmpty &&
+            centralQuestion.isEmpty &&
+            protagonistWant.isEmpty &&
+            protagonistNeed.isEmpty &&
+            antagonisticForce.isEmpty &&
+            endingImage.isEmpty &&
+            unresolvedSetups.isEmpty &&
             continuityNotes.isEmpty &&
             emotionalContinuity.isEmpty &&
             pageCount <= 0 &&
@@ -130,6 +159,14 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         case featureObligation
         case nextScenePlan
         case nextSceneMoves
+        case logline
+        case themeArgument
+        case centralQuestion
+        case protagonistWant
+        case protagonistNeed
+        case antagonisticForce
+        case endingImage
+        case unresolvedSetups
         case continuityNotes
         case emotionalContinuity
         case pageCount
@@ -154,6 +191,18 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
             try container.decodeIfPresent([String].self, forKey: .nextSceneMoves) ?? [],
             limit: 5,
             itemLimit: 180
+        )
+        self.logline = Self.clean(try container.decodeIfPresent(String.self, forKey: .logline) ?? "", limit: 500)
+        self.themeArgument = Self.clean(try container.decodeIfPresent(String.self, forKey: .themeArgument) ?? "", limit: 500)
+        self.centralQuestion = Self.clean(try container.decodeIfPresent(String.self, forKey: .centralQuestion) ?? "", limit: 500)
+        self.protagonistWant = Self.clean(try container.decodeIfPresent(String.self, forKey: .protagonistWant) ?? "", limit: 500)
+        self.protagonistNeed = Self.clean(try container.decodeIfPresent(String.self, forKey: .protagonistNeed) ?? "", limit: 500)
+        self.antagonisticForce = Self.clean(try container.decodeIfPresent(String.self, forKey: .antagonisticForce) ?? "", limit: 500)
+        self.endingImage = Self.clean(try container.decodeIfPresent(String.self, forKey: .endingImage) ?? "", limit: 500)
+        self.unresolvedSetups = Self.cleanList(
+            try container.decodeIfPresent([String].self, forKey: .unresolvedSetups) ?? [],
+            limit: 8,
+            itemLimit: 220
         )
         self.continuityNotes = Self.cleanList(
             try container.decodeIfPresent([String].self, forKey: .continuityNotes) ?? [],
