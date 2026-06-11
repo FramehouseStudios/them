@@ -92,6 +92,7 @@ import { mountCreativeMemoryStatsRoute } from "./lib/creative_memory_stats_route
 import { mountTalkTurnStatsRoute } from "./lib/talk_turn_stats.js";
 import { registerMethodNotAllowedRoutes } from "./lib/method_not_allowed_routes.js";
 import { mountStateRoute } from "./lib/state_route.js";
+import { mountDataRoutes } from "./lib/data_routes.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import { buildModelPrompt, inferScreenplayTask, MEMORY_BLOCK_OPEN } from "./lib/prompt_assembly.js";
@@ -29157,64 +29158,18 @@ mountStateRoute(app, {
   setPersistedUserMemoryForIp,
 });
 
-app.post("/data/history/clear", (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const cleared = clearConversationHistoryMemory(context.memory, nowTs);
-  const persisted = persistWritableMemoryContext(context, cleared, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  res.setHeader("x-backend-status", "up");
-  console.log(
-    `[${rid}] data_control action=clear_history ip=${context.requesterIp} mode=${context.clientToken ? "session" : "ip"} state=${readMeta.stateVersion}`
-  );
-
-  return res.status(200).json({
-    ok: true,
-    action: "clear_history",
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    backend_boot_id: readMeta.backendBootId,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
-});
-
-app.post("/data/memories/clear", (req, res) => {
-  const rid = req.requestId || createRequestId();
-  const nowTs = Date.now();
-  const context = resolveWritableMemoryContext(req, nowTs);
-  const cleared = clearAllMemoriesMemory(context.memory, nowTs);
-  const persisted = persistWritableMemoryContext(context, cleared, nowTs);
-  const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
-
-  res.setHeader("Cache-Control", "no-store");
-  applyReadStateHeaders(res, readMeta);
-  res.setHeader("x-backend-status", "up");
-  console.log(
-    `[${rid}] data_control action=clear_memories ip=${context.requesterIp} mode=${context.clientToken ? "session" : "ip"} state=${readMeta.stateVersion}`
-  );
-
-  return res.status(200).json({
-    ok: true,
-    action: "clear_memories",
-    session_id: readMeta.sessionId,
-    state_version: readMeta.stateVersion,
-    last_turn_id: readMeta.lastTurnId || null,
-    last_updated_at: readMeta.lastUpdatedAt || null,
-    history_updated_at: readMeta.historyUpdatedAt || null,
-    memory_updated_at: readMeta.memoryUpdatedAt || null,
-    backend_boot_id: readMeta.backendBootId,
-    schema_version: readMeta.schemaVersion,
-    backend_build: readMeta.backendBuild,
-  });
+// POST /data/history/clear + /data/memories/clear extracted to
+// lib/data_routes.js (Phase 6.1a module, now wired). Mounted in place to
+// preserve Express registration order; handler bodies are byte-identical
+// (deps injected; logger defaults to console).
+mountDataRoutes(app, {
+  applyReadStateHeaders,
+  buildReadStateMeta,
+  clearAllMemoriesMemory,
+  clearConversationHistoryMemory,
+  createRequestId,
+  persistWritableMemoryContext,
+  resolveWritableMemoryContext,
 });
 
 app.get("/history", (req, res) => {
