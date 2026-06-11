@@ -41,7 +41,22 @@ const AUTH_AUTO_VERIFY_EMAILS = parseBool(process.env.AUTH_AUTO_VERIFY_EMAILS);
 const AUTH_APPLE_AUDIENCE = String(process.env.AUTH_APPLE_AUDIENCE || "").trim();
 const AUTH_APPLE_TEST_JWT_SECRET = String(process.env.AUTH_APPLE_TEST_JWT_SECRET || "").trim();
 const AUTH_APPLE_JWT_PUBLIC_KEY = String(process.env.AUTH_APPLE_JWT_PUBLIC_KEY || "").trim();
-const REQUIRE_USER_AUTH = NODE_ENV === "production" || parseBool(process.env.REQUIRE_USER_AUTH);
+
+// Protected routes are secure-by-default in production. A deliberate guest
+// posture is a product decision, so production boot rejects explicit false-ish
+// values in assertProductionEnv instead of quietly exposing user data routes.
+function resolveRequireUserAuth(env = process.env) {
+  const nodeEnv = String(env.NODE_ENV || "development").trim().toLowerCase();
+  if (nodeEnv === "production") return true;
+  return parseBool(env.REQUIRE_USER_AUTH);
+}
+
+function isRequireUserAuthExplicitlyDisabled(env = process.env) {
+  const raw = String(env.REQUIRE_USER_AUTH || "").trim().toLowerCase();
+  return raw === "0" || raw === "false" || raw === "no";
+}
+
+const REQUIRE_USER_AUTH = resolveRequireUserAuth(process.env);
 const STUDIO_RENDER_TEST_REPLY = NODE_ENV === "production"
   ? ""
   : String(process.env.STUDIO_RENDER_TEST_REPLY || "").trim();
@@ -77,9 +92,7 @@ function assertProductionEnv(env = process.env) {
   if (!String(env.APP_TOKEN || "").trim()) {
     missing.push("APP_TOKEN — required when NODE_ENV=production (X-APP-TOKEN gate).");
   }
-  if (String(env.REQUIRE_USER_AUTH || "").trim().toLowerCase() === "0"
-    || String(env.REQUIRE_USER_AUTH || "").trim().toLowerCase() === "false"
-    || String(env.REQUIRE_USER_AUTH || "").trim().toLowerCase() === "no") {
+  if (isRequireUserAuthExplicitlyDisabled(env)) {
     missing.push("REQUIRE_USER_AUTH — production must not disable authenticated user routes.");
   }
   if (missing.length === 0) return;
@@ -117,6 +130,7 @@ export {
   REQUIRE_APP_TOKEN,
   REQUIRE_CLIENT_TOKEN,
   REQUIRE_USER_AUTH,
+  resolveRequireUserAuth,
   SHOULD_START_SERVER,
   STUDIO_RENDER_TEST_REPLY,
   UNIFIED_PERSONA_PRESET,

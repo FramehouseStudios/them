@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { assertProductionEnv } from "../config.js";
+import { assertProductionEnv, resolveRequireUserAuth } from "../config.js";
 
 const FULL_PROD_ENV = Object.freeze({
   NODE_ENV: "production",
@@ -50,6 +50,10 @@ test("[assertProductionEnv] throws when production user auth is explicitly disab
     () => assertProductionEnv({ ...FULL_PROD_ENV, REQUIRE_USER_AUTH: "false" }),
     /REQUIRE_USER_AUTH/,
   );
+  assert.throws(
+    () => assertProductionEnv({ ...FULL_PROD_ENV, REQUIRE_USER_AUTH: "no" }),
+    /REQUIRE_USER_AUTH/,
+  );
 });
 
 test("[assertProductionEnv] lists every missing variable, not just the first", () => {
@@ -71,4 +75,30 @@ test("[assertProductionEnv] lists every missing variable, not just the first", (
 test("[assertProductionEnv] treats whitespace-only values as missing", () => {
   const env = { ...FULL_PROD_ENV, DATABASE_URL: "   " };
   assert.throws(() => assertProductionEnv(env), /DATABASE_URL/);
+});
+
+test("[resolveRequireUserAuth] production enforces auth when unset or blank", () => {
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "production" }), true);
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "production", REQUIRE_USER_AUTH: "" }), true);
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "production", REQUIRE_USER_AUTH: "   " }), true);
+});
+
+test("[resolveRequireUserAuth] production remains locked even when explicitly disabled", () => {
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "production", REQUIRE_USER_AUTH: "false" }), true);
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "production", REQUIRE_USER_AUTH: "0" }), true);
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "production", REQUIRE_USER_AUTH: "no" }), true);
+});
+
+test("[resolveRequireUserAuth] production honors explicit true-ish values", () => {
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "production", REQUIRE_USER_AUTH: "true" }), true);
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "production", REQUIRE_USER_AUTH: "1" }), true);
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "production", REQUIRE_USER_AUTH: "yes" }), true);
+});
+
+test("[resolveRequireUserAuth] non-production stays opt-in", () => {
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "development" }), false);
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "test" }), false);
+  assert.equal(resolveRequireUserAuth({}), false);
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "development", REQUIRE_USER_AUTH: "true" }), true);
+  assert.equal(resolveRequireUserAuth({ NODE_ENV: "test", REQUIRE_USER_AUTH: "1" }), true);
 });

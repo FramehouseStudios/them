@@ -35,7 +35,19 @@ Rules:
 
 ## Open
 
-No open decisions.
+### D-guest-mode-vs-required-login — Does V1 require login, or allow guest use?
+- **Asked by:** claude
+- **Asked at:** 2026-06-10
+- **Why it matters:** `REQUIRE_USER_AUTH` previously defaulted off in
+  production, silently leaving `/talk`, `/state`, `/memories`, `/screenplay`,
+  and related protected routes reachable by any client with the app token.
+  Production is now secure-by-default and refuses to boot if user auth is
+  explicitly disabled. The remaining product question is whether a future V1
+  guest mode should be intentionally designed instead of accidentally exposed.
+- **Question:** For V1, must every user sign in before reaching the protected
+  routes, or should a scoped unauthenticated guest mode be approved and built?
+- **Default if no answer:** Require login. Production runs with
+  `REQUIRE_USER_AUTH=true`; no guest mode ships until explicitly approved.
 
 ---
 
