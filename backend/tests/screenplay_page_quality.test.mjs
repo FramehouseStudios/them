@@ -6,6 +6,7 @@ import {
   isLikelyOutlineOrCraftArtifactLine,
   isLikelyPlaceholderScreenplayLine,
   isLowSignalActionLine,
+  isLowSubtextDialogueLine,
   minimumExpectedWordsForRequestedPages,
 } from "../lib/screenplay_page_quality.js";
 
@@ -157,6 +158,163 @@ test("[screenplay-page-quality] caps requested-page floors below full-feature ta
   assert.equal(minimumExpectedWordsForRequestedPages(1), 4);
   assert.equal(minimumExpectedWordsForRequestedPages(8), 350);
   assert.equal(minimumExpectedWordsForRequestedPages(30), 420);
+});
+
+test("[screenplay-page-quality] rejects on-the-nose dialogue-heavy batches", () => {
+  const dialogue = [
+    "We need to talk.",
+    "I feel hurt because you lied to me again.",
+    "This is important and difficult for both of us.",
+    "Tell me the truth.",
+    "I don't know what to say anymore.",
+    "You need to understand me before this gets worse.",
+    "We have to be honest about what happened.",
+    "I can't do this anymore.",
+    "I am scared because everything is falling apart.",
+    "You hurt me more than you understand.",
+    "I just want the truth before we lose each other.",
+    "This is serious and wrong and I need you to know that.",
+  ];
+  const text = [
+    "INT. APARTMENT - NIGHT",
+    "",
+    ...dialogue.flatMap((line, index) => [
+      index % 2 === 0 ? "MARA" : "ELI",
+      line,
+      "",
+    ]),
+    "Mara stands there, waiting.",
+  ].join("\n");
+  const quality = evaluateScreenplayPageQuality({
+    text,
+    lines: [
+      { text: "INT. APARTMENT - NIGHT", element: "sceneHeading" },
+      ...dialogue.flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+      { text: "Mara stands there, waiting.", element: "action" },
+    ],
+    targetPages: 2,
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "on_the_nose_dialogue");
+  assert.equal(isLowSubtextDialogueLine("We need to talk.", "dialogue"), true);
+});
+
+test("[screenplay-page-quality] rejects static dialogue batches without enough page turns", () => {
+  const dialogue = [
+    "The money was supposed to be there before the hearing started, and now every camera in the hallway is pointed at us.",
+    "Then stop looking at the cameras and start looking at the envelope your sister left under the bench.",
+    "I already looked at it. It is another receipt, another dead end, another reason for you to tell me to wait.",
+    "It is a receipt from the marina, Mara. The one place the first report says nobody went that night.",
+    "If I walk in there with this, they bury her before lunch and call it procedure.",
+    "If you walk in there without it, they bury you with her and call it justice.",
+    "You always make fear sound like strategy when you are the one holding the door closed.",
+    "And you always make courage sound clean because you are not the one who has to live after it.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      ...dialogue.flatMap((line, index) => [
+        index % 2 === 0 ? "MARA" : "ELI",
+        line,
+        "",
+      ]),
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      ...dialogue.flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+    ],
+    targetPages: 3,
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "static_dialogue_batch");
+});
+
+test("[screenplay-page-quality] accepts dialogue batches with concrete turns and subtext", () => {
+  const dialogue = [
+    "They moved the docket.",
+    "To where?",
+    "Basement courtroom. No phones. No press.",
+    "That is not a room. That is a sinkhole.",
+    "Then stop throwing me rope.",
+    "I am throwing you a match.",
+    "You light this, my sister burns too.",
+    "No. She finally gets seen.",
+  ];
+  const action = [
+    "Mara palms the marina receipt, folding it until the ink splits.",
+    "Eli blocks the elevator with his briefcase before the doors can close.",
+    "A bailiff tears the public docket from the wall and replaces it with a blank sheet.",
+    "Mara slips the receipt under the blank sheet, leaving the marina stamp exposed.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      action[0],
+      "",
+      "MARA",
+      dialogue[0],
+      "",
+      "ELI",
+      dialogue[1],
+      "",
+      action[1],
+      "",
+      "MARA",
+      dialogue[2],
+      "",
+      "ELI",
+      dialogue[3],
+      "",
+      action[2],
+      "",
+      "MARA",
+      dialogue[4],
+      "",
+      "ELI",
+      dialogue[5],
+      "",
+      "MARA",
+      dialogue[6],
+      "",
+      "ELI",
+      dialogue[7],
+      "",
+      action[3],
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: action[0], element: "action" },
+      ...dialogue.slice(0, 2).flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+      { text: action[1], element: "action" },
+      ...dialogue.slice(2, 4).flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+      { text: action[2], element: "action" },
+      ...dialogue.slice(4).flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+      { text: action[3], element: "action" },
+    ],
+    targetPages: 2,
+  });
+
+  assert.equal(quality.ok, true);
+  assert.equal(quality.counts.specificAction >= 3, true);
 });
 
 test("[screenplay-page-quality] requires screenplay shape when no trusted anchor exists", () => {

@@ -433,6 +433,8 @@ function buildFeatureScaleOutputContractLines() {
     "  feature_scale_output_contract:",
     "    - For 5-15 page requests, silently break the run into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.",
     "    - Page batches must change story state every 1-2 pages; no filler conversation, static explanation, or repeated tactic.",
+    "    - Dialogue batches must carry subtext through tactic, interruption, behavior, and consequence; avoid on-the-nose feelings talk as the primary engine.",
+    "    - Long exchanges need visible turns: an object used differently, a discovery, a blocked exit, a reveal, a cost, or a changed tactic.",
     "    - First useful line must be page text; no labels, throat-clearing, strategy notes, or summary before the slug/action/cue.",
     "    - Write toward the next structural obligation, not merely the next incident.",
     "    - Act I pages must earn commitment; Act II pages must test and break the false tactic; Act III pages must spend planted setups through changed behavior.",

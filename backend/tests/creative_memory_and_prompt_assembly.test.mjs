@@ -451,6 +451,8 @@ Feature workflow context:
   assert.ok(out.includes("page_batch_contract:"));
   assert.ok(out.includes("Begin with playable Fountain text; do not preface with diagnosis"));
   assert.ok(out.includes("Page velocity: the first non-empty line must be a scene heading"));
+  assert.ok(out.includes("Dialogue must be tactical and subtextual"));
+  assert.ok(out.includes("Interleave dialogue with visible action, discovery, consequence, or tactic shifts"));
   assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
   assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
@@ -482,6 +484,8 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("page_batch_contract:"));
   assert.ok(out.includes("Begin with playable Fountain text; do not preface with diagnosis"));
   assert.ok(out.includes("Page velocity: the first non-empty line must be a scene heading"));
+  assert.ok(out.includes("Dialogue must be tactical and subtextual"));
+  assert.ok(out.includes("Interleave dialogue with visible action, discovery, consequence, or tactic shifts"));
   assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
   assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
@@ -495,6 +499,8 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("act_aware_page_engine:"));
   assert.ok(out.includes("active_sequence_job: Act II - Midpoint Pressure"));
   assert.ok(out.includes("Do not repeat the premise as a string of similar tests."));
+  assert.ok(out.includes("Dialogue batches must carry subtext through tactic"));
+  assert.ok(out.includes("Long exchanges need visible turns"));
   assert.ok(out.includes("delivery: write clean Fountain pages first"));
   assert.ok(out.includes("write playable Fountain immediately with no diagnosis"));
   assert.ok(out.includes("write playable Fountain first with no diagnosis, strategy note"));

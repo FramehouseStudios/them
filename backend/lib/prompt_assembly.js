@@ -354,6 +354,8 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - Begin with playable Fountain text; do not preface with diagnosis, outline, recap, strategy note, markdown, or permission language unless the user explicitly asks for analysis instead of pages.");
     lines.push("  - Page velocity: the first non-empty line must be a scene heading, action line, character cue, or dialogue continuation; no labels before pages.");
     lines.push("  - Split the batch internally into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.");
+    lines.push("  - Dialogue must be tactical and subtextual: each exchange should hide need inside pressure, interruption, concealment, or behavior.");
+    lines.push("  - Interleave dialogue with visible action, discovery, consequence, or tactic shifts; do not write a long static conversation with the same tactic.");
     lines.push("  - Start from the active draft/scene state; do not restart, recap, or outline unless the user explicitly asks.");
     lines.push("  - If feature memory supplies next_three_turns, act_pressure_state, character_arc_state, payoff path, story threads, or image motifs, dramatize them as action/dialogue; never list those labels in the answer.");
     lines.push("  - Use the first remembered next turn as the immediate page engine before inventing a new plot lane.");

@@ -108,6 +108,26 @@ function isLowSignalActionLine(line = "", element = "action") {
   ].some((pattern) => pattern.test(lower));
 }
 
+function isLowSubtextDialogueLine(line = "", element = "dialogue") {
+  if (normalizeElement(element) !== "dialogue") return false;
+  const lower = canonicalLowerLine(line);
+  if (!lower) return false;
+
+  return [
+    /^we need to talk(?: about (?:this|us|what happened|our feelings))?$/,
+    /^i (?:feel|felt) (?:like )?(?:angry|sad|scared|afraid|hurt|confused|upset|alone|lost|broken|betrayed)\b/,
+    /^i(?: am|'m) (?:angry|sad|scared|afraid|hurt|confused|upset|alone|lost|broken|betrayed)\b/,
+    /^you (?:hurt|betrayed|lied to|abandoned) me\b/,
+    /^(?:this|that) (?:is|was) (?:important|hard|difficult|complicated|serious|wrong)\b/,
+    /^i (?:do not|don't) know what to say\b/,
+    /^tell me (?:the truth|what you want|what happened)\b/,
+    /^i can't do this(?: anymore| any more)?$/,
+    /^you need to (?:listen|understand|tell me|trust me)\b/,
+    /^we have to (?:be honest|talk|face this)\b/,
+    /^i just (?:want|need) (?:the truth|you to listen|you to understand|to be honest)\b/,
+  ].some((pattern) => pattern.test(lower));
+}
+
 function isPlayableActionLine(line = "", element = "action") {
   if (normalizeElement(element) !== "action") return false;
   const text = normalizeLineText(line);
@@ -129,10 +149,15 @@ function summarizeLineCounts(lines = []) {
     artifact: 0,
     placeholder: 0,
     lowSignalAction: 0,
+    lowSubtextDialogue: 0,
     specificAction: 0,
     dialogueWords: 0,
+    distinctCharacters: 0,
+    maxDialogueRun: 0,
     words: 0,
   };
+  const characterNames = new Set();
+  let dialogueRun = 0;
 
   for (const line of Array.isArray(lines) ? lines : []) {
     const text = normalizeLineText(line?.text ?? line);
@@ -142,20 +167,31 @@ function summarizeLineCounts(lines = []) {
     counts.words += countWords(text);
     if (element === "sceneHeading") counts.sceneHeading += 1;
     else if (element === "action") counts.action += 1;
-    else if (element === "character") counts.character += 1;
+    else if (element === "character") {
+      counts.character += 1;
+      characterNames.add(canonicalLowerLine(text));
+    }
     else if (element === "dialogue") counts.dialogue += 1;
     else if (element === "parenthetical") counts.parenthetical += 1;
     else if (element === "transition") counts.transition += 1;
+    if (isDialogueProtectedElement(element)) {
+      dialogueRun += 1;
+      counts.maxDialogueRun = Math.max(counts.maxDialogueRun, dialogueRun);
+    } else {
+      dialogueRun = 0;
+    }
     if (isPlayableActionLine(text, element)) counts.playableAction += 1;
     if (isLikelyOutlineOrCraftArtifactLine(text, element)) counts.artifact += 1;
     if (isLikelyPlaceholderScreenplayLine(text, element)) counts.placeholder += 1;
     if (element === "dialogue") counts.dialogueWords += countWords(text);
     if (isLowSignalActionLine(text, element)) counts.lowSignalAction += 1;
+    if (isLowSubtextDialogueLine(text, element)) counts.lowSubtextDialogue += 1;
     if (isPlayableActionLine(text, element) && !isLowSignalActionLine(text, element)) {
       counts.specificAction += 1;
     }
   }
 
+  counts.distinctCharacters = characterNames.size;
   return counts;
 }
 
@@ -205,6 +241,26 @@ function evaluateScreenplayPageQuality({
   if (counts.words < minWords) {
     return { ok: false, reason: "underfilled_page_text", counts };
   }
+  const dialogueHeavyBatch = requestedPages >= 2 && counts.dialogue >= 8;
+  const lowSubtextRatio = counts.dialogue > 0
+    ? counts.lowSubtextDialogue / counts.dialogue
+    : 0;
+  if (
+    dialogueHeavyBatch &&
+    counts.lowSubtextDialogue >= 5 &&
+    lowSubtextRatio >= 0.55 &&
+    counts.specificAction < 3
+  ) {
+    return { ok: false, reason: "on_the_nose_dialogue", counts };
+  }
+  if (
+    requestedPages >= 3 &&
+    counts.dialogue >= 8 &&
+    counts.dialogueWords >= 90 &&
+    counts.specificAction < 2
+  ) {
+    return { ok: false, reason: "static_dialogue_batch", counts };
+  }
   if (
     counts.nonEmpty >= 4
     && counts.specificAction < 1
@@ -225,6 +281,7 @@ export {
   isLikelyOutlineOrCraftArtifactLine,
   isLikelyPlaceholderScreenplayLine,
   isLowSignalActionLine,
+  isLowSubtextDialogueLine,
   minimumExpectedWordsForRequestedPages,
   summarizeLineCounts,
 };

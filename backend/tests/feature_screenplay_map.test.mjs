@@ -180,6 +180,8 @@ test("[feature-screenplay-map] emits page-batch execution plan for feature page 
   assert.ok(block.includes("turn_budget: 2-4 escalating scene turns"));
   assert.ok(block.includes("delivery: write clean Fountain pages first"));
   assert.ok(block.includes("First useful line must be page text"));
+  assert.ok(block.includes("Dialogue batches must carry subtext through tactic"));
+  assert.ok(block.includes("Long exchanges need visible turns"));
   assert.ok(block.includes("continuity: treat the draft excerpt as the live previous page"));
   assert.ok(block.includes("scene_turn_tests:"));
   assert.ok(block.includes("launch: inherit the previous emotional residue"));
