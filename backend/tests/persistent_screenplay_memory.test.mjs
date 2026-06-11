@@ -234,14 +234,34 @@ test("[persistent-screenplay-memory] distills durable context from sparse draft 
   assert.equal(record.act, "Act II");
   assert.equal(record.featureSequence, "Act II - Reversal Fallout");
   assert.equal(record.featureObligation, "The protagonist's old tactics should stop working.");
+  assert.equal(record.actPressureState, "Current sequence obligation: The protagonist's old tactics should stop working.");
   assert.equal(record.sceneLabel, "INT. ROOFTOP - NIGHT");
   assert.equal(record.currentBeat, "She watches the courthouse lights blink out below them.");
+  assert.equal(record.lastSceneOutcome, "She watches the courthouse lights blink out below them.");
+  assert.equal(record.characterArcState, "Mara is under pressure from: She watches the courthouse lights blink out below them.");
+  assert.match(record.nextScenePlan, /Continue from "She watches the courthouse lights blink out below them/);
   assert.match(record.sceneSummary, /Mara hides the cassette/);
   assert.deepEqual(record.beatSequence, [
     "Mara hides the cassette under the rain-swollen vent.",
     "She watches the courthouse lights blink out below them.",
   ]);
   assert.deepEqual(record.characterFocus, ["Eli", "Mara"]);
+  assert.deepEqual(record.nextThreeTurns, [
+    "Force the consequence of: She watches the courthouse lights blink out below them.",
+    "Make Mara choose a tactic under pressure.",
+    "Complicate or pay off cassette.",
+  ]);
+  assert.deepEqual(record.unresolvedSetups, [
+    "Mara hides the cassette under the rain-swollen vent.",
+  ]);
+  assert.deepEqual(record.unresolvedStoryThreads, [
+    "Who else knows about cassette?",
+  ]);
+  assert.deepEqual(record.characterArcTurns, [
+    "Mara is under pressure from: She watches the courthouse lights blink out below them.",
+  ]);
+  assert.ok(record.imageMotifs.includes("cassette"));
+  assert.ok(record.imageMotifs.includes("rain-swollen vent"));
   assert.match(record.lastWritePreview, /rain-swollen vent/);
 
   let memory = createEmptyEmotionMemory();
@@ -264,6 +284,10 @@ test("[persistent-screenplay-memory] distills durable context from sparse draft 
   assert.match(prompt, /scene:INT\. ROOFTOP - NIGHT/);
   assert.match(prompt, /current_beat:She watches the courthouse lights blink out below them/);
   assert.match(prompt, /characters:Eli, Mara/);
+  assert.match(prompt, /act_pressure:Current sequence obligation/);
+  assert.match(prompt, /story_threads:Who else knows about cassette/);
+  assert.match(prompt, /arc_turns:Mara is under pressure from/);
+  assert.match(prompt, /image_motifs:cassette/);
 
   const nonPageRecord = buildScreenplayProjectMemoryRecordFromStudioMeta(
     {
@@ -450,6 +474,8 @@ test("[persistent-screenplay-memory] prompt builder rebuilds feature context fro
   assert.ok(prompt.includes("persistent_memory_brief: position: Act II / Midpoint trap"));
   assert.ok(prompt.includes("next three turns: Father names the lie. / Mara chooses public exposure."));
   assert.ok(prompt.includes("Act III payoff path: Mara spends the sealed affidavit in open court"));
+  assert.ok(prompt.includes("arc turns: Mara must choose exposure over control."));
+  assert.ok(prompt.includes("image motifs: sealed affidavit / flickering hallway light"));
   assert.ok(prompt.includes("open setups: Forged testimony / Missing evidence"));
   assert.ok(prompt.includes("story threads: Who forged the testimony? / Why Father stayed gone"));
   assert.ok(prompt.includes("next_scene_plan: Move into a private corridor confrontation"));

@@ -3079,6 +3079,12 @@ function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
     Array.isArray(memoryProject.actThreePayoffPath) && memoryProject.actThreePayoffPath.length
       ? `Act III payoff path: ${memoryProject.actThreePayoffPath.slice(0, 3).join(" / ")}`
       : "",
+    Array.isArray(memoryProject.characterArcTurns) && memoryProject.characterArcTurns.length
+      ? `arc turns: ${memoryProject.characterArcTurns.slice(0, 3).join(" / ")}`
+      : "",
+    Array.isArray(memoryProject.imageMotifs) && memoryProject.imageMotifs.length
+      ? `image motifs: ${memoryProject.imageMotifs.slice(0, 3).join(" / ")}`
+      : "",
     memoryProject.nextScenePlan ? `next: ${memoryProject.nextScenePlan}` : "",
     memoryProject.endingImage ? `ending image: ${memoryProject.endingImage}` : "",
   ].filter(Boolean);
@@ -14476,13 +14482,21 @@ function sanitizeScreenplayProjectMemoryItems(items, maxItems = SCREENPLAY_PROJE
       record.endingImage ||
       record.featureSequence ||
       record.featureObligation ||
+      record.actPressureState ||
+      record.characterArcState ||
+      record.lastSceneOutcome ||
       record.nextScenePlan ||
       record.emotionalContinuity ||
       record.lastWritePreview ||
       record.nextSceneMoves.length ||
+      record.nextThreeTurns.length ||
+      record.actThreePayoffPath.length ||
       record.beatSequence.length ||
       record.characterFocus.length ||
       record.unresolvedSetups.length ||
+      record.unresolvedStoryThreads.length ||
+      record.characterArcTurns.length ||
+      record.imageMotifs.length ||
       record.continuityNotes.length ||
       record.pageCount > 0 ||
       record.targetPages > 0
@@ -14515,6 +14529,26 @@ const SCREENPLAY_MEMORY_GENERIC_CUES = new Set([
   "LEAD",
   "MAIN CHARACTER",
 ]);
+
+const SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST = new Set([
+  "A",
+  "An",
+  "The",
+  "She",
+  "He",
+  "They",
+  "It",
+  "This",
+  "That",
+  "Rain",
+  "Wind",
+  "Light",
+  "Lights",
+  "Silence",
+]);
+
+const SCREENPLAY_MEMORY_MOTIF_PATTERN = /\b(?:(?:missing|sealed|forged|burned|rain-swollen|blank|flickering|broken|empty|final|lost|public|private)\s+)?(?:receipt|cassette|key|envelope|reel|photograph|photo|tape|microphone|pool|screen|light|lights|rain|glass|door|window|mirror|gun|knife|car|phone|voicemail|affidavit|report|evidence|docket|bench|vent|elevator|courthouse)\b/gi;
+const SCREENPLAY_MEMORY_SETUP_PATTERN = /\b(?:hide|hides|hidden|pocket|pockets|keeps?|missing|sealed|forged|unopened|buried|evidence|receipt|cassette|affidavit|voicemail|report|docket|key|envelope|reel)\b/i;
 
 function countScreenplayMemoryWords(text = "") {
   const matches = normalizeSnippet(text, 500).match(/[A-Za-z0-9'][A-Za-z0-9'-]*/g);
@@ -14550,6 +14584,89 @@ function isScreenplayMemoryActionLine(line = "") {
   return /[A-Za-z]/.test(text);
 }
 
+function normalizeScreenplayMemoryMotif(value = "") {
+  return normalizeSnippet(value, 140)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:the|a|an)\s+/, "");
+}
+
+function collectScreenplayMemoryMotifs(lines = [], maxItems = 6) {
+  const out = [];
+  const seen = new Set();
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const text = normalizeSnippet(line, 260);
+    if (!text) continue;
+    const matches = text.match(SCREENPLAY_MEMORY_MOTIF_PATTERN) || [];
+    for (const match of matches) {
+      const motif = normalizeScreenplayMemoryMotif(match);
+      if (!motif || seen.has(motif)) continue;
+      seen.add(motif);
+      out.push(motif);
+      if (out.length >= maxItems) return out;
+    }
+  }
+  return out;
+}
+
+function collectScreenplayMemorySetups(lines = [], maxItems = 5) {
+  const out = [];
+  const seen = new Set();
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const clean = normalizeSnippet(line, 220);
+    if (!clean || countScreenplayMemoryWords(clean) < 4) continue;
+    if (!SCREENPLAY_MEMORY_SETUP_PATTERN.test(clean)) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function inferScreenplayMemoryPrimaryActionName(actionLines = []) {
+  for (const line of Array.isArray(actionLines) ? actionLines : []) {
+    const match = normalizeSnippet(line, 180).match(/^([A-Z][a-zA-Z]{2,})\b/);
+    const name = match?.[1] || "";
+    if (name && !SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST.has(name)) return name;
+  }
+  return "";
+}
+
+function buildDistilledScreenplayStoryThreads({
+  motifs = [],
+  actionLines = [],
+  dialogueLines = [],
+} = {}) {
+  const lines = [...(Array.isArray(actionLines) ? actionLines : []), ...(Array.isArray(dialogueLines) ? dialogueLines : [])];
+  const out = [];
+  const push = (value) => {
+    const clean = normalizeSnippet(value, 220);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (out.some((item) => item.toLowerCase() === key)) return;
+    out.push(clean);
+  };
+  const primaryMotif = normalizeSnippet(motifs[0], 80);
+  for (const line of lines) {
+    const lower = normalizeSnippet(line, 220).toLowerCase();
+    if (!lower) continue;
+    if (primaryMotif && /\b(?:nobody else knew|somebody does|who else|someone else knows)\b/.test(lower)) {
+      push(`Who else knows about ${primaryMotif}?`);
+    }
+    if (primaryMotif && /\bmissing\b/.test(lower)) {
+      push(`What happened to ${primaryMotif}?`);
+    }
+    if (/\b(?:forged|sealed|buried|evidence|affidavit|report)\b/.test(lower)) {
+      push(`Who controls the ${primaryMotif || "evidence"}?`);
+    }
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
 function distillScreenplayProjectMemoryFromText(text = "") {
   const normalized = normalizeTalkMultilineSnippet(text, 12_000);
   if (!normalized) {
@@ -14559,6 +14676,16 @@ function distillScreenplayProjectMemoryFromText(text = "") {
       currentBeat: "",
       beatSequence: [],
       characterFocus: [],
+      actPressureState: "",
+      characterArcState: "",
+      lastSceneOutcome: "",
+      nextScenePlan: "",
+      nextSceneMoves: [],
+      nextThreeTurns: [],
+      unresolvedSetups: [],
+      unresolvedStoryThreads: [],
+      characterArcTurns: [],
+      imageMotifs: [],
       hasScreenplayShape: false,
     };
   }
@@ -14596,6 +14723,36 @@ function distillScreenplayProjectMemoryFromText(text = "") {
   const sceneSummary = sceneLabel && summaryMoment
     ? `${sceneLabel}: ${summaryMoment}`
     : summaryMoment;
+  const primaryActionCharacter = inferScreenplayMemoryPrimaryActionName(actionLines);
+  const primaryCharacter = primaryActionCharacter || characterFocus[0] || "";
+  const imageMotifs = collectScreenplayMemoryMotifs(
+    [...actionLines, ...dialogueLines, ...sceneHeadings],
+    6
+  );
+  const unresolvedSetups = collectScreenplayMemorySetups(
+    [...actionLines, ...dialogueLines],
+    5
+  );
+  const unresolvedStoryThreads = buildDistilledScreenplayStoryThreads({
+    motifs: imageMotifs,
+    actionLines,
+    dialogueLines,
+  });
+  const lastSceneOutcome = currentBeat;
+  const characterArcState = primaryCharacter && currentBeat
+    ? `${primaryCharacter} is under pressure from: ${currentBeat}`
+    : "";
+  const nextScenePlan = currentBeat
+    ? `Continue from "${currentBeat}" with a visible consequence.`
+    : "";
+  const nextSceneMoves = [
+    currentBeat ? `Force the consequence of: ${currentBeat}` : "",
+    primaryCharacter ? `Make ${primaryCharacter} choose a tactic under pressure.` : "",
+    imageMotifs[0] ? `Complicate or pay off ${imageMotifs[0]}.` : "",
+  ].filter(Boolean);
+  const characterArcTurns = characterArcState
+    ? [characterArcState]
+    : [];
   const beatSequence = mergeScreenplayProjectMemoryList(
     [],
     actionLines.slice(-4),
@@ -14615,6 +14772,16 @@ function distillScreenplayProjectMemoryFromText(text = "") {
     currentBeat: normalizeSnippet(currentBeat, 220),
     beatSequence,
     characterFocus: characterFocus.slice(0, 8),
+    actPressureState: "",
+    characterArcState: normalizeSnippet(characterArcState, 280),
+    lastSceneOutcome: normalizeSnippet(lastSceneOutcome, 240),
+    nextScenePlan: normalizeSnippet(nextScenePlan, 340),
+    nextSceneMoves: nextSceneMoves.slice(0, 5),
+    nextThreeTurns: nextSceneMoves.slice(0, 3),
+    unresolvedSetups,
+    unresolvedStoryThreads,
+    characterArcTurns,
+    imageMotifs,
     hasScreenplayShape,
   };
 }
@@ -14711,12 +14878,18 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       endingImage: studio.screenplayEndingImage,
       featureSequence: studio.screenplayFeatureSequence || position.featureSequence,
       featureObligation: studio.screenplayFeatureObligation || position.featureObligation,
-      actPressureState: studio.screenplayActPressureState,
-      characterArcState: studio.screenplayCharacterArcState,
-      lastSceneOutcome: studio.screenplayLastSceneOutcome,
-      nextScenePlan: studio.screenplayNextScenePlan,
-      nextSceneMoves: studio.screenplayNextSceneMoves,
-      nextThreeTurns: studio.screenplayNextThreeTurns,
+      actPressureState: studio.screenplayActPressureState ||
+        distilled.actPressureState ||
+        (position.featureObligation ? `Current sequence obligation: ${position.featureObligation}` : ""),
+      characterArcState: studio.screenplayCharacterArcState || distilled.characterArcState,
+      lastSceneOutcome: studio.screenplayLastSceneOutcome || distilled.lastSceneOutcome,
+      nextScenePlan: studio.screenplayNextScenePlan || distilled.nextScenePlan,
+      nextSceneMoves: studio.screenplayNextSceneMoves.length
+        ? studio.screenplayNextSceneMoves
+        : distilled.nextSceneMoves,
+      nextThreeTurns: studio.screenplayNextThreeTurns.length
+        ? studio.screenplayNextThreeTurns
+        : distilled.nextThreeTurns,
       actThreePayoffPath: studio.screenplayActThreePayoffPath,
       beatSequence: studio.screenplayBeatSequence.length
         ? studio.screenplayBeatSequence
@@ -14724,10 +14897,18 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       characterFocus: studio.screenplayCharacterFocus.length
         ? studio.screenplayCharacterFocus
         : distilled.characterFocus,
-      unresolvedSetups: studio.screenplayUnresolvedSetups,
-      unresolvedStoryThreads: studio.screenplayUnresolvedStoryThreads,
-      characterArcTurns: studio.screenplayCharacterArcTurns,
-      imageMotifs: studio.screenplayImageMotifs,
+      unresolvedSetups: studio.screenplayUnresolvedSetups.length
+        ? studio.screenplayUnresolvedSetups
+        : distilled.unresolvedSetups,
+      unresolvedStoryThreads: studio.screenplayUnresolvedStoryThreads.length
+        ? studio.screenplayUnresolvedStoryThreads
+        : distilled.unresolvedStoryThreads,
+      characterArcTurns: studio.screenplayCharacterArcTurns.length
+        ? studio.screenplayCharacterArcTurns
+        : distilled.characterArcTurns,
+      imageMotifs: studio.screenplayImageMotifs.length
+        ? studio.screenplayImageMotifs
+        : distilled.imageMotifs,
       continuityNotes: studio.screenplayContinuityNotes,
       emotionalContinuity: studio.screenplayEmotionalContinuity,
       pageCount: studio.screenplayPageCount,
