@@ -440,13 +440,30 @@ function createTalkHandler(deps) {
       studioMeta?.screenplayFeatureObligation || studioMeta?.screenplay_feature_obligation,
       220
     );
+    const screenplaySceneObjective = normalizeSnippet(
+      studioMeta?.screenplaySceneObjective || studioMeta?.screenplay_scene_objective,
+      220
+    );
+    const screenplayCurrentBeat = normalizeSnippet(
+      studioMeta?.screenplayCurrentBeat || studioMeta?.screenplay_current_beat,
+      220
+    );
     const screenplayCharacterArcState = normalizeSnippet(
       studioMeta?.screenplayCharacterArcState || studioMeta?.screenplay_character_arc_state,
+      220
+    );
+    const screenplayActPressureState = normalizeSnippet(
+      studioMeta?.screenplayActPressureState || studioMeta?.screenplay_act_pressure_state,
       220
     );
     const screenplayEndingImage = normalizeSnippet(
       studioMeta?.screenplayEndingImage || studioMeta?.screenplay_ending_image,
       220
+    );
+    const screenplayNextThreeTurns = normalizeRepairList(
+      studioMeta?.screenplayNextThreeTurns || studioMeta?.screenplay_next_three_turns,
+      3,
+      180
     );
     const screenplayActThreePayoffPath = normalizeRepairList(
       studioMeta?.screenplayActThreePayoffPath || studioMeta?.screenplay_act_three_payoff_path,
@@ -462,8 +479,12 @@ function createTalkHandler(deps) {
       screenplayAct ? `ACT: ${screenplayAct}` : "",
       screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
       screenplayFeatureObligation ? `STRUCTURAL_OBLIGATION: ${screenplayFeatureObligation}` : "",
+      screenplaySceneObjective ? `SCENE_OBJECTIVE: ${screenplaySceneObjective}` : "",
+      screenplayCurrentBeat ? `CURRENT_BEAT: ${screenplayCurrentBeat}` : "",
+      screenplayActPressureState ? `ACT_PRESSURE: ${screenplayActPressureState}` : "",
       screenplayCharacterArcState ? `CHANGED_BEHAVIOR_DUE: ${screenplayCharacterArcState}` : "",
       screenplayEndingImage ? `ENDING_IMAGE_PRESSURE: ${screenplayEndingImage}` : "",
+      ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
       ...screenplayActThreePayoffPath.map((item) => `ACT_THREE_PAYOFF: ${item}`),
       ...screenplayUnresolvedSetups.map((item) => `SETUP_TO_CARRY_OR_PAY: ${item}`),
     ].filter(Boolean);
@@ -477,6 +498,8 @@ function createTalkHandler(deps) {
           "No diagnosis, no markdown, no outline, no placeholders, no strategy note, no permission question.",
           "Use scene heading, action, character cues, dialogue, subtext, visible behavior, escalation, and a turn.",
           sceneAnchor ? `If the scene heading is missing, begin with exactly: ${sceneAnchor}` : "If no scene heading is supplied, create a specific INT./EXT. scene heading.",
+          "If Act I context is supplied, dramatize the catalyst/commitment pressure instead of writing a generic setup scene.",
+          "If Act II context is supplied, dramatize the active reversal, cost, trap, or false-tactic pressure instead of repeating the premise.",
           "If Act III/finale context is supplied, pay off at least one supplied setup/path through changed behavior and final-image pressure.",
         ].join("\n"),
       },

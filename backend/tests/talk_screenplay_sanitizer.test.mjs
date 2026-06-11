@@ -326,6 +326,118 @@ test("[talk-screenplay-output] rejects underfilled requested page batches", () =
   assert.equal(output.source, "guard_low_page_quality");
 });
 
+test("[talk-screenplay-output] rejects Act I page output that dodges supplied commitment memory", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. BUS STOP - MORNING",
+      "",
+      "Nina watches the buses cough past the curb.",
+      "",
+      "MOM",
+      "You can still come home.",
+      "",
+      "Nina nods and stays where she is.",
+    ].join("\n"),
+    transcript: "Write the next page of act one.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act I",
+      screenplaySceneObjective: "Nina must accept the dangerous audition and burn her safe day job.",
+      screenplayCurrentBeat: "The audition address appears on the back of the eviction notice.",
+      screenplayProtagonistWant: "Keep her safe day job.",
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+});
+
+test("[talk-screenplay-output] accepts Act I page output that spends supplied commitment memory", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. BUS STOP - MORNING",
+      "",
+      "Nina folds the eviction notice until the audition address splits across the crease.",
+      "Her grocery-store name tag slides from her palm into a puddle.",
+      "",
+      "MOM",
+      "You can still keep the safe job.",
+      "",
+      "NINA",
+      "Tell them I quit.",
+    ].join("\n"),
+    transcript: "Write the next page of act one.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act I",
+      screenplaySceneObjective: "Nina must accept the dangerous audition and burn her safe day job.",
+      screenplayCurrentBeat: "The audition address appears on the back of the eviction notice.",
+      screenplayProtagonistWant: "Keep her safe day job.",
+    },
+  });
+
+  assert.equal(output.target, "page");
+  assert.equal(output.source, "studio_target");
+});
+
+test("[talk-screenplay-output] rejects Act II page output that dodges supplied reversal memory", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June and Marcus stand over the unmade bed.",
+      "",
+      "MARCUS",
+      "We still have time.",
+      "",
+      "June turns away from him.",
+    ].join("\n"),
+    transcript: "Write the next pages of act two.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Midpoint Pressure",
+      screenplayFeatureObligation: "The midpoint must turn victory into a trap.",
+      screenplayCurrentBeat: "June realizes the marina receipt makes the public win a trap.",
+      screenplayNextThreeTurns: ["The receipt exposes the win as bait."],
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+});
+
+test("[talk-screenplay-output] accepts Act II page output that spends supplied reversal memory", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June spreads the marina receipt beside the victory photo.",
+      "The timestamp sits ten minutes after Marcus swore the dock was empty.",
+      "",
+      "MARCUS",
+      "That receipt is our win.",
+      "",
+      "JUNE",
+      "No. It's bait.",
+      "",
+      "She turns the photo over. The motel clerk's number is written on the back.",
+    ].join("\n"),
+    transcript: "Write the next pages of act two.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Midpoint Pressure",
+      screenplayFeatureObligation: "The midpoint must turn victory into a trap.",
+      screenplayCurrentBeat: "June realizes the marina receipt makes the public win a trap.",
+      screenplayNextThreeTurns: ["The receipt exposes the win as bait."],
+    },
+  });
+
+  assert.equal(output.target, "page");
+  assert.equal(output.source, "studio_target");
+});
+
 test("[talk-screenplay-output] rejects Act III page output that dodges supplied payoff memory", () => {
   const output = buildTalkScreenplayOutput({
     reply: [

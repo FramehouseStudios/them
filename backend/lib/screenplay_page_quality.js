@@ -283,7 +283,7 @@ function minimumExpectedWordsForRequestedPages(requestedPages = 0) {
   return Math.min(420, 170 + ((pages - 4) * 45));
 }
 
-function isActThreeFeatureContext(featureContext = {}) {
+function inferFeatureActKind(featureContext = {}) {
   if (!featureContext || typeof featureContext !== "object") return false;
   const actText = [
     featureContext.act,
@@ -297,7 +297,13 @@ function isActThreeFeatureContext(featureContext = {}) {
     featureContext.feature_obligation,
   ].map((value) => normalizeLineText(value).toLowerCase()).filter(Boolean).join(" ");
   if (/\bact\s*(?:iii|3|three)\b|\bthird act\b|\bfinal act\b|\bfinale\b|\bclimax\b|\bbreak into three\b/.test(actText)) {
-    return true;
+    return "act3";
+  }
+  if (/\bact\s*(?:ii|2|two)\b|\bsecond act\b|\bmidpoint\b|\breversal\b|\ball[- ]is[- ]lost\b|\bpromise of the premise\b/.test(actText)) {
+    return "act2";
+  }
+  if (/\bact\s*(?:i|1|one)\b|\bfirst act\b|\bopening image\b|\bcatalyst\b|\bcommitment\b|\bordinary world\b/.test(actText)) {
+    return "act1";
   }
   const pageCount = positiveIntegerOrZero(featureContext.pageCount ?? featureContext.page_count);
   const targetPages = positiveIntegerOrZero(
@@ -306,34 +312,55 @@ function isActThreeFeatureContext(featureContext = {}) {
     featureContext.featureTargetPages ??
     featureContext.feature_target_pages
   ) || 110;
-  return pageCount > 0 && pageCount >= Math.round(targetPages * (86 / 110));
+  if (pageCount > 0 && pageCount >= Math.round(targetPages * (86 / 110))) return "act3";
+  if (pageCount > 0 && pageCount >= Math.round(targetPages * (26 / 110))) return "act2";
+  if (pageCount > 0) return "act1";
+  return "";
 }
 
-function evaluateFeatureActObligationCoverage({
-  text = "",
-  counts = {},
-  featureContext = null,
-} = {}) {
-  if (!isActThreeFeatureContext(featureContext)) {
-    return { ok: true, reason: "not_act_three" };
+function featureObligationPhrasesForAct(featureActKind = "", featureContext = {}) {
+  if (!featureActKind || !featureContext || typeof featureContext !== "object") return [];
+  if (featureActKind === "act3") {
+    return [
+      normalizeLineText(featureContext?.featureObligation ?? featureContext?.feature_obligation),
+      ...sanitizeQualityList(
+        featureContext?.actThreePayoffPath ??
+        featureContext?.act_three_payoff_path ??
+        featureContext?.payoffPath ??
+        featureContext?.payoff_path,
+        5,
+        200
+      ),
+      ...sanitizeQualityList(featureContext?.unresolvedSetups ?? featureContext?.unresolved_setups, 6, 200),
+      ...sanitizeQualityList(featureContext?.unresolvedStoryThreads ?? featureContext?.unresolved_story_threads, 6, 200),
+      ...sanitizeQualityList(
+        featureContext?.imageMotifs ??
+        featureContext?.image_motifs ??
+        featureContext?.visualMotifs ??
+        featureContext?.visual_motifs,
+        4,
+        120
+      ),
+      normalizeLineText(
+        featureContext?.endingImage ??
+        featureContext?.ending_image ??
+        featureContext?.finalImage ??
+        featureContext?.final_image
+      ),
+    ].filter(Boolean);
   }
-  const obligationPhrases = [
-    ...sanitizeQualityList(
-      featureContext?.actThreePayoffPath ??
-      featureContext?.act_three_payoff_path ??
-      featureContext?.payoffPath ??
-      featureContext?.payoff_path,
-      5,
-      200
-    ),
-    ...sanitizeQualityList(
-      featureContext?.unresolvedSetups ??
-      featureContext?.unresolved_setups ??
-      featureContext?.openLoops ??
-      featureContext?.open_loops,
-      6,
-      200
-    ),
+
+  const phrases = [
+    normalizeLineText(featureContext?.featureObligation ?? featureContext?.feature_obligation),
+    normalizeLineText(featureContext?.structuralObligation ?? featureContext?.structural_obligation),
+    normalizeLineText(featureContext?.actPressureState ?? featureContext?.act_pressure_state),
+    normalizeLineText(featureContext?.characterArcState ?? featureContext?.character_arc_state),
+    normalizeLineText(featureContext?.sceneObjective ?? featureContext?.scene_objective),
+    normalizeLineText(featureContext?.currentBeat ?? featureContext?.current_beat),
+    normalizeLineText(featureContext?.nextScenePlan ?? featureContext?.next_scene_plan),
+    ...sanitizeQualityList(featureContext?.nextThreeTurns ?? featureContext?.next_three_turns, 3, 180),
+    ...sanitizeQualityList(featureContext?.unresolvedSetups ?? featureContext?.unresolved_setups, 6, 200),
+    ...sanitizeQualityList(featureContext?.unresolvedStoryThreads ?? featureContext?.unresolved_story_threads, 6, 200),
     ...sanitizeQualityList(
       featureContext?.imageMotifs ??
       featureContext?.image_motifs ??
@@ -342,13 +369,28 @@ function evaluateFeatureActObligationCoverage({
       4,
       120
     ),
-    normalizeLineText(
-      featureContext?.endingImage ??
-      featureContext?.ending_image ??
-      featureContext?.finalImage ??
-      featureContext?.final_image
-    ),
   ].filter(Boolean);
+
+  if (featureActKind === "act1") {
+    phrases.push(
+      normalizeLineText(featureContext?.protagonistWant ?? featureContext?.protagonist_want),
+      normalizeLineText(featureContext?.protagonistNeed ?? featureContext?.protagonist_need),
+      normalizeLineText(featureContext?.centralQuestion ?? featureContext?.central_question),
+      normalizeLineText(featureContext?.themeArgument ?? featureContext?.theme_argument),
+    );
+  }
+
+  return phrases.filter(Boolean);
+}
+
+function evaluateFeatureActObligationCoverage({
+  text = "",
+  counts = {},
+  featureContext = null,
+} = {}) {
+  const featureActKind = inferFeatureActKind(featureContext);
+  if (!featureActKind) return { ok: true, reason: "not_feature_act" };
+  const obligationPhrases = featureObligationPhrasesForAct(featureActKind, featureContext);
 
   const obligationTokens = new Set();
   for (const phrase of obligationPhrases) {
@@ -356,12 +398,22 @@ function evaluateFeatureActObligationCoverage({
   }
   const textTokens = qualityTokenSet(text);
   const matchedTokens = [...obligationTokens].filter((token) => textTokens.has(token));
-  if (obligationTokens.size > 0 && matchedTokens.length < 1) {
+  const minimumMatches = featureActKind === "act3"
+    ? 1
+    : Math.min(2, obligationTokens.size);
+  if (obligationTokens.size > 0 && matchedTokens.length < minimumMatches) {
+    const missingReason = featureActKind === "act1"
+      ? "missing_act_one_commitment"
+      : featureActKind === "act2"
+        ? "missing_act_two_reversal"
+        : "missing_act_three_payoff";
     return {
       ok: false,
-      reason: "missing_act_three_payoff",
+      reason: missingReason,
+      featureActKind,
       matchedTokens,
       obligationTokenCount: obligationTokens.size,
+      minimumMatches,
     };
   }
 
@@ -369,10 +421,11 @@ function evaluateFeatureActObligationCoverage({
     normalizeLineText(featureContext?.characterArcState ?? featureContext?.character_arc_state) ||
     normalizeLineText(featureContext?.actPressureState ?? featureContext?.act_pressure_state)
   );
-  if (hasArcPressure && Number(counts.specificAction || 0) < 2) {
+  if (featureActKind === "act3" && hasArcPressure && Number(counts.specificAction || 0) < 2) {
     return {
       ok: false,
       reason: "missing_act_three_changed_behavior",
+      featureActKind,
       matchedTokens,
       obligationTokenCount: obligationTokens.size,
     };
@@ -381,6 +434,7 @@ function evaluateFeatureActObligationCoverage({
   return {
     ok: true,
     reason: "ok",
+    featureActKind,
     matchedTokens,
     obligationTokenCount: obligationTokens.size,
   };

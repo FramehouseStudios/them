@@ -317,6 +317,141 @@ test("[screenplay-page-quality] accepts dialogue batches with concrete turns and
   assert.equal(quality.counts.specificAction >= 3, true);
 });
 
+test("[screenplay-page-quality] rejects Act I pages that dodge supplied commitment pressure", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. BUS STOP - MORNING",
+      "",
+      "Nina watches the buses cough past the curb.",
+      "",
+      "MOM",
+      "You can still come home.",
+      "",
+      "Nina nods and stays where she is.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. BUS STOP - MORNING", element: "sceneHeading" },
+      { text: "Nina watches the buses cough past the curb.", element: "action" },
+      { text: "MOM", element: "character" },
+      { text: "You can still come home.", element: "dialogue" },
+      { text: "Nina nods and stays where she is.", element: "action" },
+    ],
+    featureContext: {
+      act: "Act I",
+      sceneObjective: "Nina must accept the dangerous audition and burn her safe day job.",
+      currentBeat: "The audition address appears on the back of the eviction notice.",
+      protagonistWant: "Keep her safe day job.",
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_act_one_commitment");
+});
+
+test("[screenplay-page-quality] accepts Act I pages that dramatize catalyst and commitment", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. BUS STOP - MORNING",
+      "",
+      "Nina folds the eviction notice until the audition address splits across the crease.",
+      "Her grocery-store name tag slides from her palm into a puddle.",
+      "",
+      "MOM",
+      "You can still keep the safe job.",
+      "",
+      "NINA",
+      "Tell them I quit.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. BUS STOP - MORNING", element: "sceneHeading" },
+      { text: "Nina folds the eviction notice until the audition address splits across the crease.", element: "action" },
+      { text: "Her grocery-store name tag slides from her palm into a puddle.", element: "action" },
+      { text: "MOM", element: "character" },
+      { text: "You can still keep the safe job.", element: "dialogue" },
+      { text: "NINA", element: "character" },
+      { text: "Tell them I quit.", element: "dialogue" },
+    ],
+    featureContext: {
+      act: "Act I",
+      sceneObjective: "Nina must accept the dangerous audition and burn her safe day job.",
+      currentBeat: "The audition address appears on the back of the eviction notice.",
+      protagonistWant: "Keep her safe day job.",
+    },
+  });
+
+  assert.equal(quality.ok, true);
+});
+
+test("[screenplay-page-quality] rejects Act II pages that dodge supplied reversal pressure", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June and Marcus stand over the unmade bed.",
+      "",
+      "MARCUS",
+      "We still have time.",
+      "",
+      "June turns away from him.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading" },
+      { text: "June and Marcus stand over the unmade bed.", element: "action" },
+      { text: "MARCUS", element: "character" },
+      { text: "We still have time.", element: "dialogue" },
+      { text: "June turns away from him.", element: "action" },
+    ],
+    featureContext: {
+      act: "Act II",
+      featureSequence: "Midpoint Pressure",
+      featureObligation: "The midpoint must turn victory into a trap.",
+      currentBeat: "June realizes the marina receipt makes the public win a trap.",
+      nextThreeTurns: ["The receipt exposes the win as bait."],
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_act_two_reversal");
+});
+
+test("[screenplay-page-quality] accepts Act II pages that dramatize midpoint trap pressure", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June spreads the marina receipt beside the victory photo.",
+      "The timestamp sits ten minutes after Marcus swore the dock was empty.",
+      "",
+      "MARCUS",
+      "That receipt is our win.",
+      "",
+      "JUNE",
+      "No. It's bait.",
+      "",
+      "She turns the photo over. The motel clerk's number is written on the back.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading" },
+      { text: "June spreads the marina receipt beside the victory photo.", element: "action" },
+      { text: "The timestamp sits ten minutes after Marcus swore the dock was empty.", element: "action" },
+      { text: "MARCUS", element: "character" },
+      { text: "That receipt is our win.", element: "dialogue" },
+      { text: "JUNE", element: "character" },
+      { text: "No. It's bait.", element: "dialogue" },
+      { text: "She turns the photo over. The motel clerk's number is written on the back.", element: "action" },
+    ],
+    featureContext: {
+      act: "Act II",
+      featureSequence: "Midpoint Pressure",
+      featureObligation: "The midpoint must turn victory into a trap.",
+      currentBeat: "June realizes the marina receipt makes the public win a trap.",
+      nextThreeTurns: ["The receipt exposes the win as bait."],
+    },
+  });
+
+  assert.equal(quality.ok, true);
+});
+
 test("[screenplay-page-quality] rejects Act III pages that dodge supplied payoff obligations", () => {
   const quality = evaluateScreenplayPageQuality({
     text: [
