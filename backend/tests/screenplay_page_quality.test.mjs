@@ -6,6 +6,7 @@ import {
   isLikelyOutlineOrCraftArtifactLine,
   isLikelyPlaceholderScreenplayLine,
   isLowSignalActionLine,
+  minimumExpectedWordsForRequestedPages,
 } from "../lib/screenplay_page_quality.js";
 
 test("[screenplay-page-quality] accepts playable screenplay pages", () => {
@@ -120,6 +121,42 @@ test("[screenplay-page-quality] rejects vague cinematic vapor without playable b
 
   assert.equal(quality.ok, false);
   assert.equal(quality.reason, "low_dramatic_density");
+});
+
+test("[screenplay-page-quality] rejects underfilled multi-page requests", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June folds the receipt into a white square.",
+      "",
+      "MARCUS",
+      "You kept it.",
+      "",
+      "June looks up before he can hide the shake in his hand.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading" },
+      { text: "", element: "blank" },
+      { text: "June folds the receipt into a white square.", element: "action" },
+      { text: "", element: "blank" },
+      { text: "MARCUS", element: "character" },
+      { text: "You kept it.", element: "dialogue" },
+      { text: "", element: "blank" },
+      { text: "June looks up before he can hide the shake in his hand.", element: "action" },
+    ],
+    targetPages: 3,
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "underfilled_page_text");
+  assert.equal(minimumExpectedWordsForRequestedPages(3), 120);
+});
+
+test("[screenplay-page-quality] caps requested-page floors below full-feature targets", () => {
+  assert.equal(minimumExpectedWordsForRequestedPages(1), 4);
+  assert.equal(minimumExpectedWordsForRequestedPages(8), 350);
+  assert.equal(minimumExpectedWordsForRequestedPages(30), 420);
 });
 
 test("[screenplay-page-quality] requires screenplay shape when no trusted anchor exists", () => {

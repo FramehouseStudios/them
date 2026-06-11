@@ -4355,7 +4355,61 @@ function decodeTalkEscapedScreenplayBlock(text = "") {
     .replace(/\\\\/g, "\\");
 }
 
-function buildTalkPromptBlockScreenplayOutput(transcript = "") {
+function resolveTalkScreenplayRequestedPageBatch({ transcript = "", studioMeta = null } = {}) {
+  const inferred = inferRequestedScreenplayPagesFromText(transcript);
+  if (inferred > 0) return inferred;
+  const explicitBatchPages = Math.max(
+    0,
+    Math.round(Number(
+      studioMeta?.screenplayRequestedPages ??
+      studioMeta?.screenplay_requested_pages ??
+      studioMeta?.screenplayPageBatch ??
+      studioMeta?.screenplay_page_batch ??
+      0
+    ) || 0)
+  );
+  if (explicitBatchPages > 0 && explicitBatchPages <= 30) return explicitBatchPages;
+  const targetPages = Math.max(0, Math.round(Number(studioMeta?.screenplayTargetPages || 0) || 0));
+  return targetPages > 0 && targetPages <= 30 ? targetPages : 0;
+}
+
+function validateTalkAuthoritativeScreenplayOutput(screenplayOutput = null, {
+  studioMeta = null,
+  transcript = "",
+} = {}) {
+  if (!screenplayOutput || typeof screenplayOutput !== "object") {
+    return { ok: false, reason: "missing_screenplay_output", text: "", lines: [] };
+  }
+  if (String(screenplayOutput.target || "").trim().toLowerCase() !== "page") {
+    return { ok: false, reason: "not_page_target", text: "", lines: [] };
+  }
+  const text = normalizeTalkScreenplayText(screenplayOutput.text || "");
+  if (!text) {
+    return { ok: false, reason: "empty_page_text", text: "", lines: [] };
+  }
+  const lines = Array.isArray(screenplayOutput.lines) && screenplayOutput.lines.length
+    ? screenplayOutput.lines
+    : buildTalkScreenplayOutputLines(text);
+  if (!isRenderableTalkScreenplayOutput(lines)) {
+    return { ok: false, reason: "non_screenplay_output", text, lines };
+  }
+  const quality = evaluateScreenplayPageQuality({
+    text,
+    lines,
+    targetPages: resolveTalkScreenplayRequestedPageBatch({ transcript, studioMeta }),
+    hasSceneAnchor: Boolean(normalizeTalkScreenplayAnchorSceneLabel(studioMeta)),
+  });
+  if (!quality.ok) {
+    return { ok: false, reason: quality.reason || "low_page_quality", text, lines, quality };
+  }
+  return { ok: true, reason: "ok", text, lines, quality };
+}
+
+function isAuthoritativeTalkScreenplayOutput(screenplayOutput = null, options = {}) {
+  return validateTalkAuthoritativeScreenplayOutput(screenplayOutput, options).ok;
+}
+
+function buildTalkPromptBlockScreenplayOutput(transcript = "", studioMeta = null) {
   if (!promptContainsExplicitTalkScreenplayBlock(transcript)) {
     return null;
   }
@@ -4374,16 +4428,18 @@ function buildTalkPromptBlockScreenplayOutput(transcript = "") {
     return null;
   }
 
-  return {
+  const output = {
     target: "page",
     format: "hollywood",
     source: "prompt_block_fallback",
     text: normalizedText,
     lines,
   };
+  const authority = validateTalkAuthoritativeScreenplayOutput(output, { studioMeta, transcript });
+  return authority.ok ? { ...output, text: authority.text, lines: authority.lines } : null;
 }
 
-function buildTalkDirectTranscriptScreenplayOutput(transcript = "") {
+function buildTalkDirectTranscriptScreenplayOutput(transcript = "", studioMeta = null) {
   const contractedTranscript = normalizeScreenplayOutputContractText(transcript);
   const normalizedText = (normalizeTalkPageReply(contractedTranscript) || normalizeTalkMultilineSnippet(contractedTranscript))
     .replace(/\n{3,}/g, "\n\n")
@@ -4395,13 +4451,15 @@ function buildTalkDirectTranscriptScreenplayOutput(transcript = "") {
     return null;
   }
 
-  return {
+  const output = {
     target: "page",
     format: "hollywood",
     source: "generation_transcript",
     text: normalizedText,
     lines,
   };
+  const authority = validateTalkAuthoritativeScreenplayOutput(output, { studioMeta, transcript: "" });
+  return authority.ok ? { ...output, text: authority.text, lines: authority.lines } : null;
 }
 
 function normalizeTalkScreenplayAnchorSceneLabel(studioMeta = null) {
@@ -5251,7 +5309,7 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
     };
   }
 
-  const promptBlockFallback = buildTalkPromptBlockScreenplayOutput(transcript);
+  const promptBlockFallback = buildTalkPromptBlockScreenplayOutput(transcript, studioMeta);
   const normalizedText = normalizeTalkPageReply(reply);
   if (!normalizedText) {
     return promptBlockFallback || {
@@ -5280,13 +5338,14 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
   });
   const outputText = repaired?.text || normalizedText;
   const outputLines = repaired?.lines || lines;
-  const quality = evaluateScreenplayPageQuality({
+  const authority = validateTalkAuthoritativeScreenplayOutput({
+    target: "page",
+    format: "hollywood",
+    source: repaired?.source || "studio_target",
     text: outputText,
     lines: outputLines,
-    targetPages: studioMeta.screenplayTargetPages,
-    hasSceneAnchor: Boolean(normalizeTalkScreenplayAnchorSceneLabel(studioMeta)),
-  });
-  if (!quality.ok) {
+  }, { studioMeta, transcript });
+  if (!authority.ok) {
     return promptBlockFallback || {
       target: "voice_pin",
       format: "note",
@@ -5300,8 +5359,8 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
     target: "page",
     format: "hollywood",
     source: repaired?.source || "studio_target",
-    text: outputText,
-    lines: outputLines,
+    text: authority.text,
+    lines: authority.lines,
   };
 }
 
@@ -29978,6 +30037,7 @@ const handleTalkRequest = createTalkHandler({
   inferRoutingPriorityLane,
   isAbortError,
   isAdviceRequestedByUser,
+  isAuthoritativeTalkScreenplayOutput,
   isLikelyAmbiguousLowConfidenceUtterance,
   isLikelyMp3Buffer,
   isLocalActionCancelTranscript,
@@ -30325,6 +30385,7 @@ export {
   directorFlagsFromTranscript,
   inferRoutingPriorityLane,
   buildTalkScreenplayOutput,
+  isAuthoritativeTalkScreenplayOutput,
   buildTurnPlanner,
   selectChatModelForTurn,
   computeChatMaxTokensForTurn,

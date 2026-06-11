@@ -159,6 +159,15 @@ function summarizeLineCounts(lines = []) {
   return counts;
 }
 
+function minimumExpectedWordsForRequestedPages(requestedPages = 0) {
+  const pages = Math.max(0, Math.min(30, Math.round(Number(requestedPages || 0))));
+  if (pages <= 1) return 4;
+  if (pages === 2) return 70;
+  if (pages === 3) return 120;
+  if (pages === 4) return 170;
+  return Math.min(420, 170 + ((pages - 4) * 45));
+}
+
 function evaluateScreenplayPageQuality({
   text = "",
   lines = [],
@@ -185,7 +194,7 @@ function evaluateScreenplayPageQuality({
   const hasDialogueBlock = counts.character > 0 && counts.dialogue > 0;
   const hasSceneShape = counts.sceneHeading > 0 || hasDialogueBlock || counts.transition > 0;
   const hasPlayableContent = counts.playableAction > 0 || hasDialogueBlock;
-  const minWords = requestedPages >= 3 ? 24 : 4;
+  const minWords = minimumExpectedWordsForRequestedPages(requestedPages);
 
   if (!hasSceneShape && !hasSceneAnchor) {
     return { ok: false, reason: "missing_screenplay_shape", counts };
@@ -216,5 +225,6 @@ export {
   isLikelyOutlineOrCraftArtifactLine,
   isLikelyPlaceholderScreenplayLine,
   isLowSignalActionLine,
+  minimumExpectedWordsForRequestedPages,
   summarizeLineCounts,
 };

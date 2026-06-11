@@ -7,6 +7,7 @@ process.env.REALTIME_PROVIDER ||= "stub";
 
 const {
   buildTalkScreenplayOutput,
+  isAuthoritativeTalkScreenplayOutput,
   normalizeTalkPageReply,
 } = await import("../index.js");
 
@@ -280,4 +281,73 @@ test("[talk-screenplay-output] rejects craft notes even with a scene anchor", ()
 
   assert.equal(output.target, "voice_pin");
   assert.equal(output.source, "guard_invalid_page_format");
+});
+
+test("[talk-screenplay-output] rejects low-quality explicit prompt block fallback", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: "",
+    transcript: [
+      "Write exactly this screenplay block and nothing else:",
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "Beat 1: June confronts Marcus about the receipt.",
+      "The scene should escalate suspicion before the reveal.",
+    ].join("\n"),
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAnchorSceneLabel: "INT. MOTEL ROOM - NIGHT",
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_invalid_page_format");
+});
+
+test("[talk-screenplay-output] rejects underfilled requested page batches", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June folds the receipt into a white square.",
+      "",
+      "MARCUS",
+      "You kept it.",
+      "",
+      "June looks up before he can hide the shake in his hand.",
+    ].join("\n"),
+    transcript: "Write the next three pages from here.",
+    studioMeta: {
+      screenplayTarget: "page",
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+});
+
+test("[talk-screenplay-output] final authority gate rejects outline drift", () => {
+  const screenplayOutput = {
+    target: "page",
+    format: "hollywood",
+    source: "generation_transcript",
+    text: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "Next three turns: June hides the reel; Marcus forces a public choice.",
+      "Act III payoff path: the reel exposes the fixer.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading" },
+      { text: "", element: "blank" },
+      { text: "Next three turns: June hides the reel; Marcus forces a public choice.", element: "action" },
+      { text: "Act III payoff path: the reel exposes the fixer.", element: "action" },
+    ],
+  };
+
+  assert.equal(
+    isAuthoritativeTalkScreenplayOutput(screenplayOutput, {
+      studioMeta: { screenplayTarget: "page", screenplayAnchorSceneLabel: "INT. MOTEL ROOM - NIGHT" },
+    }),
+    false
+  );
 });

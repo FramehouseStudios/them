@@ -41,7 +41,7 @@ import {
   createTalkFailureError,
 } from "./talk_failure_diagnostics.js";
 
-const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","setPersistedUserMemoryForIp","clientIp","commitTalkIdempotencySuccess"]);
+const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","setPersistedUserMemoryForIp","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput"]);
 
 function createTalkHandler(deps) {
   if (!deps || typeof deps !== "object") {
@@ -251,6 +251,7 @@ function createTalkHandler(deps) {
     inferRoutingPriorityLane,
     isAbortError,
     isAdviceRequestedByUser,
+    isAuthoritativeTalkScreenplayOutput,
     isLikelyAmbiguousLowConfidenceUtterance,
     isLikelyMp3Buffer,
     isLocalActionCancelTranscript,
@@ -1846,14 +1847,14 @@ function createTalkHandler(deps) {
         isScreenplayPageWriteTurn &&
         talkGenerationTranscript
       ) {
-        const directTranscriptOutput = buildTalkDirectTranscriptScreenplayOutput(talkGenerationTranscript);
+        const directTranscriptOutput = buildTalkDirectTranscriptScreenplayOutput(talkGenerationTranscript, studioMeta);
         if (directTranscriptOutput) {
           talkScreenplayOutput = directTranscriptOutput;
         }
       }
-      const hasAuthoritativeScreenplayText = Boolean(
-        talkScreenplayOutput?.target === "page" &&
-        normalizeTalkScreenplayText(talkScreenplayOutput?.text).length
+      const hasAuthoritativeScreenplayText = isAuthoritativeTalkScreenplayOutput(
+        talkScreenplayOutput,
+        { studioMeta, transcript: talkGenerationTranscript }
       );
       const reply = hasAuthoritativeScreenplayText
         ? normalizeTalkScreenplayText(talkScreenplayOutput?.text || "")
@@ -3503,9 +3504,9 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     if (talkReplyPreview) {
       res.setHeader("x-reply", encodeURIComponent(String(talkReplyPreview)));
     }
-    const hasAuthoritativeScreenplayText = Boolean(
-      talkScreenplayOutput?.target === "page" &&
-      normalizeTalkScreenplayText(talkScreenplayOutput?.text).length
+    const hasAuthoritativeScreenplayText = isAuthoritativeTalkScreenplayOutput(
+      talkScreenplayOutput,
+      { studioMeta, transcript: talkGenerationTranscript }
     );
     const talkRenderContract = {
       reply_role: hasAuthoritativeScreenplayText ? "preview" : "final",
