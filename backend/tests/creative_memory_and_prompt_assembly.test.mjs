@@ -181,6 +181,8 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
   assert.equal(inferScreenplayTask("Map Act I, Act II, and Act III so I can complete the full script.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Help me write act three of my feature screenplay.").intent, "finish_feature");
   assert.equal(inferScreenplayTask("Work with me to finish the movie all the way to the final image.").intent, "finish_feature");
+  assert.equal(inferScreenplayTask("Take us into act three from the all-is-lost aftermath.").intent, "finish_feature");
+  assert.equal(inferScreenplayTask("Make act two smarter and faster.").intent, "rewrite_scene");
   assert.equal(inferScreenplayTask("Give me scene doctor notes.").intent, "scene_doctor");
   assert.equal(inferScreenplayTask("Punch up the dialogue.").intent, "dialogue_punchup");
   assert.equal(inferScreenplayTask("Fix the emotional continuity.").intent, "emotional_continuity");

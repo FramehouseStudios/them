@@ -27,6 +27,32 @@ test("[screenplay-turn-target] infers page target for feature page batches", () 
   }), "page");
 });
 
+test("[screenplay-turn-target] infers page target from restored feature memory compass", () => {
+  assert.equal(resolveScreenplayTargetFromRequest({
+    clientTranscript: "Continue from the remembered turn into the next page.",
+    screenplayProjectId: "feature-1",
+    screenplayNextThreeTurns: [
+      "Father names the lie.",
+      "Mara chooses public exposure.",
+    ],
+    screenplayActPressureState: "Act II must turn evidence into a public cost.",
+  }), "page");
+});
+
+test("[screenplay-turn-target] infers page target for act-aware rewrite with project context", () => {
+  assert.equal(resolveScreenplayTargetFromRequest({
+    transcript: "Rewrite the Act II midpoint so the father reveal corners Mara.",
+    screenplayProjectId: "feature-1",
+  }), "page");
+});
+
+test("[screenplay-turn-target] infers page target for act transition language with project context", () => {
+  assert.equal(resolveScreenplayTargetFromRequest({
+    transcript: "Take us into act three from the all-is-lost aftermath.",
+    screenplayProjectId: "feature-1",
+  }), "page");
+});
+
 test("[screenplay-turn-target] infers page target from target page count even without transcript", () => {
   assert.equal(resolveScreenplayTargetFromRequest({
     screenplayTargetPages: 8,
@@ -50,6 +76,14 @@ test("[screenplay-turn-target] does not auto-write pages for scene doctor notes"
   }), "");
 });
 
+test("[screenplay-turn-target] does not auto-write pages for act-aware scene doctor notes", () => {
+  assert.equal(resolveScreenplayTargetFromRequest({
+    transcript: "Scene doctor act two and tell me why it drags.",
+    screenplayProjectId: "feature-1",
+    screenplayNextThreeTurns: ["Mara loses the public case."],
+  }), "");
+});
+
 test("[screenplay-turn-target] does not auto-write broad feature help without live page context", () => {
   assert.equal(resolveScreenplayTargetFromRequest({
     transcript: "Help me finish this feature film.",
@@ -66,6 +100,22 @@ test("[screenplay-turn-target] studio metadata sanitizer uses inferred page targ
 
   assert.equal(studio.screenplayProjectId, "feature-1");
   assert.equal(studio.screenplayTarget, "page");
+});
+
+test("[screenplay-turn-target] studio metadata sanitizer routes restored feature compass to page", () => {
+  const studio = sanitizeStudioTurnMetadata({
+    screenplayProjectId: "feature-1",
+    clientTranscript: "Continue from the next remembered turn.",
+    screenplayNextThreeTurns: ["Father names the lie.", "Mara chooses public exposure."],
+    screenplayActThreePayoffPath: ["The affidavit pays off in open court."],
+  });
+
+  assert.equal(studio.screenplayProjectId, "feature-1");
+  assert.equal(studio.screenplayTarget, "page");
+  assert.deepEqual(studio.screenplayNextThreeTurns, [
+    "Father names the lie.",
+    "Mara chooses public exposure.",
+  ]);
 });
 
 test("[screenplay-turn-target] studio metadata preserves explicit one-line replacement mode", () => {

@@ -219,6 +219,7 @@ function inferScreenplayTask(userInput = "") {
   const rewriteLike = hasAny(lower, [
     /\b(rewrite|revise|polish|replace|swap out|another pass|do another pass|make it better|elevate|professionalize|pro pass|expert pass)\b/,
     /\b(make (?:this|it|this script|the script|this screenplay|the screenplay|this passage|this scene|the scene|this line|the line|this exchange|the exchange) (?:shorter|tighter|sharper|cleaner|faster|smarter|more expert|more professional|more cinematic|more emotional|more sophisticated|more filmic|less on[- ]the[- ]nose))\b/,
+    /\bmake\b.{0,80}\b(?:act\s*(?:ii|2|two|iii|3|three)|second act|third act|final act|finale|midpoint|sequence)\b.{0,100}\b(?:better|stronger|smarter|faster|sharper|cleaner|more expert|more cinematic|more emotional|less generic)\b/,
   ]) || (hasAny(lower, [/\bpunch up\b/]) && !dialogueLike);
   const explicitDialoguePunchupLike = dialogueLike && hasAny(lower, [
     /\b(punch up|punch-up|sharpen|give .* subtext|more subtext|less on[- ]the[- ]nose)\b/,
@@ -242,6 +243,7 @@ function inferScreenplayTask(userInput = "") {
     /\b(feature[- ]length|feature film|feature screenplay|whole movie|whole script|full script)\b/,
     /\b(help me|work with me|guide me|show me|teach me)\b.*\b(write|finish|complete|break|shape|map|outline|build)\b.*\b(feature|film|movie|screenplay|script)\b/,
     /\b(write|finish|complete|break|shape|map|outline|build)\b.*\b(feature|film|movie|screenplay|script)\b.*\b(with me|together|from scratch|all the way)\b/,
+    /\b(?:take|move|push|carry|drive)\b.{0,80}\b(?:into|through|toward|towards)\b.{0,80}\b(?:act\s*(?:ii|2|two|iii|3|three)|second act|third act|final act|final sequence|finale|midpoint|all[- ]is[- ]lost|climax)\b/,
     /\b(act\s*(?:i|1|one)|first act)\b.*\b(movie|film|feature|screenplay|script)\b/,
     /\b(act\s*(?:ii|2|two)|second act)\b.*\b(movie|film|feature|screenplay|script)\b/,
     /\b(act\s*(?:iii|3|three)|third act|final act)\b.*\b(movie|film|feature|screenplay|script)\b/,

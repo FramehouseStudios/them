@@ -10,6 +10,12 @@ function positiveIntegerOrZero(value) {
   return Math.round(parsed);
 }
 
+function hasContextValue(value) {
+  if (Array.isArray(value)) return value.some((item) => trimToString(item, 240));
+  if (value && typeof value === "object") return Object.keys(value).length > 0;
+  return Boolean(trimToString(value, 240));
+}
+
 function normalizeScreenplayTarget(value = "") {
   const normalized = trimToString(value, 80).toLowerCase();
   if (normalized === "page") return "page";
@@ -93,7 +99,62 @@ function hasLiveScreenplayContext(input = {}) {
     input.screenplayFeatureObligation,
     input.screenplay_feature_obligation,
     input.featureObligation,
-  ].some((value) => trimToString(value, 240));
+    input.screenplayActPressureState,
+    input.screenplay_act_pressure_state,
+    input.actPressureState,
+    input.act_pressure_state,
+    input.screenplayCharacterArcState,
+    input.screenplay_character_arc_state,
+    input.characterArcState,
+    input.character_arc_state,
+    input.screenplayLastSceneOutcome,
+    input.screenplay_last_scene_outcome,
+    input.lastSceneOutcome,
+    input.last_scene_outcome,
+    input.screenplayNextScenePlan,
+    input.screenplay_next_scene_plan,
+    input.nextScenePlan,
+    input.next_scene_plan,
+    input.screenplayNextThreeTurns,
+    input.screenplay_next_three_turns,
+    input.nextThreeTurns,
+    input.next_three_turns,
+    input.screenplayActThreePayoffPath,
+    input.screenplay_act_three_payoff_path,
+    input.actThreePayoffPath,
+    input.act_three_payoff_path,
+    input.screenplayUnresolvedStoryThreads,
+    input.screenplay_unresolved_story_threads,
+    input.unresolvedStoryThreads,
+    input.unresolved_story_threads,
+    input.screenplayCharacterArcTurns,
+    input.screenplay_character_arc_turns,
+    input.characterArcTurns,
+    input.character_arc_turns,
+    input.screenplayImageMotifs,
+    input.screenplay_image_motifs,
+    input.imageMotifs,
+    input.image_motifs,
+    input.visualMotifs,
+    input.visual_motifs,
+    positiveIntegerOrZero(input.screenplayPageCount ?? input.screenplay_page_count ?? input.pageCount ?? input.page_count) > 0
+      ? "page-count"
+      : "",
+  ].some(hasContextValue);
+}
+
+function hasProjectScreenplayContext(input = {}) {
+  if (!input || typeof input !== "object") return false;
+  return [
+    input.screenplayProjectId,
+    input.screenplay_project_id,
+    input.projectId,
+    input.project_id,
+    input.screenplayDocumentRevisionId,
+    input.screenplay_document_revision_id,
+    input.versionId,
+    input.version_id,
+  ].some(hasContextValue);
 }
 
 function hasPageWritingCue(lowerText = "") {
@@ -116,19 +177,40 @@ function hasFeaturePageWritingCue(lowerText = "") {
   return /\b(?:write|draft|continue|finish|complete)\b[\s\S]{0,120}\b(?:act|feature|film|movie|screenplay|script|final sequence|finale)\b/.test(lowerText);
 }
 
-function shouldAutoRouteTaskToPage({ task, lowerText, hasLiveContext, requestedPages }) {
+function hasActAwareWritingCue(lowerText = "") {
+  if (!lowerText) return false;
+  const actOrSequence = "(?:act\\s*(?:i|ii|iii|1|2|3|one|two|three)|first act|second act|third act|final act|act two|act three|midpoint|all[- ]is[- ]lost|break into three|final sequence|finale|climax|sequence)";
+  return [
+    new RegExp(`\\b(?:write|draft|continue|finish|complete|rewrite|revise|polish|tighten|punch up|punch-up|make|start|open)\\b[\\s\\S]{0,120}\\b${actOrSequence}\\b`),
+    new RegExp(`\\b${actOrSequence}\\b[\\s\\S]{0,120}\\b(?:write|draft|continue|finish|complete|rewrite|revise|polish|tighten|punch up|punch-up|make|start|open|pages?)\\b`),
+    new RegExp(`\\b(?:take|move|push|carry|drive)\\b[\\s\\S]{0,100}\\b(?:into|through|toward|towards)\\b[\\s\\S]{0,100}\\b${actOrSequence}\\b`),
+  ].some((pattern) => pattern.test(lowerText));
+}
+
+function shouldAutoRouteTaskToPage({
+  task,
+  lowerText,
+  hasLiveContext,
+  hasProjectContext,
+  requestedPages,
+}) {
   const intent = trimToString(task?.intent, 80);
   if (!intent) return false;
   if (requestedPages > 0) return true;
   const hasPageCue = hasPageWritingCue(lowerText);
+  const hasActCue = hasActAwareWritingCue(lowerText);
   if (["write_scene", "rewrite_scene", "continue_script"].includes(intent)) {
-    return hasPageCue || hasLiveContext;
+    return hasPageCue || hasLiveContext || (hasProjectContext && hasActCue);
   }
   if (intent === "dialogue_punchup") {
-    return hasLiveContext || hasPageCue;
+    return hasLiveContext || hasPageCue || (hasProjectContext && hasActCue);
   }
   if (intent === "finish_feature") {
-    return hasLiveContext && (hasPageCue || hasFeaturePageWritingCue(lowerText));
+    return (
+      hasLiveContext && (hasPageCue || hasFeaturePageWritingCue(lowerText) || hasActCue)
+    ) || (
+      hasProjectContext && (hasPageCue || hasActCue)
+    );
   }
   return false;
 }
@@ -152,6 +234,7 @@ function inferScreenplayTargetFromRequest(input = {}) {
       task,
       lowerText,
       hasLiveContext: hasLiveScreenplayContext(input),
+      hasProjectContext: hasProjectScreenplayContext(input),
       requestedPages,
     })
   ) {
