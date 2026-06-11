@@ -120,6 +120,27 @@ test("recordTriggersFromTalkTurn stores spoken named-character story memory for 
   assert.match(memory.episodicMemories[0].excerpt, /cassette/);
 });
 
+test("recordTriggersFromTalkTurn extracts character traits and goals from live talk turns", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-character-bible",
+    transcript: "My protagonist is named Mara. Mara is anxious and guarded. Mara wants to find Eli before dawn. Mara protects Eli from the courthouse guards.",
+    reply: "",
+  });
+  assert.equal(summary.characterMentions, 1);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-character-bible",
+    query: "What do we know about Mara and Eli?",
+  });
+  const mara = memory.characters.find((character) => character.name === "Mara");
+  assert.ok(mara?.traits, "expected persisted traits for Mara");
+  assert.ok(mara.traits.keywords.includes("anxious"));
+  assert.ok(mara.traits.keywords.includes("guarded"));
+  assert.ok(mara.traits.goals.includes("find Eli before dawn"));
+  assert.equal(mara.traits.relationships.Eli, "protects");
+});
+
 test("recordTriggersFromTalkTurn stores generated screenplay pages with project metadata", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   const reply = `INT. PLANETARIUM - NIGHT

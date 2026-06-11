@@ -17,7 +17,10 @@
 // (Postgres in production; single-process discipline in JSON mode).
 
 import { createPersistence } from "./persistence_adapter.js";
-import { mergeTraits as mergeCharacterTraits } from "./trait_library.js";
+import {
+  extractTraits,
+  mergeTraits as mergeCharacterTraits,
+} from "./trait_library.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -185,6 +188,10 @@ function stableHash(value) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(36);
+}
+
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extractDeclaredCharacterNames(text = "") {
@@ -392,6 +399,91 @@ function buildEpisodicSummary({
     ].filter(Boolean).join(": "),
     280
   );
+}
+
+function traitsHaveSignal(traits) {
+  if (!traits || typeof traits !== "object") return false;
+  if (Array.isArray(traits.vocabulary) && traits.vocabulary.length) return true;
+  if (Array.isArray(traits.keywords) && traits.keywords.length) return true;
+  if (Array.isArray(traits.goals) && traits.goals.length) return true;
+  if (traits.relationships && typeof traits.relationships === "object" && Object.keys(traits.relationships).length) return true;
+  if (traits.emotional_default) return true;
+  return Boolean(traits.speech_style?.pace || traits.speech_style?.syntax);
+}
+
+function lineLooksLikeCharacterCue(line) {
+  const raw = String(line || "").trim();
+  if (!raw || raw.length > 36) return false;
+  if (/^(INT\.|EXT\.|INT\/EXT|FADE|CUT TO|CUT|END|TITLE|MONTAGE|FLASHBACK|SUPER|SMASH CUT|MATCH CUT|DISSOLVE)/.test(raw)) return false;
+  return /^[A-Z][A-Z0-9 .'-]{1,34}[A-Z0-9](?:\s*\([^)]+\))?$/.test(raw);
+}
+
+function extractTraitLinesForCharacter(text = "", characterName = "") {
+  const cleanName = normalizeCharacterName(characterName);
+  if (!cleanName) return [];
+  const nameRegex = new RegExp(`\\b${escapeRegex(cleanName)}\\b`, "i");
+  const out = [];
+  const seen = new Set();
+  const push = (line) => {
+    const clean = cleanText(line, 220);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(clean);
+  };
+
+  for (const sentence of String(text || "").split(/[.!?]\s+|\r?\n/)) {
+    if (out.length >= 8) break;
+    if (nameRegex.test(sentence)) push(sentence);
+  }
+
+  const lines = String(text || "").split(/\r?\n/);
+  const cueKey = cleanName.toUpperCase();
+  for (let i = 0; i < lines.length && out.length < 8; i += 1) {
+    const raw = String(lines[i] || "").trim();
+    const cue = raw.replace(/\s*\([^)]+\)\s*$/, "").trim().toUpperCase();
+    if (cue !== cueKey) continue;
+    for (let j = i + 1; j < lines.length && out.length < 8; j += 1) {
+      const next = String(lines[j] || "").trim();
+      if (!next) break;
+      if (/^(INT\.|EXT\.|INT\/EXT)/i.test(next)) break;
+      if (lineLooksLikeCharacterCue(next)) break;
+      push(next);
+    }
+  }
+  return out.slice(0, 8);
+}
+
+function extractTraitHintForCharacter(text = "", characterName = "") {
+  const cleanName = normalizeCharacterName(characterName);
+  if (!cleanName) return null;
+  const source = String(text || "");
+  const escaped = escapeRegex(cleanName);
+  const goals = [];
+  const goalPatterns = [
+    new RegExp(`\\b${escaped}\\s+(?:wants|needs|tries|is trying|has)\\s+to\\s+([^.!?\\n]{3,120})`, "i"),
+    new RegExp(`\\b${escaped}\\s+must\\s+([^.!?\\n]{3,120})`, "i"),
+  ];
+  for (const pattern of goalPatterns) {
+    const match = source.match(pattern);
+    if (match?.[1]) goals.push(cleanText(match[1], 120));
+  }
+
+  const relationships = {};
+  const relationPattern = new RegExp(`\\b${escaped}\\s+(loves|hates|protects|fears|misses|betrays|trusts|forgives)\\s+([A-Z][A-Za-z'-]{1,32})\\b`, "g");
+  let match;
+  while ((match = relationPattern.exec(source)) !== null) {
+    const verb = cleanText(match[1], 32);
+    const other = normalizeCharacterName(match[2]);
+    if (!verb || !other || other.toLowerCase() === cleanName.toLowerCase()) continue;
+    relationships[other] = verb;
+    if (Object.keys(relationships).length >= 6) break;
+  }
+
+  return goals.length || Object.keys(relationships).length
+    ? { goals, relationships }
+    : null;
 }
 
 function createCreativeMemoryStore({ persistence } = {}) {
@@ -883,7 +975,17 @@ function createCreativeMemoryStore({ persistence } = {}) {
       if (turnCharacterNames.length >= 8) return false;
       turnCharacterNames.push(name);
       try {
-        await recordCharacterMention({ userId, characterName: name, source: "talk_turn" });
+        const traitLines = extractTraitLinesForCharacter(combined, name);
+        const traitHint = extractTraitHintForCharacter(combined, name);
+        const traits = traitLines.length || traitHint
+          ? extractTraits({ characterName: name, lines: traitLines, hint: traitHint })
+          : null;
+        await recordCharacterMention({
+          userId,
+          characterName: name,
+          source: "talk_turn",
+          traits: traitsHaveSignal(traits) ? traits : null,
+        });
         summary.characterMentions += 1;
       } catch (_e) { /* never block the response on memory writes */ }
       return true;
