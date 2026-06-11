@@ -149,6 +149,8 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("feature_compass:"));
       assert.ok(body.prompt.includes("before_pages: silently lock act, sequence, scene job"));
       assert.ok(body.prompt.includes("page_quality_gate: no placeholder scenes"));
+      assert.ok(body.prompt.includes("page_velocity: first non-empty output line should be Fountain page text"));
+      assert.ok(body.prompt.includes("vapor_guard: replace vague tension"));
       assert.ok(body.prompt.includes("expert_scene_execution:"));
       assert.ok(body.prompt.includes("scene_job: make the objective, obstacle, pressure clock, and cost visible"));
       assert.ok(body.prompt.includes("pressure_clock: give the scene a visible deadline"));
@@ -328,6 +330,8 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
       assert.ok(body.prompt.includes("target_pages: 110"));
       assert.ok(body.prompt.includes("requested_page_batch: 10"));
       assert.ok(body.prompt.includes("Begin with playable Fountain text; do not preface with diagnosis"));
+      assert.ok(body.prompt.includes("Page velocity: the first non-empty line must be a scene heading"));
+      assert.ok(body.prompt.includes("Avoid cinematic vapor: no vague tension"));
       assert.ok(body.prompt.includes("page-first delivery: if the request targets screenplay pages"));
       assert.ok(body.prompt.includes("feature page sprint: for multi-page asks"));
       assert.ok(body.prompt.includes("page_batch_execution_plan:"));

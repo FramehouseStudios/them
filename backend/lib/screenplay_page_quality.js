@@ -96,6 +96,14 @@ function isLowSignalActionLine(line = "", element = "action") {
     /^the (?:conversation|argument|scene|moment) (?:continues|goes on|keeps going|gets more (?:tense|intense|emotional))(?: for a while)?$/,
     /^things (?:get|become|feel) (?:tense|awkward|quiet|intense|emotional)$/,
     /^it (?:gets|feels|becomes) (?:tense|awkward|quiet|intense|emotional)$/,
+    /^(?:a|the) silence (?:hangs|stretches|settles|fills|takes over)(?: between them| in the room| for a moment)?$/,
+    /^(?:the )?(?:tension|pressure) (?:builds|rises|thickens|hangs|settles|fills the room|gets worse)$/,
+    /^the air (?:feels|gets|becomes|turns) (?:heavy|tense|awkward|quiet|charged)$/,
+    /^the room (?:holds its breath|goes quiet|feels smaller|gets tense)$/,
+    /^the truth (?:hangs|sits|lands|settles) between them$/,
+    /^(?:no one|nobody) knows what to say$/,
+    /^everything (?:changes|feels different)$/,
+    /^the moment (?:lands|hangs|settles|stretches)$/,
   ].some((pattern) => pattern.test(lower));
 }
 

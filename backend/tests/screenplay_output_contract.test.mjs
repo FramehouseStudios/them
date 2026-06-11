@@ -98,6 +98,29 @@ test("screenplay output contract strips page strategy notes before Fountain page
   ].join("\n"));
 });
 
+test("screenplay output contract strips echoed page velocity labels before pages", () => {
+  const input = [
+    "Page velocity: first line should be page text.",
+    "Output contract: playable Fountain only.",
+    "",
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "June folds the receipt into a white square.",
+    "",
+    "MARCUS",
+    "You kept it."
+  ].join("\n");
+
+  assert.equal(normalizeScreenplayOutputContractText(input), [
+    "INT. MOTEL ROOM - NIGHT",
+    "",
+    "June folds the receipt into a white square.",
+    "",
+    "MARCUS",
+    "You kept it."
+  ].join("\n"));
+});
+
 test("screenplay output contract strips markdown headings, labels, and dividers before pages", () => {
   const input = [
     "## Screenplay Pages",
@@ -204,6 +227,7 @@ test("screenplay output starter and drift classifiers stay conservative", () => 
   assert.equal(looksLikeScreenplayChatDriftLine("Screenplay Pages:"), true);
   assert.equal(looksLikeScreenplayChatDriftLine("END SCENE."), true);
   assert.equal(looksLikeScreenplayStrategyLeadInLine("One strategy note: start on the door."), true);
+  assert.equal(looksLikeScreenplayStrategyLeadInLine("Page velocity: start on the door."), true);
   assert.equal(looksLikeScreenplayStrategyLeadInLine("The scene needs one irreversible turn."), true);
   assert.equal(looksLikeScreenplayStrategyLeadInLine("This keeps the scene under pressure."), true);
   assert.equal(looksLikeScreenplayStrategyLeadInLine("June studies the receipt."), false);

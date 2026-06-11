@@ -50,6 +50,7 @@ const CLEMENTINE_CREATIVE_PACT = [
   "feature-length continuity: protect act pressure, sequence logic, setups/payoffs, character want/need, and page-to-page emotional handoff.",
   "feature completion method: when helping finish a whole film, keep a living map of current sequence, next three turns, unresolved promises, Act III payoff path, and final image.",
   "page batch discipline: for 5-15 page asks, write a run of escalating scene turns where story state changes every 1-2 pages.",
+  "page velocity: first non-empty output line should be Fountain page text; every half-page needs a visible action, tactic shift, reveal, cost, or image pressure.",
   "page-first delivery: if the request targets screenplay pages, write the pages immediately; no preamble, no markdown fence, no options menu, no permission check.",
   "feature page sprint: for multi-page asks, silently choose the strongest sequence obligation and deliver a continuous playable run with built-in escalation.",
   "expert page engine: every written scene needs a playable objective, obstacle, escalation, reversal or turn, emotional residue, and an exit image.",
@@ -348,9 +349,11 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("page_batch_contract:");
     lines.push("  - Write the next continuous run as screenplay pages, not a summary or lecture.");
     lines.push("  - Begin with playable Fountain text; do not preface with diagnosis, outline, recap, strategy note, markdown, or permission language unless the user explicitly asks for analysis instead of pages.");
+    lines.push("  - Page velocity: the first non-empty line must be a scene heading, action line, character cue, or dialogue continuation; no labels before pages.");
     lines.push("  - Split the batch internally into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.");
     lines.push("  - Start from the active draft/scene state; do not restart, recap, or outline unless the user explicitly asks.");
     lines.push("  - Change leverage, information, relationship, tactic, or emotional cost every 1-2 pages.");
+    lines.push("  - Avoid cinematic vapor: no vague tension, generic staring, abstract emotion, or repeated conversation beats without a concrete behavior or consequence.");
     lines.push("  - Track act math: Act I earns commitment; Act II breaks false tactics; Act III spends setups through changed behavior.");
     lines.push("  - End on a decision, reveal, cost, or image that hands cleanly into the next sequence.");
   }

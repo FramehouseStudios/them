@@ -412,6 +412,8 @@ Feature workflow context:
   assert.ok(out.includes("requested_page_batch: 5"));
   assert.ok(out.includes("page_batch_contract:"));
   assert.ok(out.includes("Begin with playable Fountain text; do not preface with diagnosis"));
+  assert.ok(out.includes("Page velocity: the first non-empty line must be a scene heading"));
+  assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("write the next playable Fountain pages immediately"));
   assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));
   assert.ok(out.includes("Feature workflow context:"));
@@ -439,6 +441,8 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("requested_page_batch: 10"));
   assert.ok(out.includes("page_batch_contract:"));
   assert.ok(out.includes("Begin with playable Fountain text; do not preface with diagnosis"));
+  assert.ok(out.includes("Page velocity: the first non-empty line must be a scene heading"));
+  assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("Start from the active draft/scene state; do not restart"));
   assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));
   assert.ok(out.includes("page_batch_execution_plan:"));

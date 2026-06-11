@@ -33,6 +33,7 @@ test("[feature-screenplay-map] maps page position into feature sequence pressure
   assert.ok(block.includes("before_pages: silently lock act, sequence, scene job"));
   assert.ok(block.includes("act_to_act_causality: every page should push a choice/cost chain"));
   assert.ok(block.includes("scene_to_feature_loop: each scene must satisfy its local objective"));
+  assert.ok(block.includes("page_velocity: first non-empty output line should be Fountain page text"));
   assert.ok(block.includes("page_quality_gate: no placeholder scenes"));
   assert.ok(block.includes("feature_continuity_ledger:"));
   assert.ok(block.includes("ledger_rules:"));
@@ -42,6 +43,7 @@ test("[feature-screenplay-map] maps page position into feature sequence pressure
   assert.ok(block.includes("expert_scene_execution:"));
   assert.ok(block.includes("scene_job: make the objective, obstacle, pressure clock, and cost visible"));
   assert.ok(block.includes("speed_protocol: when the user asks for pages"));
+  assert.ok(block.includes("vapor_guard: replace vague tension"));
   assert.ok(block.includes("act_sequence_runway:"));
   assert.ok(block.includes("target: Act II"));
   assert.ok(block.includes("Act II - Promise Of The Premise"));
@@ -125,6 +127,7 @@ test("[feature-screenplay-map] emits page-batch execution plan for feature page 
   assert.ok(block.includes("structural_obligation_due_now: The midpoint must raise stakes"));
   assert.ok(block.includes("turn_budget: 2-4 escalating scene turns"));
   assert.ok(block.includes("delivery: write clean Fountain pages first"));
+  assert.ok(block.includes("First useful line must be page text"));
   assert.ok(block.includes("continuity: treat the draft excerpt as the live previous page"));
   assert.ok(block.includes("scene_turn_tests:"));
   assert.ok(block.includes("launch: inherit the previous emotional residue"));

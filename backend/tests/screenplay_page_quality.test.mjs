@@ -91,6 +91,30 @@ test("[screenplay-page-quality] rejects generic low-density page action", () => 
   assert.equal(quality.reason, "low_dramatic_density");
 });
 
+test("[screenplay-page-quality] rejects vague cinematic vapor without playable behavior", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. ROOM - NIGHT",
+      "",
+      "A silence stretches between them.",
+      "The tension builds.",
+      "The truth hangs between them.",
+      "No one knows what to say.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. ROOM - NIGHT", element: "sceneHeading" },
+      { text: "", element: "blank" },
+      { text: "A silence stretches between them.", element: "action" },
+      { text: "The tension builds.", element: "action" },
+      { text: "The truth hangs between them.", element: "action" },
+      { text: "No one knows what to say.", element: "action" },
+    ],
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "low_dramatic_density");
+});
+
 test("[screenplay-page-quality] requires screenplay shape when no trusted anchor exists", () => {
   const quality = evaluateScreenplayPageQuality({
     text: "June folds the receipt into a white square.",
@@ -134,6 +158,8 @@ test("[screenplay-page-quality] identifies placeholders and low-signal action wi
   assert.equal(isLikelyPlaceholderScreenplayLine("CHARACTER A", "character"), true);
   assert.equal(isLikelyPlaceholderScreenplayLine("Dialogue line.", "dialogue"), true);
   assert.equal(isLowSignalActionLine("They keep talking in the room.", "action"), true);
+  assert.equal(isLowSignalActionLine("A silence stretches between them.", "action"), true);
+  assert.equal(isLowSignalActionLine("The truth hangs between them.", "action"), true);
   assert.equal(
     isLowSignalActionLine("June folds the receipt into a white square.", "action"),
     false,

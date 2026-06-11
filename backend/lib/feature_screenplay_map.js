@@ -299,6 +299,7 @@ function buildFeatureCompassLines() {
     "    - act_to_act_causality: every page should push a choice/cost chain from the current act toward the ending image.",
     "    - scene_to_feature_loop: each scene must satisfy its local objective while changing the whole movie's pressure.",
     "    - screenplay_speed: choose the next best playable move and write it; do not explain process unless asked.",
+    "    - page_velocity: first non-empty output line should be Fountain page text; every half-page needs visible behavior, tactic shift, reveal, cost, or image pressure.",
     "    - completion_output: for whole-feature requests, return current sequence, next three turns, Act III payoff path, final-image pressure, and the immediate next page move.",
     "    - page_quality_gate: no placeholder scenes, generic banter, prose summary, or invented deus-ex-machina information; use visual action, conflict, subtext, and consequence.",
   ];
@@ -316,6 +317,7 @@ function buildExpertExecutionLines() {
     "    - exit_velocity: leave each scene with a new problem, cost, reveal, or irreversible choice.",
     "    - speed_protocol: when the user asks for pages, write playable Fountain immediately with no diagnosis, strategy note, menu, or permission loop.",
     "    - page_first_protocol: when the target is page text, output screenplay pages without markdown, menu choices, or permission language.",
+    "    - vapor_guard: replace vague tension, staring, silence, and abstract emotional prose with concrete behavior that changes story state.",
   ];
 }
 
@@ -324,6 +326,7 @@ function buildFeatureScaleOutputContractLines() {
     "  feature_scale_output_contract:",
     "    - For 5-15 page requests, silently break the run into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.",
     "    - Page batches must change story state every 1-2 pages; no filler conversation, static explanation, or repeated tactic.",
+    "    - First useful line must be page text; no labels, throat-clearing, strategy notes, or summary before the slug/action/cue.",
     "    - Write toward the next structural obligation, not merely the next incident.",
     "    - Act I pages must earn commitment; Act II pages must test and break the false tactic; Act III pages must spend planted setups through changed behavior.",
     "    - Carry one unresolved setup forward and plant, echo, or pay off one image toward the final image.",
