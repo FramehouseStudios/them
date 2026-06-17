@@ -161,6 +161,7 @@ test("[feature-screenplay-map] emits page-batch execution plan for feature page 
       pageCount: 47,
       targetPages: 110,
       act: "Act II",
+      currentBeat: "June realizes the receipt makes the win a trap.",
       draftExcerpt: "INT. MOTEL ROOM - NIGHT\n\nJUNE folds the receipt.",
     },
     screenplayTask: {
@@ -189,6 +190,12 @@ test("[feature-screenplay-map] emits page-batch execution plan for feature page 
   assert.ok(block.includes("reversal: change leverage, information, relationship, or self-knowledge."));
   assert.ok(block.includes("exit: leave a cost, reveal, decision, or image"));
   assert.ok(block.includes("end_condition: finish the batch on a decision, reveal, cost, or image"));
+  assert.ok(block.includes("beat_to_page_continuation_engine:"));
+  assert.ok(block.includes("active_page_mission: spend the next required beat on the page before inventing a new lane."));
+  assert.ok(block.includes("beat_to_page_math: inherited residue -> immediate objective -> obstacle -> tactic -> reversal/cost -> residue -> next handoff."));
+  assert.ok(block.includes("current_beat_to_spend: June realizes the receipt makes the win a trap."));
+  assert.ok(block.includes("requested_page_run: 10 pages"));
+  assert.ok(block.includes("Returned pages must include concrete story material from first_turn_locked when supplied."));
   assert.ok(block.includes("For page requests, silently lock act/sequence obligations and begin with playable Fountain text."));
   assert.ok(block.includes("write playable Fountain first with no diagnosis, strategy note"));
   assert.ok(!block.includes("give one concise strategy note then write playable Fountain"));
@@ -280,6 +287,11 @@ test("[feature-screenplay-map] maps whole-feature targets across all act lanes",
   assert.ok(block.includes("Act II: break false tactics through escalating tests"));
   assert.ok(block.includes("Act III: pay off planted setups through changed behavior"));
   assert.ok(block.includes("whole_feature_rule: if the user asks for Act I to Act II to Act III"));
+  assert.ok(block.includes("whole_feature_act_progression:"));
+  assert.ok(block.includes("planner_output_when_asked: act spine, sequence map, next three turns, unresolved setups, Act III payoff path, final image, immediate page assignment."));
+  assert.ok(block.includes("Act I choices must create the Act II problem"));
+  assert.ok(block.includes("The midpoint must change the meaning of the goal"));
+  assert.ok(block.includes("Act III payoffs must come from planted behavior"));
 });
 
 test("[feature-screenplay-map] stays silent without screenplay intent or feature context", () => {

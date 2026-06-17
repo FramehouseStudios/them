@@ -452,6 +452,85 @@ test("[screenplay-page-quality] accepts Act II pages that dramatize midpoint tra
   assert.equal(quality.ok, true);
 });
 
+test("[screenplay-page-quality] rejects feature continuations that dodge the first remembered next turn", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June pins the victory photo above the marina receipt.",
+      "The timestamp makes the trap look deliberate.",
+      "",
+      "MARCUS",
+      "We got our victory.",
+      "",
+      "JUNE",
+      "No. We got bait.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading" },
+      { text: "June pins the victory photo above the marina receipt.", element: "action" },
+      { text: "The timestamp makes the trap look deliberate.", element: "action" },
+      { text: "MARCUS", element: "character" },
+      { text: "We got our victory.", element: "dialogue" },
+      { text: "JUNE", element: "character" },
+      { text: "No. We got bait.", element: "dialogue" },
+    ],
+    featureContext: {
+      act: "Act II",
+      featureSequence: "Midpoint Pressure",
+      featureObligation: "The midpoint must turn victory into a trap.",
+      currentBeat: "June realizes the marina receipt makes the public win a trap.",
+      nextThreeTurns: ["The sister's voicemail reframes the cover-up."],
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_next_turn_continuation");
+  assert.equal(quality.featureObligation.nextTurnCoverage.minimumMatches, 2);
+});
+
+test("[screenplay-page-quality] accepts feature continuations that spend the first remembered next turn", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June pins the victory photo above the marina receipt.",
+      "The sister's voicemail crackles from Marcus's phone, turning the cover-up into a voice neither of them can bury.",
+      "",
+      "MARCUS",
+      "We got our victory.",
+      "",
+      "JUNE",
+      "No. We got bait.",
+      "",
+      "She rewinds the voicemail until the marina horn cuts through the room again.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading" },
+      { text: "June pins the victory photo above the marina receipt.", element: "action" },
+      { text: "The sister's voicemail crackles from Marcus's phone, turning the cover-up into a voice neither of them can bury.", element: "action" },
+      { text: "MARCUS", element: "character" },
+      { text: "We got our victory.", element: "dialogue" },
+      { text: "JUNE", element: "character" },
+      { text: "No. We got bait.", element: "dialogue" },
+      { text: "She rewinds the voicemail until the marina horn cuts through the room again.", element: "action" },
+    ],
+    featureContext: {
+      act: "Act II",
+      featureSequence: "Midpoint Pressure",
+      featureObligation: "The midpoint must turn victory into a trap.",
+      currentBeat: "June realizes the marina receipt makes the public win a trap.",
+      nextThreeTurns: ["The sister's voicemail reframes the cover-up."],
+    },
+  });
+
+  assert.equal(quality.ok, true);
+  assert.deepEqual(
+    quality.featureObligation.nextTurnCoverage.matchedTokens.filter((token) => ["sister", "voicemail", "cover-up"].includes(token)),
+    ["sister", "voicemail", "cover-up"],
+  );
+});
+
 test("[screenplay-page-quality] rejects Act III pages that dodge supplied payoff obligations", () => {
   const quality = evaluateScreenplayPageQuality({
     text: [
@@ -531,6 +610,90 @@ test("[screenplay-page-quality] accepts Act III pages that pay off setup through
   });
 
   assert.equal(quality.ok, true);
+});
+
+test("[screenplay-page-quality] rejects long page batches without enough concrete page turns", () => {
+  const dialogue = [
+    "The docket moved again, which means somebody wanted every witness tired before the doors even opened.",
+    "Then stop treating the hallway like a waiting room and start treating it like the scene of the crime.",
+    "If I push before the clerk signs, the judge buries the file and calls my panic a conflict.",
+    "If you wait, the file disappears under a cleaner stamp and your sister becomes a footnote.",
+    "You say that like the footnote does not still have my name on it.",
+    "I say it because your name is the only thing they cannot shred without everyone noticing.",
+    "You always make courage sound cheap when I am the one paying for it.",
+    "And you always make control sound holy when it is just fear wearing your coat.",
+    "There are three cameras, one locked stairwell, and a clerk who suddenly forgot how to read her own stamp.",
+    "Then give the cameras something cleaner than fear to remember when this hallway becomes the only record left.",
+  ];
+  const actions = [
+    "Mara folds the marina receipt until the ink splits across the case number.",
+    "Eli wedges his briefcase between the elevator doors before they can close.",
+    "A clerk replaces the public docket with a blank sheet and pockets the signed copy.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      actions[0],
+      "",
+      "MARA",
+      dialogue[0],
+      "",
+      "ELI",
+      dialogue[1],
+      "",
+      actions[1],
+      "",
+      "MARA",
+      dialogue[2],
+      "",
+      "ELI",
+      dialogue[3],
+      "",
+      actions[2],
+      "",
+      "MARA",
+      dialogue[4],
+      "",
+      "ELI",
+      dialogue[5],
+      "",
+      "MARA",
+      dialogue[6],
+      "",
+      "ELI",
+      dialogue[7],
+      "",
+      "MARA",
+      dialogue[8],
+      "",
+      "ELI",
+      dialogue[9],
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: actions[0], element: "action" },
+      ...dialogue.slice(0, 2).flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+      { text: actions[1], element: "action" },
+      ...dialogue.slice(2, 4).flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+      { text: actions[2], element: "action" },
+      ...dialogue.slice(4).flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+    ],
+    targetPages: 5,
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "thin_long_page_batch");
+  assert.equal(quality.minimumSpecificActions, 4);
 });
 
 test("[screenplay-page-quality] requires screenplay shape when no trusted anchor exists", () => {

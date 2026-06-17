@@ -463,6 +463,119 @@ function buildFeatureScaleOutputContractLines() {
   ];
 }
 
+function buildWholeFeatureActProgressionLines({
+  screenplayTask = null,
+  explicitAct = "",
+  requestedAct = "",
+  targetPages = DEFAULT_FEATURE_TARGET_PAGES,
+} = {}) {
+  if (!isWholeFeatureTask({ screenplayTask, explicitAct, requestedAct })) return [];
+  const lines = [
+    "  whole_feature_act_progression:",
+    "    purpose: keep the complete Act I / Act II / Act III movie in view while writing only the next useful pages.",
+    "    planner_output_when_asked: act spine, sequence map, next three turns, unresolved setups, Act III payoff path, final image, immediate page assignment.",
+    "    act_chain:",
+  ];
+  for (const sequence of FEATURE_SEQUENCE_TEMPLATE) {
+    const range = scaledRange(sequence, targetPages);
+    lines.push(`      - ${sequence.act} - ${sequence.label} (p${range.start}-${range.end}): ${sequence.pressure} Obligation: ${sequence.obligation}`);
+  }
+  lines.push("    causal_rules:");
+  lines.push("      - Act I choices must create the Act II problem; do not let Act II feel like a new movie.");
+  lines.push("      - The midpoint must change the meaning of the goal, not merely make the plot louder.");
+  lines.push("      - All-is-lost must expose the false want so Act III can be powered by the real need.");
+  lines.push("      - Act III payoffs must come from planted behavior, setups, motifs, and relationship fractures.");
+  lines.push("      - For whole-feature help, return the map only when asked for planning; when asked for pages, write the immediate page assignment first.");
+  return lines;
+}
+
+function buildBeatToPageContinuationLines({
+  sessionContext = {},
+  screenplayTask = null,
+  sequence = null,
+  explicitAct = "",
+  requestedAct = "",
+} = {}) {
+  const requestedPages = requestedPageBatchFromTask(screenplayTask);
+  const currentBeat = trimContextLine(
+    sessionContext.currentBeat ?? sessionContext.current_beat ?? sessionContext.beat,
+    220
+  );
+  const lastSceneOutcome = trimContextLine(
+    sessionContext.lastSceneOutcome ?? sessionContext.last_scene_outcome,
+    240
+  );
+  const nextScenePlan = trimContextLine(
+    sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
+    340
+  );
+  const nextSceneMoves = sanitizeContextList(
+    sessionContext.nextSceneMoves ?? sessionContext.next_scene_moves ?? sessionContext.nextPageMoves ?? sessionContext.next_page_moves,
+    4,
+    180
+  );
+  const nextThreeTurns = sanitizeContextList(
+    sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
+    3,
+    180
+  );
+  const beatSequence = sanitizeContextList(
+    sessionContext.beatSequence ?? sessionContext.beat_sequence ?? sessionContext.selectedBeats ?? sessionContext.selected_beats,
+    8,
+    180
+  );
+  const actLabel = requestedAct || explicitAct || sequence?.act || "";
+  const hasUsefulContinuationInput = Boolean(
+    requestedPages > 0 ||
+    sequence ||
+    actLabel ||
+    currentBeat ||
+    lastSceneOutcome ||
+    nextScenePlan ||
+    nextSceneMoves.length ||
+    nextThreeTurns.length ||
+    beatSequence.length
+  );
+  if (!hasUsefulContinuationInput) return [];
+
+  const lines = [
+    "  beat_to_page_continuation_engine:",
+    "    purpose: convert act plan and remembered beats into immediate playable screenplay, not labels or outline prose.",
+    "    active_page_mission: spend the next required beat on the page before inventing a new lane.",
+    "    beat_to_page_math: inherited residue -> immediate objective -> obstacle -> tactic -> reversal/cost -> residue -> next handoff.",
+  ];
+  if (actLabel) lines.push(`    active_act_lane: ${actLabel}`);
+  if (sequence?.label) lines.push(`    active_sequence_lane: ${sequence.act} - ${sequence.label}: ${sequence.obligation}`);
+  if (requestedPages > 0) lines.push(`    requested_page_run: ${requestedPages} pages`);
+  if (lastSceneOutcome) lines.push(`    inherited_residue_to_open_with: ${lastSceneOutcome}`);
+  if (currentBeat) lines.push(`    current_beat_to_spend: ${currentBeat}`);
+  if (nextScenePlan) lines.push(`    next_scene_plan_to_render: ${nextScenePlan}`);
+  if (nextSceneMoves.length) {
+    lines.push("    next_scene_moves_to_render:");
+    for (const move of nextSceneMoves) lines.push(`      - ${move}`);
+  }
+  if (nextThreeTurns.length) {
+    lines.push(`    first_turn_locked: ${nextThreeTurns[0]}`);
+    if (nextThreeTurns.length > 1) {
+      lines.push("    escalation_runway:");
+      for (const turn of nextThreeTurns.slice(1)) lines.push(`      - ${turn}`);
+    }
+  }
+  if (beatSequence.length) {
+    lines.push("    beat_sequence_to_render:");
+    for (const beat of beatSequence) lines.push(`      - ${beat}`);
+  }
+  lines.push("    act_translation_rules:");
+  lines.push("      - Act I: turn setup into commitment through a visible burned exit.");
+  lines.push("      - Act II: turn tests into tactic failure, reversal, cost, and all-is-lost pressure.");
+  lines.push("      - Act III: turn remembered setups into payoff through changed behavior and final-image contrast.");
+  lines.push("    live_page_guardrails:");
+  lines.push("      - Returned pages must include concrete story material from first_turn_locked when supplied.");
+  lines.push("      - Every scene turn needs an action, discovery, blocked option, reveal, cost, or changed tactic.");
+  lines.push("      - Do not print plan labels; translate them into sluglines, action, cues, dialogue, and transitions.");
+  return lines;
+}
+
 function buildFeatureContinuityLedgerLines(sessionContext = {}) {
   const logline = trimContextLine(sessionContext.logline, 260);
   const themeArgument = trimContextLine(
@@ -1076,12 +1189,25 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
       actLabel: actRunwayLabel,
       targetPages,
     }),
+    ...buildWholeFeatureActProgressionLines({
+      screenplayTask,
+      explicitAct,
+      requestedAct,
+      targetPages,
+    }),
     ...buildFeaturePageBatchPlanLines({
       screenplayTask,
       sequence,
       targetPages,
       currentPage,
       explicitAct,
+    }),
+    ...buildBeatToPageContinuationLines({
+      sessionContext: sessionContext || {},
+      screenplayTask,
+      sequence,
+      explicitAct,
+      requestedAct,
     }),
     ...buildActSequenceObligationStackLines({
       sessionContext: sessionContext || {},

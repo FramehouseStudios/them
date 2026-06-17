@@ -597,6 +597,9 @@ Feature workflow context:
   assert.ok(out.includes("Interleave dialogue with visible action, discovery, consequence, or tactic shifts"));
   assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
   assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
+  assert.ok(out.includes("Beat-to-page continuation: convert the first remembered turn into objective"));
+  assert.ok(out.includes("For Act I / Act II / Act III whole-feature asks"));
+  assert.ok(out.includes("If a requested act spans multiple sequences"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("write the next playable Fountain pages immediately"));
   assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));
@@ -630,6 +633,9 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("Interleave dialogue with visible action, discovery, consequence, or tactic shifts"));
   assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
   assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
+  assert.ok(out.includes("Beat-to-page continuation: convert the first remembered turn into objective"));
+  assert.ok(out.includes("For Act I / Act II / Act III whole-feature asks"));
+  assert.ok(out.includes("If a requested act spans multiple sequences"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("Start from the active draft/scene state; do not restart"));
   assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));

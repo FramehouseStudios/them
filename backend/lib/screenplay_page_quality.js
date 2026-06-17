@@ -440,6 +440,41 @@ function evaluateFeatureActObligationCoverage({
   };
 }
 
+function firstNextTurnTokens(featureContext = null) {
+  if (!featureContext || typeof featureContext !== "object") return new Set();
+  const turns = sanitizeQualityList(
+    featureContext?.nextThreeTurns ?? featureContext?.next_three_turns,
+    1,
+    200
+  );
+  if (!turns.length) return new Set();
+  return qualityTokenSet(turns[0]);
+}
+
+function evaluateFirstNextTurnCoverage({ text = "", featureContext = null } = {}) {
+  const tokens = firstNextTurnTokens(featureContext);
+  if (!tokens.size) return { ok: true, reason: "no_next_turn" };
+  const textTokens = qualityTokenSet(text);
+  const matchedTokens = [...tokens].filter((token) => textTokens.has(token));
+  const minimumMatches = Math.min(2, tokens.size);
+  if (matchedTokens.length < minimumMatches) {
+    return {
+      ok: false,
+      reason: "missing_next_turn_continuation",
+      matchedTokens,
+      nextTurnTokenCount: tokens.size,
+      minimumMatches,
+    };
+  }
+  return {
+    ok: true,
+    reason: "ok",
+    matchedTokens,
+    nextTurnTokenCount: tokens.size,
+    minimumMatches,
+  };
+}
+
 function evaluateScreenplayPageQuality({
   text = "",
   lines = [],
@@ -498,6 +533,17 @@ function evaluateScreenplayPageQuality({
   ) {
     return { ok: false, reason: "static_dialogue_batch", counts };
   }
+  const minimumSpecificActionsForLongBatch = requestedPages >= 5
+    ? Math.min(6, Math.max(4, Math.ceil(requestedPages / 2)))
+    : 0;
+  if (minimumSpecificActionsForLongBatch > 0 && counts.specificAction < minimumSpecificActionsForLongBatch) {
+    return {
+      ok: false,
+      reason: "thin_long_page_batch",
+      counts,
+      minimumSpecificActions: minimumSpecificActionsForLongBatch,
+    };
+  }
   if (
     counts.nonEmpty >= 4
     && counts.specificAction < 1
@@ -522,12 +568,32 @@ function evaluateScreenplayPageQuality({
       featureObligation,
     };
   }
+  const nextTurnCoverage = evaluateFirstNextTurnCoverage({
+    text: normalizedText,
+    featureContext,
+  });
+  if (!nextTurnCoverage.ok) {
+    return {
+      ok: false,
+      reason: nextTurnCoverage.reason,
+      counts,
+      featureObligation: {
+        ...featureObligation,
+        nextTurnCoverage,
+      },
+    };
+  }
 
   return {
     ok: true,
     reason: "ok",
     counts,
-    featureObligation: featureObligation.reason === "not_feature_act" ? null : featureObligation,
+    featureObligation: featureObligation.reason === "not_feature_act"
+      ? (nextTurnCoverage.reason === "no_next_turn" ? null : { nextTurnCoverage })
+      : {
+        ...featureObligation,
+        nextTurnCoverage: nextTurnCoverage.reason === "no_next_turn" ? null : nextTurnCoverage,
+      },
   };
 }
 
