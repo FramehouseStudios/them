@@ -3168,12 +3168,18 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
     ? snapshot.characterFocus.slice(0, 2).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
     : [];
   const lastState = normalizeSnippet(
-    snapshot.lastSceneOutcome || snapshot.currentBeat || snapshot.memoryExcerpt || "",
+    snapshot.lastSceneOutcome ||
+      snapshot.currentBeat ||
+      snapshot.actPressureState ||
+      snapshot.characterArcState ||
+      snapshot.memoryExcerpt ||
+      "",
     180
   );
   const nextMove = normalizeSnippet(
     snapshot.nextScenePlan ||
       (Array.isArray(snapshot.nextThreeTurns) ? snapshot.nextThreeTurns[0] : "") ||
+      (Array.isArray(snapshot.actThreePayoffPath) ? snapshot.actThreePayoffPath[0] : "") ||
       "",
     180
   );
@@ -3214,11 +3220,33 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       project_title: "",
       act: "",
       feature_sequence: "",
+      feature_obligation: "",
+      scene_objective: "",
+      scene_summary: "",
       current_beat: "",
+      logline: "",
+      theme_argument: "",
+      central_question: "",
+      protagonist_want: "",
+      protagonist_need: "",
+      antagonistic_force: "",
+      ending_image: "",
+      act_pressure_state: "",
+      character_arc_state: "",
       last_scene_outcome: "",
       next_scene_plan: "",
+      next_scene_moves: [],
       next_three_turns: [],
+      act_three_payoff_path: [],
       character_focus: [],
+      unresolved_setups: [],
+      unresolved_story_threads: [],
+      character_arc_turns: [],
+      image_motifs: [],
+      continuity_notes: [],
+      emotional_continuity: "",
+      page_count: 0,
+      target_pages: 0,
       memory_excerpt: "",
       is_correction: false,
       updated_at: 0,
@@ -3245,13 +3273,49 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || project?.projectId || "", 160),
     act: normalizeSnippet(project?.act || "", 120),
     feature_sequence: normalizeSnippet(project?.featureSequence || "", 220),
+    feature_obligation: normalizeSnippet(project?.featureObligation || "", 280),
+    scene_objective: normalizeSnippet(project?.sceneObjective || "", 280),
+    scene_summary: normalizeSnippet(project?.sceneSummary || "", 280),
     current_beat: normalizeSnippet(project?.currentBeat || episode?.summary || "", 220),
+    logline: normalizeSnippet(project?.logline || "", 280),
+    theme_argument: normalizeSnippet(project?.themeArgument || "", 280),
+    central_question: normalizeSnippet(project?.centralQuestion || "", 280),
+    protagonist_want: normalizeSnippet(project?.protagonistWant || "", 240),
+    protagonist_need: normalizeSnippet(project?.protagonistNeed || "", 240),
+    antagonistic_force: normalizeSnippet(project?.antagonisticForce || "", 260),
+    ending_image: normalizeSnippet(project?.endingImage || "", 240),
+    act_pressure_state: normalizeSnippet(project?.actPressureState || "", 280),
+    character_arc_state: normalizeSnippet(project?.characterArcState || "", 280),
     last_scene_outcome: normalizeSnippet(project?.lastSceneOutcome || "", 240),
     next_scene_plan: normalizeSnippet(project?.nextScenePlan || "", 340),
+    next_scene_moves: Array.isArray(project?.nextSceneMoves)
+      ? project.nextSceneMoves.slice(0, 5).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
+      : [],
     next_three_turns: Array.isArray(project?.nextThreeTurns)
       ? project.nextThreeTurns.slice(0, 3).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
       : [],
+    act_three_payoff_path: Array.isArray(project?.actThreePayoffPath)
+      ? project.actThreePayoffPath.slice(0, 5).map((item) => normalizeSnippet(item, 200)).filter(Boolean)
+      : [],
     character_focus: characterFocus,
+    unresolved_setups: Array.isArray(project?.unresolvedSetups)
+      ? project.unresolvedSetups.slice(0, 8).map((item) => normalizeSnippet(item, 220)).filter(Boolean)
+      : [],
+    unresolved_story_threads: Array.isArray(project?.unresolvedStoryThreads)
+      ? project.unresolvedStoryThreads.slice(0, 8).map((item) => normalizeSnippet(item, 220)).filter(Boolean)
+      : [],
+    character_arc_turns: Array.isArray(project?.characterArcTurns)
+      ? project.characterArcTurns.slice(0, 6).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
+      : [],
+    image_motifs: Array.isArray(project?.imageMotifs)
+      ? project.imageMotifs.slice(0, 6).map((item) => normalizeSnippet(item, 140)).filter(Boolean)
+      : [],
+    continuity_notes: Array.isArray(project?.continuityNotes)
+      ? project.continuityNotes.slice(0, 8).map((item) => normalizeSnippet(item, 220)).filter(Boolean)
+      : [],
+    emotional_continuity: normalizeSnippet(project?.emotionalContinuity || "", 280),
+    page_count: positiveTalkContextInteger(project?.pageCount),
+    target_pages: positiveTalkContextInteger(project?.targetPages),
     memory_excerpt: normalizeSnippet(episode?.excerpt || episode?.summary || project?.lastWritePreview || "", 280),
     is_correction: episodeTags.includes("correction"),
     updated_at: Math.max(
@@ -3268,9 +3332,12 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       act: snapshot.act,
       featureSequence: snapshot.feature_sequence,
       currentBeat: snapshot.current_beat,
+      actPressureState: snapshot.act_pressure_state,
+      characterArcState: snapshot.character_arc_state,
       lastSceneOutcome: snapshot.last_scene_outcome,
       nextScenePlan: snapshot.next_scene_plan,
       nextThreeTurns: snapshot.next_three_turns,
+      actThreePayoffPath: snapshot.act_three_payoff_path,
       characterFocus: snapshot.character_focus,
       memoryExcerpt: snapshot.memory_excerpt,
       isCorrection: snapshot.is_correction,

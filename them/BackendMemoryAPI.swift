@@ -681,28 +681,74 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
     let projectTitle: String
     let act: String
     let featureSequence: String
+    let featureObligation: String
+    let sceneObjective: String
+    let sceneSummary: String
     let currentBeat: String
+    let logline: String
+    let themeArgument: String
+    let centralQuestion: String
+    let protagonistWant: String
+    let protagonistNeed: String
+    let antagonisticForce: String
+    let endingImage: String
+    let actPressureState: String
+    let characterArcState: String
     let lastSceneOutcome: String
     let nextScenePlan: String
+    let nextSceneMoves: [String]
     let nextThreeTurns: [String]
+    let actThreePayoffPath: [String]
     let characterFocus: [String]
+    let unresolvedSetups: [String]
+    let unresolvedStoryThreads: [String]
+    let characterArcTurns: [String]
+    let imageMotifs: [String]
+    let continuityNotes: [String]
+    let emotionalContinuity: String
+    let pageCount: Int
+    let targetPages: Int
     let memoryExcerpt: String
     let isCorrection: Bool
     let updatedAt: TimeInterval
 
     var isMeaningful: Bool {
-        hasContinuity && [
+        hasContinuity && ([
             openingLine,
             projectTitle,
             projectId,
             act,
             featureSequence,
+            featureObligation,
+            sceneObjective,
+            sceneSummary,
             currentBeat,
+            logline,
+            themeArgument,
+            centralQuestion,
+            protagonistWant,
+            protagonistNeed,
+            antagonisticForce,
+            endingImage,
+            actPressureState,
+            characterArcState,
             lastSceneOutcome,
             nextScenePlan,
+            emotionalContinuity,
             memoryExcerpt
         ]
-            .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ||
+            !nextSceneMoves.isEmpty ||
+            !nextThreeTurns.isEmpty ||
+            !actThreePayoffPath.isEmpty ||
+            !characterFocus.isEmpty ||
+            !unresolvedSetups.isEmpty ||
+            !unresolvedStoryThreads.isEmpty ||
+            !characterArcTurns.isEmpty ||
+            !imageMotifs.isEmpty ||
+            !continuityNotes.isEmpty ||
+            pageCount > 0 ||
+            targetPages > 0)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -713,11 +759,33 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
         case projectTitle
         case act
         case featureSequence
+        case featureObligation
+        case sceneObjective
+        case sceneSummary
         case currentBeat
+        case logline
+        case themeArgument
+        case centralQuestion
+        case protagonistWant
+        case protagonistNeed
+        case antagonisticForce
+        case endingImage
+        case actPressureState
+        case characterArcState
         case lastSceneOutcome
         case nextScenePlan
+        case nextSceneMoves
         case nextThreeTurns
+        case actThreePayoffPath
         case characterFocus
+        case unresolvedSetups
+        case unresolvedStoryThreads
+        case characterArcTurns
+        case imageMotifs
+        case continuityNotes
+        case emotionalContinuity
+        case pageCount
+        case targetPages
         case memoryExcerpt
         case isCorrection
         case updatedAt
@@ -732,11 +800,33 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
         projectTitle = try container.decodeIfPresent(String.self, forKey: .projectTitle) ?? ""
         act = try container.decodeIfPresent(String.self, forKey: .act) ?? ""
         featureSequence = try container.decodeIfPresent(String.self, forKey: .featureSequence) ?? ""
+        featureObligation = try container.decodeIfPresent(String.self, forKey: .featureObligation) ?? ""
+        sceneObjective = try container.decodeIfPresent(String.self, forKey: .sceneObjective) ?? ""
+        sceneSummary = try container.decodeIfPresent(String.self, forKey: .sceneSummary) ?? ""
         currentBeat = try container.decodeIfPresent(String.self, forKey: .currentBeat) ?? ""
+        logline = try container.decodeIfPresent(String.self, forKey: .logline) ?? ""
+        themeArgument = try container.decodeIfPresent(String.self, forKey: .themeArgument) ?? ""
+        centralQuestion = try container.decodeIfPresent(String.self, forKey: .centralQuestion) ?? ""
+        protagonistWant = try container.decodeIfPresent(String.self, forKey: .protagonistWant) ?? ""
+        protagonistNeed = try container.decodeIfPresent(String.self, forKey: .protagonistNeed) ?? ""
+        antagonisticForce = try container.decodeIfPresent(String.self, forKey: .antagonisticForce) ?? ""
+        endingImage = try container.decodeIfPresent(String.self, forKey: .endingImage) ?? ""
+        actPressureState = try container.decodeIfPresent(String.self, forKey: .actPressureState) ?? ""
+        characterArcState = try container.decodeIfPresent(String.self, forKey: .characterArcState) ?? ""
         lastSceneOutcome = try container.decodeIfPresent(String.self, forKey: .lastSceneOutcome) ?? ""
         nextScenePlan = try container.decodeIfPresent(String.self, forKey: .nextScenePlan) ?? ""
+        nextSceneMoves = try container.decodeIfPresent([String].self, forKey: .nextSceneMoves) ?? []
         nextThreeTurns = try container.decodeIfPresent([String].self, forKey: .nextThreeTurns) ?? []
+        actThreePayoffPath = try container.decodeIfPresent([String].self, forKey: .actThreePayoffPath) ?? []
         characterFocus = try container.decodeIfPresent([String].self, forKey: .characterFocus) ?? []
+        unresolvedSetups = try container.decodeIfPresent([String].self, forKey: .unresolvedSetups) ?? []
+        unresolvedStoryThreads = try container.decodeIfPresent([String].self, forKey: .unresolvedStoryThreads) ?? []
+        characterArcTurns = try container.decodeIfPresent([String].self, forKey: .characterArcTurns) ?? []
+        imageMotifs = try container.decodeIfPresent([String].self, forKey: .imageMotifs) ?? []
+        continuityNotes = try container.decodeIfPresent([String].self, forKey: .continuityNotes) ?? []
+        emotionalContinuity = try container.decodeIfPresent(String.self, forKey: .emotionalContinuity) ?? ""
+        pageCount = try container.decodeIfPresent(Int.self, forKey: .pageCount) ?? 0
+        targetPages = try container.decodeIfPresent(Int.self, forKey: .targetPages) ?? 0
         memoryExcerpt = try container.decodeIfPresent(String.self, forKey: .memoryExcerpt) ?? ""
         isCorrection = try container.decodeIfPresent(Bool.self, forKey: .isCorrection) ?? false
         updatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0

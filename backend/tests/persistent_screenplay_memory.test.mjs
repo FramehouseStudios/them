@@ -537,14 +537,40 @@ test("[persistent-screenplay-memory] builds session continuity snapshot from lat
         projectId: "rain-docket",
         act: "Act II",
         featureSequence: "Act II - Midpoint Pressure",
+        featureObligation: "Turn victory into a trap that forces public action.",
+        sceneObjective: "Mara must decide whether to make the affidavit public.",
+        sceneSummary: "The father reveal corners Mara in the courthouse hallway.",
         currentBeat: "Mara realizes the forged testimony points at the judge.",
+        logline: "A court artist discovers every verdict has been staged.",
+        themeArgument: "Justice begins when performance fails.",
+        centralQuestion: "Can Mara draw the truth faster than the court can erase it?",
+        protagonistWant: "Mara wants the sealed affidavit.",
+        protagonistNeed: "Mara needs to stop hiding behind observation.",
+        antagonisticForce: "A judge who edits the public record.",
+        endingImage: "Mara hangs the true sketch outside the courthouse.",
+        actPressureState: "The midpoint trap must make private proof useless.",
+        characterArcState: "Mara's control must fracture into public courage.",
         lastSceneOutcome: "The father reveal collapses Mara's private strategy.",
         nextScenePlan: "Move into a private corridor confrontation.",
+        nextSceneMoves: [
+          "Force the affidavit into public view.",
+          "Let the judge turn silence into a weapon.",
+        ],
         nextThreeTurns: [
           "Father names the lie.",
           "Mara chooses public exposure.",
           "The sealed affidavit becomes dangerous.",
         ],
+        actThreePayoffPath: [
+          "The affidavit becomes courtroom testimony.",
+          "The courthouse wall pays off as final image.",
+        ],
+        unresolvedSetups: ["The missing sketchbook", "The sealed affidavit"],
+        unresolvedStoryThreads: ["Who forged the testimony?", "Why did the father vanish?"],
+        characterArcTurns: ["Mara chooses public exposure over perfect proof."],
+        imageMotifs: ["charcoal dust", "courthouse fluorescents"],
+        continuityNotes: ["Do not soften Mara's public humiliation."],
+        emotionalContinuity: "Humiliation hardens into public courage.",
         characterFocus: ["Mara", "Father"],
         pageCount: 47,
         targetPages: 105,
@@ -573,10 +599,38 @@ test("[persistent-screenplay-memory] builds session continuity snapshot from lat
   assert.equal(snapshot.project_id, "rain-docket");
   assert.equal(snapshot.project_title, "Rain Docket");
   assert.equal(snapshot.act, "Act II");
+  assert.equal(snapshot.feature_obligation, "Turn victory into a trap that forces public action.");
+  assert.equal(snapshot.scene_objective, "Mara must decide whether to make the affidavit public.");
+  assert.equal(snapshot.scene_summary, "The father reveal corners Mara in the courthouse hallway.");
+  assert.equal(snapshot.logline, "A court artist discovers every verdict has been staged.");
+  assert.equal(snapshot.theme_argument, "Justice begins when performance fails.");
+  assert.equal(snapshot.central_question, "Can Mara draw the truth faster than the court can erase it?");
+  assert.equal(snapshot.protagonist_want, "Mara wants the sealed affidavit.");
+  assert.equal(snapshot.protagonist_need, "Mara needs to stop hiding behind observation.");
+  assert.equal(snapshot.antagonistic_force, "A judge who edits the public record.");
+  assert.equal(snapshot.ending_image, "Mara hangs the true sketch outside the courthouse.");
+  assert.equal(snapshot.act_pressure_state, "The midpoint trap must make private proof useless.");
+  assert.equal(snapshot.character_arc_state, "Mara's control must fracture into public courage.");
+  assert.deepEqual(snapshot.next_scene_moves, [
+    "Force the affidavit into public view.",
+    "Let the judge turn silence into a weapon.",
+  ]);
   assert.deepEqual(snapshot.next_three_turns.slice(0, 2), [
     "Father names the lie.",
     "Mara chooses public exposure.",
   ]);
+  assert.deepEqual(snapshot.act_three_payoff_path, [
+    "The affidavit becomes courtroom testimony.",
+    "The courthouse wall pays off as final image.",
+  ]);
+  assert.deepEqual(snapshot.unresolved_setups, ["The missing sketchbook", "The sealed affidavit"]);
+  assert.deepEqual(snapshot.unresolved_story_threads, ["Who forged the testimony?", "Why did the father vanish?"]);
+  assert.deepEqual(snapshot.character_arc_turns, ["Mara chooses public exposure over perfect proof."]);
+  assert.deepEqual(snapshot.image_motifs, ["charcoal dust", "courthouse fluorescents"]);
+  assert.deepEqual(snapshot.continuity_notes, ["Do not soften Mara's public humiliation."]);
+  assert.equal(snapshot.emotional_continuity, "Humiliation hardens into public courage.");
+  assert.equal(snapshot.page_count, 47);
+  assert.equal(snapshot.target_pages, 105);
   assert.ok(snapshot.opening_line.includes("Welcome back."));
   assert.ok(snapshot.opening_line.includes("Rain Docket"));
   assert.ok(snapshot.opening_line.includes("Next move: Move into a private corridor confrontation."));

@@ -282,6 +282,88 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertFalse(result.usedBackendAssembly)
         XCTAssertFalse(result.fallbackReason.isEmpty)
     }
+
+    func testSessionContinuitySnapshotDecodesRicherFeatureMemoryRestore() throws {
+        let data = Data("""
+        {
+          "has_continuity": true,
+          "source": "screenplay_project_memory",
+          "opening_line": "Welcome back. Next move: Father names the lie.",
+          "project_id": "rain-docket",
+          "project_title": "Rain Docket",
+          "act": "Act II",
+          "feature_sequence": "Act II - Midpoint Pressure",
+          "feature_obligation": "Turn victory into a trap that forces public action.",
+          "scene_objective": "Mara must decide whether to make the affidavit public.",
+          "scene_summary": "The father reveal corners Mara in the courthouse hallway.",
+          "current_beat": "Mara realizes the forged testimony points at the judge.",
+          "logline": "A court artist discovers every verdict has been staged.",
+          "theme_argument": "Justice begins when performance fails.",
+          "central_question": "Can Mara draw the truth faster than the court can erase it?",
+          "protagonist_want": "Mara wants the sealed affidavit.",
+          "protagonist_need": "Mara needs to stop hiding behind observation.",
+          "antagonistic_force": "A judge who edits the public record.",
+          "ending_image": "Mara hangs the true sketch outside the courthouse.",
+          "act_pressure_state": "The midpoint trap must make private proof useless.",
+          "character_arc_state": "Mara's control must fracture into public courage.",
+          "last_scene_outcome": "The father reveal collapses Mara's private strategy.",
+          "next_scene_plan": "Move into a private corridor confrontation.",
+          "next_scene_moves": [
+            "Force the affidavit into public view.",
+            "Let the judge turn silence into a weapon."
+          ],
+          "next_three_turns": [
+            "Father names the lie.",
+            "Mara chooses public exposure.",
+            "The sealed affidavit becomes dangerous."
+          ],
+          "act_three_payoff_path": [
+            "The affidavit becomes courtroom testimony.",
+            "The courthouse wall pays off as final image."
+          ],
+          "character_focus": ["Mara", "Father"],
+          "unresolved_setups": ["The missing sketchbook", "The sealed affidavit"],
+          "unresolved_story_threads": ["Who forged the testimony?", "Why did the father vanish?"],
+          "character_arc_turns": ["Mara chooses public exposure over perfect proof."],
+          "image_motifs": ["charcoal dust", "courthouse fluorescents"],
+          "continuity_notes": ["Do not soften Mara's public humiliation."],
+          "emotional_continuity": "Humiliation hardens into public courage.",
+          "page_count": 47,
+          "target_pages": 105,
+          "memory_excerpt": "The sealed affidavit becomes dangerous.",
+          "is_correction": false,
+          "updated_at": 950
+        }
+        """.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let snapshot = try decoder.decode(BackendSessionContinuitySnapshot.self, from: data)
+
+        XCTAssertTrue(snapshot.isMeaningful)
+        XCTAssertEqual(snapshot.projectId, "rain-docket")
+        XCTAssertEqual(snapshot.featureObligation, "Turn victory into a trap that forces public action.")
+        XCTAssertEqual(snapshot.actPressureState, "The midpoint trap must make private proof useless.")
+        XCTAssertEqual(snapshot.characterArcState, "Mara's control must fracture into public courage.")
+        XCTAssertEqual(snapshot.nextSceneMoves, [
+            "Force the affidavit into public view.",
+            "Let the judge turn silence into a weapon."
+        ])
+        XCTAssertEqual(snapshot.nextThreeTurns, [
+            "Father names the lie.",
+            "Mara chooses public exposure.",
+            "The sealed affidavit becomes dangerous."
+        ])
+        XCTAssertEqual(snapshot.actThreePayoffPath, [
+            "The affidavit becomes courtroom testimony.",
+            "The courthouse wall pays off as final image."
+        ])
+        XCTAssertEqual(snapshot.unresolvedStoryThreads, ["Who forged the testimony?", "Why did the father vanish?"])
+        XCTAssertEqual(snapshot.characterArcTurns, ["Mara chooses public exposure over perfect proof."])
+        XCTAssertEqual(snapshot.imageMotifs, ["charcoal dust", "courthouse fluorescents"])
+        XCTAssertEqual(snapshot.pageCount, 47)
+        XCTAssertEqual(snapshot.targetPages, 105)
+    }
 }
 
 private final class PromptBackendSpy: ScreenplayPromptBackendBuilding {

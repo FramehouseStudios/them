@@ -9200,14 +9200,38 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if !lastOutcome.isEmpty {
             notes.append("Last remembered scene outcome: \(lastOutcome)")
         }
+        let featureObligation = snapshot.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !featureObligation.isEmpty {
+            notes.append("Restored structural obligation: \(featureObligation)")
+        }
+        let actPressure = snapshot.actPressureState.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !actPressure.isEmpty {
+            notes.append("Restored act pressure: \(actPressure)")
+        }
+        let characterArc = snapshot.characterArcState.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !characterArc.isEmpty {
+            notes.append("Restored character arc pressure: \(characterArc)")
+        }
+        if !snapshot.nextThreeTurns.isEmpty {
+            notes.append("Restored next turns: \(snapshot.nextThreeTurns.prefix(3).joined(separator: " -> "))")
+        }
+        if !snapshot.actThreePayoffPath.isEmpty {
+            notes.append("Restored Act III payoff path: \(snapshot.actThreePayoffPath.prefix(3).joined(separator: " -> "))")
+        }
+        if !snapshot.unresolvedStoryThreads.isEmpty {
+            notes.append("Restored unresolved story threads: \(snapshot.unresolvedStoryThreads.prefix(3).joined(separator: "; "))")
+        }
         let excerpt = snapshot.memoryExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !excerpt.isEmpty {
             notes.append("Relationship memory: \(excerpt)")
         }
+        if !snapshot.imageMotifs.isEmpty {
+            notes.append("Restored image motifs: \(snapshot.imageMotifs.prefix(3).joined(separator: "; "))")
+        }
         if snapshot.isCorrection {
             notes.append("Honor the user's latest correction as authoritative continuity.")
         }
-        return notes
+        return Array(notes.prefix(10))
     }
 
     private func sessionContinuityFingerprint(_ snapshot: BackendSessionContinuitySnapshot) -> String {
@@ -9216,9 +9240,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
             snapshot.projectTitle,
             snapshot.act,
             snapshot.featureSequence,
+            snapshot.featureObligation,
+            snapshot.actPressureState,
+            snapshot.characterArcState,
             snapshot.currentBeat,
             snapshot.lastSceneOutcome,
             snapshot.nextScenePlan,
+            snapshot.nextThreeTurns.joined(separator: "/"),
+            snapshot.actThreePayoffPath.joined(separator: "/"),
             String(Int(snapshot.updatedAt))
         ]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
@@ -9249,11 +9278,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let lastThread = [
             snapshot.lastSceneOutcome,
             snapshot.currentBeat,
+            snapshot.actPressureState,
+            snapshot.characterArcState,
             snapshot.memoryExcerpt
         ]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? ""
-        let nextMove = snapshot.nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextMove = [
+            snapshot.nextScenePlan,
+            snapshot.nextThreeTurns.first ?? "",
+            snapshot.actThreePayoffPath.first ?? ""
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
 
         var parts: [String] = []
         if !position.isEmpty { parts.append(position) }
@@ -9469,17 +9506,33 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let sessionNotes = sessionContinuityPromptNotes(from: sessionContinuitySnapshot)
             continuityNotes = mergedContextList(sessionNotes, continuityNotes, limit: 8)
             if promptAct.isEmpty { promptAct = sessionContinuitySnapshot.act }
+            if promptSceneObjective.isEmpty { promptSceneObjective = sessionContinuitySnapshot.sceneObjective }
+            if promptSceneSummary.isEmpty { promptSceneSummary = sessionContinuitySnapshot.sceneSummary }
             if promptFeatureSequence.isEmpty { promptFeatureSequence = sessionContinuitySnapshot.featureSequence }
+            if promptFeatureObligation.isEmpty { promptFeatureObligation = sessionContinuitySnapshot.featureObligation }
             if promptCurrentBeat.isEmpty { promptCurrentBeat = sessionContinuitySnapshot.currentBeat }
+            if promptLogline.isEmpty { promptLogline = sessionContinuitySnapshot.logline }
+            if promptThemeArgument.isEmpty { promptThemeArgument = sessionContinuitySnapshot.themeArgument }
+            if promptCentralQuestion.isEmpty { promptCentralQuestion = sessionContinuitySnapshot.centralQuestion }
+            if promptProtagonistWant.isEmpty { promptProtagonistWant = sessionContinuitySnapshot.protagonistWant }
+            if promptProtagonistNeed.isEmpty { promptProtagonistNeed = sessionContinuitySnapshot.protagonistNeed }
+            if promptAntagonisticForce.isEmpty { promptAntagonisticForce = sessionContinuitySnapshot.antagonisticForce }
+            if promptEndingImage.isEmpty { promptEndingImage = sessionContinuitySnapshot.endingImage }
             if promptSceneSummary.isEmpty { promptSceneSummary = sessionContinuitySnapshot.lastSceneOutcome }
+            if promptActPressureState.isEmpty { promptActPressureState = sessionContinuitySnapshot.actPressureState }
+            if promptCharacterArcState.isEmpty { promptCharacterArcState = sessionContinuitySnapshot.characterArcState }
             if promptLastSceneOutcome.isEmpty { promptLastSceneOutcome = sessionContinuitySnapshot.lastSceneOutcome }
             if promptNextScenePlan.isEmpty { promptNextScenePlan = sessionContinuitySnapshot.nextScenePlan }
             if promptNextSceneMoves.isEmpty {
-                promptNextSceneMoves = Array(sessionContinuitySnapshot.nextThreeTurns.prefix(5))
+                promptNextSceneMoves = mergedContextList(
+                    sessionContinuitySnapshot.nextSceneMoves,
+                    sessionContinuitySnapshot.nextThreeTurns,
+                    limit: 5
+                )
             } else {
                 promptNextSceneMoves = mergedContextList(
                     promptNextSceneMoves,
-                    sessionContinuitySnapshot.nextThreeTurns,
+                    sessionContinuitySnapshot.nextSceneMoves + sessionContinuitySnapshot.nextThreeTurns,
                     limit: 5
                 )
             }
@@ -9488,8 +9541,34 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 promptNextThreeTurns,
                 limit: 3
             )
+            promptActThreePayoffPath = mergedContextList(
+                sessionContinuitySnapshot.actThreePayoffPath,
+                promptActThreePayoffPath,
+                limit: 5
+            )
+            promptUnresolvedSetups = mergedContextList(
+                sessionContinuitySnapshot.unresolvedSetups,
+                promptUnresolvedSetups,
+                limit: 8
+            )
+            promptUnresolvedStoryThreads = mergedContextList(
+                sessionContinuitySnapshot.unresolvedStoryThreads,
+                promptUnresolvedStoryThreads,
+                limit: 8
+            )
+            promptCharacterArcTurns = mergedContextList(
+                sessionContinuitySnapshot.characterArcTurns,
+                promptCharacterArcTurns,
+                limit: 6
+            )
+            promptImageMotifs = mergedContextList(
+                sessionContinuitySnapshot.imageMotifs,
+                promptImageMotifs,
+                limit: 6
+            )
             if promptEmotionalContinuity.isEmpty {
                 promptEmotionalContinuity = [
+                    sessionContinuitySnapshot.emotionalContinuity,
                     sessionContinuitySnapshot.lastSceneOutcome,
                     sessionContinuitySnapshot.memoryExcerpt,
                     sessionContinuitySnapshot.currentBeat
@@ -9501,6 +9580,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 sessionContinuitySnapshot.characterFocus,
                 limit: 8
             )
+            if promptPageCount <= 0 { promptPageCount = sessionContinuitySnapshot.pageCount }
+            if promptTargetPages <= 0 { promptTargetPages = sessionContinuitySnapshot.targetPages }
         }
 
         if let workflowContext = screenplayDraftBridge.featureWorkflowContext(for: featureWorkflowRequestID) {
@@ -9564,6 +9645,32 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if promptCharacterArcState.isEmpty {
             promptCharacterArcState = [promptProtagonistNeed, promptThemeArgument]
                 .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
+        }
+        if promptActThreePayoffPath.isEmpty, !promptEndingImage.isEmpty {
+            promptActThreePayoffPath = ["Final image: \(promptEndingImage)"]
+        }
+        if promptUnresolvedStoryThreads.isEmpty {
+            promptUnresolvedStoryThreads = mergedContextList(
+                [
+                    promptCentralQuestion.isEmpty ? "" : "Central question: \(promptCentralQuestion)",
+                    promptAntagonisticForce.isEmpty ? "" : "Opposition: \(promptAntagonisticForce)"
+                ],
+                promptUnresolvedSetups,
+                limit: 8
+            )
+        }
+        if promptCharacterArcTurns.isEmpty {
+            promptCharacterArcTurns = mergedContextList(
+                [
+                    promptProtagonistNeed.isEmpty ? "" : "Need: \(promptProtagonistNeed)",
+                    promptThemeArgument.isEmpty ? "" : "Theme: \(promptThemeArgument)"
+                ],
+                [],
+                limit: 6
+            )
+        }
+        if promptImageMotifs.isEmpty, !promptEndingImage.isEmpty {
+            promptImageMotifs = ["Ending image: \(promptEndingImage)"]
         }
 
         return (
