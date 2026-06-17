@@ -9132,11 +9132,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 endingImage: promptContinuity.endingImage,
                 featureSequence: promptContinuity.featureSequence,
                 featureObligation: promptContinuity.featureObligation,
+                actPressureState: promptContinuity.actPressureState,
+                characterArcState: promptContinuity.characterArcState,
+                lastSceneOutcome: promptContinuity.lastSceneOutcome,
                 nextScenePlan: promptContinuity.nextScenePlan,
                 nextSceneMoves: promptContinuity.nextSceneMoves,
+                nextThreeTurns: promptContinuity.nextThreeTurns,
+                actThreePayoffPath: promptContinuity.actThreePayoffPath,
                 beatSequence: promptContinuity.beatSequence,
                 characterFocus: promptContinuity.characterFocus,
                 unresolvedSetups: promptContinuity.unresolvedSetups,
+                unresolvedStoryThreads: promptContinuity.unresolvedStoryThreads,
+                characterArcTurns: promptContinuity.characterArcTurns,
+                imageMotifs: promptContinuity.imageMotifs,
                 continuityNotes: promptContinuity.continuityNotes,
                 emotionalContinuity: promptContinuity.emotionalContinuity,
                 pageCount: promptContinuity.pageCount,
@@ -9273,9 +9281,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
         featureObligation: String,
         nextScenePlan: String,
         nextSceneMoves: [String],
+        nextThreeTurns: [String],
+        actThreePayoffPath: [String],
+        actPressureState: String,
+        characterArcState: String,
+        lastSceneOutcome: String,
         beatSequence: [String],
         characterFocus: [String],
         unresolvedSetups: [String],
+        unresolvedStoryThreads: [String],
+        characterArcTurns: [String],
+        imageMotifs: [String],
         continuityNotes: [String],
         emotionalContinuity: String,
         pageCount: Int,
@@ -9373,8 +9389,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var promptCurrentBeat = currentBeat
         var promptFeatureSequence = featureGuide.map { "\($0.currentAct) - \($0.sequenceLabel) (\($0.pageRangeText))" } ?? ""
         var promptFeatureObligation = featureGuide?.dueNow ?? ""
+        var promptActPressureState = featureGuide?.dueNow ?? ""
+        var promptCharacterArcState = promptProtagonistNeed.isEmpty ? promptThemeArgument : "Need: \(promptProtagonistNeed)"
+        var promptLastSceneOutcome = screenplayDraftBridge.lastCommittedWrite.map {
+            clippedStudioAssistantText($0.insertedText, limit: 240)
+        } ?? ""
         var promptNextScenePlan = featureGuide?.nextScenePlan ?? ""
         var promptNextSceneMoves = featureGuide?.nextMoves ?? []
+        var promptNextThreeTurns = Array((featureGuide?.nextMoves ?? []).prefix(3))
+        var promptActThreePayoffPath: [String] = []
+        var promptUnresolvedStoryThreads: [String] = []
+        var promptCharacterArcTurns: [String] = []
+        var promptImageMotifs: [String] = []
         var promptEmotionalContinuity = emotionalContinuity
         var promptPageCount = estimatedPageCount
         var promptTargetPages = hasFeatureGuideContext ? ScreenplayFeatureProgressionGuide.defaultTargetPages : 0
@@ -9412,6 +9438,32 @@ Write this approved story direction directly into screenplay pages now. Maintain
             draftBeatSequence,
             limit: 8
         )
+        promptActThreePayoffPath = mergedContextList(
+            promptUnresolvedSetups,
+            promptEndingImage.isEmpty ? [] : ["Final image: \(promptEndingImage)"],
+            limit: 5
+        )
+        promptUnresolvedStoryThreads = mergedContextList(
+            [
+                promptCentralQuestion.isEmpty ? "" : "Central question: \(promptCentralQuestion)",
+                promptAntagonisticForce.isEmpty ? "" : "Opposition: \(promptAntagonisticForce)"
+            ],
+            promptUnresolvedSetups,
+            limit: 8
+        )
+        promptCharacterArcTurns = mergedContextList(
+            [
+                promptProtagonistNeed.isEmpty ? "" : "Need: \(promptProtagonistNeed)",
+                promptThemeArgument.isEmpty ? "" : "Theme: \(promptThemeArgument)"
+            ],
+            [],
+            limit: 6
+        )
+        promptImageMotifs = mergedContextList(
+            promptEndingImage.isEmpty ? [] : ["Ending image: \(promptEndingImage)"],
+            [],
+            limit: 6
+        )
 
         if let sessionContinuitySnapshot, sessionContinuitySnapshot.isMeaningful {
             let sessionNotes = sessionContinuityPromptNotes(from: sessionContinuitySnapshot)
@@ -9420,6 +9472,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if promptFeatureSequence.isEmpty { promptFeatureSequence = sessionContinuitySnapshot.featureSequence }
             if promptCurrentBeat.isEmpty { promptCurrentBeat = sessionContinuitySnapshot.currentBeat }
             if promptSceneSummary.isEmpty { promptSceneSummary = sessionContinuitySnapshot.lastSceneOutcome }
+            if promptLastSceneOutcome.isEmpty { promptLastSceneOutcome = sessionContinuitySnapshot.lastSceneOutcome }
             if promptNextScenePlan.isEmpty { promptNextScenePlan = sessionContinuitySnapshot.nextScenePlan }
             if promptNextSceneMoves.isEmpty {
                 promptNextSceneMoves = Array(sessionContinuitySnapshot.nextThreeTurns.prefix(5))
@@ -9430,6 +9483,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     limit: 5
                 )
             }
+            promptNextThreeTurns = mergedContextList(
+                sessionContinuitySnapshot.nextThreeTurns,
+                promptNextThreeTurns,
+                limit: 3
+            )
             if promptEmotionalContinuity.isEmpty {
                 promptEmotionalContinuity = [
                     sessionContinuitySnapshot.lastSceneOutcome,
@@ -9452,8 +9510,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if !workflowContext.currentBeat.isEmpty { promptCurrentBeat = workflowContext.currentBeat }
             if !workflowContext.featureSequence.isEmpty { promptFeatureSequence = workflowContext.featureSequence }
             if !workflowContext.featureObligation.isEmpty { promptFeatureObligation = workflowContext.featureObligation }
+            if !workflowContext.actPressureState.isEmpty { promptActPressureState = workflowContext.actPressureState }
+            if !workflowContext.characterArcState.isEmpty { promptCharacterArcState = workflowContext.characterArcState }
+            if !workflowContext.lastSceneOutcome.isEmpty { promptLastSceneOutcome = workflowContext.lastSceneOutcome }
             if !workflowContext.nextScenePlan.isEmpty { promptNextScenePlan = workflowContext.nextScenePlan }
             promptNextSceneMoves = mergedContextList(workflowContext.nextSceneMoves, promptNextSceneMoves, limit: 5)
+            promptNextThreeTurns = mergedContextList(workflowContext.nextThreeTurns, promptNextThreeTurns, limit: 3)
+            promptActThreePayoffPath = mergedContextList(workflowContext.actThreePayoffPath, promptActThreePayoffPath, limit: 5)
             continuityNotes = mergedContextList(workflowContext.continuityNotes, continuityNotes, limit: 8)
             if !workflowContext.logline.isEmpty { promptLogline = workflowContext.logline }
             if !workflowContext.themeArgument.isEmpty { promptThemeArgument = workflowContext.themeArgument }
@@ -9467,6 +9530,21 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 promptUnresolvedSetups,
                 limit: 8
             )
+            promptUnresolvedStoryThreads = mergedContextList(
+                workflowContext.unresolvedStoryThreads,
+                promptUnresolvedStoryThreads,
+                limit: 8
+            )
+            promptCharacterArcTurns = mergedContextList(
+                workflowContext.characterArcTurns,
+                promptCharacterArcTurns,
+                limit: 6
+            )
+            promptImageMotifs = mergedContextList(
+                workflowContext.imageMotifs,
+                promptImageMotifs,
+                limit: 6
+            )
             if !workflowContext.emotionalContinuity.isEmpty {
                 promptEmotionalContinuity = workflowContext.emotionalContinuity
             }
@@ -9476,6 +9554,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         if promptBeatSequence.isEmpty {
             promptBeatSequence = draftBeatSequence
+        }
+        if promptNextThreeTurns.isEmpty {
+            promptNextThreeTurns = Array(promptNextSceneMoves.prefix(3))
+        }
+        if promptActPressureState.isEmpty {
+            promptActPressureState = promptFeatureObligation
+        }
+        if promptCharacterArcState.isEmpty {
+            promptCharacterArcState = [promptProtagonistNeed, promptThemeArgument]
+                .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
         }
 
         return (
@@ -9494,9 +9582,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
             featureObligation: promptFeatureObligation,
             nextScenePlan: promptNextScenePlan,
             nextSceneMoves: promptNextSceneMoves,
+            nextThreeTurns: promptNextThreeTurns,
+            actThreePayoffPath: promptActThreePayoffPath,
+            actPressureState: promptActPressureState,
+            characterArcState: promptCharacterArcState,
+            lastSceneOutcome: promptLastSceneOutcome,
             beatSequence: promptBeatSequence,
             characterFocus: characterFocus,
             unresolvedSetups: promptUnresolvedSetups,
+            unresolvedStoryThreads: promptUnresolvedStoryThreads,
+            characterArcTurns: promptCharacterArcTurns,
+            imageMotifs: promptImageMotifs,
             continuityNotes: continuityNotes,
             emotionalContinuity: promptEmotionalContinuity,
             pageCount: promptPageCount,
@@ -10339,11 +10435,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayEndingImage: promptContinuity.endingImage,
             screenplayFeatureSequence: promptContinuity.featureSequence,
             screenplayFeatureObligation: promptContinuity.featureObligation,
+            screenplayActPressureState: promptContinuity.actPressureState,
+            screenplayCharacterArcState: promptContinuity.characterArcState,
+            screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
             screenplayNextScenePlan: promptContinuity.nextScenePlan,
             screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
+            screenplayNextThreeTurns: promptContinuity.nextThreeTurns,
+            screenplayActThreePayoffPath: promptContinuity.actThreePayoffPath,
             screenplayBeatSequence: promptContinuity.beatSequence,
             screenplayCharacterFocus: promptContinuity.characterFocus,
             screenplayUnresolvedSetups: promptContinuity.unresolvedSetups,
+            screenplayUnresolvedStoryThreads: promptContinuity.unresolvedStoryThreads,
+            screenplayCharacterArcTurns: promptContinuity.characterArcTurns,
+            screenplayImageMotifs: promptContinuity.imageMotifs,
             screenplayContinuityNotes: promptContinuity.continuityNotes,
             screenplayEmotionalContinuity: promptContinuity.emotionalContinuity,
             screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
@@ -10493,11 +10597,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayEndingImage: promptContinuity.endingImage,
             screenplayFeatureSequence: promptContinuity.featureSequence,
             screenplayFeatureObligation: promptContinuity.featureObligation,
+            screenplayActPressureState: promptContinuity.actPressureState,
+            screenplayCharacterArcState: promptContinuity.characterArcState,
+            screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
             screenplayNextScenePlan: promptContinuity.nextScenePlan,
             screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
+            screenplayNextThreeTurns: promptContinuity.nextThreeTurns,
+            screenplayActThreePayoffPath: promptContinuity.actThreePayoffPath,
             screenplayBeatSequence: promptContinuity.beatSequence,
             screenplayCharacterFocus: promptContinuity.characterFocus,
             screenplayUnresolvedSetups: promptContinuity.unresolvedSetups,
+            screenplayUnresolvedStoryThreads: promptContinuity.unresolvedStoryThreads,
+            screenplayCharacterArcTurns: promptContinuity.characterArcTurns,
+            screenplayImageMotifs: promptContinuity.imageMotifs,
             screenplayContinuityNotes: promptContinuity.continuityNotes,
             screenplayEmotionalContinuity: promptContinuity.emotionalContinuity,
             screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,

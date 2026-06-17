@@ -91,8 +91,13 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
     let currentBeat: String
     let featureSequence: String
     let featureObligation: String
+    let actPressureState: String
+    let characterArcState: String
+    let lastSceneOutcome: String
     let nextScenePlan: String
     let nextSceneMoves: [String]
+    let nextThreeTurns: [String]
+    let actThreePayoffPath: [String]
     let logline: String
     let themeArgument: String
     let centralQuestion: String
@@ -101,6 +106,9 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
     let antagonisticForce: String
     let endingImage: String
     let unresolvedSetups: [String]
+    let unresolvedStoryThreads: [String]
+    let characterArcTurns: [String]
+    let imageMotifs: [String]
     let continuityNotes: [String]
     let emotionalContinuity: String
     let pageCount: Int
@@ -141,6 +149,14 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
                 : "\(snapshot.structuralObligation) \(snapshot.featureSequenceDetail)",
             limit: 280
         )
+        self.actPressureState = Self.clean(snapshot.structuralObligation, limit: 280)
+        self.characterArcState = Self.clean(
+            featureSpine.protagonistNeed.isEmpty
+                ? featureSpine.themeArgument
+                : "Need: \(featureSpine.protagonistNeed)",
+            limit: 280
+        )
+        self.lastSceneOutcome = Self.clean(snapshot.acceptedBatchDetail, limit: 240)
         self.nextScenePlan = Self.clean(
             "Next scene: \(snapshot.nextSceneTitle). \(snapshot.nextSceneDetail)",
             limit: 340
@@ -150,6 +166,18 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
                 snapshot.featureSequenceMoves.map { "Sequence move: \($0)" },
             limit: 5,
             itemLimit: 180
+        )
+        self.nextThreeTurns = Self.cleanList(
+            snapshot.nextMoves.map { "\($0.title): \($0.detail)" },
+            limit: 3,
+            itemLimit: 180
+        )
+        self.actThreePayoffPath = Self.cleanList(
+            featureSpine.unresolvedSetups + [
+                featureSpine.endingImage.isEmpty ? "" : "Final image: \(featureSpine.endingImage)"
+            ],
+            limit: 5,
+            itemLimit: 200
         )
         self.logline = Self.clean(featureSpine.logline, limit: 500)
         self.themeArgument = Self.clean(featureSpine.themeArgument, limit: 500)
@@ -163,6 +191,17 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
             limit: 8,
             itemLimit: 220
         )
+        self.unresolvedStoryThreads = Self.cleanList([
+            featureSpine.centralQuestion.isEmpty ? "" : "Central question: \(featureSpine.centralQuestion)",
+            featureSpine.antagonisticForce.isEmpty ? "" : "Opposition: \(featureSpine.antagonisticForce)"
+        ] + featureSpine.unresolvedSetups, limit: 8, itemLimit: 220)
+        self.characterArcTurns = Self.cleanList([
+            featureSpine.protagonistNeed.isEmpty ? "" : "Need: \(featureSpine.protagonistNeed)",
+            featureSpine.themeArgument.isEmpty ? "" : "Theme: \(featureSpine.themeArgument)"
+        ], limit: 6, itemLimit: 180)
+        self.imageMotifs = Self.cleanList([
+            featureSpine.endingImage.isEmpty ? "" : "Ending image: \(featureSpine.endingImage)"
+        ], limit: 6, itemLimit: 140)
         self.continuityNotes = Self.cleanList([
             "Feature Compass accepted batch: \(snapshot.acceptedBatchDetail)",
             "Feature Compass next scene: \(snapshot.nextSceneTitle)",
@@ -183,8 +222,13 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
             currentBeat.isEmpty &&
             featureSequence.isEmpty &&
             featureObligation.isEmpty &&
+            actPressureState.isEmpty &&
+            characterArcState.isEmpty &&
+            lastSceneOutcome.isEmpty &&
             nextScenePlan.isEmpty &&
             nextSceneMoves.isEmpty &&
+            nextThreeTurns.isEmpty &&
+            actThreePayoffPath.isEmpty &&
             logline.isEmpty &&
             themeArgument.isEmpty &&
             centralQuestion.isEmpty &&
@@ -193,6 +237,9 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
             antagonisticForce.isEmpty &&
             endingImage.isEmpty &&
             unresolvedSetups.isEmpty &&
+            unresolvedStoryThreads.isEmpty &&
+            characterArcTurns.isEmpty &&
+            imageMotifs.isEmpty &&
             continuityNotes.isEmpty &&
             emotionalContinuity.isEmpty &&
             pageCount <= 0 &&
@@ -211,8 +258,13 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         case currentBeat
         case featureSequence
         case featureObligation
+        case actPressureState
+        case characterArcState
+        case lastSceneOutcome
         case nextScenePlan
         case nextSceneMoves
+        case nextThreeTurns
+        case actThreePayoffPath
         case logline
         case themeArgument
         case centralQuestion
@@ -221,6 +273,9 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         case antagonisticForce
         case endingImage
         case unresolvedSetups
+        case unresolvedStoryThreads
+        case characterArcTurns
+        case imageMotifs
         case continuityNotes
         case emotionalContinuity
         case pageCount
@@ -240,11 +295,24 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         self.currentBeat = Self.clean(try container.decodeIfPresent(String.self, forKey: .currentBeat) ?? "", limit: 220)
         self.featureSequence = Self.clean(try container.decodeIfPresent(String.self, forKey: .featureSequence) ?? "", limit: 220)
         self.featureObligation = Self.clean(try container.decodeIfPresent(String.self, forKey: .featureObligation) ?? "", limit: 280)
+        self.actPressureState = Self.clean(try container.decodeIfPresent(String.self, forKey: .actPressureState) ?? "", limit: 280)
+        self.characterArcState = Self.clean(try container.decodeIfPresent(String.self, forKey: .characterArcState) ?? "", limit: 280)
+        self.lastSceneOutcome = Self.clean(try container.decodeIfPresent(String.self, forKey: .lastSceneOutcome) ?? "", limit: 240)
         self.nextScenePlan = Self.clean(try container.decodeIfPresent(String.self, forKey: .nextScenePlan) ?? "", limit: 340)
         self.nextSceneMoves = Self.cleanList(
             try container.decodeIfPresent([String].self, forKey: .nextSceneMoves) ?? [],
             limit: 5,
             itemLimit: 180
+        )
+        self.nextThreeTurns = Self.cleanList(
+            try container.decodeIfPresent([String].self, forKey: .nextThreeTurns) ?? [],
+            limit: 3,
+            itemLimit: 180
+        )
+        self.actThreePayoffPath = Self.cleanList(
+            try container.decodeIfPresent([String].self, forKey: .actThreePayoffPath) ?? [],
+            limit: 5,
+            itemLimit: 200
         )
         self.logline = Self.clean(try container.decodeIfPresent(String.self, forKey: .logline) ?? "", limit: 500)
         self.themeArgument = Self.clean(try container.decodeIfPresent(String.self, forKey: .themeArgument) ?? "", limit: 500)
@@ -257,6 +325,21 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
             try container.decodeIfPresent([String].self, forKey: .unresolvedSetups) ?? [],
             limit: 8,
             itemLimit: 220
+        )
+        self.unresolvedStoryThreads = Self.cleanList(
+            try container.decodeIfPresent([String].self, forKey: .unresolvedStoryThreads) ?? [],
+            limit: 8,
+            itemLimit: 220
+        )
+        self.characterArcTurns = Self.cleanList(
+            try container.decodeIfPresent([String].self, forKey: .characterArcTurns) ?? [],
+            limit: 6,
+            itemLimit: 180
+        )
+        self.imageMotifs = Self.cleanList(
+            try container.decodeIfPresent([String].self, forKey: .imageMotifs) ?? [],
+            limit: 6,
+            itemLimit: 140
         )
         self.continuityNotes = Self.cleanList(
             try container.decodeIfPresent([String].self, forKey: .continuityNotes) ?? [],

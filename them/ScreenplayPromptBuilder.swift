@@ -20,11 +20,19 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
     var endingImage: String = ""
     var featureSequence: String = ""
     var featureObligation: String = ""
+    var actPressureState: String = ""
+    var characterArcState: String = ""
+    var lastSceneOutcome: String = ""
     var nextScenePlan: String = ""
     var nextSceneMoves: [String] = []
+    var nextThreeTurns: [String] = []
+    var actThreePayoffPath: [String] = []
     var beatSequence: [String] = []
     var characterFocus: [String] = []
     var unresolvedSetups: [String] = []
+    var unresolvedStoryThreads: [String] = []
+    var characterArcTurns: [String] = []
+    var imageMotifs: [String] = []
     var continuityNotes: [String] = []
     var emotionalContinuity: String = ""
     var pageCount: Int = 0
@@ -50,11 +58,19 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
         case endingImage = "ending_image"
         case featureSequence = "feature_sequence"
         case featureObligation = "feature_obligation"
+        case actPressureState = "act_pressure_state"
+        case characterArcState = "character_arc_state"
+        case lastSceneOutcome = "last_scene_outcome"
         case nextScenePlan = "next_scene_plan"
         case nextSceneMoves = "next_scene_moves"
+        case nextThreeTurns = "next_three_turns"
+        case actThreePayoffPath = "act_three_payoff_path"
         case beatSequence = "beat_sequence"
         case characterFocus = "character_focus"
         case unresolvedSetups = "unresolved_setups"
+        case unresolvedStoryThreads = "unresolved_story_threads"
+        case characterArcTurns = "character_arc_turns"
+        case imageMotifs = "image_motifs"
         case continuityNotes = "continuity_notes"
         case emotionalContinuity = "emotional_continuity"
         case pageCount = "page_count"
@@ -139,11 +155,19 @@ struct ScreenplayPromptBuilder {
         var endingImage: String = ""
         var featureSequence: String = ""
         var featureObligation: String = ""
+        var actPressureState: String = ""
+        var characterArcState: String = ""
+        var lastSceneOutcome: String = ""
         var nextScenePlan: String = ""
         var nextSceneMoves: [String] = []
+        var nextThreeTurns: [String] = []
+        var actThreePayoffPath: [String] = []
         var beatSequence: [String] = []
         var characterFocus: [String] = []
         var unresolvedSetups: [String] = []
+        var unresolvedStoryThreads: [String] = []
+        var characterArcTurns: [String] = []
+        var imageMotifs: [String] = []
         var continuityNotes: [String] = []
         var emotionalContinuity: String = ""
         var pageCount: Int = 0
@@ -264,12 +288,20 @@ struct ScreenplayPromptBuilder {
         let endingImage = request.endingImage.trimmingCharacters(in: .whitespacesAndNewlines)
         let featureSequence = request.featureSequence.trimmingCharacters(in: .whitespacesAndNewlines)
         let featureObligation = request.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let actPressureState = request.actPressureState.trimmingCharacters(in: .whitespacesAndNewlines)
+        let characterArcState = request.characterArcState.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastSceneOutcome = request.lastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextScenePlan = request.nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines)
         let emotionalContinuity = request.emotionalContinuity.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextSceneMoves = Self.sanitizedContextList(request.nextSceneMoves, limit: 5)
+        let nextThreeTurns = Self.sanitizedContextList(request.nextThreeTurns, limit: 3)
+        let actThreePayoffPath = Self.sanitizedContextList(request.actThreePayoffPath, limit: 5)
         let beatSequence = Self.sanitizedContextList(request.beatSequence, limit: 8)
         let characterFocus = Self.sanitizedContextList(request.characterFocus, limit: 8)
         let unresolvedSetups = Self.sanitizedContextList(request.unresolvedSetups, limit: 8)
+        let unresolvedStoryThreads = Self.sanitizedContextList(request.unresolvedStoryThreads, limit: 8)
+        let characterArcTurns = Self.sanitizedContextList(request.characterArcTurns, limit: 6)
+        let imageMotifs = Self.sanitizedContextList(request.imageMotifs, limit: 6)
         let continuityNotes = Self.sanitizedContextList(request.continuityNotes, limit: 8)
         let pageCount = max(0, request.pageCount)
         let targetPages = max(0, request.targetPages)
@@ -278,8 +310,11 @@ struct ScreenplayPromptBuilder {
                 !currentBeat.isEmpty || !logline.isEmpty || !themeArgument.isEmpty || !centralQuestion.isEmpty ||
                 !protagonistWant.isEmpty || !protagonistNeed.isEmpty || !antagonisticForce.isEmpty ||
                 !endingImage.isEmpty || !featureSequence.isEmpty || !featureObligation.isEmpty ||
+                !actPressureState.isEmpty || !characterArcState.isEmpty || !lastSceneOutcome.isEmpty ||
                 !nextScenePlan.isEmpty || !nextSceneMoves.isEmpty || !emotionalContinuity.isEmpty ||
-                !beatSequence.isEmpty || !characterFocus.isEmpty || !unresolvedSetups.isEmpty || !continuityNotes.isEmpty ||
+                !nextThreeTurns.isEmpty || !actThreePayoffPath.isEmpty || !beatSequence.isEmpty ||
+                !characterFocus.isEmpty || !unresolvedSetups.isEmpty || !unresolvedStoryThreads.isEmpty ||
+                !characterArcTurns.isEmpty || !imageMotifs.isEmpty || !continuityNotes.isEmpty ||
                 pageCount > 0 || targetPages > 0 else { return nil }
         return BackendScreenplayPromptSessionContext(
             projectId: projectId,
@@ -301,11 +336,19 @@ struct ScreenplayPromptBuilder {
             endingImage: endingImage,
             featureSequence: featureSequence,
             featureObligation: featureObligation,
+            actPressureState: actPressureState,
+            characterArcState: characterArcState,
+            lastSceneOutcome: lastSceneOutcome,
             nextScenePlan: nextScenePlan,
             nextSceneMoves: nextSceneMoves,
+            nextThreeTurns: nextThreeTurns,
+            actThreePayoffPath: actThreePayoffPath,
             beatSequence: beatSequence,
             characterFocus: characterFocus,
             unresolvedSetups: unresolvedSetups,
+            unresolvedStoryThreads: unresolvedStoryThreads,
+            characterArcTurns: characterArcTurns,
+            imageMotifs: imageMotifs,
             continuityNotes: continuityNotes,
             emotionalContinuity: emotionalContinuity,
             pageCount: pageCount,
@@ -354,6 +397,9 @@ struct ScreenplayPromptBuilder {
         let endingImage = request.endingImage.trimmingCharacters(in: .whitespacesAndNewlines)
         let featureSequence = request.featureSequence.trimmingCharacters(in: .whitespacesAndNewlines)
         let featureObligation = request.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let actPressureState = request.actPressureState.trimmingCharacters(in: .whitespacesAndNewlines)
+        let characterArcState = request.characterArcState.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastSceneOutcome = request.lastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextScenePlan = request.nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines)
         let emotionalContinuity = request.emotionalContinuity.trimmingCharacters(in: .whitespacesAndNewlines)
         let draftExcerpt = request.draftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -374,6 +420,9 @@ struct ScreenplayPromptBuilder {
             !endingImage.isEmpty ||
             !featureSequence.isEmpty ||
             !featureObligation.isEmpty ||
+            !actPressureState.isEmpty ||
+            !characterArcState.isEmpty ||
+            !lastSceneOutcome.isEmpty ||
             !nextScenePlan.isEmpty ||
             !emotionalContinuity.isEmpty ||
             !draftExcerpt.isEmpty ||
@@ -460,6 +509,15 @@ struct ScreenplayPromptBuilder {
         if !featureObligation.isEmpty {
             lines.append("- Structural obligation due now: \(String(featureObligation.prefix(260)))")
         }
+        if !actPressureState.isEmpty {
+            lines.append("- Act pressure state: \(String(actPressureState.prefix(260)))")
+        }
+        if !characterArcState.isEmpty {
+            lines.append("- Character arc pressure: \(String(characterArcState.prefix(260)))")
+        }
+        if !lastSceneOutcome.isEmpty {
+            lines.append("- Last scene outcome: \(String(lastSceneOutcome.prefix(220)))")
+        }
         if !nextScenePlan.isEmpty {
             lines.append("- Next scene planner: \(String(nextScenePlan.prefix(320)))")
         }
@@ -472,6 +530,15 @@ struct ScreenplayPromptBuilder {
         if !nextSceneMoves.isEmpty {
             lines.append("- Next scene moves: \(nextSceneMoves.joined(separator: " -> "))")
         }
+        let nextThreeTurns = Self.sanitizedContextList(request.nextThreeTurns, limit: 3)
+        if !nextThreeTurns.isEmpty {
+            lines.append("- Next three turns: \(nextThreeTurns.joined(separator: " -> "))")
+            lines.append("- Beat-to-page continuation: spend the first next turn before inventing a new plot lane.")
+        }
+        let actThreePayoffPath = Self.sanitizedContextList(request.actThreePayoffPath, limit: 5)
+        if !actThreePayoffPath.isEmpty {
+            lines.append("- Act III payoff path: \(actThreePayoffPath.joined(separator: "; "))")
+        }
         let beatSequence = Self.sanitizedContextList(request.beatSequence, limit: 6)
         if !beatSequence.isEmpty {
             lines.append("- Beat chain: \(beatSequence.joined(separator: " -> "))")
@@ -479,6 +546,18 @@ struct ScreenplayPromptBuilder {
         let unresolvedSetups = Self.sanitizedContextList(request.unresolvedSetups, limit: 4)
         if !unresolvedSetups.isEmpty {
             lines.append("- Unresolved setups: \(unresolvedSetups.joined(separator: "; "))")
+        }
+        let unresolvedStoryThreads = Self.sanitizedContextList(request.unresolvedStoryThreads, limit: 4)
+        if !unresolvedStoryThreads.isEmpty {
+            lines.append("- Unresolved story threads: \(unresolvedStoryThreads.joined(separator: "; "))")
+        }
+        let characterArcTurns = Self.sanitizedContextList(request.characterArcTurns, limit: 4)
+        if !characterArcTurns.isEmpty {
+            lines.append("- Character arc turns: \(characterArcTurns.joined(separator: "; "))")
+        }
+        let imageMotifs = Self.sanitizedContextList(request.imageMotifs, limit: 4)
+        if !imageMotifs.isEmpty {
+            lines.append("- Image motifs: \(imageMotifs.joined(separator: "; "))")
         }
         let characterFocus = Self.sanitizedContextList(request.characterFocus, limit: 5)
         if !characterFocus.isEmpty {

@@ -581,11 +581,19 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     var screenplayEndingImage: String = ""
     var screenplayFeatureSequence: String = ""
     var screenplayFeatureObligation: String = ""
+    var screenplayActPressureState: String = ""
+    var screenplayCharacterArcState: String = ""
+    var screenplayLastSceneOutcome: String = ""
     var screenplayNextScenePlan: String = ""
     var screenplayNextSceneMoves: [String] = []
+    var screenplayNextThreeTurns: [String] = []
+    var screenplayActThreePayoffPath: [String] = []
     var screenplayBeatSequence: [String] = []
     var screenplayCharacterFocus: [String] = []
     var screenplayUnresolvedSetups: [String] = []
+    var screenplayUnresolvedStoryThreads: [String] = []
+    var screenplayCharacterArcTurns: [String] = []
+    var screenplayImageMotifs: [String] = []
     var screenplayContinuityNotes: [String] = []
     var screenplayEmotionalContinuity: String = ""
     var screenplayPageCount: Int? = nil
@@ -626,11 +634,19 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
         !screenplayEndingImage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayFeatureSequence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayFeatureObligation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayActPressureState.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayCharacterArcState.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !screenplayLastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayNextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayNextSceneMoves.isEmpty ||
+        !screenplayNextThreeTurns.isEmpty ||
+        !screenplayActThreePayoffPath.isEmpty ||
         !screenplayBeatSequence.isEmpty ||
         !screenplayCharacterFocus.isEmpty ||
         !screenplayUnresolvedSetups.isEmpty ||
+        !screenplayUnresolvedStoryThreads.isEmpty ||
+        !screenplayCharacterArcTurns.isEmpty ||
+        !screenplayImageMotifs.isEmpty ||
         !screenplayContinuityNotes.isEmpty ||
         !screenplayEmotionalContinuity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         (screenplayPageCount ?? 0) > 0 ||
@@ -2954,11 +2970,19 @@ actor BackendMemoryAPI {
         appendString("screenplay_ending_image", studioMetadata.screenplayEndingImage, limit: 240)
         appendString("screenplay_feature_sequence", studioMetadata.screenplayFeatureSequence, limit: 220)
         appendString("screenplay_feature_obligation", studioMetadata.screenplayFeatureObligation, limit: 280)
+        appendString("screenplay_act_pressure_state", studioMetadata.screenplayActPressureState, limit: 280)
+        appendString("screenplay_character_arc_state", studioMetadata.screenplayCharacterArcState, limit: 280)
+        appendString("screenplay_last_scene_outcome", studioMetadata.screenplayLastSceneOutcome, limit: 240)
         appendString("screenplay_next_scene_plan", studioMetadata.screenplayNextScenePlan, limit: 340)
         appendStrings("screenplay_next_scene_moves", studioMetadata.screenplayNextSceneMoves, maxItems: 5, limit: 180)
+        appendStrings("screenplay_next_three_turns", studioMetadata.screenplayNextThreeTurns, maxItems: 3, limit: 180)
+        appendStrings("screenplay_act_three_payoff_path", studioMetadata.screenplayActThreePayoffPath, maxItems: 5, limit: 200)
         appendStrings("screenplay_beat_sequence", studioMetadata.screenplayBeatSequence, maxItems: 8, limit: 180)
         appendStrings("screenplay_character_focus", studioMetadata.screenplayCharacterFocus, maxItems: 8, limit: 120)
         appendStrings("screenplay_unresolved_setups", studioMetadata.screenplayUnresolvedSetups, maxItems: 8, limit: 220)
+        appendStrings("screenplay_unresolved_story_threads", studioMetadata.screenplayUnresolvedStoryThreads, maxItems: 8, limit: 220)
+        appendStrings("screenplay_character_arc_turns", studioMetadata.screenplayCharacterArcTurns, maxItems: 6, limit: 180)
+        appendStrings("screenplay_image_motifs", studioMetadata.screenplayImageMotifs, maxItems: 6, limit: 140)
         appendStrings("screenplay_continuity_notes", studioMetadata.screenplayContinuityNotes, maxItems: 8, limit: 220)
         appendString("screenplay_emotional_continuity", studioMetadata.screenplayEmotionalContinuity, limit: 280)
         appendInt("screenplay_page_count", studioMetadata.screenplayPageCount)

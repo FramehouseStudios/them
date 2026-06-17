@@ -39,10 +39,25 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 endingImage: "June screens the recovered reel to a silent street.",
                 featureSequence: "Act II - Midpoint Pressure (p41-p55)",
                 featureObligation: "The midpoint must raise stakes, reveal a truth, or turn victory into a trap.",
+                actPressureState: "The midpoint victory turns into a trap.",
+                characterArcState: "June must trust someone with the truth.",
+                lastSceneOutcome: "June closed the blinds on Marcus.",
                 nextScenePlan: "Act II - Midpoint Pressure: June wins the reel and realizes the win is a trap.",
                 nextSceneMoves: ["Make the midpoint public.", "Let the emotional truth arrive before exposition."],
+                nextThreeTurns: [
+                    "The receipt becomes bait.",
+                    "Marcus tries to bury the reel.",
+                    "June chooses public exposure."
+                ],
+                actThreePayoffPath: [
+                    "The missing cassette pays off in public.",
+                    "The recovered reel becomes testimony."
+                ],
                 beatSequence: ["Receipt reveal", "Marcus lies badly"],
                 unresolvedSetups: ["The missing cassette has not paid off."],
+                unresolvedStoryThreads: ["Who erased the archive ledger?"],
+                characterArcTurns: ["June chooses trust over isolation."],
+                imageMotifs: ["recovered reel", "silent street"],
                 continuityNotes: ["Trust is turning into suspicion."],
                 pageCount: 47,
                 targetPages: 110,
@@ -78,10 +93,25 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.endingImage, "June screens the recovered reel to a silent street.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.featureSequence, "Act II - Midpoint Pressure (p41-p55)")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.featureObligation, "The midpoint must raise stakes, reveal a truth, or turn victory into a trap.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.actPressureState, "The midpoint victory turns into a trap.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.characterArcState, "June must trust someone with the truth.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.lastSceneOutcome, "June closed the blinds on Marcus.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.nextScenePlan, "Act II - Midpoint Pressure: June wins the reel and realizes the win is a trap.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.nextSceneMoves, ["Make the midpoint public.", "Let the emotional truth arrive before exposition."])
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.nextThreeTurns, [
+            "The receipt becomes bait.",
+            "Marcus tries to bury the reel.",
+            "June chooses public exposure."
+        ])
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.actThreePayoffPath, [
+            "The missing cassette pays off in public.",
+            "The recovered reel becomes testimony."
+        ])
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.beatSequence, ["Receipt reveal", "Marcus lies badly"])
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.unresolvedSetups, ["The missing cassette has not paid off."])
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.unresolvedStoryThreads, ["Who erased the archive ledger?"])
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.characterArcTurns, ["June chooses trust over isolation."])
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.imageMotifs, ["recovered reel", "silent street"])
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.continuityNotes, ["Trust is turning into suspicion."])
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.pageCount, 47)
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.targetPages, 110)
@@ -170,10 +200,25 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 endingImage: "Mara hangs the true sketch outside the courthouse.",
                 featureSequence: "Act II - Reversal Fallout (p56-p70)",
                 featureObligation: "The old tactic should stop working under public pressure.",
+                actPressureState: "Public pressure turns Mara's observation habit into a liability.",
+                characterArcState: "Mara must act instead of hiding behind observation.",
+                lastSceneOutcome: "Mara watched the witness collapse and did nothing.",
                 nextScenePlan: "Act II - Reversal Fallout: Mara's observation habit fails in front of the court.",
                 nextSceneMoves: ["Show the old tactic failing.", "Let the relationship cost sharpen the theme argument."],
+                nextThreeTurns: [
+                    "The judge corners Mara into silence.",
+                    "The courthouse key becomes a moral test.",
+                    "Mara chooses public risk over private proof."
+                ],
+                actThreePayoffPath: [
+                    "The courthouse key opens the sealed evidence room.",
+                    "The public sketch wall pays off in the final image."
+                ],
                 characterFocus: ["MARA", "JUDGE VALE"],
                 unresolvedSetups: ["The courthouse key has not paid off."],
+                unresolvedStoryThreads: ["Who has been editing the witness transcripts?"],
+                characterArcTurns: ["Mara stops observing and intervenes."],
+                imageMotifs: ["charcoal dust", "courthouse wall"],
                 emotionalContinuity: "Mara is angry because observation finally cost someone else.",
                 pageCount: 62,
                 targetPages: 110,
@@ -219,11 +264,20 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertTrue(result.prompt.contains("Ending image: Mara hangs the true sketch outside the courthouse."))
         XCTAssertTrue(result.prompt.contains("Active feature sequence: Act II - Reversal Fallout"))
         XCTAssertTrue(result.prompt.contains("Structural obligation due now: The old tactic should stop working"))
+        XCTAssertTrue(result.prompt.contains("Act pressure state: Public pressure turns Mara's observation habit into a liability."))
+        XCTAssertTrue(result.prompt.contains("Character arc pressure: Mara must act instead of hiding behind observation."))
+        XCTAssertTrue(result.prompt.contains("Last scene outcome: Mara watched the witness collapse and did nothing."))
         XCTAssertTrue(result.prompt.contains("Next scene planner: Act II - Reversal Fallout"))
         XCTAssertTrue(result.prompt.contains("Emotional continuity: Mara is angry because observation finally cost someone else."))
         XCTAssertTrue(result.prompt.contains("Next scene moves: Show the old tactic failing. -> Let the relationship cost sharpen the theme argument."))
+        XCTAssertTrue(result.prompt.contains("Next three turns: The judge corners Mara into silence. -> The courthouse key becomes a moral test. -> Mara chooses public risk over private proof."))
+        XCTAssertTrue(result.prompt.contains("Beat-to-page continuation: spend the first next turn before inventing a new plot lane."))
+        XCTAssertTrue(result.prompt.contains("Act III payoff path: The courthouse key opens the sealed evidence room.; The public sketch wall pays off in the final image."))
         XCTAssertTrue(result.prompt.contains("Next page moves: name the active structural obligation"))
         XCTAssertTrue(result.prompt.contains("Unresolved setups: The courthouse key has not paid off."))
+        XCTAssertTrue(result.prompt.contains("Unresolved story threads: Who has been editing the witness transcripts?"))
+        XCTAssertTrue(result.prompt.contains("Character arc turns: Mara stops observing and intervenes."))
+        XCTAssertTrue(result.prompt.contains("Image motifs: charcoal dust; courthouse wall"))
         XCTAssertTrue(result.prompt.contains("Character focus: MARA; JUDGE VALE"))
         XCTAssertFalse(result.usedBackendAssembly)
         XCTAssertFalse(result.fallbackReason.isEmpty)

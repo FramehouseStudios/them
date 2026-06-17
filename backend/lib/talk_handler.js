@@ -476,6 +476,10 @@ function createTalkHandler(deps) {
       studioMeta?.screenplayActPressureState || studioMeta?.screenplay_act_pressure_state,
       220
     );
+    const screenplayLastSceneOutcome = normalizeSnippet(
+      studioMeta?.screenplayLastSceneOutcome || studioMeta?.screenplay_last_scene_outcome,
+      220
+    );
     const screenplayEndingImage = normalizeSnippet(
       studioMeta?.screenplayEndingImage || studioMeta?.screenplay_ending_image,
       220
@@ -495,6 +499,21 @@ function createTalkHandler(deps) {
       4,
       200
     );
+    const screenplayUnresolvedStoryThreads = normalizeRepairList(
+      studioMeta?.screenplayUnresolvedStoryThreads || studioMeta?.screenplay_unresolved_story_threads,
+      4,
+      200
+    );
+    const screenplayCharacterArcTurns = normalizeRepairList(
+      studioMeta?.screenplayCharacterArcTurns || studioMeta?.screenplay_character_arc_turns,
+      4,
+      180
+    );
+    const screenplayImageMotifs = normalizeRepairList(
+      studioMeta?.screenplayImageMotifs || studioMeta?.screenplay_image_motifs,
+      4,
+      140
+    );
     const featureObligationLines = [
       screenplayAct ? `ACT: ${screenplayAct}` : "",
       screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
@@ -503,10 +522,14 @@ function createTalkHandler(deps) {
       screenplayCurrentBeat ? `CURRENT_BEAT: ${screenplayCurrentBeat}` : "",
       screenplayActPressureState ? `ACT_PRESSURE: ${screenplayActPressureState}` : "",
       screenplayCharacterArcState ? `CHANGED_BEHAVIOR_DUE: ${screenplayCharacterArcState}` : "",
+      screenplayLastSceneOutcome ? `LAST_SCENE_OUTCOME: ${screenplayLastSceneOutcome}` : "",
       screenplayEndingImage ? `ENDING_IMAGE_PRESSURE: ${screenplayEndingImage}` : "",
       ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
       ...screenplayActThreePayoffPath.map((item) => `ACT_THREE_PAYOFF: ${item}`),
       ...screenplayUnresolvedSetups.map((item) => `SETUP_TO_CARRY_OR_PAY: ${item}`),
+      ...screenplayUnresolvedStoryThreads.map((item) => `UNRESOLVED_THREAD: ${item}`),
+      ...screenplayCharacterArcTurns.map((item) => `CHARACTER_ARC_TURN: ${item}`),
+      ...screenplayImageMotifs.map((item) => `IMAGE_MOTIF: ${item}`),
     ].filter(Boolean);
     const repairMessages = [
       {
