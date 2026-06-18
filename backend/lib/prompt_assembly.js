@@ -443,6 +443,18 @@ function serializeCharacters(characters) {
       const traitLine = buildTraitsBlockForPrompt(c.traits);
       if (traitLine) lines.push(`      traits: ${traitLine}`);
     }
+    if (c.bible && typeof c.bible === "object") {
+      const bibleParts = [];
+      const canon = sanitizeContextList(c.bible.canon ?? c.bible.facts, 4, 160);
+      const corrections = sanitizeContextList(c.bible.corrections, 2, 180);
+      const correctedTerms = sanitizeContextList(c.bible.correctionReplacements, 3, 120)
+        .concat(sanitizeContextList(c.bible.correctedTerms, 3, 80))
+        .slice(0, 4);
+      if (canon.length) bibleParts.push(`canon: ${canon.join(" / ")}`);
+      if (corrections.length) bibleParts.push(`corrections: ${corrections.join(" / ")}`);
+      if (correctedTerms.length) bibleParts.push(`corrected_terms: ${correctedTerms.join(" / ")}`);
+      if (bibleParts.length) lines.push(`      bible: ${bibleParts.join("; ")}`);
+    }
   }
   return `recurring-characters:\n${lines.join("\n")}`;
 }

@@ -25,6 +25,9 @@ import {
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
 const CHARACTERS_MAX = 32;
+const CHARACTER_BIBLE_CANON_MAX = 12;
+const CHARACTER_BIBLE_CORRECTIONS_MAX = 8;
+const CHARACTER_BIBLE_TERMS_MAX = 12;
 const EPISODIC_MEMORIES_MAX = 64;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const DOMAIN = "creative_memory";
@@ -95,6 +98,7 @@ const STORY_MEMORY_KEYWORDS = /\b(?:act\s*(?:i|ii|iii|1|2|3|one|two|three)|all[-
 const EXPLICIT_MEMORY_KEYWORDS = /\b(?:remember|keep in mind|do not forget|don't forget|note that|important|actually,\s*no|correction|for this movie|for this film|for this screenplay|in this movie|in this film|in this script|in my movie|in my film|in my screenplay|in my script)\b/i;
 const CORRECTION_KEYWORDS = /\b(?:actually,\s*no|correction|scratch that|not that|instead|retcon|change it to|make it so)\b/i;
 const CORRECTION_TAG = "correction";
+const CHARACTER_BIBLE_FACT_KEYWORDS = /\b(?:is|was|becomes|became|turns out|wants|needs|must|believes|hides|knows|protects|fears|misses|betrays|trusts|forgives|loves|hates|secret|wound|goal|arc|relationship|mother|father|sister|brother|daughter|son|wife|husband|partner)\b/i;
 
 function nowMs() {
   return Date.now();
@@ -172,6 +176,186 @@ function normalizeStringList(items, maxItems = 8, maxChars = 80) {
     if (out.length >= maxItems) break;
   }
   return out;
+}
+
+function normalizeCharacterBibleFact(value = "", maxChars = 220) {
+  return cleanText(value, maxChars)
+    .replace(/^\s*(?:actually,?\s*no,?|no,?|correction:?|scratch that,?|retcon:?|not that,?)\s*/i, "")
+    .trim();
+}
+
+function normalizeCharacterCorrectionTerm(value = "", maxChars = 120) {
+  return cleanText(value, maxChars)
+    .replace(/^(?:a|an|the|that|this|his|her|their|its)\s+/i, "")
+    .replace(/[.,;:]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function collectCharacterBibleItems(items = [], maxItems = CHARACTER_BIBLE_CANON_MAX, maxChars = 220) {
+  return normalizeStringList(items, maxItems, maxChars);
+}
+
+function parseCharacterBibleReplacement(value = "") {
+  const clean = cleanText(value, 180);
+  const parts = clean.split(/\s*->\s*/);
+  if (parts.length !== 2) return null;
+  const from = normalizeCharacterCorrectionTerm(parts[0], 90);
+  const to = normalizeCharacterCorrectionTerm(parts[1], 120);
+  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return null;
+  return { from, to };
+}
+
+function textContainsCharacterCorrectionTerm(value = "", terms = []) {
+  const text = cleanText(value, 1_000).toLowerCase();
+  if (!text) return false;
+  return collectCharacterBibleItems(terms, CHARACTER_BIBLE_TERMS_MAX, 120).some((term) => {
+    const lower = term.toLowerCase();
+    return lower && text.includes(lower);
+  });
+}
+
+function applyCharacterBibleReplacements(value = "", replacements = [], maxChars = 1_000) {
+  let out = cleanText(value, maxChars);
+  if (!out) return "";
+  for (const item of Array.isArray(replacements) ? replacements : []) {
+    const parsed = parseCharacterBibleReplacement(item);
+    if (!parsed) continue;
+    out = out.replace(new RegExp(`\\b${escapeRegex(parsed.from)}\\b`, "gi"), parsed.to);
+  }
+  return cleanText(out, maxChars);
+}
+
+function filterCharacterBibleItems(items = [], correction = null, maxItems = CHARACTER_BIBLE_CANON_MAX, maxChars = 220) {
+  const terms = collectCharacterBibleItems(correction?.correctedTerms || [], CHARACTER_BIBLE_TERMS_MAX, 120);
+  const replacements = correction?.correctionReplacements || [];
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    if (textContainsCharacterCorrectionTerm(item, terms)) continue;
+    const replaced = applyCharacterBibleReplacements(item, replacements, maxChars);
+    if (!replaced) continue;
+    if (textContainsCharacterCorrectionTerm(replaced, terms)) continue;
+    const key = replaced.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(replaced);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function sanitizeCharacterBibleDelta(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const canon = collectCharacterBibleItems(value.canon ?? value.facts, CHARACTER_BIBLE_CANON_MAX, 220);
+  const corrections = collectCharacterBibleItems(value.corrections, CHARACTER_BIBLE_CORRECTIONS_MAX, 260);
+  const correctedTerms = collectCharacterBibleItems(value.correctedTerms, CHARACTER_BIBLE_TERMS_MAX, 120)
+    .map((term) => normalizeCharacterCorrectionTerm(term, 120))
+    .filter(Boolean);
+  const correctionReplacements = collectCharacterBibleItems(
+    value.correctionReplacements,
+    CHARACTER_BIBLE_TERMS_MAX,
+    180
+  ).filter((item) => parseCharacterBibleReplacement(item));
+  if (!canon.length && !corrections.length && !correctedTerms.length && !correctionReplacements.length) return null;
+  return {
+    schemaVersion: 1,
+    canon,
+    corrections,
+    correctedTerms,
+    correctionReplacements,
+    updatedAt: Math.max(0, Number(value.updatedAt || nowMs())),
+  };
+}
+
+function repairCharacterTraitsForCorrection(traits = null, correction = null) {
+  if (!traits || typeof traits !== "object" || !correction) return traits;
+  const terms = collectCharacterBibleItems(correction.correctedTerms || [], CHARACTER_BIBLE_TERMS_MAX, 120);
+  const replacements = correction.correctionReplacements || [];
+  const replacementKeywords = replacements
+    .map(parseCharacterBibleReplacement)
+    .filter(Boolean)
+    .map((item) => item.to)
+    .filter((item) => /^[a-z][a-z'-]{2,24}$/i.test(item));
+  const cleanList = (items, maxChars = 120) => filterCharacterBibleItems(items, correction, 32, maxChars);
+  const next = {
+    ...traits,
+    vocabulary: cleanList(traits.vocabulary, 120),
+    keywords: collectCharacterBibleItems(
+      [...cleanList(traits.keywords, 48), ...replacementKeywords],
+      16,
+      48
+    ),
+    goals: cleanList(traits.goals, 140),
+    speech_style: traits.speech_style && typeof traits.speech_style === "object"
+      ? { ...traits.speech_style }
+      : traits.speech_style,
+    relationships: {},
+  };
+  if (traits.emotional_default) {
+    const repairedEmotion = applyCharacterBibleReplacements(traits.emotional_default, replacements, 48);
+    next.emotional_default = textContainsCharacterCorrectionTerm(repairedEmotion, terms)
+      ? ""
+      : repairedEmotion;
+  }
+  if (traits.relationships && typeof traits.relationships === "object" && !Array.isArray(traits.relationships)) {
+    for (const [rawName, rawValue] of Object.entries(traits.relationships)) {
+      const value = applyCharacterBibleReplacements(rawValue, replacements, 120);
+      if (!value || textContainsCharacterCorrectionTerm(value, terms)) continue;
+      next.relationships[rawName] = value;
+    }
+  }
+  return next;
+}
+
+function mergeCharacterBible(existingBible = null, incomingBible = null) {
+  const existing = sanitizeCharacterBibleDelta(existingBible) || {
+    schemaVersion: 1,
+    canon: [],
+    corrections: [],
+    correctedTerms: [],
+    correctionReplacements: [],
+    updatedAt: 0,
+  };
+  const incoming = sanitizeCharacterBibleDelta(incomingBible);
+  if (!incoming) return existing;
+  const correction = {
+    correctedTerms: incoming.correctedTerms,
+    correctionReplacements: incoming.correctionReplacements,
+  };
+  const hasCorrection = Boolean(correction.correctedTerms.length || correction.correctionReplacements.length);
+  const existingCanon = hasCorrection
+    ? filterCharacterBibleItems(existing.canon, correction, CHARACTER_BIBLE_CANON_MAX, 220)
+    : existing.canon;
+  const existingCorrections = filterCharacterBibleItems(
+    existing.corrections,
+    { correctedTerms: [], correctionReplacements: correction.correctionReplacements },
+    CHARACTER_BIBLE_CORRECTIONS_MAX,
+    260
+  );
+  return sanitizeCharacterBibleDelta({
+    canon: collectCharacterBibleItems(
+      [...incoming.canon, ...existingCanon],
+      CHARACTER_BIBLE_CANON_MAX,
+      220
+    ),
+    corrections: collectCharacterBibleItems(
+      [...incoming.corrections, ...existingCorrections],
+      CHARACTER_BIBLE_CORRECTIONS_MAX,
+      260
+    ),
+    correctedTerms: collectCharacterBibleItems(
+      [...incoming.correctedTerms, ...existing.correctedTerms],
+      CHARACTER_BIBLE_TERMS_MAX,
+      120
+    ),
+    correctionReplacements: collectCharacterBibleItems(
+      [...incoming.correctionReplacements, ...existing.correctionReplacements],
+      CHARACTER_BIBLE_TERMS_MAX,
+      180
+    ),
+    updatedAt: Math.max(Number(existing.updatedAt || 0), Number(incoming.updatedAt || 0), nowMs()),
+  });
 }
 
 function tokenizeMemoryText(value) {
@@ -509,6 +693,123 @@ function extractTraitHintForCharacter(text = "", characterName = "") {
     : null;
 }
 
+function splitCharacterBibleSentences(text = "") {
+  return String(text || "")
+    .split(/(?<=[.!?])\s+|\r?\n+/)
+    .map((line) => normalizeCharacterBibleFact(line, 260))
+    .filter(Boolean);
+}
+
+function extractCharacterReplacementBeforeNot(text = "", notIndex = -1, characterName = "") {
+  const beforeNot = cleanText(String(text || "").slice(0, Math.max(0, notIndex)), 260);
+  if (!beforeNot) return "";
+  const cleanName = normalizeCharacterName(characterName);
+  const escapedName = cleanName ? escapeRegex(cleanName) : "";
+  const patterns = [
+    escapedName
+      ? new RegExp(`\\b${escapedName}\\s+(?:is|was|becomes|became|turns out to be|acts as)\\s+(.{2,120})$`, "i")
+      : null,
+    /\b(?:is|was|becomes|became|turns out to be|acts as)\s+(.{2,120})$/i,
+    /\b(?:hides|finds|carries|keeps|protects|wants|needs)\s+(.{2,120})$/i,
+  ].filter(Boolean);
+  for (const pattern of patterns) {
+    const match = beforeNot.match(pattern);
+    if (!match?.[1]) continue;
+    const clean = normalizeCharacterCorrectionTerm(
+      String(match[1])
+        .replace(/\s+(?:under|inside|behind|before|after|with|to|from|because|while)\b.*$/i, ""),
+      120
+    );
+    if (clean && !/\b(?:scene|act|page|story|character|truth|canon)\b/i.test(clean)) return clean;
+  }
+  return "";
+}
+
+function extractCharacterMemoryCorrection(text = "", characterName = "") {
+  const raw = cleanText(text, 1_200);
+  if (!raw || !CORRECTION_KEYWORDS.test(raw) || !textMentionsName(raw, characterName)) return null;
+  let correctedFact = normalizeCharacterBibleFact(raw, 420);
+  const correctedTerms = [];
+  const correctionReplacements = [];
+  const addTerm = (value) => {
+    const clean = normalizeCharacterCorrectionTerm(value, 120);
+    if (!clean) return;
+    if (!correctedTerms.some((item) => item.toLowerCase() === clean.toLowerCase())) correctedTerms.push(clean);
+  };
+  const addReplacement = (fromValue, toValue) => {
+    const from = normalizeCharacterCorrectionTerm(fromValue, 90);
+    const to = normalizeCharacterCorrectionTerm(toValue, 120);
+    if (!from || !to || from.toLowerCase() === to.toLowerCase()) return;
+    addTerm(from);
+    const replacement = `${from} -> ${to}`;
+    if (!correctionReplacements.some((item) => item.toLowerCase() === replacement.toLowerCase())) {
+      correctionReplacements.push(replacement);
+    }
+  };
+
+  const changeMatch = raw.match(/\bchange\s+(.{1,90}?)\s+to\s+(.{1,160}?)(?:[.;]|$)/i);
+  if (changeMatch) {
+    addReplacement(changeMatch[1], changeMatch[2]);
+    correctedFact = `Change ${normalizeCharacterCorrectionTerm(changeMatch[1], 90)} to ${normalizeCharacterCorrectionTerm(changeMatch[2], 160)}.`;
+  }
+
+  const notPattern = /\bnot\s+(?:a|an|the|that|this|his|her|their|its)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)(?=\.|,|;|$|\s+but\b|\s+instead\b|\s+anymore\b)/gi;
+  for (const match of raw.matchAll(notPattern)) {
+    const removed = normalizeCharacterCorrectionTerm(match[1], 90);
+    if (!removed) continue;
+    addTerm(removed);
+    const replacement = extractCharacterReplacementBeforeNot(raw, match.index || 0, characterName);
+    if (replacement) addReplacement(removed, replacement);
+  }
+
+  let authoritativeFact = correctedFact;
+  for (const term of correctedTerms) {
+    authoritativeFact = authoritativeFact.replace(
+      new RegExp(`\\s*,?\\s*\\bnot\\s+(?:a|an|the|that|this|his|her|their|its)?\\s*${escapeRegex(term)}\\b(?:\\s+anymore)?`, "ig"),
+      ""
+    );
+  }
+  authoritativeFact = normalizeCharacterBibleFact(authoritativeFact, 420) || correctedFact;
+  return {
+    correctedFact: authoritativeFact,
+    correctionNote: normalizeCharacterBibleFact(correctedFact, 420),
+    correctedTerms: collectCharacterBibleItems(correctedTerms, CHARACTER_BIBLE_TERMS_MAX, 120),
+    correctionReplacements: collectCharacterBibleItems(correctionReplacements, CHARACTER_BIBLE_TERMS_MAX, 180),
+  };
+}
+
+function extractCharacterBibleDelta({ text = "", characterName = "", isCorrectionTurn = false } = {}) {
+  const cleanName = normalizeCharacterName(characterName);
+  if (!cleanName) return null;
+  const sentences = splitCharacterBibleSentences(text);
+  const correction = isCorrectionTurn
+    ? extractCharacterMemoryCorrection(text, cleanName)
+    : null;
+  const canon = [];
+  const pushCanon = (value) => {
+    const clean = normalizeCharacterBibleFact(value, 220);
+    if (!clean || !textMentionsName(clean, cleanName)) return;
+    if (!CHARACTER_BIBLE_FACT_KEYWORDS.test(clean)) return;
+    if (textContainsCharacterCorrectionTerm(clean, correction?.correctedTerms || [])) return;
+    if (!canon.some((item) => item.toLowerCase() === clean.toLowerCase())) canon.push(clean);
+  };
+  if (correction?.correctedFact) pushCanon(correction.correctedFact);
+  for (const sentence of sentences) {
+    if (canon.length >= 4) break;
+    pushCanon(sentence);
+  }
+  const corrections = correction?.correctedFact
+    ? [`Authoritative correction for ${cleanName}: ${correction.correctionNote || correction.correctedFact}`]
+    : [];
+  return sanitizeCharacterBibleDelta({
+    canon,
+    corrections,
+    correctedTerms: correction?.correctedTerms || [],
+    correctionReplacements: correction?.correctionReplacements || [],
+    updatedAt: nowMs(),
+  });
+}
+
 function createCreativeMemoryStore({ persistence } = {}) {
   const store = persistence || createPersistence();
   const writeChain = new Map(); // userId -> Promise
@@ -608,6 +909,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     source = "",
     metadata = null,
     traits = null,
+    characterBible = null,
   }) {
     if (!userId || !characterName || typeof characterName !== "string") {
       return { ok: false, action: "skipped", reason: "missing_userId_or_name" };
@@ -623,6 +925,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     const cleanTraits = traits && typeof traits === "object" && !Array.isArray(traits)
       ? traits
       : null;
+    const cleanCharacterBible = sanitizeCharacterBibleDelta(characterBible);
     let resolvedAction = "recorded";
     await updateUser(userId, (rec) => {
       const characters = Array.isArray(rec.characters) ? rec.characters : [];
@@ -649,6 +952,18 @@ function createCreativeMemoryStore({ persistence } = {}) {
             cleanTraits,
           );
         }
+        if (cleanCharacterBible) {
+          characters[existingIdx].bible = mergeCharacterBible(
+            characters[existingIdx].bible,
+            cleanCharacterBible,
+          );
+          if (characters[existingIdx].traits) {
+            characters[existingIdx].traits = repairCharacterTraitsForCorrection(
+              characters[existingIdx].traits,
+              cleanCharacterBible,
+            );
+          }
+        }
       } else {
         const entry = {
           name,
@@ -660,6 +975,12 @@ function createCreativeMemoryStore({ persistence } = {}) {
         if (cleanSource) entry.source = cleanSource;
         if (cleanMetadata) entry.metadata = { ...cleanMetadata };
         if (cleanTraits) entry.traits = mergeCharacterTraits(null, cleanTraits);
+        if (cleanCharacterBible) {
+          entry.bible = cleanCharacterBible;
+          if (entry.traits) {
+            entry.traits = repairCharacterTraitsForCorrection(entry.traits, cleanCharacterBible);
+          }
+        }
         characters.push(entry);
       }
       characters.sort((a, b) => (b.last_referenced || 0) - (a.last_referenced || 0));
@@ -1011,11 +1332,17 @@ function createCreativeMemoryStore({ persistence } = {}) {
         const traits = traitLines.length || traitHint
           ? extractTraits({ characterName: name, lines: traitLines, hint: traitHint })
           : null;
+        const characterBible = extractCharacterBibleDelta({
+          text: combined,
+          characterName: name,
+          isCorrectionTurn,
+        });
         await recordCharacterMention({
           userId,
           characterName: name,
           source: "talk_turn",
           traits: traitsHaveSignal(traits) ? traits : null,
+          characterBible,
         });
         summary.characterMentions += 1;
       } catch (_e) { /* never block the response on memory writes */ }

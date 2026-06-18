@@ -284,6 +284,36 @@ test("buildModelPrompt marks correction memories as authoritative repairs", () =
   assert.ok(out.includes("tags=screenplay,correction"));
 });
 
+test("buildModelPrompt emits character bible canon and corrections", () => {
+  const out = buildModelPrompt({
+    persona: "Persona",
+    creativeMemory: {
+      userId: "u",
+      version: 1,
+      updatedAt: 0,
+      characters: [
+        {
+          name: "Mara",
+          last_referenced: 10,
+          bible: {
+            canon: ["Mara is Eli's sister.", "Mara wants to protect Eli."],
+            corrections: ["Authoritative correction for Mara: Mara is Eli's sister, not his mother."],
+            correctedTerms: ["mother"],
+            correctionReplacements: ["mother -> Eli's sister"],
+          },
+        },
+      ],
+    },
+    userInput: "Continue Mara's scene.",
+  });
+  assert.ok(out.includes("recurring-characters:"));
+  assert.ok(out.includes("- Mara"));
+  assert.ok(out.includes("bible: canon: Mara is Eli's sister."));
+  assert.ok(out.includes("Mara wants to protect Eli."));
+  assert.ok(out.includes("corrections: Authoritative correction for Mara"));
+  assert.ok(out.includes("corrected_terms: mother -> Eli's sister"));
+});
+
 test("buildModelPrompt orders blocks: persona → memory → session → user", () => {
   const out = buildModelPrompt({
     persona: "PERSONA-MARK",

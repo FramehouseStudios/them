@@ -141,6 +141,46 @@ test("recordTriggersFromTalkTurn extracts character traits and goals from live t
   assert.equal(mara.traits.relationships.Eli, "protects");
 });
 
+test("recordTriggersFromTalkTurn stores and repairs character bible canon", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-character-canon",
+    transcript: "My protagonist is named Mara. Mara is Eli's mother. Mara wants to protect Eli from the courthouse guards.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+
+  let memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-character-canon",
+    query: "What is Mara's relationship to Eli?",
+  });
+  let mara = memory.characters.find((character) => character.name === "Mara");
+  assert.ok(mara?.bible, "expected persisted character bible for Mara");
+  assert.ok(mara.bible.canon.some((item) => /Mara is Eli's mother/.test(item)));
+  assert.ok(mara.bible.canon.some((item) => /protect Eli/.test(item)));
+
+  const correctionSummary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-character-canon",
+    transcript: "Actually, no, Mara is Eli's sister, not his mother.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  assert.equal(correctionSummary.corrections, 1);
+
+  memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-character-canon",
+    query: "Continue Mara and Eli.",
+  });
+  mara = memory.characters.find((character) => character.name === "Mara");
+  assert.ok(mara.bible.canon.some((item) => /Mara is Eli's sister/.test(item)));
+  assert.ok(mara.bible.canon.every((item) => !/mother/i.test(item)));
+  assert.ok(mara.bible.corrections.some((item) => /Authoritative correction/.test(item)));
+  assert.ok(mara.bible.correctedTerms.includes("mother"));
+  assert.ok(mara.bible.correctionReplacements.includes("mother -> Eli's sister"));
+});
+
 test("recordTriggersFromTalkTurn persists corrections and retrieves them before older conflicting memory", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordTriggersFromTalkTurn({
