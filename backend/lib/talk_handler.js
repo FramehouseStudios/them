@@ -472,6 +472,26 @@ function createTalkHandler(deps) {
       studioMeta?.screenplayCharacterArcState || studioMeta?.screenplay_character_arc_state,
       220
     );
+    const screenplayCharacterArcMemory = studioMeta?.screenplayCharacterArcMemory &&
+      typeof studioMeta.screenplayCharacterArcMemory === "object"
+      ? studioMeta.screenplayCharacterArcMemory
+      : null;
+    const screenplayCharacterArcMemoryLines = screenplayCharacterArcMemory
+      ? [
+        ["CHARACTER_ARC_WANT", screenplayCharacterArcMemory.want],
+        ["CHARACTER_ARC_NEED", screenplayCharacterArcMemory.need],
+        ["CHARACTER_ARC_WOUND", screenplayCharacterArcMemory.wound],
+        ["CHARACTER_ARC_FALSE_BELIEF", screenplayCharacterArcMemory.falseBelief || screenplayCharacterArcMemory.false_belief],
+        ["CHARACTER_ARC_RELATIONSHIP_PRESSURE", screenplayCharacterArcMemory.relationshipPressure || screenplayCharacterArcMemory.relationship_pressure],
+        ["CHARACTER_ARC_CURRENT_TACTIC", screenplayCharacterArcMemory.currentTactic || screenplayCharacterArcMemory.current_tactic],
+        ["CHARACTER_ARC_NEXT_EMOTIONAL_TURN", screenplayCharacterArcMemory.nextEmotionalTurn || screenplayCharacterArcMemory.next_emotional_turn],
+      ]
+        .map(([label, value]) => {
+          const clean = normalizeSnippet(value, 180);
+          return clean ? `${label}: ${clean}` : "";
+        })
+        .filter(Boolean)
+      : [];
     const screenplayActPressureState = normalizeSnippet(
       studioMeta?.screenplayActPressureState || studioMeta?.screenplay_act_pressure_state,
       220
@@ -522,6 +542,7 @@ function createTalkHandler(deps) {
       screenplayCurrentBeat ? `CURRENT_BEAT: ${screenplayCurrentBeat}` : "",
       screenplayActPressureState ? `ACT_PRESSURE: ${screenplayActPressureState}` : "",
       screenplayCharacterArcState ? `CHANGED_BEHAVIOR_DUE: ${screenplayCharacterArcState}` : "",
+      ...screenplayCharacterArcMemoryLines,
       screenplayLastSceneOutcome ? `LAST_SCENE_OUTCOME: ${screenplayLastSceneOutcome}` : "",
       screenplayEndingImage ? `ENDING_IMAGE_PRESSURE: ${screenplayEndingImage}` : "",
       ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
@@ -544,6 +565,7 @@ function createTalkHandler(deps) {
           "If Act I context is supplied, dramatize the catalyst/commitment pressure instead of writing a generic setup scene.",
           "If Act II context is supplied, dramatize the active reversal, cost, trap, or false-tactic pressure instead of repeating the premise.",
           "If Act III/finale context is supplied, pay off at least one supplied setup/path through changed behavior and final-image pressure.",
+          "If CHARACTER_ARC_* context is supplied, turn want/need/false-belief/tactic into visible behavior on the page.",
         ].join("\n"),
       },
       {

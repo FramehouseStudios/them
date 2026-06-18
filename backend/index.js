@@ -3056,6 +3056,65 @@ function parseTalkScreenplayContextList(value, maxItems = 8, maxChars = 180) {
   );
 }
 
+function parseTalkScreenplayCharacterArcMemory(value) {
+  if (!value) return null;
+  let source = value;
+  if (Array.isArray(source)) {
+    source = source.find((item) => item && typeof item === "object") || null;
+  }
+  if (!source) return null;
+  if (typeof source === "string") {
+    const raw = source.trim();
+    if (!raw) return null;
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      try {
+        return parseTalkScreenplayCharacterArcMemory(JSON.parse(raw));
+      } catch (_err) {
+        // Fall through to key/value parsing.
+      }
+    }
+    const parsed = {};
+    for (const part of raw.split(/\r?\n|;/)) {
+      const match = part.match(/^\s*([A-Za-z][A-Za-z0-9_\-\s]{1,40})\s*:\s*(.+?)\s*$/);
+      if (!match) continue;
+      const key = match[1]
+        .trim()
+        .replace(/[-\s]+([a-zA-Z0-9])/g, (_all, ch) => ch.toUpperCase())
+        .replace(/^([A-Z])/, (_all, ch) => ch.toLowerCase());
+      parsed[key] = match[2].trim();
+    }
+    source = parsed;
+  }
+  if (!source || typeof source !== "object") return null;
+
+  const arc = source.bible?.arc && typeof source.bible.arc === "object"
+    ? source.bible.arc
+    : (source.arc && typeof source.arc === "object" ? source.arc : source);
+  const clean = {
+    character: normalizeSnippet(
+      source.character ?? source.characterName ?? source.character_name ?? source.name ?? arc.character ?? arc.characterName ?? arc.character_name ?? "",
+      80
+    ),
+    act: normalizeSnippet(arc.act ?? arc.currentAct ?? arc.current_act ?? "", 80),
+    want: normalizeSnippet(arc.want ?? arc.externalWant ?? arc.external_want ?? "", 180),
+    need: normalizeSnippet(arc.need ?? arc.innerNeed ?? arc.inner_need ?? "", 180),
+    wound: normalizeSnippet(arc.wound ?? arc.ghost ?? arc.trauma ?? "", 180),
+    falseBelief: normalizeSnippet(arc.falseBelief ?? arc.false_belief ?? arc.lie ?? arc.misbelief ?? "", 180),
+    relationshipPressure: normalizeSnippet(
+      arc.relationshipPressure ?? arc.relationship_pressure ?? arc.relationalPressure ?? arc.relational_pressure ?? "",
+      180
+    ),
+    currentTactic: normalizeSnippet(arc.currentTactic ?? arc.current_tactic ?? arc.tactic ?? "", 180),
+    nextEmotionalTurn: normalizeSnippet(
+      arc.nextEmotionalTurn ?? arc.next_emotional_turn ?? arc.emotionalTurn ?? arc.emotional_turn ?? arc.nextTurn ?? arc.next_turn ?? "",
+      180
+    ),
+  };
+  const hasSignal = Object.entries(clean)
+    .some(([key, val]) => key !== "character" && key !== "act" && Boolean(val));
+  return hasSignal ? clean : null;
+}
+
 function positiveTalkContextInteger(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
@@ -4774,6 +4833,7 @@ function validateTalkAuthoritativeScreenplayOutput(screenplayOutput = null, {
       endingImage: studioMeta?.screenplayEndingImage,
       actPressureState: studioMeta?.screenplayActPressureState,
       characterArcState: studioMeta?.screenplayCharacterArcState,
+      characterArcMemory: studioMeta?.screenplayCharacterArcMemory,
       nextScenePlan: studioMeta?.screenplayNextScenePlan,
       nextThreeTurns: studioMeta?.screenplayNextThreeTurns,
       actThreePayoffPath: studioMeta?.screenplayActThreePayoffPath,
@@ -10725,6 +10785,15 @@ function sanitizeStudioTurnMetadata(input) {
     input.screenplayCharacterArcState ?? input.screenplay_character_arc_state ?? input.characterArcState ?? input.character_arc_state ?? "",
     280
   );
+  const screenplayCharacterArcMemory = parseTalkScreenplayCharacterArcMemory(
+    input.screenplayCharacterArcMemory ??
+    input.screenplay_character_arc_memory ??
+    input.characterArcMemory ??
+    input.character_arc_memory ??
+    input.characterBibles ??
+    input.character_bibles ??
+    null
+  );
   const screenplayLastSceneOutcome = normalizeSnippet(
     input.screenplayLastSceneOutcome ?? input.screenplay_last_scene_outcome ?? input.lastSceneOutcome ?? input.last_scene_outcome ?? "",
     240
@@ -10831,6 +10900,7 @@ function sanitizeStudioTurnMetadata(input) {
     !screenplayFeatureObligation &&
     !screenplayActPressureState &&
     !screenplayCharacterArcState &&
+    !screenplayCharacterArcMemory &&
     !screenplayLastSceneOutcome &&
     !screenplayNextScenePlan &&
     screenplayNextSceneMoves.length < 1 &&
@@ -10887,6 +10957,7 @@ function sanitizeStudioTurnMetadata(input) {
     screenplayFeatureObligation,
     screenplayActPressureState,
     screenplayCharacterArcState,
+    screenplayCharacterArcMemory,
     screenplayLastSceneOutcome,
     screenplayNextScenePlan,
     screenplayNextSceneMoves,

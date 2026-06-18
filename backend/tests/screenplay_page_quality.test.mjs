@@ -452,6 +452,94 @@ test("[screenplay-page-quality] accepts Act II pages that dramatize midpoint tra
   assert.equal(quality.ok, true);
 });
 
+test("[screenplay-page-quality] rejects pages that ignore character bible arc memory", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. ARCHIVE ROOM - NIGHT",
+      "",
+      "Mara pins a fresh photograph beside the old case map.",
+      "",
+      "ELI",
+      "We can wait.",
+      "",
+      "Mara pockets the file and turns off the lamp.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. ARCHIVE ROOM - NIGHT", element: "sceneHeading" },
+      { text: "Mara pins a fresh photograph beside the old case map.", element: "action" },
+      { text: "ELI", element: "character" },
+      { text: "We can wait.", element: "dialogue" },
+      { text: "Mara pockets the file and turns off the lamp.", element: "action" },
+    ],
+    featureContext: {
+      characterArcMemory: {
+        name: "Mara",
+        bible: {
+          arc: {
+            act: "Act II",
+            want: "expose the forged testimony",
+            need: "stop hiding behind observation",
+            falseBelief: "truth destroys anyone who says it aloud",
+            currentTactic: "collecting evidence in silence",
+            nextEmotionalTurn: "public courage",
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_character_arc_memory");
+  assert.equal(quality.featureObligation.featureActKind, "character_arc");
+});
+
+test("[screenplay-page-quality] accepts pages that spend character bible arc memory", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. ARCHIVE ROOM - NIGHT",
+      "",
+      "Mara lays the forged testimony across the evidence board.",
+      "Her notebook stays open in her palm, the last shelter of observation.",
+      "",
+      "ELI",
+      "If the truth destroys anyone who says it aloud, let me be quiet with you.",
+      "",
+      "MARA",
+      "No. I have been collecting silence long enough.",
+      "",
+      "She opens the archive door, public courage shaking through her hand.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. ARCHIVE ROOM - NIGHT", element: "sceneHeading" },
+      { text: "Mara lays the forged testimony across the evidence board.", element: "action" },
+      { text: "Her notebook stays open in her palm, the last shelter of observation.", element: "action" },
+      { text: "ELI", element: "character" },
+      { text: "If the truth destroys anyone who says it aloud, let me be quiet with you.", element: "dialogue" },
+      { text: "MARA", element: "character" },
+      { text: "No. I have been collecting silence long enough.", element: "dialogue" },
+      { text: "She opens the archive door, public courage shaking through her hand.", element: "action" },
+    ],
+    featureContext: {
+      characterArcMemory: {
+        name: "Mara",
+        bible: {
+          arc: {
+            act: "Act II",
+            want: "expose the forged testimony",
+            need: "stop hiding behind observation",
+            falseBelief: "truth destroys anyone who says it aloud",
+            currentTactic: "collecting evidence in silence",
+            nextEmotionalTurn: "public courage",
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(quality.ok, true);
+  assert.equal(quality.featureObligation.featureActKind, "character_arc");
+});
+
 test("[screenplay-page-quality] rejects feature continuations that dodge the first remembered next turn", () => {
   const quality = evaluateScreenplayPageQuality({
     text: [

@@ -10,6 +10,7 @@ const {
   buildTalkScreenplayOutput,
   isAuthoritativeTalkScreenplayOutput,
   normalizeTalkPageReply,
+  sanitizeStudioTurnMetadata,
 } = await import("../index.js");
 
 test("[talk-screenplay-sanitizer] removes warm lead-ins, markdown fences, and craft afterwords", () => {
@@ -457,6 +458,101 @@ test("[talk-screenplay-output] accepts Act II page output that spends supplied r
   assert.equal(output.source, "studio_target");
   assert.equal(output.quality.ok, true);
   assert.equal(output.quality.feature_act, "act2");
+});
+
+test("[talk-screenplay-output] rejects page output that dodges structured character arc memory", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. ARCHIVE ROOM - NIGHT",
+      "",
+      "Mara pins a fresh photograph beside the old case map.",
+      "",
+      "ELI",
+      "We can wait.",
+      "",
+      "Mara pockets the file and turns off the lamp.",
+    ].join("\n"),
+    transcript: "Write the next Act II page from Mara's arc memory.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act II",
+      screenplayCharacterArcMemory: {
+        character: "Mara",
+        act: "Act II",
+        want: "expose the forged testimony",
+        need: "stop hiding behind observation",
+        falseBelief: "truth destroys anyone who says it aloud",
+        currentTactic: "collecting evidence in silence",
+        nextEmotionalTurn: "public courage",
+      },
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "missing_character_arc_memory");
+  assert.equal(output.quality.feature_act, "character_arc");
+});
+
+test("[talk-screenplay-output] accepts page output that dramatizes structured character arc memory", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. ARCHIVE ROOM - NIGHT",
+      "",
+      "Mara lays the forged testimony across the evidence board.",
+      "Her notebook stays open in her palm, the last shelter of observation.",
+      "",
+      "ELI",
+      "If the truth destroys anyone who says it aloud, let me be quiet with you.",
+      "",
+      "MARA",
+      "No. I have been collecting silence long enough.",
+      "",
+      "She opens the archive door, public courage shaking through her hand.",
+    ].join("\n"),
+    transcript: "Write the next Act II page from Mara's arc memory.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act II",
+      screenplayCharacterArcMemory: {
+        character: "Mara",
+        act: "Act II",
+        want: "expose the forged testimony",
+        need: "stop hiding behind observation",
+        falseBelief: "truth destroys anyone who says it aloud",
+        currentTactic: "collecting evidence in silence",
+        nextEmotionalTurn: "public courage",
+      },
+    },
+  });
+
+  assert.equal(output.target, "page");
+  assert.equal(output.source, "studio_target");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.feature_act, "act2");
+});
+
+test("[talk-screenplay-output] preserves structured character arc memory from studio metadata", () => {
+  const studio = sanitizeStudioTurnMetadata({
+    screenplayTarget: "page",
+    screenplayCharacterArcMemory: JSON.stringify({
+      character: "Mara",
+      act: "Act II",
+      want: "expose the forged testimony",
+      need: "stop hiding behind observation",
+      false_belief: "truth destroys anyone who says it aloud",
+      current_tactic: "collecting evidence in silence",
+      next_emotional_turn: "public courage",
+    }),
+  });
+
+  assert.equal(studio.screenplayTarget, "page");
+  assert.equal(studio.screenplayCharacterArcMemory.character, "Mara");
+  assert.equal(studio.screenplayCharacterArcMemory.want, "expose the forged testimony");
+  assert.equal(studio.screenplayCharacterArcMemory.need, "stop hiding behind observation");
+  assert.equal(studio.screenplayCharacterArcMemory.falseBelief, "truth destroys anyone who says it aloud");
+  assert.equal(studio.screenplayCharacterArcMemory.currentTactic, "collecting evidence in silence");
+  assert.equal(studio.screenplayCharacterArcMemory.nextEmotionalTurn, "public courage");
 });
 
 test("[talk-screenplay-output] rejects Act III page output that dodges supplied payoff memory", () => {

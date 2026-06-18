@@ -52,6 +52,37 @@ const QUALITY_TOKEN_STOPWORDS = Object.freeze(new Set([
   "would",
 ]));
 
+const CHARACTER_ARC_TOKEN_STOPWORDS = Object.freeze(new Set([
+  ...QUALITY_TOKEN_STOPWORDS,
+  "arc",
+  "belief",
+  "believe",
+  "believes",
+  "character",
+  "false",
+  "learn",
+  "learns",
+  "must",
+  "need",
+  "needs",
+  "protagonist",
+  "realize",
+  "realizes",
+  "turn",
+  "want",
+  "wants",
+]));
+
+const CHARACTER_ARC_MEMORY_VALUE_FIELDS = Object.freeze([
+  "want",
+  "need",
+  "wound",
+  "falseBelief",
+  "relationshipPressure",
+  "currentTactic",
+  "nextEmotionalTurn",
+]);
+
 function qualityTokenSet(value = "") {
   const tokens = String(value || "")
     .toLowerCase()
@@ -281,6 +312,244 @@ function minimumExpectedWordsForRequestedPages(requestedPages = 0) {
   if (pages === 3) return 120;
   if (pages === 4) return 170;
   return Math.min(420, 170 + ((pages - 4) * 45));
+}
+
+function parseCharacterArcMemoryObject(value) {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const parsed = parseCharacterArcMemoryObject(item);
+      if (parsed) return parsed;
+    }
+    return null;
+  }
+  if (typeof value === "object") {
+    if (value.bible?.arc && typeof value.bible.arc === "object") {
+      return {
+        character: value.character ?? value.characterName ?? value.character_name ?? value.name ?? "",
+        ...value.bible.arc,
+      };
+    }
+    if (value.arc && typeof value.arc === "object") {
+      return {
+        character: value.character ?? value.characterName ?? value.character_name ?? value.name ?? "",
+        ...value.arc,
+      };
+    }
+    return value;
+  }
+
+  const raw = normalizeLineText(value);
+  if (!raw) return null;
+  if (raw.startsWith("{") || raw.startsWith("[")) {
+    try {
+      return parseCharacterArcMemoryObject(JSON.parse(raw));
+    } catch (_err) {
+      // Fall through to key/value parsing.
+    }
+  }
+
+  const parsed = {};
+  for (const part of raw.split(/\r?\n|;/)) {
+    const match = part.match(/^\s*([A-Za-z][A-Za-z0-9_\-\s]{1,40})\s*:\s*(.+?)\s*$/);
+    if (!match) continue;
+    const key = match[1]
+      .trim()
+      .replace(/[-\s]+([a-zA-Z0-9])/g, (_all, ch) => ch.toUpperCase())
+      .replace(/^([A-Z])/, (_all, ch) => ch.toLowerCase());
+    parsed[key] = match[2].trim();
+  }
+  return Object.keys(parsed).length ? parsed : null;
+}
+
+function characterArcMemoryField(source = null, featureContext = null, keys = [], maxChars = 180) {
+  for (const key of keys) {
+    const clean = normalizeLineText(source?.[key] ?? featureContext?.[key] ?? "").slice(0, maxChars);
+    if (clean) return clean;
+  }
+  return "";
+}
+
+function normalizeCharacterArcMemory(featureContext = null) {
+  if (!featureContext || typeof featureContext !== "object") return null;
+  const source = parseCharacterArcMemoryObject(
+    featureContext.characterArcMemory ??
+    featureContext.character_arc_memory ??
+    featureContext.screenplayCharacterArcMemory ??
+    featureContext.screenplay_character_arc_memory
+  );
+  const memory = {
+    character: characterArcMemoryField(source, featureContext, [
+      "character",
+      "characterName",
+      "character_name",
+      "name",
+      "protagonist",
+    ], 80),
+    act: characterArcMemoryField(source, featureContext, ["act", "currentAct", "current_act"], 80),
+    want: characterArcMemoryField(source, featureContext, [
+      "want",
+      "externalWant",
+      "external_want",
+      "characterArcWant",
+      "character_arc_want",
+      "screenplayCharacterArcWant",
+      "screenplay_character_arc_want",
+    ]),
+    need: characterArcMemoryField(source, featureContext, [
+      "need",
+      "innerNeed",
+      "inner_need",
+      "characterArcNeed",
+      "character_arc_need",
+      "screenplayCharacterArcNeed",
+      "screenplay_character_arc_need",
+    ]),
+    wound: characterArcMemoryField(source, featureContext, [
+      "wound",
+      "ghost",
+      "trauma",
+      "characterArcWound",
+      "character_arc_wound",
+      "screenplayCharacterArcWound",
+      "screenplay_character_arc_wound",
+    ]),
+    falseBelief: characterArcMemoryField(source, featureContext, [
+      "falseBelief",
+      "false_belief",
+      "lie",
+      "misbelief",
+      "characterArcFalseBelief",
+      "character_arc_false_belief",
+      "screenplayCharacterArcFalseBelief",
+      "screenplay_character_arc_false_belief",
+    ]),
+    relationshipPressure: characterArcMemoryField(source, featureContext, [
+      "relationshipPressure",
+      "relationship_pressure",
+      "relationalPressure",
+      "relational_pressure",
+      "characterArcRelationshipPressure",
+      "character_arc_relationship_pressure",
+      "screenplayCharacterArcRelationshipPressure",
+      "screenplay_character_arc_relationship_pressure",
+    ]),
+    currentTactic: characterArcMemoryField(source, featureContext, [
+      "currentTactic",
+      "current_tactic",
+      "tactic",
+      "characterArcCurrentTactic",
+      "character_arc_current_tactic",
+      "screenplayCharacterArcCurrentTactic",
+      "screenplay_character_arc_current_tactic",
+    ]),
+    nextEmotionalTurn: characterArcMemoryField(source, featureContext, [
+      "nextEmotionalTurn",
+      "next_emotional_turn",
+      "emotionalTurn",
+      "emotional_turn",
+      "nextTurn",
+      "next_turn",
+      "characterArcNextEmotionalTurn",
+      "character_arc_next_emotional_turn",
+      "screenplayCharacterArcNextEmotionalTurn",
+      "screenplay_character_arc_next_emotional_turn",
+    ]),
+  };
+
+  const meaningfulFieldCount = CHARACTER_ARC_MEMORY_VALUE_FIELDS
+    .filter((field) => characterArcTokenSet(memory[field]).size > 0)
+    .length;
+  return meaningfulFieldCount > 0
+    ? { ...memory, meaningfulFieldCount }
+    : null;
+}
+
+function characterArcTokenSet(value = "", ignoreTokens = new Set()) {
+  const tokens = qualityTokenSet(value);
+  const out = new Set();
+  for (const token of tokens) {
+    if (CHARACTER_ARC_TOKEN_STOPWORDS.has(token)) continue;
+    if (ignoreTokens.has(token)) continue;
+    out.add(token);
+  }
+  return out;
+}
+
+function characterArcTokensFromPhrases(phrases = [], ignoreTokens = new Set()) {
+  const out = new Set();
+  for (const phrase of phrases) {
+    for (const token of characterArcTokenSet(phrase, ignoreTokens)) out.add(token);
+  }
+  return out;
+}
+
+function evaluateCharacterArcMemoryCoverage({
+  text = "",
+  featureContext = null,
+} = {}) {
+  const memory = normalizeCharacterArcMemory(featureContext);
+  if (!memory) return { ok: true, reason: "no_character_arc_memory" };
+  const identityTokens = characterArcTokenSet(memory.character);
+  const objectiveTokens = characterArcTokensFromPhrases([
+    memory.want,
+    memory.currentTactic,
+    memory.relationshipPressure,
+  ], identityTokens);
+  const transformationTokens = characterArcTokensFromPhrases([
+    memory.need,
+    memory.falseBelief,
+    memory.nextEmotionalTurn,
+  ], identityTokens);
+  const woundTokens = characterArcTokensFromPhrases([memory.wound], identityTokens);
+  const obligationTokens = new Set([
+    ...objectiveTokens,
+    ...transformationTokens,
+    ...woundTokens,
+  ]);
+
+  if (memory.meaningfulFieldCount < 2 || obligationTokens.size < 2) {
+    return {
+      ok: true,
+      reason: "insufficient_character_arc_memory",
+      featureActKind: "character_arc",
+      obligationTokenCount: obligationTokens.size,
+    };
+  }
+
+  const textTokens = characterArcTokenSet(text, identityTokens);
+  const matchedTokens = [...obligationTokens].filter((token) => textTokens.has(token));
+  const matchedObjectiveTokens = [...objectiveTokens].filter((token) => textTokens.has(token));
+  const matchedTransformationTokens = [...transformationTokens].filter((token) => textTokens.has(token));
+  const minimumMatches = Math.min(3, Math.max(2, obligationTokens.size > 0 ? 2 : 0));
+  const missingObjective = objectiveTokens.size > 0 && matchedObjectiveTokens.length < 1;
+  const missingTransformation = transformationTokens.size > 0 && matchedTransformationTokens.length < 1;
+
+  if (matchedTokens.length < minimumMatches || missingObjective || missingTransformation) {
+    return {
+      ok: false,
+      reason: "missing_character_arc_memory",
+      featureActKind: "character_arc",
+      matchedTokens,
+      matchedObjectiveTokens,
+      matchedTransformationTokens,
+      obligationTokenCount: obligationTokens.size,
+      minimumMatches,
+      missingObjective,
+      missingTransformation,
+    };
+  }
+
+  return {
+    ok: true,
+    reason: "ok",
+    featureActKind: "character_arc",
+    matchedTokens,
+    matchedObjectiveTokens,
+    matchedTransformationTokens,
+    obligationTokenCount: obligationTokens.size,
+    minimumMatches,
+  };
 }
 
 function inferFeatureActKind(featureContext = {}) {
@@ -568,6 +837,18 @@ function evaluateScreenplayPageQuality({
       featureObligation,
     };
   }
+  const characterArcMemoryCoverage = evaluateCharacterArcMemoryCoverage({
+    text: normalizedText,
+    featureContext,
+  });
+  if (!characterArcMemoryCoverage.ok) {
+    return {
+      ok: false,
+      reason: characterArcMemoryCoverage.reason,
+      counts,
+      featureObligation: characterArcMemoryCoverage,
+    };
+  }
   const nextTurnCoverage = evaluateFirstNextTurnCoverage({
     text: normalizedText,
     featureContext,
@@ -588,16 +869,29 @@ function evaluateScreenplayPageQuality({
     ok: true,
     reason: "ok",
     counts,
-    featureObligation: featureObligation.reason === "not_feature_act"
-      ? (nextTurnCoverage.reason === "no_next_turn" ? null : { nextTurnCoverage })
-      : {
-        ...featureObligation,
-        nextTurnCoverage: nextTurnCoverage.reason === "no_next_turn" ? null : nextTurnCoverage,
-      },
+    featureObligation: (() => {
+      let obligation = featureObligation.reason === "not_feature_act" ? null : { ...featureObligation };
+      if (characterArcMemoryCoverage.reason !== "no_character_arc_memory") {
+        if (obligation) {
+          obligation.characterArcMemoryCoverage = characterArcMemoryCoverage;
+        } else if (characterArcMemoryCoverage.reason !== "insufficient_character_arc_memory") {
+          obligation = { ...characterArcMemoryCoverage };
+        }
+      }
+      if (nextTurnCoverage.reason !== "no_next_turn") {
+        if (obligation) {
+          obligation.nextTurnCoverage = nextTurnCoverage;
+        } else {
+          obligation = { nextTurnCoverage };
+        }
+      }
+      return obligation;
+    })(),
   };
 }
 
 export {
+  evaluateCharacterArcMemoryCoverage,
   evaluateScreenplayPageQuality,
   evaluateFeatureActObligationCoverage,
   isLikelyOutlineOrCraftArtifactLine,
