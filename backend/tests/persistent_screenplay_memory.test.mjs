@@ -304,6 +304,79 @@ test("[persistent-screenplay-memory] distills durable context from sparse draft 
   assert.doesNotMatch(nonPageRecord.lastWritePreview, /scene is working/);
 });
 
+test("[persistent-screenplay-memory] correction turns repair stale project continuity", () => {
+  const firstTs = 1_800_000_500_000;
+  const secondTs = firstTs + 2_000;
+  let memory = createEmptyEmotionMemory();
+
+  memory = withMockedNow(firstTs, () => updateSessionAfterReply(
+    memory,
+    "Continue the rain vent scene.",
+    "INT. ROOFTOP - NIGHT\n\nMara hides the cassette under the rain-swollen vent.",
+    false,
+    {
+      screenplayProjectId: "rain-docket",
+      screenplayTarget: "page",
+      screenplayAct: "Act II",
+      screenplayCurrentBeat: "Mara hides the cassette under the rain-swollen vent.",
+      screenplayNextThreeTurns: [
+        "Mara retrieves the cassette.",
+        "Eli hears the cassette clicking.",
+      ],
+      screenplayUnresolvedSetups: ["The cassette under the vent has not paid off."],
+      screenplayImageMotifs: ["cassette", "rain-swollen vent"],
+      screenplayInsertedText: "INT. ROOFTOP - NIGHT\n\nMara hides the cassette under the rain-swollen vent.",
+    }
+  ));
+
+  assert.equal(memory.screenplayProjectMemory.length, 1);
+  assert.match(buildMemoryAddendum(memory), /cassette/);
+
+  memory = withMockedNow(secondTs, () => updateSessionAfterReply(
+    memory,
+    "Actually, no, Mara hides a VHS tape under the rain-swollen vent, not a cassette.",
+    "Got it. I will treat the VHS tape as canon.",
+    false,
+    {
+      screenplayProjectId: "rain-docket",
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act II",
+    }
+  ));
+
+  const repaired = memory.screenplayProjectMemory[0];
+  assert.equal(repaired.projectId, "rain-docket");
+  assert.match(repaired.currentBeat, /VHS tape/);
+  assert.doesNotMatch(repaired.currentBeat, /cassette/i);
+  assert.match(repaired.nextScenePlan, /VHS tape/);
+  assert.deepEqual(repaired.correctedTerms, ["cassette"]);
+  assert.deepEqual(repaired.correctionReplacements, ["cassette -> VHS tape"]);
+  assert.ok(repaired.continuityNotes.some((note) => /Authoritative user correction/.test(note)));
+  assert.ok(repaired.continuityNotes.some((note) => /not a cassette/i.test(note)));
+  assert.ok(repaired.nextThreeTurns.every((item) => !/cassette/i.test(item)));
+  assert.ok(repaired.unresolvedSetups.every((item) => !/cassette/i.test(item)));
+  assert.ok(repaired.imageMotifs.every((item) => !/^cassette$/i.test(item)));
+
+  const prompt = buildMemoryAddendum(memory);
+  assert.match(prompt, /VHS tape/);
+  assert.match(prompt, /corrected_terms:cassette -> VHS tape/);
+
+  memory = withMockedNow(secondTs + 1_000, () => updateSessionAfterReply(
+    memory,
+    "Correction: it stays a VHS tape, not a cassette.",
+    "Yes. VHS tape stays canon.",
+    false,
+    {
+      screenplayProjectId: "rain-docket",
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act II",
+    }
+  ));
+
+  assert.deepEqual(memory.screenplayProjectMemory[0].correctionReplacements, ["cassette -> VHS tape"]);
+  assert.doesNotMatch(buildMemoryAddendum(memory), /VHS tape -> VHS tape/);
+});
+
 test("[persistent-screenplay-memory] keeps story spine memory even before scene context exists", () => {
   const memory = {
     ...createEmptyEmotionMemory(),

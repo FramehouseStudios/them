@@ -14806,6 +14806,8 @@ const SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS = [
   ["characterArcTurns", 6, 180],
   ["imageMotifs", 6, 140],
   ["continuityNotes", 8, 220],
+  ["correctedTerms", 8, 120],
+  ["correctionReplacements", 8, 160],
 ];
 
 function normalizeScreenplayMemoryInteger(value) {
@@ -14847,6 +14849,159 @@ function mergeScreenplayProjectMemoryList(existingItems, incomingItems, maxItems
       out.push(clean);
       if (out.length >= maxItems) return out;
     }
+  }
+  return out;
+}
+
+const SCREENPLAY_MEMORY_CORRECTION_PATTERN = /\b(?:actually,?\s*no|correction|scratch that|not that|retcon|change it to|make it so|instead)\b/i;
+
+function normalizeScreenplayCorrectionTerm(value = "", maxChars = 120) {
+  return normalizeSnippet(value, maxChars)
+    .replace(/^(?:a|an|the|that|this)\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseScreenplayCorrectionReplacement(value = "") {
+  const clean = normalizeSnippet(value, 180);
+  const parts = clean.split(/\s*->\s*/);
+  if (parts.length !== 2) return null;
+  const from = normalizeScreenplayCorrectionTerm(parts[0], 90);
+  const to = normalizeScreenplayCorrectionTerm(parts[1], 120);
+  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return null;
+  return { from, to };
+}
+
+function collectScreenplayCorrectionItems(items = []) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    const clean = normalizeScreenplayCorrectionTerm(item, 120);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+function extractScreenplayReplacementTermBeforeNot(text = "", notIndex = -1) {
+  const beforeNot = String(text || "").slice(0, Math.max(0, notIndex));
+  const articlePattern = /\b(?:a|an|the)\s+([A-Za-z0-9][A-Za-z0-9'-]*(?:\s+[A-Za-z0-9][A-Za-z0-9'-]*){0,3})/gi;
+  const matches = [...beforeNot.matchAll(articlePattern)];
+  for (const match of matches.reverse()) {
+    const candidate = normalizeScreenplayCorrectionTerm(
+      String(match[1] || "").replace(/\s+(?:under|inside|behind|before|after|with|to|from)\b.*$/i, ""),
+      120
+    );
+    if (candidate && !/\b(?:scene|act|page|story|character|truth)\b/i.test(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+function extractScreenplayMemoryCorrection(transcript = "") {
+  const raw = normalizeSnippet(transcript, 1_200);
+  if (!raw || !SCREENPLAY_MEMORY_CORRECTION_PATTERN.test(raw)) return null;
+  let correctedFact = raw
+    .replace(/^\s*(?:actually,?\s*no,?|no,?|correction:?|scratch that,?|retcon:?|not that,?)\s*/i, "")
+    .trim();
+  if (!correctedFact) correctedFact = raw;
+
+  const correctedTerms = [];
+  const correctionReplacements = [];
+  const addTerm = (value) => {
+    const clean = normalizeScreenplayCorrectionTerm(value, 120);
+    if (!clean) return;
+    if (!correctedTerms.some((item) => item.toLowerCase() === clean.toLowerCase())) {
+      correctedTerms.push(clean);
+    }
+  };
+  const addReplacement = (fromValue, toValue) => {
+    const from = normalizeScreenplayCorrectionTerm(fromValue, 90);
+    const to = normalizeScreenplayCorrectionTerm(toValue, 120);
+    if (!from || !to || from.toLowerCase() === to.toLowerCase()) return;
+    addTerm(from);
+    const replacement = `${from} -> ${to}`;
+    if (!correctionReplacements.some((item) => item.toLowerCase() === replacement.toLowerCase())) {
+      correctionReplacements.push(replacement);
+    }
+  };
+
+  const changeMatch = raw.match(/\bchange\s+(.{1,90}?)\s+to\s+(.{1,160}?)(?:[.;]|$)/i);
+  if (changeMatch) {
+    addReplacement(changeMatch[1], changeMatch[2]);
+    correctedFact = `Change ${normalizeScreenplayCorrectionTerm(changeMatch[1], 90)} to ${normalizeScreenplayCorrectionTerm(changeMatch[2], 160)}.`;
+  }
+
+  const notPattern = /\bnot\s+(?:a|an|the|that|this)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)(?=\.|,|;|$|\s+but\b|\s+instead\b|\s+anymore\b)/gi;
+  for (const match of raw.matchAll(notPattern)) {
+    const removed = normalizeScreenplayCorrectionTerm(match[1], 90);
+    if (!removed) continue;
+    const replacement = extractScreenplayReplacementTermBeforeNot(raw, match.index || 0);
+    if (replacement) {
+      addReplacement(removed, replacement);
+    } else {
+      addTerm(removed);
+    }
+  }
+
+  const insteadMatch = raw.match(/\binstead[:,]?\s*(.{1,220}?)(?:[.;]|$)/i);
+  if (insteadMatch && !correctedFact.toLowerCase().includes(insteadMatch[1].trim().toLowerCase())) {
+    correctedFact = `${correctedFact} Instead: ${normalizeSnippet(insteadMatch[1], 220)}`;
+  }
+
+  let authoritativeFact = correctedFact;
+  for (const term of correctedTerms) {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    authoritativeFact = authoritativeFact.replace(
+      new RegExp(`\\s*,?\\s*\\bnot\\s+(?:a|an|the|that|this)?\\s*${escaped}\\b(?:\\s+anymore)?`, "ig"),
+      ""
+    );
+  }
+  authoritativeFact = normalizeSnippet(authoritativeFact, 420) || correctedFact;
+
+  return {
+    correctedFact: authoritativeFact,
+    correctionNote: normalizeSnippet(correctedFact, 420),
+    correctedTerms: collectScreenplayCorrectionItems(correctedTerms),
+    correctionReplacements: collectScreenplayCorrectionItems(correctionReplacements),
+  };
+}
+
+function textContainsScreenplayCorrectionTerm(value = "", terms = []) {
+  const text = normalizeSnippet(value, 1_000).toLowerCase();
+  if (!text) return false;
+  return collectScreenplayCorrectionItems(terms).some((term) => {
+    const lower = term.toLowerCase();
+    return lower && text.includes(lower);
+  });
+}
+
+function applyScreenplayCorrectionReplacements(value = "", replacements = [], maxChars = 1_000) {
+  let out = normalizeSnippet(value, maxChars);
+  if (!out) return "";
+  for (const item of Array.isArray(replacements) ? replacements : []) {
+    const parsed = parseScreenplayCorrectionReplacement(item);
+    if (!parsed) continue;
+    const escaped = parsed.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`\\b${escaped}\\b`, "gi"), parsed.to);
+  }
+  return normalizeSnippet(out, maxChars);
+}
+
+function filterScreenplayCorrectionList(items = [], correction = null) {
+  const terms = collectScreenplayCorrectionItems(correction?.correctedTerms || []);
+  const replacements = correction?.correctionReplacements || [];
+  const out = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const replaced = applyScreenplayCorrectionReplacements(item, replacements, 240);
+    if (!replaced) continue;
+    if (textContainsScreenplayCorrectionTerm(replaced, terms)) continue;
+    out.push(replaced);
   }
   return out;
 }
@@ -14960,6 +15115,8 @@ function sanitizeScreenplayProjectMemoryItems(items, maxItems = SCREENPLAY_PROJE
       record.characterArcTurns.length ||
       record.imageMotifs.length ||
       record.continuityNotes.length ||
+      record.correctedTerms.length ||
+      record.correctionReplacements.length ||
       record.pageCount > 0 ||
       record.targetPages > 0
     );
@@ -15266,6 +15423,7 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     pageCount: studio.screenplayPageCount,
     targetPages: studio.screenplayTargetPages,
   });
+  const correction = extractScreenplayMemoryCorrection(transcript);
   const hasScreenplayMemorySignal = Boolean(
     studio.screenplayProjectId ||
     studio.screenplayDocumentRevisionId ||
@@ -15304,6 +15462,7 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     studio.screenplayInsertedText ||
     studio.screenplayRevisedBlockText ||
     studio.screenplayDraftExcerpt ||
+    correction?.correctedFact ||
     distilled.hasScreenplayShape
   );
   if (!hasScreenplayMemorySignal) return null;
@@ -15322,8 +15481,63 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     studio.screenplayRevisedBlockText ||
     studio.screenplayTarget === "page"
   );
+  const correctionMotifs = correction?.correctedFact
+    ? filterScreenplayCorrectionList(
+      collectScreenplayMemoryMotifs([correction.correctedFact], 6),
+      correction
+    )
+    : [];
+  const correctionSetups = correction?.correctedFact
+    ? filterScreenplayCorrectionList(
+      collectScreenplayMemorySetups([correction.correctedFact], 5),
+      correction
+    )
+    : [];
+  const correctionRecord = correction?.correctedFact
+    ? {
+      projectId: studio.screenplayProjectId,
+      documentRevisionId: studio.screenplayDocumentRevisionId,
+      act: studio.screenplayAct || position.act,
+      sceneLabel: studio.screenplayAnchorSceneLabel,
+      sceneObjective: "",
+      sceneSummary: correction.correctedFact,
+      currentBeat: correction.correctedFact,
+      featureSequence: studio.screenplayFeatureSequence || position.featureSequence,
+      featureObligation: studio.screenplayFeatureObligation || position.featureObligation,
+      actPressureState: correction.correctedFact,
+      characterArcState: correction.correctedFact,
+      lastSceneOutcome: correction.correctedFact,
+      nextScenePlan: `Honor the user's correction before continuing: ${correction.correctedFact}`,
+      nextSceneMoves: [`Honor correction: ${correction.correctedFact}`],
+      nextThreeTurns: [`Honor correction: ${correction.correctedFact}`],
+      unresolvedSetups: correctionSetups,
+      unresolvedStoryThreads: correction.correctedFact ? [`Correction to honor: ${correction.correctedFact}`] : [],
+      characterArcTurns: correction.correctedFact ? [`Correction to honor: ${correction.correctedFact}`] : [],
+      imageMotifs: correctionMotifs,
+      continuityNotes: [`Authoritative user correction: ${correction.correctionNote || correction.correctedFact}`],
+      correctedTerms: correction.correctedTerms,
+      correctionReplacements: correction.correctionReplacements,
+      emotionalContinuity: correction.correctedFact,
+      pageCount: studio.screenplayPageCount,
+      targetPages: studio.screenplayTargetPages,
+      lastTarget: studio.screenplayTarget,
+      lastPromptSource: studio.screenplayPromptSource,
+      lastWriteId: studio.screenplayWriteId,
+      lastInsertionMode: studio.screenplayInsertionMode,
+      lastAnchorLine: studio.screenplayAnchorLine,
+      lastAnchorEndLine: studio.screenplayAnchorEndLine,
+      lastAnchorExcerpt: studio.screenplayResolvedAnchorExcerpt,
+      lastUserIntent: transcript,
+      lastAssistantReply: reply,
+      lastWritePreview: correction.correctedFact,
+      writeCount: 0,
+      interactionCount: 1,
+      createdAt: nowTs,
+      updatedAt: nowTs,
+    }
+    : null;
   const [record = null] = sanitizeScreenplayProjectMemoryItems([
-    {
+    correctionRecord || {
       projectId: studio.screenplayProjectId,
       documentRevisionId: studio.screenplayDocumentRevisionId,
       act: studio.screenplayAct || position.act,
@@ -15372,6 +15586,8 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
         ? studio.screenplayImageMotifs
         : distilled.imageMotifs,
       continuityNotes: studio.screenplayContinuityNotes,
+      correctedTerms: [],
+      correctionReplacements: [],
       emotionalContinuity: studio.screenplayEmotionalContinuity,
       pageCount: studio.screenplayPageCount,
       targetPages: studio.screenplayTargetPages,
@@ -15398,19 +15614,60 @@ function mergeScreenplayProjectMemoryRecords(existingRecord, incomingRecord, now
   const existing = sanitizeScreenplayProjectMemoryItems([existingRecord], 1)[0] || {};
   const incoming = sanitizeScreenplayProjectMemoryItems([incomingRecord], 1)[0] || null;
   if (!incoming) return existing;
+  const correction = {
+    correctedTerms: collectScreenplayCorrectionItems(incoming.correctedTerms || []),
+    correctionReplacements: collectScreenplayCorrectionItems(incoming.correctionReplacements || []),
+  };
+  const isCorrectionMerge = Boolean(
+    correction.correctedTerms.length ||
+    correction.correctionReplacements.length ||
+    (incoming.continuityNotes || []).some((note) => /\bauthoritative user correction\b/i.test(note))
+  );
   const merged = {
     ...existing,
     schemaVersion: 1,
   };
 
-  for (const [field] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
-    if (incoming[field]) merged[field] = incoming[field];
+  for (const [field, maxChars] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
+    if (incoming[field]) {
+      merged[field] = applyScreenplayCorrectionReplacements(incoming[field], correction.correctionReplacements, maxChars);
+      continue;
+    }
+    if (
+      isCorrectionMerge &&
+      !["projectId", "documentRevisionId"].includes(field) &&
+      merged[field]
+    ) {
+      const repaired = applyScreenplayCorrectionReplacements(merged[field], correction.correctionReplacements, maxChars);
+      merged[field] = textContainsScreenplayCorrectionTerm(repaired, correction.correctedTerms)
+        ? ""
+        : repaired;
+    }
   }
-  if (incoming.lastWritePreview) merged.lastWritePreview = incoming.lastWritePreview;
+  if (incoming.lastWritePreview) {
+    merged.lastWritePreview = applyScreenplayCorrectionReplacements(
+      incoming.lastWritePreview,
+      correction.correctionReplacements,
+      900
+    );
+  } else if (isCorrectionMerge && merged.lastWritePreview) {
+    const repaired = applyScreenplayCorrectionReplacements(
+      merged.lastWritePreview,
+      correction.correctionReplacements,
+      900
+    );
+    merged.lastWritePreview = textContainsScreenplayCorrectionTerm(repaired, correction.correctedTerms)
+      ? ""
+      : repaired;
+  }
 
   for (const [field, maxItems, maxChars] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+    const existingItems = isCorrectionMerge
+      && !["correctedTerms", "correctionReplacements"].includes(field)
+      ? filterScreenplayCorrectionList(existing[field], correction)
+      : existing[field];
     merged[field] = mergeScreenplayProjectMemoryList(
-      existing[field],
+      existingItems,
       incoming[field],
       maxItems,
       maxChars
@@ -15464,10 +15721,18 @@ function upsertScreenplayProjectMemory(memory, studioMeta, options = {}) {
     memory.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
   );
-  const matchIndex = current.findIndex((item) => (
+  let matchIndex = current.findIndex((item) => (
     (incoming.projectId && item.projectId === incoming.projectId) ||
     (incoming.documentRevisionId && item.documentRevisionId === incoming.documentRevisionId)
   ));
+  const isCorrectionIncoming = Boolean(
+    incoming.correctedTerms?.length ||
+    incoming.correctionReplacements?.length ||
+    (incoming.continuityNotes || []).some((note) => /\bauthoritative user correction\b/i.test(note))
+  );
+  if (matchIndex < 0 && isCorrectionIncoming && current.length === 1) {
+    matchIndex = 0;
+  }
   const next = matchIndex >= 0 ? [...current] : [incoming, ...current];
   if (matchIndex >= 0) {
     next[matchIndex] = mergeScreenplayProjectMemoryRecords(current[matchIndex], incoming, nowTs);
@@ -15517,6 +15782,12 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
     const notes = item.continuityNotes.length
       ? ` continuity_notes:${item.continuityNotes.slice(0, 3).join(" / ")}`
       : "";
+    const corrections = item.correctedTerms.length || item.correctionReplacements.length
+      ? ` corrected_terms:${[
+        ...item.correctionReplacements.slice(0, 3),
+        ...item.correctedTerms.slice(0, 3),
+      ].slice(0, 4).join(" / ")}`
+      : "";
     return normalizeSnippet(
       [
         `project:${item.projectId || "unknown"}`,
@@ -15549,6 +15820,7 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
         arcTurns.trim(),
         motifs.trim(),
         notes.trim(),
+        corrections.trim(),
       ].filter(Boolean).join("; "),
       1500
     );
