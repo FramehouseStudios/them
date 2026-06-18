@@ -181,6 +181,60 @@ test("recordTriggersFromTalkTurn stores and repairs character bible canon", asyn
   assert.ok(mara.bible.correctionReplacements.includes("mother -> Eli's sister"));
 });
 
+test("recordTriggersFromTalkTurn stores and repairs act-level character arc state", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-character-arc",
+    transcript: [
+      "My protagonist is named Mara.",
+      "Act II: Mara wants to expose the forged testimony.",
+      "Mara needs to stop hiding behind observation.",
+      "Mara's wound is her father's disappearance.",
+      "Mara's false belief is that perfect proof can keep everyone safe.",
+      "Mara's relationship pressure with Eli is protecting him by lying.",
+      "Mara's current tactic is collecting evidence in silence.",
+      "Mara's next emotional turn is public courage.",
+    ].join(" "),
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+
+  let memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-character-arc",
+    query: "Continue Mara's Act II arc.",
+  });
+  let mara = memory.characters.find((character) => character.name === "Mara");
+  assert.equal(mara.bible.arc.act, "Act II");
+  assert.equal(mara.bible.arc.want, "expose the forged testimony");
+  assert.equal(mara.bible.arc.need, "stop hiding behind observation");
+  assert.equal(mara.bible.arc.wound, "her father's disappearance");
+  assert.equal(mara.bible.arc.falseBelief, "perfect proof can keep everyone safe");
+  assert.equal(mara.bible.arc.relationshipPressure, "with Eli: protecting him by lying");
+  assert.equal(mara.bible.arc.currentTactic, "collecting evidence in silence");
+  assert.equal(mara.bible.arc.nextEmotionalTurn, "public courage");
+
+  const correctionSummary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-character-arc",
+    transcript: "Actually, no, Mara's false belief is that truth will get Eli killed, not that perfect proof can keep everyone safe.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  assert.equal(correctionSummary.corrections, 1);
+
+  memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-character-arc",
+    query: "Continue Mara's Act II arc.",
+  });
+  mara = memory.characters.find((character) => character.name === "Mara");
+  assert.equal(mara.bible.arc.falseBelief, "truth will get Eli killed");
+  assert.equal(mara.bible.arc.want, "expose the forged testimony");
+  assert.equal(mara.bible.arc.need, "stop hiding behind observation");
+  assert.ok(!JSON.stringify(mara.bible.arc).includes("perfect proof can keep everyone safe"));
+  assert.ok(mara.bible.correctionReplacements.includes("perfect proof can keep everyone safe -> truth will get Eli killed"));
+});
+
 test("recordTriggersFromTalkTurn persists corrections and retrieves them before older conflicting memory", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordTriggersFromTalkTurn({

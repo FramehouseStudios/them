@@ -28,6 +28,7 @@ const CHARACTERS_MAX = 32;
 const CHARACTER_BIBLE_CANON_MAX = 12;
 const CHARACTER_BIBLE_CORRECTIONS_MAX = 8;
 const CHARACTER_BIBLE_TERMS_MAX = 12;
+const CHARACTER_ARC_FIELD_MAX_CHARS = 180;
 const EPISODIC_MEMORIES_MAX = 64;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const DOMAIN = "creative_memory";
@@ -99,6 +100,16 @@ const EXPLICIT_MEMORY_KEYWORDS = /\b(?:remember|keep in mind|do not forget|don't
 const CORRECTION_KEYWORDS = /\b(?:actually,\s*no|correction|scratch that|not that|instead|retcon|change it to|make it so)\b/i;
 const CORRECTION_TAG = "correction";
 const CHARACTER_BIBLE_FACT_KEYWORDS = /\b(?:is|was|becomes|became|turns out|wants|needs|must|believes|hides|knows|protects|fears|misses|betrays|trusts|forgives|loves|hates|secret|wound|goal|arc|relationship|mother|father|sister|brother|daughter|son|wife|husband|partner)\b/i;
+const CHARACTER_ARC_FIELDS = Object.freeze([
+  "act",
+  "want",
+  "need",
+  "wound",
+  "falseBelief",
+  "relationshipPressure",
+  "currentTactic",
+  "nextEmotionalTurn",
+]);
 
 function nowMs() {
   return Date.now();
@@ -245,10 +256,59 @@ function filterCharacterBibleItems(items = [], correction = null, maxItems = CHA
   return out;
 }
 
+function readArcField(value = {}, field = "") {
+  if (!value || typeof value !== "object") return "";
+  if (field === "falseBelief") return value.falseBelief ?? value.false_belief ?? "";
+  if (field === "relationshipPressure") return value.relationshipPressure ?? value.relationship_pressure ?? "";
+  if (field === "currentTactic") return value.currentTactic ?? value.current_tactic ?? "";
+  if (field === "nextEmotionalTurn") return value.nextEmotionalTurn ?? value.next_emotional_turn ?? "";
+  return value[field] ?? "";
+}
+
+function sanitizeCharacterArcState(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out = { schemaVersion: 1 };
+  for (const field of CHARACTER_ARC_FIELDS) {
+    const maxChars = field === "act" ? 80 : CHARACTER_ARC_FIELD_MAX_CHARS;
+    const clean = cleanText(readArcField(value, field), maxChars);
+    if (clean) out[field] = clean;
+  }
+  return Object.keys(out).length > 1 ? out : null;
+}
+
+function repairCharacterArcStateForCorrection(arc = null, correction = null) {
+  const current = sanitizeCharacterArcState(arc);
+  if (!current || !correction) return current;
+  const terms = collectCharacterBibleItems(correction.correctedTerms || [], CHARACTER_BIBLE_TERMS_MAX, 120);
+  const replacements = correction.correctionReplacements || [];
+  const out = { schemaVersion: 1 };
+  for (const field of CHARACTER_ARC_FIELDS) {
+    const maxChars = field === "act" ? 80 : CHARACTER_ARC_FIELD_MAX_CHARS;
+    const repaired = applyCharacterBibleReplacements(current[field], replacements, maxChars);
+    if (!repaired || textContainsCharacterCorrectionTerm(repaired, terms)) continue;
+    out[field] = repaired;
+  }
+  return Object.keys(out).length > 1 ? out : null;
+}
+
+function mergeCharacterArcState(existingArc = null, incomingArc = null, correction = null) {
+  const existing = repairCharacterArcStateForCorrection(existingArc, correction) || {};
+  const incoming = repairCharacterArcStateForCorrection(incomingArc, correction) || sanitizeCharacterArcState(incomingArc);
+  const out = { schemaVersion: 1 };
+  for (const field of CHARACTER_ARC_FIELDS) {
+    const cleanIncoming = cleanText(incoming?.[field], field === "act" ? 80 : CHARACTER_ARC_FIELD_MAX_CHARS);
+    const cleanExisting = cleanText(existing?.[field], field === "act" ? 80 : CHARACTER_ARC_FIELD_MAX_CHARS);
+    if (cleanIncoming) out[field] = cleanIncoming;
+    else if (cleanExisting) out[field] = cleanExisting;
+  }
+  return Object.keys(out).length > 1 ? out : null;
+}
+
 function sanitizeCharacterBibleDelta(value = null) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const canon = collectCharacterBibleItems(value.canon ?? value.facts, CHARACTER_BIBLE_CANON_MAX, 220);
   const corrections = collectCharacterBibleItems(value.corrections, CHARACTER_BIBLE_CORRECTIONS_MAX, 260);
+  const arc = sanitizeCharacterArcState(value.arc ?? value.characterArc ?? value.character_arc);
   const correctedTerms = collectCharacterBibleItems(value.correctedTerms, CHARACTER_BIBLE_TERMS_MAX, 120)
     .map((term) => normalizeCharacterCorrectionTerm(term, 120))
     .filter(Boolean);
@@ -257,11 +317,12 @@ function sanitizeCharacterBibleDelta(value = null) {
     CHARACTER_BIBLE_TERMS_MAX,
     180
   ).filter((item) => parseCharacterBibleReplacement(item));
-  if (!canon.length && !corrections.length && !correctedTerms.length && !correctionReplacements.length) return null;
+  if (!canon.length && !corrections.length && !arc && !correctedTerms.length && !correctionReplacements.length) return null;
   return {
     schemaVersion: 1,
     canon,
     corrections,
+    ...(arc ? { arc } : {}),
     correctedTerms,
     correctionReplacements,
     updatedAt: Math.max(0, Number(value.updatedAt || nowMs())),
@@ -327,6 +388,7 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
   const existingCanon = hasCorrection
     ? filterCharacterBibleItems(existing.canon, correction, CHARACTER_BIBLE_CANON_MAX, 220)
     : existing.canon;
+  const arc = mergeCharacterArcState(existing.arc, incoming.arc, hasCorrection ? correction : null);
   const existingCorrections = filterCharacterBibleItems(
     existing.corrections,
     { correctedTerms: [], correctionReplacements: correction.correctionReplacements },
@@ -344,6 +406,7 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
       CHARACTER_BIBLE_CORRECTIONS_MAX,
       260
     ),
+    ...(arc ? { arc } : {}),
     correctedTerms: collectCharacterBibleItems(
       [...incoming.correctedTerms, ...existing.correctedTerms],
       CHARACTER_BIBLE_TERMS_MAX,
@@ -707,6 +770,9 @@ function extractCharacterReplacementBeforeNot(text = "", notIndex = -1, characte
   const escapedName = cleanName ? escapeRegex(cleanName) : "";
   const patterns = [
     escapedName
+      ? new RegExp(`\\b${escapedName}(?:'s)?\\s+(?:false\\s+belief|misbelief|lie|wound|need|want|current\\s+tactic|tactic|next\\s+emotional\\s+turn|emotional\\s+turn|relationship\\s+pressure)(?:\\s+with\\s+[A-Z][A-Za-z'-]{1,32})?\\s+(?:is|is that|is to|should be|becomes|=)\\s+(.{2,120})$`, "i")
+      : null,
+    escapedName
       ? new RegExp(`\\b${escapedName}\\s+(?:is|was|becomes|became|turns out to be|acts as)\\s+(.{2,120})$`, "i")
       : null,
     /\b(?:is|was|becomes|became|turns out to be|acts as)\s+(.{2,120})$/i,
@@ -720,7 +786,7 @@ function extractCharacterReplacementBeforeNot(text = "", notIndex = -1, characte
         .replace(/\s+(?:under|inside|behind|before|after|with|to|from|because|while)\b.*$/i, ""),
       120
     );
-    if (clean && !/\b(?:scene|act|page|story|character|truth|canon)\b/i.test(clean)) return clean;
+    if (clean && !/\b(?:scene|act|page|story|character|canon)\b/i.test(clean)) return clean;
   }
   return "";
 }
@@ -778,6 +844,96 @@ function extractCharacterMemoryCorrection(text = "", characterName = "") {
   };
 }
 
+function normalizeActLabel(value = "") {
+  const clean = cleanText(value, 40).toLowerCase();
+  if (!clean) return "";
+  if (/^(?:i|1|one)$/.test(clean)) return "Act I";
+  if (/^(?:ii|2|two)$/.test(clean)) return "Act II";
+  if (/^(?:iii|3|three)$/.test(clean)) return "Act III";
+  if (/act\s*(?:i|1|one)\b/i.test(clean)) return "Act I";
+  if (/act\s*(?:ii|2|two)\b/i.test(clean)) return "Act II";
+  if (/act\s*(?:iii|3|three)\b/i.test(clean)) return "Act III";
+  return "";
+}
+
+function inferCharacterArcAct(text = "") {
+  const match = String(text || "").match(/\bAct\s*(I{1,3}|1|2|3|one|two|three)\b/i);
+  return normalizeActLabel(match?.[1] || "");
+}
+
+function normalizeCharacterArcValue(value = "", maxChars = CHARACTER_ARC_FIELD_MAX_CHARS) {
+  return cleanText(value, maxChars)
+    .replace(/^(?:to|that|is|as)\s+/i, "")
+    .replace(/[.,;:]+$/g, "")
+    .trim();
+}
+
+function firstCharacterArcMatch(source = "", patterns = [], maxChars = CHARACTER_ARC_FIELD_MAX_CHARS) {
+  for (const pattern of patterns) {
+    const match = String(source || "").match(pattern);
+    if (!match) continue;
+    const raw = typeof pattern._format === "function"
+      ? pattern._format(match)
+      : (match[2] || match[1]);
+    const clean = normalizeCharacterArcValue(raw, maxChars);
+    if (clean) return clean;
+  }
+  return "";
+}
+
+function withArcFormatter(pattern, format) {
+  pattern._format = format;
+  return pattern;
+}
+
+function extractCharacterArcState({ text = "", characterName = "", correction = null } = {}) {
+  const cleanName = normalizeCharacterName(characterName);
+  if (!cleanName) return null;
+  const escaped = escapeRegex(cleanName);
+  const source = [
+    correction?.correctedFact || "",
+    text || "",
+  ].filter(Boolean).join("\n");
+  const arc = {
+    act: inferCharacterArcAct(source),
+    want: firstCharacterArcMatch(source, [
+      new RegExp(`\\b${escaped}\\s+wants\\s+to\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+      new RegExp(`\\b${escaped}(?:'s)?\\s+(?:want|external\\s+want|goal)\\s+(?:is|is to|=)\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+    ]),
+    need: firstCharacterArcMatch(source, [
+      new RegExp(`\\b${escaped}\\s+needs\\s+to\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+      new RegExp(`\\b${escaped}(?:'s)?\\s+(?:need|inner\\s+need)\\s+(?:is|is to|=)\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+    ]),
+    wound: firstCharacterArcMatch(source, [
+      new RegExp(`\\b${escaped}(?:'s)?\\s+wound\\s+(?:is|is that|comes from|=)\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+      new RegExp(`\\b${escaped}\\s+is\\s+wounded\\s+by\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+    ]),
+    falseBelief: firstCharacterArcMatch(source, [
+      new RegExp(`\\b${escaped}(?:'s)?\\s+(?:false\\s+belief|misbelief|lie)\\s+(?:is|is that|=)\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+      new RegExp(`\\b${escaped}\\s+believes\\s+(?:that\\s+)?([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+    ]),
+    relationshipPressure: firstCharacterArcMatch(source, [
+      withArcFormatter(
+        new RegExp(`\\b${escaped}(?:'s)?\\s+relationship\\s+pressure(?:\\s+with\\s+([A-Z][A-Za-z'-]{1,32}))?\\s+(?:is|is to|comes from|=)\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+        (match) => match[1] ? `with ${normalizeCharacterName(match[1])}: ${match[2]}` : match[2]
+      ),
+      new RegExp(`\\b${escaped}\\s+(?:protects|fears|misses|betrays|trusts|forgives|loves|hates)\\s+([A-Z][A-Za-z'-]{1,32}[^.!?\\n;]{0,120})`, "i"),
+    ]),
+    currentTactic: firstCharacterArcMatch(source, [
+      new RegExp(`\\b${escaped}(?:'s)?\\s+(?:current\\s+tactic|tactic)\\s+(?:is|is to|becomes|should be|=)\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+      new RegExp(`\\b${escaped}\\s+(?:tries|is trying)\\s+to\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+    ]),
+    nextEmotionalTurn: firstCharacterArcMatch(source, [
+      new RegExp(`\\b${escaped}(?:'s)?\\s+(?:next\\s+emotional\\s+turn|emotional\\s+turn|next\\s+turn)\\s+(?:is|is to|becomes|should be|=)\\s+([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+      new RegExp(`\\b${escaped}\\s+must\\s+(?:finally\\s+)?([^.!?\\n;]{3,${CHARACTER_ARC_FIELD_MAX_CHARS}})`, "i"),
+    ]),
+  };
+  const sanitized = sanitizeCharacterArcState(arc);
+  return correction
+    ? repairCharacterArcStateForCorrection(sanitized, correction)
+    : sanitized;
+}
+
 function extractCharacterBibleDelta({ text = "", characterName = "", isCorrectionTurn = false } = {}) {
   const cleanName = normalizeCharacterName(characterName);
   if (!cleanName) return null;
@@ -801,9 +957,11 @@ function extractCharacterBibleDelta({ text = "", characterName = "", isCorrectio
   const corrections = correction?.correctedFact
     ? [`Authoritative correction for ${cleanName}: ${correction.correctionNote || correction.correctedFact}`]
     : [];
+  const arc = extractCharacterArcState({ text, characterName: cleanName, correction });
   return sanitizeCharacterBibleDelta({
     canon,
     corrections,
+    arc,
     correctedTerms: correction?.correctedTerms || [],
     correctionReplacements: correction?.correctionReplacements || [],
     updatedAt: nowMs(),

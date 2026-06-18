@@ -297,6 +297,16 @@ test("buildModelPrompt emits character bible canon and corrections", () => {
           last_referenced: 10,
           bible: {
             canon: ["Mara is Eli's sister.", "Mara wants to protect Eli."],
+            arc: {
+              act: "Act II",
+              want: "expose the forged testimony",
+              need: "stop hiding behind observation",
+              wound: "her father's disappearance",
+              falseBelief: "truth will get Eli killed",
+              relationshipPressure: "with Eli: protecting him by lying",
+              currentTactic: "collecting evidence in silence",
+              nextEmotionalTurn: "public courage",
+            },
             corrections: ["Authoritative correction for Mara: Mara is Eli's sister, not his mother."],
             correctedTerms: ["mother"],
             correctionReplacements: ["mother -> Eli's sister"],
@@ -310,6 +320,13 @@ test("buildModelPrompt emits character bible canon and corrections", () => {
   assert.ok(out.includes("- Mara"));
   assert.ok(out.includes("bible: canon: Mara is Eli's sister."));
   assert.ok(out.includes("Mara wants to protect Eli."));
+  assert.ok(out.includes("arc: act=Act II; want=expose the forged testimony"));
+  assert.ok(out.includes("need=stop hiding behind observation"));
+  assert.ok(out.includes("wound=her father's disappearance"));
+  assert.ok(out.includes("false_belief=truth will get Eli killed"));
+  assert.ok(out.includes("relationship_pressure=with Eli: protecting him by lying"));
+  assert.ok(out.includes("current_tactic=collecting evidence in silence"));
+  assert.ok(out.includes("next_emotional_turn=public courage"));
   assert.ok(out.includes("corrections: Authoritative correction for Mara"));
   assert.ok(out.includes("corrected_terms: mother -> Eli's sister"));
 });

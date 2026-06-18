@@ -450,7 +450,21 @@ function serializeCharacters(characters) {
       const correctedTerms = sanitizeContextList(c.bible.correctionReplacements, 3, 120)
         .concat(sanitizeContextList(c.bible.correctedTerms, 3, 80))
         .slice(0, 4);
+      const arc = c.bible.arc && typeof c.bible.arc === "object" ? c.bible.arc : null;
+      const arcParts = arc
+        ? [
+          trimContextLine(arc.act, 60) ? `act=${trimContextLine(arc.act, 60)}` : "",
+          trimContextLine(arc.want, 120) ? `want=${trimContextLine(arc.want, 120)}` : "",
+          trimContextLine(arc.need, 120) ? `need=${trimContextLine(arc.need, 120)}` : "",
+          trimContextLine(arc.wound, 120) ? `wound=${trimContextLine(arc.wound, 120)}` : "",
+          trimContextLine(arc.falseBelief ?? arc.false_belief, 120) ? `false_belief=${trimContextLine(arc.falseBelief ?? arc.false_belief, 120)}` : "",
+          trimContextLine(arc.relationshipPressure ?? arc.relationship_pressure, 120) ? `relationship_pressure=${trimContextLine(arc.relationshipPressure ?? arc.relationship_pressure, 120)}` : "",
+          trimContextLine(arc.currentTactic ?? arc.current_tactic, 120) ? `current_tactic=${trimContextLine(arc.currentTactic ?? arc.current_tactic, 120)}` : "",
+          trimContextLine(arc.nextEmotionalTurn ?? arc.next_emotional_turn, 120) ? `next_emotional_turn=${trimContextLine(arc.nextEmotionalTurn ?? arc.next_emotional_turn, 120)}` : "",
+        ].filter(Boolean)
+        : [];
       if (canon.length) bibleParts.push(`canon: ${canon.join(" / ")}`);
+      if (arcParts.length) bibleParts.push(`arc: ${arcParts.join("; ")}`);
       if (corrections.length) bibleParts.push(`corrections: ${corrections.join(" / ")}`);
       if (correctedTerms.length) bibleParts.push(`corrected_terms: ${correctedTerms.join(" / ")}`);
       if (bibleParts.length) lines.push(`      bible: ${bibleParts.join("; ")}`);
