@@ -3,6 +3,119 @@ import ScreenplayStudio
 @testable import them
 
 final class BackendClientCraftAPITests: XCTestCase {
+    func testScreenplayCharacterArcMemoryPayloadUsesBackendContractKeys() throws {
+        let arc = BackendScreenplayCharacterArcMemory(
+            character: "Mara",
+            act: "Act II",
+            want: "expose the forged testimony",
+            need: "stop hiding behind observation",
+            falseBelief: "truth destroys anyone who says it aloud",
+            relationshipPressure: "Eli will be blamed if she stays silent",
+            currentTactic: "collecting evidence in silence",
+            nextEmotionalTurn: "public courage"
+        )
+
+        XCTAssertTrue(arc.isMeaningful)
+        XCTAssertEqual(arc.payload["character"], "Mara")
+        XCTAssertEqual(arc.payload["act"], "Act II")
+        XCTAssertEqual(arc.payload["want"], "expose the forged testimony")
+        XCTAssertEqual(arc.payload["need"], "stop hiding behind observation")
+        XCTAssertEqual(arc.payload["false_belief"], "truth destroys anyone who says it aloud")
+        XCTAssertEqual(arc.payload["relationship_pressure"], "Eli will be blamed if she stays silent")
+        XCTAssertEqual(arc.payload["current_tactic"], "collecting evidence in silence")
+        XCTAssertEqual(arc.payload["next_emotional_turn"], "public courage")
+
+        let metadata = BackendStudioThreadCommitMetadata(
+            screenplayProjectId: "",
+            screenplayDocumentRevisionId: "",
+            screenplayTarget: "",
+            screenplayPromptSource: "",
+            screenplayWriteId: "",
+            screenplayAnchorLine: nil,
+            screenplayAnchorEndLine: nil,
+            screenplayInsertionMode: "",
+            screenplayAnchorSceneLabel: "",
+            screenplayAnchorDraftSceneId: "",
+            screenplayAnchorOutlineSceneId: "",
+            screenplayAnchorOutlineBeatIds: [],
+            screenplayAnchorScriptNodeId: "",
+            screenplayNoteTitle: "",
+            screenplayNoteBody: "",
+            screenplayInsertedText: "",
+            screenplayReplacementApplied: false,
+            screenplayReplacedWriteId: "",
+            screenplayRevisedBlockText: "",
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayCharacterArcMemory: arc
+        )
+
+        XCTAssertTrue(metadata.isMeaningful)
+    }
+
+    func testStudioRenderSendsScreenplayCharacterArcMemory() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render"):
+                return .json(#"{ "ok": true, "action": "studio_render", "reply": "INT. ARCHIVE - NIGHT" }"#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+        let arc = BackendScreenplayCharacterArcMemory(
+            character: "Mara",
+            act: "Act II",
+            want: "expose the forged testimony",
+            need: "stop hiding behind observation",
+            currentTactic: "collecting evidence in silence",
+            nextEmotionalTurn: "public courage"
+        )
+        let metadata = BackendStudioThreadCommitMetadata(
+            screenplayProjectId: "project-1",
+            screenplayDocumentRevisionId: "version-1",
+            screenplayTarget: "page",
+            screenplayPromptSource: "typed",
+            screenplayWriteId: "",
+            screenplayAnchorLine: nil,
+            screenplayAnchorEndLine: nil,
+            screenplayInsertionMode: "",
+            screenplayAnchorSceneLabel: "",
+            screenplayAnchorDraftSceneId: "",
+            screenplayAnchorOutlineSceneId: "",
+            screenplayAnchorOutlineBeatIds: [],
+            screenplayAnchorScriptNodeId: "",
+            screenplayNoteTitle: "",
+            screenplayNoteBody: "",
+            screenplayInsertedText: "",
+            screenplayReplacementApplied: false,
+            screenplayReplacedWriteId: "",
+            screenplayRevisedBlockText: "",
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayCharacterArcMemory: arc
+        )
+
+        let reply = try await client.renderRealtimeStudioText(
+            transcript: "Continue the next page.",
+            systemPrompt: "Return screenplay only.",
+            screenplayTarget: "page",
+            studioMetadata: metadata
+        )
+
+        XCTAssertEqual(reply, "INT. ARCHIVE - NIGHT")
+        let renderRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/realtime/studio_render" })
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_target"] as? String, "page")
+        let arcBody = try XCTUnwrap(renderRequest.bodyObject?["screenplay_character_arc_memory"] as? [String: Any])
+        XCTAssertEqual(arcBody["character"] as? String, "Mara")
+        XCTAssertEqual(arcBody["want"] as? String, "expose the forged testimony")
+        XCTAssertEqual(arcBody["need"] as? String, "stop hiding behind observation")
+        XCTAssertEqual(arcBody["current_tactic"] as? String, "collecting evidence in silence")
+        XCTAssertEqual(arcBody["next_emotional_turn"] as? String, "public courage")
+    }
+
     func testTalkTurnRateLimitNoticeParsesRetryAfterMsAndBannerCopy() throws {
         let notice = try XCTUnwrap(
             BackendTalkTurnMetaRateLimitNotice(

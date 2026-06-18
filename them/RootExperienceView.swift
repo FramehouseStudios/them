@@ -7095,6 +7095,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 shouldWriteToPage: shouldWriteToPage
             )
         )
+        let studioRenderMetadata = studioRenderRequestMetadata(
+            promptSource: .typed,
+            shouldWriteToPage: shouldWriteToPage,
+            requestID: requestID
+        )
 #if DEBUG || os(macOS)
         setStudioDebugPreferenceString("root_prompt_build_finished", forKey: "studio_debug_root_submit_stage")
 #endif
@@ -7124,6 +7129,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 transcript: renderTranscript,
                                 systemPrompt: systemPrompt,
                                 screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                                studioMetadata: studioRenderMetadata,
                                 onPartial: { partial in
                                     await MainActor.run {
                                         guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
@@ -7149,7 +7155,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             try await backend.renderRealtimeStudioText(
                                 transcript: renderTranscript,
                                 systemPrompt: systemPrompt,
-                                screenplayTarget: shouldWriteToPage ? "page" : "voice_pin"
+                                screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                                studioMetadata: studioRenderMetadata
                             )
                         }
                     }
@@ -7169,7 +7176,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         try await backend.renderRealtimeStudioText(
                             transcript: renderTranscript,
                             systemPrompt: systemPrompt,
-                            screenplayTarget: shouldWriteToPage ? "page" : "voice_pin"
+                            screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                            studioMetadata: studioRenderMetadata
                         )
                     }
                 }
@@ -8730,6 +8738,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         realtimeStudioRenderTask = Task { @MainActor in
             let systemPrompt = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: true)
+            let studioRenderMetadata = studioRenderRequestMetadata(
+                promptSource: .voice,
+                shouldWriteToPage: true
+            )
             do {
 #if DEBUG || os(macOS)
                 appendStudioDebugVoiceDraftBreadcrumb(
@@ -8743,6 +8755,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     transcript: renderTranscript,
                     systemPrompt: systemPrompt,
                     screenplayTarget: "page",
+                    studioMetadata: studioRenderMetadata,
                     onPartial: { partial in
                         await MainActor.run {
                             guard self.realtimeStudioRenderUserMessage == cleanUser else { return }
@@ -8878,7 +8891,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         (try? await backend.renderRealtimeStudioText(
                             transcript: renderTranscript,
                             systemPrompt: systemPrompt,
-                            screenplayTarget: "page"
+                            screenplayTarget: "page",
+                            studioMetadata: studioRenderMetadata
                         )) ?? ""
                     )
                     guard !fallbackReply.isEmpty else {
@@ -8961,11 +8975,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
             renderedReply = (await task.value)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         } else {
             let systemPrompt = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: true)
+            let studioRenderMetadata = studioRenderRequestMetadata(
+                promptSource: .voice,
+                shouldWriteToPage: shouldWriteToPage
+            )
             renderedReply = sanitizedRealtimeStudioRenderReply(
                 (try? await backend.renderRealtimeStudioText(
                     transcript: renderTranscript,
                     systemPrompt: systemPrompt,
-                    screenplayTarget: shouldWriteToPage ? "page" : "voice_pin"
+                    screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                    studioMetadata: studioRenderMetadata
                 )) ?? ""
             )
         }
@@ -9322,6 +9341,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         actThreePayoffPath: [String],
         actPressureState: String,
         characterArcState: String,
+        characterArcMemory: BackendScreenplayCharacterArcMemory?,
         lastSceneOutcome: String,
         beatSequence: [String],
         characterFocus: [String],
@@ -9672,6 +9692,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if promptImageMotifs.isEmpty, !promptEndingImage.isEmpty {
             promptImageMotifs = ["Ending image: \(promptEndingImage)"]
         }
+        let promptCharacterArcMemory = BackendScreenplayCharacterArcMemory(
+            character: characterFocus.first ?? "",
+            act: promptAct,
+            want: promptProtagonistWant,
+            need: promptProtagonistNeed,
+            relationshipPressure: promptAntagonisticForce,
+            currentTactic: promptCurrentBeat.isEmpty ? promptSceneObjective : promptCurrentBeat,
+            nextEmotionalTurn: promptCharacterArcTurns.first ?? promptNextThreeTurns.first ?? promptNextScenePlan
+        )
 
         return (
             act: promptAct,
@@ -9693,6 +9722,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             actThreePayoffPath: promptActThreePayoffPath,
             actPressureState: promptActPressureState,
             characterArcState: promptCharacterArcState,
+            characterArcMemory: promptCharacterArcMemory.isMeaningful ? promptCharacterArcMemory : nil,
             lastSceneOutcome: promptLastSceneOutcome,
             beatSequence: promptBeatSequence,
             characterFocus: characterFocus,
@@ -10544,6 +10574,85 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayFeatureObligation: promptContinuity.featureObligation,
             screenplayActPressureState: promptContinuity.actPressureState,
             screenplayCharacterArcState: promptContinuity.characterArcState,
+            screenplayCharacterArcMemory: promptContinuity.characterArcMemory,
+            screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
+            screenplayNextScenePlan: promptContinuity.nextScenePlan,
+            screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
+            screenplayNextThreeTurns: promptContinuity.nextThreeTurns,
+            screenplayActThreePayoffPath: promptContinuity.actThreePayoffPath,
+            screenplayBeatSequence: promptContinuity.beatSequence,
+            screenplayCharacterFocus: promptContinuity.characterFocus,
+            screenplayUnresolvedSetups: promptContinuity.unresolvedSetups,
+            screenplayUnresolvedStoryThreads: promptContinuity.unresolvedStoryThreads,
+            screenplayCharacterArcTurns: promptContinuity.characterArcTurns,
+            screenplayImageMotifs: promptContinuity.imageMotifs,
+            screenplayContinuityNotes: promptContinuity.continuityNotes,
+            screenplayEmotionalContinuity: promptContinuity.emotionalContinuity,
+            screenplayPageCount: promptContinuity.pageCount > 0 ? promptContinuity.pageCount : nil,
+            screenplayTargetPages: promptContinuity.targetPages > 0 ? promptContinuity.targetPages : nil
+        )
+        return metadata.isMeaningful ? metadata : nil
+    }
+
+    @MainActor
+    private func studioRenderRequestMetadata(
+        promptSource: ScreenplayStudioUserPrompt.Source,
+        shouldWriteToPage: Bool,
+        requestID: String? = nil
+    ) -> BackendStudioThreadCommitMetadata? {
+        guard isStudioSurfaceActive else { return nil }
+        let projectId = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            : screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let anchorMetadata = shouldWriteToPage
+            ? resolvedStudioDialogueAnchorMetadata()
+            : nil
+        let insertionMode = (screenplayDraftBridge.pendingReplacementTarget ?? screenplayDraftBridge.submittedReplacementTarget) != nil
+            ? "replace_selection"
+            : "insert_after_anchor"
+        let promptContinuity = screenplayPromptContinuityContext(featureWorkflowRequestID: requestID)
+        let metadata = BackendStudioThreadCommitMetadata(
+            screenplayProjectId: projectId,
+            screenplayDocumentRevisionId: anchorMetadata?.documentRevisionID ?? "",
+            screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+            screenplayPromptSource: promptSource.rawValue,
+            screenplayWriteId: "",
+            screenplayAnchorLine: anchorMetadata?.startLine,
+            screenplayAnchorEndLine: anchorMetadata?.endLine,
+            screenplayInsertionMode: shouldWriteToPage ? insertionMode : "",
+            screenplayAnchorSceneLabel: anchorMetadata?.sceneLabel ?? "",
+            screenplayAnchorDraftSceneId: anchorMetadata?.draftSceneID ?? "",
+            screenplayAnchorOutlineSceneId: anchorMetadata?.outlineSceneID ?? "",
+            screenplayAnchorOutlineBeatIds: anchorMetadata?.outlineBeatIDs ?? [],
+            screenplayAnchorScriptNodeId: anchorMetadata?.scriptNodeID ?? "",
+            screenplayNoteTitle: "",
+            screenplayNoteBody: "",
+            screenplayInsertedText: "",
+            screenplayReplacementApplied: false,
+            screenplayReplacedWriteId: "",
+            screenplayRevisedBlockText: "",
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayDraftExcerpt: String(
+                screenplayDraftBridge.draftText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .suffix(6_000)
+            ),
+            screenplayAct: promptContinuity.act,
+            screenplaySceneObjective: promptContinuity.sceneObjective,
+            screenplaySceneSummary: promptContinuity.sceneSummary,
+            screenplayCurrentBeat: promptContinuity.currentBeat,
+            screenplayLogline: promptContinuity.logline,
+            screenplayThemeArgument: promptContinuity.themeArgument,
+            screenplayCentralQuestion: promptContinuity.centralQuestion,
+            screenplayProtagonistWant: promptContinuity.protagonistWant,
+            screenplayProtagonistNeed: promptContinuity.protagonistNeed,
+            screenplayAntagonisticForce: promptContinuity.antagonisticForce,
+            screenplayEndingImage: promptContinuity.endingImage,
+            screenplayFeatureSequence: promptContinuity.featureSequence,
+            screenplayFeatureObligation: promptContinuity.featureObligation,
+            screenplayActPressureState: promptContinuity.actPressureState,
+            screenplayCharacterArcState: promptContinuity.characterArcState,
+            screenplayCharacterArcMemory: promptContinuity.characterArcMemory,
             screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
             screenplayNextScenePlan: promptContinuity.nextScenePlan,
             screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
@@ -10706,6 +10815,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayFeatureObligation: promptContinuity.featureObligation,
             screenplayActPressureState: promptContinuity.actPressureState,
             screenplayCharacterArcState: promptContinuity.characterArcState,
+            screenplayCharacterArcMemory: promptContinuity.characterArcMemory,
             screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
             screenplayNextScenePlan: promptContinuity.nextScenePlan,
             screenplayNextSceneMoves: promptContinuity.nextSceneMoves,

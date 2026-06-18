@@ -2395,7 +2395,8 @@ final class BackendClient {
     func renderRealtimeStudioText(
         transcript: String,
         systemPrompt: String,
-        screenplayTarget: String? = nil
+        screenplayTarget: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil
     ) async throws -> String {
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
@@ -2411,6 +2412,10 @@ final class BackendClient {
         let cleanScreenplayTarget = (screenplayTarget ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !cleanScreenplayTarget.isEmpty {
             body["screenplay_target"] = cleanScreenplayTarget
+        }
+        if let arcMemory = studioMetadata?.screenplayCharacterArcMemory?.payload,
+           !arcMemory.isEmpty {
+            body["screenplay_character_arc_memory"] = arcMemory
         }
         let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
@@ -2433,7 +2438,7 @@ final class BackendClient {
             attachAuthorizationHeader(to: &request)
             request.httpBody = requestBody
 
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await urlSession.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render response.")
             }
@@ -2486,6 +2491,7 @@ final class BackendClient {
         transcript: String,
         systemPrompt: String,
         screenplayTarget: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil,
         onPartial: (@Sendable (String) async -> Void)? = nil,
         onTrace: (@Sendable (BackendRealtimeStudioRenderStreamTrace) async -> Void)? = nil
     ) async throws -> String {
@@ -2503,6 +2509,10 @@ final class BackendClient {
         let cleanScreenplayTarget = (screenplayTarget ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !cleanScreenplayTarget.isEmpty {
             body["screenplay_target"] = cleanScreenplayTarget
+        }
+        if let arcMemory = studioMetadata?.screenplayCharacterArcMemory?.payload,
+           !arcMemory.isEmpty {
+            body["screenplay_character_arc_memory"] = arcMemory
         }
         let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
@@ -2526,7 +2536,7 @@ final class BackendClient {
             attachAuthorizationHeader(to: &request)
             request.httpBody = requestBody
 
-            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            let (bytes, response) = try await urlSession.bytes(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render stream response.")
             }
@@ -3098,6 +3108,16 @@ final class BackendClient {
                 body.appendString("\r\n")
             }
 
+            func appendStudioDictionaryField(_ name: String, _ value: [String: String]) {
+                guard !value.isEmpty,
+                      let data = try? JSONSerialization.data(withJSONObject: value, options: []),
+                      let json = String(data: data, encoding: .utf8) else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(json)
+                body.appendString("\r\n")
+            }
+
             let projectId = studioMetadata.screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !projectId.isEmpty {
                 body.appendString("--\(boundary)\r\n")
@@ -3243,6 +3263,10 @@ final class BackendClient {
             appendStudioField("screenplay_feature_obligation", studioMetadata.screenplayFeatureObligation, limit: 280)
             appendStudioField("screenplay_act_pressure_state", studioMetadata.screenplayActPressureState, limit: 280)
             appendStudioField("screenplay_character_arc_state", studioMetadata.screenplayCharacterArcState, limit: 280)
+            appendStudioDictionaryField(
+                "screenplay_character_arc_memory",
+                studioMetadata.screenplayCharacterArcMemory?.payload ?? [:]
+            )
             appendStudioField("screenplay_last_scene_outcome", studioMetadata.screenplayLastSceneOutcome, limit: 240)
             appendStudioField("screenplay_next_scene_plan", studioMetadata.screenplayNextScenePlan, limit: 340)
             appendStudioListField("screenplay_next_scene_moves", studioMetadata.screenplayNextSceneMoves)

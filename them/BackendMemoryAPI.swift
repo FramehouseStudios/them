@@ -546,6 +546,80 @@ nonisolated struct BackendRealtimeTurnCommitResponse: Decodable {
     let backendBootId: String?
 }
 
+nonisolated struct BackendScreenplayCharacterArcMemory: Codable, Hashable {
+    let character: String
+    let act: String
+    let want: String
+    let need: String
+    let wound: String
+    let falseBelief: String
+    let relationshipPressure: String
+    let currentTactic: String
+    let nextEmotionalTurn: String
+
+    init(
+        character: String = "",
+        act: String = "",
+        want: String = "",
+        need: String = "",
+        wound: String = "",
+        falseBelief: String = "",
+        relationshipPressure: String = "",
+        currentTactic: String = "",
+        nextEmotionalTurn: String = ""
+    ) {
+        self.character = Self.clean(character, limit: 80)
+        self.act = Self.clean(act, limit: 80)
+        self.want = Self.clean(want, limit: 180)
+        self.need = Self.clean(need, limit: 180)
+        self.wound = Self.clean(wound, limit: 180)
+        self.falseBelief = Self.clean(falseBelief, limit: 180)
+        self.relationshipPressure = Self.clean(relationshipPressure, limit: 180)
+        self.currentTactic = Self.clean(currentTactic, limit: 180)
+        self.nextEmotionalTurn = Self.clean(nextEmotionalTurn, limit: 180)
+    }
+
+    var isMeaningful: Bool {
+        [
+            want,
+            need,
+            wound,
+            falseBelief,
+            relationshipPressure,
+            currentTactic,
+            nextEmotionalTurn,
+        ]
+            .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    var payload: [String: String] {
+        var out: [String: String] = [:]
+        Self.append("character", character, to: &out)
+        Self.append("act", act, to: &out)
+        Self.append("want", want, to: &out)
+        Self.append("need", need, to: &out)
+        Self.append("wound", wound, to: &out)
+        Self.append("false_belief", falseBelief, to: &out)
+        Self.append("relationship_pressure", relationshipPressure, to: &out)
+        Self.append("current_tactic", currentTactic, to: &out)
+        Self.append("next_emotional_turn", nextEmotionalTurn, to: &out)
+        return out
+    }
+
+    private static func append(_ key: String, _ value: String, to out: inout [String: String]) {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        out[key] = clean
+    }
+
+    private static func clean(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return String(compact.prefix(max(0, limit)))
+    }
+}
+
 nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     let screenplayProjectId: String
     let screenplayDocumentRevisionId: String
@@ -583,6 +657,7 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     var screenplayFeatureObligation: String = ""
     var screenplayActPressureState: String = ""
     var screenplayCharacterArcState: String = ""
+    var screenplayCharacterArcMemory: BackendScreenplayCharacterArcMemory? = nil
     var screenplayLastSceneOutcome: String = ""
     var screenplayNextScenePlan: String = ""
     var screenplayNextSceneMoves: [String] = []
@@ -636,6 +711,7 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
         !screenplayFeatureObligation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayActPressureState.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayCharacterArcState.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        screenplayCharacterArcMemory?.isMeaningful == true ||
         !screenplayLastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayNextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayNextSceneMoves.isEmpty ||
@@ -3026,6 +3102,11 @@ actor BackendMemoryAPI {
             payload[key] = value
         }
 
+        func appendDictionary(_ key: String, _ value: [String: String]) {
+            guard !value.isEmpty else { return }
+            payload[key] = value
+        }
+
         appendString("screenplay_project_id", studioMetadata.screenplayProjectId, limit: 96)
         appendString("screenplay_document_revision_id", studioMetadata.screenplayDocumentRevisionId, limit: 96)
         appendString("screenplay_target", studioMetadata.screenplayTarget, limit: 80)
@@ -3062,6 +3143,7 @@ actor BackendMemoryAPI {
         appendString("screenplay_feature_obligation", studioMetadata.screenplayFeatureObligation, limit: 280)
         appendString("screenplay_act_pressure_state", studioMetadata.screenplayActPressureState, limit: 280)
         appendString("screenplay_character_arc_state", studioMetadata.screenplayCharacterArcState, limit: 280)
+        appendDictionary("screenplay_character_arc_memory", studioMetadata.screenplayCharacterArcMemory?.payload ?? [:])
         appendString("screenplay_last_scene_outcome", studioMetadata.screenplayLastSceneOutcome, limit: 240)
         appendString("screenplay_next_scene_plan", studioMetadata.screenplayNextScenePlan, limit: 340)
         appendStrings("screenplay_next_scene_moves", studioMetadata.screenplayNextSceneMoves, maxItems: 5, limit: 180)
