@@ -98,6 +98,7 @@ function mountMemoriesRoutes(app, deps = {}) {
     resolveThemeKeyFromMemoryCard,
     normalizeMemoryQualitySignal,
     incrementThemeQualitySignal,
+    creativeMemoryStore = null,
     logger = console,
     // ---------- constants ----------
     TASKS_MAX_STORED,
@@ -143,13 +144,107 @@ function mountMemoriesRoutes(app, deps = {}) {
     return "";
   }
 
+  async function readCreativeMemoryForUser(userId, query = "memories character bible") {
+    if (!userId || !creativeMemoryStore || typeof creativeMemoryStore.getCreativeMemoryForPrompt !== "function") {
+      return null;
+    }
+    try {
+      return await creativeMemoryStore.getCreativeMemoryForPrompt({ userId, query });
+    } catch (error) {
+      logger.log(`[memories_creative_read_failed] error=${error?.message || error}`);
+      return null;
+    }
+  }
+
+  function normalizeStringListPayload(value, maxItems = 8, maxChars = 220) {
+    const items = Array.isArray(value)
+      ? value
+      : String(value || "")
+        .split(/\r?\n/)
+        .map((item) => item.trim());
+    const out = [];
+    const seen = new Set();
+    for (const item of items) {
+      const clean = normalizeSnippet(item, maxChars);
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  }
+
+  function normalizeArcPatch(value = {}) {
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const out = {};
+    const fields = [
+      ["act", source.act ?? source.currentAct ?? source.current_act, 80],
+      ["want", source.want ?? source.consciousWant ?? source.conscious_want, 180],
+      ["need", source.need ?? source.unconsciousNeed ?? source.unconscious_need, 180],
+      ["wound", source.wound, 180],
+      ["falseBelief", source.falseBelief ?? source.false_belief, 180],
+      ["relationshipPressure", source.relationshipPressure ?? source.relationship_pressure, 180],
+      ["currentTactic", source.currentTactic ?? source.current_tactic, 180],
+      ["nextEmotionalTurn", source.nextEmotionalTurn ?? source.next_emotional_turn, 180],
+    ];
+    for (const [key, raw, maxChars] of fields) {
+      const clean = normalizeSnippet(raw, maxChars);
+      if (clean) out[key] = clean;
+    }
+    return out;
+  }
+
+  function normalizeCharacterBiblePatch(body = {}) {
+    const source = body?.character_bible && typeof body.character_bible === "object"
+      ? body.character_bible
+      : (body?.characterBible && typeof body.characterBible === "object" ? body.characterBible : body);
+    const character = normalizeSnippet(
+      source?.character ?? source?.name ?? body?.character ?? body?.name,
+      72,
+    );
+    const canon = normalizeStringListPayload(source?.canon ?? source?.facts, 8, 220);
+    const corrections = normalizeStringListPayload(source?.corrections, 6, 260);
+    const correctedTerms = normalizeStringListPayload(
+      source?.corrected_terms ?? source?.correctedTerms,
+      8,
+      140,
+    );
+    const correctionReplacements = normalizeStringListPayload(
+      source?.correction_replacements ?? source?.correctionReplacements,
+      8,
+      180,
+    );
+    const arc = normalizeArcPatch(source?.arc);
+    const hasSignal = Boolean(
+      canon.length ||
+      corrections.length ||
+      correctedTerms.length ||
+      correctionReplacements.length ||
+      Object.keys(arc).length
+    );
+    return {
+      character,
+      characterBible: hasSignal ? {
+        canon,
+        corrections,
+        correctedTerms,
+        correctionReplacements,
+        arc,
+      } : null,
+    };
+  }
+
   // ============== GET /memories ==============
-  app.get("/memories", (req, res) => {
-    if (!requireMemoryUser(req, res, "memories")) return;
+  app.get("/memories", async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories");
+    if (!userId) return;
     const limit = parseQueryLimit(req.query?.limit, 24, 120);
     const sinceVersion = String(req.query?.sinceVersion || "").trim();
     const selected = selectMemoryRecordForRead(req, Date.now());
     const memory = sanitizePersistedSessionMemory(selected.memory);
+    const creativeMemory = await readCreativeMemoryForUser(userId, "memories character bible");
     const historyThreads = buildConversationHistoryThreads(
       memory,
       Math.max(12, Math.min(limit * 2, 140)),
@@ -169,12 +264,12 @@ function mountMemoriesRoutes(app, deps = {}) {
       );
     }
     const readMeta = buildReadStateMeta(req, memory, selected.ip);
-    const memories = buildMemoryCards(memory, historyThreads, limit);
+    const memories = buildMemoryCards(memory, historyThreads, limit, creativeMemory);
     const memoryQuality = buildMemoryQualitySnapshot(memory, memories, Date.now());
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
-    if (sinceVersion && sinceVersion === readMeta.stateVersion) {
+    if (sinceVersion && sinceVersion === readMeta.stateVersion && !creativeMemory) {
       return res.status(200).json({
         source: selected.source,
         source_ip: selected.ip,
@@ -230,6 +325,88 @@ function mountMemoriesRoutes(app, deps = {}) {
       memory_quality: memoryQuality,
       memories,
       conversation_samples: historyThreads.slice(0, Math.max(3, Math.min(12, limit))),
+    });
+  });
+
+  // ============== POST /memories/character-bible/update ==============
+  app.post("/memories/character-bible/update", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_character_bible_update");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    if (!creativeMemoryStore || typeof creativeMemoryStore.recordCharacterMention !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "character_bible_update",
+        status: "creative_memory_unavailable",
+        message: "Creative memory is not available.",
+      });
+    }
+    const nowTs = Date.now();
+    const { character, characterBible } = normalizeCharacterBiblePatch(req.body || {});
+    if (!character || !characterBible) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "character_bible_update",
+        status: "invalid_character_bible",
+        message: "Character and at least one character bible field are required.",
+      });
+    }
+
+    let receipt;
+    try {
+      receipt = await creativeMemoryStore.recordCharacterMention({
+        userId,
+        characterName: character,
+        source: "memory_character_bible_edit",
+        characterBible,
+      });
+    } catch (error) {
+      logger.log(`[${rid}] memories_character_bible_update error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "character_bible_update",
+        status: "creative_memory_write_failed",
+        message: "Character memory could not be updated.",
+      });
+    }
+
+    const selected = selectMemoryRecordForRead(req, nowTs);
+    const memory = sanitizePersistedSessionMemory(selected.memory);
+    const readMeta = buildReadStateMeta(req, memory, selected.ip);
+    const historyThreads = buildConversationHistoryThreads(memory, 160);
+    const creativeMemory = await readCreativeMemoryForUser(userId, character);
+    const cards = buildMemoryCards(memory, historyThreads, 160, creativeMemory);
+    const normalizedTargetId = normalizeMemoryCardId(`character-${character}`);
+    const updatedCard = cards.find((card) => (
+      normalizeMemoryCardId(card.id) === normalizedTargetId ||
+      String(card.key || "") === `character:${character}`
+    )) || null;
+    const memoryQuality = buildMemoryQualitySnapshot(memory, cards, nowTs);
+
+    res.setHeader("Cache-Control", "no-store");
+    applyReadStateHeaders(res, readMeta);
+    logger.log(
+      `[${rid}] memories_character_bible_update status=${receipt?.action || "updated"} character=${character}`,
+    );
+    return res.status(200).json({
+      ok: true,
+      action: "character_bible_update",
+      status: String(receipt?.action || "updated"),
+      message: null,
+      memory_card: updatedCard,
+      session_id: readMeta.sessionId,
+      state_version: readMeta.stateVersion,
+      last_turn_id: readMeta.lastTurnId || null,
+      last_updated_at: readMeta.lastUpdatedAt || null,
+      history_updated_at: readMeta.historyUpdatedAt || null,
+      memory_updated_at: readMeta.memoryUpdatedAt || null,
+      backend_boot_id: readMeta.backendBootId,
+      memory_quality: memoryQuality,
+      schema_version: readMeta.schemaVersion,
+      backend_build: readMeta.backendBuild,
     });
   });
 

@@ -323,6 +323,73 @@ test("[memories] POST /memories/update: 400 when mutation fails", async () => {
   });
 });
 
+test("[memories] POST /memories/character-bible/update: records structured character correction", async () => {
+  const recordCalls = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      recordCharacterMention: async (args) => {
+        recordCalls.push(args);
+        return { ok: true, action: "updated", characterName: args.characterName };
+      },
+      getCreativeMemoryForPrompt: async () => ({
+        characters: [
+          {
+            name: "Mara",
+            last_referenced: 1_800_000_000_000,
+            bible: {
+              canon: ["Mara is Eli's sister."],
+              arc: { want: "expose the forged testimony" },
+            },
+          },
+        ],
+      }),
+    },
+    buildMemoryCards: (_memory, _threads, _limit, creativeMemory) => [
+      {
+        id: "character-mara",
+        key: "character:Mara",
+        title: "Mara Character Memory",
+        summary: "Want: expose the forged testimony",
+        source: "character_bible",
+        character_bible: creativeMemory?.characters?.[0]?.bible ? {
+          character: "Mara",
+          arc: { want: "expose the forged testimony" },
+        } : null,
+      },
+    ],
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/character-bible/update", {
+      character_bible: {
+        character: "Mara",
+        canon: ["Mara is Eli's sister."],
+        corrections: ["User corrected Mara's false belief."],
+        corrected_terms: ["perfect proof can keep everyone safe"],
+        correction_replacements: ["perfect proof can keep everyone safe -> truth will get Eli killed"],
+        arc: {
+          act: "Act II",
+          want: "expose the forged testimony",
+          false_belief: "truth will get Eli killed",
+          next_emotional_turn: "public courage",
+        },
+      },
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.action, "character_bible_update");
+    assert.equal(r.body.memory_card.id, "character-mara");
+    assert.equal(recordCalls.length, 1);
+    assert.equal(recordCalls[0].userId, "user_memories_test");
+    assert.equal(recordCalls[0].characterName, "Mara");
+    assert.equal(recordCalls[0].source, "memory_character_bible_edit");
+    assert.deepEqual(recordCalls[0].characterBible.canon, ["Mara is Eli's sister."]);
+    assert.deepEqual(recordCalls[0].characterBible.correctedTerms, ["perfect proof can keep everyone safe"]);
+    assert.equal(recordCalls[0].characterBible.arc.falseBelief, "truth will get Eli killed");
+    assert.equal(recordCalls[0].characterBible.arc.nextEmotionalTurn, "public courage");
+  });
+});
+
 // ============== POST /memories/forget ==============
 
 test("[memories] POST /memories/forget: returns forgotten_id + theme_key", async () => {

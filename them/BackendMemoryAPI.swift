@@ -213,6 +213,103 @@ nonisolated struct BackendHistoryResponse: Decodable {
     let threads: [BackendHistoryThread]
 }
 
+nonisolated struct BackendCharacterBibleArcMemory: Codable, Hashable {
+    var act: String?
+    var want: String?
+    var need: String?
+    var wound: String?
+    var falseBelief: String?
+    var relationshipPressure: String?
+    var currentTactic: String?
+    var nextEmotionalTurn: String?
+
+    var isMeaningful: Bool {
+        [
+            act,
+            want,
+            need,
+            wound,
+            falseBelief,
+            relationshipPressure,
+            currentTactic,
+            nextEmotionalTurn
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains { !$0.isEmpty }
+    }
+
+    var payload: [String: String] {
+        var out: [String: String] = [:]
+        append("act", act, to: &out)
+        append("want", want, to: &out)
+        append("need", need, to: &out)
+        append("wound", wound, to: &out)
+        append("false_belief", falseBelief, to: &out)
+        append("relationship_pressure", relationshipPressure, to: &out)
+        append("current_tactic", currentTactic, to: &out)
+        append("next_emotional_turn", nextEmotionalTurn, to: &out)
+        return out
+    }
+
+    private func append(_ key: String, _ value: String?, to out: inout [String: String]) {
+        let clean = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        out[key] = clean
+    }
+}
+
+nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
+    var character: String
+    var canon: [String]
+    var corrections: [String]
+    var correctedTerms: [String]
+    var correctionReplacements: [String]
+    var arc: BackendCharacterBibleArcMemory?
+    var voice: String?
+    var tags: [String]?
+
+    var isMeaningful: Bool {
+        !character.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        (!canon.isEmpty ||
+         !corrections.isEmpty ||
+         !correctedTerms.isEmpty ||
+         !correctionReplacements.isEmpty ||
+         arc?.isMeaningful == true)
+    }
+
+    var payload: [String: Any] {
+        var out: [String: Any] = [
+            "character": character.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+        let canonLines = cleanLines(canon)
+        let correctionLines = cleanLines(corrections)
+        let corrected = cleanLines(correctedTerms)
+        let replacements = cleanLines(correctionReplacements)
+        if !canonLines.isEmpty { out["canon"] = canonLines }
+        if !correctionLines.isEmpty { out["corrections"] = correctionLines }
+        if !corrected.isEmpty { out["corrected_terms"] = corrected }
+        if !replacements.isEmpty { out["correction_replacements"] = replacements }
+        if let arcPayload = arc?.payload, !arcPayload.isEmpty {
+            out["arc"] = arcPayload
+        }
+        return out
+    }
+
+    private func cleanLines(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in values {
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            out.append(clean)
+        }
+        return out
+    }
+}
+
 nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let id: String
     let key: String
@@ -234,6 +331,7 @@ nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let snippets: [String]
     let referenceHint: String
     let source: String
+    let characterBible: BackendCharacterBibleMemory?
 }
 
 nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {
@@ -5142,6 +5240,19 @@ actor BackendMemoryAPI {
         ]
         if let key, !key.isEmpty { payload["key"] = key }
         return try await runMemoryMutation(path: "/memories/update", payload: payload)
+    }
+
+    func updateCharacterBibleMemory(
+        id: String,
+        key: String? = nil,
+        characterBible: BackendCharacterBibleMemory
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        var payload: [String: Any] = [
+            "card_id": id,
+            "character_bible": characterBible.payload
+        ]
+        if let key, !key.isEmpty { payload["key"] = key }
+        return try await runMemoryMutation(path: "/memories/character-bible/update", payload: payload)
     }
 
     func forgetMemoryCard(

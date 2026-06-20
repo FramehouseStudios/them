@@ -27851,7 +27851,128 @@ function promoteMemoryCardToThemeInMemory(
   };
 }
 
-function buildMemoryCards(memory, historyThreads = [], limit = 24) {
+function normalizeCharacterBibleCardList(items = [], maxItems = 5, maxChars = 180) {
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of items) {
+    const clean = normalizeSnippet(item, maxChars);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function normalizeCharacterBibleCardArc(arc = null) {
+  if (!arc || typeof arc !== "object" || Array.isArray(arc)) return {};
+  const out = {};
+  const fields = [
+    ["act", arc.act ?? arc.currentAct ?? arc.current_act, 80],
+    ["want", arc.want ?? arc.consciousWant ?? arc.conscious_want, 180],
+    ["need", arc.need ?? arc.unconsciousNeed ?? arc.unconscious_need, 180],
+    ["wound", arc.wound, 180],
+    ["false_belief", arc.falseBelief ?? arc.false_belief, 180],
+    ["relationship_pressure", arc.relationshipPressure ?? arc.relationship_pressure, 180],
+    ["current_tactic", arc.currentTactic ?? arc.current_tactic, 180],
+    ["next_emotional_turn", arc.nextEmotionalTurn ?? arc.next_emotional_turn, 180],
+  ];
+  for (const [key, value, maxChars] of fields) {
+    const clean = normalizeSnippet(value, maxChars);
+    if (clean) out[key] = clean;
+  }
+  return out;
+}
+
+function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now()) {
+  const characters = Array.isArray(creativeMemory?.characters)
+    ? creativeMemory.characters
+    : [];
+  const cards = [];
+  for (const character of characters) {
+    const name = normalizeSnippet(character?.name, 72);
+    if (!name) continue;
+    const bible = character?.bible && typeof character.bible === "object" && !Array.isArray(character.bible)
+      ? character.bible
+      : null;
+    const traits = character?.traits && typeof character.traits === "object" && !Array.isArray(character.traits)
+      ? character.traits
+      : null;
+    const canon = normalizeCharacterBibleCardList(bible?.canon ?? bible?.facts, 5, 220);
+    const corrections = normalizeCharacterBibleCardList(bible?.corrections, 4, 260);
+    const correctedTerms = normalizeCharacterBibleCardList(bible?.correctedTerms, 5, 120);
+    const correctionReplacements = normalizeCharacterBibleCardList(bible?.correctionReplacements, 5, 180);
+    const arc = normalizeCharacterBibleCardArc(bible?.arc);
+    const voice = normalizeSnippet(character?.voice, 140);
+    const tags = normalizeCharacterBibleCardList(character?.tags, 8, 48);
+    const traitKeywords = normalizeCharacterBibleCardList(traits?.keywords, 5, 80);
+    const hasArc = Object.keys(arc).length > 0;
+    const hasSignal = canon.length || corrections.length || correctedTerms.length ||
+      correctionReplacements.length || hasArc || voice || traitKeywords.length;
+    if (!hasSignal) continue;
+
+    const summaryParts = [
+      arc.want ? `Want: ${arc.want}` : "",
+      arc.need ? `Need: ${arc.need}` : "",
+      arc.next_emotional_turn ? `Next turn: ${arc.next_emotional_turn}` : "",
+      canon[0] ? `Canon: ${canon[0]}` : "",
+      voice ? `Voice: ${voice}` : "",
+    ].filter(Boolean);
+    const lastReferenced = Math.max(0, Number(character?.last_referenced || character?.lastReferenced || 0));
+    const firstSeen = Math.max(0, Number(character?.first_seen || character?.firstSeen || 0));
+    const updatedAt = Math.max(lastReferenced, firstSeen, Number(creativeMemory?.updatedAt || 0));
+    const idKey = normalizeMemoryCardId(name) || `character-${cards.length + 1}`;
+    cards.push({
+      id: `character-${idKey}`,
+      key: `character:${name}`,
+      title: `${name} Character Memory`,
+      summary: normalizeSnippet(
+        summaryParts.join(" | ") || `${name}'s durable character bible and arc memory.`,
+        280
+      ),
+      reason: "Captured from screenplay character memory and corrections.",
+      emotionalTone: voice,
+      salience: 0.86,
+      confidence: corrections.length || correctionReplacements.length ? 0.88 : 0.80,
+      rememberedAt: updatedAt || nowTs,
+      lastUsedAt: lastReferenced || updatedAt || 0,
+      qualityScore: corrections.length || correctionReplacements.length ? 0.84 : 0.76,
+      qualityHitCount: 0,
+      qualityCorrectionCount: corrections.length + correctionReplacements.length,
+      qualityLastFeedbackAt: lastReferenced || updatedAt || 0,
+      stalenessDays: computeThemeStalenessDays(
+        { lastMentionedAt: lastReferenced || updatedAt || nowTs },
+        nowTs
+      ),
+      stalenessBand: classifyThemeStalenessBand(
+        computeThemeStalenessDays(
+          { lastMentionedAt: lastReferenced || updatedAt || nowTs },
+          nowTs
+        )
+      ),
+      editable: true,
+      snippets: [...corrections, ...canon, ...traitKeywords.map((item) => `Trait: ${item}`)].slice(0, 4),
+      referenceHint: normalizeSnippet(arc.next_emotional_turn || arc.current_tactic || canon[0] || "", 140),
+      source: "character_bible",
+      character_bible: {
+        character: name,
+        canon,
+        corrections,
+        corrected_terms: correctedTerms,
+        correction_replacements: correctionReplacements,
+        arc,
+        voice,
+        tags,
+      },
+    });
+  }
+  return cards;
+}
+
+function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemory = null) {
   const nowTs = Date.now();
   const sourceThemes = Array.isArray(memory?.sessionThreads) && memory.sessionThreads.length
     ? memory.sessionThreads
@@ -27868,6 +27989,8 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24) {
   const hasPostClearConversation = recentHistoryThreads.length > 0 ||
     Math.max(0, Number(memory?.lastConversationAt || 0)) > memoriesClearedAt;
   const cards = [];
+  cards.push(...buildCharacterBibleMemoryCards(creativeMemory, nowTs));
+
   const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
@@ -29189,6 +29312,7 @@ mountMemoriesRoutes(app, {
   resolveThemeKeyFromMemoryCard,
   normalizeMemoryQualitySignal,
   incrementThemeQualitySignal,
+  creativeMemoryStore,
   logger: console,
   TASKS_MAX_STORED,
   USER_MEMORY_REMEMBERED_PEOPLE_MAX,

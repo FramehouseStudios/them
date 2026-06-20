@@ -23,6 +23,7 @@ struct MemoryItem: Identifiable, Hashable {
     var stalenessBand: String
     var editable: Bool
     var source: String
+    var characterBible: BackendCharacterBibleMemory?
 }
 
 // MARK: - ViewModel
@@ -187,16 +188,26 @@ final class MemoriesViewModel: ObservableObject {
         key: String,
         title: String,
         summary: String,
-        reason: String
+        reason: String,
+        characterBible: BackendCharacterBibleMemory? = nil
     ) async throws -> MemoryItem {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
-        let result = try await BackendMemoryAPI.shared.updateMemoryCard(
-            id: itemID,
-            key: key,
-            title: title,
-            summary: summary,
-            reason: reason
-        )
+        let result: BackendReadResult<BackendMemoryMutationResponse>
+        if let characterBible {
+            result = try await BackendMemoryAPI.shared.updateCharacterBibleMemory(
+                id: itemID,
+                key: key,
+                characterBible: characterBible
+            )
+        } else {
+            result = try await BackendMemoryAPI.shared.updateMemoryCard(
+                id: itemID,
+                key: key,
+                title: title,
+                summary: summary,
+                reason: reason
+            )
+        }
         lastSync = result.sync
         if !result.sync.stateVersion.isEmpty {
             latestSeenStateVersion = result.sync.stateVersion
@@ -397,7 +408,8 @@ final class MemoriesViewModel: ObservableObject {
             stalenessDays: max(0, card.stalenessDays ?? 0),
             stalenessBand: (card.stalenessBand ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             editable: card.editable ?? false,
-            source: card.source
+            source: card.source,
+            characterBible: card.characterBible
         )
     }
 
@@ -434,7 +446,8 @@ final class MemoriesViewModel: ObservableObject {
             stalenessDays: 0,
             stalenessBand: "fresh",
             editable: false,
-            source: "history_fallback"
+            source: "history_fallback",
+            characterBible: nil
         )
     }
 
@@ -591,7 +604,8 @@ struct MemoriesScreen: View {
                                 key: updated.key,
                                 title: updated.title,
                                 summary: updated.summary,
-                                reason: updated.reason
+                                reason: updated.reason,
+                                characterBible: updated.characterBible
                             )
                         },
                         onForget: { target in
@@ -979,6 +993,10 @@ struct MemoryDetailView: View {
                         .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.9))
                         .lineSpacing(8)
 
+                    if let characterBible = currentItem.characterBible {
+                        CharacterBibleDetailSection(bible: characterBible)
+                    }
+
                     if !currentItem.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Why I remembered this")
@@ -1233,11 +1251,95 @@ struct MemoryDetailView: View {
     }
 }
 
+private struct CharacterBibleDetailSection: View {
+    let bible: BackendCharacterBibleMemory
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Character Bible")
+                .font(.system(size: 14, weight: .semibold, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.92))
+
+            if let arc = bible.arc, arc.isMeaningful {
+                VStack(alignment: .leading, spacing: 8) {
+                    characterBibleRow("Act", value: arc.act)
+                    characterBibleRow("Want", value: arc.want)
+                    characterBibleRow("Need", value: arc.need)
+                    characterBibleRow("Wound", value: arc.wound)
+                    characterBibleRow("False belief", value: arc.falseBelief)
+                    characterBibleRow("Pressure", value: arc.relationshipPressure)
+                    characterBibleRow("Tactic", value: arc.currentTactic)
+                    characterBibleRow("Next turn", value: arc.nextEmotionalTurn)
+                }
+            }
+
+            if !bible.canon.isEmpty {
+                characterBibleList("Canon", items: bible.canon)
+            }
+
+            if !bible.corrections.isEmpty || !bible.correctionReplacements.isEmpty {
+                characterBibleList("Corrections", items: bible.corrections + bible.correctionReplacements)
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func characterBibleRow(_ label: String, value: String?) -> some View {
+        let clean = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !clean.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(label)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.70))
+                    .frame(width: 96, alignment: .leading)
+                Text(clean)
+                    .font(.system(size: 13, weight: .regular, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.90))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func characterBibleList(_ label: String, items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.70))
+            ForEach(items.prefix(5), id: \.self) { item in
+                Text(item)
+                    .font(.system(size: 13, weight: .regular, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.90))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 private struct MemoryEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var summary: String
     @State private var reason: String
+    @State private var character: String
+    @State private var canonText: String
+    @State private var correctionsText: String
+    @State private var act: String
+    @State private var want: String
+    @State private var need: String
+    @State private var wound: String
+    @State private var falseBelief: String
+    @State private var relationshipPressure: String
+    @State private var currentTactic: String
+    @State private var nextEmotionalTurn: String
     let original: MemoryItem
     let isSaving: Bool
     let onSave: (MemoryItem) async -> Void
@@ -1251,6 +1353,18 @@ private struct MemoryEditSheet: View {
         _title = State(initialValue: item.title)
         _summary = State(initialValue: item.summary)
         _reason = State(initialValue: item.reason)
+        let bible = item.characterBible
+        _character = State(initialValue: bible?.character ?? "")
+        _canonText = State(initialValue: Self.joinLines(bible?.canon ?? []))
+        _correctionsText = State(initialValue: Self.joinLines(bible?.corrections ?? []))
+        _act = State(initialValue: bible?.arc?.act ?? "")
+        _want = State(initialValue: bible?.arc?.want ?? "")
+        _need = State(initialValue: bible?.arc?.need ?? "")
+        _wound = State(initialValue: bible?.arc?.wound ?? "")
+        _falseBelief = State(initialValue: bible?.arc?.falseBelief ?? "")
+        _relationshipPressure = State(initialValue: bible?.arc?.relationshipPressure ?? "")
+        _currentTactic = State(initialValue: bible?.arc?.currentTactic ?? "")
+        _nextEmotionalTurn = State(initialValue: bible?.arc?.nextEmotionalTurn ?? "")
         self.isSaving = isSaving
         self.onSave = onSave
     }
@@ -1258,16 +1372,41 @@ private struct MemoryEditSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Title") {
-                    TextField("Memory title", text: $title)
-                }
-                Section("Summary") {
-                    TextEditor(text: $summary)
-                        .frame(minHeight: 110)
-                }
-                Section("Why remembered") {
-                    TextEditor(text: $reason)
-                        .frame(minHeight: 90)
+                if original.characterBible == nil {
+                    Section("Title") {
+                        TextField("Memory title", text: $title)
+                    }
+                    Section("Summary") {
+                        TextEditor(text: $summary)
+                            .frame(minHeight: 110)
+                    }
+                    Section("Why remembered") {
+                        TextEditor(text: $reason)
+                            .frame(minHeight: 90)
+                    }
+                } else {
+                    Section("Character") {
+                        Text(original.characterBible?.character ?? character)
+                            .foregroundStyle(.secondary)
+                    }
+                    Section("Canon") {
+                        TextEditor(text: $canonText)
+                            .frame(minHeight: 100)
+                    }
+                    Section("Arc") {
+                        TextField("Act", text: $act)
+                        TextField("Want", text: $want)
+                        TextField("Need", text: $need)
+                        TextField("Wound", text: $wound)
+                        TextField("False belief", text: $falseBelief)
+                        TextField("Relationship pressure", text: $relationshipPressure)
+                        TextField("Current tactic", text: $currentTactic)
+                        TextField("Next emotional turn", text: $nextEmotionalTurn)
+                    }
+                    Section("Corrections") {
+                        TextEditor(text: $correctionsText)
+                            .frame(minHeight: 90)
+                    }
                 }
             }
             .navigationTitle("Correct Memory")
@@ -1280,20 +1419,136 @@ private struct MemoryEditSheet: View {
                     Button("Save") {
                         Task {
                             var updated = original
-                            updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                            updated.summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
-                            updated.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if original.characterBible == nil {
+                                updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                                updated.summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+                                updated.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                            } else {
+                                let bible = makeEditedCharacterBible()
+                                updated.characterBible = bible
+                                updated.title = "\(bible.character) Character Memory"
+                                updated.summary = summaryLine(for: bible)
+                                updated.reason = "Corrected from Memories."
+                            }
                             await onSave(updated)
                         }
                     }
-                    .disabled(
-                        isSaving ||
-                        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                        summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
+                    .disabled(isSaving || saveDisabled)
                 }
             }
         }
+    }
+
+    private var saveDisabled: Bool {
+        if original.characterBible == nil {
+            return title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return !makeEditedCharacterBible().isMeaningful
+    }
+
+    private func makeEditedCharacterBible() -> BackendCharacterBibleMemory {
+        let originalBible = original.characterBible
+        let arc = BackendCharacterBibleArcMemory(
+            act: clean(act),
+            want: clean(want),
+            need: clean(need),
+            wound: clean(wound),
+            falseBelief: clean(falseBelief),
+            relationshipPressure: clean(relationshipPressure),
+            currentTactic: clean(currentTactic),
+            nextEmotionalTurn: clean(nextEmotionalTurn)
+        )
+        let editedCanon = Self.cleanLines(canonText)
+        let editedCorrections = Self.cleanLines(correctionsText)
+        let correctionAudit = correctionAuditLines(original: originalBible, editedCanon: editedCanon, editedArc: arc)
+        return BackendCharacterBibleMemory(
+            character: originalBible?.character ?? clean(character),
+            canon: editedCanon,
+            corrections: Self.uniqueLines(editedCorrections + correctionAudit.notes),
+            correctedTerms: Self.uniqueLines((originalBible?.correctedTerms ?? []) + correctionAudit.terms),
+            correctionReplacements: Self.uniqueLines((originalBible?.correctionReplacements ?? []) + correctionAudit.replacements),
+            arc: arc.isMeaningful ? arc : nil,
+            voice: originalBible?.voice,
+            tags: originalBible?.tags
+        )
+    }
+
+    private func correctionAuditLines(
+        original: BackendCharacterBibleMemory?,
+        editedCanon: [String],
+        editedArc: BackendCharacterBibleArcMemory
+    ) -> (notes: [String], terms: [String], replacements: [String]) {
+        guard let original else { return ([], [], []) }
+        var notes: [String] = []
+        var terms: [String] = []
+        var replacements: [String] = []
+
+        func recordChange(_ label: String, _ oldValue: String?, _ newValue: String?) {
+            let oldClean = clean(oldValue ?? "")
+            let newClean = clean(newValue ?? "")
+            guard oldClean != newClean else { return }
+            if !oldClean.isEmpty { terms.append(oldClean) }
+            if !oldClean.isEmpty || !newClean.isEmpty {
+                replacements.append(newClean.isEmpty ? "\(label): remove \(oldClean)" : "\(oldClean) -> \(newClean)")
+                notes.append("User corrected \(original.character)'s \(label.lowercased()).")
+            }
+        }
+
+        let oldCanon = Set(Self.cleanLines(original.canon.joined(separator: "\n")))
+        let newCanon = Set(editedCanon)
+        for removed in oldCanon.subtracting(newCanon) {
+            terms.append(removed)
+            notes.append("User removed outdated canon for \(original.character): \(removed)")
+        }
+
+        recordChange("Act", original.arc?.act, editedArc.act)
+        recordChange("Want", original.arc?.want, editedArc.want)
+        recordChange("Need", original.arc?.need, editedArc.need)
+        recordChange("Wound", original.arc?.wound, editedArc.wound)
+        recordChange("False belief", original.arc?.falseBelief, editedArc.falseBelief)
+        recordChange("Relationship pressure", original.arc?.relationshipPressure, editedArc.relationshipPressure)
+        recordChange("Current tactic", original.arc?.currentTactic, editedArc.currentTactic)
+        recordChange("Next emotional turn", original.arc?.nextEmotionalTurn, editedArc.nextEmotionalTurn)
+
+        return (Self.uniqueLines(notes), Self.uniqueLines(terms), Self.uniqueLines(replacements))
+    }
+
+    private func summaryLine(for bible: BackendCharacterBibleMemory) -> String {
+        let arc = bible.arc
+        let parts = [
+            arc?.want.map { "Want: \($0)" },
+            arc?.need.map { "Need: \($0)" },
+            arc?.nextEmotionalTurn.map { "Next turn: \($0)" },
+            bible.canon.first.map { "Canon: \($0)" }
+        ].compactMap { $0 }
+        return parts.isEmpty ? "\(bible.character)'s corrected character memory." : parts.joined(separator: " | ")
+    }
+
+    private func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func joinLines(_ lines: [String]) -> String {
+        uniqueLines(lines).joined(separator: "\n")
+    }
+
+    private static func cleanLines(_ text: String) -> [String] {
+        uniqueLines(text.components(separatedBy: .newlines))
+    }
+
+    private static func uniqueLines(_ lines: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for line in lines {
+            let clean = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            out.append(clean)
+        }
+        return out
     }
 }
 

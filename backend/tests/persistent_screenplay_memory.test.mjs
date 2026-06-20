@@ -201,6 +201,57 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.match(projectCard.referenceHint, /private corridor confrontation/);
 });
 
+test("[persistent-screenplay-memory] buildMemoryCards exposes structured character bible cards", () => {
+  const cards = buildMemoryCards(
+    createEmptyEmotionMemory(),
+    [],
+    12,
+    {
+      updatedAt: 1_800_000_000_000,
+      characters: [
+        {
+          name: "Mara",
+          voice: "guarded, precise, dry under pressure",
+          first_seen: 1_799_999_000_000,
+          last_referenced: 1_800_000_000_000,
+          tags: ["protagonist"],
+          bible: {
+            canon: ["Mara is Eli's sister.", "Mara wants to protect Eli."],
+            corrections: ["Authoritative correction for Mara: sister, not mother."],
+            correctedTerms: ["mother"],
+            correctionReplacements: ["mother -> Eli's sister"],
+            arc: {
+              act: "Act II",
+              want: "expose the forged testimony",
+              need: "stop hiding behind observation",
+              wound: "her father's disappearance",
+              falseBelief: "truth will get Eli killed",
+              relationshipPressure: "with Eli: protecting him by lying",
+              currentTactic: "collecting evidence in silence",
+              nextEmotionalTurn: "public courage",
+            },
+          },
+        },
+      ],
+    },
+  );
+
+  const card = cards.find((item) => item.source === "character_bible");
+  assert.ok(card);
+  assert.equal(card.id, "character-mara");
+  assert.equal(card.key, "character:Mara");
+  assert.equal(card.editable, true);
+  assert.equal(card.character_bible.character, "Mara");
+  assert.deepEqual(card.character_bible.canon, [
+    "Mara is Eli's sister.",
+    "Mara wants to protect Eli.",
+  ]);
+  assert.equal(card.character_bible.arc.false_belief, "truth will get Eli killed");
+  assert.equal(card.character_bible.arc.next_emotional_turn, "public courage");
+  assert.deepEqual(card.character_bible.correction_replacements, ["mother -> Eli's sister"]);
+  assert.match(card.summary, /Want: expose the forged testimony/);
+});
+
 test("[persistent-screenplay-memory] distills durable context from sparse draft excerpts", () => {
   const draftExcerpt = [
     "INT. ROOFTOP - NIGHT",

@@ -3,6 +3,70 @@ import ScreenplayStudio
 @testable import them
 
 final class BackendClientCraftAPITests: XCTestCase {
+    func testCharacterBibleMemoryDecodesAndBuildsCorrectionPayload() throws {
+        let data = Data(#"""
+        {
+          "id": "character-mara",
+          "key": "character:Mara",
+          "title": "Mara Character Memory",
+          "summary": "Want: expose the forged testimony",
+          "reason": "Captured from screenplay character memory and corrections.",
+          "emotional_tone": "guarded",
+          "salience": 0.86,
+          "confidence": 0.88,
+          "remembered_at": 1800000000000,
+          "last_used_at": 1800000000000,
+          "quality_score": 0.84,
+          "quality_hit_count": 0,
+          "quality_correction_count": 1,
+          "quality_last_feedback_at": 1800000000000,
+          "staleness_days": 0,
+          "staleness_band": "fresh",
+          "editable": true,
+          "snippets": ["Authoritative correction for Mara: sister, not mother."],
+          "reference_hint": "public courage",
+          "source": "character_bible",
+          "character_bible": {
+            "character": "Mara",
+            "canon": ["Mara is Eli's sister."],
+            "corrections": ["Authoritative correction for Mara: sister, not mother."],
+            "corrected_terms": ["mother"],
+            "correction_replacements": ["mother -> Eli's sister"],
+            "arc": {
+              "act": "Act II",
+              "want": "expose the forged testimony",
+              "need": "stop hiding behind observation",
+              "false_belief": "truth will get Eli killed",
+              "relationship_pressure": "with Eli: protecting him by lying",
+              "current_tactic": "collecting evidence in silence",
+              "next_emotional_turn": "public courage"
+            },
+            "voice": "guarded",
+            "tags": ["protagonist"]
+          }
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let card = try decoder.decode(BackendMemoryCard.self, from: data)
+        let bible = try XCTUnwrap(card.characterBible)
+
+        XCTAssertEqual(card.source, "character_bible")
+        XCTAssertTrue(bible.isMeaningful)
+        XCTAssertEqual(bible.character, "Mara")
+        XCTAssertEqual(bible.arc?.falseBelief, "truth will get Eli killed")
+        XCTAssertEqual(bible.arc?.nextEmotionalTurn, "public courage")
+
+        let payload = bible.payload
+        XCTAssertEqual(payload["character"] as? String, "Mara")
+        XCTAssertEqual(payload["canon"] as? [String], ["Mara is Eli's sister."])
+        XCTAssertEqual(payload["corrected_terms"] as? [String], ["mother"])
+        let arcPayload = try XCTUnwrap(payload["arc"] as? [String: String])
+        XCTAssertEqual(arcPayload["false_belief"], "truth will get Eli killed")
+        XCTAssertEqual(arcPayload["next_emotional_turn"], "public courage")
+    }
+
     func testScreenplayCharacterArcMemoryPayloadUsesBackendContractKeys() throws {
         let arc = BackendScreenplayCharacterArcMemory(
             character: "Mara",
