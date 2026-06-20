@@ -111,6 +111,94 @@ test("[studio-render] sync: 200 with ok envelope on happy path", async () => {
   });
 });
 
+test("[studio-render] sync: applies corrected character bible memory to page prompt", async () => {
+  const memoryCalls = [];
+  const deps = defaultDeps({
+    resolveUserId: () => "user-1",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async (args) => {
+        memoryCalls.push(args);
+        return {
+          userId: "user-1",
+          version: 1,
+          characters: [
+            {
+              name: "Mara",
+              last_referenced: 100,
+              bible: {
+                canon: ["Mara is Eli's older sister and his legal guardian."],
+                corrections: ["Authoritative correction for Mara: Mara is Eli's sister, not his mother."],
+                correctedTerms: ["mother"],
+                correctionReplacements: ["mother -> Eli's sister"],
+                arc: {
+                  act: "Act II",
+                  want: "win Eli's trust before the hearing",
+                  need: "tell the truth in public",
+                  falseBelief: "truth will get Eli taken away",
+                  currentTactic: "bury evidence to keep him close",
+                  nextEmotionalTurn: "choose public courage over control",
+                },
+              },
+            },
+          ],
+        };
+      },
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Continue Mara's Act II page from the courthouse.",
+      system_prompt: "Return screenplay pages only.",
+      screenplay_target: "page",
+      screenplay_project_id: "project-1",
+      screenplay_project_title: "The Glass Orchard",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(memoryCalls.length, 1);
+    assert.equal(memoryCalls[0].userId, "user-1");
+    assert.equal(memoryCalls[0].projectId, "project-1");
+    assert.equal(memoryCalls[0].projectTitle, "The Glass Orchard");
+    const prompt = deps._calls.renderInvocations[0].systemPrompt;
+    assert.match(prompt, /<creative_memory>/);
+    assert.match(prompt, /Mara is Eli's older sister/);
+    assert.match(prompt, /mother -> Eli's sister/);
+    assert.match(prompt, /false_belief=truth will get Eli taken away/);
+    assert.equal(r.body.memory_applied.creative_memory, true);
+    assert.equal(r.body.memory_applied.character_bible, true);
+    assert.equal(r.body.memory_applied.character_corrections, true);
+    assert.equal(r.body.memory_applied.correction_applied_to_prompt, true);
+    assert.deepEqual(r.body.memory_applied.characters, ["Mara"]);
+    assert.deepEqual(r.body.memory_applied.corrected_terms, ["mother"]);
+    assert.deepEqual(r.body.memory_applied.correction_replacements, ["mother -> Eli's sister"]);
+  });
+});
+
+test("[studio-render] sync: voice pin target does not inject page memory", async () => {
+  let memoryReads = 0;
+  const deps = defaultDeps({
+    resolveUserId: () => "user-1",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => {
+        memoryReads += 1;
+        return null;
+      },
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Just talk this through with me.",
+      system_prompt: "Be conversational.",
+      screenplay_target: "voice_pin",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(memoryReads, 0);
+    assert.doesNotMatch(deps._calls.renderInvocations[0].systemPrompt, /<creative_memory>/);
+    assert.equal(r.body.memory_applied, undefined);
+  });
+});
+
 test("[studio-render] sync: page target strips screenplay chat drift", async () => {
   const rawReply = [
     "Absolutely - here's the continuation.",
@@ -351,6 +439,52 @@ test("[studio-render-stream] sse: emits meta + delta + done events on happy path
     // Verify the deltas are in order.
     const deltaCount = (r.text.match(/event: delta\b/g) || []).length;
     assert.equal(deltaCount, 2, "expected 2 delta events from stub");
+  });
+});
+
+test("[studio-render-stream] sse: applies corrected character bible memory and exposes metadata", async () => {
+  const deps = defaultDeps({
+    resolveUserId: () => "user-1",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => ({
+        userId: "user-1",
+        version: 1,
+        characters: [
+          {
+            name: "Mara",
+            last_referenced: 100,
+            bible: {
+              canon: ["Mara is Eli's older sister and his legal guardian."],
+              corrections: ["Authoritative correction for Mara: Mara is Eli's sister, not his mother."],
+              correctedTerms: ["mother"],
+              correctionReplacements: ["mother -> Eli's sister"],
+              arc: {
+                act: "Act II",
+                want: "win Eli's trust before the hearing",
+                need: "tell the truth in public",
+              },
+            },
+          },
+        ],
+      }),
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", {
+      transcript: "Stream Mara's next Act II page.",
+      system_prompt: "Return screenplay pages only.",
+      screenplay_target: "page",
+    });
+    assert.equal(r.status, 200);
+    assert.match(deps._calls.streamInvocations[0].systemPrompt, /<creative_memory>/);
+    assert.match(deps._calls.streamInvocations[0].systemPrompt, /mother -> Eli's sister/);
+    assert.match(r.text, /event: meta\b/);
+    assert.match(r.text, /event: done\b/);
+    assert.match(r.text, /"memory_applied":/);
+    assert.match(r.text, /"character_bible":true/);
+    assert.match(r.text, /"correction_applied_to_prompt":true/);
+    assert.match(r.text, /"characters":\["Mara"\]/);
   });
 });
 

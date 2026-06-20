@@ -41,10 +41,301 @@
 // app/client must send bearer auth plus the active client token.
 
 import express from "express";
+import {
+  buildModelPrompt,
+  inferScreenplayTask,
+  MEMORY_BLOCK_OPEN,
+} from "./prompt_assembly.js";
 import { normalizeScreenplayOutputContractText } from "./screenplay_output_contract.js";
 import { resolveScreenplayTargetFromRequest } from "./screenplay_turn_target.js";
 
 const STUDIO_RENDER_BODY_LIMIT = "512kb";
+const STUDIO_RENDER_MEMORY_QUERY_MAX_CHARS = 3_000;
+const STUDIO_RENDER_MEMORY_PROJECT_MAX_CHARS = 160;
+const STUDIO_RENDER_MEMORY_META_MAX_ITEMS = 6;
+
+function cleanStudioRenderMemoryText(value = "", maxChars = 240) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, Math.max(1, Number(maxChars || 240)))
+    .trim();
+}
+
+function cleanStudioRenderMemoryList(items = [], maxItems = 6, maxChars = 160) {
+  const source = Array.isArray(items)
+    ? items
+    : cleanStudioRenderMemoryText(items, maxItems * maxChars)
+      ? String(items).split(/\r?\n|;|,/)
+      : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const clean = cleanStudioRenderMemoryText(item, maxChars);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function bodyStringCandidates(body = {}) {
+  if (!body || typeof body !== "object") return [];
+  return [
+    body.screenplay_task_hint,
+    body.screenplayTaskHint,
+    body.screenplay_draft_excerpt,
+    body.screenplayDraftExcerpt,
+    body.draft_excerpt,
+    body.draftExcerpt,
+    body.screenplay_scene_summary,
+    body.screenplaySceneSummary,
+    body.screenplay_current_beat,
+    body.screenplayCurrentBeat,
+    body.current_beat,
+    body.currentBeat,
+    body.screenplay_emotional_continuity,
+    body.screenplayEmotionalContinuity,
+    body.emotional_continuity,
+    body.emotionalContinuity,
+    body.screenplay_character_focus,
+    body.screenplayCharacterFocus,
+    body.character_focus,
+    body.characterFocus,
+    body.screenplay_character_arc_memory,
+    body.screenplayCharacterArcMemory,
+    body.character_arc_memory,
+    body.characterArcMemory,
+    body.screenplay_project_title,
+    body.screenplayProjectTitle,
+    body.project_title,
+    body.projectTitle,
+    body.pack,
+    body.screenplay_pack,
+    body.screenplayPack,
+  ];
+}
+
+function flattenStudioRenderMemoryValue(value, depth = 0) {
+  if (depth > 2 || value === null || value === undefined) return [];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    const clean = cleanStudioRenderMemoryText(value, 600);
+    return clean ? [clean] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => flattenStudioRenderMemoryValue(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    return Object.values(value).flatMap((item) => flattenStudioRenderMemoryValue(item, depth + 1));
+  }
+  return [];
+}
+
+function buildStudioRenderMemoryQuery({ body = {}, transcript = "", systemPrompt = "" } = {}) {
+  const parts = [
+    transcript,
+    ...bodyStringCandidates(body).flatMap((value) => flattenStudioRenderMemoryValue(value)),
+    systemPrompt,
+  ]
+    .map((value) => cleanStudioRenderMemoryText(value, 800))
+    .filter(Boolean);
+  return cleanStudioRenderMemoryText(parts.join(" "), STUDIO_RENDER_MEMORY_QUERY_MAX_CHARS);
+}
+
+function readStudioRenderProjectId(body = {}) {
+  return cleanStudioRenderMemoryText(
+    body?.projectId ??
+      body?.project_id ??
+      body?.screenplayProjectId ??
+      body?.screenplay_project_id ??
+      "",
+    96
+  );
+}
+
+function readStudioRenderProjectTitle(body = {}) {
+  return cleanStudioRenderMemoryText(
+    body?.projectTitle ??
+      body?.project_title ??
+      body?.screenplayProjectTitle ??
+      body?.screenplay_project_title ??
+      body?.pack ??
+      body?.screenplayPack ??
+      body?.screenplay_pack ??
+      "",
+    STUDIO_RENDER_MEMORY_PROJECT_MAX_CHARS
+  );
+}
+
+function characterBibleHasSignal(character = {}) {
+  const bible = character?.bible && typeof character.bible === "object" ? character.bible : null;
+  if (!bible) return false;
+  if (cleanStudioRenderMemoryList(bible.canon ?? bible.facts, 1, 160).length) return true;
+  if (cleanStudioRenderMemoryList(bible.corrections, 1, 180).length) return true;
+  if (cleanStudioRenderMemoryList(bible.correctedTerms, 1, 120).length) return true;
+  if (cleanStudioRenderMemoryList(bible.correctionReplacements, 1, 160).length) return true;
+  return Boolean(bible.arc && typeof bible.arc === "object" && Object.keys(bible.arc).length);
+}
+
+function characterBibleHasCorrection(character = {}) {
+  const bible = character?.bible && typeof character.bible === "object" ? character.bible : null;
+  if (!bible) return false;
+  return Boolean(
+    cleanStudioRenderMemoryList(bible.corrections, 1, 180).length ||
+      cleanStudioRenderMemoryList(bible.correctedTerms, 1, 120).length ||
+      cleanStudioRenderMemoryList(bible.correctionReplacements, 1, 160).length
+  );
+}
+
+function studioRenderQueryMentionsCharacter(query = "", character = {}) {
+  const cleanQuery = String(query || "").toLowerCase();
+  const name = cleanStudioRenderMemoryText(character?.name, 80);
+  if (name && new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(query)) {
+    return true;
+  }
+  const bible = character?.bible && typeof character.bible === "object" ? character.bible : {};
+  const probes = [
+    ...cleanStudioRenderMemoryList(bible.correctedTerms, 6, 120),
+    ...cleanStudioRenderMemoryList(bible.correctionReplacements, 6, 160),
+  ];
+  return probes.some((item) => {
+    const lower = item.toLowerCase();
+    if (!lower) return false;
+    if (lower.includes("->")) {
+      return lower.split("->").some((part) => part.trim() && cleanQuery.includes(part.trim()));
+    }
+    return cleanQuery.includes(lower);
+  });
+}
+
+function prioritizeStudioRenderCreativeMemory(creativeMemory = null, query = "") {
+  if (!creativeMemory || typeof creativeMemory !== "object") return null;
+  const characters = Array.isArray(creativeMemory.characters)
+    ? creativeMemory.characters
+    : [];
+  if (!characters.length) return creativeMemory;
+  const scoredCharacters = characters
+    .map((character, index) => {
+      let score = Number(character?.last_referenced || character?.lastReferencedAt || 0) / 1_000_000_000;
+      if (studioRenderQueryMentionsCharacter(query, character)) score += 10_000;
+      if (characterBibleHasCorrection(character)) score += 1_000;
+      if (characterBibleHasSignal(character)) score += 100;
+      return { character, index, score };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.index - b.index;
+    })
+    .map(({ character }) => character);
+  return {
+    ...creativeMemory,
+    characters: scoredCharacters,
+  };
+}
+
+function buildStudioRenderMemoryAppliedMeta(creativeMemory = null, query = "") {
+  const characters = Array.isArray(creativeMemory?.characters)
+    ? creativeMemory.characters
+    : [];
+  const withBible = characters.filter(characterBibleHasSignal);
+  if (!withBible.length) {
+    return creativeMemory
+      ? { creative_memory: true, character_bible: false }
+      : null;
+  }
+  const correctedCharacters = withBible.filter(characterBibleHasCorrection);
+  const mentionedCorrected = correctedCharacters.filter((character) => (
+    studioRenderQueryMentionsCharacter(query, character)
+  ));
+  const selected = (mentionedCorrected.length ? mentionedCorrected : correctedCharacters.length ? correctedCharacters : withBible)
+    .slice(0, STUDIO_RENDER_MEMORY_META_MAX_ITEMS);
+  const correctedTerms = [];
+  const correctionReplacements = [];
+  for (const character of selected) {
+    const bible = character?.bible && typeof character.bible === "object" ? character.bible : {};
+    correctedTerms.push(...cleanStudioRenderMemoryList(bible.correctedTerms, 4, 120));
+    correctionReplacements.push(...cleanStudioRenderMemoryList(bible.correctionReplacements, 4, 160));
+  }
+  const unique = (items) => cleanStudioRenderMemoryList(items, STUDIO_RENDER_MEMORY_META_MAX_ITEMS, 160);
+  const meta = {
+    creative_memory: true,
+    character_bible: true,
+    character_corrections: selected.some(characterBibleHasCorrection),
+    correction_applied_to_prompt: selected.some(characterBibleHasCorrection),
+    characters: unique(selected.map((character) => character?.name).filter(Boolean)),
+  };
+  const uniqueTerms = unique(correctedTerms);
+  const uniqueReplacements = unique(correctionReplacements);
+  if (uniqueTerms.length) meta.corrected_terms = uniqueTerms;
+  if (uniqueReplacements.length) meta.correction_replacements = uniqueReplacements;
+  return meta;
+}
+
+async function buildStudioRenderPromptMemoryContext({
+  req,
+  systemPrompt = "",
+  transcript = "",
+  shouldApplyScreenplayContract = false,
+  creativeMemoryStore = null,
+  resolveUserId = null,
+} = {}) {
+  if (!shouldApplyScreenplayContract) {
+    return { systemPrompt, memoryApplied: null };
+  }
+  if (String(systemPrompt || "").includes(MEMORY_BLOCK_OPEN)) {
+    return { systemPrompt, memoryApplied: null };
+  }
+  if (!creativeMemoryStore || typeof creativeMemoryStore.getCreativeMemoryForPrompt !== "function") {
+    return { systemPrompt, memoryApplied: null };
+  }
+  let userId = "";
+  try {
+    userId = typeof resolveUserId === "function"
+      ? cleanStudioRenderMemoryText(resolveUserId(req), 120)
+      : "";
+  } catch (_error) {
+    userId = "";
+  }
+  if (!userId) {
+    return { systemPrompt, memoryApplied: null };
+  }
+
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const query = buildStudioRenderMemoryQuery({ body, transcript, systemPrompt });
+  let creativeMemory = null;
+  try {
+    creativeMemory = await creativeMemoryStore.getCreativeMemoryForPrompt({
+      userId,
+      projectId: readStudioRenderProjectId(body),
+      projectTitle: readStudioRenderProjectTitle(body),
+      query,
+      maxEpisodicMemories: 3,
+    });
+  } catch (_error) {
+    creativeMemory = null;
+  }
+  if (!creativeMemory) {
+    return { systemPrompt, memoryApplied: null };
+  }
+  const promptMemory = prioritizeStudioRenderCreativeMemory(creativeMemory, query);
+  const memoryApplied = buildStudioRenderMemoryAppliedMeta(promptMemory, query);
+  const screenplayTask = inferScreenplayTask(transcript || query);
+  try {
+    return {
+      systemPrompt: buildModelPrompt({
+        persona: systemPrompt,
+        creativeMemory: promptMemory,
+        screenplayTask,
+      }),
+      memoryApplied,
+    };
+  } catch (_error) {
+    return { systemPrompt, memoryApplied: null };
+  }
+}
 
 function normalizeStudioRenderScreenplayTarget(body = {}) {
   return resolveScreenplayTargetFromRequest({
@@ -94,6 +385,10 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     // inline `if (!OPENAI_API_KEY)` guard.
     getOpenAIApiKey,
     shouldAllowStudioRenderWithoutOpenAIKey = () => false,
+    // Optional identity-bound creative memory. Studio render stays usable
+    // without these deps in local tests and cold-user sessions.
+    creativeMemoryStore = null,
+    resolveUserId = (req) => String(req?.authUser?.id || req?.user?.id || req?.userId || "").trim(),
   } = deps;
 
   const required = {
@@ -142,8 +437,16 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
     const shouldApplyScreenplayContract = shouldApplyStudioRenderScreenplayContract(req.body);
 
     try {
-      const rawReply = await renderStudioRealtimeText({
+      const memoryContext = await buildStudioRenderPromptMemoryContext({
+        req,
         systemPrompt,
+        transcript,
+        shouldApplyScreenplayContract,
+        creativeMemoryStore,
+        resolveUserId,
+      });
+      const rawReply = await renderStudioRealtimeText({
+        systemPrompt: memoryContext.systemPrompt,
         transcript,
       });
       const reply = contractStudioRenderReply(rawReply, shouldApplyScreenplayContract);
@@ -154,6 +457,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         ok: true,
         action: "studio_render",
         reply,
+        ...(memoryContext.memoryApplied ? { memory_applied: memoryContext.memoryApplied } : {}),
       });
     } catch (error) {
       return res.status(Number(error?.status || 502)).json({
@@ -193,6 +497,14 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       16_000,
     );
     const shouldApplyScreenplayContract = shouldApplyStudioRenderScreenplayContract(req.body);
+    const memoryContext = await buildStudioRenderPromptMemoryContext({
+      req,
+      systemPrompt,
+      transcript,
+      shouldApplyScreenplayContract,
+      creativeMemoryStore,
+      resolveUserId,
+    });
 
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Type", "text/event-stream");
@@ -227,9 +539,10 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         action: "studio_render_stream",
         request_id: rid,
         started_at: requestStartedAtISO8601,
+        ...(memoryContext.memoryApplied ? { memory_applied: memoryContext.memoryApplied } : {}),
       });
       const rawReply = await streamStudioRealtimeText({
-        systemPrompt,
+        systemPrompt: memoryContext.systemPrompt,
         transcript,
         onDelta: async (delta, fullReply) => {
           const contractedFullReply = contractStudioRenderReply(fullReply, shouldApplyScreenplayContract);
@@ -284,6 +597,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         total_ms: totalMs,
         delta_chunks: deltaChunks,
         reply,
+        ...(memoryContext.memoryApplied ? { memory_applied: memoryContext.memoryApplied } : {}),
       });
     } catch (error) {
       console.error(

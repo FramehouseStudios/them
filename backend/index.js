@@ -30013,6 +30013,8 @@ mountRealtimeStudioRenderRoutes(app, {
   normalizeSnippet,
   getOpenAIApiKey: () => OPENAI_API_KEY,
   shouldAllowStudioRenderWithoutOpenAIKey: () => Boolean(STUDIO_RENDER_TEST_REPLY),
+  creativeMemoryStore,
+  resolveUserId: (req) => String(req?.authUser?.id || req?.user?.id || req?.userId || "").trim(),
 });
 
 app.post(
