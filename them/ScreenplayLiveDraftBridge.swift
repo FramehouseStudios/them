@@ -952,6 +952,100 @@ struct ScreenplayAssistantPinState: Equatable {
     )
 }
 
+struct ScreenplayStudioAppliedMemoryState: Equatable {
+    let id: UUID
+    let source: String
+    let characters: [String]
+    let correctedTerms: [String]
+    let correctionReplacements: [String]
+    let characterBibleApplied: Bool
+    let correctionAppliedToPrompt: Bool
+    let lastSavedCorrection: String
+    let updatedAt: Date
+
+    var hasContent: Bool {
+        characterBibleApplied ||
+        correctionAppliedToPrompt ||
+        !characters.isEmpty ||
+        !correctedTerms.isEmpty ||
+        !correctionReplacements.isEmpty ||
+        !lastSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var primaryCharacter: String {
+        characters.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    var summary: String {
+        let cleanCharacters = characters
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let cleanReplacements = correctionReplacements
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !cleanCharacters.isEmpty, !cleanReplacements.isEmpty {
+            return "\(cleanCharacters.joined(separator: ", ")): \(cleanReplacements.prefix(2).joined(separator: " / "))"
+        }
+        if !cleanCharacters.isEmpty {
+            return cleanCharacters.joined(separator: ", ")
+        }
+        if !cleanReplacements.isEmpty {
+            return cleanReplacements.prefix(2).joined(separator: " / ")
+        }
+        return correctionAppliedToPrompt ? "Latest correction" : "Project memory"
+    }
+
+    static let empty = ScreenplayStudioAppliedMemoryState(
+        id: UUID(),
+        source: "",
+        characters: [],
+        correctedTerms: [],
+        correctionReplacements: [],
+        characterBibleApplied: false,
+        correctionAppliedToPrompt: false,
+        lastSavedCorrection: "",
+        updatedAt: .distantPast
+    )
+
+    static func from(
+        _ memory: BackendRealtimeStudioMemoryApplied?,
+        source: String,
+        previousSavedCorrection: String = ""
+    ) -> ScreenplayStudioAppliedMemoryState {
+        guard let memory else { return .empty }
+        let characters = Self.cleanList(memory.characters)
+        let correctedTerms = Self.cleanList(memory.correctedTerms)
+        let replacements = Self.cleanList(memory.correctionReplacements)
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: source.trimmingCharacters(in: .whitespacesAndNewlines),
+            characters: characters,
+            correctedTerms: correctedTerms,
+            correctionReplacements: replacements,
+            characterBibleApplied: memory.characterBible == true,
+            correctionAppliedToPrompt: memory.correctionAppliedToPrompt == true,
+            lastSavedCorrection: previousSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines),
+            updatedAt: Date()
+        )
+    }
+
+    private static func cleanList(_ values: [String]?) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in values ?? [] {
+            let clean = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            out.append(String(clean.prefix(160)))
+        }
+        return out
+    }
+}
+
 struct ScreenplayStudioUserPrompt: Identifiable, Equatable {
     enum Source: String, Codable, Equatable {
         case typed
@@ -2103,6 +2197,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var autoInsertStatusText: String = ""
     @Published var assistantPin: ScreenplayAssistantPinState = .empty
     @Published var assistantPinHistory: [ScreenplayAssistantPinState] = []
+    @Published var latestAppliedMemory: ScreenplayStudioAppliedMemoryState = .empty
     @Published var pendingInsertion: ScreenplayInsertionRequest?
     @Published var pendingLineJump: ScreenplayLineJumpRequest?
     @Published var pendingLineHighlight: ScreenplayLineHighlightRequest?
@@ -7003,6 +7098,63 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         UserDefaults.standard.set(cleanReply, forKey: Self.latestVoicePinReplyStorageKey)
         UserDefaults.standard.set(cleanPrompt, forKey: Self.latestVoicePinPromptStorageKey)
         UserDefaults.standard.set(updatedAt.timeIntervalSince1970, forKey: Self.latestVoicePinReplyUpdatedAtStorageKey)
+    }
+
+    func noteStudioAppliedMemory(
+        _ memory: BackendRealtimeStudioMemoryApplied?,
+        source: String
+    ) {
+        guard let memory, memory.hasSignal else { return }
+        let previousSavedCorrection = latestAppliedMemory.lastSavedCorrection
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            memory,
+            source: source,
+            previousSavedCorrection: previousSavedCorrection
+        )
+        guard state.hasContent else { return }
+        latestAppliedMemory = state
+    }
+
+    @discardableResult
+    func saveInlineAppliedMemoryCorrection(_ correction: String) async throws -> String {
+        let cleanCorrection = correction
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !cleanCorrection.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "Enter the character correction first.")
+        }
+        let character = latestAppliedMemory.primaryCharacter
+        guard !character.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "No applied character memory is active for this draft.")
+        }
+        let correctionLine = "Authoritative correction for \(character): \(cleanCorrection)"
+        let bible = BackendCharacterBibleMemory(
+            character: character,
+            canon: [],
+            corrections: [correctionLine],
+            correctedTerms: latestAppliedMemory.correctedTerms,
+            correctionReplacements: latestAppliedMemory.correctionReplacements,
+            arc: nil,
+            voice: nil,
+            tags: ["correction", "studio_inline"]
+        )
+        _ = try await BackendMemoryAPI.shared.updateCharacterBibleMemory(
+            id: "character-\(character)",
+            key: "character:\(character)",
+            characterBible: bible
+        )
+        latestAppliedMemory = ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: latestAppliedMemory.source,
+            characters: latestAppliedMemory.characters,
+            correctedTerms: latestAppliedMemory.correctedTerms,
+            correctionReplacements: latestAppliedMemory.correctionReplacements,
+            characterBibleApplied: true,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: cleanCorrection,
+            updatedAt: Date()
+        )
+        return character
     }
 
     func restoreAssistantPin(_ pin: ScreenplayAssistantPinState) {

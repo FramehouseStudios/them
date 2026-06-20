@@ -1175,6 +1175,49 @@ struct BackendRealtimeStudioRenderPayload: Decodable {
     let ok: Bool
     let action: String?
     let reply: String?
+    let memoryApplied: BackendRealtimeStudioMemoryApplied?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case action
+        case reply
+        case memoryApplied = "memory_applied"
+    }
+}
+
+struct BackendRealtimeStudioMemoryApplied: Decodable, Equatable, Hashable, Sendable {
+    let creativeMemory: Bool?
+    let characterBible: Bool?
+    let characterCorrections: Bool?
+    let correctionAppliedToPrompt: Bool?
+    let characters: [String]?
+    let correctedTerms: [String]?
+    let correctionReplacements: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case creativeMemory = "creative_memory"
+        case characterBible = "character_bible"
+        case characterCorrections = "character_corrections"
+        case correctionAppliedToPrompt = "correction_applied_to_prompt"
+        case characters
+        case correctedTerms = "corrected_terms"
+        case correctionReplacements = "correction_replacements"
+    }
+
+    var hasSignal: Bool {
+        creativeMemory == true ||
+        characterBible == true ||
+        characterCorrections == true ||
+        correctionAppliedToPrompt == true ||
+        !(characters ?? []).isEmpty ||
+        !(correctedTerms ?? []).isEmpty ||
+        !(correctionReplacements ?? []).isEmpty
+    }
+}
+
+struct BackendRealtimeStudioRenderResult: Equatable, Sendable {
+    let reply: String
+    let memoryApplied: BackendRealtimeStudioMemoryApplied?
 }
 
 private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
@@ -1189,6 +1232,7 @@ private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
     let firstDeltaMs: Int?
     let totalMs: Int?
     let deltaChunks: Int?
+    let memoryApplied: BackendRealtimeStudioMemoryApplied?
 
     enum CodingKeys: String, CodingKey {
         case action
@@ -1202,6 +1246,7 @@ private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
         case firstDeltaMs = "first_delta_ms"
         case totalMs = "total_ms"
         case deltaChunks = "delta_chunks"
+        case memoryApplied = "memory_applied"
     }
 }
 
@@ -1213,6 +1258,7 @@ struct BackendRealtimeStudioRenderStreamTrace: Sendable {
     let firstDeltaMs: Int?
     let totalMs: Int?
     let deltaChunks: Int?
+    let memoryApplied: BackendRealtimeStudioMemoryApplied?
 }
 
 struct BackendVisualContextEnvelope {
@@ -2398,6 +2444,21 @@ final class BackendClient {
         screenplayTarget: String? = nil,
         studioMetadata: BackendStudioThreadCommitMetadata? = nil
     ) async throws -> String {
+        let result = try await renderRealtimeStudioResult(
+            transcript: transcript,
+            systemPrompt: systemPrompt,
+            screenplayTarget: screenplayTarget,
+            studioMetadata: studioMetadata
+        )
+        return result.reply
+    }
+
+    func renderRealtimeStudioResult(
+        transcript: String,
+        systemPrompt: String,
+        screenplayTarget: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil
+    ) async throws -> BackendRealtimeStudioRenderResult {
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
@@ -2422,7 +2483,7 @@ final class BackendClient {
         func performRequest(
             clientToken: String,
             allowClientTokenRefresh: Bool
-        ) async throws -> String {
+        ) async throws -> BackendRealtimeStudioRenderResult {
             var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render"))
             request.httpMethod = "POST"
             request.timeoutInterval = 20
@@ -2480,7 +2541,10 @@ final class BackendClient {
             guard !reply.isEmpty else {
                 throw BackendError.stage("studio_render", "Studio render response was empty.")
             }
-            return reply
+            return BackendRealtimeStudioRenderResult(
+                reply: reply,
+                memoryApplied: payload.memoryApplied?.hasSignal == true ? payload.memoryApplied : nil
+            )
         }
 
         let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
@@ -2495,6 +2559,25 @@ final class BackendClient {
         onPartial: (@Sendable (String) async -> Void)? = nil,
         onTrace: (@Sendable (BackendRealtimeStudioRenderStreamTrace) async -> Void)? = nil
     ) async throws -> String {
+        let result = try await streamRealtimeStudioResult(
+            transcript: transcript,
+            systemPrompt: systemPrompt,
+            screenplayTarget: screenplayTarget,
+            studioMetadata: studioMetadata,
+            onPartial: onPartial,
+            onTrace: onTrace
+        )
+        return result.reply
+    }
+
+    func streamRealtimeStudioResult(
+        transcript: String,
+        systemPrompt: String,
+        screenplayTarget: String? = nil,
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil,
+        onPartial: (@Sendable (String) async -> Void)? = nil,
+        onTrace: (@Sendable (BackendRealtimeStudioRenderStreamTrace) async -> Void)? = nil
+    ) async throws -> BackendRealtimeStudioRenderResult {
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
@@ -2519,7 +2602,7 @@ final class BackendClient {
         func performRequest(
             clientToken: String,
             allowClientTokenRefresh: Bool
-        ) async throws -> String {
+        ) async throws -> BackendRealtimeStudioRenderResult {
             var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render_stream"))
             request.httpMethod = "POST"
             request.timeoutInterval = 30
@@ -2574,6 +2657,7 @@ final class BackendClient {
             var didReceiveDone = false
             var lastPartialCallbackAt = Date.distantPast
             var lastPartialCallbackCharacterCount = 0
+            var latestMemoryApplied: BackendRealtimeStudioMemoryApplied?
 
             func trace(
                 from payload: BackendRealtimeStudioRenderStreamEvent?,
@@ -2588,6 +2672,10 @@ final class BackendClient {
                 let startedAtISO8601 = payload?.startedAtISO8601?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let normalizedStartedAt = startedAtISO8601?.isEmpty == true ? nil : startedAtISO8601
+                if let memoryApplied = payload?.memoryApplied,
+                   memoryApplied.hasSignal {
+                    latestMemoryApplied = memoryApplied
+                }
                 let hasSignal =
                     !action.isEmpty ||
                     !kind.isEmpty ||
@@ -2595,7 +2683,8 @@ final class BackendClient {
                     normalizedStartedAt != nil ||
                     payload?.firstDeltaMs != nil ||
                     payload?.totalMs != nil ||
-                    payload?.deltaChunks != nil
+                    payload?.deltaChunks != nil ||
+                    payload?.memoryApplied?.hasSignal == true
                 guard hasSignal else { return nil }
                 return BackendRealtimeStudioRenderStreamTrace(
                     action: action.isEmpty ? "studio_render_stream" : action,
@@ -2604,7 +2693,8 @@ final class BackendClient {
                     startedAtISO8601: normalizedStartedAt,
                     firstDeltaMs: payload?.firstDeltaMs,
                     totalMs: payload?.totalMs,
-                    deltaChunks: payload?.deltaChunks
+                    deltaChunks: payload?.deltaChunks,
+                    memoryApplied: payload?.memoryApplied?.hasSignal == true ? payload?.memoryApplied : nil
                 )
             }
 
@@ -2678,7 +2768,10 @@ final class BackendClient {
                         guard !resolvedReply.isEmpty else {
                             throw BackendError.stage("studio_render", "Studio render stream response was empty.")
                         }
-                        return resolvedReply
+                        return BackendRealtimeStudioRenderResult(
+                            reply: resolvedReply,
+                            memoryApplied: latestMemoryApplied
+                        )
                     }
                     continue
                 }
@@ -2707,7 +2800,10 @@ final class BackendClient {
                             lastPartialCallbackCharacterCount = reply.count
                             await onPartial(reply)
                         }
-                        return reply
+                        return BackendRealtimeStudioRenderResult(
+                            reply: reply,
+                            memoryApplied: latestMemoryApplied
+                        )
                     }
                     if eventName == "error" {
                         let payloadData = Data(payloadText.utf8)
@@ -2726,7 +2822,10 @@ final class BackendClient {
             guard !resolvedReply.isEmpty else {
                 throw BackendError.stage("studio_render", "Studio render stream response was empty.")
             }
-            return resolvedReply
+            return BackendRealtimeStudioRenderResult(
+                reply: resolvedReply,
+                memoryApplied: latestMemoryApplied
+            )
         }
 
         let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)

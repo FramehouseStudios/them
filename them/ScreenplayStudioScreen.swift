@@ -5418,6 +5418,8 @@ struct ScreenplayStudioScreen: View {
     @State private var selectedDraftToolsSection: DraftToolsSection = .pages
     @State private var queuedIntelligenceFixes: [IntelligenceFixQueueItem] = []
     @State private var lastAppliedIntelligenceFixBatch: IntelligenceFixBatchSnapshot?
+    @State private var studioAppliedMemoryCorrectionDraft = ""
+    @State private var isSavingStudioAppliedMemoryCorrection = false
     @State private var isPageCommitNoticeVisible = false
     @State private var pageCommitNoticeTask: Task<Void, Never>?
     @State private var isLastCommittedWriteActionVisible = false
@@ -12479,6 +12481,10 @@ private var projectsSidebarContent: some View {
                                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
 
+                            if liveDraftBridge.latestAppliedMemory.hasContent {
+                                studioAppliedMemoryBanner
+                            }
+
                             screenplayQualityStatusBanner
                             syncedVoiceTurnStatusBanner
 
@@ -12569,6 +12575,10 @@ private var projectsSidebarContent: some View {
                             .padding(.vertical, 8)
                             .background(Color.yellow.opacity(0.16))
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+
+                    if liveDraftBridge.latestAppliedMemory.hasContent {
+                        studioAppliedMemoryBanner
                     }
 
                     screenplayQualityStatusBanner
@@ -12709,6 +12719,99 @@ private var projectsSidebarContent: some View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.herShellStroke.opacity(0.22), lineWidth: 1)
         )
+    }
+
+    private var studioAppliedMemoryBanner: some View {
+        let memory = liveDraftBridge.latestAppliedMemory
+        let character = memory.primaryCharacter
+        let canSaveCorrection =
+            !character.isEmpty &&
+            !studioAppliedMemoryCorrectionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !isSavingStudioAppliedMemoryCorrection
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: memory.correctionAppliedToPrompt ? "checkmark.seal.fill" : "brain.head.profile")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.herStudioAccent.opacity(0.92))
+                    .frame(width: 20, height: 20)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(memory.correctionAppliedToPrompt ? "Correction memory applied" : "Project memory applied")
+                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.92))
+                        if !memory.source.isEmpty {
+                            Text(memory.source.replacingOccurrences(of: "_", with: " "))
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(Color.herText.opacity(0.42))
+                        }
+                    }
+
+                    Text(memory.summary)
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if !memory.lastSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Saved: \(memory.lastSavedCorrection)")
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.58))
+                            .lineLimit(2)
+                    }
+                }
+
+                Spacer(minLength: 8)
+            }
+
+            if !character.isEmpty {
+                HStack(spacing: 8) {
+                    TextField("Correct \(character)'s memory", text: $studioAppliedMemoryCorrectionDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, weight: .regular, design: .default))
+
+                    Button {
+                        saveStudioAppliedMemoryCorrection()
+                    } label: {
+                        if isSavingStudioAppliedMemoryCorrection {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 18, height: 18)
+                        } else {
+                            Label("Save", systemImage: "checkmark")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!canSaveCorrection)
+                    .help("Save this as authoritative character memory.")
+                }
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 10)
+        .background(Color.herStudioAccentSoft.opacity(0.14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.herStudioAccent.opacity(0.22), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func saveStudioAppliedMemoryCorrection() {
+        let correction = studioAppliedMemoryCorrectionDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !correction.isEmpty, !isSavingStudioAppliedMemoryCorrection else { return }
+        isSavingStudioAppliedMemoryCorrection = true
+        Task { @MainActor in
+            defer { isSavingStudioAppliedMemoryCorrection = false }
+            do {
+                let character = try await liveDraftBridge.saveInlineAppliedMemoryCorrection(correction)
+                studioAppliedMemoryCorrectionDraft = ""
+                liveDraftBridge.autoInsertStatusText = "Saved correction for \(character)."
+            } catch {
+                liveDraftBridge.autoInsertStatusText = "Memory correction failed: \(error.localizedDescription)"
+            }
+        }
     }
 
     private var projectDraftActionRows: some View {

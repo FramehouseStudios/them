@@ -7125,7 +7125,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 let requestRender = {
                     do {
                         return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
-                            try await backend.streamRealtimeStudioText(
+                            let result = try await backend.streamRealtimeStudioResult(
                                 transcript: renderTranscript,
                                 systemPrompt: systemPrompt,
                                 screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
@@ -7135,8 +7135,24 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                         guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
                                         self.realtimeStudioRenderedReply = partial
                                     }
+                                },
+                                onTrace: { trace in
+                                    guard let memoryApplied = trace.memoryApplied else { return }
+                                    await MainActor.run {
+                                        self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                            memoryApplied,
+                                            source: "typed_stream_\(trace.kind)"
+                                        )
+                                    }
                                 }
                             )
+                            await MainActor.run {
+                                self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                    result.memoryApplied,
+                                    source: "typed_stream_done"
+                                )
+                            }
+                            return result.reply
                         }
                     } catch {
                         let partialReply = sanitizedRealtimeStudioRenderReply(realtimeStudioRenderedReply)
@@ -7152,12 +7168,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
                         HerLog.talk.info("STUDIO render stream empty -> fallback to one-shot render")
                         return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
-                            try await backend.renderRealtimeStudioText(
+                            let result = try await backend.renderRealtimeStudioResult(
                                 transcript: renderTranscript,
                                 systemPrompt: systemPrompt,
                                 screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
                                 studioMetadata: studioRenderMetadata
                             )
+                            await MainActor.run {
+                                self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                    result.memoryApplied,
+                                    source: "typed_fallback"
+                                )
+                            }
+                            return result.reply
                         }
                     }
                 }
@@ -7173,12 +7196,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
             } else {
                 let requestRender = {
                     try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
-                        try await backend.renderRealtimeStudioText(
+                        let result = try await backend.renderRealtimeStudioResult(
                             transcript: renderTranscript,
                             systemPrompt: systemPrompt,
                             screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
                             studioMetadata: studioRenderMetadata
                         )
+                        await MainActor.run {
+                            self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                result.memoryApplied,
+                                source: "typed_sync"
+                            )
+                        }
+                        return result.reply
                     }
                 }
 
@@ -8786,6 +8816,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     onTrace: { trace in
                         await MainActor.run {
                             guard self.realtimeStudioRenderUserMessage == cleanUser else { return }
+                            if let memoryApplied = trace.memoryApplied {
+                                self.screenplayDraftBridge.noteStudioAppliedMemory(
+                                    memoryApplied,
+                                    source: "voice_stream_\(trace.kind)"
+                                )
+                            }
 #if DEBUG || os(macOS)
                             let cleanKind = trace.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                             let requestID = trace.requestID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -8887,13 +8923,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     return nil
                 }
                 if shouldFallbackToNonStreamingStudioRender(for: error) {
+                    let fallbackResult = try? await backend.renderRealtimeStudioResult(
+                        transcript: renderTranscript,
+                        systemPrompt: systemPrompt,
+                        screenplayTarget: "page",
+                        studioMetadata: studioRenderMetadata
+                    )
+                    if let memoryApplied = fallbackResult?.memoryApplied {
+                        screenplayDraftBridge.noteStudioAppliedMemory(
+                            memoryApplied,
+                            source: "voice_fallback"
+                        )
+                    }
                     let fallbackReply = sanitizedRealtimeStudioRenderReply(
-                        (try? await backend.renderRealtimeStudioText(
-                            transcript: renderTranscript,
-                            systemPrompt: systemPrompt,
-                            screenplayTarget: "page",
-                            studioMetadata: studioRenderMetadata
-                        )) ?? ""
+                        fallbackResult?.reply ?? ""
                     )
                     guard !fallbackReply.isEmpty else {
                         screenplayDraftBridge.cancelStreamingVoiceTurnPreview()
@@ -8979,14 +9022,19 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 promptSource: .voice,
                 shouldWriteToPage: shouldWriteToPage
             )
-            renderedReply = sanitizedRealtimeStudioRenderReply(
-                (try? await backend.renderRealtimeStudioText(
-                    transcript: renderTranscript,
-                    systemPrompt: systemPrompt,
-                    screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
-                    studioMetadata: studioRenderMetadata
-                )) ?? ""
+            let result = try? await backend.renderRealtimeStudioResult(
+                transcript: renderTranscript,
+                systemPrompt: systemPrompt,
+                screenplayTarget: shouldWriteToPage ? "page" : "voice_pin",
+                studioMetadata: studioRenderMetadata
             )
+            if let memoryApplied = result?.memoryApplied {
+                screenplayDraftBridge.noteStudioAppliedMemory(
+                    memoryApplied,
+                    source: "voice_sync"
+                )
+            }
+            renderedReply = sanitizedRealtimeStudioRenderReply(result?.reply ?? "")
         }
 
         defer {
