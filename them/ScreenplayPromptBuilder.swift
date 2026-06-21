@@ -476,6 +476,13 @@ struct ScreenplayPromptBuilder {
         } else if targetPages > 0 {
             lines.append("- Target length: \(targetPages) pages")
         }
+        lines.append(contentsOf: Self.featurePageTargetSizingLines(
+            requestedPages: requestedPages,
+            act: act,
+            requestedAct: requestedAct,
+            pageCount: pageCount,
+            targetPages: targetPages
+        ))
         if !sceneObjective.isEmpty {
             lines.append("- Current scene objective: \(String(sceneObjective.prefix(220)))")
         }
@@ -621,6 +628,124 @@ struct ScreenplayPromptBuilder {
         if hasActThree { return "Act III" }
         if hasActTwo { return "Act II" }
         if hasActOne { return "Act I" }
+        return ""
+    }
+
+    private static func featurePageTargetSizingLines(
+        requestedPages: Int,
+        act: String,
+        requestedAct: String,
+        pageCount: Int,
+        targetPages: Int
+    ) -> [String] {
+        let target = targetPages > 0 ? targetPages : 110
+        let safePage = pageCount > 0 ? min(max(1, pageCount), target) : 0
+        let cleanAct = act.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanRequestedAct = requestedAct.trimmingCharacters(in: .whitespacesAndNewlines)
+        let activeAct = cleanRequestedAct.isEmpty ? cleanAct : cleanRequestedAct
+        let activeSequence = safePage > 0
+            ? featureSequenceBand(for: safePage, targetPages: target)
+            : featureSequenceBand(for: activeAct)
+        let hasSizingContext = requestedPages > 0 || safePage > 0 || !activeSequence.isEmpty || !activeAct.isEmpty
+        guard hasSizingContext else { return [] }
+
+        var lines = [
+            "- Page target sizing: turn page count into a dramaturgical runway instead of a vague length request."
+        ]
+        if requestedPages > 0 {
+            let storyStateChanges = max(1, Int(ceil(Double(requestedPages) / 2.0)))
+            let sceneTurns = sceneTurnBudget(for: requestedPages)
+            if safePage > 0 {
+                let startPage = min(max(1, safePage + 1), target)
+                let endPage = min(max(startPage, startPage + requestedPages - 1), target)
+                let startSequence = featureSequenceBand(for: startPage, targetPages: target)
+                let endSequence = featureSequenceBand(for: endPage, targetPages: target)
+                lines.append("- Page target window: p\(startPage)-p\(endPage) / \(target)")
+                if !startSequence.isEmpty {
+                    lines.append("- Start sequence: \(startSequence)")
+                }
+                if !endSequence.isEmpty {
+                    lines.append("- End sequence: \(endSequence)")
+                }
+                if !startSequence.isEmpty, !endSequence.isEmpty, startSequence != endSequence {
+                    lines.append("- Sequence boundary rule: if the batch crosses into \(endSequence), spend that boundary as a decision, cost, reveal, or image; do not hard reset.")
+                }
+            } else if !activeAct.isEmpty {
+                lines.append("- Page target act window: \(String(activeAct.prefix(120)))")
+            }
+            lines.append("- Scene-turn budget: \(sceneTurns) escalating turn\(sceneTurns == 1 ? "" : "s") with objective, obstacle, reversal/cost, residue, and handoff.")
+            lines.append("- Story-state change floor: at least \(storyStateChanges) visible leverage/reveal/cost/tactic shift\(storyStateChanges == 1 ? "" : "s") across the batch.")
+            lines.append("- Sizing rule: if model space is tight, complete the strongest contiguous page run with a clean handoff; never replace requested pages with an outline.")
+        } else if safePage > 0 {
+            let startPage = min(max(1, safePage + 1), target)
+            let endPage = min(max(startPage, startPage + 4), target)
+            let runSequence = featureSequenceBand(for: startPage, targetPages: target)
+            lines.append("- Next useful run: p\(startPage)-p\(endPage) / \(target)")
+            if !runSequence.isEmpty {
+                lines.append("- Next run sequence: \(runSequence)")
+            }
+            lines.append("- Default run rule: when the user says continue without a count, write a focused 3-5 page turn that changes the feature state.")
+        } else if !activeSequence.isEmpty {
+            lines.append("- Act sequence target: \(activeSequence)")
+            lines.append("- Default run rule: without a page count, choose the next 3-5 page turn inside this sequence and end with a handoff.")
+        }
+
+        lines.append("- Continuation quality floor: open from inherited emotional residue as visible behavior, do not restate the prior beat, and make the first page alter leverage, information, relationship, tactic, or emotional cost.")
+        return lines
+    }
+
+    private static func sceneTurnBudget(for requestedPages: Int) -> Int {
+        if requestedPages <= 3 { return 1 }
+        if requestedPages <= 6 { return 2 }
+        if requestedPages <= 9 { return 3 }
+        return 4
+    }
+
+    private static func featureSequenceBand(for page: Int, targetPages: Int) -> String {
+        let target = max(1, targetPages)
+        let ratio = Double(min(max(1, page), target)) / Double(target)
+        if ratio <= 12.0 / 110.0 {
+            return "Act I - Opening Image / Ordinary World"
+        }
+        if ratio <= 25.0 / 110.0 {
+            return "Act I - Catalyst To Commitment"
+        }
+        if ratio <= 40.0 / 110.0 {
+            return "Act II - Promise Of The Premise"
+        }
+        if ratio <= 55.0 / 110.0 {
+            return "Act II - Midpoint Pressure"
+        }
+        if ratio <= 70.0 / 110.0 {
+            return "Act II - Reversal Fallout"
+        }
+        if ratio <= 85.0 / 110.0 {
+            return "Act II - Collapse / All Is Lost"
+        }
+        if ratio <= 98.0 / 110.0 {
+            return "Act III - Break Into Three / Final Plan"
+        }
+        return "Act III - Climax / Final Image"
+    }
+
+    private static func featureSequenceBand(for act: String) -> String {
+        let text = act.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !text.isEmpty else { return "" }
+        let hasActOne = text.contains("act i") || text.contains("act 1") || text.contains("first")
+        let hasActTwo = text.contains("act ii") || text.contains("act 2") || text.contains("second")
+        let hasActThree = text.contains("act iii") || text.contains("act 3") || text.contains("third") || text.contains("final")
+        if hasActOne && hasActTwo && hasActThree {
+            return "Act I -> Act II -> Act III"
+        }
+        if text.contains("act iii") || text.contains("act 3") || text.contains("third") || text.contains("final") {
+            return "Act III - Break Into Three / Final Plan"
+        }
+        if text.contains("act ii") || text.contains("act 2") || text.contains("second") {
+            return "Act II - Promise Of The Premise"
+        }
+        if text.contains("act i") || text.contains("act 1") || text.contains("first") {
+            return "Act I - Opening Image / Ordinary World"
+        }
         return ""
     }
 

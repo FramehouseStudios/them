@@ -740,6 +740,95 @@ function requestedActFromTask(screenplayTask = {}) {
   return trimContextLine(screenplayTask?.requestedAct ?? screenplayTask?.requested_act, 120);
 }
 
+function sceneTurnBudgetForPages(requestedPages) {
+  const pages = positiveIntegerOrZero(requestedPages);
+  if (pages <= 0) return 0;
+  if (pages <= 3) return 1;
+  if (pages <= 6) return 2;
+  if (pages <= 9) return 3;
+  return 4;
+}
+
+function storyStateChangeFloorForPages(requestedPages) {
+  const pages = positiveIntegerOrZero(requestedPages);
+  if (pages <= 0) return 0;
+  return Math.max(1, Math.ceil(pages / 2));
+}
+
+function sequenceLabelWithRange(sequence, targetPages) {
+  if (!sequence) return "";
+  const range = scaledRange(sequence, targetPages);
+  return `${sequence.act} - ${sequence.label} (p${range.start}-${range.end})`;
+}
+
+function buildPageTargetSizingLines({
+  screenplayTask = null,
+  sequence = null,
+  targetPages = DEFAULT_FEATURE_TARGET_PAGES,
+  currentPage = 0,
+  explicitAct = "",
+  requestedAct = "",
+} = {}) {
+  const requestedPages = requestedPageBatchFromTask(screenplayTask);
+  const target = targetPagesFromContext({ targetPages });
+  const safeCurrentPage = currentPage > 0 ? clamp(currentPage, 1, target) : 0;
+  const activeAct = trimContextLine(requestedAct || explicitAct || sequence?.act, 120);
+  const activeSequence = sequence || firstSequenceForActLabel(activeAct);
+  const hasSizingContext = Boolean(requestedPages > 0 || safeCurrentPage > 0 || activeSequence || activeAct);
+  if (!hasSizingContext) return [];
+
+  const lines = [
+    "  page_target_sizing:",
+    "    purpose: turn page count into a dramaturgical runway instead of a vague length request.",
+  ];
+
+  if (requestedPages > 0) {
+    const startPage = safeCurrentPage > 0 ? clamp(safeCurrentPage + 1, 1, target) : 0;
+    const endPage = startPage > 0 ? clamp(startPage + requestedPages - 1, startPage, target) : 0;
+    const startSequence = startPage > 0 ? findSequenceForPage(startPage, target) : activeSequence;
+    const endSequence = endPage > 0 ? findSequenceForPage(endPage, target) : activeSequence;
+    const sceneTurnBudget = sceneTurnBudgetForPages(requestedPages);
+    const stateChangeFloor = storyStateChangeFloorForPages(requestedPages);
+
+    lines.push(`    requested_pages: ${requestedPages}`);
+    if (startPage > 0 && endPage > 0) {
+      lines.push(`    target_window: p${startPage}-p${endPage} / ${target}`);
+      const remainingAfterBatch = Math.max(0, target - endPage);
+      lines.push(`    pages_remaining_after_batch: ${remainingAfterBatch}`);
+    } else if (activeAct) {
+      lines.push(`    target_act_window: ${activeAct}`);
+    }
+    if (startSequence) lines.push(`    start_sequence: ${sequenceLabelWithRange(startSequence, target)}`);
+    if (endSequence) lines.push(`    end_sequence: ${sequenceLabelWithRange(endSequence, target)}`);
+    if (startSequence && endSequence && startSequence.id !== endSequence.id) {
+      lines.push(`    sequence_boundary_rule: if the batch crosses into ${endSequence.act} - ${endSequence.label}, spend the boundary as a decision, cost, reveal, or image; do not hard reset.`);
+    }
+    if (sceneTurnBudget > 0) lines.push(`    scene_turn_budget: ${sceneTurnBudget} escalating turn${sceneTurnBudget === 1 ? "" : "s"}`);
+    if (stateChangeFloor > 0) lines.push(`    story_state_change_floor: at least ${stateChangeFloor} visible leverage/reveal/cost/tactic shift${stateChangeFloor === 1 ? "" : "s"} across the batch.`);
+    lines.push("    sizing_rule: if model space is tight, complete the strongest contiguous page run with a clean handoff; never replace requested pages with an outline.");
+  } else if (safeCurrentPage > 0) {
+    const startPage = clamp(safeCurrentPage + 1, 1, target);
+    const endPage = clamp(startPage + 4, startPage, target);
+    const nextRunSequence = findSequenceForPage(startPage, target) || activeSequence;
+    lines.push(`    next_useful_run: p${startPage}-p${endPage} / ${target}`);
+    if (nextRunSequence) lines.push(`    next_run_sequence: ${sequenceLabelWithRange(nextRunSequence, target)}`);
+    lines.push("    default_run_rule: when the user says continue without a count, write a focused 3-5 page turn that changes the feature state.");
+  } else if (activeSequence) {
+    lines.push(`    act_sequence_target: ${sequenceLabelWithRange(activeSequence, target)}`);
+    lines.push("    default_run_rule: without a page count, choose the next 3-5 page turn inside this sequence and end with a handoff.");
+  } else if (activeAct) {
+    lines.push(`    act_sequence_target: ${activeAct}`);
+    lines.push("    default_run_rule: locate the first due sequence in this act, then write the smallest complete page turn that advances it.");
+  }
+
+  lines.push("    continuation_quality_floor:");
+  lines.push("      - Open from inherited emotional residue as visible behavior; do not restate the prior beat.");
+  lines.push("      - Make the first page alter leverage, information, relationship, tactic, or emotional cost.");
+  lines.push("      - Every scene turn needs objective, obstacle, reversal/cost, residue, and a next-sequence handoff.");
+  lines.push("      - Preserve supplied next_three_turns and next_scene_plan before adding new plot.");
+  return lines;
+}
+
 function buildFeaturePageBatchPlanLines({
   screenplayTask = null,
   sequence = null,
@@ -1194,6 +1283,14 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
       explicitAct,
       requestedAct,
       targetPages,
+    }),
+    ...buildPageTargetSizingLines({
+      screenplayTask,
+      sequence,
+      targetPages,
+      currentPage,
+      explicitAct,
+      requestedAct,
     }),
     ...buildFeaturePageBatchPlanLines({
       screenplayTask,
