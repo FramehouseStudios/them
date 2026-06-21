@@ -3335,6 +3335,135 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
     }
 
+    func applyRestoredSessionContinuitySignal(
+        _ snapshot: BackendSessionContinuitySnapshot,
+        persist: Bool = true
+    ) {
+        guard snapshot.isMeaningful else { return }
+        let now = Date()
+        let projectLabel = Self.firstRestoredContinuityValue(
+            [
+                snapshot.projectTitle,
+                snapshot.projectId,
+                snapshot.act
+            ],
+            fallback: "your screenplay"
+        )
+        let position = [
+            Self.restoredContinuityText(snapshot.act, limit: 80),
+            Self.restoredContinuityText(snapshot.featureSequence, limit: 160)
+        ]
+            .filter { !$0.isEmpty }
+            .joined(separator: " / ")
+        let nextMove = Self.restoredContinuityNextMove(snapshot)
+        let rememberedThread = Self.firstRestoredContinuityValue(
+            [
+                snapshot.lastSceneOutcome,
+                snapshot.currentBeat,
+                snapshot.emotionalContinuity,
+                snapshot.memoryExcerpt
+            ]
+        )
+        let summary: String
+        if !nextMove.isEmpty {
+            summary = "Restored continuity for \(projectLabel). Next page target: \(nextMove)"
+        } else if !position.isEmpty {
+            summary = "Restored continuity for \(projectLabel). Active lane: \(position)."
+        } else {
+            summary = "Restored continuity for \(projectLabel); stay with the last living story thread."
+        }
+
+        let detailParts = [
+            position.isEmpty ? "" : "Act-aware target: \(position)",
+            rememberedThread.isEmpty ? "" : "Last live thread: \(rememberedThread)"
+        ]
+            .filter { !$0.isEmpty }
+        let presenceDetail = detailParts.isEmpty
+            ? "Holding the restored feature context and ready to move straight back onto the page."
+            : detailParts.joined(separator: ". ")
+        let proactivePrompt = nextMove.isEmpty
+            ? "Say: continue where we left off and write the next honest beat"
+            : "Say: write the next page where \(nextMove)"
+        let reasonSeed = Self.firstRestoredContinuityValue(
+            [
+                snapshot.featureObligation,
+                snapshot.actPressureState,
+                snapshot.characterArcState,
+                position
+            ]
+        )
+        let reason = reasonSeed.isEmpty
+            ? "Restored session continuity should become the next writing move, not a passive memory."
+            : "Restored from \(reasonSeed)."
+
+        latestMemoryDomain = .project
+        applyCompanionSignalState(
+            CreativeCompanionSignalState(
+                intent: CreativeIntentSnapshot(
+                    kind: .screenplayPageWrite,
+                    label: "Restored Continuity",
+                    summary: String(summary.prefix(320)).trimmingCharacters(in: .whitespacesAndNewlines),
+                    nextMove: nextMove.isEmpty
+                        ? "Continue the restored feature thread in Fountain with no generic reset."
+                        : nextMove,
+                    confidence: 0.94,
+                    sourceText: Self.firstRestoredContinuityValue(
+                        [
+                            snapshot.openingLine,
+                            snapshot.sceneSummary,
+                            snapshot.lastSceneOutcome,
+                            snapshot.memoryExcerpt
+                        ]
+                    ),
+                    updatedAt: now
+                ),
+                presence: CreativePresenceSnapshot(
+                    title: "Continuity Restored",
+                    detail: String(presenceDetail.prefix(360)).trimmingCharacters(in: .whitespacesAndNewlines),
+                    updatedAt: now
+                ),
+                proactiveSuggestion: CreativeProactiveSuggestion(
+                    category: "Scene",
+                    prompt: String(proactivePrompt.prefix(300)).trimmingCharacters(in: .whitespacesAndNewlines),
+                    reason: String(reason.prefix(300)).trimmingCharacters(in: .whitespacesAndNewlines),
+                    updatedAt: now
+                )
+            ),
+            persist: persist
+        )
+    }
+
+    private static func restoredContinuityNextMove(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        firstRestoredContinuityValue(
+            [
+                snapshot.nextScenePlan,
+                snapshot.nextSceneMoves.first ?? "",
+                snapshot.nextThreeTurns.first ?? "",
+                snapshot.actThreePayoffPath.first ?? ""
+            ],
+            fallback: ""
+        )
+    }
+
+    private static func firstRestoredContinuityValue(
+        _ values: [String],
+        fallback: String = ""
+    ) -> String {
+        for value in values {
+            let clean = restoredContinuityText(value, limit: 260)
+            if !clean.isEmpty { return clean }
+        }
+        return fallback
+    }
+
+    private static func restoredContinuityText(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !compact.isEmpty else { return "" }
+        return String(compact.prefix(max(0, limit))).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func recentTurnPairs(for memoryDomain: StudioMemoryDomain) -> [(user: String, assistant: String)] {
         let source: [ScreenplayConversationTurn]
         switch memoryDomain {

@@ -5461,7 +5461,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
             sessionContinuitySnapshot = nil
             return
         }
+        let previousFingerprint = sessionContinuitySnapshot.map(sessionContinuityFingerprint)
+        let nextFingerprint = sessionContinuityFingerprint(continuity)
         sessionContinuitySnapshot = continuity
+        if previousFingerprint != nextFingerprint || !screenplayDraftBridge.companionSignalState.hasContent {
+            screenplayDraftBridge.applyRestoredSessionContinuitySignal(continuity, persist: true)
+        }
     }
 
     @MainActor
@@ -9278,6 +9283,27 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if !title.isEmpty || !projectId.isEmpty {
             let label = title.isEmpty ? projectId : title
             notes.append("Restored feature project: \(label).")
+        }
+        let actTarget = [
+            snapshot.act,
+            snapshot.featureSequence
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " / ")
+        if !actTarget.isEmpty {
+            notes.append("Restored act-aware target: \(actTarget).")
+        }
+        let restoredFirstMove = [
+            snapshot.nextScenePlan,
+            snapshot.nextSceneMoves.first ?? "",
+            snapshot.nextThreeTurns.first ?? "",
+            snapshot.actThreePayoffPath.first ?? ""
+        ]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        if !restoredFirstMove.isEmpty {
+            notes.append("First restored-response target: if the user asks to continue or speaks hands-free, start from this page move before inventing a new lane: \(restoredFirstMove)")
         }
         let lastOutcome = snapshot.lastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines)
         if !lastOutcome.isEmpty {

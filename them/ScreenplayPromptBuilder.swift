@@ -520,6 +520,7 @@ struct ScreenplayPromptBuilder {
         }
         if !nextScenePlan.isEmpty {
             lines.append("- Next scene planner: \(String(nextScenePlan.prefix(320)))")
+            lines.append("- Continuation guardrail: honor the next scene planner first; do not reset into generic brainstorming unless the user asks.")
         }
         if !emotionalContinuity.isEmpty {
             lines.append("- Emotional continuity: \(String(emotionalContinuity.prefix(260)))")
