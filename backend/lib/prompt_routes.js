@@ -495,6 +495,31 @@ function resolvePromptUserId(req) {
   );
 }
 
+function resolvePromptMemoryLookupContext(req, sessionContext = null) {
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  return {
+    projectId: trimToString(
+      sessionContext?.projectId ??
+        body.project_id ??
+        body.projectId ??
+        body.screenplay_project_id ??
+        body.screenplayProjectId,
+      160
+    ),
+    projectTitle: trimToString(
+      sessionContext?.pack ??
+        body.project_title ??
+        body.projectTitle ??
+        body.screenplay_project_title ??
+        body.screenplayProjectTitle ??
+        body.pack ??
+        body.screenplay_pack ??
+        body.screenplayPack,
+      160
+    ),
+  };
+}
+
 function sanitizeSessionContext(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const projectId = trimToString(value.projectId ?? value.project_id, 160);
@@ -685,16 +710,19 @@ function mountPromptRoutes(app, {
     }
 
     const userId = resolvePromptUserId(req);
+    const sanitizedSessionContext = sanitizeSessionContext(
+      req.body?.session_context ?? req.body?.sessionContext
+    );
+    const memoryLookupContext = resolvePromptMemoryLookupContext(req, sanitizedSessionContext);
     const creativeMemory = userId && creativeMemoryStore?.getCreativeMemoryForPrompt
       ? await creativeMemoryStore.getCreativeMemoryForPrompt({
         userId,
         query: userInput || screenplayTaskHint,
+        projectId: memoryLookupContext.projectId,
+        projectTitle: memoryLookupContext.projectTitle,
       })
       : null;
     const screenplayTask = inferScreenplayTask(userInput || screenplayTaskHint);
-    const sanitizedSessionContext = sanitizeSessionContext(
-      req.body?.session_context ?? req.body?.sessionContext
-    );
     const projectHydration = hydrateSessionContextFromProject(req, sanitizedSessionContext, {
       getOrCreateScreenplayOwnerRecord,
       getScreenplayProjectRecord,

@@ -20,6 +20,7 @@ async function withTestServer(fn, {
   promptRouteDeps = {},
 } = {}) {
   let requestedMemoryUserId = "";
+  let requestedMemoryArgs = null;
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -28,8 +29,10 @@ async function withTestServer(fn, {
   });
   mountPromptRoutes(app, {
     creativeMemoryStore: {
-      getCreativeMemoryForPrompt({ userId: requestedUserId }) {
+      getCreativeMemoryForPrompt(args = {}) {
+        const { userId: requestedUserId } = args;
         requestedMemoryUserId = requestedUserId;
+        requestedMemoryArgs = args;
         return memory;
       },
     },
@@ -43,7 +46,11 @@ async function withTestServer(fn, {
   const port = server.address().port;
   const baseURL = `http://127.0.0.1:${port}`;
   try {
-    await fn({ baseURL, requestedMemoryUserId: () => requestedMemoryUserId });
+    await fn({
+      baseURL,
+      requestedMemoryUserId: () => requestedMemoryUserId,
+      requestedMemoryArgs: () => requestedMemoryArgs,
+    });
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -61,7 +68,7 @@ async function postJson(baseURL, path, payload, headers = {}) {
 
 test("POST /screenplay/prompt/build assembles persona, memory, session, user input, and craft block", async () => {
   await withTestServer(
-    async ({ baseURL, requestedMemoryUserId }) => {
+    async ({ baseURL, requestedMemoryUserId, requestedMemoryArgs }) => {
       const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
         persona: "PERSONA",
         user_input: "Write the all-is-lost beat.",
@@ -112,6 +119,8 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.equal(body.screenplay_task_intent, "write_scene");
       assert.equal(body.screenplay_task_label, "Write Scene");
       assert.equal(requestedMemoryUserId(), "user-prompt-1");
+      assert.equal(requestedMemoryArgs().projectId, "proj-77");
+      assert.equal(requestedMemoryArgs().projectTitle, "Feature Sprint");
       assert.ok(body.prompt.includes("PERSONA"));
       assert.ok(body.prompt.includes(MEMORY_BLOCK_OPEN));
       assert.ok(body.prompt.includes("tone: dry"));

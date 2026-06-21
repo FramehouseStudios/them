@@ -31,6 +31,7 @@ const CHARACTER_BIBLE_TERMS_MAX = 12;
 const CHARACTER_ARC_FIELD_MAX_CHARS = 180;
 const EPISODIC_MEMORIES_MAX = 64;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
+const EPISODIC_SEMANTIC_FINGERPRINT_MAX = 96;
 const DOMAIN = "creative_memory";
 const EPISODIC_MEMORY_STOPWORDS = new Set([
   "about",
@@ -109,6 +110,114 @@ const CHARACTER_ARC_FIELDS = Object.freeze([
   "relationshipPressure",
   "currentTactic",
   "nextEmotionalTurn",
+]);
+const EPISODIC_SEMANTIC_EXPANSIONS = Object.freeze([
+  {
+    concept: "recorded_evidence",
+    terms: [
+      "affidavit",
+      "audio",
+      "cassette",
+      "clue",
+      "document",
+      "evidence",
+      "file",
+      "footage",
+      "proof",
+      "record",
+      "recording",
+      "reel",
+      "tape",
+      "testimony",
+      "vhs",
+      "video",
+    ],
+  },
+  {
+    concept: "concealed_secret",
+    terms: [
+      "buried",
+      "conceal",
+      "covered",
+      "coverup",
+      "hidden",
+      "hide",
+      "hides",
+      "hiding",
+      "keeps",
+      "secret",
+      "under",
+      "withheld",
+    ],
+  },
+  {
+    concept: "family_pressure",
+    terms: [
+      "brother",
+      "daughter",
+      "father",
+      "family",
+      "husband",
+      "mother",
+      "parent",
+      "partner",
+      "sibling",
+      "sister",
+      "son",
+      "wife",
+    ],
+  },
+  {
+    concept: "relationship_betrayal",
+    terms: [
+      "betray",
+      "betrayal",
+      "forgive",
+      "forgives",
+      "lie",
+      "lying",
+      "protect",
+      "protects",
+      "trust",
+      "trusts",
+    ],
+  },
+  {
+    concept: "feature_structure",
+    terms: [
+      "act",
+      "allislost",
+      "beat",
+      "beats",
+      "climax",
+      "ending",
+      "feature",
+      "finale",
+      "midpoint",
+      "payoff",
+      "sequence",
+      "setup",
+      "turn",
+    ],
+  },
+  {
+    concept: "emotional_arc",
+    terms: [
+      "arc",
+      "belief",
+      "falsebelief",
+      "fear",
+      "need",
+      "tactic",
+      "want",
+      "wound",
+    ],
+  },
+]);
+const EPISODIC_SEMANTIC_GENERIC_TAGS = new Set([
+  "generated-pages",
+  "project",
+  "screenplay",
 ]);
 
 function nowMs() {
@@ -428,6 +537,107 @@ function tokenizeMemoryText(value) {
   return tokens.filter((token) => token.length > 2 && !EPISODIC_MEMORY_STOPWORDS.has(token));
 }
 
+function normalizeSemanticTerm(value) {
+  let clean = String(value || "")
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/'s\b/g, "")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+  if (!clean || clean.length < 3 || EPISODIC_MEMORY_STOPWORDS.has(clean)) return "";
+  if (clean === "coverup") return "coverup";
+  if (clean.length > 5 && clean.endsWith("ies")) clean = `${clean.slice(0, -3)}y`;
+  else if (clean.length > 5 && clean.endsWith("ing")) clean = clean.slice(0, -3);
+  else if (clean.length > 4 && clean.endsWith("ed")) clean = clean.slice(0, -2);
+  else if (clean.length > 4 && clean.endsWith("es")) clean = clean.slice(0, -2);
+  else if (clean.length > 4 && clean.endsWith("s") && !clean.endsWith("ss")) clean = clean.slice(0, -1);
+  if (clean.length < 3 || EPISODIC_MEMORY_STOPWORDS.has(clean)) return "";
+  return clean;
+}
+
+function addSemanticTerm(terms, value) {
+  const clean = normalizeSemanticTerm(value);
+  if (clean) terms.add(clean);
+}
+
+function addSemanticExpansionTerms(terms, sourceText = "") {
+  const normalized = ` ${String(sourceText || "").toLowerCase().replace(/[^a-z0-9]+/g, " ")} `;
+  const normalizedTerms = new Set(tokenizeMemoryText(sourceText).map(normalizeSemanticTerm).filter(Boolean));
+  if (!normalized.trim()) return;
+  for (const group of EPISODIC_SEMANTIC_EXPANSIONS) {
+    const matched = group.terms.some((term) => {
+      const clean = normalizeSemanticTerm(term);
+      const raw = String(term || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      return clean && (normalizedTerms.has(clean) || (raw && normalized.includes(` ${raw} `)));
+    });
+    if (!matched) continue;
+    addSemanticTerm(terms, group.concept);
+    for (const term of group.terms) addSemanticTerm(terms, term);
+  }
+}
+
+function buildEpisodicSemanticFingerprint({
+  summary = "",
+  excerpt = "",
+  text = "",
+  characterNames = [],
+  tags = [],
+  projectTitle = "",
+} = {}) {
+  const terms = new Set();
+  const textParts = [
+    summary,
+    excerpt,
+    text,
+    projectTitle,
+    ...(Array.isArray(characterNames) ? characterNames : []),
+  ].filter(Boolean);
+  const source = textParts.join(" ");
+  for (const token of tokenizeMemoryText(source)) addSemanticTerm(terms, token);
+  for (const tag of Array.isArray(tags) ? tags : []) {
+    const cleanTag = String(tag || "").toLowerCase();
+    if (!cleanTag || EPISODIC_SEMANTIC_GENERIC_TAGS.has(cleanTag)) continue;
+    addSemanticTerm(terms, cleanTag);
+  }
+  for (const name of Array.isArray(characterNames) ? characterNames : []) {
+    const cleanName = normalizeCharacterName(name);
+    if (!cleanName) continue;
+    addSemanticTerm(terms, cleanName);
+    for (const part of cleanName.split(/\s+/)) addSemanticTerm(terms, part);
+  }
+  addSemanticExpansionTerms(terms, source);
+  return [...terms]
+    .filter(Boolean)
+    .slice(0, EPISODIC_SEMANTIC_FINGERPRINT_MAX);
+}
+
+function semanticFingerprintForQuery(query = "") {
+  return buildEpisodicSemanticFingerprint({ text: query });
+}
+
+function scoreSemanticFingerprintMatch(queryTerms = [], memoryTerms = []) {
+  const query = new Set((Array.isArray(queryTerms) ? queryTerms : [])
+    .map(normalizeSemanticTerm)
+    .filter(Boolean));
+  const memory = new Set((Array.isArray(memoryTerms) ? memoryTerms : [])
+    .map(normalizeSemanticTerm)
+    .filter(Boolean));
+  if (!query.size || !memory.size) return 0;
+  let hits = 0;
+  let conceptHits = 0;
+  for (const term of query) {
+    if (!memory.has(term)) continue;
+    hits += 1;
+    if (EPISODIC_SEMANTIC_EXPANSIONS.some((group) => normalizeSemanticTerm(group.concept) === term)) {
+      conceptHits += 1;
+    }
+  }
+  if (hits <= 0) return 0;
+  const precision = hits / Math.max(1, query.size);
+  const conceptBoost = conceptHits > 0 ? 2 + conceptHits : 0;
+  return (hits * 1.5) + (precision * 3) + conceptBoost;
+}
+
 function stableHash(value) {
   let hash = 2166136261;
   const text = String(value || "");
@@ -518,6 +728,14 @@ function sanitizeEpisodicMemoryItem(item = {}) {
     projectId,
     projectTitle,
     source: cleanText(item.source, 64),
+    semanticFingerprint: buildEpisodicSemanticFingerprint({
+      summary: summary || firstMemoryMoment(text) || (characterNames.length ? `Story memory for ${characterNames.join(", ")}` : "Story memory"),
+      excerpt: cleanText(item.excerpt || text, 420),
+      text,
+      characterNames,
+      tags,
+      projectTitle,
+    }),
     createdAt,
     updatedAt,
     lastReferencedAt: Math.max(0, Number(item.lastReferencedAt ?? item.last_referenced_at ?? updatedAt)),
@@ -547,14 +765,20 @@ function scoreEpisodicMemoryForQuery(memory, query = "", {
     ...(memory.tags || []),
   ].join(" ").toLowerCase();
   const correctionBoost = hasTag(memory, CORRECTION_TAG) ? 10 : 0;
+  const semanticScore = scoreSemanticFingerprintMatch(
+    semanticFingerprintForQuery(cleanQuery),
+    Array.isArray(memory.semanticFingerprint) && memory.semanticFingerprint.length
+      ? memory.semanticFingerprint
+      : buildEpisodicSemanticFingerprint(memory)
+  );
   if (!queryTokens.size) {
     let score = Math.min(4, Number(memory.referenceCount || 0)) +
       Math.min(3, Math.floor(Number(memory.updatedAt || 0) / 86_400_000_000));
     if (cleanProjectId && cleanText(memory.projectId, 96).toLowerCase() === cleanProjectId) score += 8;
     if (cleanProjectTitle && cleanText(memory.projectTitle, 160).toLowerCase() === cleanProjectTitle) score += 5;
-    return score + correctionBoost;
+    return score + correctionBoost + semanticScore;
   }
-  let score = correctionBoost;
+  let score = correctionBoost + semanticScore;
   for (const token of queryTokens) {
     if (searchable.includes(token)) score += 1;
   }
@@ -600,6 +824,7 @@ function selectEpisodicMemoriesForPrompt(items = [], {
     .map(({ item }) => {
       const out = clone(item);
       delete out.text;
+      delete out.semanticFingerprint;
       return out;
     });
 }

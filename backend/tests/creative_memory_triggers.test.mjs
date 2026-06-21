@@ -120,6 +120,26 @@ test("recordTriggersFromTalkTurn stores spoken named-character story memory for 
   assert.match(memory.episodicMemories[0].excerpt, /cassette/);
 });
 
+test("getCreativeMemoryForPrompt semantically recalls episodic story memory without exact wording", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-semantic-recall",
+    transcript: "My protagonist is named Mara. She hides a cassette under the rain-swollen vent before Eli can see it.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-semantic-recall",
+    query: "What should happen with the hidden recording proof?",
+  });
+
+  assert.equal(memory?.episodicMemories?.length, 1);
+  assert.match(memory.episodicMemories[0].excerpt, /cassette/);
+  assert.equal(Object.hasOwn(memory.episodicMemories[0], "semanticFingerprint"), false);
+});
+
 test("recordTriggersFromTalkTurn extracts character traits and goals from live talk turns", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   const summary = await store.recordTriggersFromTalkTurn({
