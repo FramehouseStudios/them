@@ -410,6 +410,7 @@ nonisolated struct BackendStateDeltaResponse: Decodable {
     let sinceVersion: String?
     let sinceTurnId: String?
     let actionReceipts: BackendActionReceiptsPayload?
+    let continuity: BackendSessionContinuitySnapshot?
     let historyDelta: [BackendHistoryThread]
     let memoriesDelta: [BackendMemoryCard]
 }

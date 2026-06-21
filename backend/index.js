@@ -29235,6 +29235,8 @@ mountStateRoute(app, {
   sanitizePersistedSessionMemory,
   selectMemoryRecordForRead,
   setPersistedUserMemoryForIp,
+  creativeMemoryStore,
+  buildSessionContinuitySnapshot,
 });
 
 // POST /data/history/clear + /data/memories/clear extracted to

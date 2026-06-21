@@ -16,6 +16,65 @@
 // No module-level mutable state; deps injected; boundary proven by
 // backend/tools/freevars.mjs (acorn).
 
+function cleanContinuityText(value, maxChars = 1_000) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, Math.max(1, Number(maxChars || 1_000)))
+    .trim();
+}
+
+function resolveStateRouteUserId(req) {
+  return cleanContinuityText(
+    req?.authUser?.id || req?.user?.id || req?.userId || "",
+    128
+  );
+}
+
+function firstScreenplayProjectMemory(memory) {
+  const items = Array.isArray(memory?.screenplayProjectMemory)
+    ? memory.screenplayProjectMemory
+    : [];
+  return items.find((item) => item && typeof item === "object") || null;
+}
+
+function buildStateContinuityQuery(project = null) {
+  return cleanContinuityText([
+    project?.projectId,
+    project?.projectTitle,
+    project?.act,
+    project?.featureSequence,
+    project?.currentBeat,
+    project?.lastSceneOutcome,
+    Array.isArray(project?.characterFocus) ? project.characterFocus.join(" ") : "",
+    "continue screenplay session restore",
+  ].filter(Boolean).join(" "), 1_000);
+}
+
+async function buildStateContinuityPayload(req, memory, {
+  creativeMemoryStore = null,
+  buildSessionContinuitySnapshot = null,
+} = {}) {
+  if (typeof buildSessionContinuitySnapshot !== "function") return null;
+  const project = firstScreenplayProjectMemory(memory);
+  const userId = resolveStateRouteUserId(req);
+  let creativeMemory = null;
+  if (userId && creativeMemoryStore && typeof creativeMemoryStore.getCreativeMemoryForPrompt === "function") {
+    try {
+      creativeMemory = await creativeMemoryStore.getCreativeMemoryForPrompt({
+        userId,
+        projectId: cleanContinuityText(project?.projectId, 96),
+        projectTitle: cleanContinuityText(project?.projectTitle || project?.projectId, 160),
+        query: buildStateContinuityQuery(project),
+        maxEpisodicMemories: 3,
+      });
+    } catch (_err) {
+      creativeMemory = null;
+    }
+  }
+  const snapshot = buildSessionContinuitySnapshot(memory, creativeMemory);
+  return snapshot && typeof snapshot === "object" ? snapshot : null;
+}
 
 function mountStateRoute(app, deps = {}) {
   if (!deps || typeof deps !== "object") {
@@ -34,12 +93,14 @@ function mountStateRoute(app, deps = {}) {
     sanitizePersistedSessionMemory,
     selectMemoryRecordForRead,
     setPersistedUserMemoryForIp,
+    creativeMemoryStore = null,
+    buildSessionContinuitySnapshot = null,
   } = deps;
   for (const k of ["selectMemoryRecordForRead","buildReadStateMeta","applyReadStateHeaders"]) {
     if (deps[k] === undefined) throw new Error("mountStateRoute requires dep: " + k);
   }
 
-  app.get("/state", (req, res) => {
+  app.get("/state", async (req, res) => {
     const sinceVersion = String(req.query?.sinceVersion || "").trim();
     const sinceTurnNumber = parseTurnIdToNumber(req.query?.sinceTurnId);
     const historyLimit = parseQueryLimit(
@@ -83,6 +144,10 @@ function mountStateRoute(app, deps = {}) {
       : fullThreads.slice(0, historyLimit);
     const memoriesDelta = buildMemoryCards(memory, fullThreads, memoriesLimit);
     const deltaNoChange = Boolean(sinceVersion && sinceVersion === readMeta.stateVersion);
+    const continuity = await buildStateContinuityPayload(req, memory, {
+      creativeMemoryStore,
+      buildSessionContinuitySnapshot,
+    });
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
@@ -105,6 +170,7 @@ function mountStateRoute(app, deps = {}) {
         memory_changed: false,
         since_version: sinceVersion || null,
         since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
+        continuity,
         history_delta: [],
         memories_delta: [],
       });
@@ -128,10 +194,11 @@ function mountStateRoute(app, deps = {}) {
       memory_changed: memoriesDelta.length > 0,
       since_version: sinceVersion || null,
       since_turn_id: sinceTurnNumber > 0 ? `turn-${sinceTurnNumber}` : null,
+      continuity,
       history_delta: historyDelta,
       memories_delta: memoriesDelta,
     });
   });
 }
 
-export { mountStateRoute };
+export { mountStateRoute, buildStateContinuityPayload };

@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import express from "express";
 
 import { mountOutboxRoutes } from "../lib/outbox_routes.js";
-import { mountStateRoute } from "../lib/state_route.js";
+import { buildStateContinuityPayload, mountStateRoute } from "../lib/state_route.js";
 import { mountDataRoutes } from "../lib/data_routes.js";
 
 function routes(app) {
@@ -77,6 +77,65 @@ test("[6.1a] mountStateRoute registers GET /state", () => {
   assert.ok(find(routes(app), "/state", "get"), "GET /state registered");
 });
 
+test("[6.1a] state continuity helper reads user/project creative memory", async () => {
+  const memory = {
+    screenplayProjectMemory: [
+      {
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        act: "Act II",
+        featureSequence: "Act II - Midpoint",
+        currentBeat: "Mara finds the sealed affidavit.",
+        lastSceneOutcome: "The courthouse hallway turns unsafe.",
+        characterFocus: ["Mara"],
+      },
+    ],
+  };
+  let requestedMemoryArgs = null;
+  const snapshot = await buildStateContinuityPayload(
+    { authUser: { id: "user-state-restore" } },
+    memory,
+    {
+      creativeMemoryStore: {
+        async getCreativeMemoryForPrompt(args) {
+          requestedMemoryArgs = args;
+          return {
+            episodicMemories: [
+              {
+                projectId: "rain-docket",
+                projectTitle: "Rain Docket",
+                summary: "Mara hides the affidavit behind the courthouse vent.",
+                excerpt: "The sealed affidavit becomes dangerous.",
+                characterNames: ["Mara"],
+                tags: ["screenplay"],
+              },
+            ],
+          };
+        },
+      },
+      buildSessionContinuitySnapshot: (_memory, creativeMemory) => ({
+        has_continuity: true,
+        source: creativeMemory?.episodicMemories?.length
+          ? "screenplay_project_memory+creative_memory"
+          : "screenplay_project_memory",
+        opening_line: "Welcome back. We were in Rain Docket - Act II.",
+        project_id: "rain-docket",
+        project_title: "Rain Docket",
+        act: "Act II",
+        next_scene_plan: "Force the affidavit into public view.",
+      }),
+    }
+  );
+
+  assert.equal(requestedMemoryArgs.userId, "user-state-restore");
+  assert.equal(requestedMemoryArgs.projectId, "rain-docket");
+  assert.equal(requestedMemoryArgs.projectTitle, "Rain Docket");
+  assert.match(requestedMemoryArgs.query, /Mara finds the sealed affidavit/);
+  assert.equal(snapshot.has_continuity, true);
+  assert.equal(snapshot.project_title, "Rain Docket");
+  assert.equal(snapshot.next_scene_plan, "Force the affidavit into public view.");
+});
+
 test("[6.1a] mountDataRoutes registers POST /data/history/clear + /data/memories/clear", () => {
   const app = express();
   mountDataRoutes(app, dataDeps);
@@ -90,6 +149,6 @@ test("[6.1a] libs add no module-level state / no setter exports (#238)", async (
   const st = await import("../lib/state_route.js");
   const dt = await import("../lib/data_routes.js");
   assert.deepEqual(Object.keys(ob), ["mountOutboxRoutes"]);
-  assert.deepEqual(Object.keys(st), ["mountStateRoute"]);
+  assert.deepEqual(Object.keys(st), ["buildStateContinuityPayload", "mountStateRoute"]);
   assert.deepEqual(Object.keys(dt), ["mountDataRoutes"]);
 });

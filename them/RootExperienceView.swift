@@ -5426,10 +5426,26 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     historyLimit: 1,
                     memoriesLimit: 1
                 )
+                if let continuity = delta?.payload.continuity {
+                    applySessionContinuity(continuity)
+                }
                 if let deltaSync = delta?.sync, !deltaSync.stateVersion.isEmpty {
                     localStateVersion = deltaSync.stateVersion
                 } else {
                     localStateVersion = sync.stateVersion
+                }
+            } else if session?.continuity == nil {
+                let delta = try? await BackendMemoryAPI.shared.fetchStateDelta(
+                    sinceVersion: "",
+                    sinceTurnId: nil,
+                    historyLimit: 1,
+                    memoriesLimit: 1
+                )
+                if let continuity = delta?.payload.continuity {
+                    applySessionContinuity(continuity)
+                }
+                if let deltaSync = delta?.sync, !deltaSync.stateVersion.isEmpty {
+                    localStateVersion = deltaSync.stateVersion
                 }
             }
             let latestSync = await BackendMemoryAPI.shared.currentSyncState()
