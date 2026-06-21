@@ -672,6 +672,9 @@ test("[talk-screenplay-output] accepts a repair-pass candidate after the live gu
   assert.equal(repaired.source, "repair_pass");
   assert.equal(repaired.quality.ok, true);
   assert.equal(repaired.quality.confidence, "repaired");
+  assert.ok(
+    repaired.quality.repair_directives.some((directive) => directive.includes("Remove outline"))
+  );
   assert.equal(
     isAuthoritativeTalkScreenplayOutput(repaired, { studioMeta, transcript }),
     true

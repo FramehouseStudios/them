@@ -798,6 +798,8 @@ struct BackendTalkScreenplayQuality: Codable, Equatable {
     let featureAct: String?
     let matchedTokens: [String]
     let counts: [String: Int]
+    let minimumSpecificActions: Int?
+    let repairDirectives: [String]
 
     enum CodingKeys: String, CodingKey {
         case ok
@@ -807,6 +809,8 @@ struct BackendTalkScreenplayQuality: Codable, Equatable {
         case featureAct = "feature_act"
         case matchedTokens = "matched_tokens"
         case counts
+        case minimumSpecificActions = "minimum_specific_actions"
+        case repairDirectives = "repair_directives"
     }
 
     init(
@@ -816,7 +820,9 @@ struct BackendTalkScreenplayQuality: Codable, Equatable {
         confidence: String,
         featureAct: String? = nil,
         matchedTokens: [String] = [],
-        counts: [String: Int] = [:]
+        counts: [String: Int] = [:],
+        minimumSpecificActions: Int? = nil,
+        repairDirectives: [String] = []
     ) {
         self.ok = ok
         self.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -828,6 +834,21 @@ struct BackendTalkScreenplayQuality: Codable, Equatable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         self.counts = counts.filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let cleanMinimum = max(0, minimumSpecificActions ?? 0)
+        self.minimumSpecificActions = cleanMinimum > 0 ? cleanMinimum : nil
+        var seenDirectives = Set<String>()
+        var cleanedDirectives: [String] = []
+        for directive in repairDirectives {
+            let clean = directive
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seenDirectives.insert(key).inserted else { continue }
+            cleanedDirectives.append(String(clean.prefix(220)))
+            if cleanedDirectives.count >= 5 { break }
+        }
+        self.repairDirectives = cleanedDirectives
     }
 
     init(from decoder: Decoder) throws {
@@ -839,7 +860,9 @@ struct BackendTalkScreenplayQuality: Codable, Equatable {
             confidence: try container.decodeIfPresent(String.self, forKey: .confidence) ?? "",
             featureAct: try container.decodeIfPresent(String.self, forKey: .featureAct),
             matchedTokens: try container.decodeIfPresent([String].self, forKey: .matchedTokens) ?? [],
-            counts: try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:]
+            counts: try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:],
+            minimumSpecificActions: try container.decodeIfPresent(Int.self, forKey: .minimumSpecificActions),
+            repairDirectives: try container.decodeIfPresent([String].self, forKey: .repairDirectives) ?? []
         )
     }
 }
@@ -5218,11 +5241,17 @@ final class BackendClient {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let rawFeatureAct = parseOptionalHeaderString(response, field: "x-screenplay-quality-feature-act")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let repairDirectives = parseDelimitedHeader(
+            response,
+            field: "x-screenplay-repair-directives",
+            separator: "|"
+        )
         let hasQualityHeaders =
             response.value(forHTTPHeaderField: "x-screenplay-quality-ok") != nil ||
             !rawReason.isEmpty ||
             !rawConfidence.isEmpty ||
-            !(rawFeatureAct ?? "").isEmpty
+            !(rawFeatureAct ?? "").isEmpty ||
+            !repairDirectives.isEmpty
         guard hasQualityHeaders else { return nil }
         return BackendTalkScreenplayQuality(
             ok: parseHeaderBool(response, field: "x-screenplay-quality-ok", default: false),
@@ -5231,7 +5260,8 @@ final class BackendClient {
             confidence: rawConfidence,
             featureAct: rawFeatureAct,
             matchedTokens: [],
-            counts: [:]
+            counts: [:],
+            repairDirectives: repairDirectives
         )
     }
 

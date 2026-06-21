@@ -5963,15 +5963,25 @@ function applyTalkScreenplayRepairCandidate({
   const repairSource = repaired.source === "repaired_scene_anchor"
     ? "repair_pass_scene_anchor"
     : "repair_pass";
+  const carriedRepairDirectives = Array.isArray(currentOutput?.quality?.repair_directives)
+    ? currentOutput.quality.repair_directives
+      .map((item) => normalizeSnippet(item, 220))
+      .filter(Boolean)
+      .slice(0, 5)
+    : [];
+  const quality = buildTalkScreenplayQualityEnvelope({
+    ok: true,
+    reason: "ok",
+    source: repairSource,
+    quality: repaired.quality,
+  });
+  if (carriedRepairDirectives.length) {
+    quality.repair_directives = carriedRepairDirectives;
+  }
   return {
     ...repaired,
     source: repairSource,
-    quality: buildTalkScreenplayQualityEnvelope({
-      ok: true,
-      reason: "ok",
-      source: repairSource,
-      quality: repaired.quality,
-    }),
+    quality,
   };
 }
 

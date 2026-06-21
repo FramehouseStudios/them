@@ -198,6 +198,67 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertTrue(StudioThreadFocusRestorePolicy.shouldClearPersistentFocusKey(liveDraft))
     }
 
+    func testScreenplayQualityStatusShowsRepairDirectivesForBlockedPageBatch() throws {
+        let quality = BackendTalkScreenplayQuality(
+            ok: false,
+            reason: "summary_like_page_batch",
+            source: "guard_low_page_quality",
+            confidence: "needs_repair",
+            counts: ["summary_like_action": 3],
+            minimumSpecificActions: 3,
+            repairDirectives: [
+                "Replace synopsis/overview language with playable Fountain pages.",
+                "Replace synopsis/overview language with playable Fountain pages."
+            ]
+        )
+        let output = BackendTalkScreenplayOutput(
+            target: "voice_pin",
+            format: "note",
+            source: "guard_low_page_quality",
+            quality: quality,
+            text: "",
+            lines: []
+        )
+
+        let status = try XCTUnwrap(ScreenplayQualityStatus(quality: quality, output: output))
+
+        XCTAssertEqual(status.resolution, .blocked)
+        XCTAssertEqual(status.minimumSpecificActions, 3)
+        XCTAssertEqual(status.repairDirectives, ["Replace synopsis/overview language with playable Fountain pages."])
+        XCTAssertTrue(status.detail.contains("summary instead of playable pages"))
+        XCTAssertTrue(status.detail.contains("Repair focus: Replace synopsis/overview language"))
+    }
+
+    func testScreenplayQualityStatusShowsRepairDirectivesForRepairedPageBatch() throws {
+        let quality = BackendTalkScreenplayQuality(
+            ok: true,
+            reason: "ok",
+            source: "repair_pass",
+            confidence: "repaired",
+            repairDirectives: [
+                "Break the run into escalating turns: launch pressure, complication, reversal/cost, and exit image."
+            ]
+        )
+        let output = BackendTalkScreenplayOutput(
+            target: "page",
+            format: "hollywood",
+            source: "repair_pass",
+            quality: quality,
+            text: "INT. MOTEL ROOM - NIGHT\n\nJune folds the receipt.",
+            lines: [
+                BackendTalkScreenplayOutputLine(index: 0, text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading"),
+                BackendTalkScreenplayOutputLine(index: 1, text: "June folds the receipt.", element: "action")
+            ]
+        )
+
+        let status = try XCTUnwrap(ScreenplayQualityStatus(quality: quality, output: output))
+
+        XCTAssertEqual(status.resolution, .repaired)
+        XCTAssertEqual(status.repairDirectives.count, 1)
+        XCTAssertTrue(status.detail.contains("Clementine repaired the page"))
+        XCTAssertTrue(status.detail.contains("Break the run into escalating turns"))
+    }
+
     func testRenderedCharacterMentionExtractorFindsDialogueCues() {
         let screenplay = """
         INT. MOTEL - NIGHT

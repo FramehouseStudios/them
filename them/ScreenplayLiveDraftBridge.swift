@@ -105,6 +105,8 @@ struct ScreenplayQualityStatus: Equatable {
     let source: String
     let featureAct: String
     let matchedTokens: [String]
+    let minimumSpecificActions: Int?
+    let repairDirectives: [String]
     let updatedAt: Date
 
     init?(
@@ -143,6 +145,13 @@ struct ScreenplayQualityStatus: Equatable {
         self.matchedTokens = (resolvedQuality?.matchedTokens ?? [])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        self.minimumSpecificActions = resolvedQuality?.minimumSpecificActions
+        self.repairDirectives = (resolvedQuality?.repairDirectives ?? [])
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            }
+            .filter { !$0.isEmpty }
         self.updatedAt = updatedAt
     }
 
@@ -175,20 +184,25 @@ struct ScreenplayQualityStatus: Equatable {
     var detail: String {
         let cleanReason = Self.displayReason(reason)
         let actSuffix = featureAct.isEmpty ? "." : " for \(displayFeatureAct)."
+        let directiveSuffix = primaryRepairDirective.isEmpty ? "" : " Repair focus: \(primaryRepairDirective)"
         switch resolution {
         case .accepted:
             return "Clementine passed the screenplay guard\(actSuffix)"
         case .repaired:
-            return "Clementine repaired the page before it reached the draft\(actSuffix)"
+            return "Clementine repaired the page before it reached the draft\(actSuffix)\(directiveSuffix)"
         case .needsRepair:
             return cleanReason.isEmpty
-                ? "The page guard rejected the draft before it could write to the script."
-                : "The page guard rejected it: \(cleanReason)."
+                ? "The page guard rejected the draft before it could write to the script.\(directiveSuffix)"
+                : "The page guard rejected it: \(cleanReason).\(directiveSuffix)"
         case .blocked:
             return cleanReason.isEmpty
-                ? "The turn stayed conversational instead of writing to the page."
-                : "The turn stayed conversational: \(cleanReason)."
+                ? "The turn stayed conversational instead of writing to the page.\(directiveSuffix)"
+                : "The turn stayed conversational: \(cleanReason).\(directiveSuffix)"
         }
+    }
+
+    private var primaryRepairDirective: String {
+        repairDirectives.first ?? ""
     }
 
     private var displayFeatureAct: String {
@@ -222,6 +236,18 @@ struct ScreenplayQualityStatus: Equatable {
             return "low dramatic density"
         case "underfilled_page_text":
             return "underfilled requested pages"
+        case "summary_like_page_batch":
+            return "summary instead of playable pages"
+        case "thin_long_page_batch":
+            return "not enough concrete page turns"
+        case "static_dialogue_batch":
+            return "static dialogue without enough visible action"
+        case "on_the_nose_dialogue":
+            return "on-the-nose dialogue"
+        case "missing_playable_content":
+            return "missing playable scene behavior"
+        case "missing_screenplay_shape":
+            return "missing screenplay shape"
         case "missing_act_one_commitment":
             return "missing Act I commitment pressure"
         case "missing_act_two_reversal":
