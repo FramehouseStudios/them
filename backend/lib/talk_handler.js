@@ -397,6 +397,12 @@ function createTalkHandler(deps) {
     if (quality.feature_act) {
       res.setHeader("x-screenplay-quality-feature-act", encodeURIComponent(normalizeSnippet(quality.feature_act, 40)));
     }
+    if (Array.isArray(quality.repair_directives) && quality.repair_directives.length) {
+      res.setHeader(
+        "x-screenplay-repair-directives",
+        encodeURIComponent(quality.repair_directives.slice(0, 5).map((item) => normalizeSnippet(item, 160)).filter(Boolean).join(" | "))
+      );
+    }
   }
 
   async function attemptTalkScreenplayRepairPass({
@@ -419,6 +425,7 @@ function createTalkHandler(deps) {
     const failedDraft = normalizeTalkMultilineSnippet(rawReply, 6_000);
     const userRequest = normalizeTalkMultilineSnippet(transcript, 2_000);
     if (!failedDraft && !userRequest) return null;
+    const failedReason = normalizeSnippet(currentOutput?.quality?.reason || currentSource || "guard_low_page_quality", 120);
     const sceneAnchor = normalizeSnippet(
       studioMeta?.screenplayAnchorSceneLabel || studioMeta?.screenplaySceneLabel || studioMeta?.sceneLabel,
       180
@@ -451,6 +458,11 @@ function createTalkHandler(deps) {
       }
       return out;
     };
+    const repairDirectives = normalizeRepairList(
+      currentOutput?.quality?.repair_directives || currentOutput?.quality?.repairDirectives || [],
+      5,
+      220
+    );
     const screenplayAct = normalizeSnippet(studioMeta?.screenplayAct || studioMeta?.screenplay_act, 120);
     const screenplayFeatureSequence = normalizeSnippet(
       studioMeta?.screenplayFeatureSequence || studioMeta?.screenplay_feature_sequence,
@@ -566,14 +578,18 @@ function createTalkHandler(deps) {
           "If Act II context is supplied, dramatize the active reversal, cost, trap, or false-tactic pressure instead of repeating the premise.",
           "If Act III/finale context is supplied, pay off at least one supplied setup/path through changed behavior and final-image pressure.",
           "If CHARACTER_ARC_* context is supplied, turn want/need/false-belief/tactic into visible behavior on the page.",
+          "If REPAIR_DIRECTIVES are supplied, satisfy them literally before adding any new invention.",
         ].join("\n"),
       },
       {
         role: "user",
         content: [
           `FAILED_GATE: ${currentSource || "guard_low_page_quality"}`,
+          failedReason ? `FAILED_REASON: ${failedReason}` : "",
           requestedPages ? `REQUESTED_PAGES: ${requestedPages}` : "",
           sceneAnchor ? `SCENE_ANCHOR: ${sceneAnchor}` : "",
+          repairDirectives.length ? "REPAIR_DIRECTIVES:" : "",
+          ...repairDirectives.map((line) => `- ${line}`),
           featureObligationLines.length ? "FEATURE_OBLIGATIONS:" : "",
           ...featureObligationLines.map((line) => `- ${line}`),
           "",

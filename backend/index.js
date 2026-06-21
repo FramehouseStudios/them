@@ -4758,7 +4758,77 @@ function compactTalkScreenplayQualityCounts(counts = {}) {
     placeholder: Math.max(0, Number(counts.placeholder ?? 0)),
     low_signal_action: Math.max(0, Number(counts.lowSignalAction ?? counts.low_signal_action ?? 0)),
     low_subtext_dialogue: Math.max(0, Number(counts.lowSubtextDialogue ?? counts.low_subtext_dialogue ?? 0)),
+    summary_like_action: Math.max(0, Number(counts.summaryLikeAction ?? counts.summary_like_action ?? 0)),
   };
+}
+
+function buildTalkScreenplayRepairDirectives({
+  reason = "",
+  authority = null,
+  quality = null,
+} = {}) {
+  const normalizedReason = normalizeSnippet(
+    reason || authority?.reason || quality?.reason || "",
+    80
+  );
+  const counts = quality?.counts || authority?.quality?.counts || {};
+  const minimumSpecificActions = Math.max(
+    0,
+    Number(quality?.minimumSpecificActions ?? authority?.quality?.minimumSpecificActions ?? 0)
+  );
+  const directives = [];
+  switch (normalizedReason) {
+    case "summary_like_page_batch":
+      directives.push("Replace synopsis/overview language with playable Fountain pages: slugline, action, character cues, dialogue, and visible scene turns.");
+      directives.push("Do not say what the scene shows, follows, establishes, or pays off; dramatize those facts as behavior and consequence.");
+      directives.push("Every 1-2 pages must change leverage, information, relationship, tactic, or emotional cost.");
+      break;
+    case "thin_long_page_batch":
+      directives.push(`Add concrete page turns: at least ${minimumSpecificActions || 4} specific visible actions or reversals for this requested page batch.`);
+      directives.push("Break the run into escalating turns: launch pressure, complication, reversal/cost, and exit image.");
+      directives.push("Interleave dialogue with visible action, discovery, blocked options, and consequence.");
+      break;
+    case "static_dialogue_batch":
+      directives.push("Break the static conversation with visible tactics, discoveries, blocked exits, and consequences.");
+      directives.push("Every dialogue exchange should change leverage or reveal a hidden want; do not repeat the same tactic.");
+      break;
+    case "on_the_nose_dialogue":
+      directives.push("Rewrite dialogue as tactic and subtext; move direct feeling statements into behavior, interruption, or concealment.");
+      directives.push("Add concrete actions that put emotional pressure on the exchange.");
+      break;
+    case "underfilled_page_text":
+      directives.push("Expand the response into the requested playable page run instead of a sample or abbreviated beat.");
+      directives.push("Keep writing until the scene has launch pressure, complication, reversal/cost, and a handoff.");
+      break;
+    case "missing_screenplay_shape":
+    case "missing_batch_scene_anchor":
+    case "non_screenplay_output":
+      directives.push("Return clean screenplay/Fountain shape with a scene heading or anchored continuation, action lines, character cues, and dialogue.");
+      directives.push("Do not return notes, outline prose, markdown, or a strategy explanation.");
+      break;
+    case "outline_or_craft_artifact":
+      directives.push("Remove outline, beat-label, diagnosis, and craft-note language; convert the same intent into screenplay pages.");
+      break;
+    case "placeholder_page_text":
+      directives.push("Replace placeholders with specific character behavior, locations, objects, and pressure.");
+      break;
+    case "low_dramatic_density":
+      directives.push("Increase dramatic density with concrete behavior, a visible obstacle, a tactic shift, and a consequence.");
+      break;
+    default:
+      if (normalizedReason.startsWith("missing_act_")) {
+        directives.push("Spend the supplied act obligation on the page through behavior, conflict, cost, and image pressure.");
+      } else if (normalizedReason === "missing_next_turn_continuation") {
+        directives.push("Use the first supplied next turn as the immediate page engine before inventing a new plot lane.");
+      } else if (normalizedReason === "missing_character_arc_memory") {
+        directives.push("Turn the supplied character want/need/false-belief/tactic into visible changed behavior.");
+      }
+      break;
+  }
+  if (Number(counts.summaryLikeAction ?? counts.summary_like_action ?? 0) > 0 && normalizedReason !== "summary_like_page_batch") {
+    directives.push("Replace any remaining summary-like action with present-tense playable behavior.");
+  }
+  return [...new Set(directives.map((directive) => normalizeSnippet(directive, 220)).filter(Boolean))].slice(0, 5);
 }
 
 function buildTalkScreenplayQualityEnvelope({
@@ -4776,6 +4846,17 @@ function buildTalkScreenplayQualityEnvelope({
   const featureObligation = quality?.featureObligation || authority?.quality?.featureObligation || null;
   const featureActKind = normalizeSnippet(featureObligation?.featureActKind, 32);
   const counts = compactTalkScreenplayQualityCounts(quality?.counts || authority?.quality?.counts || {});
+  const minimumSpecificActions = Math.max(
+    0,
+    Number(quality?.minimumSpecificActions ?? authority?.quality?.minimumSpecificActions ?? 0)
+  );
+  const repairDirectives = ok
+    ? []
+    : buildTalkScreenplayRepairDirectives({
+      reason: normalizedReason,
+      authority,
+      quality,
+    });
   const confidence = ok
     ? (sourceKey.startsWith("repair_pass") || sourceKey.startsWith("repaired_") ? "repaired" : "authoritative")
     : (sourceKey.startsWith("guard_") ? "needs_repair" : "blocked");
@@ -4789,6 +4870,8 @@ function buildTalkScreenplayQualityEnvelope({
       ? featureObligation.matchedTokens.slice(0, 8).map((token) => normalizeSnippet(token, 48)).filter(Boolean)
       : [],
     counts,
+    minimum_specific_actions: minimumSpecificActions || null,
+    repair_directives: repairDirectives,
   };
 }
 

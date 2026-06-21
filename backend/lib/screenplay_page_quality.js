@@ -218,6 +218,21 @@ function isLowSignalActionLine(line = "", element = "action") {
   ].some((pattern) => pattern.test(lower));
 }
 
+function isSummaryLikeActionLine(line = "", element = "action") {
+  if (normalizeElement(element) !== "action") return false;
+  const lower = canonicalLowerLine(line);
+  if (!lower || isLikelyPlaceholderScreenplayLine(lower, element)) return false;
+
+  return [
+    /^(?:over|across|through) (?:the )?(?:next|following) (?:few |several )?(?:pages|scenes|beats|moments)\b/,
+    /^(?:the )?(?:scene|sequence|page|pages|next scene|next pages) (?:shows?|follows?|tracks?|covers?|moves?|builds?|escalates?|reveals?|ends?)\b/,
+    /^(?:a )?(?:series|montage) of (?:shots|moments|beats|scenes)\b/,
+    /^(?:we|the audience) (?:see|watch|follow|learn|realize|discover)\b/,
+    /^(?:mara|june|he|she|they|the protagonist) (?:realizes?|learns?|discovers?|understands?|decides?|confronts?|tries?|starts?|begins?|continues?)\b.{0,140}\b(?:as|while|before|after|until|and then)\b/,
+    /\b(?:this|that) (?:sets up|pays off|shows us|reveals that|establishes that)\b/,
+  ].some((pattern) => pattern.test(lower));
+}
+
 function isLowSubtextDialogueLine(line = "", element = "dialogue") {
   if (normalizeElement(element) !== "dialogue") return false;
   const lower = canonicalLowerLine(line);
@@ -260,6 +275,7 @@ function summarizeLineCounts(lines = []) {
     placeholder: 0,
     lowSignalAction: 0,
     lowSubtextDialogue: 0,
+    summaryLikeAction: 0,
     specificAction: 0,
     dialogueWords: 0,
     distinctCharacters: 0,
@@ -296,7 +312,12 @@ function summarizeLineCounts(lines = []) {
     if (element === "dialogue") counts.dialogueWords += countWords(text);
     if (isLowSignalActionLine(text, element)) counts.lowSignalAction += 1;
     if (isLowSubtextDialogueLine(text, element)) counts.lowSubtextDialogue += 1;
-    if (isPlayableActionLine(text, element) && !isLowSignalActionLine(text, element)) {
+    if (isSummaryLikeActionLine(text, element)) counts.summaryLikeAction += 1;
+    if (
+      isPlayableActionLine(text, element) &&
+      !isLowSignalActionLine(text, element) &&
+      !isSummaryLikeActionLine(text, element)
+    ) {
       counts.specificAction += 1;
     }
   }
@@ -779,8 +800,16 @@ function evaluateScreenplayPageQuality({
   if (!hasPlayableContent) {
     return { ok: false, reason: "missing_playable_content", counts };
   }
-  if (counts.words < minWords) {
-    return { ok: false, reason: "underfilled_page_text", counts };
+  if (
+    requestedPages >= 3 &&
+    counts.summaryLikeAction >= 2
+  ) {
+    return {
+      ok: false,
+      reason: "summary_like_page_batch",
+      counts,
+      minimumSpecificActions: Math.min(6, Math.max(3, Math.ceil(requestedPages / 2))),
+    };
   }
   const dialogueHeavyBatch = requestedPages >= 2 && counts.dialogue >= 8;
   const lowSubtextRatio = counts.dialogue > 0
@@ -801,6 +830,9 @@ function evaluateScreenplayPageQuality({
     counts.specificAction < 2
   ) {
     return { ok: false, reason: "static_dialogue_batch", counts };
+  }
+  if (counts.words < minWords) {
+    return { ok: false, reason: "underfilled_page_text", counts };
   }
   const minimumSpecificActionsForLongBatch = requestedPages >= 5
     ? Math.min(6, Math.max(4, Math.ceil(requestedPages / 2)))
@@ -898,6 +930,7 @@ export {
   isLikelyPlaceholderScreenplayLine,
   isLowSignalActionLine,
   isLowSubtextDialogueLine,
+  isSummaryLikeActionLine,
   minimumExpectedWordsForRequestedPages,
   summarizeLineCounts,
 };

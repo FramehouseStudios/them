@@ -7,6 +7,7 @@ import {
   isLikelyPlaceholderScreenplayLine,
   isLowSignalActionLine,
   isLowSubtextDialogueLine,
+  isSummaryLikeActionLine,
   minimumExpectedWordsForRequestedPages,
 } from "../lib/screenplay_page_quality.js";
 
@@ -784,6 +785,78 @@ test("[screenplay-page-quality] rejects long page batches without enough concret
   assert.equal(quality.minimumSpecificActions, 4);
 });
 
+test("[screenplay-page-quality] rejects summary-like long page batches masquerading as pages", () => {
+  const actions = [
+    "Over the next few pages, Mara follows the clerk through the courthouse and realizes the docket has been rewritten twice.",
+    "The scene shows Mara confronting Eli while the public hallway keeps filling with reporters and family members.",
+    "A series of moments reveals the judge's aide moving the sealed affidavit from one folder to another.",
+    "Mara decides to stop waiting for permission as the elevator doors open on the wrong floor.",
+  ];
+  const dialogue = [
+    "If the docket moved, somebody touched it after midnight.",
+    "Then stop reading the lie and make them sign their name to it.",
+    "You always make public courage sound like paperwork.",
+    "And you always make fear sound like procedure.",
+    "The clerk is watching us.",
+    "Good. Give her something worth remembering.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      actions[0],
+      "",
+      "MARA",
+      dialogue[0],
+      "",
+      "ELI",
+      dialogue[1],
+      "",
+      actions[1],
+      "",
+      "MARA",
+      dialogue[2],
+      "",
+      "ELI",
+      dialogue[3],
+      "",
+      actions[2],
+      "",
+      "MARA",
+      dialogue[4],
+      "",
+      "ELI",
+      dialogue[5],
+      "",
+      actions[3],
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: actions[0], element: "action" },
+      { text: "MARA", element: "character" },
+      { text: dialogue[0], element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: dialogue[1], element: "dialogue" },
+      { text: actions[1], element: "action" },
+      { text: "MARA", element: "character" },
+      { text: dialogue[2], element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: dialogue[3], element: "dialogue" },
+      { text: actions[2], element: "action" },
+      { text: "MARA", element: "character" },
+      { text: dialogue[4], element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: dialogue[5], element: "dialogue" },
+      { text: actions[3], element: "action" },
+    ],
+    targetPages: 3,
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "summary_like_page_batch");
+  assert.equal(quality.counts.summaryLikeAction >= 2, true);
+});
+
 test("[screenplay-page-quality] requires screenplay shape when no trusted anchor exists", () => {
   const quality = evaluateScreenplayPageQuality({
     text: "June folds the receipt into a white square.",
@@ -829,6 +902,7 @@ test("[screenplay-page-quality] identifies placeholders and low-signal action wi
   assert.equal(isLowSignalActionLine("They keep talking in the room.", "action"), true);
   assert.equal(isLowSignalActionLine("A silence stretches between them.", "action"), true);
   assert.equal(isLowSignalActionLine("The truth hangs between them.", "action"), true);
+  assert.equal(isSummaryLikeActionLine("Over the next few pages, June realizes the receipt was bait.", "action"), true);
   assert.equal(
     isLowSignalActionLine("June folds the receipt into a white square.", "action"),
     false,

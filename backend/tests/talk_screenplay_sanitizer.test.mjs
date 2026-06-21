@@ -678,6 +678,55 @@ test("[talk-screenplay-output] accepts a repair-pass candidate after the live gu
   );
 });
 
+test("[talk-screenplay-output] exposes repair directives for summary-like page batches", () => {
+  const studioMeta = {
+    screenplayTarget: "page",
+    screenplayRequestedPages: 3,
+    screenplayAnchorSceneLabel: "INT. COURTHOUSE HALLWAY - DAY",
+  };
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      "Over the next few pages, Mara follows the clerk through the courthouse and realizes the docket has been rewritten twice.",
+      "",
+      "MARA",
+      "If the docket moved, somebody touched it after midnight.",
+      "",
+      "ELI",
+      "Then stop reading the lie and make them sign their name to it.",
+      "",
+      "The scene shows Mara confronting Eli while the public hallway keeps filling with reporters and family members.",
+      "",
+      "MARA",
+      "You always make public courage sound like paperwork.",
+      "",
+      "ELI",
+      "And you always make fear sound like procedure.",
+      "",
+      "A series of moments reveals the judge's aide moving the sealed affidavit from one folder to another.",
+      "",
+      "MARA",
+      "The clerk is watching us.",
+      "",
+      "ELI",
+      "Good. Give her something worth remembering.",
+    ].join("\n"),
+    transcript: "Write the next three pages.",
+    studioMeta,
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "summary_like_page_batch");
+  assert.equal(output.quality.confidence, "needs_repair");
+  assert.equal(output.quality.counts.summary_like_action >= 2, true);
+  assert.ok(Array.isArray(output.quality.repair_directives));
+  assert.ok(
+    output.quality.repair_directives.some((directive) => directive.includes("Replace synopsis/overview language"))
+  );
+});
+
 test("[talk-screenplay-output] rejects repair-pass candidates that still look like outlines", () => {
   const studioMeta = {
     screenplayTarget: "page",
