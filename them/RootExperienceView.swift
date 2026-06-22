@@ -135,6 +135,10 @@ private struct StudioDebugVoiceTurnResultSnapshot: Codable {
     let screenplayQualityReason: String
     let screenplayQualityConfidence: String
     let screenplayQualityFeatureAct: String
+    let screenplayRepairAttempted: Bool
+    let screenplayRepairOutcome: String
+    let screenplayRepairMs: Int?
+    let screenplayRepairReason: String
     let screenplayOutputText: String
     let screenplayCueCount: Int
     let screenplayCues: [BackendTalkScreenplayCue]
@@ -1786,6 +1790,10 @@ struct RootExperienceView: View {
         screenplayQualityReason: String = "",
         screenplayQualityConfidence: String = "",
         screenplayQualityFeatureAct: String = "",
+        screenplayRepairAttempted: Bool = false,
+        screenplayRepairOutcome: String = "",
+        screenplayRepairMs: Int? = nil,
+        screenplayRepairReason: String = "",
         screenplayOutputText: String = "",
         screenplayCues: [BackendTalkScreenplayCue] = [],
         dialogueTimeline: BackendTalkDialogueTimelineRevision? = nil,
@@ -1951,6 +1959,10 @@ struct RootExperienceView: View {
             screenplayQualityReason: screenplayQualityReason,
             screenplayQualityConfidence: screenplayQualityConfidence,
             screenplayQualityFeatureAct: screenplayQualityFeatureAct,
+            screenplayRepairAttempted: screenplayRepairAttempted,
+            screenplayRepairOutcome: screenplayRepairOutcome,
+            screenplayRepairMs: screenplayRepairMs,
+            screenplayRepairReason: screenplayRepairReason,
             screenplayOutputText: screenplayOutputText,
             screenplayCueCount: screenplayCues.count,
             screenplayCues: screenplayCues,
@@ -2062,6 +2074,10 @@ struct RootExperienceView: View {
                 "screenplayQualityReason": screenplayQualityReason,
                 "screenplayQualityConfidence": screenplayQualityConfidence,
                 "screenplayQualityFeatureAct": screenplayQualityFeatureAct,
+                "screenplayRepairAttempted": screenplayRepairAttempted,
+                "screenplayRepairOutcome": screenplayRepairOutcome,
+                "screenplayRepairMs": screenplayRepairMs as Any,
+                "screenplayRepairReason": screenplayRepairReason,
                 "screenplayOutputText": screenplayOutputText,
                 "screenplayCueCount": screenplayCues.count,
                 "screenplayCues": manualScreenplayCues,
@@ -5607,6 +5623,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var debugScreenplayQualityReason = ""
         var debugScreenplayQualityConfidence = ""
         var debugScreenplayQualityFeatureAct = ""
+        var debugScreenplayRepairAttempted = false
+        var debugScreenplayRepairOutcome = ""
+        var debugScreenplayRepairMs: Int?
+        var debugScreenplayRepairReason = ""
         var debugScreenplayOutputText = ""
         var debugScreenplayCues: [BackendTalkScreenplayCue] = []
         var debugDialogueTimeline: BackendTalkDialogueTimelineRevision?
@@ -5689,6 +5709,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 screenplayQualityReason: debugScreenplayQualityReason,
                 screenplayQualityConfidence: debugScreenplayQualityConfidence,
                 screenplayQualityFeatureAct: debugScreenplayQualityFeatureAct,
+                screenplayRepairAttempted: debugScreenplayRepairAttempted,
+                screenplayRepairOutcome: debugScreenplayRepairOutcome,
+                screenplayRepairMs: debugScreenplayRepairMs,
+                screenplayRepairReason: debugScreenplayRepairReason,
                 screenplayOutputText: debugScreenplayOutputText,
                 screenplayCues: debugScreenplayCues,
                 dialogueTimeline: debugDialogueTimeline,
@@ -6320,6 +6344,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 debugScreenplayQualityFeatureAct = (quality.featureAct ?? "")
                                     .trimmingCharacters(in: .whitespacesAndNewlines)
                             }
+                            debugScreenplayRepairAttempted = metadata.screenplayTrace.repairAttempted
+                            debugScreenplayRepairOutcome = metadata.screenplayTrace.repairOutcome
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            debugScreenplayRepairMs = metadata.screenplayTrace.repairMs
+                            debugScreenplayRepairReason = (metadata.screenplayTrace.repairReason ?? "")
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
                             if !metadata.screenplayCues.isEmpty {
                                 debugScreenplayCues = metadata.screenplayCues
                             }
@@ -6338,9 +6368,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                                 let headerQualityConfidence = headerQuality?.confidence
                                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                                let headerRepairOutcome = metadata.screenplayTrace.repairOutcome
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                let headerRepairMs = metadata.screenplayTrace.repairMs ?? 0
                                 appendStudioDebugVoiceDraftBreadcrumb(
                                     event: "talk_response_metadata_ready",
-                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) quality_reason=\(headerQualityReason.isEmpty ? "none" : headerQualityReason) quality_confidence=\(headerQualityConfidence.isEmpty ? "none" : headerQualityConfidence) cue_count=\(metadata.screenplayCues.count)",
+                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) quality_reason=\(headerQualityReason.isEmpty ? "none" : headerQualityReason) quality_confidence=\(headerQualityConfidence.isEmpty ? "none" : headerQualityConfidence) repair_attempted=\(metadata.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(headerRepairOutcome.isEmpty ? "none" : headerRepairOutcome) repair_ms=\(headerRepairMs) cue_count=\(metadata.screenplayCues.count)",
                                     replyPreview: String((metadata.screenplayOutput?.text ?? "").prefix(220)),
                                     tokenOverride: debugVoiceTurnToken,
                                     promptPreviewOverride: preparedPrompt.directorText
@@ -6557,6 +6590,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 debugScreenplayQualityFeatureAct = (quality.featureAct ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
+            debugScreenplayRepairAttempted = result.screenplayTrace.repairAttempted
+            debugScreenplayRepairOutcome = result.screenplayTrace.repairOutcome
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            debugScreenplayRepairMs = result.screenplayTrace.repairMs
+            debugScreenplayRepairReason = (result.screenplayTrace.repairReason ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             if let debugVoiceTurnToken {
                 let resolvedOutputTarget = result.screenplayOutput?.target
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -6569,9 +6608,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let resolvedQualityConfidence = resolvedQuality?.confidence
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let resolvedRepairOutcome = result.screenplayTrace.repairOutcome
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolvedRepairMs = result.screenplayTrace.repairMs ?? 0
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "talk_result_received_meta",
-                    detail: "Talk result received. output_target=\(resolvedOutputTarget.isEmpty ? "none" : resolvedOutputTarget) output_source=\(resolvedOutputSource.isEmpty ? "none" : resolvedOutputSource) timing_source=\(resolvedTimingSource.isEmpty ? "none" : resolvedTimingSource) quality_reason=\(resolvedQualityReason.isEmpty ? "none" : resolvedQualityReason) quality_confidence=\(resolvedQualityConfidence.isEmpty ? "none" : resolvedQualityConfidence) cue_count=\(result.screenplayCues.count)",
+                    detail: "Talk result received. output_target=\(resolvedOutputTarget.isEmpty ? "none" : resolvedOutputTarget) output_source=\(resolvedOutputSource.isEmpty ? "none" : resolvedOutputSource) timing_source=\(resolvedTimingSource.isEmpty ? "none" : resolvedTimingSource) quality_reason=\(resolvedQualityReason.isEmpty ? "none" : resolvedQualityReason) quality_confidence=\(resolvedQualityConfidence.isEmpty ? "none" : resolvedQualityConfidence) repair_attempted=\(result.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(resolvedRepairOutcome.isEmpty ? "none" : resolvedRepairOutcome) repair_ms=\(resolvedRepairMs) cue_count=\(result.screenplayCues.count)",
                     replyPreview: String((result.screenplayOutput?.text ?? result.reply ?? "").prefix(220)),
                     tokenOverride: debugVoiceTurnToken,
                     promptPreviewOverride: preparedPrompt.directorText

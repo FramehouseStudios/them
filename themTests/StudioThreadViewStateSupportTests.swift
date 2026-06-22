@@ -259,6 +259,35 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertTrue(status.detail.contains("Break the run into escalating turns"))
     }
 
+    func testScreenplayTraceCarriesRepairTimingTelemetry() {
+        XCTAssertFalse(BackendTalkScreenplayTrace.empty.repairAttempted)
+        XCTAssertEqual(BackendTalkScreenplayTrace.empty.repairOutcome, "none")
+        XCTAssertNil(BackendTalkScreenplayTrace.empty.repairMs)
+        XCTAssertNil(BackendTalkScreenplayTrace.empty.repairReason)
+
+        let trace = BackendTalkScreenplayTrace(
+            modeEnabled: true,
+            phase: " scene_draft ",
+            pack: " Act II ",
+            packLock: false,
+            projectId: " project-7 ",
+            versionId: " version-3 ",
+            repairAttempted: true,
+            repairOutcome: " Repaired ",
+            repairMs: 1240,
+            repairReason: " summary_like_page_batch "
+        )
+
+        XCTAssertTrue(trace.repairAttempted)
+        XCTAssertEqual(trace.repairOutcome, "repaired")
+        XCTAssertEqual(trace.repairMs, 1240)
+        XCTAssertEqual(trace.repairReason, "summary_like_page_batch")
+        XCTAssertEqual(trace.phase, "scene_draft")
+        XCTAssertEqual(trace.pack, "Act II")
+        XCTAssertEqual(trace.projectId, "project-7")
+        XCTAssertEqual(trace.versionId, "version-3")
+    }
+
     func testRenderedCharacterMentionExtractorFindsDialogueCues() {
         let screenplay = """
         INT. MOTEL - NIGHT

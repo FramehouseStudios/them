@@ -363,6 +363,7 @@ function createTalkHandler(deps) {
     talkScreenplayOutput = null,
     hasAuthoritativeScreenplayText = false,
     replyRepaired = false,
+    repairTrace = null,
   } = {}) {
     const requestedTarget = talkScreenplayModeEnabled
       ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() || "unspecified")
@@ -383,7 +384,23 @@ function createTalkHandler(deps) {
         String(talkScreenplayOutput?.source || "").trim().toLowerCase().startsWith("repaired_") ||
         String(talkScreenplayOutput?.source || "").trim().toLowerCase().startsWith("repair_pass")
       ),
+      screenplayRepairAttempted: Boolean(repairTrace?.attempted),
+      screenplayRepairOutcome: String(repairTrace?.outcome || "none").trim().toLowerCase() || "none",
+      screenplayRepairMs: Math.max(0, Number(repairTrace?.elapsedMs || 0)),
     };
+  }
+
+  function applyTalkScreenplayRepairHeaders(res, repairTrace = null) {
+    const attempted = Boolean(repairTrace?.attempted);
+    const outcome = normalizeSnippet(repairTrace?.outcome || "none", 48) || "none";
+    const elapsedMs = Math.max(0, Math.round(Number(repairTrace?.elapsedMs || 0)));
+    const reason = normalizeSnippet(repairTrace?.reason || "", 96);
+    res.setHeader("x-screenplay-repair-attempted", attempted ? "1" : "0");
+    res.setHeader("x-screenplay-repair-outcome", encodeURIComponent(outcome));
+    res.setHeader("x-screenplay-repair-ms", String(elapsedMs));
+    if (reason) {
+      res.setHeader("x-screenplay-repair-reason", encodeURIComponent(reason));
+    }
   }
 
   function applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput = null) {
@@ -422,14 +439,7 @@ function createTalkHandler(deps) {
     if (currentTarget === "page" && !currentSource.startsWith("guard_")) return null;
     if (currentSource && !currentSource.startsWith("guard_")) return null;
 
-    const failedDraft = normalizeTalkMultilineSnippet(rawReply, 6_000);
-    const userRequest = normalizeTalkMultilineSnippet(transcript, 2_000);
-    if (!failedDraft && !userRequest) return null;
     const failedReason = normalizeSnippet(currentOutput?.quality?.reason || currentSource || "guard_low_page_quality", 120);
-    const sceneAnchor = normalizeSnippet(
-      studioMeta?.screenplayAnchorSceneLabel || studioMeta?.screenplaySceneLabel || studioMeta?.sceneLabel,
-      180
-    );
     const requestedPages = normalizeSnippet(
       studioMeta?.screenplayRequestedPages ??
         studioMeta?.screenplay_requested_pages ??
@@ -438,6 +448,28 @@ function createTalkHandler(deps) {
         studioMeta?.screenplayTargetPages ??
         "",
       32
+    );
+    const requestedPageCount = Math.max(0, Math.round(Number(requestedPages || 0)));
+    const failedDraftLimit = (() => {
+      if (failedReason === "outline_or_craft_artifact" || failedReason === "non_screenplay_output") return 1_800;
+      if (failedReason === "summary_like_page_batch") return 2_800;
+      if (failedReason === "thin_long_page_batch" || failedReason === "underfilled_page_text") return 3_400;
+      if (requestedPageCount >= 4) return 3_600;
+      return 2_600;
+    })();
+    const featureLineLimit = (() => {
+      if (failedReason === "missing_act_three_payoff") return 12;
+      if (failedReason.startsWith("missing_act_")) return 10;
+      if (failedReason === "missing_character_arc_memory") return 10;
+      if (failedReason === "summary_like_page_batch" || failedReason === "thin_long_page_batch") return 8;
+      return 6;
+    })();
+    const failedDraft = normalizeTalkMultilineSnippet(rawReply, failedDraftLimit);
+    const userRequest = normalizeTalkMultilineSnippet(transcript, 1_200);
+    if (!failedDraft && !userRequest) return null;
+    const sceneAnchor = normalizeSnippet(
+      studioMeta?.screenplayAnchorSceneLabel || studioMeta?.screenplaySceneLabel || studioMeta?.sceneLabel,
+      180
     );
     const normalizeRepairList = (items, maxItems = 5, maxChars = 200) => {
       const source = Array.isArray(items)
@@ -564,6 +596,7 @@ function createTalkHandler(deps) {
       ...screenplayCharacterArcTurns.map((item) => `CHARACTER_ARC_TURN: ${item}`),
       ...screenplayImageMotifs.map((item) => `IMAGE_MOTIF: ${item}`),
     ].filter(Boolean);
+    const effectiveFeatureObligationLines = featureObligationLines.slice(0, featureLineLimit);
     const repairMessages = [
       {
         role: "system",
@@ -590,8 +623,8 @@ function createTalkHandler(deps) {
           sceneAnchor ? `SCENE_ANCHOR: ${sceneAnchor}` : "",
           repairDirectives.length ? "REPAIR_DIRECTIVES:" : "",
           ...repairDirectives.map((line) => `- ${line}`),
-          featureObligationLines.length ? "FEATURE_OBLIGATIONS:" : "",
-          ...featureObligationLines.map((line) => `- ${line}`),
+          effectiveFeatureObligationLines.length ? "FEATURE_OBLIGATIONS:" : "",
+          ...effectiveFeatureObligationLines.map((line) => `- ${line}`),
           "",
           "USER_REQUEST:",
           userRequest || "(not supplied)",
@@ -605,6 +638,12 @@ function createTalkHandler(deps) {
     ];
     const startedAt = Date.now();
     try {
+      if (process.env.NODE_ENV !== "production") {
+        const promptChars = repairMessages.reduce((sum, message) => sum + String(message?.content || "").length, 0);
+        logger.log(
+          `[${rid}] screenplay_repair_pass prompt_chars=${promptChars} failed_draft_chars=${failedDraft.length} feature_lines=${effectiveFeatureObligationLines.length}/${featureObligationLines.length} reason=${failedReason || "unknown"}`
+        );
+      }
       const repairResult = await chatSupplier.chat({
         model: String(chatModelPlan?.model || ""),
         temperature: Math.min(0.35, Math.max(0, Number(chatTemperature || 0.4))),
@@ -616,14 +655,14 @@ function createTalkHandler(deps) {
         logger.log(
           `[${rid}] screenplay_repair_pass failed status=${Number(repairResult?.response?.status || 0)} source=${currentSource || "unknown"}`
         );
-        return { repaired: false, elapsedMs: repairMs };
+        return { repaired: false, elapsedMs: repairMs, outcome: "supplier_failed" };
       }
       let repairJson;
       try {
         repairJson = JSON.parse(String(repairResult.rawText || ""));
       } catch (_err) {
         logger.log(`[${rid}] screenplay_repair_pass invalid_json=1 source=${currentSource || "unknown"}`);
-        return { repaired: false, elapsedMs: repairMs };
+        return { repaired: false, elapsedMs: repairMs, outcome: "invalid_json" };
       }
       const candidateReply = normalizeTalkMultilineSnippet(
         repairJson?.choices?.[0]?.message?.content || "",
@@ -637,7 +676,7 @@ function createTalkHandler(deps) {
       });
       if (!repairedOutput) {
         logger.log(`[${rid}] screenplay_repair_pass rejected_by_gate=1 source=${currentSource || "unknown"}`);
-        return { repaired: false, elapsedMs: repairMs };
+        return { repaired: false, elapsedMs: repairMs, outcome: "rejected_by_gate" };
       }
       logger.log(
         `[${rid}] screenplay_repair_pass repaired=1 source=${currentSource || "unknown"} chars=${candidateReply.length}`
@@ -645,6 +684,7 @@ function createTalkHandler(deps) {
       return {
         repaired: true,
         elapsedMs: repairMs,
+        outcome: "repaired",
         reply: normalizeTalkScreenplayText(repairedOutput.text || candidateReply),
         output: repairedOutput,
       };
@@ -652,7 +692,7 @@ function createTalkHandler(deps) {
       logger.log(
         `[${rid}] screenplay_repair_pass error=${normalizeSnippet(String(err?.message || err || "unknown"), 180)}`
       );
-      return { repaired: false, elapsedMs: Date.now() - startedAt };
+      return { repaired: false, elapsedMs: Date.now() - startedAt, outcome: "error" };
     }
   }
 
@@ -3551,11 +3591,22 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       transcript: talkGenerationTranscript,
       studioMeta,
     });
+    const talkScreenplayRepairTrace = {
+      attempted: false,
+      outcome: "none",
+      elapsedMs: 0,
+      reason: "",
+    };
     if (
       isScreenplayPageWriteTurn &&
       !localActionReply &&
       String(talkScreenplayOutput?.target || "").trim().toLowerCase() !== "page"
     ) {
+      talkScreenplayRepairTrace.attempted = true;
+      talkScreenplayRepairTrace.reason = normalizeSnippet(
+        talkScreenplayOutput?.quality?.reason || talkScreenplayOutput?.source || "guard_low_page_quality",
+        96
+      );
       const repairPass = await attemptTalkScreenplayRepairPass({
         currentOutput: talkScreenplayOutput,
         rawReply,
@@ -3567,8 +3618,13 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         rid,
       });
       if (repairPass?.elapsedMs) {
-        chatMs += Math.max(0, Number(repairPass.elapsedMs || 0));
+        talkScreenplayRepairTrace.elapsedMs = Math.max(0, Number(repairPass.elapsedMs || 0));
+        chatMs += talkScreenplayRepairTrace.elapsedMs;
       }
+      talkScreenplayRepairTrace.outcome = normalizeSnippet(
+        repairPass?.outcome || (repairPass?.repaired ? "repaired" : "not_repaired"),
+        48
+      ) || "not_repaired";
       if (repairPass?.repaired && repairPass.output) {
         talkScreenplayOutput = repairPass.output;
         reply = repairPass.reply || normalizeTalkScreenplayText(repairPass.output.text || reply);
@@ -3889,6 +3945,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
     }
     applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
+    applyTalkScreenplayRepairHeaders(res, talkScreenplayRepairTrace);
     if (talkScreenplayOutput) {
       const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
       if (screenplayOutputJson.length <= 5000) {
@@ -4077,7 +4134,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       const talkStatus = speculativeReuseApplied ? "speculative_reuse" : "responded";
       res.setHeader(
         "Server-Timing",
-        `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
+        `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
       );
       commitTalkIdempotencySuccess(req, {
         statusCode: 200,
@@ -4101,6 +4158,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           talkScreenplayOutput,
           hasAuthoritativeScreenplayText,
           replyRepaired,
+          repairTrace: talkScreenplayRepairTrace,
         }),
       });
       void scaleBackplane.emitTalkCommit({
@@ -4185,7 +4243,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     const talkStatus = speculativeReuseApplied ? "speculative_reuse" : "responded";
     res.setHeader(
       "Server-Timing",
-      `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
+      `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
     );
     commitTalkIdempotencySuccess(req, {
       statusCode: 200,
@@ -4209,6 +4267,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         talkScreenplayOutput,
         hasAuthoritativeScreenplayText,
         replyRepaired,
+        repairTrace: talkScreenplayRepairTrace,
       }),
     });
     void scaleBackplane.emitTalkCommit({

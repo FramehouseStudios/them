@@ -766,6 +766,39 @@ struct BackendTalkScreenplayTrace {
     let packLock: Bool
     let projectId: String?
     let versionId: String?
+    let repairAttempted: Bool
+    let repairOutcome: String
+    let repairMs: Int?
+    let repairReason: String?
+
+    init(
+        modeEnabled: Bool,
+        phase: String,
+        pack: String,
+        packLock: Bool,
+        projectId: String?,
+        versionId: String?,
+        repairAttempted: Bool = false,
+        repairOutcome: String = "none",
+        repairMs: Int? = nil,
+        repairReason: String? = nil
+    ) {
+        self.modeEnabled = modeEnabled
+        self.phase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.pack = pack.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.packLock = packLock
+        let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanVersionId = versionId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.projectId = cleanProjectId.isEmpty ? nil : cleanProjectId
+        self.versionId = cleanVersionId.isEmpty ? nil : cleanVersionId
+        self.repairAttempted = repairAttempted
+        let cleanOutcome = repairOutcome.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        self.repairOutcome = cleanOutcome.isEmpty ? "none" : cleanOutcome
+        let cleanRepairMs = max(0, repairMs ?? 0)
+        self.repairMs = cleanRepairMs > 0 ? cleanRepairMs : nil
+        let cleanReason = repairReason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.repairReason = cleanReason?.isEmpty == true ? nil : cleanReason
+    }
 
     var hasRenderableOutput: Bool {
         modeEnabled && (
@@ -1063,6 +1096,7 @@ struct BackendTalkResponseMetadata {
     let screenplayQuality: BackendTalkScreenplayQuality?
     let screenplayCues: [BackendTalkScreenplayCue]
     let dialogueTimeline: BackendTalkDialogueTimelineRevision?
+    let screenplayTrace: BackendTalkScreenplayTrace
     let reply: String?
 }
 
@@ -3444,6 +3478,7 @@ final class BackendClient {
                     from: http,
                     screenplayOutput: screenplayOutput
                 )
+                let screenplayTrace = self.parseScreenplayTrace(from: http)
                 let responseMetadata = BackendTalkResponseMetadata(
                     audioDurationMs: {
                         let headerDuration = self.parseHeaderInt(
@@ -3461,6 +3496,7 @@ final class BackendClient {
                     screenplayQuality: screenplayQuality,
                     screenplayCues: self.parseScreenplayCues(from: http),
                     dialogueTimeline: self.parseDialogueTimeline(from: http),
+                    screenplayTrace: screenplayTrace,
                     reply: self.parseOptionalHeaderString(http, field: "x-reply")
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
@@ -3907,27 +3943,7 @@ final class BackendClient {
             rawQuery: knowledgeRawQuery,
             rewrittenQuery: knowledgeRewrittenQuery
         )
-        let screenplayModeEnabled = parseHeaderBool(
-            http,
-            field: "x-screenplay-mode",
-            default: false
-        )
-        let screenplayPhase = parseOptionalHeaderString(http, field: "x-screenplay-phase") ?? ""
-        let screenplayPackRaw = parseOptionalHeaderString(http, field: "x-screenplay-pack") ?? ""
-        let screenplayPack = screenplayPackRaw.lowercased() == "none" ? "" : screenplayPackRaw
-        let screenplayPackLock = parseHeaderBool(
-            http,
-            field: "x-screenplay-pack-lock",
-            default: false
-        )
-        let screenplayTrace = BackendTalkScreenplayTrace(
-            modeEnabled: screenplayModeEnabled,
-            phase: screenplayPhase,
-            pack: screenplayPack,
-            packLock: screenplayPackLock,
-            projectId: parseOptionalHeaderString(http, field: "x-screenplay-project-id"),
-            versionId: parseOptionalHeaderString(http, field: "x-screenplay-version-id")
-        )
+        let screenplayTrace = parseScreenplayTrace(from: http)
         let noteAction = parseNoteCaptureAction(from: http)
         let emailAction = parseEmailComposeAction(from: http)
         let calendarAction = parseCalendarComposeAction(from: http)
@@ -5204,6 +5220,41 @@ final class BackendClient {
             replyRole: replyRole,
             authoritativePageTextAvailable: authoritativePageTextAvailable,
             syncReady: syncReady
+        )
+    }
+
+    private func parseScreenplayTrace(from response: HTTPURLResponse?) -> BackendTalkScreenplayTrace {
+        let screenplayModeEnabled = parseHeaderBool(
+            response,
+            field: "x-screenplay-mode",
+            default: false
+        )
+        let screenplayPhase = parseOptionalHeaderString(response, field: "x-screenplay-phase") ?? ""
+        let screenplayPackRaw = parseOptionalHeaderString(response, field: "x-screenplay-pack") ?? ""
+        let screenplayPack = screenplayPackRaw.lowercased() == "none" ? "" : screenplayPackRaw
+        let screenplayPackLock = parseHeaderBool(
+            response,
+            field: "x-screenplay-pack-lock",
+            default: false
+        )
+        let repairMs = parseHeaderInt(
+            response,
+            field: "x-screenplay-repair-ms",
+            default: 0,
+            min: 0,
+            max: 600_000
+        )
+        return BackendTalkScreenplayTrace(
+            modeEnabled: screenplayModeEnabled,
+            phase: screenplayPhase,
+            pack: screenplayPack,
+            packLock: screenplayPackLock,
+            projectId: parseOptionalHeaderString(response, field: "x-screenplay-project-id"),
+            versionId: parseOptionalHeaderString(response, field: "x-screenplay-version-id"),
+            repairAttempted: parseHeaderBool(response, field: "x-screenplay-repair-attempted", default: false),
+            repairOutcome: parseOptionalHeaderString(response, field: "x-screenplay-repair-outcome") ?? "none",
+            repairMs: repairMs > 0 ? repairMs : nil,
+            repairReason: parseOptionalHeaderString(response, field: "x-screenplay-repair-reason")
         )
     }
 
