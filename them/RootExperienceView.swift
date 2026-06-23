@@ -139,6 +139,16 @@ private struct StudioDebugVoiceTurnResultSnapshot: Codable {
     let screenplayRepairOutcome: String
     let screenplayRepairMs: Int?
     let screenplayRepairReason: String
+    let creativeMemoryApplied: Bool
+    let creativeMemoryProjectID: String
+    let creativeMemoryProjectTitle: String
+    let creativeMemoryCharacterCount: Int
+    let creativeMemoryEpisodicCount: Int
+    let creativeMemoryCorrectionCount: Int
+    let creativeMemoryCharacters: [String]
+    let creativeMemoryCorrectedTerms: [String]
+    let creativeMemoryCorrectionReplacements: [String]
+    let creativeMemoryEpisodeSummaries: [String]
     let screenplayOutputText: String
     let screenplayCueCount: Int
     let screenplayCues: [BackendTalkScreenplayCue]
@@ -1794,6 +1804,16 @@ struct RootExperienceView: View {
         screenplayRepairOutcome: String = "",
         screenplayRepairMs: Int? = nil,
         screenplayRepairReason: String = "",
+        creativeMemoryApplied: Bool = false,
+        creativeMemoryProjectID: String = "",
+        creativeMemoryProjectTitle: String = "",
+        creativeMemoryCharacterCount: Int = 0,
+        creativeMemoryEpisodicCount: Int = 0,
+        creativeMemoryCorrectionCount: Int = 0,
+        creativeMemoryCharacters: [String] = [],
+        creativeMemoryCorrectedTerms: [String] = [],
+        creativeMemoryCorrectionReplacements: [String] = [],
+        creativeMemoryEpisodeSummaries: [String] = [],
         screenplayOutputText: String = "",
         screenplayCues: [BackendTalkScreenplayCue] = [],
         dialogueTimeline: BackendTalkDialogueTimelineRevision? = nil,
@@ -1963,6 +1983,16 @@ struct RootExperienceView: View {
             screenplayRepairOutcome: screenplayRepairOutcome,
             screenplayRepairMs: screenplayRepairMs,
             screenplayRepairReason: screenplayRepairReason,
+            creativeMemoryApplied: creativeMemoryApplied,
+            creativeMemoryProjectID: creativeMemoryProjectID,
+            creativeMemoryProjectTitle: creativeMemoryProjectTitle,
+            creativeMemoryCharacterCount: creativeMemoryCharacterCount,
+            creativeMemoryEpisodicCount: creativeMemoryEpisodicCount,
+            creativeMemoryCorrectionCount: creativeMemoryCorrectionCount,
+            creativeMemoryCharacters: creativeMemoryCharacters,
+            creativeMemoryCorrectedTerms: creativeMemoryCorrectedTerms,
+            creativeMemoryCorrectionReplacements: creativeMemoryCorrectionReplacements,
+            creativeMemoryEpisodeSummaries: creativeMemoryEpisodeSummaries,
             screenplayOutputText: screenplayOutputText,
             screenplayCueCount: screenplayCues.count,
             screenplayCues: screenplayCues,
@@ -2078,6 +2108,16 @@ struct RootExperienceView: View {
                 "screenplayRepairOutcome": screenplayRepairOutcome,
                 "screenplayRepairMs": screenplayRepairMs as Any,
                 "screenplayRepairReason": screenplayRepairReason,
+                "creativeMemoryApplied": creativeMemoryApplied,
+                "creativeMemoryProjectID": creativeMemoryProjectID,
+                "creativeMemoryProjectTitle": creativeMemoryProjectTitle,
+                "creativeMemoryCharacterCount": creativeMemoryCharacterCount,
+                "creativeMemoryEpisodicCount": creativeMemoryEpisodicCount,
+                "creativeMemoryCorrectionCount": creativeMemoryCorrectionCount,
+                "creativeMemoryCharacters": creativeMemoryCharacters,
+                "creativeMemoryCorrectedTerms": creativeMemoryCorrectedTerms,
+                "creativeMemoryCorrectionReplacements": creativeMemoryCorrectionReplacements,
+                "creativeMemoryEpisodeSummaries": creativeMemoryEpisodeSummaries,
                 "screenplayOutputText": screenplayOutputText,
                 "screenplayCueCount": screenplayCues.count,
                 "screenplayCues": manualScreenplayCues,
@@ -5627,6 +5667,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var debugScreenplayRepairOutcome = ""
         var debugScreenplayRepairMs: Int?
         var debugScreenplayRepairReason = ""
+        var debugCreativeMemoryApplied = false
+        var debugCreativeMemoryProjectID = ""
+        var debugCreativeMemoryProjectTitle = ""
+        var debugCreativeMemoryCharacterCount = 0
+        var debugCreativeMemoryEpisodicCount = 0
+        var debugCreativeMemoryCorrectionCount = 0
+        var debugCreativeMemoryCharacters: [String] = []
+        var debugCreativeMemoryCorrectedTerms: [String] = []
+        var debugCreativeMemoryCorrectionReplacements: [String] = []
+        var debugCreativeMemoryEpisodeSummaries: [String] = []
         var debugScreenplayOutputText = ""
         var debugScreenplayCues: [BackendTalkScreenplayCue] = []
         var debugDialogueTimeline: BackendTalkDialogueTimelineRevision?
@@ -5653,6 +5703,29 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if syncedState.phase == .completed, !authoritativeText.isEmpty {
                 debugFinalCommittedPageText = authoritativeText
             }
+        }
+
+        func updateDebugCreativeMemoryTrace(_ trace: BackendTalkCreativeMemoryTrace) {
+            debugCreativeMemoryApplied = trace.applied
+            debugCreativeMemoryProjectID = (trace.projectId ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            debugCreativeMemoryProjectTitle = (trace.projectTitle ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            debugCreativeMemoryCharacterCount = trace.characterCount
+            debugCreativeMemoryEpisodicCount = trace.episodicCount
+            debugCreativeMemoryCorrectionCount = trace.correctionCount
+            debugCreativeMemoryCharacters = trace.characters
+                .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            debugCreativeMemoryCorrectedTerms = trace.correctedTerms
+            debugCreativeMemoryCorrectionReplacements = trace.correctionReplacements
+            debugCreativeMemoryEpisodeSummaries = trace.episodic
+                .map { episode in
+                    let summary = episode.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !summary.isEmpty { return summary }
+                    return episode.excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                .filter { !$0.isEmpty }
         }
 
         func finalizeDebugVoiceTurn(status: String, error: String = "") {
@@ -5713,6 +5786,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 screenplayRepairOutcome: debugScreenplayRepairOutcome,
                 screenplayRepairMs: debugScreenplayRepairMs,
                 screenplayRepairReason: debugScreenplayRepairReason,
+                creativeMemoryApplied: debugCreativeMemoryApplied,
+                creativeMemoryProjectID: debugCreativeMemoryProjectID,
+                creativeMemoryProjectTitle: debugCreativeMemoryProjectTitle,
+                creativeMemoryCharacterCount: debugCreativeMemoryCharacterCount,
+                creativeMemoryEpisodicCount: debugCreativeMemoryEpisodicCount,
+                creativeMemoryCorrectionCount: debugCreativeMemoryCorrectionCount,
+                creativeMemoryCharacters: debugCreativeMemoryCharacters,
+                creativeMemoryCorrectedTerms: debugCreativeMemoryCorrectedTerms,
+                creativeMemoryCorrectionReplacements: debugCreativeMemoryCorrectionReplacements,
+                creativeMemoryEpisodeSummaries: debugCreativeMemoryEpisodeSummaries,
                 screenplayOutputText: debugScreenplayOutputText,
                 screenplayCues: debugScreenplayCues,
                 dialogueTimeline: debugDialogueTimeline,
@@ -6350,6 +6433,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             debugScreenplayRepairMs = metadata.screenplayTrace.repairMs
                             debugScreenplayRepairReason = (metadata.screenplayTrace.repairReason ?? "")
                                 .trimmingCharacters(in: .whitespacesAndNewlines)
+                            updateDebugCreativeMemoryTrace(metadata.creativeMemoryTrace)
                             if !metadata.screenplayCues.isEmpty {
                                 debugScreenplayCues = metadata.screenplayCues
                             }
@@ -6371,9 +6455,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 let headerRepairOutcome = metadata.screenplayTrace.repairOutcome
                                     .trimmingCharacters(in: .whitespacesAndNewlines)
                                 let headerRepairMs = metadata.screenplayTrace.repairMs ?? 0
+                                let memoryCharacters = metadata.creativeMemoryTrace.characters
+                                    .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                                    .filter { !$0.isEmpty }
+                                    .prefix(4)
+                                    .joined(separator: ",")
+                                let memoryCorrections = metadata.creativeMemoryTrace.correctionReplacements
+                                    .prefix(3)
+                                    .joined(separator: ",")
+                                    .replacingOccurrences(of: " ", with: "_")
                                 appendStudioDebugVoiceDraftBreadcrumb(
                                     event: "talk_response_metadata_ready",
-                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) quality_reason=\(headerQualityReason.isEmpty ? "none" : headerQualityReason) quality_confidence=\(headerQualityConfidence.isEmpty ? "none" : headerQualityConfidence) repair_attempted=\(metadata.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(headerRepairOutcome.isEmpty ? "none" : headerRepairOutcome) repair_ms=\(headerRepairMs) cue_count=\(metadata.screenplayCues.count)",
+                                    detail: "Talk response metadata ready. output_target=\(headerTarget.isEmpty ? "none" : headerTarget) output_source=\(headerSource.isEmpty ? "none" : headerSource) timing_source=\(headerTimingSource.isEmpty ? "none" : headerTimingSource) quality_reason=\(headerQualityReason.isEmpty ? "none" : headerQualityReason) quality_confidence=\(headerQualityConfidence.isEmpty ? "none" : headerQualityConfidence) repair_attempted=\(metadata.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(headerRepairOutcome.isEmpty ? "none" : headerRepairOutcome) repair_ms=\(headerRepairMs) memory_applied=\(metadata.creativeMemoryTrace.applied ? "1" : "0") memory_characters=\(metadata.creativeMemoryTrace.characterCount) memory_episodes=\(metadata.creativeMemoryTrace.episodicCount) memory_corrections=\(metadata.creativeMemoryTrace.correctionCount) memory_names=\(memoryCharacters.isEmpty ? "none" : memoryCharacters) memory_repairs=\(memoryCorrections.isEmpty ? "none" : memoryCorrections) cue_count=\(metadata.screenplayCues.count)",
                                     replyPreview: String((metadata.screenplayOutput?.text ?? "").prefix(220)),
                                     tokenOverride: debugVoiceTurnToken,
                                     promptPreviewOverride: preparedPrompt.directorText
@@ -6596,6 +6689,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             debugScreenplayRepairMs = result.screenplayTrace.repairMs
             debugScreenplayRepairReason = (result.screenplayTrace.repairReason ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            updateDebugCreativeMemoryTrace(result.creativeMemoryTrace)
             if let debugVoiceTurnToken {
                 let resolvedOutputTarget = result.screenplayOutput?.target
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -6611,9 +6705,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 let resolvedRepairOutcome = result.screenplayTrace.repairOutcome
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let resolvedRepairMs = result.screenplayTrace.repairMs ?? 0
+                let memoryCharacters = result.creativeMemoryTrace.characters
+                    .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .prefix(4)
+                    .joined(separator: ",")
+                let memoryCorrections = result.creativeMemoryTrace.correctionReplacements
+                    .prefix(3)
+                    .joined(separator: ",")
+                    .replacingOccurrences(of: " ", with: "_")
                 appendStudioDebugVoiceDraftBreadcrumb(
                     event: "talk_result_received_meta",
-                    detail: "Talk result received. output_target=\(resolvedOutputTarget.isEmpty ? "none" : resolvedOutputTarget) output_source=\(resolvedOutputSource.isEmpty ? "none" : resolvedOutputSource) timing_source=\(resolvedTimingSource.isEmpty ? "none" : resolvedTimingSource) quality_reason=\(resolvedQualityReason.isEmpty ? "none" : resolvedQualityReason) quality_confidence=\(resolvedQualityConfidence.isEmpty ? "none" : resolvedQualityConfidence) repair_attempted=\(result.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(resolvedRepairOutcome.isEmpty ? "none" : resolvedRepairOutcome) repair_ms=\(resolvedRepairMs) cue_count=\(result.screenplayCues.count)",
+                    detail: "Talk result received. output_target=\(resolvedOutputTarget.isEmpty ? "none" : resolvedOutputTarget) output_source=\(resolvedOutputSource.isEmpty ? "none" : resolvedOutputSource) timing_source=\(resolvedTimingSource.isEmpty ? "none" : resolvedTimingSource) quality_reason=\(resolvedQualityReason.isEmpty ? "none" : resolvedQualityReason) quality_confidence=\(resolvedQualityConfidence.isEmpty ? "none" : resolvedQualityConfidence) repair_attempted=\(result.screenplayTrace.repairAttempted ? "1" : "0") repair_outcome=\(resolvedRepairOutcome.isEmpty ? "none" : resolvedRepairOutcome) repair_ms=\(resolvedRepairMs) memory_applied=\(result.creativeMemoryTrace.applied ? "1" : "0") memory_characters=\(result.creativeMemoryTrace.characterCount) memory_episodes=\(result.creativeMemoryTrace.episodicCount) memory_corrections=\(result.creativeMemoryTrace.correctionCount) memory_names=\(memoryCharacters.isEmpty ? "none" : memoryCharacters) memory_repairs=\(memoryCorrections.isEmpty ? "none" : memoryCorrections) cue_count=\(result.screenplayCues.count)",
                     replyPreview: String((result.screenplayOutput?.text ?? result.reply ?? "").prefix(220)),
                     tokenOverride: debugVoiceTurnToken,
                     promptPreviewOverride: preparedPrompt.directorText
@@ -8605,6 +8708,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             userName: evolution.preferredName,
             uiReflection: uiReflection,
             knowledgeTrace: .empty,
+            creativeMemoryTrace: .empty,
             screenplayTrace: currentRealtimeStudioScreenplayTrace(),
             turnStatus: "responded",
             turnContinueReason: nil,

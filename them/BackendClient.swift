@@ -759,6 +759,202 @@ struct BackendTalkKnowledgeTrace {
     )
 }
 
+struct BackendTalkCreativeMemoryCharacterTrace: Codable, Equatable {
+    let name: String
+    let hasBible: Bool
+    let hasCorrections: Bool
+    let correctedTerms: [String]
+    let correctionReplacements: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case hasBible = "has_bible"
+        case hasCorrections = "has_corrections"
+        case correctedTerms = "corrected_terms"
+        case correctionReplacements = "correction_replacements"
+    }
+
+    init(
+        name: String,
+        hasBible: Bool = false,
+        hasCorrections: Bool = false,
+        correctedTerms: [String] = [],
+        correctionReplacements: [String] = []
+    ) {
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.hasBible = hasBible
+        self.hasCorrections = hasCorrections
+        self.correctedTerms = correctedTerms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.correctionReplacements = correctionReplacements
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try container.decodeIfPresent(String.self, forKey: .name) ?? "",
+            hasBible: try container.decodeIfPresent(Bool.self, forKey: .hasBible) ?? false,
+            hasCorrections: try container.decodeIfPresent(Bool.self, forKey: .hasCorrections) ?? false,
+            correctedTerms: try container.decodeIfPresent([String].self, forKey: .correctedTerms) ?? [],
+            correctionReplacements: try container.decodeIfPresent([String].self, forKey: .correctionReplacements) ?? []
+        )
+    }
+}
+
+struct BackendTalkCreativeMemoryEpisodeTrace: Codable, Equatable {
+    let summary: String
+    let excerpt: String
+    let projectId: String?
+    let projectTitle: String?
+    let characters: [String]
+    let tags: [String]
+    let correction: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case summary
+        case excerpt
+        case projectId = "project_id"
+        case projectTitle = "project_title"
+        case characters
+        case tags
+        case correction
+    }
+
+    init(
+        summary: String,
+        excerpt: String,
+        projectId: String? = nil,
+        projectTitle: String? = nil,
+        characters: [String] = [],
+        tags: [String] = [],
+        correction: Bool = false
+    ) {
+        self.summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.excerpt = excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.projectId = cleanProjectId.isEmpty ? nil : cleanProjectId
+        self.projectTitle = cleanProjectTitle.isEmpty ? nil : cleanProjectTitle
+        self.characters = characters
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.tags = tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.correction = correction
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            summary: try container.decodeIfPresent(String.self, forKey: .summary) ?? "",
+            excerpt: try container.decodeIfPresent(String.self, forKey: .excerpt) ?? "",
+            projectId: try container.decodeIfPresent(String.self, forKey: .projectId),
+            projectTitle: try container.decodeIfPresent(String.self, forKey: .projectTitle),
+            characters: try container.decodeIfPresent([String].self, forKey: .characters) ?? [],
+            tags: try container.decodeIfPresent([String].self, forKey: .tags) ?? [],
+            correction: try container.decodeIfPresent(Bool.self, forKey: .correction) ?? false
+        )
+    }
+}
+
+struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
+    let applied: Bool
+    let projectId: String?
+    let projectTitle: String?
+    let queryChars: Int
+    let characterCount: Int
+    let characters: [BackendTalkCreativeMemoryCharacterTrace]
+    let episodicCount: Int
+    let episodic: [BackendTalkCreativeMemoryEpisodeTrace]
+    let correctionCount: Int
+    let correctedTerms: [String]
+    let correctionReplacements: [String]
+    let styleApplied: Bool
+    let toneApplied: Bool
+    let habitsApplied: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case applied
+        case projectId = "project_id"
+        case projectTitle = "project_title"
+        case queryChars = "query_chars"
+        case characterCount = "character_count"
+        case characters
+        case episodicCount = "episodic_count"
+        case episodic
+        case correctionCount = "correction_count"
+        case correctedTerms = "corrected_terms"
+        case correctionReplacements = "correction_replacements"
+        case styleApplied = "style_applied"
+        case toneApplied = "tone_applied"
+        case habitsApplied = "habits_applied"
+    }
+
+    init(
+        applied: Bool,
+        projectId: String? = nil,
+        projectTitle: String? = nil,
+        queryChars: Int = 0,
+        characterCount: Int = 0,
+        characters: [BackendTalkCreativeMemoryCharacterTrace] = [],
+        episodicCount: Int = 0,
+        episodic: [BackendTalkCreativeMemoryEpisodeTrace] = [],
+        correctionCount: Int = 0,
+        correctedTerms: [String] = [],
+        correctionReplacements: [String] = [],
+        styleApplied: Bool = false,
+        toneApplied: Bool = false,
+        habitsApplied: Bool = false
+    ) {
+        self.applied = applied
+        let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.projectId = cleanProjectId.isEmpty ? nil : cleanProjectId
+        self.projectTitle = cleanProjectTitle.isEmpty ? nil : cleanProjectTitle
+        self.queryChars = max(0, queryChars)
+        self.characters = characters.filter { !$0.name.isEmpty }
+        self.characterCount = max(max(0, characterCount), self.characters.count)
+        self.episodic = episodic.filter { !$0.summary.isEmpty || !$0.excerpt.isEmpty }
+        self.episodicCount = max(max(0, episodicCount), self.episodic.count)
+        self.correctionCount = max(0, correctionCount)
+        self.correctedTerms = correctedTerms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.correctionReplacements = correctionReplacements
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.styleApplied = styleApplied
+        self.toneApplied = toneApplied
+        self.habitsApplied = habitsApplied
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            applied: try container.decodeIfPresent(Bool.self, forKey: .applied) ?? false,
+            projectId: try container.decodeIfPresent(String.self, forKey: .projectId),
+            projectTitle: try container.decodeIfPresent(String.self, forKey: .projectTitle),
+            queryChars: try container.decodeIfPresent(Int.self, forKey: .queryChars) ?? 0,
+            characterCount: try container.decodeIfPresent(Int.self, forKey: .characterCount) ?? 0,
+            characters: try container.decodeIfPresent([BackendTalkCreativeMemoryCharacterTrace].self, forKey: .characters) ?? [],
+            episodicCount: try container.decodeIfPresent(Int.self, forKey: .episodicCount) ?? 0,
+            episodic: try container.decodeIfPresent([BackendTalkCreativeMemoryEpisodeTrace].self, forKey: .episodic) ?? [],
+            correctionCount: try container.decodeIfPresent(Int.self, forKey: .correctionCount) ?? 0,
+            correctedTerms: try container.decodeIfPresent([String].self, forKey: .correctedTerms) ?? [],
+            correctionReplacements: try container.decodeIfPresent([String].self, forKey: .correctionReplacements) ?? [],
+            styleApplied: try container.decodeIfPresent(Bool.self, forKey: .styleApplied) ?? false,
+            toneApplied: try container.decodeIfPresent(Bool.self, forKey: .toneApplied) ?? false,
+            habitsApplied: try container.decodeIfPresent(Bool.self, forKey: .habitsApplied) ?? false
+        )
+    }
+
+    static let empty = BackendTalkCreativeMemoryTrace(applied: false)
+}
+
 struct BackendTalkScreenplayTrace {
     let modeEnabled: Bool
     let phase: String
@@ -1044,6 +1240,7 @@ struct BackendTalkResult {
     let userName: String?
     let uiReflection: BackendTalkUIReflection
     let knowledgeTrace: BackendTalkKnowledgeTrace
+    let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
     let screenplayTrace: BackendTalkScreenplayTrace
     let turnStatus: String
     let turnContinueReason: String?
@@ -1096,6 +1293,7 @@ struct BackendTalkResponseMetadata {
     let screenplayQuality: BackendTalkScreenplayQuality?
     let screenplayCues: [BackendTalkScreenplayCue]
     let dialogueTimeline: BackendTalkDialogueTimelineRevision?
+    let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
     let screenplayTrace: BackendTalkScreenplayTrace
     let reply: String?
 }
@@ -3479,6 +3677,7 @@ final class BackendClient {
                     screenplayOutput: screenplayOutput
                 )
                 let screenplayTrace = self.parseScreenplayTrace(from: http)
+                let creativeMemoryTrace = self.parseCreativeMemoryTrace(from: http)
                 let responseMetadata = BackendTalkResponseMetadata(
                     audioDurationMs: {
                         let headerDuration = self.parseHeaderInt(
@@ -3496,6 +3695,7 @@ final class BackendClient {
                     screenplayQuality: screenplayQuality,
                     screenplayCues: self.parseScreenplayCues(from: http),
                     dialogueTimeline: self.parseDialogueTimeline(from: http),
+                    creativeMemoryTrace: creativeMemoryTrace,
                     screenplayTrace: screenplayTrace,
                     reply: self.parseOptionalHeaderString(http, field: "x-reply")
                 )
@@ -3943,6 +4143,7 @@ final class BackendClient {
             rawQuery: knowledgeRawQuery,
             rewrittenQuery: knowledgeRewrittenQuery
         )
+        let creativeMemoryTrace = parseCreativeMemoryTrace(from: http)
         let screenplayTrace = parseScreenplayTrace(from: http)
         let noteAction = parseNoteCaptureAction(from: http)
         let emailAction = parseEmailComposeAction(from: http)
@@ -4081,6 +4282,7 @@ final class BackendClient {
             userName: userName,
             uiReflection: uiReflection,
             knowledgeTrace: knowledgeTrace,
+            creativeMemoryTrace: creativeMemoryTrace,
             screenplayTrace: screenplayTrace,
             turnStatus: turnStatus,
             turnContinueReason: turnContinueReason,
@@ -5255,6 +5457,41 @@ final class BackendClient {
             repairOutcome: parseOptionalHeaderString(response, field: "x-screenplay-repair-outcome") ?? "none",
             repairMs: repairMs > 0 ? repairMs : nil,
             repairReason: parseOptionalHeaderString(response, field: "x-screenplay-repair-reason")
+        )
+    }
+
+    private func parseCreativeMemoryTrace(from response: HTTPURLResponse?) -> BackendTalkCreativeMemoryTrace {
+        if let raw = parseOptionalHeaderString(response, field: "x-creative-memory-trace"),
+           let data = raw.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(BackendTalkCreativeMemoryTrace.self, from: data) {
+            return decoded
+        }
+        let characterCount = parseHeaderInt(
+            response,
+            field: "x-creative-memory-character-count",
+            default: 0,
+            min: 0,
+            max: 64
+        )
+        let episodicCount = parseHeaderInt(
+            response,
+            field: "x-creative-memory-episodic-count",
+            default: 0,
+            min: 0,
+            max: 64
+        )
+        let correctionCount = parseHeaderInt(
+            response,
+            field: "x-creative-memory-correction-count",
+            default: 0,
+            min: 0,
+            max: 64
+        )
+        return BackendTalkCreativeMemoryTrace(
+            applied: parseHeaderBool(response, field: "x-creative-memory-applied", default: false),
+            characterCount: characterCount,
+            episodicCount: episodicCount,
+            correctionCount: correctionCount
         )
     }
 

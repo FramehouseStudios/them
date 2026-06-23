@@ -12,6 +12,7 @@ const {
   buildMemoryStateVersion,
   buildSessionContinuitySnapshot,
   buildCreativeMemoryRecallQuery,
+  buildCreativeMemoryPromptTrace,
   buildScreenplayProjectMemoryRecordFromStudioMeta,
   createEmptyEmotionMemory,
   sanitizeScreenplayProjectMemoryItems,
@@ -709,6 +710,53 @@ test("[persistent-screenplay-memory] live Studio context builds a rich creative-
   assert.match(query, /character_focus: Mara \/ Father/);
   assert.match(query, /image_motifs: charcoal dust \/ courthouse fluorescents/);
   assert.ok(query.length <= 4_000);
+});
+
+test("[persistent-screenplay-memory] prompt trace exposes retrieved characters and corrections", () => {
+  const trace = buildCreativeMemoryPromptTrace(
+    {
+      characters: [
+        {
+          name: "Mara",
+          bible: {
+            correctedTerms: ["mother"],
+            correctionReplacements: ["mother -> Eli's sister"],
+          },
+        },
+      ],
+      episodicMemories: [
+        {
+          summary: "Correction for Mara: Mara hides a VHS tape, not a cassette.",
+          excerpt: "Actually, no, it is a VHS tape under the courthouse vent.",
+          projectId: "rain-docket",
+          projectTitle: "Rain Docket",
+          characterNames: ["Mara"],
+          tags: ["screenplay", "correction"],
+        },
+      ],
+      style: { preferredTone: "restrained" },
+    },
+    {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      query: "Continue Mara and the corrected evidence.",
+    }
+  );
+
+  assert.equal(trace.applied, true);
+  assert.equal(trace.project_id, "rain-docket");
+  assert.equal(trace.project_title, "Rain Docket");
+  assert.equal(trace.character_count, 1);
+  assert.equal(trace.episodic_count, 1);
+  assert.equal(trace.correction_count, 2);
+  assert.deepEqual(trace.corrected_terms, ["mother"]);
+  assert.deepEqual(trace.correction_replacements, ["mother -> Eli's sister"]);
+  assert.equal(trace.characters[0].name, "Mara");
+  assert.equal(trace.characters[0].has_corrections, true);
+  assert.match(trace.episodic[0].summary, /Correction for Mara/);
+  assert.equal(trace.episodic[0].correction, true);
+  assert.equal(trace.style_applied, true);
+  assert.ok(trace.query_chars > 0);
 });
 
 test("[persistent-screenplay-memory] builds session continuity snapshot from latest project memory", () => {

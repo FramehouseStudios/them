@@ -403,6 +403,23 @@ function createTalkHandler(deps) {
     }
   }
 
+  function applyCreativeMemoryTraceHeaders(res, trace = null) {
+    const applied = Boolean(trace?.applied);
+    const characterCount = Math.max(0, Math.round(Number(trace?.character_count || 0)));
+    const episodicCount = Math.max(0, Math.round(Number(trace?.episodic_count || 0)));
+    const correctionCount = Math.max(0, Math.round(Number(trace?.correction_count || 0)));
+    res.setHeader("x-creative-memory-applied", applied ? "1" : "0");
+    res.setHeader("x-creative-memory-character-count", String(characterCount));
+    res.setHeader("x-creative-memory-episodic-count", String(episodicCount));
+    res.setHeader("x-creative-memory-correction-count", String(correctionCount));
+    if (trace && typeof trace === "object") {
+      const traceJson = JSON.stringify(trace);
+      if (traceJson.length <= 5000) {
+        res.setHeader("x-creative-memory-trace", encodeURIComponent(traceJson));
+      }
+    }
+  }
+
   function applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput = null) {
     const quality = talkScreenplayOutput?.quality && typeof talkScreenplayOutput.quality === "object"
       ? talkScreenplayOutput.quality
@@ -2351,6 +2368,7 @@ function createTalkHandler(deps) {
       if (talkScreenplayOutput?.target) {
         res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
       }
+      applyCreativeMemoryTraceHeaders(res, req.creativeMemoryTrace);
       applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
       if (talkScreenplayOutput) {
         const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
@@ -3944,6 +3962,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     if (talkScreenplayOutput?.target) {
       res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
     }
+    applyCreativeMemoryTraceHeaders(res, req.creativeMemoryTrace);
     applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
     applyTalkScreenplayRepairHeaders(res, talkScreenplayRepairTrace);
     if (talkScreenplayOutput) {

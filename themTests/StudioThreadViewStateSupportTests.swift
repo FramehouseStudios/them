@@ -582,4 +582,56 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(completed.skeletonLines.count, 3)
     }
 
+    func testCreativeMemoryTraceNormalizesCorrectionsForDebugState() {
+        XCTAssertFalse(BackendTalkCreativeMemoryTrace.empty.applied)
+        XCTAssertEqual(BackendTalkCreativeMemoryTrace.empty.characterCount, 0)
+        XCTAssertEqual(BackendTalkCreativeMemoryTrace.empty.episodicCount, 0)
+        XCTAssertEqual(BackendTalkCreativeMemoryTrace.empty.correctionCount, 0)
+
+        let trace = BackendTalkCreativeMemoryTrace(
+            applied: true,
+            projectId: " rain-docket ",
+            projectTitle: " Rain Docket ",
+            queryChars: 420,
+            characterCount: 0,
+            characters: [
+                BackendTalkCreativeMemoryCharacterTrace(
+                    name: " Mara ",
+                    hasBible: true,
+                    hasCorrections: true,
+                    correctedTerms: [" mother ", ""],
+                    correctionReplacements: [" mother -> Eli's sister "]
+                )
+            ],
+            episodicCount: 0,
+            episodic: [
+                BackendTalkCreativeMemoryEpisodeTrace(
+                    summary: " Correction for Mara ",
+                    excerpt: " VHS tape, not cassette ",
+                    projectId: " rain-docket ",
+                    projectTitle: " Rain Docket ",
+                    characters: [" Mara "],
+                    tags: [" correction "],
+                    correction: true
+                )
+            ],
+            correctionCount: 2,
+            correctedTerms: [" mother "],
+            correctionReplacements: [" mother -> Eli's sister "],
+            styleApplied: true
+        )
+
+        XCTAssertEqual(trace.projectId, "rain-docket")
+        XCTAssertEqual(trace.projectTitle, "Rain Docket")
+        XCTAssertEqual(trace.characterCount, 1)
+        XCTAssertEqual(trace.episodicCount, 1)
+        XCTAssertEqual(trace.correctionCount, 2)
+        XCTAssertEqual(trace.characters.map(\.name), ["Mara"])
+        XCTAssertEqual(trace.characters.first?.correctedTerms, ["mother"])
+        XCTAssertEqual(trace.correctionReplacements, ["mother -> Eli's sister"])
+        XCTAssertEqual(trace.episodic.first?.summary, "Correction for Mara")
+        XCTAssertEqual(trace.episodic.first?.characters, ["Mara"])
+        XCTAssertTrue(trace.styleApplied)
+    }
+
 }

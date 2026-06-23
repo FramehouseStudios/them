@@ -3223,6 +3223,72 @@ function buildCreativeMemoryRecallQuery(req = null, {
   return normalizeSnippet(lines.join("\n"), 4_000);
 }
 
+function buildCreativeMemoryPromptTrace(memory = null, {
+  projectId = "",
+  projectTitle = "",
+  query = "",
+} = {}) {
+  const characters = Array.isArray(memory?.characters)
+    ? memory.characters.slice(0, 8).map((character) => {
+      const bible = character?.bible && typeof character.bible === "object" ? character.bible : null;
+      return {
+        name: normalizeSnippet(character?.name, 80),
+        has_bible: Boolean(bible),
+        has_corrections: Boolean(
+          (Array.isArray(bible?.corrections) && bible.corrections.length) ||
+          (Array.isArray(bible?.correctedTerms) && bible.correctedTerms.length) ||
+          (Array.isArray(bible?.correctionReplacements) && bible.correctionReplacements.length)
+        ),
+        corrected_terms: normalizeScreenplayStringList(bible?.correctedTerms, 6, 80),
+        correction_replacements: normalizeScreenplayStringList(bible?.correctionReplacements, 6, 120),
+      };
+    }).filter((character) => character.name)
+    : [];
+  const episodic = Array.isArray(memory?.episodicMemories)
+    ? memory.episodicMemories.slice(0, 4).map((episode) => ({
+      summary: normalizeSnippet(episode?.summary, 180),
+      excerpt: normalizeSnippet(episode?.excerpt, 220),
+      project_id: normalizeSnippet(episode?.projectId ?? episode?.project_id, 96),
+      project_title: normalizeSnippet(episode?.projectTitle ?? episode?.project_title, 160),
+      characters: normalizeScreenplayStringList(episode?.characterNames ?? episode?.characters, 6, 80),
+      tags: normalizeScreenplayStringList(episode?.tags, 6, 48),
+      correction: Array.isArray(episode?.tags)
+        ? episode.tags.some((tag) => String(tag || "").trim().toLowerCase() === "correction")
+        : false,
+    })).filter((episode) => episode.summary || episode.excerpt)
+    : [];
+  const correctedTerms = [];
+  const correctionReplacements = [];
+  for (const character of characters) {
+    correctedTerms.push(...character.corrected_terms);
+    correctionReplacements.push(...character.correction_replacements);
+  }
+  const applied = Boolean(
+    characters.length ||
+    episodic.length ||
+    (memory?.style && Object.keys(memory.style).length) ||
+    (memory?.tone && Object.keys(memory.tone).length) ||
+    (memory?.habits && Object.keys(memory.habits).length)
+  );
+  return {
+    applied,
+    project_id: normalizeSnippet(projectId, 96),
+    project_title: normalizeSnippet(projectTitle, 160),
+    query_chars: normalizeSnippet(query, 4_000).length,
+    character_count: characters.length,
+    characters,
+    episodic_count: episodic.length,
+    episodic,
+    correction_count: characters.filter((character) => character.has_corrections).length +
+      episodic.filter((episode) => episode.correction).length,
+    corrected_terms: normalizeScreenplayStringList(correctedTerms, 10, 80),
+    correction_replacements: normalizeScreenplayStringList(correctionReplacements, 10, 120),
+    style_applied: Boolean(memory?.style && Object.keys(memory.style).length),
+    tone_applied: Boolean(memory?.tone && Object.keys(memory.tone).length),
+    habits_applied: Boolean(memory?.habits && Object.keys(memory.habits).length),
+  };
+}
+
 function positiveTalkContextInteger(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
@@ -3695,6 +3761,13 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
       query: memoryRecallQuery,
     })
     : null;
+  if (req && typeof req === "object") {
+    req.creativeMemoryTrace = buildCreativeMemoryPromptTrace(memory, {
+      projectId,
+      projectTitle,
+      query: memoryRecallQuery,
+    });
+  }
 
   // T-block-signal-system-prompt: when the writer's habits indicate
   // medium/high block signal, inject a compact coaching note so the
@@ -30927,6 +31000,7 @@ export {
   buildMemoryStateVersion,
   buildSessionContinuitySnapshot,
   buildCreativeMemoryRecallQuery,
+  buildCreativeMemoryPromptTrace,
   buildScreenplayProjectMemoryRecordFromStudioMeta,
   evaluateTurnQualityHeuristics,
   validateAndDirectHerReply,
