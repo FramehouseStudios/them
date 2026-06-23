@@ -677,6 +677,40 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(state.correctionReplacements, ["mother -> Eli's sister"])
         XCTAssertEqual(state.lastSavedCorrection, "old correction")
         XCTAssertEqual(state.summary, "Mara, Eli: mother -> Eli's sister")
+        XCTAssertTrue(state.featureMemoryBrief.contains("Characters: Mara, Eli"))
+        XCTAssertTrue(state.featureMemoryBrief.contains("Authoritative corrections: mother -> Eli's sister"))
+    }
+
+    func testAppliedMemoryPersistenceRestoresFreshCharacterCorrections() throws {
+        let createdAt = Date(timeIntervalSince1970: 4_000)
+        let state = ScreenplayStudioAppliedMemoryState(
+            id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            source: "talk_result",
+            characters: ["Mara"],
+            correctedTerms: ["mother"],
+            correctionReplacements: ["mother -> Eli's sister"],
+            characterBibleApplied: true,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: "Mara is Eli's sister, not his mother.",
+            updatedAt: createdAt
+        )
+
+        let payload = try XCTUnwrap(ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(state))
+        let restored = ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
+            from: payload,
+            now: createdAt.addingTimeInterval(60)
+        )
+
+        XCTAssertEqual(restored, state)
+        XCTAssertTrue(restored.featureMemoryBrief.contains("Honor corrections before continuing Act I / Act II / Act III pages."))
+        XCTAssertEqual(
+            ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
+                from: payload,
+                now: createdAt.addingTimeInterval(ScreenplayStudioAppliedMemoryPersistencePolicy.restoredMaxAge + 1)
+            ),
+            .empty
+        )
+        XCTAssertNil(ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(.empty))
     }
 
 }

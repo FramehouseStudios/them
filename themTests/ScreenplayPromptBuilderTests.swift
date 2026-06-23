@@ -39,6 +39,7 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 endingImage: "June screens the recovered reel to a silent street.",
                 featureSequence: "Act II - Midpoint Pressure (p41-p55)",
                 featureObligation: "The midpoint must raise stakes, reveal a truth, or turn victory into a trap.",
+                featureMemoryBrief: "Characters: June, Marcus | Authoritative corrections: mother -> Eli's sister",
                 actPressureState: "The midpoint victory turns into a trap.",
                 characterArcState: "June must trust someone with the truth.",
                 lastSceneOutcome: "June closed the blinds on Marcus.",
@@ -93,6 +94,7 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.endingImage, "June screens the recovered reel to a silent street.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.featureSequence, "Act II - Midpoint Pressure (p41-p55)")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.featureObligation, "The midpoint must raise stakes, reveal a truth, or turn victory into a trap.")
+        XCTAssertEqual(backend.capturedRequest?.sessionContext?.featureMemoryBrief, "Characters: June, Marcus | Authoritative corrections: mother -> Eli's sister")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.actPressureState, "The midpoint victory turns into a trap.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.characterArcState, "June must trust someone with the truth.")
         XCTAssertEqual(backend.capturedRequest?.sessionContext?.lastSceneOutcome, "June closed the blinds on Marcus.")
@@ -200,6 +202,7 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
                 endingImage: "Mara hangs the true sketch outside the courthouse.",
                 featureSequence: "Act II - Reversal Fallout (p56-p70)",
                 featureObligation: "The old tactic should stop working under public pressure.",
+                featureMemoryBrief: "Characters: Mara | Authoritative corrections: mother -> Eli's sister",
                 actPressureState: "Public pressure turns Mara's observation habit into a liability.",
                 characterArcState: "Mara must act instead of hiding behind observation.",
                 lastSceneOutcome: "Mara watched the witness collapse and did nothing.",
@@ -233,6 +236,7 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertTrue(result.prompt.contains("Act II: tests, reversals, midpoint truth"))
         XCTAssertTrue(result.prompt.contains("Act bridge ladder: Act I choice -> Act II pressure"))
         XCTAssertTrue(result.prompt.contains("Feature compass: before pages, silently lock act"))
+        XCTAssertTrue(result.prompt.contains("Persistent character memory: Characters: Mara | Authoritative corrections: mother -> Eli's sister"))
         XCTAssertTrue(result.prompt.contains("Feature completion method: track current sequence, next three turns"))
         XCTAssertTrue(result.prompt.contains("Scene-to-feature loop: each scene must satisfy its local objective"))
         XCTAssertTrue(result.prompt.contains("Page batch discipline: for 5-15 page asks"))

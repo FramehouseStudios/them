@@ -978,7 +978,7 @@ struct ScreenplayAssistantPinState: Equatable {
     )
 }
 
-struct ScreenplayStudioAppliedMemoryState: Equatable {
+struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
     let id: UUID
     let source: String
     let characters: [String]
@@ -1019,6 +1019,30 @@ struct ScreenplayStudioAppliedMemoryState: Equatable {
             return cleanReplacements.prefix(2).joined(separator: " / ")
         }
         return correctionAppliedToPrompt ? "Latest correction" : "Project memory"
+    }
+
+    var featureMemoryBrief: String {
+        guard hasContent else { return "" }
+        var parts: [String] = []
+        let cleanCharacters = Self.cleanList(characters)
+        let cleanReplacements = Self.cleanList(correctionReplacements)
+        let cleanTerms = Self.cleanList(correctedTerms)
+        if !cleanCharacters.isEmpty {
+            parts.append("Characters: \(cleanCharacters.prefix(4).joined(separator: ", "))")
+        }
+        if !cleanReplacements.isEmpty {
+            parts.append("Authoritative corrections: \(cleanReplacements.prefix(4).joined(separator: " / "))")
+        } else if !cleanTerms.isEmpty {
+            parts.append("Do not repeat outdated terms: \(cleanTerms.prefix(4).joined(separator: ", "))")
+        }
+        if characterBibleApplied {
+            parts.append("Use character bible continuity before inventing new facts.")
+        }
+        if correctionAppliedToPrompt {
+            parts.append("Honor corrections before continuing Act I / Act II / Act III pages.")
+        }
+        let brief = parts.joined(separator: " | ")
+        return String(brief.prefix(700))
     }
 
     static let empty = ScreenplayStudioAppliedMemoryState(
@@ -1100,6 +1124,44 @@ struct ScreenplayStudioAppliedMemoryState: Equatable {
             out.append(String(clean.prefix(160)))
         }
         return out
+    }
+}
+
+struct ScreenplayStudioAppliedMemoryPersistencePolicy {
+    static let restoredMaxAge: TimeInterval = 14 * 24 * 60 * 60
+
+    static func payloadForStorage(_ state: ScreenplayStudioAppliedMemoryState?) -> String? {
+        guard let state, state.hasContent else { return nil }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(state) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func restoredState(
+        from stored: String?,
+        now: Date = Date()
+    ) -> ScreenplayStudioAppliedMemoryState {
+        guard let stored,
+              let data = stored.data(using: .utf8) else {
+            return .empty
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let state = try? decoder.decode(ScreenplayStudioAppliedMemoryState.self, from: data),
+              state.hasContent,
+              isFreshForRestore(state, now: now) else {
+            return .empty
+        }
+        return state
+    }
+
+    static func isFreshForRestore(
+        _ state: ScreenplayStudioAppliedMemoryState,
+        now: Date = Date()
+    ) -> Bool {
+        now.timeIntervalSince(state.updatedAt) >= 0 &&
+            now.timeIntervalSince(state.updatedAt) < restoredMaxAge
     }
 }
 
@@ -2168,6 +2230,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private static let debugLastPromptSourceStorageKey = "studio_debug_last_prompt_source"
     private static let debugProjectBindingStorageKey = "studio_debug_project_binding_json"
     private static let featureWorkflowContextStorageKey = "studio_feature_workflow_context_v1"
+    private static let latestAppliedMemoryStorageKey = "studio_latest_applied_memory_v1"
 
     @Published var draftText: String = "" {
         didSet {
@@ -2254,7 +2317,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var autoInsertStatusText: String = ""
     @Published var assistantPin: ScreenplayAssistantPinState = .empty
     @Published var assistantPinHistory: [ScreenplayAssistantPinState] = []
-    @Published var latestAppliedMemory: ScreenplayStudioAppliedMemoryState = .empty
+    @Published var latestAppliedMemory: ScreenplayStudioAppliedMemoryState = .empty {
+        didSet {
+            persistLatestAppliedMemory()
+        }
+    }
     @Published var pendingInsertion: ScreenplayInsertionRequest?
     @Published var pendingLineJump: ScreenplayLineJumpRequest?
     @Published var pendingLineHighlight: ScreenplayLineHighlightRequest?
@@ -2485,6 +2552,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         self.projectRecentTurns = Self.restoreConversationTurns(forKey: Self.projectRecentTurnsStorageKey)
         self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey)
         self.latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext()
+        self.latestAppliedMemory = Self.restoreLatestAppliedMemory()
         persistPreferredProjectContext()
         persistActiveElementDebugMirror()
         persistStudioRoutingDebugMirror()
@@ -2586,6 +2654,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
     }
 
+    private static func restoreLatestAppliedMemory() -> ScreenplayStudioAppliedMemoryState {
+        ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
+            from: UserDefaults.standard.string(forKey: latestAppliedMemoryStorageKey)
+        )
+    }
+
     private func persistStructuredDraft() {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -2649,6 +2723,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             UserDefaults.standard.set(payload, forKey: Self.featureWorkflowContextStorageKey)
         } else {
             UserDefaults.standard.removeObject(forKey: Self.featureWorkflowContextStorageKey)
+        }
+    }
+
+    private func persistLatestAppliedMemory() {
+        if let payload = ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(latestAppliedMemory) {
+            UserDefaults.standard.set(payload, forKey: Self.latestAppliedMemoryStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.latestAppliedMemoryStorageKey)
         }
     }
 

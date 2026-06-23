@@ -9374,6 +9374,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 endingImage: promptContinuity.endingImage,
                 featureSequence: promptContinuity.featureSequence,
                 featureObligation: promptContinuity.featureObligation,
+                featureMemoryBrief: screenplayDraftBridge.latestAppliedMemory.featureMemoryBrief,
                 actPressureState: promptContinuity.actPressureState,
                 characterArcState: promptContinuity.characterArcState,
                 lastSceneOutcome: promptContinuity.lastSceneOutcome,

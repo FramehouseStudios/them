@@ -20,6 +20,7 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
     var endingImage: String = ""
     var featureSequence: String = ""
     var featureObligation: String = ""
+    var featureMemoryBrief: String = ""
     var actPressureState: String = ""
     var characterArcState: String = ""
     var lastSceneOutcome: String = ""
@@ -58,6 +59,7 @@ struct BackendScreenplayPromptSessionContext: Codable, Equatable {
         case endingImage = "ending_image"
         case featureSequence = "feature_sequence"
         case featureObligation = "feature_obligation"
+        case featureMemoryBrief = "persistent_memory_brief"
         case actPressureState = "act_pressure_state"
         case characterArcState = "character_arc_state"
         case lastSceneOutcome = "last_scene_outcome"
@@ -155,6 +157,7 @@ struct ScreenplayPromptBuilder {
         var endingImage: String = ""
         var featureSequence: String = ""
         var featureObligation: String = ""
+        var featureMemoryBrief: String = ""
         var actPressureState: String = ""
         var characterArcState: String = ""
         var lastSceneOutcome: String = ""
@@ -288,6 +291,7 @@ struct ScreenplayPromptBuilder {
         let endingImage = request.endingImage.trimmingCharacters(in: .whitespacesAndNewlines)
         let featureSequence = request.featureSequence.trimmingCharacters(in: .whitespacesAndNewlines)
         let featureObligation = request.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let featureMemoryBrief = request.featureMemoryBrief.trimmingCharacters(in: .whitespacesAndNewlines)
         let actPressureState = request.actPressureState.trimmingCharacters(in: .whitespacesAndNewlines)
         let characterArcState = request.characterArcState.trimmingCharacters(in: .whitespacesAndNewlines)
         let lastSceneOutcome = request.lastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -310,7 +314,7 @@ struct ScreenplayPromptBuilder {
                 !currentBeat.isEmpty || !logline.isEmpty || !themeArgument.isEmpty || !centralQuestion.isEmpty ||
                 !protagonistWant.isEmpty || !protagonistNeed.isEmpty || !antagonisticForce.isEmpty ||
                 !endingImage.isEmpty || !featureSequence.isEmpty || !featureObligation.isEmpty ||
-                !actPressureState.isEmpty || !characterArcState.isEmpty || !lastSceneOutcome.isEmpty ||
+                !featureMemoryBrief.isEmpty || !actPressureState.isEmpty || !characterArcState.isEmpty || !lastSceneOutcome.isEmpty ||
                 !nextScenePlan.isEmpty || !nextSceneMoves.isEmpty || !emotionalContinuity.isEmpty ||
                 !nextThreeTurns.isEmpty || !actThreePayoffPath.isEmpty || !beatSequence.isEmpty ||
                 !characterFocus.isEmpty || !unresolvedSetups.isEmpty || !unresolvedStoryThreads.isEmpty ||
@@ -336,6 +340,7 @@ struct ScreenplayPromptBuilder {
             endingImage: endingImage,
             featureSequence: featureSequence,
             featureObligation: featureObligation,
+            featureMemoryBrief: String(featureMemoryBrief.prefix(900)),
             actPressureState: actPressureState,
             characterArcState: characterArcState,
             lastSceneOutcome: lastSceneOutcome,
@@ -397,6 +402,7 @@ struct ScreenplayPromptBuilder {
         let endingImage = request.endingImage.trimmingCharacters(in: .whitespacesAndNewlines)
         let featureSequence = request.featureSequence.trimmingCharacters(in: .whitespacesAndNewlines)
         let featureObligation = request.featureObligation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let featureMemoryBrief = request.featureMemoryBrief.trimmingCharacters(in: .whitespacesAndNewlines)
         let actPressureState = request.actPressureState.trimmingCharacters(in: .whitespacesAndNewlines)
         let characterArcState = request.characterArcState.trimmingCharacters(in: .whitespacesAndNewlines)
         let lastSceneOutcome = request.lastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -420,6 +426,7 @@ struct ScreenplayPromptBuilder {
             !endingImage.isEmpty ||
             !featureSequence.isEmpty ||
             !featureObligation.isEmpty ||
+            !featureMemoryBrief.isEmpty ||
             !actPressureState.isEmpty ||
             !characterArcState.isEmpty ||
             !lastSceneOutcome.isEmpty ||
@@ -515,6 +522,9 @@ struct ScreenplayPromptBuilder {
         }
         if !featureObligation.isEmpty {
             lines.append("- Structural obligation due now: \(String(featureObligation.prefix(260)))")
+        }
+        if !featureMemoryBrief.isEmpty {
+            lines.append("- Persistent character memory: \(String(featureMemoryBrief.prefix(700)))")
         }
         if !actPressureState.isEmpty {
             lines.append("- Act pressure state: \(String(actPressureState.prefix(260)))")
