@@ -1055,6 +1055,37 @@ struct ScreenplayStudioAppliedMemoryState: Equatable {
         )
     }
 
+    static func from(
+        _ trace: BackendTalkCreativeMemoryTrace,
+        source: String,
+        previousSavedCorrection: String = ""
+    ) -> ScreenplayStudioAppliedMemoryState {
+        guard trace.applied else { return .empty }
+        let characterNames = Self.cleanList(
+            trace.characters.map { $0.name } +
+            trace.episodic.flatMap { $0.characters }
+        )
+        let correctedTerms = Self.cleanList(
+            trace.correctedTerms +
+            trace.characters.flatMap(\.correctedTerms)
+        )
+        let replacements = Self.cleanList(
+            trace.correctionReplacements +
+            trace.characters.flatMap(\.correctionReplacements)
+        )
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: source.trimmingCharacters(in: .whitespacesAndNewlines),
+            characters: characterNames,
+            correctedTerms: correctedTerms,
+            correctionReplacements: replacements,
+            characterBibleApplied: !characterNames.isEmpty,
+            correctionAppliedToPrompt: trace.correctionCount > 0 || !correctedTerms.isEmpty || !replacements.isEmpty,
+            lastSavedCorrection: previousSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines),
+            updatedAt: Date()
+        )
+    }
+
     private static func cleanList(_ values: [String]?) -> [String] {
         var seen = Set<String>()
         var out: [String] = []
@@ -7263,6 +7294,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let previousSavedCorrection = latestAppliedMemory.lastSavedCorrection
         let state = ScreenplayStudioAppliedMemoryState.from(
             memory,
+            source: source,
+            previousSavedCorrection: previousSavedCorrection
+        )
+        guard state.hasContent else { return }
+        latestAppliedMemory = state
+    }
+
+    func noteTalkCreativeMemoryTrace(
+        _ trace: BackendTalkCreativeMemoryTrace,
+        source: String
+    ) {
+        let previousSavedCorrection = latestAppliedMemory.lastSavedCorrection
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            trace,
             source: source,
             previousSavedCorrection: previousSavedCorrection
         )

@@ -634,4 +634,49 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertTrue(trace.styleApplied)
     }
 
+    func testTalkCreativeMemoryTraceBecomesAppliedStudioMemory() {
+        let trace = BackendTalkCreativeMemoryTrace(
+            applied: true,
+            characterCount: 1,
+            characters: [
+                BackendTalkCreativeMemoryCharacterTrace(
+                    name: " Mara ",
+                    hasBible: true,
+                    hasCorrections: true,
+                    correctedTerms: [" mother "],
+                    correctionReplacements: [" mother -> Eli's sister "]
+                )
+            ],
+            episodic: [
+                BackendTalkCreativeMemoryEpisodeTrace(
+                    summary: "Mara correction",
+                    excerpt: "Mara is Eli's sister, not his mother.",
+                    characters: [" Eli ", "Mara"],
+                    tags: ["correction"],
+                    correction: true
+                )
+            ],
+            correctionCount: 1,
+            correctedTerms: ["mother"],
+            correctionReplacements: ["mother -> Eli's sister"]
+        )
+
+        let state = ScreenplayStudioAppliedMemoryState.from(
+            trace,
+            source: " talk_result ",
+            previousSavedCorrection: " old correction "
+        )
+
+        XCTAssertTrue(state.hasContent)
+        XCTAssertEqual(state.source, "talk_result")
+        XCTAssertEqual(state.characters, ["Mara", "Eli"])
+        XCTAssertEqual(state.primaryCharacter, "Mara")
+        XCTAssertTrue(state.characterBibleApplied)
+        XCTAssertTrue(state.correctionAppliedToPrompt)
+        XCTAssertEqual(state.correctedTerms, ["mother"])
+        XCTAssertEqual(state.correctionReplacements, ["mother -> Eli's sister"])
+        XCTAssertEqual(state.lastSavedCorrection, "old correction")
+        XCTAssertEqual(state.summary, "Mara, Eli: mother -> Eli's sister")
+    }
+
 }

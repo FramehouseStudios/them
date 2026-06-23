@@ -51,6 +51,7 @@
 
 import express from "express";
 import { defaultResolveMemoryUserId, memoryAuthRequired } from "./memory_route_auth.js";
+import { extractCharacterMemoryCorrection } from "./creative_memory_store.js";
 
 const MEMORIES_MUTATION_BODY_LIMIT = "256kb";
 
@@ -236,6 +237,42 @@ function mountMemoriesRoutes(app, deps = {}) {
     };
   }
 
+  function mergeUniqueMemoryLines(primary = [], secondary = [], limit = 8) {
+    const seen = new Set();
+    const out = [];
+    for (const value of [...primary, ...secondary]) {
+      const clean = normalizeSnippet(value, 220);
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  function enrichCharacterBiblePatchWithCorrectionParser(character, characterBible) {
+    if (!character || !characterBible) return characterBible;
+    const correctionText = [
+      ...(Array.isArray(characterBible.corrections) ? characterBible.corrections : []),
+      ...(Array.isArray(characterBible.canon) ? characterBible.canon : []),
+    ].join(" ");
+    const parsed = extractCharacterMemoryCorrection(correctionText, character);
+    if (!parsed) return characterBible;
+    const parsedCanon = parsed.correctedFact ? [parsed.correctedFact] : [];
+    return {
+      ...characterBible,
+      canon: mergeUniqueMemoryLines(characterBible.canon, parsedCanon, 8),
+      correctedTerms: mergeUniqueMemoryLines(characterBible.correctedTerms, parsed.correctedTerms, 8),
+      correctionReplacements: mergeUniqueMemoryLines(
+        characterBible.correctionReplacements,
+        parsed.correctionReplacements,
+        8,
+      ),
+    };
+  }
+
   // ============== GET /memories ==============
   app.get("/memories", async (req, res) => {
     const userId = requireMemoryUser(req, res, "memories");
@@ -343,7 +380,8 @@ function mountMemoriesRoutes(app, deps = {}) {
       });
     }
     const nowTs = Date.now();
-    const { character, characterBible } = normalizeCharacterBiblePatch(req.body || {});
+    const { character, characterBible: rawCharacterBible } = normalizeCharacterBiblePatch(req.body || {});
+    const characterBible = enrichCharacterBiblePatchWithCorrectionParser(character, rawCharacterBible);
     if (!character || !characterBible) {
       res.setHeader("Cache-Control", "no-store");
       return res.status(400).json({

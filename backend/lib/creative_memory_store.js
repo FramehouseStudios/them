@@ -1878,5 +1878,6 @@ function createCreativeMemoryStore({ persistence } = {}) {
 
 export {
   createCreativeMemoryStore,
+  extractCharacterMemoryCorrection,
   SCHEMA_VERSION as CREATIVE_MEMORY_SCHEMA_VERSION,
 };

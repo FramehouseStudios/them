@@ -390,6 +390,53 @@ test("[memories] POST /memories/character-bible/update: records structured chara
   });
 });
 
+test("[memories] POST /memories/character-bible/update: derives structured replacements from correction prose", async () => {
+  const recordCalls = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      recordCharacterMention: async (args) => {
+        recordCalls.push(args);
+        return { ok: true, action: "updated", characterName: args.characterName };
+      },
+      getCreativeMemoryForPrompt: async () => ({
+        characters: [
+          {
+            name: "Mara",
+            last_referenced: 1_800_000_000_000,
+            bible: {
+              canon: ["Mara is Eli's sister."],
+            },
+          },
+        ],
+      }),
+    },
+    buildMemoryCards: () => [
+      {
+        id: "character-mara",
+        key: "character:Mara",
+        title: "Mara Character Memory",
+        summary: "Mara is Eli's sister.",
+        source: "character_bible",
+      },
+    ],
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/character-bible/update", {
+      character_bible: {
+        character: "Mara",
+        corrections: ["Authoritative correction for Mara: Mara is Eli's sister, not his mother."],
+      },
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(recordCalls.length, 1);
+    assert.deepEqual(recordCalls[0].characterBible.correctedTerms, ["mother"]);
+    assert.deepEqual(recordCalls[0].characterBible.correctionReplacements, ["mother -> Eli's sister"]);
+    assert.ok(recordCalls[0].characterBible.canon.includes("Authoritative correction for Mara: Mara is Eli's sister."));
+  });
+});
+
 // ============== POST /memories/forget ==============
 
 test("[memories] POST /memories/forget: returns forgotten_id + theme_key", async () => {

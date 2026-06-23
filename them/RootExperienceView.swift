@@ -6434,6 +6434,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             debugScreenplayRepairReason = (metadata.screenplayTrace.repairReason ?? "")
                                 .trimmingCharacters(in: .whitespacesAndNewlines)
                             updateDebugCreativeMemoryTrace(metadata.creativeMemoryTrace)
+                            self.screenplayDraftBridge.noteTalkCreativeMemoryTrace(
+                                metadata.creativeMemoryTrace,
+                                source: "talk_response_metadata"
+                            )
                             if !metadata.screenplayCues.isEmpty {
                                 debugScreenplayCues = metadata.screenplayCues
                             }
@@ -6690,6 +6694,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             debugScreenplayRepairReason = (result.screenplayTrace.repairReason ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             updateDebugCreativeMemoryTrace(result.creativeMemoryTrace)
+            screenplayDraftBridge.noteTalkCreativeMemoryTrace(
+                result.creativeMemoryTrace,
+                source: "talk_result"
+            )
             if let debugVoiceTurnToken {
                 let resolvedOutputTarget = result.screenplayOutput?.target
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
