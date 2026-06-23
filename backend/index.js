@@ -3115,6 +3115,114 @@ function parseTalkScreenplayCharacterArcMemory(value) {
   return hasSignal ? clean : null;
 }
 
+function buildCreativeMemoryRecallQuery(req = null, {
+  screenplayTaskHint = "",
+  studioMeta = null,
+} = {}) {
+  const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const studio = studioMeta && typeof studioMeta === "object"
+    ? studioMeta
+    : sanitizeStudioTurnMetadata(body || null);
+  const lines = [];
+  const seen = new Set();
+  const addLine = (label, value, maxChars = 240) => {
+    const clean = normalizeSnippet(value, maxChars);
+    if (!clean) return;
+    const line = `${label}: ${clean}`;
+    const key = line.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    lines.push(line);
+  };
+  const addList = (label, value, maxItems = 6, maxChars = 160) => {
+    const items = Array.isArray(value)
+      ? normalizeScreenplayStringList(value, maxItems, maxChars)
+      : parseTalkScreenplayContextList(value, maxItems, maxChars);
+    if (!items.length) return;
+    addLine(label, items.join(" / "), Math.max(240, maxItems * maxChars));
+  };
+
+  addLine("user_request", screenplayTaskHint, 700);
+  addLine(
+    "transcript",
+    body.client_transcript ??
+      body.clientTranscript ??
+      body.transcript ??
+      body.debug_transcript ??
+      body.debugTranscript ??
+      "",
+    700
+  );
+  addLine(
+    "screenplay_generation_transcript",
+    body.screenplay_generation_transcript ?? body.screenplayGenerationTranscript ?? "",
+    900
+  );
+  addLine("project_id", studio?.screenplayProjectId ?? body.projectId ?? body.project_id, 96);
+  addLine(
+    "project_title",
+    body.projectTitle ??
+      body.project_title ??
+      body.screenplayProjectTitle ??
+      body.screenplay_project_title ??
+      body.pack ??
+      body.screenplayPack ??
+      body.screenplay_pack,
+    160
+  );
+  addLine("screenplay_target", studio?.screenplayTarget, 40);
+  addLine("act", studio?.screenplayAct, 120);
+  addLine("feature_sequence", studio?.screenplayFeatureSequence, 220);
+  addLine("scene", studio?.screenplayAnchorSceneLabel, 160);
+  addLine("scene_objective", studio?.screenplaySceneObjective, 260);
+  addLine("scene_summary", studio?.screenplaySceneSummary, 260);
+  addLine("current_beat", studio?.screenplayCurrentBeat, 240);
+  addLine("logline", studio?.screenplayLogline, 260);
+  addLine("theme_argument", studio?.screenplayThemeArgument, 260);
+  addLine("central_question", studio?.screenplayCentralQuestion, 260);
+  addLine("protagonist_want", studio?.screenplayProtagonistWant, 220);
+  addLine("protagonist_need", studio?.screenplayProtagonistNeed, 220);
+  addLine("antagonistic_force", studio?.screenplayAntagonisticForce, 240);
+  addLine("ending_image", studio?.screenplayEndingImage, 220);
+  addLine("structural_obligation", studio?.screenplayFeatureObligation, 260);
+  addLine("act_pressure", studio?.screenplayActPressureState, 260);
+  addLine("character_arc", studio?.screenplayCharacterArcState, 260);
+  if (studio?.screenplayCharacterArcMemory && typeof studio.screenplayCharacterArcMemory === "object") {
+    const arcMemory = studio.screenplayCharacterArcMemory;
+    addLine(
+      "character_arc_memory",
+      [
+        arcMemory.character ? `character=${arcMemory.character}` : "",
+        arcMemory.act ? `act=${arcMemory.act}` : "",
+        arcMemory.want ? `want=${arcMemory.want}` : "",
+        arcMemory.need ? `need=${arcMemory.need}` : "",
+        arcMemory.wound ? `wound=${arcMemory.wound}` : "",
+        arcMemory.falseBelief ? `false_belief=${arcMemory.falseBelief}` : "",
+        arcMemory.relationshipPressure ? `relationship_pressure=${arcMemory.relationshipPressure}` : "",
+        arcMemory.currentTactic ? `current_tactic=${arcMemory.currentTactic}` : "",
+        arcMemory.nextEmotionalTurn ? `next_emotional_turn=${arcMemory.nextEmotionalTurn}` : "",
+      ].filter(Boolean).join("; "),
+      700
+    );
+  }
+  addLine("last_scene_outcome", studio?.screenplayLastSceneOutcome, 240);
+  addLine("next_scene_plan", studio?.screenplayNextScenePlan, 320);
+  addList("character_focus", studio?.screenplayCharacterFocus, 8, 120);
+  addList("next_scene_moves", studio?.screenplayNextSceneMoves, 5, 180);
+  addList("next_three_turns", studio?.screenplayNextThreeTurns, 3, 180);
+  addList("act_three_payoff_path", studio?.screenplayActThreePayoffPath, 5, 200);
+  addList("beat_sequence", studio?.screenplayBeatSequence, 8, 160);
+  addList("unresolved_setups", studio?.screenplayUnresolvedSetups, 8, 200);
+  addList("unresolved_story_threads", studio?.screenplayUnresolvedStoryThreads, 8, 200);
+  addList("character_arc_turns", studio?.screenplayCharacterArcTurns, 6, 180);
+  addList("image_motifs", studio?.screenplayImageMotifs, 6, 140);
+  addList("continuity_notes", studio?.screenplayContinuityNotes, 8, 200);
+  addLine("emotional_continuity", studio?.screenplayEmotionalContinuity, 260);
+  addLine("draft_excerpt", studio?.screenplayDraftExcerpt, 900);
+
+  return normalizeSnippet(lines.join("\n"), 4_000);
+}
+
 function positiveTalkContextInteger(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
@@ -3555,8 +3663,10 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
   const hasScreenplayTaskBlock = basePrompt.includes("<screenplay_task>");
   const hasFeatureMapBlock = basePrompt.includes("<feature_film_map>");
   const body = req?.body && typeof req.body === "object" ? req.body : {};
+  const studioMeta = sanitizeStudioTurnMetadata(req?.body || null);
   const projectId = normalizeSnippet(
-    body.projectId ??
+    studioMeta?.screenplayProjectId ??
+      body.projectId ??
       body.project_id ??
       body.screenplayProjectId ??
       body.screenplay_project_id,
@@ -3573,18 +3683,16 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
     160
   );
   const userId = req?.authUser?.id || req?.user?.id || req?.userId || null;
+  const memoryRecallQuery = buildCreativeMemoryRecallQuery(req, {
+    screenplayTaskHint,
+    studioMeta,
+  });
   const memory = userId && !hasMemoryBlock
     ? await creativeMemoryStore.getCreativeMemoryForPrompt({
       userId,
       projectId,
       projectTitle,
-      query: screenplayTaskHint ||
-        body.client_transcript ||
-        body.clientTranscript ||
-        body.transcript ||
-        body.debug_transcript ||
-        body.debugTranscript ||
-        "",
+      query: memoryRecallQuery,
     })
     : null;
 
@@ -3613,7 +3721,6 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
       }
     } catch (_e) { /* never block the prompt on a twist-log read */ }
   }
-  const studioMeta = sanitizeStudioTurnMetadata(req?.body || null);
   const cleanTaskHint = normalizeSnippet(screenplayTaskHint, 8_000);
   const inferredScreenplayTask = cleanTaskHint ? inferScreenplayTask(cleanTaskHint) : null;
   const canUsePersistentScreenplayMemory =
@@ -30819,6 +30926,7 @@ export {
   buildMemoryCards,
   buildMemoryStateVersion,
   buildSessionContinuitySnapshot,
+  buildCreativeMemoryRecallQuery,
   buildScreenplayProjectMemoryRecordFromStudioMeta,
   evaluateTurnQualityHeuristics,
   validateAndDirectHerReply,

@@ -11,6 +11,7 @@ const {
   buildMemoryCards,
   buildMemoryStateVersion,
   buildSessionContinuitySnapshot,
+  buildCreativeMemoryRecallQuery,
   buildScreenplayProjectMemoryRecordFromStudioMeta,
   createEmptyEmotionMemory,
   sanitizeScreenplayProjectMemoryItems,
@@ -651,6 +652,63 @@ test("[persistent-screenplay-memory] non-screenplay turns do not inject project 
   );
 
   assert.equal(prompt, "PERSONA");
+});
+
+test("[persistent-screenplay-memory] live Studio context builds a rich creative-memory recall query", () => {
+  const query = buildCreativeMemoryRecallQuery(
+    {
+      body: {
+        client_transcript: "Continue from here into the midpoint reversal.",
+        screenplayProjectId: "rain-docket",
+        screenplayProjectTitle: "Rain Docket",
+        screenplayTarget: "page",
+        screenplayAct: "Act II",
+        screenplayAnchorSceneLabel: "Courthouse Hallway",
+        screenplayCurrentBeat: "Mara realizes the sealed affidavit points at the judge.",
+        screenplayFeatureSequence: "Act II - Midpoint trap",
+        screenplayFeatureObligation: "Turn private proof into public cost.",
+        screenplayActPressureState: "The midpoint must make private evidence useless.",
+        screenplayCharacterArcState: "Mara still believes control can protect Eli.",
+        screenplayCharacterArcMemory: {
+          character: "Mara",
+          want: "protect Eli without exposing the affidavit",
+          need: "choose public courage",
+          falseBelief: "control keeps Eli safe",
+          nextEmotionalTurn: "public exposure",
+        },
+        screenplayNextThreeTurns: [
+          "Father names the lie.",
+          "Mara chooses public exposure.",
+          "The sealed affidavit becomes dangerous.",
+        ],
+        screenplayActThreePayoffPath: [
+          "The affidavit becomes courtroom testimony.",
+          "The courthouse wall pays off as final image.",
+        ],
+        screenplayUnresolvedSetups: ["sealed affidavit", "missing sketchbook"],
+        screenplayCharacterFocus: ["Mara", "Father"],
+        screenplayImageMotifs: ["charcoal dust", "courthouse fluorescents"],
+      },
+    },
+    {
+      screenplayTaskHint: "Continue the screenplay pages.",
+    }
+  );
+
+  assert.match(query, /user_request: Continue the screenplay pages\./);
+  assert.match(query, /project_id: rain-docket/);
+  assert.match(query, /project_title: Rain Docket/);
+  assert.match(query, /act: Act II/);
+  assert.match(query, /current_beat: Mara realizes the sealed affidavit points at the judge\./);
+  assert.match(query, /character_arc_memory: character=Mara; want=protect Eli without exposing the affidavit/);
+  assert.match(query, /need=choose public courage/);
+  assert.match(query, /false_belief=control keeps Eli safe/);
+  assert.match(query, /next_three_turns: Father names the lie\. \/ Mara chooses public exposure\./);
+  assert.match(query, /act_three_payoff_path: The affidavit becomes courtroom testimony\./);
+  assert.match(query, /unresolved_setups: sealed affidavit \/ missing sketchbook/);
+  assert.match(query, /character_focus: Mara \/ Father/);
+  assert.match(query, /image_motifs: charcoal dust \/ courthouse fluorescents/);
+  assert.ok(query.length <= 4_000);
 });
 
 test("[persistent-screenplay-memory] builds session continuity snapshot from latest project memory", () => {
