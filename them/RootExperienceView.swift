@@ -2491,6 +2491,11 @@ struct RootExperienceView: View {
                 realtimePendingUserTranscript = ""
                 return
             }
+            Task { @MainActor in
+                await applyConversationalStudioCorrectionIfNeeded(
+                    preparedPrompt.directorText
+                )
+            }
             realtimePendingUserTranscript = preparedPrompt.directorText
             if isStudioSurfaceActive || preparedPrompt.shouldAutoOpenStudio {
                 startRealtimeStudioDraftStreamIfNeeded(for: preparedPrompt.directorText)
@@ -4234,6 +4239,35 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         }
 
         return (true, feedback.isError ? feedback.confirmation : nil)
+    }
+
+    @MainActor
+    @discardableResult
+    private func applyConversationalStudioCorrectionIfNeeded(
+        _ rawText: String
+    ) async -> Bool {
+        let clean = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return false }
+        guard isStudioSurfaceActive || screenplayDraftBridge.latestAppliedMemory.hasContent else {
+            return false
+        }
+        guard let correction = ScreenplayStudioAppliedMemoryState.conversationalCorrection(from: clean) else {
+            return false
+        }
+
+        do {
+            let character = try await screenplayDraftBridge.saveInlineAppliedMemoryCorrection(correction)
+            speculativeTalk.cancel()
+            let confirmation = "Saved correction for \(character)."
+            screenplayDraftBridge.autoInsertStatusText = confirmation
+            showStudioCommandNotice(confirmation)
+            return true
+        } catch {
+            let message = "Memory correction failed: \(error.localizedDescription)"
+            screenplayDraftBridge.autoInsertStatusText = message
+            showStudioCommandNotice(message)
+            return false
+        }
     }
 
     @MainActor
@@ -6020,6 +6054,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
             return
         }
+        _ = await applyConversationalStudioCorrectionIfNeeded(
+            preparedPrompt.directorText
+        )
         let shouldUseSyncedStudioVoiceInsert =
             preparedPrompt.useScreenplayMode &&
             preparedPrompt.shouldWriteToPage &&
@@ -7123,6 +7160,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             isThinking = false
             studioTypedPromptRoutingMode = .automatic
         }
+        _ = await applyConversationalStudioCorrectionIfNeeded(
+            cleanPrompt
+        )
 
         let store = HerEvolutionStore.shared
         let directorText = cleanPrompt

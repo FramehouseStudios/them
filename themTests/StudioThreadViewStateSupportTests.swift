@@ -739,4 +739,37 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertTrue(state.featureMemoryBrief.contains("Authoritative corrections: mother -> Eli's sister"))
     }
 
+    func testConversationalAppliedMemoryCorrectionDetectsActuallyNo() {
+        let correction = ScreenplayStudioAppliedMemoryState.conversationalCorrection(
+            from: "Actually, no, Mara is Eli's sister, not his mother."
+        )
+
+        XCTAssertEqual(correction, "Mara is Eli's sister, not his mother")
+
+        let inline = ScreenplayStudioAppliedMemoryState.inlineCorrection(
+            character: "Mara",
+            correction: correction ?? ""
+        )
+
+        XCTAssertEqual(inline.correctionLine, "Authoritative correction for Mara: Mara is Eli's sister, not his mother")
+        XCTAssertEqual(inline.correctedTerms, ["mother"])
+        XCTAssertEqual(inline.correctionReplacements, ["mother -> Eli's sister"])
+    }
+
+    func testConversationalAppliedMemoryCorrectionDetectsReplacementCue() {
+        let correction = ScreenplayStudioAppliedMemoryState.conversationalCorrection(
+            from: "Correction: replace Mara's mother with Eli's sister."
+        )
+
+        XCTAssertEqual(correction, "Mara's mother -> Eli's sister")
+    }
+
+    func testConversationalAppliedMemoryCorrectionIgnoresOrdinaryInsteadPrompt() {
+        XCTAssertNil(
+            ScreenplayStudioAppliedMemoryState.conversationalCorrection(
+                from: "Maybe instead write the bridge scene with less dialogue."
+            )
+        )
+    }
+
 }

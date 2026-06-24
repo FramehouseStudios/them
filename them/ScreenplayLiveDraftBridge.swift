@@ -1146,8 +1146,83 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         )
     }
 
+    static func conversationalCorrection(from text: String) -> String? {
+        let cleanText = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard !cleanText.isEmpty else { return nil }
+
+        if let directReplacement = conversationalDirectReplacement(from: cleanText) {
+            return directReplacement
+        }
+
+        let cuePatterns = [
+            #"(?i)^(?:actually\s*,?\s*no|no\s*,?\s*actually|correction|retcon|scratch\s+that|not\s+that)\b\s*[,;:\-]?\s*(.+)$"#,
+            #"(?i)^no\b\s*[,;:\-]\s*(.+\bnot\b.+)$"#,
+            #"(?i)^actually\b\s*[,;:\-]?\s*(.+\bnot\b.+)$"#,
+            #"(?i)^(?:change|make)\s+(?:it|this|that)\s+(?:so\s+)?(?:to\s+)?(.+)$"#
+        ]
+
+        for pattern in cuePatterns {
+            guard
+                let groups = regexGroups(pattern: pattern, in: cleanText),
+                let rawCorrection = groups.first
+            else { continue }
+
+            let correction = cleanInlineCorrectionFragment(rawCorrection)
+            guard isLikelyConversationalMemoryCorrection(correction) else { continue }
+            return correction
+        }
+
+        return nil
+    }
+
     static func mergedMemoryList(_ values: [String]) -> [String] {
         cleanList(values)
+    }
+
+    private static func conversationalDirectReplacement(from text: String) -> String? {
+        let patterns = [
+            #"(?i)^(?:correction|retcon)?\s*[:\-]?\s*(?:change|replace|swap)\s+(.+?)\s+(?:to|with|into)\s+(.+)$"#,
+            #"(?i)^(.+?)\s+(?:instead\s+of|rather\s+than)\s+(.+)$"#
+        ]
+        for pattern in patterns {
+            guard let groups = regexGroups(pattern: pattern, in: text), groups.count == 2 else { continue }
+            let first = cleanInlineCorrectionFragment(groups[0])
+            let second = cleanInlineCorrectionFragment(groups[1])
+            guard !first.isEmpty, !second.isEmpty else { continue }
+
+            if pattern.contains("instead") || pattern.contains("rather") {
+                guard isLikelyConversationalMemoryCorrection("\(first), not \(second)") else { continue }
+                return "\(second) -> \(first)"
+            }
+
+            let placeholderTerms: Set<String> = ["it", "this", "that"]
+            guard !placeholderTerms.contains(first.lowercased()) else { continue }
+            return "\(first) -> \(second)"
+        }
+        return nil
+    }
+
+    private static func isLikelyConversationalMemoryCorrection(_ correction: String) -> Bool {
+        let clean = correction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count >= 5 else { return false }
+        let normalized = " \(clean.lowercased()) "
+            .replacingOccurrences(of: "’", with: "'")
+        let markers = [
+            " not ",
+            " -> ",
+            " => ",
+            " instead of ",
+            " rather than ",
+            " is ",
+            " are ",
+            " was ",
+            " were ",
+            " should be ",
+            "'s "
+        ]
+        return markers.contains { normalized.contains($0) }
     }
 
     private static func inlineCorrectionReplacementPair(
