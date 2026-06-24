@@ -256,7 +256,8 @@ test("recordTriggersFromTalkTurn stores and repairs act-level character arc stat
 });
 
 test("recordTriggersFromTalkTurn persists corrections and retrieves them before older conflicting memory", async () => {
-  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
   await store.recordTriggersFromTalkTurn({
     userId: "u-trig-correction",
     transcript: "My protagonist is named Mara. Mara hides a cassette under the rain-swollen vent before Eli can see it.",
@@ -278,11 +279,26 @@ test("recordTriggersFromTalkTurn persists corrections and retrieves them before 
     projectId: "rain-docket",
     query: "Continue Mara and the cassette.",
   });
-  assert.ok(memory?.episodicMemories?.length >= 2);
+  assert.ok(memory?.episodicMemories?.length >= 1);
   const top = memory.episodicMemories[0];
   assert.ok(top.tags.includes("correction"));
   assert.match(top.summary, /Correction for Mara/);
   assert.match(top.excerpt, /VHS tape/);
+  assert.equal(memory.episodicMemories.some((episode) => {
+    return !episode.tags.includes("correction") && /cassette/i.test(`${episode.summary} ${episode.excerpt}`);
+  }), false);
+
+  const raw = await persistence.get({
+    domain: "creative_memory",
+    key: "u-trig-correction",
+  });
+  const stale = raw.episodicMemories.find((episode) => {
+    return !episode.tags.includes("correction") && /cassette/i.test(`${episode.summary} ${episode.excerpt}`);
+  });
+  assert.ok(stale, "expected original stale episode to remain for audit/history");
+  assert.ok(stale.tags.includes("superseded"));
+  assert.ok(stale.supersededAt > 0);
+  assert.equal(stale.supersededTerms.includes("cassette"), true);
 });
 
 test("recordTriggersFromTalkTurn stores generated screenplay pages with project metadata", async () => {

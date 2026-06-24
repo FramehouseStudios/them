@@ -100,6 +100,7 @@ const STORY_MEMORY_KEYWORDS = /\b(?:act\s*(?:i|ii|iii|1|2|3|one|two|three)|all[-
 const EXPLICIT_MEMORY_KEYWORDS = /\b(?:remember|keep in mind|do not forget|don't forget|note that|important|actually,\s*no|correction|for this movie|for this film|for this screenplay|in this movie|in this film|in this script|in my movie|in my film|in my screenplay|in my script)\b/i;
 const CORRECTION_KEYWORDS = /\b(?:actually,\s*no|correction|scratch that|not that|instead|retcon|change it to|make it so)\b/i;
 const CORRECTION_TAG = "correction";
+const SUPERSEDED_TAG = "superseded";
 const CHARACTER_BIBLE_FACT_KEYWORDS = /\b(?:is|was|becomes|became|turns out|wants|needs|must|believes|hides|knows|protects|fears|misses|betrays|trusts|forgives|loves|hates|secret|wound|goal|arc|relationship|mother|father|sister|brother|daughter|son|wife|husband|partner)\b/i;
 const CHARACTER_ARC_FIELDS = Object.freeze([
   "act",
@@ -714,6 +715,7 @@ function sanitizeEpisodicMemoryItem(item = {}) {
   if (!summary && !text && !characterNames.length && !projectTitle) return null;
   const createdAt = Math.max(0, Number(item.createdAt ?? item.created_at ?? nowMs()));
   const updatedAt = Math.max(createdAt, Number(item.updatedAt ?? item.updated_at ?? createdAt));
+  const supersededAt = Math.max(0, Number(item.supersededAt ?? item.superseded_at ?? 0));
   const id = cleanText(
     item.id || `episode_${stableHash([projectId, projectTitle, summary, text, characterNames.join("|")].join("|"))}`,
     80
@@ -740,6 +742,16 @@ function sanitizeEpisodicMemoryItem(item = {}) {
     updatedAt,
     lastReferencedAt: Math.max(0, Number(item.lastReferencedAt ?? item.last_referenced_at ?? updatedAt)),
     referenceCount: Math.max(0, Number(item.referenceCount ?? item.reference_count ?? 0)),
+    ...(supersededAt ? {
+      supersededAt,
+      supersededByMemoryId: cleanText(item.supersededByMemoryId ?? item.superseded_by_memory_id, 80),
+      supersededReason: cleanText(item.supersededReason ?? item.superseded_reason, 220),
+      supersededTerms: collectCharacterBibleItems(
+        item.supersededTerms ?? item.superseded_terms,
+        CHARACTER_BIBLE_TERMS_MAX,
+        120
+      ),
+    } : {}),
   };
 }
 
@@ -804,7 +816,7 @@ function selectEpisodicMemoriesForPrompt(items = [], {
 } = {}) {
   const sanitized = (Array.isArray(items) ? items : [])
     .map(sanitizeEpisodicMemoryItem)
-    .filter(Boolean);
+    .filter((item) => item && !item.supersededAt);
   if (!sanitized.length) return [];
   const cleanQuery = cleanText(query, 2_000);
   return sanitized
@@ -826,6 +838,16 @@ function selectEpisodicMemoriesForPrompt(items = [], {
       delete out.text;
       delete out.semanticFingerprint;
       return out;
+    });
+}
+
+function sortEpisodicMemoriesForStorage(memories = []) {
+  return (Array.isArray(memories) ? memories : [])
+    .sort((a, b) => {
+      const aSuperseded = a?.supersededAt ? 1 : 0;
+      const bSuperseded = b?.supersededAt ? 1 : 0;
+      if (aSuperseded !== bSuperseded) return aSuperseded - bSuperseded;
+      return Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0);
     });
 }
 
@@ -1099,6 +1121,163 @@ function extractCharacterMemoryCorrection(text = "", characterName = "") {
   };
 }
 
+function mergeCorrectionSignals(...signals) {
+  const correctedTerms = [];
+  const correctionReplacements = [];
+  const correctionNotes = [];
+  const addTerm = (value) => {
+    const clean = normalizeCharacterCorrectionTerm(value, 120);
+    if (!clean) return;
+    if (!correctedTerms.some((item) => item.toLowerCase() === clean.toLowerCase())) {
+      correctedTerms.push(clean);
+    }
+  };
+  const addReplacement = (value) => {
+    const parsed = parseCharacterBibleReplacement(value);
+    if (!parsed) return;
+    addTerm(parsed.from);
+    const replacement = `${parsed.from} -> ${parsed.to}`;
+    if (!correctionReplacements.some((item) => item.toLowerCase() === replacement.toLowerCase())) {
+      correctionReplacements.push(replacement);
+    }
+  };
+  for (const signal of signals) {
+    if (!signal || typeof signal !== "object") continue;
+    for (const term of collectCharacterBibleItems(signal.correctedTerms, CHARACTER_BIBLE_TERMS_MAX, 120)) {
+      addTerm(term);
+    }
+    for (const replacement of collectCharacterBibleItems(signal.correctionReplacements, CHARACTER_BIBLE_TERMS_MAX, 180)) {
+      addReplacement(replacement);
+    }
+    const note = normalizeCharacterBibleFact(signal.correctionNote || signal.correctedFact || "", 220);
+    if (note && !correctionNotes.some((item) => item.toLowerCase() === note.toLowerCase())) {
+      correctionNotes.push(note);
+    }
+  }
+  return correctedTerms.length || correctionReplacements.length
+    ? {
+      correctedTerms: correctedTerms.slice(0, CHARACTER_BIBLE_TERMS_MAX),
+      correctionReplacements: correctionReplacements.slice(0, CHARACTER_BIBLE_TERMS_MAX),
+      correctionNotes: correctionNotes.slice(0, 4),
+    }
+    : null;
+}
+
+function extractGenericEpisodicCorrectionSignal(text = "") {
+  const raw = cleanText(text, 1_200);
+  if (!raw || !CORRECTION_KEYWORDS.test(raw)) return null;
+  const correctedTerms = [];
+  const correctionReplacements = [];
+  const addTerm = (value) => {
+    const clean = normalizeCharacterCorrectionTerm(value, 120);
+    if (!clean || /\b(?:scene|act|page|story|character|script|screenplay)\b/i.test(clean)) return;
+    if (!correctedTerms.some((item) => item.toLowerCase() === clean.toLowerCase())) correctedTerms.push(clean);
+  };
+  const addReplacement = (fromValue, toValue) => {
+    const from = normalizeCharacterCorrectionTerm(fromValue, 90);
+    const to = normalizeCharacterCorrectionTerm(toValue, 120);
+    if (!from || !to || from.toLowerCase() === to.toLowerCase()) return;
+    addTerm(from);
+    const replacement = `${from} -> ${to}`;
+    if (!correctionReplacements.some((item) => item.toLowerCase() === replacement.toLowerCase())) {
+      correctionReplacements.push(replacement);
+    }
+  };
+
+  const changeMatch = raw.match(/\bchange\s+(.{1,90}?)\s+to\s+(.{1,160}?)(?:[.;]|$)/i);
+  if (changeMatch) addReplacement(changeMatch[1], changeMatch[2]);
+  const notButPattern = /\bnot\s+(?:a|an|the|that|this|his|her|their|its)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)\s*(?:,?\s*(?:but|instead)\s+)([A-Za-z0-9][A-Za-z0-9' -]{1,120}?)(?:[.;]|$)/gi;
+  for (const match of raw.matchAll(notButPattern)) addReplacement(match[1], match[2]);
+  const notPattern = /\bnot\s+(?:a|an|the|that|this|his|her|their|its)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)(?=\.|,|;|$|\s+but\b|\s+instead\b|\s+anymore\b)/gi;
+  for (const match of raw.matchAll(notPattern)) addTerm(match[1]);
+
+  return mergeCorrectionSignals({
+    correctedTerms,
+    correctionReplacements,
+    correctionNote: normalizeCharacterBibleFact(raw, 220),
+  });
+}
+
+function collectEpisodicCorrectionSignal({ text = "", characterNames = [] } = {}) {
+  const cleanNames = normalizeStringList(characterNames, 8, 48)
+    .map(normalizeCharacterName)
+    .filter(Boolean);
+  const characterSignals = cleanNames
+    .map((name) => extractCharacterMemoryCorrection(text, name))
+    .filter(Boolean);
+  return mergeCorrectionSignals(
+    ...characterSignals,
+    extractGenericEpisodicCorrectionSignal(text)
+  );
+}
+
+function memoryMatchesCorrectionSignal(memory = {}, correction = null) {
+  const signal = mergeCorrectionSignals(correction);
+  if (!signal) return false;
+  const source = [
+    memory.summary,
+    memory.excerpt,
+    memory.text,
+    memory.projectTitle,
+    ...(Array.isArray(memory.characterNames) ? memory.characterNames : []),
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (!source) return false;
+  return signal.correctedTerms.some((term) => {
+    const clean = normalizeCharacterCorrectionTerm(term, 120).toLowerCase();
+    return clean && source.includes(clean);
+  });
+}
+
+function memorySharesCorrectionScope(memory = {}, correctionMemory = {}) {
+  const correctionProjectId = cleanText(correctionMemory.projectId, 96).toLowerCase();
+  const correctionProjectTitle = cleanText(correctionMemory.projectTitle, 160).toLowerCase();
+  const memoryProjectId = cleanText(memory.projectId, 96).toLowerCase();
+  const memoryProjectTitle = cleanText(memory.projectTitle, 160).toLowerCase();
+  if (correctionProjectId && memoryProjectId && correctionProjectId !== memoryProjectId) return false;
+  if (correctionProjectTitle && memoryProjectTitle && correctionProjectTitle !== memoryProjectTitle) return false;
+
+  const correctionNames = new Set((correctionMemory.characterNames || []).map((name) => String(name || "").toLowerCase()));
+  if (!correctionNames.size) return true;
+  const memoryNames = new Set((memory.characterNames || []).map((name) => String(name || "").toLowerCase()));
+  return [...correctionNames].some((name) => memoryNames.has(name));
+}
+
+function supersedeEpisodicMemoriesForCorrection(memories = [], {
+  correctionMemory = null,
+  correction = null,
+  atMs = nowMs(),
+} = {}) {
+  const current = (Array.isArray(memories) ? memories : [])
+    .map(sanitizeEpisodicMemoryItem)
+    .filter(Boolean);
+  const cleanCorrectionMemory = sanitizeEpisodicMemoryItem(correctionMemory);
+  const signal = mergeCorrectionSignals(correction);
+  if (!cleanCorrectionMemory || !signal) return { memories: current, superseded: 0 };
+  const reason = cleanText(
+    signal.correctionNotes?.[0] ||
+      `Superseded by correction ${cleanCorrectionMemory.id}`,
+    220
+  );
+  let superseded = 0;
+  const next = current.map((memory) => {
+    if (memory.id === cleanCorrectionMemory.id) return memory;
+    if (hasTag(memory, CORRECTION_TAG)) return memory;
+    if (!memorySharesCorrectionScope(memory, cleanCorrectionMemory)) return memory;
+    if (!memoryMatchesCorrectionSignal(memory, signal)) return memory;
+    superseded += memory.supersededAt ? 0 : 1;
+    return {
+      ...memory,
+      tags: normalizeStringList([...(memory.tags || []), SUPERSEDED_TAG], 8, 48)
+        .map((tag) => tag.toLowerCase()),
+      supersededAt: Math.max(Number(memory.supersededAt || 0), atMs),
+      supersededByMemoryId: cleanCorrectionMemory.id,
+      supersededReason: reason,
+      supersededTerms: signal.correctedTerms,
+    };
+  });
+  return { memories: next, superseded };
+}
+
 function normalizeActLabel(value = "") {
   const clean = cleanText(value, 40).toLowerCase();
   if (!clean) return "";
@@ -1302,8 +1481,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
           nowMs()
         );
         if (touched > 0) {
-          latest.episodicMemories = memories
-            .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+          latest.episodicMemories = sortEpisodicMemoriesForStorage(memories)
             .slice(0, EPISODIC_MEMORIES_MAX);
         }
         return latest;
@@ -1429,6 +1607,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     projectId = "",
     projectTitle = "",
     source = "",
+    correction = null,
   } = {}) {
     if (!userId) return { ok: false, action: "skipped", reason: "missing_userId" };
     const item = sanitizeEpisodicMemoryItem({
@@ -1495,8 +1674,27 @@ function createCreativeMemoryStore({ persistence } = {}) {
       } else {
         memories.push(item);
       }
-      memories.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-      rec.episodicMemories = memories.slice(0, EPISODIC_MEMORIES_MAX);
+      const correctionSignal = hasTag(item, CORRECTION_TAG)
+        ? mergeCorrectionSignals(
+          correction,
+          collectEpisodicCorrectionSignal({
+            text: item.text || text,
+            characterNames: item.characterNames || characterNames,
+          })
+        )
+        : null;
+      if (correctionSignal) {
+        const correctionMemory = duplicateIdx >= 0
+          ? memories[duplicateIdx]
+          : item;
+        const repaired = supersedeEpisodicMemoriesForCorrection(memories, {
+          correctionMemory,
+          correction: correctionSignal,
+          atMs: nowMs(),
+        });
+        memories.splice(0, memories.length, ...repaired.memories);
+      }
+      rec.episodicMemories = sortEpisodicMemoriesForStorage(memories).slice(0, EPISODIC_MEMORIES_MAX);
       return rec;
     });
     return { ok: true, action, memoryId: item.id };
@@ -1836,6 +2034,12 @@ function createCreativeMemoryStore({ persistence } = {}) {
         isCorrection: isCorrectionTurn,
       });
       try {
+        const correctionSignal = isCorrectionTurn
+          ? collectEpisodicCorrectionSignal({
+            text: combined,
+            characterNames: turnCharacterNames,
+          })
+          : null;
         const receipt = await recordEpisodicMemory({
           userId,
           summary: memorySummary,
@@ -1850,6 +2054,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
           projectId: cleanProjectId,
           projectTitle: cleanProjectTitle,
           source: cleanSource,
+          correction: correctionSignal,
         });
         if (receipt?.ok) summary.episodicMemories += 1;
         if (receipt?.ok && isCorrectionTurn) summary.corrections += 1;
