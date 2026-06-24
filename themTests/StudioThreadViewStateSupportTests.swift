@@ -713,4 +713,30 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertNil(ScreenplayStudioAppliedMemoryPersistencePolicy.payloadForStorage(.empty))
     }
 
+    func testInlineAppliedMemoryCorrectionBuildsStructuredReplacement() {
+        let inline = ScreenplayStudioAppliedMemoryState.inlineCorrection(
+            character: " Mara ",
+            correction: " Mara is Eli's sister, not his mother. "
+        )
+
+        XCTAssertEqual(inline.correctionLine, "Authoritative correction for Mara: Mara is Eli's sister, not his mother")
+        XCTAssertEqual(inline.correctedTerms, ["mother"])
+        XCTAssertEqual(inline.correctionReplacements, ["mother -> Eli's sister"])
+
+        let state = ScreenplayStudioAppliedMemoryState(
+            id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+            source: "studio_inline",
+            characters: ["Mara"],
+            correctedTerms: ScreenplayStudioAppliedMemoryState.mergedMemoryList(inline.correctedTerms),
+            correctionReplacements: ScreenplayStudioAppliedMemoryState.mergedMemoryList(inline.correctionReplacements),
+            characterBibleApplied: true,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: "Mara is Eli's sister, not his mother.",
+            updatedAt: Date(timeIntervalSince1970: 5_000)
+        )
+
+        XCTAssertEqual(state.summary, "Mara: mother -> Eli's sister")
+        XCTAssertTrue(state.featureMemoryBrief.contains("Authoritative corrections: mother -> Eli's sister"))
+    }
+
 }

@@ -978,6 +978,12 @@ struct ScreenplayAssistantPinState: Equatable {
     )
 }
 
+struct ScreenplayStudioAppliedMemoryInlineCorrection: Equatable {
+    let correctionLine: String
+    let correctedTerms: [String]
+    let correctionReplacements: [String]
+}
+
 struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
     let id: UUID
     let source: String
@@ -1108,6 +1114,144 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
             lastSavedCorrection: previousSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines),
             updatedAt: Date()
         )
+    }
+
+    static func inlineCorrection(
+        character: String,
+        correction: String
+    ) -> ScreenplayStudioAppliedMemoryInlineCorrection {
+        let cleanCharacter = cleanInlineCorrectionFragment(character)
+        let cleanCorrection = cleanInlineCorrectionFragment(correction)
+        let line = cleanCharacter.isEmpty
+            ? "Authoritative correction: \(cleanCorrection)"
+            : "Authoritative correction for \(cleanCharacter): \(cleanCorrection)"
+        guard !cleanCorrection.isEmpty else {
+            return ScreenplayStudioAppliedMemoryInlineCorrection(
+                correctionLine: line,
+                correctedTerms: [],
+                correctionReplacements: []
+            )
+        }
+
+        let pair = inlineCorrectionReplacementPair(
+            character: cleanCharacter,
+            correction: cleanCorrection
+        )
+        let correctedTerms = pair.map { Self.cleanList([$0.old]) } ?? []
+        let replacements = pair.map { Self.cleanList(["\($0.old) -> \($0.new)"]) } ?? []
+        return ScreenplayStudioAppliedMemoryInlineCorrection(
+            correctionLine: line,
+            correctedTerms: correctedTerms,
+            correctionReplacements: replacements
+        )
+    }
+
+    static func mergedMemoryList(_ values: [String]) -> [String] {
+        cleanList(values)
+    }
+
+    private static func inlineCorrectionReplacementPair(
+        character: String,
+        correction: String
+    ) -> (old: String, new: String)? {
+        if let direct = directReplacementPair(from: correction) {
+            return direct
+        }
+        guard let notPair = notReplacementPair(character: character, correction: correction) else {
+            return nil
+        }
+        let old = cleanInlineCorrectionOldTerm(notPair.old)
+        let new = cleanInlineCorrectionNewTerm(notPair.new, character: character)
+        guard !old.isEmpty, !new.isEmpty, old.caseInsensitiveCompare(new) != .orderedSame else {
+            return nil
+        }
+        return (old, new)
+    }
+
+    private static func directReplacementPair(from correction: String) -> (old: String, new: String)? {
+        let separators = ["->", "=>"]
+        for separator in separators where correction.contains(separator) {
+            let parts = correction.components(separatedBy: separator)
+            guard parts.count >= 2 else { continue }
+            let old = cleanInlineCorrectionOldTerm(parts[0])
+            let new = cleanInlineCorrectionNewTerm(parts.dropFirst().joined(separator: separator), character: "")
+            guard !old.isEmpty, !new.isEmpty, old.caseInsensitiveCompare(new) != .orderedSame else { continue }
+            return (old, new)
+        }
+        return nil
+    }
+
+    private static func notReplacementPair(
+        character: String,
+        correction: String
+    ) -> (old: String, new: String)? {
+        let patterns = [
+            #"(?i)^(.+?)\s*,?\s+not\s+(.+?)$"#,
+            #"(?i)^not\s+(.+?)[,;]\s*(.+?)$"#
+        ]
+        for pattern in patterns {
+            guard let groups = regexGroups(pattern: pattern, in: correction), groups.count == 2 else {
+                continue
+            }
+            if pattern.contains("^not") {
+                return (old: groups[0], new: groups[1])
+            }
+            return (old: groups[1], new: groups[0])
+        }
+        return nil
+    }
+
+    private static func regexGroups(pattern: String, in value: String) -> [String]? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = regex.firstMatch(in: value, range: range), match.numberOfRanges > 1 else {
+            return nil
+        }
+        var groups: [String] = []
+        for index in 1..<match.numberOfRanges {
+            guard let groupRange = Range(match.range(at: index), in: value) else { continue }
+            groups.append(String(value[groupRange]))
+        }
+        return groups
+    }
+
+    private static func cleanInlineCorrectionNewTerm(_ value: String, character: String) -> String {
+        var clean = cleanInlineCorrectionFragment(value)
+        let cleanCharacter = cleanInlineCorrectionFragment(character)
+        if !cleanCharacter.isEmpty {
+            let escaped = NSRegularExpression.escapedPattern(for: cleanCharacter)
+            let patterns = [
+                #"(?i)^\#(escaped)\s+(?:is actually|was actually|should be|becomes|became|is|was)\s+"#,
+                #"(?i)^she\s+(?:is actually|was actually|should be|becomes|became|is|was)\s+"#,
+                #"(?i)^he\s+(?:is actually|was actually|should be|becomes|became|is|was)\s+"#,
+                #"(?i)^they\s+(?:are actually|were actually|should be|become|became|are|were)\s+"#
+            ]
+            for pattern in patterns {
+                clean = clean.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+            }
+        }
+        return cleanInlineCorrectionFragment(clean)
+    }
+
+    private static func cleanInlineCorrectionOldTerm(_ value: String) -> String {
+        var clean = cleanInlineCorrectionFragment(value)
+        let patterns = [
+            #"(?i)^(?:his|her|their|its|the|a|an)\s+"#,
+            #"(?i)^that\s+(?:he|she|they|it)\s+(?:is|was|are|were)\s+"#,
+            #"(?i)^(?:he|she|they|it)\s+(?:is|was|are|were)\s+"#
+        ]
+        for pattern in patterns {
+            clean = clean.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        return cleanInlineCorrectionFragment(clean)
+    }
+
+    private static func cleanInlineCorrectionFragment(_ value: String) -> String {
+        let trimmed = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " .,!?:;\"'()[]{}"))
+        return String(trimmed.prefix(160))
     }
 
     private static func cleanList(_ values: [String]?) -> [String] {
@@ -7409,13 +7553,22 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !character.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "No applied character memory is active for this draft.")
         }
-        let correctionLine = "Authoritative correction for \(character): \(cleanCorrection)"
+        let inlineCorrection = ScreenplayStudioAppliedMemoryState.inlineCorrection(
+            character: character,
+            correction: cleanCorrection
+        )
+        let nextCorrectedTerms = ScreenplayStudioAppliedMemoryState.mergedMemoryList(
+            latestAppliedMemory.correctedTerms + inlineCorrection.correctedTerms
+        )
+        let nextCorrectionReplacements = ScreenplayStudioAppliedMemoryState.mergedMemoryList(
+            latestAppliedMemory.correctionReplacements + inlineCorrection.correctionReplacements
+        )
         let bible = BackendCharacterBibleMemory(
             character: character,
             canon: [],
-            corrections: [correctionLine],
-            correctedTerms: latestAppliedMemory.correctedTerms,
-            correctionReplacements: latestAppliedMemory.correctionReplacements,
+            corrections: [inlineCorrection.correctionLine],
+            correctedTerms: nextCorrectedTerms,
+            correctionReplacements: nextCorrectionReplacements,
             arc: nil,
             voice: nil,
             tags: ["correction", "studio_inline"]
@@ -7429,8 +7582,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             id: UUID(),
             source: latestAppliedMemory.source,
             characters: latestAppliedMemory.characters,
-            correctedTerms: latestAppliedMemory.correctedTerms,
-            correctionReplacements: latestAppliedMemory.correctionReplacements,
+            correctedTerms: nextCorrectedTerms,
+            correctionReplacements: nextCorrectionReplacements,
             characterBibleApplied: true,
             correctionAppliedToPrompt: true,
             lastSavedCorrection: cleanCorrection,
