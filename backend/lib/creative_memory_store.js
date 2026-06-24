@@ -829,6 +829,36 @@ function selectEpisodicMemoriesForPrompt(items = [], {
     });
 }
 
+function touchReferencedEpisodicMemories(memories = [], memoryIds = [], atMs = nowMs()) {
+  const ids = new Set(
+    (Array.isArray(memoryIds) ? memoryIds : [])
+      .map((id) => cleanText(id, 80))
+      .filter(Boolean)
+  );
+  if (!ids.size) {
+    return {
+      memories: (Array.isArray(memories) ? memories : [])
+        .map(sanitizeEpisodicMemoryItem)
+        .filter(Boolean),
+      touched: 0,
+    };
+  }
+  let touched = 0;
+  const next = (Array.isArray(memories) ? memories : [])
+    .map(sanitizeEpisodicMemoryItem)
+    .filter(Boolean)
+    .map((memory) => {
+      if (!ids.has(memory.id)) return memory;
+      touched += 1;
+      return {
+        ...memory,
+        lastReferencedAt: Math.max(Number(memory.lastReferencedAt || 0), atMs),
+        referenceCount: Math.max(0, Number(memory.referenceCount || 0)) + 1,
+      };
+    });
+  return { memories: next, touched };
+}
+
 function isStoryMemoryCandidate({
   transcript = "",
   reply = "",
@@ -1239,6 +1269,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     projectId = "",
     projectTitle = "",
     maxEpisodicMemories = EPISODIC_MEMORY_PROMPT_MAX,
+    recordEpisodicRecall = false,
   } = {}) {
     const rec = await readUser(userId);
     if (!rec) return null;
@@ -1262,6 +1293,22 @@ function createCreativeMemoryStore({ persistence } = {}) {
       maxItems: maxEpisodicMemories,
     });
     if (episodicMemories.length) out.episodicMemories = episodicMemories;
+    if (recordEpisodicRecall && episodicMemories.length) {
+      const recalledIds = episodicMemories.map((memory) => memory.id).filter(Boolean);
+      await updateUser(userId, (latest) => {
+        const { memories, touched } = touchReferencedEpisodicMemories(
+          latest.episodicMemories,
+          recalledIds,
+          nowMs()
+        );
+        if (touched > 0) {
+          latest.episodicMemories = memories
+            .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+            .slice(0, EPISODIC_MEMORIES_MAX);
+        }
+        return latest;
+      });
+    }
     if (rec.tone && Object.keys(rec.tone).length) out.tone = clone(rec.tone);
     if (rec.habits && Object.keys(rec.habits).length) out.habits = clone(rec.habits);
     return out;

@@ -3759,6 +3759,7 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
       projectId,
       projectTitle,
       query: memoryRecallQuery,
+      recordEpisodicRecall: true,
     })
     : null;
   if (req && typeof req === "object") {
@@ -29973,6 +29974,7 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
         projectTitle: sessionProjectMemory?.projectTitle || sessionProjectMemory?.projectId || "",
         query: continuityQuery,
         maxEpisodicMemories: 3,
+        recordEpisodicRecall: true,
       });
     } catch (_e) {
       sessionCreativeMemory = null;

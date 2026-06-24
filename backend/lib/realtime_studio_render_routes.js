@@ -313,6 +313,7 @@ async function buildStudioRenderPromptMemoryContext({
       projectTitle: readStudioRenderProjectTitle(body),
       query,
       maxEpisodicMemories: 3,
+      recordEpisodicRecall: true,
     });
   } catch (_error) {
     creativeMemory = null;

@@ -167,6 +167,55 @@ test("getCreativeMemoryForPrompt prioritizes active project memory on broad cont
   assert.match(mem.episodicMemories[0].summary, /June/);
 });
 
+test("getCreativeMemoryForPrompt records episodic recall only when prompt path opts in", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  await store.recordEpisodicMemory({
+    userId: "u-episode-recall-telemetry",
+    summary: "Mara hides the cassette under the courthouse vent.",
+    text: "The cassette proves Eli heard the judge threaten the witness.",
+    characterNames: ["Mara", "Eli"],
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    tags: ["screenplay", "evidence"],
+  });
+
+  let raw = await persistence.get({
+    domain: "creative_memory",
+    key: "u-episode-recall-telemetry",
+  });
+  const memoryId = raw.episodicMemories[0].id;
+  const initialReferenceCount = raw.episodicMemories[0].referenceCount;
+  const initialLastReferencedAt = raw.episodicMemories[0].lastReferencedAt;
+
+  await store.getCreativeMemoryForPrompt({
+    userId: "u-episode-recall-telemetry",
+    query: "What should happen with the hidden recording proof?",
+  });
+  raw = await persistence.get({
+    domain: "creative_memory",
+    key: "u-episode-recall-telemetry",
+  });
+  assert.equal(raw.episodicMemories[0].referenceCount, initialReferenceCount);
+  assert.equal(raw.episodicMemories[0].lastReferencedAt, initialLastReferencedAt);
+
+  const mem = await store.getCreativeMemoryForPrompt({
+    userId: "u-episode-recall-telemetry",
+    query: "What should happen with the hidden recording proof?",
+    recordEpisodicRecall: true,
+  });
+  assert.equal(mem.episodicMemories[0].id, memoryId);
+  assert.equal("semanticFingerprint" in mem.episodicMemories[0], false);
+
+  raw = await persistence.get({
+    domain: "creative_memory",
+    key: "u-episode-recall-telemetry",
+  });
+  const recalled = raw.episodicMemories.find((item) => item.id === memoryId);
+  assert.equal(recalled.referenceCount, initialReferenceCount + 1);
+  assert.ok(recalled.lastReferencedAt >= initialLastReferencedAt);
+});
+
 test("getCreativeMemoryForPrompt strips empty containers", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({ userId: "u7", characterName: "Alice" });

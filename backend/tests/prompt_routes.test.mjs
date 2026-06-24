@@ -121,6 +121,7 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.equal(requestedMemoryUserId(), "user-prompt-1");
       assert.equal(requestedMemoryArgs().projectId, "proj-77");
       assert.equal(requestedMemoryArgs().projectTitle, "Feature Sprint");
+      assert.equal(requestedMemoryArgs().recordEpisodicRecall, true);
       assert.ok(body.prompt.includes("PERSONA"));
       assert.ok(body.prompt.includes(MEMORY_BLOCK_OPEN));
       assert.ok(body.prompt.includes("tone: dry"));

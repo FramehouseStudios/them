@@ -159,6 +159,7 @@ test("[studio-render] sync: applies corrected character bible memory to page pro
     assert.equal(memoryCalls[0].userId, "user-1");
     assert.equal(memoryCalls[0].projectId, "project-1");
     assert.equal(memoryCalls[0].projectTitle, "The Glass Orchard");
+    assert.equal(memoryCalls[0].recordEpisodicRecall, true);
     const prompt = deps._calls.renderInvocations[0].systemPrompt;
     assert.match(prompt, /<creative_memory>/);
     assert.match(prompt, /Mara is Eli's older sister/);

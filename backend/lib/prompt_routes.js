@@ -720,6 +720,7 @@ function mountPromptRoutes(app, {
         query: userInput || screenplayTaskHint,
         projectId: memoryLookupContext.projectId,
         projectTitle: memoryLookupContext.projectTitle,
+        recordEpisodicRecall: true,
       })
       : null;
     const screenplayTask = inferScreenplayTask(userInput || screenplayTaskHint);
