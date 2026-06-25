@@ -382,6 +382,54 @@ nonisolated struct BackendStorySpineMemory: Decodable, Hashable {
     let pageCount: Int?
     let targetPages: Int?
     let updatedAt: TimeInterval?
+
+    var payload: [String: Any] {
+        var out: [String: Any] = [:]
+        func put(_ key: String, _ value: String?) {
+            let clean = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !clean.isEmpty { out[key] = clean }
+        }
+        func putList(_ key: String, _ value: [String]?) {
+            let clean = (value ?? [])
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !clean.isEmpty { out[key] = clean }
+        }
+        put("project_id", projectId)
+        put("project_title", projectTitle)
+        put("act", act)
+        put("feature_sequence", featureSequence)
+        put("feature_obligation", featureObligation)
+        put("scene_label", sceneLabel)
+        put("scene_objective", sceneObjective)
+        put("scene_summary", sceneSummary)
+        put("current_beat", currentBeat)
+        put("logline", logline)
+        put("theme_argument", themeArgument)
+        put("central_question", centralQuestion)
+        put("protagonist_want", protagonistWant)
+        put("protagonist_need", protagonistNeed)
+        put("antagonistic_force", antagonisticForce)
+        put("ending_image", endingImage)
+        put("act_pressure_state", actPressureState)
+        put("character_arc_state", characterArcState)
+        put("last_scene_outcome", lastSceneOutcome)
+        put("next_scene_plan", nextScenePlan)
+        putList("next_scene_moves", nextSceneMoves)
+        putList("next_three_turns", nextThreeTurns)
+        putList("act_three_payoff_path", actThreePayoffPath)
+        putList("beat_sequence", beatSequence)
+        putList("character_focus", characterFocus)
+        putList("unresolved_setups", unresolvedSetups)
+        putList("unresolved_story_threads", unresolvedStoryThreads)
+        putList("character_arc_turns", characterArcTurns)
+        putList("image_motifs", imageMotifs)
+        putList("continuity_notes", continuityNotes)
+        put("emotional_continuity", emotionalContinuity)
+        if let pageCount, pageCount > 0 { out["page_count"] = pageCount }
+        if let targetPages, targetPages > 0 { out["target_pages"] = targetPages }
+        return out
+    }
 }
 
 nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {
@@ -5281,7 +5329,8 @@ actor BackendMemoryAPI {
         key: String? = nil,
         title: String,
         summary: String,
-        reason: String
+        reason: String,
+        storySpine: BackendStorySpineMemory? = nil
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
         var payload: [String: Any] = [
             "card_id": id,
@@ -5289,6 +5338,9 @@ actor BackendMemoryAPI {
             "summary": summary,
             "reason": reason,
         ]
+        if let storySpine {
+            payload["story_spine"] = storySpine.payload
+        }
         if let key, !key.isEmpty { payload["key"] = key }
         return try await runMemoryMutation(path: "/memories/update", payload: payload)
     }

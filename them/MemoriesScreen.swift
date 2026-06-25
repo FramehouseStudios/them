@@ -242,7 +242,8 @@ final class MemoriesViewModel: ObservableObject {
         title: String,
         summary: String,
         reason: String,
-        characterBible: BackendCharacterBibleMemory? = nil
+        characterBible: BackendCharacterBibleMemory? = nil,
+        storySpine: BackendStorySpineMemory? = nil
     ) async throws -> MemoryItem {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
         let result: BackendReadResult<BackendMemoryMutationResponse>
@@ -258,7 +259,8 @@ final class MemoriesViewModel: ObservableObject {
                 key: key,
                 title: title,
                 summary: summary,
-                reason: reason
+                reason: reason,
+                storySpine: storySpine
             )
         }
         lastSync = result.sync
@@ -705,7 +707,8 @@ struct MemoriesScreen: View {
                                 title: updated.title,
                                 summary: updated.summary,
                                 reason: updated.reason,
-                                characterBible: updated.characterBible
+                                characterBible: updated.characterBible,
+                                storySpine: updated.storySpine
                             )
                         },
                         onForget: { target in
@@ -1935,6 +1938,19 @@ private struct MemoryEditSheet: View {
     @State private var relationshipPressure: String
     @State private var currentTactic: String
     @State private var nextEmotionalTurn: String
+    @State private var storyProjectTitle: String
+    @State private var storyAct: String
+    @State private var storyFeatureSequence: String
+    @State private var storyCurrentBeat: String
+    @State private var storyActPressure: String
+    @State private var storyCharacterArc: String
+    @State private var storyNextPlan: String
+    @State private var storyNextTurnsText: String
+    @State private var storyUnresolvedSetupsText: String
+    @State private var storyUnresolvedThreadsText: String
+    @State private var storyCharacterFocusText: String
+    @State private var storyActThreePayoffText: String
+    @State private var storyContinuityNotesText: String
     let original: MemoryItem
     let isSaving: Bool
     let onSave: (MemoryItem) async -> Void
@@ -1960,6 +1976,20 @@ private struct MemoryEditSheet: View {
         _relationshipPressure = State(initialValue: bible?.arc?.relationshipPressure ?? "")
         _currentTactic = State(initialValue: bible?.arc?.currentTactic ?? "")
         _nextEmotionalTurn = State(initialValue: bible?.arc?.nextEmotionalTurn ?? "")
+        let spine = item.storySpine
+        _storyProjectTitle = State(initialValue: spine?.projectTitle ?? item.projectDisplayName)
+        _storyAct = State(initialValue: spine?.act ?? "")
+        _storyFeatureSequence = State(initialValue: spine?.featureSequence ?? "")
+        _storyCurrentBeat = State(initialValue: spine?.currentBeat ?? item.summary)
+        _storyActPressure = State(initialValue: spine?.actPressureState ?? "")
+        _storyCharacterArc = State(initialValue: spine?.characterArcState ?? "")
+        _storyNextPlan = State(initialValue: spine?.nextScenePlan ?? item.referenceHint)
+        _storyNextTurnsText = State(initialValue: Self.joinLines(spine?.nextThreeTurns ?? []))
+        _storyUnresolvedSetupsText = State(initialValue: Self.joinLines(spine?.unresolvedSetups ?? []))
+        _storyUnresolvedThreadsText = State(initialValue: Self.joinLines(spine?.unresolvedStoryThreads ?? []))
+        _storyCharacterFocusText = State(initialValue: Self.joinLines(spine?.characterFocus ?? item.characterNames))
+        _storyActThreePayoffText = State(initialValue: Self.joinLines(spine?.actThreePayoffPath ?? []))
+        _storyContinuityNotesText = State(initialValue: Self.joinLines(spine?.continuityNotes ?? []))
         self.isSaving = isSaving
         self.onSave = onSave
     }
@@ -1967,7 +1997,41 @@ private struct MemoryEditSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                if original.characterBible == nil {
+                if editsStorySpine {
+                    Section("Project") {
+                        TextField("Feature title", text: $storyProjectTitle)
+                        TextField("Act", text: $storyAct)
+                        TextField("Sequence", text: $storyFeatureSequence)
+                    }
+                    Section("Current Story State") {
+                        TextEditor(text: $storyCurrentBeat)
+                            .frame(minHeight: 90)
+                        TextEditor(text: $storyActPressure)
+                            .frame(minHeight: 80)
+                        TextEditor(text: $storyCharacterArc)
+                            .frame(minHeight: 80)
+                    }
+                    Section("Next Movement") {
+                        TextEditor(text: $storyNextPlan)
+                            .frame(minHeight: 90)
+                        TextEditor(text: $storyNextTurnsText)
+                            .frame(minHeight: 110)
+                    }
+                    Section("Open Promises") {
+                        TextEditor(text: $storyUnresolvedSetupsText)
+                            .frame(minHeight: 80)
+                        TextEditor(text: $storyUnresolvedThreadsText)
+                            .frame(minHeight: 80)
+                        TextEditor(text: $storyActThreePayoffText)
+                            .frame(minHeight: 90)
+                    }
+                    Section("Continuity") {
+                        TextEditor(text: $storyCharacterFocusText)
+                            .frame(minHeight: 80)
+                        TextEditor(text: $storyContinuityNotesText)
+                            .frame(minHeight: 90)
+                    }
+                } else if original.characterBible == nil {
                     Section("Title") {
                         TextField("Memory title", text: $title)
                     }
@@ -2015,9 +2079,17 @@ private struct MemoryEditSheet: View {
                         Task {
                             var updated = original
                             if original.characterBible == nil {
-                                updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                                updated.summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
-                                updated.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if editsStorySpine {
+                                    let spine = makeEditedStorySpine()
+                                    updated.storySpine = spine
+                                    updated.title = clean(storyProjectTitle).isEmpty ? original.title : clean(storyProjectTitle)
+                                    updated.summary = storySummaryLine(for: spine)
+                                    updated.reason = "Corrected from Story Spine."
+                                } else {
+                                    updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    updated.summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    updated.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                                }
                             } else {
                                 let bible = makeEditedCharacterBible()
                                 updated.characterBible = bible
@@ -2035,11 +2107,76 @@ private struct MemoryEditSheet: View {
     }
 
     private var saveDisabled: Bool {
+        if editsStorySpine {
+            return clean(storyProjectTitle).isEmpty &&
+                clean(storyCurrentBeat).isEmpty &&
+                clean(storyNextPlan).isEmpty
+        }
         if original.characterBible == nil {
             return title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                 summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         return !makeEditedCharacterBible().isMeaningful
+    }
+
+    private var editsStorySpine: Bool {
+        original.storySpine != nil ||
+            original.source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "screenplay_project"
+    }
+
+    private func makeEditedStorySpine() -> BackendStorySpineMemory {
+        let base = original.storySpine ?? BackendStorySpineMemory.emptyFallback(
+            projectId: original.projectID,
+            projectTitle: original.projectDisplayName,
+            currentBeat: original.summary,
+            nextScenePlan: original.referenceHint,
+            characterFocus: original.characterNames,
+            updatedAt: original.rememberedDate.timeIntervalSince1970
+        )
+        return BackendStorySpineMemory(
+            projectId: base.projectId ?? original.projectID.nilIfBlank,
+            projectTitle: clean(storyProjectTitle).nilIfBlank ?? base.projectTitle,
+            act: clean(storyAct).nilIfBlank ?? base.act,
+            featureSequence: clean(storyFeatureSequence).nilIfBlank ?? base.featureSequence,
+            featureObligation: base.featureObligation,
+            sceneLabel: base.sceneLabel,
+            sceneObjective: base.sceneObjective,
+            sceneSummary: clean(storyCurrentBeat).nilIfBlank ?? base.sceneSummary,
+            currentBeat: clean(storyCurrentBeat).nilIfBlank ?? base.currentBeat,
+            logline: base.logline,
+            themeArgument: base.themeArgument,
+            centralQuestion: base.centralQuestion,
+            protagonistWant: base.protagonistWant,
+            protagonistNeed: base.protagonistNeed,
+            antagonisticForce: base.antagonisticForce,
+            endingImage: base.endingImage,
+            actPressureState: clean(storyActPressure).nilIfBlank ?? base.actPressureState,
+            characterArcState: clean(storyCharacterArc).nilIfBlank ?? base.characterArcState,
+            lastSceneOutcome: base.lastSceneOutcome,
+            nextScenePlan: clean(storyNextPlan).nilIfBlank ?? base.nextScenePlan,
+            nextSceneMoves: base.nextSceneMoves,
+            nextThreeTurns: Self.cleanLines(storyNextTurnsText),
+            actThreePayoffPath: Self.cleanLines(storyActThreePayoffText),
+            beatSequence: base.beatSequence,
+            characterFocus: Self.cleanLines(storyCharacterFocusText),
+            unresolvedSetups: Self.cleanLines(storyUnresolvedSetupsText),
+            unresolvedStoryThreads: Self.cleanLines(storyUnresolvedThreadsText),
+            characterArcTurns: base.characterArcTurns,
+            imageMotifs: base.imageMotifs,
+            continuityNotes: Self.cleanLines(storyContinuityNotesText),
+            emotionalContinuity: base.emotionalContinuity,
+            pageCount: base.pageCount,
+            targetPages: base.targetPages,
+            updatedAt: Date().timeIntervalSince1970
+        )
+    }
+
+    private func storySummaryLine(for spine: BackendStorySpineMemory) -> String {
+        [
+            spine.currentBeat.map { "Beat: \($0)" },
+            spine.nextScenePlan.map { "Next: \($0)" },
+            (spine.unresolvedSetups ?? []).first.map { "Setup: \($0)" },
+        ].compactMap { $0 }.joined(separator: " | ")
     }
 
     private func makeEditedCharacterBible() -> BackendCharacterBibleMemory {

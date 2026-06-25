@@ -536,9 +536,12 @@ function mountMemoriesRoutes(app, deps = {}) {
     const title = normalizeSnippet(req.body?.title ?? "", 84);
     const summary = normalizeSnippet(req.body?.summary ?? "", 260);
     const reason = normalizeSnippet(req.body?.reason ?? "", 220);
+    const storySpine = req.body?.story_spine && typeof req.body.story_spine === "object"
+      ? req.body.story_spine
+      : (req.body?.storySpine && typeof req.body.storySpine === "object" ? req.body.storySpine : null);
     const mutation = updateMemoryCardInMemory(
       memory,
-      { cardId, key, title, summary, reason },
+      { cardId, key, title, summary, reason, storySpine },
       nowTs,
     );
     const persisted = persistWritableMemoryContext(context, memory, nowTs);

@@ -10936,6 +10936,10 @@ function sanitizeStudioTurnMetadata(input) {
     input.screenplayProjectId ?? input.screenplay_project_id ?? input.projectId ?? input.project_id ?? "",
     96
   );
+  const screenplayProjectTitle = normalizeSnippet(
+    input.screenplayProjectTitle ?? input.screenplay_project_title ?? input.projectTitle ?? input.project_title ?? "",
+    160
+  );
   const screenplayDocumentRevisionId = normalizeSnippet(
     input.screenplayDocumentRevisionId ?? input.screenplay_document_revision_id ?? input.documentRevisionId ?? input.document_revision_id ?? "",
     96
@@ -11191,6 +11195,7 @@ function sanitizeStudioTurnMetadata(input) {
 
   if (
     !screenplayProjectId &&
+    !screenplayProjectTitle &&
     !screenplayDocumentRevisionId &&
     !screenplayTarget &&
     !screenplayPromptSource &&
@@ -11248,6 +11253,7 @@ function sanitizeStudioTurnMetadata(input) {
 
   return {
     screenplayProjectId,
+    screenplayProjectTitle,
     screenplayDocumentRevisionId,
     screenplayTarget,
     screenplayPromptSource,
@@ -15163,6 +15169,7 @@ function buildLastConversationRecap(memory, userSnippet, assistantSnippet) {
 
 const SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS = [
   ["projectId", 96],
+  ["projectTitle", 160],
   ["documentRevisionId", 96],
   ["act", 120],
   ["sceneLabel", 120],
@@ -15893,6 +15900,7 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
   const correctionRecord = correction?.correctedFact
     ? {
       projectId: studio.screenplayProjectId,
+      projectTitle: studio.screenplayProjectTitle,
       documentRevisionId: studio.screenplayDocumentRevisionId,
       act: studio.screenplayAct || position.act,
       sceneLabel: studio.screenplayAnchorSceneLabel,
@@ -15936,6 +15944,7 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
   const [record = null] = sanitizeScreenplayProjectMemoryItems([
     correctionRecord || {
       projectId: studio.screenplayProjectId,
+      projectTitle: studio.screenplayProjectTitle,
       documentRevisionId: studio.screenplayDocumentRevisionId,
       act: studio.screenplayAct || position.act,
       sceneLabel: studio.screenplayAnchorSceneLabel || distilled.sceneLabel,
@@ -28430,6 +28439,14 @@ function buildEpisodicMemoryCards(creativeMemory = null, nowTs = Date.now()) {
   return cards;
 }
 
+function buildScreenplayProjectMemoryCardId(item = {}, fallback = "") {
+  const key = [
+    "screenplay-project",
+    item?.projectId || item?.documentRevisionId || item?.sceneLabel || item?.updatedAt || fallback,
+  ].join("-").replace(/[^a-zA-Z0-9_-]+/g, "-");
+  return normalizeMemoryCardId(key);
+}
+
 function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemory = null) {
   const nowTs = Date.now();
   const sourceThemes = Array.isArray(memory?.sessionThreads) && memory.sessionThreads.length
@@ -28459,14 +28476,10 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
   ));
 
   for (const item of screenplayProjectMemory) {
-    const projectKey = normalizeMemoryCardId(
-      [
-        "screenplay-project",
-        item.projectId || item.documentRevisionId || item.sceneLabel || item.updatedAt,
-      ].join("-").replace(/[^a-zA-Z0-9_-]+/g, "-")
-    );
+    const projectKey = buildScreenplayProjectMemoryCardId(item, cards.length + 1);
     const title = normalizeSnippet(
-      item.sceneLabel ||
+      item.projectTitle ||
+        item.sceneLabel ||
         item.featureSequence ||
         item.act ||
         "Screenplay Project",
@@ -28515,7 +28528,7 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
           nowTs
         )
       ),
-      editable: false,
+      editable: true,
       snippets: snippets.slice(0, 3),
       referenceHint: normalizeSnippet(item.nextScenePlan, 120),
       source: "screenplay_project",
@@ -28894,17 +28907,168 @@ function markThemeMemoryUsage(memory, themeKey = "", nowTs = Date.now()) {
   return Boolean(result?.ok);
 }
 
+function readStorySpinePatchField(source = {}, field = "") {
+  if (!source || typeof source !== "object" || !field) return undefined;
+  const snakeKey = field.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+  return source[field] ?? source[snakeKey];
+}
+
+function normalizeStorySpinePatchForProjectMemory(
+  storySpine = null,
+  {
+    existing = null,
+    key = "",
+    title = "",
+    summary = "",
+    reason = "",
+    nowTs = Date.now(),
+  } = {}
+) {
+  const source = storySpine && typeof storySpine === "object" && !Array.isArray(storySpine)
+    ? storySpine
+    : {};
+  const patch = {};
+
+  for (const [field, maxChars] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
+    const raw = readStorySpinePatchField(source, field);
+    const clean = normalizeSnippet(raw ?? "", maxChars);
+    if (clean) patch[field] = clean;
+  }
+
+  patch.projectId ||= normalizeSnippet(existing?.projectId || key, 96);
+  patch.projectTitle ||= normalizeSnippet(title || existing?.projectTitle || existing?.projectId || key, 160);
+  patch.documentRevisionId ||= normalizeSnippet(existing?.documentRevisionId, 96);
+  if (summary) {
+    patch.sceneSummary ||= normalizeSnippet(summary, 280);
+    patch.currentBeat ||= normalizeSnippet(summary, 220);
+  }
+
+  for (const [field, maxItems, maxChars] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+    const raw = readStorySpinePatchField(source, field);
+    const items = normalizeScreenplayStringList(raw, maxItems, maxChars);
+    if (items.length) patch[field] = items;
+  }
+
+  const correctionNote = normalizeSnippet(reason, 220);
+  if (correctionNote) {
+    patch.continuityNotes = mergeScreenplayProjectMemoryList(
+      [],
+      [
+        ...(Array.isArray(patch.continuityNotes) ? patch.continuityNotes : []),
+        `User corrected Story Spine memory: ${correctionNote}`,
+      ],
+      8,
+      220
+    );
+  }
+
+  patch.pageCount = normalizeScreenplayMemoryInteger(
+    readStorySpinePatchField(source, "pageCount") || existing?.pageCount
+  );
+  patch.targetPages = normalizeScreenplayMemoryInteger(
+    readStorySpinePatchField(source, "targetPages") || existing?.targetPages
+  );
+  patch.lastUserIntent = normalizeSnippet(reason || summary || title, 180);
+  patch.lastWritePreview = normalizeTalkMultilineSnippet(
+    [patch.sceneSummary, patch.currentBeat, patch.nextScenePlan].filter(Boolean).join("\n"),
+    900
+  );
+  patch.interactionCount = 1;
+  patch.writeCount = 0;
+  patch.createdAt = Math.max(0, Number(existing?.createdAt || nowTs));
+  patch.updatedAt = Math.max(0, Number(nowTs || Date.now()));
+
+  return sanitizeScreenplayProjectMemoryItems([patch], 1)[0] || null;
+}
+
+function updateScreenplayProjectMemoryCardInMemory(memory, {
+  cardId = "",
+  key = "",
+  title = "",
+  summary = "",
+  reason = "",
+  storySpine = null,
+} = {}, nowTs = Date.now()) {
+  if (!memory || typeof memory !== "object") {
+    return { ok: false, status: "missing_memory", message: "Memory context not found." };
+  }
+  const normalizedCardId = normalizeMemoryCardId(cardId);
+  const normalizedKey = String(key || "").trim();
+  const current = sanitizeScreenplayProjectMemoryItems(
+    memory.screenplayProjectMemory,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  const matchIndex = current.findIndex((item, index) => {
+    const itemCardId = buildScreenplayProjectMemoryCardId(item, index + 1);
+    return (
+      (normalizedCardId && itemCardId === normalizedCardId) ||
+      (normalizedKey && (
+        normalizedKey === item.projectId ||
+        normalizedKey === item.documentRevisionId ||
+        normalizedKey === itemCardId
+      ))
+    );
+  });
+  if (matchIndex < 0) {
+    return { ok: false, status: "not_found", message: "Screenplay project memory card not found." };
+  }
+
+  const incoming = normalizeStorySpinePatchForProjectMemory(storySpine, {
+    existing: current[matchIndex],
+    key: normalizedKey,
+    title,
+    summary,
+    reason,
+    nowTs,
+  });
+  if (!incoming) {
+    return { ok: false, status: "invalid_story_spine", message: "Story Spine correction is empty." };
+  }
+
+  const next = [...current];
+  next[matchIndex] = mergeScreenplayProjectMemoryRecords(current[matchIndex], incoming, nowTs);
+  memory.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+    next,
+    SCREENPLAY_PROJECT_MEMORY_MAX
+  );
+  memory.screenplayProjectMemoryUpdatedAt = Math.max(
+    Number(memory.screenplayProjectMemoryUpdatedAt || 0),
+    Number(nowTs || Date.now())
+  );
+  const updatedCardId = buildScreenplayProjectMemoryCardId(memory.screenplayProjectMemory[0], 1);
+  removeForgottenMemoryCardId(memory, normalizedCardId || updatedCardId);
+  memory.lastUpdatedAt = Math.max(0, Number(nowTs || Date.now()));
+
+  return {
+    ok: true,
+    status: "updated",
+    cardId: updatedCardId || normalizedCardId,
+    projectId: memory.screenplayProjectMemory[0]?.projectId || normalizedKey,
+  };
+}
+
 function updateMemoryCardInMemory(memory, {
   cardId = "",
   key = "",
   title = "",
   summary = "",
   reason = "",
+  storySpine = null,
 } = {}, nowTs = Date.now()) {
   if (!memory || typeof memory !== "object") {
     return { ok: false, status: "missing_memory", message: "Memory context not found." };
   }
   const normalizedCardId = normalizeMemoryCardId(cardId);
+  if (
+    normalizedCardId.startsWith("screenplay-project-") ||
+    (storySpine && typeof storySpine === "object" && !Array.isArray(storySpine))
+  ) {
+    return updateScreenplayProjectMemoryCardInMemory(
+      memory,
+      { cardId, key, title, summary, reason, storySpine },
+      nowTs
+    );
+  }
   if (normalizedCardId && !normalizedCardId.startsWith("theme-")) {
     return { ok: false, status: "not_editable", message: "Only theme memories are editable." };
   }
@@ -31240,6 +31404,7 @@ export {
   normalizeTalkPageReply,
   sanitizeScreenplayProjectMemoryItems,
   sanitizeStudioTurnMetadata,
+  updateMemoryCardInMemory,
   updateSessionAfterReply,
   upsertScreenplayProjectMemory,
   wrapSystemPromptWithCreativeMemory,

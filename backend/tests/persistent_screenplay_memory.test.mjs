@@ -16,6 +16,7 @@ const {
   buildScreenplayProjectMemoryRecordFromStudioMeta,
   createEmptyEmotionMemory,
   sanitizeScreenplayProjectMemoryItems,
+  updateMemoryCardInMemory,
   updateSessionAfterReply,
   wrapSystemPromptWithCreativeMemory,
 } = await import("../index.js");
@@ -47,6 +48,7 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
     false,
     {
       screenplayProjectId: "feature-alpha",
+      screenplayProjectTitle: "Mercy Court",
       screenplayDocumentRevisionId: "rev-12",
       screenplayTarget: "page",
       screenplayPromptSource: "typed",
@@ -90,6 +92,7 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.equal(memory.screenplayProjectMemory.length, 1);
   const first = memory.screenplayProjectMemory[0];
   assert.equal(first.projectId, "feature-alpha");
+  assert.equal(first.projectTitle, "Mercy Court");
   assert.equal(first.act, "Act II");
   assert.equal(first.sceneLabel, "Courthouse Hallway");
   assert.equal(first.currentBeat, "Mara sees the bailiff pocket the missing evidence.");
@@ -134,6 +137,7 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
     false,
     {
       screenplayProjectId: "feature-alpha",
+      screenplayProjectTitle: "Mercy Court",
       screenplayDocumentRevisionId: "rev-13",
       screenplayTarget: "page",
       screenplayPromptSource: "voice",
@@ -157,6 +161,7 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.equal(memory.screenplayProjectMemory.length, 1);
   const merged = memory.screenplayProjectMemory[0];
   assert.equal(merged.projectId, "feature-alpha");
+  assert.equal(merged.projectTitle, "Mercy Court");
   assert.equal(merged.documentRevisionId, "rev-13");
   assert.equal(merged.currentBeat, "The father reveal corners Mara emotionally.");
   assert.equal(merged.nextScenePlan, "Move into a private corridor confrontation that redefines the case.");
@@ -200,6 +205,9 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.ok(projectCard);
   assert.equal(projectCard.key, "feature-alpha");
   assert.equal(projectCard.projectId, "feature-alpha");
+  assert.equal(projectCard.projectTitle, "Mercy Court");
+  assert.equal(projectCard.title, "Mercy Court");
+  assert.equal(projectCard.editable, true);
   assert.deepEqual(projectCard.characterNames, ["Father", "Clerk", "Mara", "Bailiff"]);
   assert.match(projectCard.summary, /The father reveal corners Mara emotionally/);
   assert.match(projectCard.referenceHint, /private corridor confrontation/);
@@ -219,6 +227,82 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
     "The sister stops hiding.",
     "Final courtroom image answers the opening lie.",
   ]);
+});
+
+test("[persistent-screenplay-memory] Story Spine cards can be corrected from Memories", () => {
+  const nowTs = 1_800_000_030_000;
+  const memory = createEmptyEmotionMemory();
+  memory.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems([
+    {
+      projectId: "feature-alpha",
+      projectTitle: "Mercy Court",
+      act: "Act II",
+      featureSequence: "Midpoint trap",
+      currentBeat: "Mara hides from the bailiff.",
+      nextScenePlan: "Continue the hallway chase.",
+      nextThreeTurns: ["Bailiff blocks the exit."],
+      unresolvedSetups: ["Missing evidence"],
+      unresolvedStoryThreads: ["Who forged the testimony?"],
+      characterFocus: ["Mara", "Bailiff"],
+      continuityNotes: ["Mara distrusts the courthouse staff."],
+      updatedAt: nowTs - 10_000,
+      createdAt: nowTs - 20_000,
+    },
+  ]);
+
+  const mutation = updateMemoryCardInMemory(
+    memory,
+    {
+      cardId: "screenplay-project-feature-alpha",
+      key: "feature-alpha",
+      title: "Mercy Court",
+      summary: "Mara chooses public courage instead of hiding.",
+      reason: "The protagonist is no longer avoiding the fight.",
+      storySpine: {
+        projectTitle: "Mercy Court",
+        currentBeat: "Mara chooses public courage instead of hiding.",
+        actPressureState: "The midpoint must make Mara act in public.",
+        nextScenePlan: "Push into the private corridor confrontation with her father.",
+        nextThreeTurns: [
+          "Father confronts Mara with the sealed affidavit.",
+          "Mara burns the safe legal tactic.",
+          "The courthouse lie becomes public.",
+        ],
+        unresolvedSetups: ["Father's sealed affidavit"],
+        unresolvedStoryThreads: ["Who leaked the sealed affidavit?"],
+        characterFocus: ["Mara", "Father"],
+      },
+    },
+    nowTs
+  );
+
+  assert.equal(mutation.ok, true);
+  assert.equal(mutation.cardId, "screenplay-project-feature-alpha");
+  assert.equal(memory.screenplayProjectMemory.length, 1);
+  const corrected = memory.screenplayProjectMemory[0];
+  assert.equal(corrected.projectTitle, "Mercy Court");
+  assert.equal(corrected.currentBeat, "Mara chooses public courage instead of hiding.");
+  assert.equal(corrected.actPressureState, "The midpoint must make Mara act in public.");
+  assert.equal(corrected.nextScenePlan, "Push into the private corridor confrontation with her father.");
+  assert.deepEqual(corrected.nextThreeTurns, [
+    "Father confronts Mara with the sealed affidavit.",
+    "Mara burns the safe legal tactic.",
+    "The courthouse lie becomes public.",
+  ]);
+  assert.deepEqual(corrected.characterFocus, ["Mara", "Father", "Bailiff"]);
+  assert.match(corrected.continuityNotes.join(" | "), /User corrected Story Spine memory/);
+
+  const [card] = buildMemoryCards(memory, [], 1);
+  assert.equal(card.source, "screenplay_project");
+  assert.equal(card.editable, true);
+  assert.equal(card.title, "Mercy Court");
+  assert.equal(card.storySpine.currentBeat, "Mara chooses public courage instead of hiding.");
+  assert.deepEqual(card.storySpine.nextThreeTurns, [
+    "Father confronts Mara with the sealed affidavit.",
+    "Mara burns the safe legal tactic.",
+    "The courthouse lie becomes public.",
+  ]);
+  assert.match(buildMemoryAddendum(memory), /Mara chooses public courage/);
 });
 
 test("[persistent-screenplay-memory] buildMemoryCards exposes structured character bible cards", () => {
