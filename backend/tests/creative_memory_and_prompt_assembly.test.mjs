@@ -21,6 +21,7 @@ import {
   MEMORY_BLOCK_CLOSE,
   BLOCK_SIGNAL_BLOCK_OPEN,
   SCREENPLAY_TASK_BLOCK_OPEN,
+  WRITER_BLOCK_MEMORY_BLOCK_OPEN,
   CLEMENTINE_SAFETY_BLOCK_OPEN,
   CLEMENTINE_SAFETY_BLOCK_CLOSE,
   FEATURE_MAP_BLOCK_OPEN,
@@ -701,6 +702,47 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   assert.ok(momentumRescue.includes("scene engine: a scene moves when a character wants"));
   assert.ok(momentumRescue.includes("response_contract: apply the diagnostic silently"));
   assert.ok(momentumRescue.includes("one decisive next move"));
+});
+
+test("[screenplay-task] momentum rescue gets a dedicated writer-block memory runway", () => {
+  const task = inferScreenplayTask("I'm stuck in act two and need the next beat.");
+  const sessionContext = {
+    projectId: "rain-docket",
+    act: "Act II",
+    featureSequence: "Midpoint trap",
+    currentBeat: "Mara pockets the reel and realizes Marcus lied.",
+    featureObligation: "Break Mara's safe investigative tactic.",
+    actPressureState: "The win must turn into a public trap.",
+    characterArcState: "Mara still edits pain into control.",
+    nextThreeTurns: [
+      "The reel plays the wrong memory.",
+      "Marcus forces a public choice.",
+      "Mara burns her safe edit.",
+    ],
+    unresolvedSetups: ["missing reel", "sealed affidavit"],
+    unresolvedStoryThreads: ["Why Marcus protected the fixer"],
+    actThreePayoffPath: ["The reel exposes the fixer."],
+    imageMotifs: ["blank frame"],
+  };
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    sessionContext,
+    screenplayTask: task,
+    userInput: "I'm stuck in act two and need the next beat.",
+  });
+
+  assert.ok(out.includes(WRITER_BLOCK_MEMORY_BLOCK_OPEN));
+  assert.ok(out.includes("directive: The writer is blocked; use this available project state before inventing a new lane."));
+  assert.ok(out.includes("position: Act II / Midpoint trap"));
+  assert.ok(out.includes("strongest_remembered_next_turn: The reel plays the wrong memory."));
+  assert.ok(out.includes("open_setup_to_pressure: missing reel"));
+  assert.ok(out.includes("unresolved_story_thread: Why Marcus protected the fixer"));
+  assert.ok(out.includes("act_three_payoff_seed: The reel exposes the fixer."));
+  assert.ok(out.includes("Convert it into one decisive playable next beat"));
+  assert.ok(out.indexOf(WRITER_BLOCK_MEMORY_BLOCK_OPEN) < out.indexOf(SCREENPLAY_TASK_BLOCK_OPEN));
+
+  const parts = buildModelPromptParts({ sessionContext, screenplayTask: task });
+  assert.ok(parts.writerBlockMemoryBlock.includes("character_arc_pressure: Mara still edits pain into control."));
 });
 
 test("[screenplay-task] story diagnostics make blocked and continuation turns act-aware", () => {

@@ -473,6 +473,87 @@ function createTalkHandler(deps) {
     );
   }
 
+  function selectTalkMomentumMemoryProject(memory = null, studioMeta = null) {
+    const items = Array.isArray(memory?.screenplayProjectMemory)
+      ? memory.screenplayProjectMemory.filter((item) => item && typeof item === "object")
+      : [];
+    if (!items.length) return null;
+    const projectId = normalizeSnippet(studioMeta?.screenplayProjectId, 96);
+    const documentRevisionId = normalizeSnippet(studioMeta?.screenplayDocumentRevisionId, 96);
+    if (projectId) {
+      const byProject = items.find((item) => normalizeSnippet(item?.projectId, 96) === projectId);
+      if (byProject) return byProject;
+    }
+    if (documentRevisionId) {
+      const byRevision = items.find((item) => normalizeSnippet(item?.documentRevisionId, 96) === documentRevisionId);
+      if (byRevision) return byRevision;
+    }
+    return items[0] || null;
+  }
+
+  function mergeTalkMomentumRepairContextList(currentValue, memoryValue, maxItems = 6, maxChars = 180) {
+    return normalizeTalkRepairList(
+      [
+        ...normalizeTalkRepairList(currentValue, maxItems, maxChars),
+        ...normalizeTalkRepairList(memoryValue, maxItems, maxChars),
+      ],
+      maxItems,
+      maxChars
+    );
+  }
+
+  function mergeTalkMomentumRepairStudioMeta(studioMeta = null, memory = null) {
+    const base = studioMeta && typeof studioMeta === "object" ? { ...studioMeta } : {};
+    const memoryProject = selectTalkMomentumMemoryProject(memory, base);
+    if (!memoryProject) return studioMeta;
+    const pick = (currentValue, memoryValue, maxChars = 220) =>
+      normalizeSnippet(currentValue, maxChars) || normalizeSnippet(memoryValue, maxChars);
+    const positiveInt = (currentValue, memoryValue) => {
+      const current = Math.max(0, Math.round(Number(currentValue || 0)));
+      if (current > 0) return current;
+      const remembered = Math.max(0, Math.round(Number(memoryValue || 0)));
+      return remembered > 0 ? remembered : 0;
+    };
+    return {
+      ...base,
+      screenplayProjectId: pick(base.screenplayProjectId, memoryProject.projectId, 96),
+      screenplayDocumentRevisionId: pick(base.screenplayDocumentRevisionId, memoryProject.documentRevisionId, 96),
+      screenplayAnchorSceneLabel: pick(base.screenplayAnchorSceneLabel, memoryProject.sceneLabel, 120),
+      screenplayAct: pick(base.screenplayAct, memoryProject.act, 120),
+      screenplaySceneObjective: pick(base.screenplaySceneObjective, memoryProject.sceneObjective, 280),
+      screenplaySceneSummary: pick(base.screenplaySceneSummary, memoryProject.sceneSummary, 280),
+      screenplayCurrentBeat: pick(base.screenplayCurrentBeat, memoryProject.currentBeat, 220),
+      screenplayLogline: pick(base.screenplayLogline, memoryProject.logline, 280),
+      screenplayThemeArgument: pick(base.screenplayThemeArgument, memoryProject.themeArgument, 280),
+      screenplayCentralQuestion: pick(base.screenplayCentralQuestion, memoryProject.centralQuestion, 280),
+      screenplayProtagonistWant: pick(base.screenplayProtagonistWant, memoryProject.protagonistWant, 240),
+      screenplayProtagonistNeed: pick(base.screenplayProtagonistNeed, memoryProject.protagonistNeed, 240),
+      screenplayAntagonisticForce: pick(base.screenplayAntagonisticForce, memoryProject.antagonisticForce, 260),
+      screenplayEndingImage: pick(base.screenplayEndingImage, memoryProject.endingImage, 240),
+      screenplayFeatureSequence: pick(base.screenplayFeatureSequence, memoryProject.featureSequence, 220),
+      screenplayFeatureObligation: pick(base.screenplayFeatureObligation, memoryProject.featureObligation, 280),
+      screenplayActPressureState: pick(base.screenplayActPressureState, memoryProject.actPressureState, 280),
+      screenplayCharacterArcState: pick(base.screenplayCharacterArcState, memoryProject.characterArcState, 280),
+      screenplayLastSceneOutcome: pick(base.screenplayLastSceneOutcome, memoryProject.lastSceneOutcome, 240),
+      screenplayNextScenePlan: pick(base.screenplayNextScenePlan, memoryProject.nextScenePlan, 340),
+      screenplayDraftExcerpt: normalizeTalkMultilineSnippet(base.screenplayDraftExcerpt, 6_000) ||
+        normalizeTalkMultilineSnippet(memoryProject.lastWritePreview, 1_800),
+      screenplayNextSceneMoves: mergeTalkMomentumRepairContextList(base.screenplayNextSceneMoves, memoryProject.nextSceneMoves, 5, 180),
+      screenplayNextThreeTurns: mergeTalkMomentumRepairContextList(base.screenplayNextThreeTurns, memoryProject.nextThreeTurns, 3, 180),
+      screenplayActThreePayoffPath: mergeTalkMomentumRepairContextList(base.screenplayActThreePayoffPath, memoryProject.actThreePayoffPath, 5, 200),
+      screenplayBeatSequence: mergeTalkMomentumRepairContextList(base.screenplayBeatSequence, memoryProject.beatSequence, 8, 180),
+      screenplayCharacterFocus: mergeTalkMomentumRepairContextList(base.screenplayCharacterFocus, memoryProject.characterFocus, 8, 120),
+      screenplayUnresolvedSetups: mergeTalkMomentumRepairContextList(base.screenplayUnresolvedSetups, memoryProject.unresolvedSetups, 8, 220),
+      screenplayUnresolvedStoryThreads: mergeTalkMomentumRepairContextList(base.screenplayUnresolvedStoryThreads, memoryProject.unresolvedStoryThreads, 8, 220),
+      screenplayCharacterArcTurns: mergeTalkMomentumRepairContextList(base.screenplayCharacterArcTurns, memoryProject.characterArcTurns, 6, 180),
+      screenplayImageMotifs: mergeTalkMomentumRepairContextList(base.screenplayImageMotifs, memoryProject.imageMotifs, 6, 140),
+      screenplayContinuityNotes: mergeTalkMomentumRepairContextList(base.screenplayContinuityNotes, memoryProject.continuityNotes, 8, 220),
+      screenplayEmotionalContinuity: pick(base.screenplayEmotionalContinuity, memoryProject.emotionalContinuity, 280),
+      screenplayPageCount: positiveInt(base.screenplayPageCount, memoryProject.pageCount),
+      screenplayTargetPages: positiveInt(base.screenplayTargetPages, memoryProject.targetPages),
+    };
+  }
+
   async function attemptTalkMomentumRescueRepairPass({
     currentOutput = null,
     rawReply = "",
@@ -3905,11 +3986,12 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         talkScreenplayOutput?.quality?.reason || talkScreenplayOutput?.source || "guard_momentum_rescue_quality",
         96
       );
+      const momentumRepairStudioMeta = mergeTalkMomentumRepairStudioMeta(studioMeta, sessionMemory);
       const repairPass = await attemptTalkMomentumRescueRepairPass({
         currentOutput: talkScreenplayOutput,
         rawReply,
         transcript: talkGenerationTranscript,
-        studioMeta,
+        studioMeta: momentumRepairStudioMeta,
         chatModelPlan,
         chatTemperature,
         chatMaxTokens,

@@ -39,6 +39,8 @@ const ACCEPTED_TWISTS_BLOCK_OPEN = "<accepted_twists>";
 const ACCEPTED_TWISTS_BLOCK_CLOSE = "</accepted_twists>";
 const SCREENPLAY_TASK_BLOCK_OPEN = "<screenplay_task>";
 const SCREENPLAY_TASK_BLOCK_CLOSE = "</screenplay_task>";
+const WRITER_BLOCK_MEMORY_BLOCK_OPEN = "<writer_block_memory>";
+const WRITER_BLOCK_MEMORY_BLOCK_CLOSE = "</writer_block_memory>";
 const CLEMENTINE_SAFETY_BLOCK_OPEN = "<clementine_safety_contract>";
 const CLEMENTINE_SAFETY_BLOCK_CLOSE = "</clementine_safety_contract>";
 const CLEMENTINE_SAFETY_CONTRACT = Object.freeze([
@@ -909,6 +911,117 @@ function buildSessionContextBlock(sessionContext) {
   return parts.length ? `<session>\n${parts.map((p) => `  ${p}`).join("\n")}\n</session>` : "";
 }
 
+function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
+  const intent = trimToString(screenplayTask?.intent ?? screenplayTask?.screenplay_intent);
+  if (intent !== "momentum_rescue") return "";
+  if (!sessionContext || typeof sessionContext !== "object") return "";
+
+  const project = trimContextLine(sessionContext.projectId ?? sessionContext.project_id, 96);
+  const projectTitle = trimContextLine(sessionContext.pack ?? sessionContext.projectTitle ?? sessionContext.project_title, 160);
+  const act = trimContextLine(sessionContext.act ?? sessionContext.currentAct ?? sessionContext.current_act, 120);
+  const featureSequence = trimContextLine(
+    sessionContext.featureSequence ?? sessionContext.feature_sequence ?? sessionContext.currentSequence ?? sessionContext.current_sequence,
+    220
+  );
+  const featureObligation = trimContextLine(
+    sessionContext.featureObligation ?? sessionContext.feature_obligation ?? sessionContext.structuralObligation ?? sessionContext.structural_obligation,
+    280
+  );
+  const actPressureState = trimContextLine(
+    sessionContext.actPressureState ?? sessionContext.act_pressure_state,
+    280
+  );
+  const currentBeat = trimContextLine(
+    sessionContext.currentBeat ?? sessionContext.current_beat ?? sessionContext.beat,
+    220
+  );
+  const lastSceneOutcome = trimContextLine(
+    sessionContext.lastSceneOutcome ?? sessionContext.last_scene_outcome,
+    240
+  );
+  const characterArcState = trimContextLine(
+    sessionContext.characterArcState ?? sessionContext.character_arc_state,
+    280
+  );
+  const nextScenePlan = trimContextLine(
+    sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
+    340
+  );
+  const featureMemoryBrief = trimContextLine(
+    sessionContext.featureMemoryBrief ?? sessionContext.feature_memory_brief ?? sessionContext.persistentMemoryBrief ?? sessionContext.persistent_memory_brief,
+    900
+  );
+  const nextThreeTurns = sanitizeContextList(
+    sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
+    3,
+    180
+  );
+  const nextSceneMoves = sanitizeContextList(
+    sessionContext.nextSceneMoves ?? sessionContext.next_scene_moves ?? sessionContext.nextPageMoves ?? sessionContext.next_page_moves,
+    5,
+    180
+  );
+  const unresolvedSetups = sanitizeContextList(
+    sessionContext.unresolvedSetups ?? sessionContext.unresolved_setups ?? sessionContext.openLoops ?? sessionContext.open_loops,
+    8,
+    220
+  );
+  const unresolvedStoryThreads = sanitizeContextList(
+    sessionContext.unresolvedStoryThreads ?? sessionContext.unresolved_story_threads,
+    8,
+    220
+  );
+  const characterArcTurns = sanitizeContextList(
+    sessionContext.characterArcTurns ?? sessionContext.character_arc_turns,
+    6,
+    180
+  );
+  const actThreePayoffPath = sanitizeContextList(
+    sessionContext.actThreePayoffPath ?? sessionContext.act_three_payoff_path ?? sessionContext.payoffPath ?? sessionContext.payoff_path,
+    5,
+    200
+  );
+  const imageMotifs = sanitizeContextList(
+    sessionContext.imageMotifs ?? sessionContext.image_motifs ?? sessionContext.visualMotifs ?? sessionContext.visual_motifs,
+    6,
+    140
+  );
+  const rescueLines = [];
+  const push = (label, value) => {
+    const clean = trimContextLine(value, 320);
+    if (clean) rescueLines.push(`  ${label}: ${clean}`);
+  };
+
+  push("project", projectTitle || project);
+  push("position", [act, featureSequence].filter(Boolean).join(" / "));
+  push("current_beat", currentBeat);
+  push("last_scene_outcome", lastSceneOutcome);
+  push("structural_obligation_due", featureObligation);
+  push("act_pressure", actPressureState);
+  push("character_arc_pressure", characterArcState || characterArcTurns[0]);
+  push("strongest_remembered_next_turn", nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan);
+  push("open_setup_to_pressure", unresolvedSetups[0]);
+  push("unresolved_story_thread", unresolvedStoryThreads[0]);
+  push("act_three_payoff_seed", actThreePayoffPath[0]);
+  push("image_to_transform", imageMotifs[0]);
+  push("feature_memory_brief", featureMemoryBrief);
+
+  if (!rescueLines.length) return "";
+
+  return [
+    WRITER_BLOCK_MEMORY_BLOCK_OPEN,
+    "directive: The writer is blocked; use this available project state before inventing a new lane. Do not claim saved continuity beyond these lines.",
+    "rescue_runway:",
+    ...rescueLines,
+    "response_contract:",
+    "  - Start from one remembered pressure source: next turn, open setup, character arc pressure, act obligation, or payoff seed.",
+    "  - Convert it into one decisive playable next beat with objective, obstacle, tactic shift, cost, and exit image.",
+    "  - If alternatives help, give at most two short forks after the strongest move.",
+    "  - Keep the writer emotionally safe and keep the story moving.",
+    WRITER_BLOCK_MEMORY_BLOCK_CLOSE,
+  ].join("\n");
+}
+
 // T-block-signal-system-prompt: wrap the coaching string (produced by
 // `block_detector.buildBlockCoachingBlockForPrompt`) in tagged block
 // form. Empty coaching → empty block; the prompt path produces zero
@@ -969,6 +1082,9 @@ function buildModelPrompt({
   const acceptedTwistsBlock = buildAcceptedTwistsBlock(acceptedTwists);
   if (acceptedTwistsBlock) parts.push(acceptedTwistsBlock);
 
+  const writerBlockMemoryBlock = buildWriterBlockMemoryBlock(sessionContext, screenplayTask);
+  if (writerBlockMemoryBlock) parts.push(writerBlockMemoryBlock);
+
   const screenplayTaskBlock = buildScreenplayTaskBlock(screenplayTask);
   if (screenplayTaskBlock) parts.push(screenplayTaskBlock);
 
@@ -991,6 +1107,7 @@ function buildModelPromptParts(args) {
     sessionBlock: buildSessionContextBlock(args?.sessionContext),
     featureMapBlock: buildFeatureMapBlock(args?.sessionContext, args?.screenplayTask),
     acceptedTwistsBlock: buildAcceptedTwistsBlock(args?.acceptedTwists),
+    writerBlockMemoryBlock: buildWriterBlockMemoryBlock(args?.sessionContext, args?.screenplayTask),
     screenplayTaskBlock: buildScreenplayTaskBlock(args?.screenplayTask),
     blockSignalBlock: buildBlockSignalBlock(args?.blockCoaching),
     userInput: trimToString(args?.userInput),
@@ -1009,6 +1126,8 @@ export {
   ACCEPTED_TWISTS_BLOCK_CLOSE,
   SCREENPLAY_TASK_BLOCK_OPEN,
   SCREENPLAY_TASK_BLOCK_CLOSE,
+  WRITER_BLOCK_MEMORY_BLOCK_OPEN,
+  WRITER_BLOCK_MEMORY_BLOCK_CLOSE,
   CLEMENTINE_SAFETY_BLOCK_OPEN,
   CLEMENTINE_SAFETY_BLOCK_CLOSE,
   FEATURE_MAP_BLOCK_OPEN,
