@@ -69,6 +69,9 @@ const CLEMENTINE_CREATIVE_PACT = [
   "subtext engine: dialogue should carry tactic, concealment, interruption, pressure, and character-specific rhythm; avoid characters explaining the theme directly.",
   "image system: plant, echo, and transform visual motifs so later payoffs feel earned instead of invented.",
   "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation.",
+  "story problem taxonomy: when momentum stalls, diagnose the page-level cause: unclear want, passive protagonist, weak obstacle, missing consequence, repeated tactic, unearned reveal, act-pressure drift, or no exit turn.",
+  "story move library: rescue stalls with pressure engines such as reversal, revelation, deadline, impossible choice, secret exposure, relationship cost, antagonist move, object payoff, ironic complication, or image transformation.",
+  "writer's block rescue: do not soothe at length; identify the most likely dramatic blockage, choose one strongest next move, and turn it into playable behavior quickly.",
   "production format: write present-tense action with clean white space, actable lines, and no novelistic interiority.",
   "collaboration: ask at most one clarifying question only when genuinely blocked; otherwise make the next best creative move.",
   "format discipline: when writing or revising pages, prefer clean playable Fountain unless the user explicitly asks for analysis.",
@@ -77,6 +80,14 @@ const CLEMENTINE_CREATIVE_PACT = [
   "speed discipline: when the request asks for pages, output page work immediately; no throat-clearing, long diagnosis, permission loop, or generic writing advice.",
   "feature completion: for whole-movie work, orient the current act/sequence, choose the next structural obligation, and produce pages or a beat chain that advances the ending.",
 ];
+const STORY_MOMENTUM_PLAYBOOK = Object.freeze([
+  "diagnose: name the stall as a craft problem, not a personal failure.",
+  "find pressure: identify the character's active want, the opposing force, and the consequence if nothing changes.",
+  "choose engine: pick one story engine: reversal, revelation, deadline, impossible choice, secret exposure, relationship cost, antagonist move, object payoff, ironic complication, or image transformation.",
+  "make it playable: convert the engine into visible action, tactical dialogue, a changed power dynamic, and an exit image.",
+  "feature check: make the beat serve the active act obligation and one later payoff.",
+  "delivery: if the user asks for help, give one best next beat plus at most two alternate forks; if the user asks for pages, write pages immediately.",
+]);
 const PAGE_COUNT_WORDS = Object.freeze({
   one: 1,
   two: 2,
@@ -241,9 +252,9 @@ function inferScreenplayTask(userInput = "") {
     /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|finish this scene|from here)\b/,
   ]);
   const stuckLike = hasAny(lower, [
-    /\b(stuck|blocked|spinning|overthinking|can'?t figure out|cannot figure out|don'?t know where to go|don'?t know what happens|no idea what happens)\b/,
+    /\b(stuck|blocked|writer'?s block|writers block|creative block|spinning|overthinking|can'?t figure out|cannot figure out|don'?t know where to go|don'?t know what happens|no idea what happens)\b/,
     /\b(?:i'?m|im|i am|feel|feeling|kind of|sort of)\s+lost\b/,
-    /\b(help me get unstuck|help me find the next beat|find the next beat|what should happen here)\b/,
+    /\b(help me get unstuck|help me find the next beat|find the next beat|what should happen here|running out of ideas|out of ideas|need ideas|need a better next move|story slowed down|slows down on ideas)\b/,
   ]);
   const featureCompletionLike = hasAny(lower, [
     /\bfeature workflow context\b/,
@@ -295,7 +306,7 @@ function inferScreenplayTask(userInput = "") {
   } else if (stuckLike) {
     intent = "momentum_rescue";
     label = "Momentum Rescue";
-    output = "Help the writer get moving: name the dramatic pressure under the block, offer the strongest next beat, then write a small playable sample in clean Fountain style when context is present.";
+    output = "Help the writer get moving like an elite story editor: diagnose the exact story stall, choose one strongest next beat, offer up to two alternate forks only if useful, then write a small playable sample in clean Fountain style when context is present.";
   } else if (continueLike) {
     intent = "continue_script";
     label = "Continue Script";
@@ -377,6 +388,18 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - Track act math: Act I earns commitment; Act II breaks false tactics; Act III spends setups through changed behavior.");
     lines.push("  - End on a decision, reveal, cost, or image that hands cleanly into the next sequence.");
   }
+  if (intent === "momentum_rescue") {
+    lines.push("story_momentum_playbook:");
+    for (const item of STORY_MOMENTUM_PLAYBOOK) {
+      lines.push(`  - ${item}`);
+    }
+    lines.push("writer_block_contract:");
+    lines.push("  - Never answer with generic encouragement alone.");
+    lines.push("  - Lead with the most likely story blockage and the page-level fix.");
+    lines.push("  - Prefer one decisive next beat over a menu of vague ideas.");
+    lines.push("  - If enough scene context exists, include a playable micro-beat in Fountain style.");
+    lines.push("  - Keep the user emotionally safe: blocked means the story is asking for pressure, not that the writer failed.");
+  }
   const modeGuidance = screenplayModeGuidanceForIntent(intent);
   if (modeGuidance) lines.push(`mode_guidance: ${modeGuidance}`);
   if (output) lines.push(`output: ${output}`);
@@ -407,7 +430,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "finish_feature":
       return "Operate at feature scale. Locate the current act/sequence, name the due obligation, preserve promises, setups/payoffs, and character need, then make the next act-to-act move. Use the feature compass: current sequence, next three turns, Act III payoff path, final-image pressure, and immediate next page move. When memory contains a next-turn runway, turn the first remembered turn into playable behavior before adding new plot. For page requests, start Fountain pages immediately with no diagnosis or strategy note; if Studio provided a page-targeted continuation brief, output only playable screenplay pages. For planning, give an act engine, next three turns, Act III payoff path, and final-image handoff.";
     case "momentum_rescue":
-      return "Do not turn stuckness into a lecture. Give one emotionally precise diagnosis, one decisive next move, and a small playable beat or page sample if there is enough context. Prefer forward motion over options.";
+      return "Do not turn stuckness into a lecture. Diagnose the stall using story mechanics: want, obstacle, tactic, consequence, reversal, act pressure, and exit image. Give one decisive next move, optionally two sharp alternate forks, and a small playable beat or page sample if there is enough context. Prefer forward motion over options.";
     default:
       return "Stay concrete, cinematic, and useful; move from feeling to craft to the next playable action.";
   }

@@ -213,6 +213,10 @@ function buildBlockCoachingBlockForPrompt(signal) {
       `  observation: ${summary}`,
       "  tone: warmer, shorter sentences, lower-stakes prompts",
       "  ask: invite ONE concrete image or beat — do not ask for a finished scene",
+      "story-rescue-protocol:",
+      "  diagnose: find the immediate craft blockage: unclear want, passive protagonist, weak obstacle, repeated tactic, missing consequence, act-pressure drift, or no exit turn",
+      "  engines: choose one pressure engine: reversal, revelation, deadline, impossible choice, secret exposure, relationship cost, antagonist move, object payoff, ironic complication, or image transformation",
+      "  delivery: offer the strongest next beat first; if context exists, draft a tiny playable Fountain sample instead of advice alone",
     ].join("\n");
   }
   // medium
@@ -221,6 +225,10 @@ function buildBlockCoachingBlockForPrompt(signal) {
     `  observation: ${summary}`,
     "  tone: gentle, encouraging",
     "  ask: a small concrete prompt that builds on what the writer already has",
+    "story-rescue-protocol:",
+    "  diagnose: translate stuckness into one story problem: want, obstacle, consequence, tactic, reveal, or act pressure",
+    "  engines: suggest one clean next-move engine before offering alternatives",
+    "  delivery: make the next move playable on the page, not abstract encouragement",
   ].join("\n");
 }
 

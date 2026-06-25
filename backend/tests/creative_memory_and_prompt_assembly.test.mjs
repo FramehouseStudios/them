@@ -450,6 +450,8 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
   assert.equal(inferScreenplayTask("Punch up the dialogue.").intent, "dialogue_punchup");
   assert.equal(inferScreenplayTask("Fix the emotional continuity.").intent, "emotional_continuity");
   assert.equal(inferScreenplayTask("I'm stuck and don't know where to go with this scene.").intent, "momentum_rescue");
+  assert.equal(inferScreenplayTask("I have writer's block and need ideas to move the story forward.").intent, "momentum_rescue");
+  assert.equal(inferScreenplayTask("The story slowed down and I need a better next move.").intent, "momentum_rescue");
 });
 
 test("[screenplay-task] inferScreenplayTask handles targeted Clementine Studio modes", () => {
@@ -678,6 +680,11 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   });
   assert.ok(momentumRescue.includes("intent: momentum_rescue"));
   assert.ok(momentumRescue.includes("mode_guidance: Do not turn stuckness into a lecture."));
+  assert.ok(momentumRescue.includes("story_momentum_playbook:"));
+  assert.ok(momentumRescue.includes("choose engine"));
+  assert.ok(momentumRescue.includes("reversal, revelation, deadline"));
+  assert.ok(momentumRescue.includes("writer_block_contract:"));
+  assert.ok(momentumRescue.includes("Never answer with generic encouragement alone."));
   assert.ok(momentumRescue.includes("one decisive next move"));
 });
 
