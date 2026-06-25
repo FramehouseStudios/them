@@ -452,6 +452,14 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
   assert.equal(inferScreenplayTask("I'm stuck and don't know where to go with this scene.").intent, "momentum_rescue");
   assert.equal(inferScreenplayTask("I have writer's block and need ideas to move the story forward.").intent, "momentum_rescue");
   assert.equal(inferScreenplayTask("The story slowed down and I need a better next move.").intent, "momentum_rescue");
+  assert.match(
+    inferScreenplayTask("I have writer's block and need ideas to move the story forward.").storyDiagnostic.likelyProblem,
+    /next dramatic engine/i
+  );
+  assert.match(
+    inferScreenplayTask("My second act is dragging and the middle feels static.").storyDiagnostic.actObligation,
+    /Act II/
+  );
 });
 
 test("[screenplay-task] inferScreenplayTask handles targeted Clementine Studio modes", () => {
@@ -685,7 +693,37 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   assert.ok(momentumRescue.includes("reversal, revelation, deadline"));
   assert.ok(momentumRescue.includes("writer_block_contract:"));
   assert.ok(momentumRescue.includes("Never answer with generic encouragement alone."));
+  assert.ok(momentumRescue.includes("story_diagnostic:"));
+  assert.ok(momentumRescue.includes("likely_scene_problem:"));
+  assert.ok(momentumRescue.includes("strongest_pressure_engine:"));
+  assert.ok(momentumRescue.includes("next_beat_ladder:"));
+  assert.ok(momentumRescue.includes("storytelling_concepts:"));
+  assert.ok(momentumRescue.includes("scene engine: a scene moves when a character wants"));
+  assert.ok(momentumRescue.includes("response_contract: apply the diagnostic silently"));
   assert.ok(momentumRescue.includes("one decisive next move"));
+});
+
+test("[screenplay-task] story diagnostics make blocked and continuation turns act-aware", () => {
+  const actTwoStall = buildModelPrompt({
+    persona: "PERSONA",
+    screenplayTask: inferScreenplayTask("My second act is dragging and the middle feels static."),
+    userInput: "My second act is dragging and the middle feels static.",
+  });
+  assert.ok(actTwoStall.includes("story_diagnostic:"));
+  assert.ok(actTwoStall.includes("likely_scene_problem: repeated tactic / static middle"));
+  assert.ok(actTwoStall.includes("strongest_pressure_engine: force a reversal or new leverage"));
+  assert.ok(actTwoStall.includes("act_obligation: Act II"));
+  assert.ok(actTwoStall.includes("sequence engine: each beat should force a new tactic"));
+
+  const continuation = buildModelPrompt({
+    persona: "PERSONA",
+    screenplayTask: inferScreenplayTask("What should happen next after Mara finds the tape?"),
+    userInput: "What should happen next after Mara finds the tape?",
+  });
+  assert.ok(continuation.includes("intent: continue_script"));
+  assert.ok(continuation.includes("likely_scene_problem: missing turn / no exit image"));
+  assert.ok(continuation.includes("end the beat on a decision, reveal, reversal, cost, or image"));
+  assert.ok(continuation.includes("next_beat_ladder:"));
 });
 
 test("[screenplay-task] inferScreenplayTask recognizes feature-scale page requests", () => {

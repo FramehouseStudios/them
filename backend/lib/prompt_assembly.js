@@ -88,6 +88,68 @@ const STORY_MOMENTUM_PLAYBOOK = Object.freeze([
   "feature check: make the beat serve the active act obligation and one later payoff.",
   "delivery: if the user asks for help, give one best next beat plus at most two alternate forks; if the user asks for pages, write pages immediately.",
 ]);
+const STORYCRAFT_RESCUE_CONCEPTS = Object.freeze([
+  "scene engine: a scene moves when a character wants a specific change now, meets opposition, changes tactic, and pays a consequence.",
+  "conflict engine: pressure should come from competing wants, withheld information, a deadline, a secret, a moral cost, or a choice that closes one door.",
+  "sequence engine: each beat should force a new tactic; repeated conversations without new leverage are usually the middle sag.",
+  "act engine: Act I forces commitment, Act II breaks false tactics through reversal and loss, Act III pays off setups through changed behavior.",
+  "emotion engine: the next event should externalize the feeling the character is avoiding, not explain it.",
+  "page engine: convert advice into visible behavior, tactical dialogue, a changed power dynamic, and an exit image.",
+]);
+const STORY_STALL_DIAGNOSTICS = Object.freeze([
+  {
+    problem: "passive protagonist / unclear want",
+    engine: "give the protagonist a visible objective they must pursue before the scene can end",
+    patterns: [
+      /\b(passive|inactive|doesn'?t do anything|won'?t act|just reacting|floating|aimless)\b/,
+      /\b(no goal|no want|unclear want|unclear objective|doesn'?t want anything)\b/,
+    ],
+  },
+  {
+    problem: "weak obstacle / low opposition",
+    engine: "put the want against a person, rule, deadline, or revealed cost that can say no",
+    patterns: [
+      /\b(no conflict|not enough conflict|weak conflict|too easy|low stakes|no stakes|nothing stopping|no obstacle)\b/,
+      /\b(needs stakes|raise the stakes|make it harder|more pressure)\b/,
+    ],
+  },
+  {
+    problem: "repeated tactic / static middle",
+    engine: "force a reversal or new leverage so the character must change tactics",
+    patterns: [
+      /\b(repeating|same beat|same tactic|static|circular|going in circles|spinning|middle sag|second act slump)\b/,
+      /\b(act\s*(?:ii|2|two)|second act|middle)\b.*\b(stuck|slow|drag|sag|boring|lost)\b/,
+    ],
+  },
+  {
+    problem: "exposition instead of dramatization",
+    engine: "turn backstory into an object, secret, action, interruption, or public consequence",
+    patterns: [
+      /\b(exposition|backstory|too much information|explaining|explains|on[- ]the[- ]nose|info dump|infodump)\b/,
+    ],
+  },
+  {
+    problem: "missing turn / no exit image",
+    engine: "end the beat on a decision, reveal, reversal, cost, or image that makes the next scene inevitable",
+    patterns: [
+      /\b(no turn|missing turn|doesn'?t turn|flat ending|no ending|no button|how do i end|exit image|last beat)\b/,
+      /\b(what happens next|what should happen next|next beat|next scene|where do i go|where to go)\b/,
+    ],
+  },
+  {
+    problem: "payoff path unclear",
+    engine: "bring back one planted object, promise, relationship wound, or image under maximum pressure",
+    patterns: [
+      /\b(act\s*(?:iii|3|three)|third act|final act|finale|climax|ending)\b.*\b(stuck|weak|slow|lost|not working|finish)\b/,
+      /\b(payoff|setup|promise|land the ending|resolve|resolution)\b/,
+    ],
+  },
+]);
+const ACT_RESCUE_OBLIGATIONS = Object.freeze({
+  act1: "Act I: clarify wound/want, make the catalyst unavoidable, and force a commitment that creates Act II pressure.",
+  act2: "Act II: break the protagonist's old tactic, raise the relationship cost, and drive toward midpoint reversal or all-is-lost consequence.",
+  act3: "Act III: spend planted setups, make the changed behavior visible, and drive the climax toward the final image.",
+});
 const PAGE_COUNT_WORDS = Object.freeze({
   one: 1,
   two: 2,
@@ -226,6 +288,84 @@ function inferFeatureRequestMetadata(lower) {
   };
 }
 
+function inferActKindFromTextOrLabel(value = "") {
+  const lower = trimToString(value).toLowerCase();
+  if (!lower) return "";
+  if (/\bact\s*(?:iii|3|three)\b|\bthird act\b|\bfinal act\b|\bfinale\b|\bclimax\b|\bending\b/.test(lower)) {
+    return "act3";
+  }
+  if (/\bact\s*(?:ii|2|two)\b|\bsecond act\b|\bmiddle\b|\bmidpoint\b|\ball[- ]is[- ]lost\b|\bfun and games\b/.test(lower)) {
+    return "act2";
+  }
+  if (/\bact\s*(?:i|1|one)\b|\bfirst act\b|\bbeginning\b|\bopening\b|\bcatalyst\b|\bbreak into two\b/.test(lower)) {
+    return "act1";
+  }
+  return "";
+}
+
+function inferStoryStallDiagnostic(lower = "") {
+  for (const diagnostic of STORY_STALL_DIAGNOSTICS) {
+    if (diagnostic.patterns.some((pattern) => pattern.test(lower))) {
+      return diagnostic;
+    }
+  }
+  if (/\b(slow|dragging|drags|boring|flat|nothing happens|loses momentum|slowed down)\b/.test(lower)) {
+    return {
+      problem: "pressure drop / missing consequence",
+      engine: "add a consequence that lands now, then force a tactic change before the scene exits",
+    };
+  }
+  if (/\b(stuck|blocked|writer'?s block|writers block|creative block|out of ideas|need ideas|lost)\b/.test(lower)) {
+    return {
+      problem: "next dramatic engine unclear",
+      engine: "choose one pressure engine and dramatize it as the next visible decision, reveal, cost, or image",
+    };
+  }
+  return null;
+}
+
+function inferStoryMomentumDiagnostic(userInput = "", task = {}) {
+  const lower = trimToString(userInput).toLowerCase();
+  const intent = trimToString(task?.intent);
+  const relevantIntent = [
+    "momentum_rescue",
+    "continue_script",
+    "finish_feature",
+    "outline_structure",
+    "scene_doctor",
+    "pacing_pass",
+  ].includes(intent);
+  if (!lower && !relevantIntent) return null;
+  const diagnostic = inferStoryStallDiagnostic(lower);
+  const actKind = inferActKindFromTextOrLabel(task?.requestedAct) || inferActKindFromTextOrLabel(lower);
+  if (!diagnostic && !actKind && !relevantIntent) return null;
+  const problem = diagnostic?.problem || (
+    intent === "finish_feature"
+      ? "feature-scale next obligation unclear"
+      : "continuation needs a stronger dramatic turn"
+  );
+  const engine = diagnostic?.engine || (
+    intent === "continue_script"
+      ? "continue with the next visible action, then change power, information, relationship, or cost before the beat ends"
+      : "choose the next structural obligation and convert it into a playable decision, reversal, or cost"
+  );
+  const actObligation = ACT_RESCUE_OBLIGATIONS[actKind] || "";
+  return {
+    likelyProblem: problem,
+    pressureEngine: engine,
+    actObligation,
+    nextBeatLadder: [
+      "active want",
+      "opposition",
+      "tactic shift",
+      "reversal or cost",
+      "emotional residue",
+      "exit image",
+    ],
+    concepts: STORYCRAFT_RESCUE_CONCEPTS,
+  };
+}
+
 function inferScreenplayTask(userInput = "") {
   const text = trimToString(userInput);
   const lower = text.toLowerCase();
@@ -249,7 +389,7 @@ function inferScreenplayTask(userInput = "") {
   ]);
   const dialoguePunchupLike = explicitDialoguePunchupLike && (!rewriteLike || hasAny(lower, [/\bpunch[- ]up\b/]));
   const continueLike = hasAny(lower, [
-    /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|finish this scene|from here)\b/,
+    /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|what should happen next|finish this scene|from here)\b/,
   ]);
   const stuckLike = hasAny(lower, [
     /\b(stuck|blocked|writer'?s block|writers block|creative block|spinning|overthinking|can'?t figure out|cannot figure out|don'?t know where to go|don'?t know what happens|no idea what happens)\b/,
@@ -345,7 +485,45 @@ function inferScreenplayTask(userInput = "") {
   if (featureMetadata.requestedPages > 0) task.requestedPages = featureMetadata.requestedPages;
   if (featureMetadata.requestedAct) task.requestedAct = featureMetadata.requestedAct;
   if (featureMetadata.featureScope) task.featureScope = featureMetadata.featureScope;
+  const storyDiagnostic = inferStoryMomentumDiagnostic(text, task);
+  if (storyDiagnostic) task.storyDiagnostic = storyDiagnostic;
   return task;
+}
+
+function buildStoryDiagnosticPromptLines(storyDiagnostic) {
+  if (!storyDiagnostic || typeof storyDiagnostic !== "object") return [];
+  const lines = ["story_diagnostic:"];
+  const likelyProblem = trimContextLine(
+    storyDiagnostic.likelyProblem ?? storyDiagnostic.likely_problem ?? storyDiagnostic.problem,
+    180
+  );
+  const pressureEngine = trimContextLine(
+    storyDiagnostic.pressureEngine ?? storyDiagnostic.pressure_engine ?? storyDiagnostic.engine,
+    220
+  );
+  const actObligation = trimContextLine(
+    storyDiagnostic.actObligation ?? storyDiagnostic.act_obligation,
+    220
+  );
+  if (likelyProblem) lines.push(`  likely_scene_problem: ${likelyProblem}`);
+  if (pressureEngine) lines.push(`  strongest_pressure_engine: ${pressureEngine}`);
+  if (actObligation) lines.push(`  act_obligation: ${actObligation}`);
+  const nextBeatLadder = sanitizeContextList(
+    storyDiagnostic.nextBeatLadder ?? storyDiagnostic.next_beat_ladder,
+    6,
+    80
+  );
+  if (nextBeatLadder.length) {
+    lines.push("  next_beat_ladder:");
+    for (const step of nextBeatLadder) lines.push(`    - ${step}`);
+  }
+  const concepts = sanitizeContextList(storyDiagnostic.concepts, 6, 220);
+  if (concepts.length) {
+    lines.push("  storytelling_concepts:");
+    for (const concept of concepts) lines.push(`    - ${concept}`);
+  }
+  lines.push("  response_contract: apply the diagnostic silently; answer with one decisive next move and playable page behavior, not a theory lecture.");
+  return lines.length > 2 ? lines : [];
 }
 
 function buildScreenplayTaskBlock(screenplayTask) {
@@ -400,6 +578,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - If enough scene context exists, include a playable micro-beat in Fountain style.");
     lines.push("  - Keep the user emotionally safe: blocked means the story is asking for pressure, not that the writer failed.");
   }
+  lines.push(...buildStoryDiagnosticPromptLines(task.storyDiagnostic ?? task.story_diagnostic));
   const modeGuidance = screenplayModeGuidanceForIntent(intent);
   if (modeGuidance) lines.push(`mode_guidance: ${modeGuidance}`);
   if (output) lines.push(`output: ${output}`);
