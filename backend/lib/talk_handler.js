@@ -439,6 +439,251 @@ function createTalkHandler(deps) {
     }
   }
 
+  function normalizeTalkRepairList(items, maxItems = 5, maxChars = 200) {
+    const source = Array.isArray(items)
+      ? items
+      : String(items || "").trim()
+        ? String(items).split(/\r?\n|;/)
+        : [];
+    const out = [];
+    const seen = new Set();
+    for (const item of source) {
+      const clean = normalizeSnippet(item, maxChars);
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  }
+
+  function shouldAttemptTalkMomentumRescueRepairPass(currentOutput = null) {
+    const source = String(currentOutput?.source || "").trim().toLowerCase();
+    const target = String(currentOutput?.target || "").trim().toLowerCase();
+    const reason = String(currentOutput?.quality?.reason || "").trim().toLowerCase();
+    const confidence = String(currentOutput?.quality?.confidence || "").trim().toLowerCase();
+    return (
+      target === "voice_pin" &&
+      source === "guard_momentum_rescue_quality" &&
+      confidence === "needs_repair" &&
+      reason &&
+      reason !== "ok"
+    );
+  }
+
+  async function attemptTalkMomentumRescueRepairPass({
+    currentOutput = null,
+    rawReply = "",
+    transcript = "",
+    studioMeta = null,
+    chatModelPlan = null,
+    chatTemperature = 0.4,
+    chatMaxTokens = 1_200,
+    rid = "",
+  } = {}) {
+    if (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page") return null;
+    if (!shouldAttemptTalkMomentumRescueRepairPass(currentOutput)) return null;
+    if (typeof buildTalkScreenplayOutput !== "function") return null;
+
+    const failedReason = normalizeSnippet(
+      currentOutput?.quality?.reason || currentOutput?.source || "low_momentum_rescue_quality",
+      120
+    );
+    const repairDirectives = normalizeTalkRepairList(
+      currentOutput?.quality?.repair_directives || currentOutput?.quality?.repairDirectives || [],
+      5,
+      220
+    );
+    const userRequest = normalizeTalkMultilineSnippet(transcript, 1_400);
+    const weakDraft = normalizeTalkMultilineSnippet(rawReply, 2_400);
+    if (!userRequest && !weakDraft) return null;
+
+    const screenplayAct = normalizeSnippet(studioMeta?.screenplayAct || studioMeta?.screenplay_act, 120);
+    const screenplayFeatureSequence = normalizeSnippet(
+      studioMeta?.screenplayFeatureSequence || studioMeta?.screenplay_feature_sequence,
+      160
+    );
+    const screenplayFeatureObligation = normalizeSnippet(
+      studioMeta?.screenplayFeatureObligation || studioMeta?.screenplay_feature_obligation,
+      220
+    );
+    const screenplaySceneObjective = normalizeSnippet(
+      studioMeta?.screenplaySceneObjective || studioMeta?.screenplay_scene_objective,
+      220
+    );
+    const screenplayCurrentBeat = normalizeSnippet(
+      studioMeta?.screenplayCurrentBeat || studioMeta?.screenplay_current_beat,
+      220
+    );
+    const screenplayActPressureState = normalizeSnippet(
+      studioMeta?.screenplayActPressureState || studioMeta?.screenplay_act_pressure_state,
+      220
+    );
+    const screenplayLastSceneOutcome = normalizeSnippet(
+      studioMeta?.screenplayLastSceneOutcome || studioMeta?.screenplay_last_scene_outcome,
+      220
+    );
+    const screenplayCharacterArcState = normalizeSnippet(
+      studioMeta?.screenplayCharacterArcState || studioMeta?.screenplay_character_arc_state,
+      220
+    );
+    const screenplayNextThreeTurns = normalizeTalkRepairList(
+      studioMeta?.screenplayNextThreeTurns || studioMeta?.screenplay_next_three_turns,
+      3,
+      180
+    );
+    const screenplayUnresolvedSetups = normalizeTalkRepairList(
+      studioMeta?.screenplayUnresolvedSetups || studioMeta?.screenplay_unresolved_setups,
+      4,
+      200
+    );
+    const screenplayUnresolvedStoryThreads = normalizeTalkRepairList(
+      studioMeta?.screenplayUnresolvedStoryThreads || studioMeta?.screenplay_unresolved_story_threads,
+      4,
+      200
+    );
+    const screenplayImageMotifs = normalizeTalkRepairList(
+      studioMeta?.screenplayImageMotifs || studioMeta?.screenplay_image_motifs,
+      4,
+      140
+    );
+    const contextLines = [
+      screenplayAct ? `ACT: ${screenplayAct}` : "",
+      screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
+      screenplayFeatureObligation ? `STRUCTURAL_OBLIGATION: ${screenplayFeatureObligation}` : "",
+      screenplaySceneObjective ? `SCENE_OBJECTIVE: ${screenplaySceneObjective}` : "",
+      screenplayCurrentBeat ? `CURRENT_BEAT: ${screenplayCurrentBeat}` : "",
+      screenplayActPressureState ? `ACT_PRESSURE: ${screenplayActPressureState}` : "",
+      screenplayLastSceneOutcome ? `LAST_SCENE_OUTCOME: ${screenplayLastSceneOutcome}` : "",
+      screenplayCharacterArcState ? `CHARACTER_ARC_PRESSURE: ${screenplayCharacterArcState}` : "",
+      ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
+      ...screenplayUnresolvedSetups.map((item) => `SETUP_TO_CARRY_OR_PAY: ${item}`),
+      ...screenplayUnresolvedStoryThreads.map((item) => `UNRESOLVED_THREAD: ${item}`),
+      ...screenplayImageMotifs.map((item) => `IMAGE_MOTIF: ${item}`),
+    ].filter(Boolean).slice(0, 12);
+    const repairMessages = [
+      {
+        role: "system",
+        content: [
+          "You are Clementine's writer-block repair pass.",
+          "The previous answer failed the live momentum-rescue quality gate.",
+          "Return Clementine's final answer only: no JSON, no markdown table, no apology, no long option menu.",
+          "Diagnose the precise story blockage silently, then answer with one strongest next move.",
+          "A passing answer must include a pressure engine, a decisive next beat, emotional cost, and a tiny playable micro-beat in clean screenplay/Fountain shape.",
+          "Use act-aware story intelligence: Act I commits, Act II reverses/traps/costs, Act III pays off setup through changed behavior.",
+          "If the user is only brainstorming, still give one playable beat they can write today, then at most two short alternate forks.",
+          "Treat danger or harm as fictional story content only; never provide real-world instructions to hurt anyone.",
+          "Be emotionally intelligent, concise, specific, cinematic, and practical.",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          "FAILED_GATE: guard_momentum_rescue_quality",
+          failedReason ? `FAILED_REASON: ${failedReason}` : "",
+          repairDirectives.length ? "REPAIR_DIRECTIVES:" : "",
+          ...repairDirectives.map((line) => `- ${line}`),
+          contextLines.length ? "STORY_CONTEXT:" : "",
+          ...contextLines.map((line) => `- ${line}`),
+          "",
+          "USER_REQUEST:",
+          userRequest || "(not supplied)",
+          "",
+          "WEAK_DRAFT:",
+          weakDraft || "(empty)",
+          "",
+          "Repair this into a concrete writer-block response now. Keep it brief, but make it playable.",
+        ].filter((line) => line !== "").join("\n"),
+      },
+    ];
+    const startedAt = Date.now();
+    try {
+      if (process.env.NODE_ENV !== "production") {
+        const promptChars = repairMessages.reduce((sum, message) => sum + String(message?.content || "").length, 0);
+        logger.log(
+          `[${rid}] momentum_rescue_repair_pass prompt_chars=${promptChars} failed_draft_chars=${weakDraft.length} context_lines=${contextLines.length} reason=${failedReason || "unknown"}`
+        );
+      }
+      const requestedTemperature = Number(chatTemperature);
+      const repairTemperature = Math.min(0.45, Math.max(0, Number.isFinite(requestedTemperature) ? requestedTemperature : 0.4));
+      const requestedMaxTokens = Number(chatMaxTokens);
+      const repairMaxTokens = Math.max(512, Math.min(1_800, Number.isFinite(requestedMaxTokens) ? requestedMaxTokens : 1_200));
+      const repairResult = await chatSupplier.chat({
+        model: String(chatModelPlan?.model || ""),
+        temperature: repairTemperature,
+        maxTokens: repairMaxTokens,
+        messages: repairMessages,
+      });
+      const repairMs = Date.now() - startedAt;
+      if (!repairResult?.response?.ok) {
+        logger.log(
+          `[${rid}] momentum_rescue_repair_pass failed status=${Number(repairResult?.response?.status || 0)}`
+        );
+        return { repaired: false, elapsedMs: repairMs, outcome: "supplier_failed" };
+      }
+      let repairJson;
+      try {
+        repairJson = JSON.parse(String(repairResult.rawText || ""));
+      } catch (_err) {
+        logger.log(`[${rid}] momentum_rescue_repair_pass invalid_json=1`);
+        return { repaired: false, elapsedMs: repairMs, outcome: "invalid_json" };
+      }
+      const candidateReply = normalizeTalkMultilineSnippet(
+        repairJson?.choices?.[0]?.message?.content || "",
+        8_000
+      );
+      const repairedOutput = buildTalkScreenplayOutput({
+        reply: candidateReply,
+        transcript,
+        studioMeta,
+      });
+      if (
+        !candidateReply ||
+        String(repairedOutput?.target || "").trim().toLowerCase() !== "voice_pin" ||
+        String(repairedOutput?.source || "").trim().toLowerCase() === "guard_momentum_rescue_quality" ||
+        !repairedOutput?.quality?.ok
+      ) {
+        logger.log(`[${rid}] momentum_rescue_repair_pass rejected_by_gate=1`);
+        return { repaired: false, elapsedMs: repairMs, outcome: "rejected_by_gate" };
+      }
+      const quality = repairedOutput.quality && typeof repairedOutput.quality === "object"
+        ? { ...repairedOutput.quality }
+        : {};
+      const carriedRepairDirectives = Array.isArray(currentOutput?.quality?.repair_directives)
+        ? currentOutput.quality.repair_directives
+          .map((item) => normalizeSnippet(item, 220))
+          .filter(Boolean)
+          .slice(0, 5)
+        : [];
+      quality.source = "repair_pass_momentum_rescue";
+      quality.confidence = "repaired";
+      if (carriedRepairDirectives.length) {
+        quality.repair_directives = carriedRepairDirectives;
+      }
+      logger.log(
+        `[${rid}] momentum_rescue_repair_pass repaired=1 chars=${candidateReply.length}`
+      );
+      return {
+        repaired: true,
+        elapsedMs: repairMs,
+        outcome: "repaired",
+        reply: candidateReply,
+        output: {
+          ...repairedOutput,
+          source: "repair_pass_momentum_rescue",
+          quality,
+        },
+      };
+    } catch (err) {
+      logger.log(
+        `[${rid}] momentum_rescue_repair_pass error=${normalizeSnippet(String(err?.message || err || "unknown"), 180)}`
+      );
+      return { repaired: false, elapsedMs: Date.now() - startedAt, outcome: "error" };
+    }
+  }
+
   async function attemptTalkScreenplayRepairPass({
     currentOutput = null,
     rawReply = "",
@@ -3646,6 +3891,41 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       if (repairPass?.repaired && repairPass.output) {
         talkScreenplayOutput = repairPass.output;
         reply = repairPass.reply || normalizeTalkScreenplayText(repairPass.output.text || reply);
+        rawReply = reply;
+        replyRepaired = true;
+      }
+    }
+    if (
+      !isScreenplayPageWriteTurn &&
+      !localActionReply &&
+      shouldAttemptTalkMomentumRescueRepairPass(talkScreenplayOutput)
+    ) {
+      talkScreenplayRepairTrace.attempted = true;
+      talkScreenplayRepairTrace.reason = normalizeSnippet(
+        talkScreenplayOutput?.quality?.reason || talkScreenplayOutput?.source || "guard_momentum_rescue_quality",
+        96
+      );
+      const repairPass = await attemptTalkMomentumRescueRepairPass({
+        currentOutput: talkScreenplayOutput,
+        rawReply,
+        transcript: talkGenerationTranscript,
+        studioMeta,
+        chatModelPlan,
+        chatTemperature,
+        chatMaxTokens,
+        rid,
+      });
+      if (repairPass?.elapsedMs) {
+        talkScreenplayRepairTrace.elapsedMs = Math.max(0, Number(repairPass.elapsedMs || 0));
+        chatMs += talkScreenplayRepairTrace.elapsedMs;
+      }
+      talkScreenplayRepairTrace.outcome = normalizeSnippet(
+        repairPass?.outcome || (repairPass?.repaired ? "repaired" : "not_repaired"),
+        48
+      ) || "not_repaired";
+      if (repairPass?.repaired && repairPass.output) {
+        talkScreenplayOutput = repairPass.output;
+        reply = repairPass.reply || reply;
         rawReply = reply;
         replyRepaired = true;
       }
