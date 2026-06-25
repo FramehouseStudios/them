@@ -851,6 +851,44 @@ function sortEpisodicMemoriesForStorage(memories = []) {
     });
 }
 
+function sanitizeCreativeMemoryLedgerRecord(rec = null, {
+  includeSuperseded = true,
+  maxEpisodicMemories = EPISODIC_MEMORIES_MAX,
+} = {}) {
+  if (!rec || typeof rec !== "object") return null;
+  const out = {
+    userId: cleanText(rec.userId, 128),
+    version: SCHEMA_VERSION,
+    updatedAt: Math.max(0, Number(rec.updatedAt || 0)),
+  };
+  if (rec.style && typeof rec.style === "object" && !Array.isArray(rec.style)) {
+    out.style = clone(rec.style);
+  }
+  if (Array.isArray(rec.characters) && rec.characters.length) {
+    out.characters = clone(rec.characters);
+  }
+  const episodicMemories = sortEpisodicMemoriesForStorage(
+    (Array.isArray(rec.episodicMemories) ? rec.episodicMemories : [])
+      .map(sanitizeEpisodicMemoryItem)
+      .filter((item) => item && (includeSuperseded || !item.supersededAt))
+  )
+    .slice(0, Math.max(1, Number(maxEpisodicMemories || EPISODIC_MEMORIES_MAX)))
+    .map((memory) => {
+      const item = clone(memory);
+      delete item.text;
+      delete item.semanticFingerprint;
+      return item;
+    });
+  if (episodicMemories.length) out.episodicMemories = episodicMemories;
+  if (rec.tone && typeof rec.tone === "object" && !Array.isArray(rec.tone)) {
+    out.tone = clone(rec.tone);
+  }
+  if (rec.habits && typeof rec.habits === "object" && !Array.isArray(rec.habits)) {
+    out.habits = clone(rec.habits);
+  }
+  return out;
+}
+
 function touchReferencedEpisodicMemories(memories = [], memoryIds = [], atMs = nowMs()) {
   const ids = new Set(
     (Array.isArray(memoryIds) ? memoryIds : [])
@@ -1492,6 +1530,18 @@ function createCreativeMemoryStore({ persistence } = {}) {
     return out;
   }
 
+  async function getCreativeMemoryLedger({
+    userId,
+    includeSuperseded = true,
+    maxEpisodicMemories = EPISODIC_MEMORIES_MAX,
+  } = {}) {
+    const rec = await readUser(userId);
+    return sanitizeCreativeMemoryLedgerRecord(rec, {
+      includeSuperseded,
+      maxEpisodicMemories,
+    });
+  }
+
   async function hasMemoryForUser(userId) {
     return (await readUser(userId)) !== null;
   }
@@ -2111,6 +2161,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     SCHEMA_VERSION,
     DOMAIN,
     getCreativeMemoryForPrompt,
+    getCreativeMemoryLedger,
     getCharacterTraits,
     getHabitsForUser,
     hasMemoryForUser,

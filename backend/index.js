@@ -28246,6 +28246,138 @@ function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now(
   return cards;
 }
 
+function stableMemoryCardHash(value = "") {
+  let hash = 2166136261;
+  const text = String(value || "");
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function buildEpisodicMemoryCards(creativeMemory = null, nowTs = Date.now()) {
+  const episodes = Array.isArray(creativeMemory?.episodicMemories)
+    ? creativeMemory.episodicMemories
+    : [];
+  const cards = [];
+  for (const episode of episodes) {
+    const memoryId = normalizeSnippet(episode?.id, 80);
+    const summary = normalizeSnippet(episode?.summary, 280);
+    const excerpt = normalizeSnippet(episode?.excerpt, 420);
+    const tags = normalizeCharacterBibleCardList(episode?.tags, 8, 48)
+      .map((tag) => String(tag || "").toLowerCase())
+      .filter(Boolean);
+    const characters = normalizeCharacterBibleCardList(
+      episode?.characterNames ?? episode?.characters,
+      8,
+      48
+    );
+    const projectTitle = normalizeSnippet(episode?.projectTitle ?? episode?.project_title, 120);
+    const projectId = normalizeSnippet(episode?.projectId ?? episode?.project_id, 96);
+    const createdAt = Math.max(0, Number(episode?.createdAt ?? episode?.created_at ?? 0));
+    const updatedAt = Math.max(createdAt, Number(episode?.updatedAt ?? episode?.updated_at ?? createdAt));
+    const lastReferencedAt = Math.max(0, Number(
+      episode?.lastReferencedAt ?? episode?.last_referenced_at ?? updatedAt
+    ));
+    const referenceCount = Math.max(0, Number(episode?.referenceCount ?? episode?.reference_count ?? 0));
+    const supersededAt = Math.max(0, Number(episode?.supersededAt ?? episode?.superseded_at ?? 0));
+    const isCorrection = tags.includes("correction");
+    const isSuperseded = supersededAt > 0 || tags.includes("superseded");
+    if (!summary && !excerpt && !characters.length && !projectTitle) continue;
+
+    const subject = characters.length
+      ? characters.slice(0, 2).join(", ")
+      : (projectTitle || "Story");
+    const title = isSuperseded
+      ? `${subject} Superseded Memory`
+      : isCorrection
+        ? `${subject} Correction Memory`
+        : `${subject} Story Memory`;
+    const qualityScore = isSuperseded ? 0.32 : (isCorrection ? 0.86 : 0.74);
+    const rememberedAt = updatedAt || createdAt || nowTs;
+    const snippets = [
+      isSuperseded
+        ? normalizeSnippet(episode?.supersededReason ?? episode?.superseded_reason, 220)
+        : "",
+      excerpt,
+      projectTitle ? `Project: ${projectTitle}` : "",
+      tags.length ? `Tags: ${tags.join(", ")}` : "",
+    ].filter(Boolean).slice(0, 4);
+    const normalizedId = normalizeMemoryCardId(memoryId || stableMemoryCardHash([
+      summary,
+      excerpt,
+      projectId,
+      projectTitle,
+      characters.join("|"),
+    ].join("|")));
+
+    cards.push({
+      id: `episode-${normalizedId || cards.length + 1}`,
+      key: memoryId ? `episode:${memoryId}` : `episode:${normalizedId || cards.length + 1}`,
+      title: normalizeSnippet(title, 72),
+      summary: normalizeSnippet(summary || excerpt || `${subject} screenplay memory.`, 280),
+      reason: isSuperseded
+        ? "Kept for audit history, but no longer used in prompts after a later correction."
+        : isCorrection
+          ? "Authoritative correction used before older conflicting screenplay memory."
+          : "Captured from episodic screenplay memory and available for continuity.",
+      emotionalTone: "",
+      salience: isSuperseded ? 0.18 : (isCorrection ? 0.88 : 0.72),
+      confidence: isSuperseded ? 0.36 : (isCorrection ? 0.88 : 0.76),
+      rememberedAt,
+      lastUsedAt: lastReferencedAt || updatedAt || 0,
+      qualityScore,
+      qualityHitCount: referenceCount,
+      qualityCorrectionCount: isCorrection ? 1 : 0,
+      qualityLastFeedbackAt: lastReferencedAt || 0,
+      stalenessDays: computeThemeStalenessDays(
+        { lastMentionedAt: lastReferencedAt || updatedAt || rememberedAt },
+        nowTs
+      ),
+      stalenessBand: isSuperseded
+        ? "stale"
+        : classifyThemeStalenessBand(
+          computeThemeStalenessDays(
+            { lastMentionedAt: lastReferencedAt || updatedAt || rememberedAt },
+            nowTs
+          )
+        ),
+      editable: false,
+      snippets,
+      referenceHint: normalizeSnippet(excerpt || summary, 120),
+      source: isSuperseded
+        ? "episodic_superseded"
+        : isCorrection
+          ? "episodic_correction"
+          : "episodic_memory",
+      episodic_id: memoryId,
+      project_id: projectId,
+      project_title: projectTitle,
+      character_names: characters,
+      tags,
+      is_correction_memory: isCorrection,
+      is_superseded: isSuperseded,
+      superseded_at: supersededAt || null,
+      superseded_by_memory_id: normalizeSnippet(
+        episode?.supersededByMemoryId ?? episode?.superseded_by_memory_id,
+        80
+      ),
+      superseded_reason: normalizeSnippet(
+        episode?.supersededReason ?? episode?.superseded_reason,
+        220
+      ),
+      superseded_terms: normalizeCharacterBibleCardList(
+        episode?.supersededTerms ?? episode?.superseded_terms,
+        8,
+        120
+      ),
+      reference_count: referenceCount,
+    });
+  }
+  return cards;
+}
+
 function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemory = null) {
   const nowTs = Date.now();
   const sourceThemes = Array.isArray(memory?.sessionThreads) && memory.sessionThreads.length
@@ -28264,6 +28396,7 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
     Math.max(0, Number(memory?.lastConversationAt || 0)) > memoriesClearedAt;
   const cards = [];
   cards.push(...buildCharacterBibleMemoryCards(creativeMemory, nowTs));
+  cards.push(...buildEpisodicMemoryCards(creativeMemory, nowTs));
 
   const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,

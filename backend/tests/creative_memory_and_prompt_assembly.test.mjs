@@ -216,6 +216,41 @@ test("getCreativeMemoryForPrompt records episodic recall only when prompt path o
   assert.ok(recalled.lastReferencedAt >= initialLastReferencedAt);
 });
 
+test("getCreativeMemoryLedger exposes superseded episodic history without prompt internals", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-episode-ledger",
+    transcript: "My protagonist is named Mara. Mara hides a cassette under the courthouse vent before Eli can see it.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-episode-ledger",
+    transcript: "Actually, no, Mara hides a VHS tape under the courthouse vent, not a cassette.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+
+  const ledger = await store.getCreativeMemoryLedger({
+    userId: "u-episode-ledger",
+    includeSuperseded: true,
+  });
+  assert.ok(ledger?.episodicMemories?.length >= 2);
+  const stale = ledger.episodicMemories.find((memory) => memory.supersededAt);
+  assert.ok(stale);
+  assert.equal(stale.supersededTerms.includes("cassette"), true);
+  assert.equal("text" in stale, false);
+  assert.equal("semanticFingerprint" in stale, false);
+
+  const activeOnly = await store.getCreativeMemoryLedger({
+    userId: "u-episode-ledger",
+    includeSuperseded: false,
+  });
+  assert.equal(activeOnly.episodicMemories.some((memory) => memory.supersededAt), false);
+});
+
 test("getCreativeMemoryForPrompt strips empty containers", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({ userId: "u7", characterName: "Alice" });

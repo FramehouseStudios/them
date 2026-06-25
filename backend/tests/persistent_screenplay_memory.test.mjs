@@ -254,6 +254,67 @@ test("[persistent-screenplay-memory] buildMemoryCards exposes structured charact
   assert.match(card.summary, /Want: expose the forged testimony/);
 });
 
+test("[persistent-screenplay-memory] buildMemoryCards exposes episodic correction repair ledger", () => {
+  const cards = buildMemoryCards(
+    createEmptyEmotionMemory(),
+    [],
+    12,
+    {
+      updatedAt: 1_800_000_000_000,
+      episodicMemories: [
+        {
+          id: "episode_correction",
+          summary: "Correction for Mara: Mara hides a VHS tape, not a cassette.",
+          excerpt: "Actually, no, it is a VHS tape under the courthouse vent.",
+          projectId: "rain-docket",
+          projectTitle: "Rain Docket",
+          characterNames: ["Mara"],
+          tags: ["screenplay", "correction"],
+          createdAt: 1_800_000_000_000,
+          updatedAt: 1_800_000_000_000,
+          lastReferencedAt: 1_800_000_000_100,
+          referenceCount: 3,
+        },
+        {
+          id: "episode_old",
+          summary: "Mara hides the cassette under the courthouse vent.",
+          excerpt: "The cassette proves Eli heard the judge threaten the witness.",
+          projectId: "rain-docket",
+          projectTitle: "Rain Docket",
+          characterNames: ["Mara", "Eli"],
+          tags: ["screenplay", "superseded"],
+          supersededAt: 1_800_000_000_200,
+          supersededByMemoryId: "episode_correction",
+          supersededReason: "Actually, no, it is a VHS tape under the courthouse vent.",
+          supersededTerms: ["cassette"],
+          createdAt: 1_799_999_999_000,
+          updatedAt: 1_799_999_999_000,
+          lastReferencedAt: 1_799_999_999_000,
+          referenceCount: 1,
+        },
+      ],
+    },
+  );
+
+  const correction = cards.find((card) => card.source === "episodic_correction");
+  assert.ok(correction);
+  assert.equal(correction.id, "episode-episode_correction");
+  assert.equal(correction.is_correction_memory, true);
+  assert.equal(correction.is_superseded, false);
+  assert.deepEqual(correction.character_names, ["Mara"]);
+  assert.equal(correction.project_title, "Rain Docket");
+  assert.equal(correction.reference_count, 3);
+  assert.match(correction.reason, /Authoritative correction/);
+
+  const superseded = cards.find((card) => card.source === "episodic_superseded");
+  assert.ok(superseded);
+  assert.equal(superseded.is_superseded, true);
+  assert.equal(superseded.superseded_by_memory_id, "episode_correction");
+  assert.equal(superseded.superseded_at, 1_800_000_000_200);
+  assert.deepEqual(superseded.superseded_terms, ["cassette"]);
+  assert.match(superseded.reason, /no longer used in prompts/);
+});
+
 test("[persistent-screenplay-memory] distills durable context from sparse draft excerpts", () => {
   const draftExcerpt = [
     "INT. ROOFTOP - NIGHT",

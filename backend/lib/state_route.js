@@ -76,6 +76,31 @@ async function buildStateContinuityPayload(req, memory, {
   return snapshot && typeof snapshot === "object" ? snapshot : null;
 }
 
+async function readStateCreativeMemoryLedger(req, {
+  creativeMemoryStore = null,
+} = {}) {
+  const userId = resolveStateRouteUserId(req);
+  if (!userId || !creativeMemoryStore) return null;
+  try {
+    if (typeof creativeMemoryStore.getCreativeMemoryLedger === "function") {
+      return await creativeMemoryStore.getCreativeMemoryLedger({
+        userId,
+        includeSuperseded: true,
+        maxEpisodicMemories: 72,
+      });
+    }
+    if (typeof creativeMemoryStore.getCreativeMemoryForPrompt === "function") {
+      return await creativeMemoryStore.getCreativeMemoryForPrompt({
+        userId,
+        query: "memories character bible",
+      });
+    }
+  } catch (_err) {
+    return null;
+  }
+  return null;
+}
+
 function mountStateRoute(app, deps = {}) {
   if (!deps || typeof deps !== "object") {
     throw new Error("mountStateRoute requires a deps object");
@@ -142,7 +167,8 @@ function mountStateRoute(app, deps = {}) {
           .filter((item) => Math.max(0, Number(item?.turn || 0)) > sinceTurnNumber)
           .slice(0, historyLimit)
       : fullThreads.slice(0, historyLimit);
-    const memoriesDelta = buildMemoryCards(memory, fullThreads, memoriesLimit);
+    const creativeMemoryLedger = await readStateCreativeMemoryLedger(req, { creativeMemoryStore });
+    const memoriesDelta = buildMemoryCards(memory, fullThreads, memoriesLimit, creativeMemoryLedger);
     const deltaNoChange = Boolean(sinceVersion && sinceVersion === readMeta.stateVersion);
     const continuity = await buildStateContinuityPayload(req, memory, {
       creativeMemoryStore,

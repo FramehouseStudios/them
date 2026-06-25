@@ -332,6 +332,18 @@ nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let referenceHint: String
     let source: String
     let characterBible: BackendCharacterBibleMemory?
+    let episodicId: String?
+    let projectId: String?
+    let projectTitle: String?
+    let characterNames: [String]?
+    let tags: [String]?
+    let isCorrectionMemory: Bool?
+    let isSuperseded: Bool?
+    let supersededAt: TimeInterval?
+    let supersededByMemoryId: String?
+    let supersededReason: String?
+    let supersededTerms: [String]?
+    let referenceCount: Int?
 }
 
 nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {

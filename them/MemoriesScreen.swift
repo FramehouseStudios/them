@@ -24,6 +24,57 @@ struct MemoryItem: Identifiable, Hashable {
     var editable: Bool
     var source: String
     var characterBible: BackendCharacterBibleMemory?
+    var episodicID: String
+    var projectID: String
+    var projectTitle: String
+    var characterNames: [String]
+    var memoryTags: [String]
+    var isCorrectionMemory: Bool
+    var isSuperseded: Bool
+    var supersededDate: Date?
+    var supersededByMemoryID: String
+    var supersededReason: String
+    var supersededTerms: [String]
+    var referenceCount: Int
+}
+
+private extension MemoryItem {
+    var hasCorrectionBible: Bool {
+        guard let bible = characterBible else { return false }
+        return !bible.corrections.isEmpty ||
+            !bible.correctedTerms.isEmpty ||
+            !bible.correctionReplacements.isEmpty
+    }
+
+    var hasRepairState: Bool {
+        isSuperseded || isCorrectionMemory || hasCorrectionBible
+    }
+
+    var repairBadgeText: String {
+        if isSuperseded { return "Repaired" }
+        if isCorrectionMemory || hasCorrectionBible { return "Correction" }
+        return "Memory"
+    }
+
+    var repairBadgeHelp: String {
+        if isSuperseded {
+            return "This memory is preserved for history but no longer used in prompts."
+        }
+        if isCorrectionMemory || hasCorrectionBible {
+            return "This memory contains an authoritative correction."
+        }
+        return "Memory status."
+    }
+
+    var repairAccessibilityLabel: String {
+        hasRepairState ? repairBadgeHelp : ""
+    }
+
+    var projectDisplayName: String {
+        if !projectTitle.isEmpty { return projectTitle }
+        if !projectID.isEmpty { return projectID }
+        return ""
+    }
 }
 
 // MARK: - ViewModel
@@ -409,7 +460,19 @@ final class MemoriesViewModel: ObservableObject {
             stalenessBand: (card.stalenessBand ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             editable: card.editable ?? false,
             source: card.source,
-            characterBible: card.characterBible
+            characterBible: card.characterBible,
+            episodicID: (card.episodicId ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            projectID: (card.projectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            projectTitle: (card.projectTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            characterNames: cleanList(card.characterNames ?? []),
+            memoryTags: cleanList(card.tags ?? []),
+            isCorrectionMemory: card.isCorrectionMemory ?? false,
+            isSuperseded: card.isSuperseded ?? false,
+            supersededDate: themOptionalDateFromEpoch(card.supersededAt),
+            supersededByMemoryID: (card.supersededByMemoryId ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            supersededReason: (card.supersededReason ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            supersededTerms: cleanList(card.supersededTerms ?? []),
+            referenceCount: max(0, card.referenceCount ?? 0)
         )
     }
 
@@ -447,8 +510,34 @@ final class MemoriesViewModel: ObservableObject {
             stalenessBand: "fresh",
             editable: false,
             source: "history_fallback",
-            characterBible: nil
+            characterBible: nil,
+            episodicID: "",
+            projectID: "",
+            projectTitle: "",
+            characterNames: [],
+            memoryTags: [],
+            isCorrectionMemory: false,
+            isSuperseded: false,
+            supersededDate: nil,
+            supersededByMemoryID: "",
+            supersededReason: "",
+            supersededTerms: [],
+            referenceCount: 0
         )
+    }
+
+    private func cleanList(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in values {
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            out.append(clean)
+        }
+        return out
     }
 
     private func replaceMemoryItem(_ memory: MemoryItem) {
@@ -844,10 +933,18 @@ struct MemoryCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 14) {
-                Text(item.title)
-                    .font(.system(size: 20, weight: .semibold, design: .default))
-                    .foregroundStyle(MemoriesTheme.textPrimary)
-                    .lineLimit(1)
+                HStack(alignment: .top, spacing: 10) {
+                    Text(item.title)
+                        .font(.system(size: 20, weight: .semibold, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 8)
+
+                    if item.hasRepairState {
+                        MemoryRepairBadge(item: item)
+                    }
+                }
 
                 Text(item.summary)
                     .font(.system(size: 15, weight: .regular, design: .default))
@@ -880,6 +977,14 @@ struct MemoryCard: View {
                     Text("\(max(0, item.stalenessDays))d \(item.stalenessBand.isEmpty ? "fresh" : item.stalenessBand)")
                         .font(.system(size: 11, weight: .regular, design: .default))
                         .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.62))
+                    if item.referenceCount > 0 {
+                        Text("•")
+                            .font(.system(size: 10, weight: .regular, design: .default))
+                            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.48))
+                        Text("\(item.referenceCount)x recalled")
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.62))
+                    }
                 }
 
                 Spacer(minLength: 0)
@@ -925,12 +1030,39 @@ struct MemoryCard: View {
                 .stroke(MemoriesTheme.focusAccent, lineWidth: isFocused ? 2 : 0)
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Memory. \(item.title). Remembered \(rememberedDateText).")
+        .accessibilityLabel("Memory. \(item.title). \(item.repairAccessibilityLabel). Remembered \(rememberedDateText).")
         .accessibilityHint("Opens memory details.")
     }
 
     private var rememberedDateText: String {
         RelativeDateFormatter.relativeString(for: item.rememberedDate)
+    }
+}
+
+private struct MemoryRepairBadge: View {
+    let item: MemoryItem
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: item.isSuperseded ? "arrow.uturn.backward.circle.fill" : "checkmark.seal.fill")
+                .font(.system(size: 11, weight: .semibold, design: .default))
+            Text(item.repairBadgeText)
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .lineLimit(1)
+        }
+        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.84))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(item.isSuperseded ? 0.12 : 0.18))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(item.isSuperseded ? 0.16 : 0.24), lineWidth: 1)
+        )
+        .help(item.repairBadgeHelp)
+        .accessibilityLabel(item.repairBadgeHelp)
     }
 }
 
@@ -992,6 +1124,10 @@ struct MemoryDetailView: View {
                         .font(.system(size: 16, weight: .regular, design: .default))
                         .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.9))
                         .lineSpacing(8)
+
+                    if currentItem.hasRepairState {
+                        MemoryRepairDetailSection(item: currentItem)
+                    }
 
                     if let characterBible = currentItem.characterBible {
                         CharacterBibleDetailSection(bible: characterBible)
@@ -1081,9 +1217,21 @@ struct MemoryDetailView: View {
             ledgerRow("Source", value: currentItem.source)
             ledgerRow("Remembered", value: RelativeDateFormatter.relativeString(for: currentItem.rememberedDate))
             ledgerRow("Last used", value: lastUsedText)
+            if !currentItem.projectDisplayName.isEmpty {
+                ledgerRow("Project", value: currentItem.projectDisplayName)
+            }
+            if !currentItem.characterNames.isEmpty {
+                ledgerRow("Characters", value: currentItem.characterNames.joined(separator: ", "))
+            }
+            if currentItem.referenceCount > 0 {
+                ledgerRow("Recalled", value: "\(currentItem.referenceCount)x")
+            }
             ledgerRow("Quality score", value: String(format: "%.0f%%", currentItem.qualityScore * 100))
             ledgerRow("Quality votes", value: "\(currentItem.qualityHitCount) helpful / \(currentItem.qualityCorrectionCount) fix")
             ledgerRow("Staleness", value: stalenessText)
+            if currentItem.isSuperseded, let supersededDate = currentItem.supersededDate {
+                ledgerRow("Repaired", value: RelativeDateFormatter.relativeString(for: supersededDate))
+            }
             ledgerRow("Last quality", value: qualityLastFeedbackText)
             ledgerRow("Confidence", value: String(format: "%.0f%%", currentItem.confidence * 100))
             ledgerRow("Salience", value: String(format: "%.0f%%", currentItem.salience * 100))
@@ -1247,6 +1395,73 @@ struct MemoryDetailView: View {
             errorText = ""
         } catch {
             errorText = error.localizedDescription
+        }
+    }
+}
+
+private struct MemoryRepairDetailSection: View {
+    let item: MemoryItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: item.isSuperseded ? "arrow.uturn.backward.circle.fill" : "checkmark.seal.fill")
+                    .font(.system(size: 14, weight: .semibold, design: .default))
+                Text(item.isSuperseded ? "Memory Repair" : "Authoritative Correction")
+                    .font(.system(size: 14, weight: .semibold, design: .default))
+            }
+            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.92))
+
+            Text(item.repairBadgeHelp)
+                .font(.system(size: 13, weight: .regular, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !item.supersededReason.isEmpty {
+                repairLine("Reason", value: item.supersededReason)
+            }
+
+            if !item.supersededTerms.isEmpty {
+                repairLine("Corrected terms", value: item.supersededTerms.joined(separator: ", "))
+            }
+
+            if !item.supersededByMemoryID.isEmpty {
+                repairLine("Replaced by", value: item.supersededByMemoryID)
+            }
+
+            if let bible = item.characterBible {
+                let corrections = (bible.corrections + bible.correctionReplacements)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                if !corrections.isEmpty {
+                    repairLine("Corrections", value: corrections.prefix(4).joined(separator: " / "))
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(item.isSuperseded ? 0.09 : 0.13))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(item.isSuperseded ? 0.14 : 0.20), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func repairLine(_ label: String, value: String) -> some View {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !clean.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.68))
+                Text(clean)
+                    .font(.system(size: 13, weight: .regular, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.90))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

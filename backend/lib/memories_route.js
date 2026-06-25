@@ -150,6 +150,13 @@ function mountMemoriesRoutes(app, deps = {}) {
       return null;
     }
     try {
+      if (typeof creativeMemoryStore.getCreativeMemoryLedger === "function") {
+        return await creativeMemoryStore.getCreativeMemoryLedger({
+          userId,
+          includeSuperseded: true,
+          maxEpisodicMemories: 72,
+        });
+      }
       return await creativeMemoryStore.getCreativeMemoryForPrompt({ userId, query });
     } catch (error) {
       logger.log(`[memories_creative_read_failed] error=${error?.message || error}`);
