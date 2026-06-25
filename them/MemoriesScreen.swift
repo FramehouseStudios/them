@@ -23,6 +23,7 @@ struct MemoryItem: Identifiable, Hashable {
     var stalenessBand: String
     var editable: Bool
     var source: String
+    var referenceHint: String
     var characterBible: BackendCharacterBibleMemory?
     var episodicID: String
     var projectID: String
@@ -36,6 +37,7 @@ struct MemoryItem: Identifiable, Hashable {
     var supersededReason: String
     var supersededTerms: [String]
     var referenceCount: Int
+    var storySpine: BackendStorySpineMemory?
 }
 
 private extension MemoryItem {
@@ -460,6 +462,7 @@ final class MemoriesViewModel: ObservableObject {
             stalenessBand: (card.stalenessBand ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             editable: card.editable ?? false,
             source: card.source,
+            referenceHint: card.referenceHint.trimmingCharacters(in: .whitespacesAndNewlines),
             characterBible: card.characterBible,
             episodicID: (card.episodicId ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             projectID: (card.projectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
@@ -472,7 +475,8 @@ final class MemoriesViewModel: ObservableObject {
             supersededByMemoryID: (card.supersededByMemoryId ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             supersededReason: (card.supersededReason ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             supersededTerms: cleanList(card.supersededTerms ?? []),
-            referenceCount: max(0, card.referenceCount ?? 0)
+            referenceCount: max(0, card.referenceCount ?? 0),
+            storySpine: card.storySpine
         )
     }
 
@@ -510,6 +514,7 @@ final class MemoriesViewModel: ObservableObject {
             stalenessBand: "fresh",
             editable: false,
             source: "history_fallback",
+            referenceHint: "",
             characterBible: nil,
             episodicID: "",
             projectID: "",
@@ -522,7 +527,8 @@ final class MemoriesViewModel: ObservableObject {
             supersededByMemoryID: "",
             supersededReason: "",
             supersededTerms: [],
-            referenceCount: 0
+            referenceCount: 0,
+            storySpine: nil
         )
     }
 
@@ -680,6 +686,11 @@ struct MemoriesScreen: View {
                     Task { await vm.retry() }
                 })
             case .loaded(let items):
+                if let storySpine = StorySpineSnapshot.make(from: items) {
+                    StorySpineOverview(snapshot: storySpine, onTap: { tapped in
+                        vm.selection = tapped
+                    })
+                }
                 MemoriesGrid(items: items) { tapped in
                     vm.selection = tapped
                 }
@@ -862,6 +873,375 @@ struct MemoryActionReceiptsCard: View {
             return "Error"
         }
         return value.isEmpty ? "Action" : value.capitalized
+    }
+}
+
+// MARK: - Story Spine
+
+private struct StorySpineSnapshot: Hashable {
+    let projectItem: MemoryItem
+    let characterItems: [MemoryItem]
+    let correctionItems: [MemoryItem]
+    let spine: BackendStorySpineMemory
+
+    static func make(from items: [MemoryItem]) -> StorySpineSnapshot? {
+        let projectItems = items
+            .filter { item in
+                item.storySpine != nil ||
+                item.source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "screenplay_project"
+            }
+            .sorted { $0.rememberedDate > $1.rememberedDate }
+        guard let projectItem = projectItems.first else { return nil }
+        let spine = projectItem.storySpine ?? BackendStorySpineMemory.emptyFallback(
+            projectId: projectItem.projectID,
+            projectTitle: projectItem.projectDisplayName,
+            currentBeat: projectItem.summary,
+            nextScenePlan: projectItem.referenceHint,
+            characterFocus: projectItem.characterNames,
+            updatedAt: projectItem.rememberedDate.timeIntervalSince1970
+        )
+        let projectKey = projectItem.projectID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let characterItems = items
+            .filter { item in
+                item.characterBible != nil ||
+                item.source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "character_bible"
+            }
+            .filter { item in
+                projectKey.isEmpty ||
+                item.projectID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().isEmpty ||
+                item.projectID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == projectKey
+            }
+            .sorted { $0.rememberedDate > $1.rememberedDate }
+        let correctionItems = items
+            .filter { $0.hasRepairState }
+            .filter { item in
+                projectKey.isEmpty ||
+                item.projectID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().isEmpty ||
+                item.projectID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == projectKey
+            }
+            .sorted { $0.rememberedDate > $1.rememberedDate }
+        return StorySpineSnapshot(
+            projectItem: projectItem,
+            characterItems: Array(characterItems.prefix(4)),
+            correctionItems: Array(correctionItems.prefix(3)),
+            spine: spine
+        )
+    }
+
+    var projectName: String {
+        clean(spine.projectTitle) ??
+            projectItem.projectDisplayName.nilIfBlank ??
+            projectItem.title
+    }
+
+    var positionText: String {
+        join([spine.act, spine.featureSequence], separator: " / ") ?? "Feature"
+    }
+
+    var pageText: String {
+        let current = max(0, spine.pageCount ?? 0)
+        let target = max(0, spine.targetPages ?? 0)
+        if current > 0 && target > 0 { return "p\(current) / \(target)" }
+        if current > 0 { return "p\(current)" }
+        return ""
+    }
+
+    var currentBeat: String {
+        first([spine.currentBeat, spine.lastSceneOutcome, spine.sceneSummary, projectItem.summary])
+    }
+
+    var pressureText: String {
+        first([spine.actPressureState, spine.featureObligation, spine.sceneObjective, spine.characterArcState])
+    }
+
+    var characterArcText: String {
+        first([spine.characterArcState, cleanList(spine.characterArcTurns).first])
+    }
+
+    var nextMove: String {
+        first([
+            cleanList(spine.nextThreeTurns).first,
+            spine.nextScenePlan,
+            cleanList(spine.nextSceneMoves).first,
+            projectItem.referenceHint,
+        ])
+    }
+
+    var openPromise: String {
+        first([
+            cleanList(spine.unresolvedSetups).first,
+            cleanList(spine.unresolvedStoryThreads).first,
+            cleanList(spine.actThreePayoffPath).first,
+            cleanList(spine.imageMotifs).first,
+        ])
+    }
+
+    var characterFocusText: String {
+        cleanList(spine.characterFocus).prefix(4).joined(separator: ", ")
+    }
+
+    private func first(_ values: [String?]) -> String {
+        for value in values {
+            if let clean = clean(value) { return clean }
+        }
+        return ""
+    }
+
+    private func join(_ values: [String?], separator: String) -> String? {
+        let parts = values.compactMap(clean)
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: separator)
+    }
+
+    private func clean(_ value: String?) -> String? {
+        let clean = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : clean
+    }
+
+    private func cleanList(_ values: [String]?) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in values ?? [] {
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            out.append(clean)
+        }
+        return out
+    }
+}
+
+private extension BackendStorySpineMemory {
+    static func emptyFallback(
+        projectId: String,
+        projectTitle: String,
+        currentBeat: String,
+        nextScenePlan: String,
+        characterFocus: [String],
+        updatedAt: TimeInterval
+    ) -> BackendStorySpineMemory {
+        BackendStorySpineMemory(
+            projectId: projectId,
+            projectTitle: projectTitle,
+            act: nil,
+            featureSequence: nil,
+            featureObligation: nil,
+            sceneLabel: nil,
+            sceneObjective: nil,
+            sceneSummary: nil,
+            currentBeat: currentBeat,
+            logline: nil,
+            themeArgument: nil,
+            centralQuestion: nil,
+            protagonistWant: nil,
+            protagonistNeed: nil,
+            antagonisticForce: nil,
+            endingImage: nil,
+            actPressureState: nil,
+            characterArcState: nil,
+            lastSceneOutcome: nil,
+            nextScenePlan: nextScenePlan,
+            nextSceneMoves: nil,
+            nextThreeTurns: nil,
+            actThreePayoffPath: nil,
+            beatSequence: nil,
+            characterFocus: characterFocus,
+            unresolvedSetups: nil,
+            unresolvedStoryThreads: nil,
+            characterArcTurns: nil,
+            imageMotifs: nil,
+            continuityNotes: nil,
+            emotionalContinuity: nil,
+            pageCount: nil,
+            targetPages: nil,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+private struct StorySpineOverview: View {
+    let snapshot: StorySpineSnapshot
+    var onTap: (MemoryItem) -> Void
+
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: 235, maximum: 360), spacing: 12, alignment: .topLeading)]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Story Spine")
+                        .font(.system(size: 18, weight: .semibold, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.95))
+                    Text(snapshot.projectName)
+                        .font(.system(size: 13, weight: .regular, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.70))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 12)
+                Button {
+                    onTap(snapshot.projectItem)
+                } label: {
+                    Label("Open", systemImage: "rectangle.and.pencil.and.ellipsis")
+                        .font(.system(size: 13, weight: .regular, design: .default))
+                }
+                .buttonStyle(.bordered)
+            }
+
+            HStack(spacing: 8) {
+                StorySpineChip(text: snapshot.positionText)
+                if !snapshot.pageText.isEmpty {
+                    StorySpineChip(text: snapshot.pageText)
+                }
+                if !snapshot.characterFocusText.isEmpty {
+                    StorySpineChip(text: snapshot.characterFocusText)
+                }
+            }
+
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                StorySpineSignalCard(title: "Now", value: snapshot.currentBeat, fallback: "No current beat yet.")
+                StorySpineSignalCard(title: "Pressure", value: snapshot.pressureText, fallback: "No act pressure yet.")
+                StorySpineSignalCard(title: "Next", value: snapshot.nextMove, fallback: "No next turn yet.")
+                StorySpineSignalCard(title: "Promise", value: snapshot.openPromise, fallback: "No open setup yet.")
+            }
+
+            if !snapshot.characterArcText.isEmpty {
+                StorySpineInlineNote(label: "Arc", value: snapshot.characterArcText)
+            }
+
+            if !snapshot.characterItems.isEmpty || !snapshot.correctionItems.isEmpty {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 180), spacing: 10, alignment: .topLeading)],
+                    alignment: .leading,
+                    spacing: 10
+                ) {
+                    StorySpineMemoryLinks(
+                        title: "Characters",
+                        items: snapshot.characterItems,
+                        emptyText: "No character bible yet.",
+                        onTap: onTap
+                    )
+                    StorySpineMemoryLinks(
+                        title: "Corrections",
+                        items: snapshot.correctionItems,
+                        emptyText: "No corrections yet.",
+                        onTap: onTap
+                    )
+                }
+            }
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct StorySpineChip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold, design: .default))
+            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.78))
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(Color.white.opacity(0.14)))
+    }
+}
+
+private struct StorySpineSignalCard: View {
+    let title: String
+    let value: String
+    let fallback: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.62))
+            Text(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : value)
+                .font(.system(size: 13, weight: .regular, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.90))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.13), lineWidth: 1)
+        )
+    }
+}
+
+private struct StorySpineInlineNote: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.60))
+            Text(value)
+                .font(.system(size: 13, weight: .regular, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.86))
+                .lineLimit(2)
+        }
+    }
+}
+
+private struct StorySpineMemoryLinks: View {
+    let title: String
+    let items: [MemoryItem]
+    let emptyText: String
+    var onTap: (MemoryItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.62))
+            if items.isEmpty {
+                Text(emptyText)
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.58))
+                    .lineLimit(2)
+            } else {
+                ForEach(items) { item in
+                    Button {
+                        onTap(item)
+                    } label: {
+                        Text(item.characterBible?.character ?? item.title)
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.86))
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let clean = trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? nil : clean
     }
 }
 

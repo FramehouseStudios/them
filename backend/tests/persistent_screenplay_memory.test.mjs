@@ -199,8 +199,26 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   const projectCard = cards.find((card) => card.source === "screenplay_project");
   assert.ok(projectCard);
   assert.equal(projectCard.key, "feature-alpha");
+  assert.equal(projectCard.projectId, "feature-alpha");
+  assert.deepEqual(projectCard.characterNames, ["Father", "Clerk", "Mara", "Bailiff"]);
   assert.match(projectCard.summary, /The father reveal corners Mara emotionally/);
   assert.match(projectCard.referenceHint, /private corridor confrontation/);
+  assert.equal(projectCard.storySpine.currentBeat, "The father reveal corners Mara emotionally.");
+  assert.deepEqual(projectCard.storySpine.nextThreeTurns, [
+    "Private corridor confrontation redefines the case.",
+    "Father reveal corners Mara.",
+    "Private corridor choice exposes the lie.",
+  ]);
+  assert.deepEqual(projectCard.storySpine.unresolvedStoryThreads, [
+    "Who leaked the sealed affidavit?",
+    "Who forged the testimony?",
+    "Why the father vanished",
+  ]);
+  assert.deepEqual(projectCard.storySpine.actThreePayoffPath, [
+    "Mara uses the sealed affidavit publicly.",
+    "The sister stops hiding.",
+    "Final courtroom image answers the opening lie.",
+  ]);
 });
 
 test("[persistent-screenplay-memory] buildMemoryCards exposes structured character bible cards", () => {

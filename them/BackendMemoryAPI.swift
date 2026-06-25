@@ -344,6 +344,44 @@ nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let supersededReason: String?
     let supersededTerms: [String]?
     let referenceCount: Int?
+    let storySpine: BackendStorySpineMemory?
+}
+
+nonisolated struct BackendStorySpineMemory: Decodable, Hashable {
+    let projectId: String?
+    let projectTitle: String?
+    let act: String?
+    let featureSequence: String?
+    let featureObligation: String?
+    let sceneLabel: String?
+    let sceneObjective: String?
+    let sceneSummary: String?
+    let currentBeat: String?
+    let logline: String?
+    let themeArgument: String?
+    let centralQuestion: String?
+    let protagonistWant: String?
+    let protagonistNeed: String?
+    let antagonisticForce: String?
+    let endingImage: String?
+    let actPressureState: String?
+    let characterArcState: String?
+    let lastSceneOutcome: String?
+    let nextScenePlan: String?
+    let nextSceneMoves: [String]?
+    let nextThreeTurns: [String]?
+    let actThreePayoffPath: [String]?
+    let beatSequence: [String]?
+    let characterFocus: [String]?
+    let unresolvedSetups: [String]?
+    let unresolvedStoryThreads: [String]?
+    let characterArcTurns: [String]?
+    let imageMotifs: [String]?
+    let continuityNotes: [String]?
+    let emotionalContinuity: String?
+    let pageCount: Int?
+    let targetPages: Int?
+    let updatedAt: TimeInterval?
 }
 
 nonisolated struct BackendMemoryQualitySnapshot: Decodable, Hashable {
