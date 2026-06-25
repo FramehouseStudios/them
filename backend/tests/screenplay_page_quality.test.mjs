@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  evaluateMomentumRescueQuality,
   evaluateScreenplayPageQuality,
   isLikelyOutlineOrCraftArtifactLine,
   isLikelyPlaceholderScreenplayLine,
@@ -10,6 +11,57 @@ import {
   isSummaryLikeActionLine,
   minimumExpectedWordsForRequestedPages,
 } from "../lib/screenplay_page_quality.js";
+
+test("[momentum-rescue-quality] rejects vague writer-block advice without a playable next beat", () => {
+  const quality = evaluateMomentumRescueQuality({
+    transcript: "I'm stuck and need ideas for what should happen next.",
+    reply: [
+      "You're not stuck. The strongest move is pressure: raise the stakes and add a consequence.",
+      "What if the scene becomes more emotional and the characters finally face the truth?",
+    ].join("\n"),
+  });
+
+  assert.equal(quality.applicable, true);
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_playable_micro_beat");
+  assert.ok(quality.repairDirectives.some((directive) => /visible page behavior/i.test(directive)));
+});
+
+test("[momentum-rescue-quality] accepts a decisive pressure engine plus playable micro-beat", () => {
+  const quality = evaluateMomentumRescueQuality({
+    transcript: "What should happen next after Mara finds the tape?",
+    reply: [
+      "The strongest move is a relationship-cost reversal: Mara gets proof, but using it burns Eli.",
+      "",
+      "INT. ARCHIVE ROOM - NIGHT",
+      "",
+      "Mara slides the tape into Eli's coat pocket before the clerk can see it.",
+      "",
+      "ELI",
+      "If I carry this, I stop being your witness.",
+      "",
+      "MARA",
+      "No. You become the cost.",
+    ].join("\n"),
+  });
+
+  assert.equal(quality.applicable, true);
+  assert.equal(quality.ok, true);
+  assert.equal(quality.reason, "ok");
+  assert.equal(quality.counts.pressureSignals >= 2, true);
+  assert.equal(quality.counts.hasFountainShape, 1);
+});
+
+test("[momentum-rescue-quality] leaves ordinary non-block voice turns alone", () => {
+  const quality = evaluateMomentumRescueQuality({
+    transcript: "Say that again more softly.",
+    reply: "Of course. Softer, cleaner, and less hurried.",
+  });
+
+  assert.equal(quality.applicable, false);
+  assert.equal(quality.ok, true);
+  assert.equal(quality.reason, "not_momentum_rescue");
+});
 
 test("[screenplay-page-quality] accepts playable screenplay pages", () => {
   const quality = evaluateScreenplayPageQuality({

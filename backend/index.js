@@ -74,7 +74,7 @@ import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
-import { evaluateScreenplayPageQuality } from "./lib/screenplay_page_quality.js";
+import { evaluateMomentumRescueQuality, evaluateScreenplayPageQuality } from "./lib/screenplay_page_quality.js";
 import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
 import {
   buildTalkScreenplayQualityAlert,
@@ -4996,6 +4996,29 @@ function buildTalkScreenplayRepairDirectives({
     case "low_dramatic_density":
       directives.push("Increase dramatic density with concrete behavior, a visible obstacle, a tactic shift, and a consequence.");
       break;
+    case "empty_momentum_rescue":
+    case "underdeveloped_momentum_rescue":
+    case "generic_encouragement_only":
+      directives.push("Do not answer with encouragement alone; diagnose the story blockage and move the scene forward.");
+      directives.push("Give one strongest next beat before offering alternatives.");
+      directives.push("Include a tiny playable micro-beat in Fountain style when scene context exists.");
+      break;
+    case "missing_pressure_engine":
+      directives.push("Choose a pressure engine: reversal, revelation, deadline, impossible choice, secret exposure, relationship cost, antagonist move, object payoff, or image transformation.");
+      directives.push("Name the likely story problem as a craft issue: want, obstacle, tactic, consequence, pressure, or exit turn.");
+      break;
+    case "missing_decisive_next_beat":
+      directives.push("Replace the option menu with one decisive next beat that changes story state.");
+      directives.push("Make the next beat visible as a decision, reveal, cost, or image.");
+      break;
+    case "missing_playable_micro_beat":
+      directives.push("Convert the advice into visible page behavior: action, tactical dialogue, a changed power dynamic, and an exit image.");
+      directives.push("Include a tiny playable Fountain-style micro-beat.");
+      break;
+    case "vague_option_menu":
+      directives.push("Lead with the single strongest move; include at most two alternate forks after it.");
+      directives.push("Make each fork playable as a decision, reveal, cost, or image.");
+      break;
     default:
       if (normalizedReason.startsWith("missing_act_")) {
         directives.push("Spend the supplied act obligation on the page through behavior, conflict, cost, and image pressure.");
@@ -5033,11 +5056,18 @@ function buildTalkScreenplayQualityEnvelope({
   );
   const repairDirectives = ok
     ? []
-    : buildTalkScreenplayRepairDirectives({
+    : normalizeScreenplayStringList(
+      quality?.repairDirectives ?? quality?.repair_directives,
+      5,
+      220
+    );
+  const resolvedRepairDirectives = ok
+    ? []
+    : (repairDirectives.length ? repairDirectives : buildTalkScreenplayRepairDirectives({
       reason: normalizedReason,
       authority,
       quality,
-    });
+    }));
   const confidence = ok
     ? (sourceKey.startsWith("repair_pass") || sourceKey.startsWith("repaired_") ? "repaired" : "authoritative")
     : (sourceKey.startsWith("guard_") ? "needs_repair" : "blocked");
@@ -5052,7 +5082,7 @@ function buildTalkScreenplayQualityEnvelope({
       : [],
     counts,
     minimum_specific_actions: minimumSpecificActions || null,
-    repair_directives: repairDirectives,
+    repair_directives: resolvedRepairDirectives,
   };
 }
 
@@ -6031,6 +6061,28 @@ function buildTalkScreenplayOutput({ reply = "", transcript = "", studioMeta = n
   const target = String(studioMeta.screenplayTarget || "").trim().toLowerCase();
   if (!target) return null;
   if (target !== "page") {
+    const momentumQuality = evaluateMomentumRescueQuality({
+      reply,
+      transcript,
+      studioMeta,
+    });
+    if (momentumQuality?.applicable) {
+      const qualityOk = Boolean(momentumQuality.ok);
+      const source = qualityOk ? "studio_target" : "guard_momentum_rescue_quality";
+      return {
+        target: "voice_pin",
+        format: "note",
+        source,
+        quality: buildTalkScreenplayQualityEnvelope({
+          ok: qualityOk,
+          reason: momentumQuality.reason || (qualityOk ? "ok" : "low_momentum_rescue_quality"),
+          source,
+          quality: momentumQuality,
+        }),
+        text: "",
+        lines: [],
+      };
+    }
     return {
       target: "voice_pin",
       format: "note",

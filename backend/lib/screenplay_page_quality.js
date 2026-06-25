@@ -82,6 +82,39 @@ const CHARACTER_ARC_MEMORY_VALUE_FIELDS = Object.freeze([
   "currentTactic",
   "nextEmotionalTurn",
 ]);
+const MOMENTUM_RESCUE_TRIGGER_PATTERNS = Object.freeze([
+  /\b(stuck|blocked|writer'?s block|writers block|creative block|out of ideas|need ideas|lost)\b/i,
+  /\b(what happens next|what should happen next|next beat|next scene|where do i go|where to go)\b/i,
+  /\b(story|scene|act|middle|second act)\b.{0,80}\b(slow|slowed|dragging|drags|sag|static|boring|flat|spinning)\b/i,
+  /\b(help me get unstuck|help me find the next beat|find the next beat|need a better next move)\b/i,
+]);
+const MOMENTUM_PRESSURE_PATTERNS = Object.freeze([
+  /\bwant\b/i,
+  /\bobstacle\b/i,
+  /\bopposition\b/i,
+  /\bconsequence\b/i,
+  /\bcost\b/i,
+  /\bstakes?\b/i,
+  /\btactic\b/i,
+  /\breversal\b/i,
+  /\breveal|revelation\b/i,
+  /\bdeadline\b/i,
+  /\bsecret\b/i,
+  /\bchoice\b/i,
+  /\bpayoff\b/i,
+  /\bturn\b/i,
+  /\bpressure\b/i,
+]);
+const MOMENTUM_PLAYABLE_VERB_PATTERN = /\b(grabs?|takes?|hides?|burns?|opens?|locks?|throws?|slides?|chooses?|refuses?|calls?|reveals?|turns?|walks?|hands?|pockets?|pulls?|sets?|breaks?|steals?|confesses?|records?|signs?|tears?|crosses?|blocks?|drops?|folds?|plants?|watches?|shows?|pushes?|cuts?|leaves?|enters?|exits?|finds?)\b/i;
+const MOMENTUM_GENERIC_ADVICE_PATTERNS = Object.freeze([
+  /\b(?:raise|add|increase) (?:the )?stakes\b/i,
+  /\b(?:add|create) (?:more )?conflict\b/i,
+  /\btrust (?:your|the) instinct\b/i,
+  /\bjust keep writing\b/i,
+  /\bbrainstorm\b/i,
+  /\bwhat if\b/i,
+  /\btry (?:making|adding|having)\b/i,
+]);
 
 function qualityTokenSet(value = "") {
   const tokens = String(value || "")
@@ -765,6 +798,179 @@ function evaluateFirstNextTurnCoverage({ text = "", featureContext = null } = {}
   };
 }
 
+function isMomentumRescueTurn({ transcript = "", studioMeta = null } = {}) {
+  const source = [
+    transcript,
+    studioMeta?.screenplayTaskHint,
+    studioMeta?.screenplay_task_hint,
+    studioMeta?.screenplayPromptSource,
+    studioMeta?.screenplay_prompt_source,
+  ].map((value) => normalizeLineText(value)).filter(Boolean).join(" ");
+  if (!source) return false;
+  return MOMENTUM_RESCUE_TRIGGER_PATTERNS.some((pattern) => pattern.test(source));
+}
+
+function countMomentumPressureSignals(text = "") {
+  return MOMENTUM_PRESSURE_PATTERNS
+    .filter((pattern) => pattern.test(text))
+    .length;
+}
+
+function countGenericMomentumAdviceSignals(text = "") {
+  return MOMENTUM_GENERIC_ADVICE_PATTERNS
+    .filter((pattern) => pattern.test(text))
+    .length;
+}
+
+function hasMomentumFountainShape(text = "") {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.some((line) => /^(INT|EXT|EST|INT\/EXT|I\/E)\.?(?:\s|$)/i.test(line))) return true;
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    const current = lines[index];
+    const next = lines[index + 1];
+    if (
+      current.length <= 42 &&
+      current === current.toUpperCase() &&
+      /[A-Z]/.test(current) &&
+      !/[.!?]$/.test(current) &&
+      next.length >= 2
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function countPlayableMomentumMoves(text = "") {
+  const lines = String(text || "")
+    .split(/\r?\n|(?<=[.!?])\s+/)
+    .map((line) => normalizeLineText(line))
+    .filter(Boolean);
+  let count = 0;
+  for (const line of lines) {
+    const lower = canonicalLowerLine(line);
+    if (!lower) continue;
+    if (isLikelyOutlineOrCraftArtifactLine(line, "action")) continue;
+    if (isLowSignalActionLine(line, "action")) continue;
+    if (isSummaryLikeActionLine(line, "action")) continue;
+    if (!MOMENTUM_PLAYABLE_VERB_PATTERN.test(line)) continue;
+    if (countWords(line) < 5) continue;
+    count += 1;
+  }
+  return count;
+}
+
+function buildMomentumRescueRepairDirectives(reason = "") {
+  const base = [
+    "Name the likely story problem as a craft issue: want, obstacle, tactic, consequence, pressure, or exit turn.",
+    "Give one strongest next beat before offering alternatives.",
+    "Include a tiny playable micro-beat in Fountain style when scene context exists.",
+  ];
+  switch (reason) {
+    case "missing_pressure_engine":
+      return [
+        "Choose a pressure engine: reversal, revelation, deadline, impossible choice, secret exposure, relationship cost, antagonist move, object payoff, or image transformation.",
+        ...base.slice(1),
+      ];
+    case "missing_decisive_next_beat":
+      return [
+        "Replace the option menu with one decisive next beat that changes story state.",
+        base[0],
+        base[2],
+      ];
+    case "missing_playable_micro_beat":
+      return [
+        "Convert the advice into visible page behavior: action, tactical dialogue, a changed power dynamic, and an exit image.",
+        ...base.slice(0, 2),
+      ];
+    case "vague_option_menu":
+      return [
+        "Lead with the single strongest move; include at most two alternate forks after it.",
+        "Make each fork playable as a decision, reveal, cost, or image.",
+      ];
+    case "generic_encouragement_only":
+      return [
+        "Do not answer with encouragement alone; diagnose the story blockage and move the scene forward.",
+        ...base.slice(1),
+      ];
+    default:
+      return base;
+  }
+}
+
+function evaluateMomentumRescueQuality({
+  reply = "",
+  transcript = "",
+  studioMeta = null,
+} = {}) {
+  const applicable = isMomentumRescueTurn({ transcript, studioMeta });
+  if (!applicable) {
+    return { applicable: false, ok: true, reason: "not_momentum_rescue" };
+  }
+
+  const normalized = normalizeLineText(reply);
+  if (!normalized) {
+    return {
+      applicable: true,
+      ok: false,
+      reason: "empty_momentum_rescue",
+      repairDirectives: buildMomentumRescueRepairDirectives("empty_momentum_rescue"),
+      counts: {
+        words: 0,
+        pressureSignals: 0,
+        playableMoves: 0,
+        genericAdviceSignals: 0,
+      },
+    };
+  }
+
+  const pressureSignals = countMomentumPressureSignals(normalized);
+  const playableMoves = countPlayableMomentumMoves(reply);
+  const hasFountainShape = hasMomentumFountainShape(reply);
+  const genericAdviceSignals = countGenericMomentumAdviceSignals(normalized);
+  const words = countWords(normalized);
+  const optionMenuCount = (normalized.match(/\b(?:option|idea|path|fork)\s*(?:\d+|one|two|three|[a-c])\b/gi) || []).length;
+  const hasDecisiveLanguage = /\b(?:strongest|best|next beat|next move|the move|do this|make|force|put|have|let|the beat is|the scene turns when)\b/i.test(normalized);
+  const hasPlayableMicroBeat = hasFountainShape || playableMoves > 0;
+  const counts = {
+    words,
+    pressureSignals,
+    playableMoves,
+    genericAdviceSignals,
+    optionMenuCount,
+    hasFountainShape: hasFountainShape ? 1 : 0,
+  };
+
+  let reason = "";
+  if (words < 12) reason = "underdeveloped_momentum_rescue";
+  else if (pressureSignals < 1) reason = "missing_pressure_engine";
+  else if (!hasDecisiveLanguage && playableMoves < 1) reason = "missing_decisive_next_beat";
+  else if (!hasPlayableMicroBeat) reason = "missing_playable_micro_beat";
+  else if (optionMenuCount > 2 && !/\b(?:strongest|best|lead with|start with)\b/i.test(normalized)) reason = "vague_option_menu";
+  else if (genericAdviceSignals >= 2 && pressureSignals < 2 && playableMoves < 1) reason = "generic_encouragement_only";
+
+  if (reason) {
+    return {
+      applicable: true,
+      ok: false,
+      reason,
+      counts,
+      repairDirectives: buildMomentumRescueRepairDirectives(reason),
+    };
+  }
+
+  return {
+    applicable: true,
+    ok: true,
+    reason: "ok",
+    counts,
+    repairDirectives: [],
+  };
+}
+
 function evaluateScreenplayPageQuality({
   text = "",
   lines = [],
@@ -924,6 +1130,7 @@ function evaluateScreenplayPageQuality({
 
 export {
   evaluateCharacterArcMemoryCoverage,
+  evaluateMomentumRescueQuality,
   evaluateScreenplayPageQuality,
   evaluateFeatureActObligationCoverage,
   isLikelyOutlineOrCraftArtifactLine,

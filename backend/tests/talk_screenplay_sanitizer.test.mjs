@@ -223,6 +223,58 @@ test("[talk-screenplay-output] accepts playable page output after quality gate",
   assert.ok(output.lines.some((line) => line.element === "dialogue"));
 });
 
+test("[talk-screenplay-output] flags weak momentum-rescue voice notes with repair directives", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "You're not stuck. The strongest move is pressure: raise the stakes and add a consequence.",
+      "What if the scene becomes more emotional and the characters finally face the truth?",
+    ].join("\n"),
+    transcript: "I'm stuck and need ideas for what should happen next.",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayProjectId: "rain-docket",
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_momentum_rescue_quality");
+  assert.equal(output.quality.ok, false);
+  assert.equal(output.quality.reason, "missing_playable_micro_beat");
+  assert.equal(output.quality.confidence, "needs_repair");
+  assert.ok(
+    output.quality.repair_directives.some((directive) => /visible page behavior/i.test(directive))
+  );
+});
+
+test("[talk-screenplay-output] accepts concrete momentum-rescue voice notes", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "The strongest move is a relationship-cost reversal: Mara gets proof, but using it burns Eli.",
+      "",
+      "INT. ARCHIVE ROOM - NIGHT",
+      "",
+      "Mara slides the tape into Eli's coat pocket before the clerk can see it.",
+      "",
+      "ELI",
+      "If I carry this, I stop being your witness.",
+      "",
+      "MARA",
+      "No. You become the cost.",
+    ].join("\n"),
+    transcript: "What should happen next after Mara finds the tape?",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayProjectId: "rain-docket",
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "studio_target");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.reason, "ok");
+  assert.equal(output.quality.confidence, "authoritative");
+});
+
 test("[talk-screenplay-output] rejects outline prose masquerading as page text", () => {
   const output = buildTalkScreenplayOutput({
     reply: [
