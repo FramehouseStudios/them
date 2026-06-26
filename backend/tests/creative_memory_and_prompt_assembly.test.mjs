@@ -692,8 +692,14 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   assert.ok(momentumRescue.includes("story_momentum_playbook:"));
   assert.ok(momentumRescue.includes("choose engine"));
   assert.ok(momentumRescue.includes("reversal, revelation, deadline"));
+  assert.ok(momentumRescue.includes("story_rescue_framework:"));
+  assert.ok(momentumRescue.includes("pressure triage"));
+  assert.ok(momentumRescue.includes("memory priority: spend the first remembered next turn"));
+  assert.ok(momentumRescue.includes("block-to-beat formula"));
+  assert.ok(momentumRescue.includes("micro-beat proof"));
   assert.ok(momentumRescue.includes("writer_block_contract:"));
   assert.ok(momentumRescue.includes("Never answer with generic encouragement alone."));
+  assert.ok(momentumRescue.includes("Spend remembered story state before proposing a new plot lane."));
   assert.ok(momentumRescue.includes("story_diagnostic:"));
   assert.ok(momentumRescue.includes("likely_scene_problem:"));
   assert.ok(momentumRescue.includes("strongest_pressure_engine:"));
@@ -738,11 +744,16 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
   assert.ok(out.includes("open_setup_to_pressure: missing reel"));
   assert.ok(out.includes("unresolved_story_thread: Why Marcus protected the fixer"));
   assert.ok(out.includes("act_three_payoff_seed: The reel exposes the fixer."));
+  assert.ok(out.includes("rescue_engine_selection:"));
+  assert.ok(out.includes("primary_engine: remembered_next_turn"));
+  assert.ok(out.includes("pressure_stack: remembered_next_turn -> open_setup -> character_arc_pressure -> act_obligation -> payoff_seed -> image_transformation"));
+  assert.ok(out.includes("beat_formula: because Mara pockets the reel and realizes Marcus lied."));
   assert.ok(out.includes("Convert it into one decisive playable next beat"));
   assert.ok(out.indexOf(WRITER_BLOCK_MEMORY_BLOCK_OPEN) < out.indexOf(SCREENPLAY_TASK_BLOCK_OPEN));
 
   const parts = buildModelPromptParts({ sessionContext, screenplayTask: task });
   assert.ok(parts.writerBlockMemoryBlock.includes("character_arc_pressure: Mara still edits pain into control."));
+  assert.ok(parts.writerBlockMemoryBlock.includes("primary_engine: remembered_next_turn"));
 });
 
 test("[screenplay-task] story diagnostics make blocked and continuation turns act-aware", () => {

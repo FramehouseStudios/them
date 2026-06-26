@@ -90,6 +90,14 @@ const STORY_MOMENTUM_PLAYBOOK = Object.freeze([
   "feature check: make the beat serve the active act obligation and one later payoff.",
   "delivery: if the user asks for help, give one best next beat plus at most two alternate forks; if the user asks for pages, write pages immediately.",
 ]);
+const STORY_RESCUE_FRAMEWORK = Object.freeze([
+  "pressure triage: first locate the missing want, weak obstacle, repeated tactic, stale information, missing cost, absent decision, or no exit image.",
+  "memory priority: spend the first remembered next turn before inventing; if absent, pressure the open setup, character arc, act obligation, payoff seed, or image motif.",
+  "engine ranking: choose the engine that changes story state fastest, not the cleverest idea.",
+  "block-to-beat formula: because X just happened, the character must do Y now, but Z makes it costly, so they choose a new tactic and leave a changed image.",
+  "fork discipline: present one strongest move first; alternates must be real story forks with different costs, not a brainstorm cloud.",
+  "micro-beat proof: include a filmable 3-6 line sample when scene context exists, so the writer can keep typing immediately.",
+]);
 const STORYCRAFT_RESCUE_CONCEPTS = Object.freeze([
   "scene engine: a scene moves when a character wants a specific change now, meets opposition, changes tactic, and pays a consequence.",
   "conflict engine: pressure should come from competing wants, withheld information, a deadline, a secret, a moral cost, or a choice that closes one door.",
@@ -578,10 +586,15 @@ function buildScreenplayTaskBlock(screenplayTask) {
     for (const item of STORY_MOMENTUM_PLAYBOOK) {
       lines.push(`  - ${item}`);
     }
+    lines.push("story_rescue_framework:");
+    for (const item of STORY_RESCUE_FRAMEWORK) {
+      lines.push(`  - ${item}`);
+    }
     lines.push("writer_block_contract:");
     lines.push("  - Never answer with generic encouragement alone.");
     lines.push("  - Lead with the most likely story blockage and the page-level fix.");
     lines.push("  - Prefer one decisive next beat over a menu of vague ideas.");
+    lines.push("  - Spend remembered story state before proposing a new plot lane.");
     lines.push("  - If enough scene context exists, include a playable micro-beat in Fountain style.");
     lines.push("  - Keep the user emotionally safe: blocked means the story is asking for pressure, not that the writer failed.");
   }
@@ -1013,11 +1026,30 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
 
   if (!rescueLines.length) return "";
 
+  const engineStack = [];
+  if (nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan) engineStack.push("remembered_next_turn");
+  if (unresolvedSetups[0]) engineStack.push("open_setup");
+  if (characterArcState || characterArcTurns[0]) engineStack.push("character_arc_pressure");
+  if (featureObligation || actPressureState) engineStack.push("act_obligation");
+  if (actThreePayoffPath[0]) engineStack.push("payoff_seed");
+  if (imageMotifs[0]) engineStack.push("image_transformation");
+  const primaryEngine = engineStack[0] || "";
+  const engineLines = [];
+  if (primaryEngine) engineLines.push(`  primary_engine: ${primaryEngine}`);
+  if (engineStack.length) engineLines.push(`  pressure_stack: ${engineStack.join(" -> ")}`);
+  const because = currentBeat || lastSceneOutcome || featureObligation || "the current beat stalls";
+  const must = nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan || unresolvedSetups[0] || "make a visible choice";
+  const cost = unresolvedStoryThreads[0] || unresolvedSetups[0] || actPressureState || characterArcState || "a real consequence";
+  const exit = imageMotifs[0] || actThreePayoffPath[0] || "a changed exit image";
+  engineLines.push(`  beat_formula: because ${because}, force ${must}; make ${cost} impose the cost; leave on ${exit}.`);
+
   return [
     WRITER_BLOCK_MEMORY_BLOCK_OPEN,
     "directive: The writer is blocked; use this available project state before inventing a new lane. Do not claim saved continuity beyond these lines.",
     "rescue_runway:",
     ...rescueLines,
+    "rescue_engine_selection:",
+    ...engineLines,
     "response_contract:",
     "  - Start from one remembered pressure source: next turn, open setup, character arc pressure, act obligation, or payoff seed.",
     "  - Convert it into one decisive playable next beat with objective, obstacle, tactic shift, cost, and exit image.",
