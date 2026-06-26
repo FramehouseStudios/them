@@ -40,6 +40,7 @@ import {
   buildTalkFailureDiagnostics,
   createTalkFailureError,
 } from "./talk_failure_diagnostics.js";
+import { buildMomentumRescueFallbackReply } from "./momentum_rescue_fallback.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput"]);
 
@@ -4010,6 +4011,37 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         reply = repairPass.reply || reply;
         rawReply = reply;
         replyRepaired = true;
+      } else {
+        const fallbackReply = buildMomentumRescueFallbackReply({
+          transcript: talkGenerationTranscript,
+          studioMeta: momentumRepairStudioMeta,
+        });
+        const fallbackOutput = buildTalkScreenplayOutput({
+          reply: fallbackReply,
+          transcript: talkGenerationTranscript,
+          studioMeta: momentumRepairStudioMeta,
+        });
+        if (
+          fallbackReply &&
+          String(fallbackOutput?.target || "").trim().toLowerCase() === "voice_pin" &&
+          String(fallbackOutput?.source || "").trim().toLowerCase() !== "guard_momentum_rescue_quality" &&
+          fallbackOutput?.quality?.ok
+        ) {
+          const quality = fallbackOutput.quality && typeof fallbackOutput.quality === "object"
+            ? { ...fallbackOutput.quality }
+            : {};
+          quality.source = "fallback_momentum_rescue";
+          quality.confidence = "fallback";
+          talkScreenplayOutput = {
+            ...fallbackOutput,
+            source: "fallback_momentum_rescue",
+            quality,
+          };
+          reply = fallbackReply;
+          rawReply = reply;
+          replyRepaired = true;
+          talkScreenplayRepairTrace.outcome = "fallback_momentum_rescue";
+        }
       }
     }
     const talkReplyPreview = buildTalkReplyPreview({

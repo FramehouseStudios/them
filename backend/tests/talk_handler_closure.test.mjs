@@ -36,6 +36,7 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "applyTalkFailureHeaders",
   "buildTalkFailureBody",
   "buildTalkFailureDiagnostics",
+  "buildMomentumRescueFallbackReply",
   "createChatSupplier",
   "createSttSupplier",
   "createTtsSupplier",
