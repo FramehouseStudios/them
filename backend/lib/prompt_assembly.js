@@ -561,7 +561,12 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - If feature memory supplies next_three_turns, act_pressure_state, character_arc_state, payoff path, story threads, or image motifs, dramatize them as action/dialogue; never list those labels in the answer.");
     lines.push("  - Use the first remembered next turn as the immediate page engine before inventing a new plot lane.");
     lines.push("  - Beat-to-page continuation: convert the first remembered turn into objective, obstacle, tactic, reversal/cost, residue, and next handoff.");
+    lines.push("  - Feature-page triad: each batch must carry a reversal lane, a payoff lane, and a character-change lane.");
+    lines.push("  - Reversal lane: turn a win, discovery, or plan into a trap, cost, reveal, impossible choice, or changed power dynamic.");
+    lines.push("  - Payoff lane: plant, echo, or spend at least one remembered setup, object, image motif, or Act III payoff seed as visible behavior.");
+    lines.push("  - Character-change lane: make the old tactic fail on the page, then show the need/arc pressure through a new action, refusal, confession, or sacrifice.");
     lines.push("  - For Act I / Act II / Act III whole-feature asks, maintain the causal act chain invisibly but deliver the immediate next pages first unless the user asked only for planning.");
+    lines.push("  - Act conversion: Act I burns a safe exit; Act II makes the false tactic costlier through reversal; Act III pays off setup through changed behavior and final-image pressure.");
     lines.push("  - If a requested act spans multiple sequences, end each scene turn with a handoff that makes the next sequence feel inevitable.");
     lines.push("  - Change leverage, information, relationship, tactic, or emotional cost every 1-2 pages.");
     lines.push("  - Avoid cinematic vapor: no vague tension, generic staring, abstract emotion, or repeated conversation beats without a concrete behavior or consequence.");

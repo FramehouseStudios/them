@@ -505,6 +505,47 @@ test("[screenplay-page-quality] accepts Act II pages that dramatize midpoint tra
   assert.equal(quality.ok, true);
 });
 
+test("[screenplay-page-quality] rejects feature pages that hit plot pressure but ignore supplied character arc", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "June spreads the marina receipt beside the victory photo.",
+      "The timestamp sits ten minutes after Marcus swore the dock was empty.",
+      "",
+      "MARCUS",
+      "That receipt is our win.",
+      "",
+      "JUNE",
+      "No. It's bait.",
+      "",
+      "She turns the photo over. The motel clerk's number is written on the back.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading" },
+      { text: "June spreads the marina receipt beside the victory photo.", element: "action" },
+      { text: "The timestamp sits ten minutes after Marcus swore the dock was empty.", element: "action" },
+      { text: "MARCUS", element: "character" },
+      { text: "That receipt is our win.", element: "dialogue" },
+      { text: "JUNE", element: "character" },
+      { text: "No. It's bait.", element: "dialogue" },
+      { text: "She turns the photo over. The motel clerk's number is written on the back.", element: "action" },
+    ],
+    featureContext: {
+      act: "Act II",
+      featureSequence: "Midpoint Pressure",
+      featureObligation: "The midpoint must turn victory into a trap.",
+      currentBeat: "June realizes the marina receipt makes the public win a trap.",
+      nextThreeTurns: ["The receipt exposes the win as bait."],
+      characterArcState: "June has to choose public courage over private control.",
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_character_arc_pressure");
+  assert.equal(quality.featureObligation.characterArcTokenCount > 0, true);
+});
+
 test("[screenplay-page-quality] rejects pages that ignore character bible arc memory", () => {
   const quality = evaluateScreenplayPageQuality({
     text: [

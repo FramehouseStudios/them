@@ -816,7 +816,12 @@ Feature workflow context:
   assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
   assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
   assert.ok(out.includes("Beat-to-page continuation: convert the first remembered turn into objective"));
+  assert.ok(out.includes("Feature-page triad: each batch must carry a reversal lane"));
+  assert.ok(out.includes("Reversal lane: turn a win, discovery, or plan into a trap"));
+  assert.ok(out.includes("Payoff lane: plant, echo, or spend at least one remembered setup"));
+  assert.ok(out.includes("Character-change lane: make the old tactic fail on the page"));
   assert.ok(out.includes("For Act I / Act II / Act III whole-feature asks"));
+  assert.ok(out.includes("Act conversion: Act I burns a safe exit"));
   assert.ok(out.includes("If a requested act spans multiple sequences"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("write the next playable Fountain pages immediately"));
@@ -852,7 +857,12 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
   assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
   assert.ok(out.includes("Beat-to-page continuation: convert the first remembered turn into objective"));
+  assert.ok(out.includes("Feature-page triad: each batch must carry a reversal lane"));
+  assert.ok(out.includes("Reversal lane: turn a win, discovery, or plan into a trap"));
+  assert.ok(out.includes("Payoff lane: plant, echo, or spend at least one remembered setup"));
+  assert.ok(out.includes("Character-change lane: make the old tactic fail on the page"));
   assert.ok(out.includes("For Act I / Act II / Act III whole-feature asks"));
+  assert.ok(out.includes("Act conversion: Act I burns a safe exit"));
   assert.ok(out.includes("If a requested act spans multiple sequences"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("Start from the active draft/scene state; do not restart"));

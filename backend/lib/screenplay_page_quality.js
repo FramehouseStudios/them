@@ -740,6 +740,28 @@ function evaluateFeatureActObligationCoverage({
     };
   }
 
+  const characterArcPressure = normalizeLineText(
+    featureContext?.characterArcState ?? featureContext?.character_arc_state
+  );
+  const characterArcTokens = qualityTokenSet(characterArcPressure);
+  if (characterArcTokens.size > 0) {
+    const matchedCharacterArcTokens = [...characterArcTokens].filter((token) => textTokens.has(token));
+    const minimumCharacterArcMatches = Math.min(2, characterArcTokens.size);
+    if (matchedCharacterArcTokens.length < minimumCharacterArcMatches) {
+      return {
+        ok: false,
+        reason: "missing_character_arc_pressure",
+        featureActKind,
+        matchedTokens,
+        matchedCharacterArcTokens,
+        characterArcTokenCount: characterArcTokens.size,
+        minimumCharacterArcMatches,
+        obligationTokenCount: obligationTokens.size,
+        minimumMatches,
+      };
+    }
+  }
+
   const hasArcPressure = Boolean(
     normalizeLineText(featureContext?.characterArcState ?? featureContext?.character_arc_state) ||
     normalizeLineText(featureContext?.actPressureState ?? featureContext?.act_pressure_state)
