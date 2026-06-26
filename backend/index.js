@@ -15615,6 +15615,12 @@ function normalizeScreenplayMemoryMotif(value = "") {
     .replace(/^(?:the|a|an)\s+/, "");
 }
 
+function titleCaseScreenplayMemoryPhrase(value = "") {
+  const clean = normalizeScreenplayMemoryMotif(value);
+  if (!clean) return "";
+  return clean.replace(/\b([a-z])/g, (match) => match.toUpperCase());
+}
+
 function collectScreenplayMemoryMotifs(lines = [], maxItems = 6) {
   const out = [];
   const seen = new Set();
@@ -15656,6 +15662,90 @@ function inferScreenplayMemoryPrimaryActionName(actionLines = []) {
     if (name && !SCREENPLAY_MEMORY_ACTION_NAME_BLOCKLIST.has(name)) return name;
   }
   return "";
+}
+
+function buildDistilledScreenplayNextTurns({
+  currentBeat = "",
+  primaryCharacter = "",
+  motifs = [],
+  unresolvedSetups = [],
+} = {}) {
+  const out = [];
+  const push = (value) => {
+    const clean = normalizeSnippet(value, 180);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (out.some((item) => item.toLowerCase() === key)) return;
+    out.push(clean);
+  };
+  const pressureObject = normalizeSnippet(motifs[0] || unresolvedSetups[0], 90);
+  if (currentBeat) push(`Force the consequence of: ${currentBeat}`);
+  if (primaryCharacter && pressureObject) {
+    push(`Make ${primaryCharacter} choose a new tactic under pressure from ${pressureObject}.`);
+  } else if (primaryCharacter) {
+    push(`Make ${primaryCharacter} choose a new tactic under pressure.`);
+  }
+  if (pressureObject) {
+    push(`Complicate or pay off ${pressureObject} so it changes the next scene.`);
+  }
+  return out.slice(0, 3);
+}
+
+function buildDistilledScreenplayPayoffPath({
+  motifs = [],
+  unresolvedSetups = [],
+  primaryCharacter = "",
+} = {}) {
+  const out = [];
+  const push = (value) => {
+    const clean = normalizeSnippet(value, 200);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (out.some((item) => item.toLowerCase() === key)) return;
+    out.push(clean);
+  };
+  const payoffSources = mergeScreenplayProjectMemoryList(
+    unresolvedSetups,
+    motifs,
+    5,
+    120
+  );
+  for (const item of payoffSources.slice(0, 3)) {
+    const label = titleCaseScreenplayMemoryPhrase(item);
+    if (label) push(`${label} returns as proof or cost in Act III.`);
+  }
+  if (primaryCharacter && payoffSources.length > 0) {
+    push(`${primaryCharacter}'s next public choice must pay off the private pressure planted here.`);
+  }
+  return out.slice(0, 5);
+}
+
+function buildDistilledScreenplayCharacterArcTurns({
+  currentBeat = "",
+  primaryCharacter = "",
+  motifs = [],
+  dialogueLines = [],
+} = {}) {
+  const out = [];
+  const push = (value) => {
+    const clean = normalizeSnippet(value, 180);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (out.some((item) => item.toLowerCase() === key)) return;
+    out.push(clean);
+  };
+  const pressureObject = normalizeSnippet(motifs[0], 90);
+  const combinedDialogue = normalizeSnippet(dialogueLines.join(" "), 500).toLowerCase();
+  if (primaryCharacter && /\b(public|truth|aloud|testimony|witness|proof)\b/.test(combinedDialogue)) {
+    push(`${primaryCharacter} is being pushed from private control toward public truth.`);
+  }
+  if (primaryCharacter && currentBeat) {
+    push(`${primaryCharacter} must change tactics after: ${currentBeat}`);
+  }
+  if (primaryCharacter && pressureObject) {
+    push(`${primaryCharacter} must decide what ${pressureObject} costs them.`);
+  }
+  return out.slice(0, 6);
 }
 
 function buildDistilledScreenplayStoryThreads({
@@ -15705,6 +15795,7 @@ function distillScreenplayProjectMemoryFromText(text = "") {
       nextScenePlan: "",
       nextSceneMoves: [],
       nextThreeTurns: [],
+      actThreePayoffPath: [],
       unresolvedSetups: [],
       unresolvedStoryThreads: [],
       characterArcTurns: [],
@@ -15768,14 +15859,26 @@ function distillScreenplayProjectMemoryFromText(text = "") {
   const nextScenePlan = currentBeat
     ? `Continue from "${currentBeat}" with a visible consequence.`
     : "";
-  const nextSceneMoves = [
-    currentBeat ? `Force the consequence of: ${currentBeat}` : "",
-    primaryCharacter ? `Make ${primaryCharacter} choose a tactic under pressure.` : "",
-    imageMotifs[0] ? `Complicate or pay off ${imageMotifs[0]}.` : "",
-  ].filter(Boolean);
-  const characterArcTurns = characterArcState
-    ? [characterArcState]
-    : [];
+  const nextSceneMoves = buildDistilledScreenplayNextTurns({
+    currentBeat,
+    primaryCharacter,
+    motifs: imageMotifs,
+    unresolvedSetups,
+  });
+  const actThreePayoffPath = buildDistilledScreenplayPayoffPath({
+    motifs: imageMotifs,
+    unresolvedSetups,
+    primaryCharacter,
+  });
+  const characterArcTurns = buildDistilledScreenplayCharacterArcTurns({
+    currentBeat,
+    primaryCharacter,
+    motifs: imageMotifs,
+    dialogueLines,
+  });
+  if (!characterArcTurns.length && characterArcState) {
+    characterArcTurns.push(characterArcState);
+  }
   const beatSequence = mergeScreenplayProjectMemoryList(
     [],
     actionLines.slice(-4),
@@ -15801,6 +15904,7 @@ function distillScreenplayProjectMemoryFromText(text = "") {
     nextScenePlan: normalizeSnippet(nextScenePlan, 340),
     nextSceneMoves: nextSceneMoves.slice(0, 5),
     nextThreeTurns: nextSceneMoves.slice(0, 3),
+    actThreePayoffPath,
     unresolvedSetups,
     unresolvedStoryThreads,
     characterArcTurns,
@@ -15972,7 +16076,9 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       nextThreeTurns: studio.screenplayNextThreeTurns.length
         ? studio.screenplayNextThreeTurns
         : distilled.nextThreeTurns,
-      actThreePayoffPath: studio.screenplayActThreePayoffPath,
+      actThreePayoffPath: studio.screenplayActThreePayoffPath.length
+        ? studio.screenplayActThreePayoffPath
+        : distilled.actThreePayoffPath,
       beatSequence: studio.screenplayBeatSequence.length
         ? studio.screenplayBeatSequence
         : distilled.beatSequence,
@@ -16197,8 +16303,17 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
     return normalizeSnippet(
       [
         `project:${item.projectId || "unknown"}`,
+        corrections.trim(),
         item.act ? `act:${item.act}` : "",
         item.sceneLabel ? `scene:${item.sceneLabel}` : "",
+        item.currentBeat ? `current_beat:${item.currentBeat}` : "",
+        characters.trim(),
+        setups.trim(),
+        storyThreads.trim(),
+        nextTurns.trim(),
+        payoffPath.trim(),
+        arcTurns.trim(),
+        motifs.trim(),
         item.logline ? `logline:${item.logline}` : "",
         item.themeArgument ? `theme:${item.themeArgument}` : "",
         item.centralQuestion ? `central_question:${item.centralQuestion}` : "",
@@ -16206,7 +16321,6 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
         item.protagonistNeed ? `need:${item.protagonistNeed}` : "",
         item.antagonisticForce ? `opposition:${item.antagonisticForce}` : "",
         item.endingImage ? `ending_image:${item.endingImage}` : "",
-        item.currentBeat ? `current_beat:${item.currentBeat}` : "",
         item.sceneObjective ? `objective:${item.sceneObjective}` : "",
         item.sceneSummary ? `scene_summary:${item.sceneSummary}` : "",
         item.emotionalContinuity ? `emotional_continuity:${item.emotionalContinuity}` : "",
@@ -16218,15 +16332,7 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
         item.nextScenePlan ? `next:${item.nextScenePlan}` : "",
         item.lastWritePreview ? `last_write:${normalizeSnippet(item.lastWritePreview, 180)}` : "",
         pages.trim(),
-        characters.trim(),
-        setups.trim(),
-        storyThreads.trim(),
-        nextTurns.trim(),
-        payoffPath.trim(),
-        arcTurns.trim(),
-        motifs.trim(),
         notes.trim(),
-        corrections.trim(),
       ].filter(Boolean).join("; "),
       1500
     );

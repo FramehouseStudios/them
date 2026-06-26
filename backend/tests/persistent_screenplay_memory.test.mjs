@@ -465,8 +465,14 @@ test("[persistent-screenplay-memory] distills durable context from sparse draft 
   assert.deepEqual(record.characterFocus, ["Eli", "Mara"]);
   assert.deepEqual(record.nextThreeTurns, [
     "Force the consequence of: She watches the courthouse lights blink out below them.",
-    "Make Mara choose a tactic under pressure.",
-    "Complicate or pay off cassette.",
+    "Make Mara choose a new tactic under pressure from cassette.",
+    "Complicate or pay off cassette so it changes the next scene.",
+  ]);
+  assert.deepEqual(record.actThreePayoffPath, [
+    "Cassette returns as proof or cost in Act III.",
+    "Rain-Swollen Vent returns as proof or cost in Act III.",
+    "Courthouse returns as proof or cost in Act III.",
+    "Mara's next public choice must pay off the private pressure planted here.",
   ]);
   assert.deepEqual(record.unresolvedSetups, [
     "Mara hides the cassette under the rain-swollen vent.",
@@ -475,7 +481,8 @@ test("[persistent-screenplay-memory] distills durable context from sparse draft 
     "Who else knows about cassette?",
   ]);
   assert.deepEqual(record.characterArcTurns, [
-    "Mara is under pressure from: She watches the courthouse lights blink out below them.",
+    "Mara must change tactics after: She watches the courthouse lights blink out below them.",
+    "Mara must decide what cassette costs them.",
   ]);
   assert.ok(record.imageMotifs.includes("cassette"));
   assert.ok(record.imageMotifs.includes("rain-swollen vent"));
@@ -503,7 +510,8 @@ test("[persistent-screenplay-memory] distills durable context from sparse draft 
   assert.match(prompt, /characters:Eli, Mara/);
   assert.match(prompt, /act_pressure:Current sequence obligation/);
   assert.match(prompt, /story_threads:Who else knows about cassette/);
-  assert.match(prompt, /arc_turns:Mara is under pressure from/);
+  assert.match(prompt, /act3_payoff_path:Cassette returns as proof or cost in Act III/);
+  assert.match(prompt, /arc_turns:Mara must change tactics after/);
   assert.match(prompt, /image_motifs:cassette/);
 
   const nonPageRecord = buildScreenplayProjectMemoryRecordFromStudioMeta(
@@ -518,6 +526,81 @@ test("[persistent-screenplay-memory] distills durable context from sparse draft 
   );
   assert.match(nonPageRecord.lastWritePreview, /rain-swollen vent/);
   assert.doesNotMatch(nonPageRecord.lastWritePreview, /scene is working/);
+});
+
+test("[persistent-screenplay-memory] generated page replies update payoff and arc runway", () => {
+  const replyPages = [
+    "INT. COURTHOUSE - NIGHT",
+    "",
+    "Mara sets the sealed affidavit beside the dead microphone.",
+    "",
+    "ELI",
+    "If you say this aloud, they own you.",
+    "",
+    "MARA",
+    "Then I stop owning it alone.",
+    "",
+    "She pushes the microphone toward the witness table.",
+    "On her phone, the empty pool fills with rain.",
+  ].join("\n");
+
+  const record = buildScreenplayProjectMemoryRecordFromStudioMeta(
+    {
+      screenplayProjectId: "feature-reply-pages",
+      screenplayTarget: "page",
+      screenplayPageCount: 101,
+      screenplayTargetPages: 110,
+    },
+    {
+      reply: replyPages,
+      nowTs: 1_800_000_110_000,
+    }
+  );
+
+  assert.ok(record);
+  assert.equal(record.projectId, "feature-reply-pages");
+  assert.equal(record.act, "Act III");
+  assert.equal(record.featureSequence, "Act III - Climax / Final Image");
+  assert.equal(record.sceneLabel, "INT. COURTHOUSE - NIGHT");
+  assert.equal(record.currentBeat, "On her phone, the empty pool fills with rain.");
+  assert.deepEqual(record.characterFocus, ["Eli", "Mara"]);
+  assert.deepEqual(record.nextThreeTurns, [
+    "Force the consequence of: On her phone, the empty pool fills with rain.",
+    "Make Mara choose a new tactic under pressure from sealed affidavit.",
+    "Complicate or pay off sealed affidavit so it changes the next scene.",
+  ]);
+  assert.ok(record.actThreePayoffPath.includes("Sealed Affidavit returns as proof or cost in Act III."));
+  assert.ok(record.actThreePayoffPath.includes("Microphone returns as proof or cost in Act III."));
+  assert.ok(record.actThreePayoffPath.includes("Mara's next public choice must pay off the private pressure planted here."));
+  assert.deepEqual(record.unresolvedSetups, [
+    "Mara sets the sealed affidavit beside the dead microphone.",
+  ]);
+  assert.ok(record.characterArcTurns.includes("Mara is being pushed from private control toward public truth."));
+  assert.ok(record.characterArcTurns.includes("Mara must decide what sealed affidavit costs them."));
+  assert.ok(record.imageMotifs.includes("sealed affidavit"));
+  assert.ok(record.imageMotifs.includes("microphone"));
+  assert.match(record.lastWritePreview, /sealed affidavit/);
+
+  let memory = createEmptyEmotionMemory();
+  memory = withMockedNow(1_800_000_110_000, () => updateSessionAfterReply(
+    memory,
+    "Write the Act III courtroom pages.",
+    replyPages,
+    false,
+    {
+      screenplayProjectId: "feature-reply-pages",
+      screenplayTarget: "page",
+      screenplayPageCount: 101,
+      screenplayTargetPages: 110,
+    }
+  ));
+
+  assert.equal(memory.screenplayProjectMemory.length, 1);
+  const prompt = buildMemoryAddendum(memory);
+  assert.match(prompt, /act:Act III/);
+  assert.match(prompt, /next_three_turns:Force the consequence of: On her phone/);
+  assert.match(prompt, /act3_payoff_path:Sealed Affidavit returns as proof or cost in Act III/);
+  assert.match(prompt, /arc_turns:Mara is being pushed from private control toward public truth/);
 });
 
 test("[persistent-screenplay-memory] correction turns repair stale project continuity", () => {
