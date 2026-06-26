@@ -3314,10 +3314,10 @@ function screenplayTaskCanUseProjectMemory(task, hint = "") {
   if (!SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS.has(intent)) return false;
   const lowerHint = String(hint || "").toLowerCase();
   if (!lowerHint.trim()) return false;
-  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup"].includes(intent)) {
+  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup", "momentum_rescue"].includes(intent)) {
     return true;
   }
-  return /\b(screenplay|script|scene|pages?|act|feature|movie|film|draft|dialogue|beat|sequence|fountain|character|ending|outline|story|emotional continuity|pacing)\b/.test(lowerHint);
+  return /\b(screenplay|script|scene|pages?|act|feature|movie|film|draft|dialogue|beat|sequence|fountain|character|ending|outline|story|emotional continuity|pacing|stuck|blocked|writer'?s block|writers block|creative block|out of ideas|next move)\b/.test(lowerHint);
 }
 
 function selectScreenplayProjectMemoryForPrompt(memory, studioMeta = null, body = {}) {

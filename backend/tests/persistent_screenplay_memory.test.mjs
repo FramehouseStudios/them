@@ -792,6 +792,62 @@ test("[persistent-screenplay-memory] prompt builder rebuilds feature context fro
   assert.ok(prompt.includes("intent: continue_script"));
 });
 
+test("[persistent-screenplay-memory] vague writer block turns use durable Story Spine runway", async () => {
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      {
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        documentRevisionId: "rev-block-9",
+        act: "Act II",
+        featureSequence: "Midpoint trap",
+        currentBeat: "Mara realizes the sealed affidavit points at the judge.",
+        featureObligation: "Turn private proof into public cost.",
+        actPressureState: "The midpoint must make private evidence useless.",
+        characterArcState: "Mara still believes control can keep Eli safe.",
+        lastSceneOutcome: "Mara wins the affidavit, then discovers the judge already buried it.",
+        nextScenePlan: "Force Mara into a courthouse hallway choice that exposes the lie publicly.",
+        nextThreeTurns: [
+          "Father names the lie.",
+          "Mara chooses public exposure.",
+          "The sealed affidavit becomes dangerous.",
+        ],
+        unresolvedSetups: ["sealed affidavit", "missing sketchbook"],
+        unresolvedStoryThreads: ["Why Marcus protected the fixer"],
+        actThreePayoffPath: ["The affidavit becomes courtroom testimony."],
+        characterFocus: ["Mara", "Father"],
+        imageMotifs: ["courthouse fluorescents"],
+        lastWritePreview: "MARA\nIf I say it out loud, they own it.",
+        updatedAt: 500,
+      },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 500,
+  };
+
+  const prompt = await wrapSystemPromptWithCreativeMemory(
+    "PERSONA",
+    { body: {} },
+    {
+      screenplayTaskHint: "I'm stuck.",
+      memory,
+    }
+  );
+
+  assert.ok(prompt.includes("<session>"));
+  assert.ok(prompt.includes("project: rain-docket"));
+  assert.ok(prompt.includes("current_beat: Mara realizes the sealed affidavit points at the judge."));
+  assert.ok(prompt.includes("next_three_turns:"));
+  assert.ok(prompt.includes("- Mara chooses public exposure."));
+  assert.ok(prompt.includes("<writer_block_memory>"));
+  assert.ok(prompt.includes("strongest_remembered_next_turn: Father names the lie."));
+  assert.ok(prompt.includes("open_setup_to_pressure: sealed affidavit"));
+  assert.ok(prompt.includes("unresolved_story_thread: Why Marcus protected the fixer"));
+  assert.ok(prompt.includes("act_three_payoff_seed: The affidavit becomes courtroom testimony."));
+  assert.ok(prompt.includes("intent: momentum_rescue"));
+  assert.ok(prompt.includes("writer_block_contract:"));
+});
+
 test("[persistent-screenplay-memory] non-screenplay turns do not inject project memory", async () => {
   const memory = {
     ...createEmptyEmotionMemory(),
