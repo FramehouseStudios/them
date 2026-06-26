@@ -658,7 +658,32 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
             ],
             correctionCount: 1,
             correctedTerms: ["mother"],
-            correctionReplacements: ["mother -> Eli's sister"]
+            correctionReplacements: ["mother -> Eli's sister"],
+            screenplayProjectMemory: BackendTalkScreenplayProjectMemoryTrace(
+                applied: true,
+                projectId: "rain-docket",
+                projectTitle: "Rain Docket",
+                act: "Act II",
+                featureSequence: "Act II - Reversal Fallout",
+                currentBeat: "Mara sees the sealed affidavit under the vent.",
+                nextScenePlan: "Force Mara to use the affidavit in public.",
+                nextThreeTurns: [
+                    "Mara pockets the affidavit.",
+                    "Eli forces a public choice."
+                ],
+                actThreePayoffPath: [
+                    "The affidavit becomes courtroom testimony."
+                ],
+                unresolvedStoryThreads: [
+                    "Who forged the testimony?"
+                ],
+                characterArcTurns: [
+                    "Mara chooses exposure over control."
+                ],
+                imageMotifs: [
+                    "rain-swollen vent"
+                ]
+            )
         )
 
         let state = ScreenplayStudioAppliedMemoryState.from(
@@ -677,8 +702,53 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(state.correctionReplacements, ["mother -> Eli's sister"])
         XCTAssertEqual(state.lastSavedCorrection, "old correction")
         XCTAssertEqual(state.summary, "Mara, Eli: mother -> Eli's sister")
+        XCTAssertEqual(state.projectId, "rain-docket")
+        XCTAssertEqual(state.act, "Act II")
+        XCTAssertEqual(state.nextThreeTurns, [
+            "Mara pockets the affidavit.",
+            "Eli forces a public choice."
+        ])
+        XCTAssertEqual(state.actThreePayoffPath, [
+            "The affidavit becomes courtroom testimony."
+        ])
+        XCTAssertTrue(state.storyMemoryHasContent)
+        XCTAssertTrue(state.storyRunwayLines.contains("Next: Mara pockets the affidavit."))
+        XCTAssertTrue(state.storyRunwayLines.contains("Payoff: The affidavit becomes courtroom testimony."))
+        XCTAssertTrue(state.storyRunwayLines.contains("Thread: Who forged the testimony?"))
+        XCTAssertTrue(state.storyRunwayLines.contains("Arc: Mara chooses exposure over control."))
         XCTAssertTrue(state.featureMemoryBrief.contains("Characters: Mara, Eli"))
         XCTAssertTrue(state.featureMemoryBrief.contains("Authoritative corrections: mother -> Eli's sister"))
+        XCTAssertTrue(state.featureMemoryBrief.contains("Next turns: Mara pockets the affidavit. -> Eli forces a public choice."))
+        XCTAssertTrue(state.featureMemoryBrief.contains("Act III payoff path: The affidavit becomes courtroom testimony."))
+    }
+
+    func testTalkCreativeMemoryTraceDecodesScreenplayProjectMemory() throws {
+        let data = Data(
+            #"""
+            {
+              "applied": true,
+              "screenplay_project_memory": {
+                "applied": true,
+                "project_id": "rain-docket",
+                "project_title": "Rain Docket",
+                "act": "Act II",
+                "next_three_turns": ["Mara pockets the affidavit."],
+                "act_three_payoff_path": ["The affidavit becomes courtroom testimony."],
+                "character_arc_turns": ["Mara chooses exposure over control."]
+              }
+            }
+            """#.utf8
+        )
+
+        let trace = try JSONDecoder().decode(BackendTalkCreativeMemoryTrace.self, from: data)
+
+        XCTAssertTrue(trace.applied)
+        XCTAssertEqual(trace.screenplayProjectMemory?.projectId, "rain-docket")
+        XCTAssertEqual(trace.screenplayProjectMemory?.projectTitle, "Rain Docket")
+        XCTAssertEqual(trace.screenplayProjectMemory?.act, "Act II")
+        XCTAssertEqual(trace.screenplayProjectMemory?.nextThreeTurns, ["Mara pockets the affidavit."])
+        XCTAssertEqual(trace.screenplayProjectMemory?.actThreePayoffPath, ["The affidavit becomes courtroom testimony."])
+        XCTAssertEqual(trace.screenplayProjectMemory?.characterArcTurns, ["Mara chooses exposure over control."])
     }
 
     func testAppliedMemoryPersistenceRestoresFreshCharacterCorrections() throws {
@@ -686,6 +756,18 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         let state = ScreenplayStudioAppliedMemoryState(
             id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
             source: "talk_result",
+            projectId: "rain-docket",
+            projectTitle: "Rain Docket",
+            act: "Act III",
+            featureSequence: "Act III - Climax",
+            currentBeat: "Mara walks toward the witness table.",
+            nextScenePlan: "Pay off the affidavit in public.",
+            nextThreeTurns: ["Mara names the judge."],
+            actThreePayoffPath: ["The affidavit becomes testimony."],
+            unresolvedSetups: ["sealed affidavit"],
+            unresolvedStoryThreads: ["Who forged the testimony?"],
+            characterArcTurns: ["Mara chooses exposure over control."],
+            imageMotifs: ["rain-swollen vent"],
             characters: ["Mara"],
             correctedTerms: ["mother"],
             correctionReplacements: ["mother -> Eli's sister"],
@@ -703,6 +785,8 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
 
         XCTAssertEqual(restored, state)
         XCTAssertTrue(restored.featureMemoryBrief.contains("Honor corrections before continuing Act I / Act II / Act III pages."))
+        XCTAssertTrue(restored.featureMemoryBrief.contains("Next turns: Mara names the judge."))
+        XCTAssertEqual(restored.storyRunwayLines.first, "Next: Mara names the judge.")
         XCTAssertEqual(
             ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
                 from: payload,

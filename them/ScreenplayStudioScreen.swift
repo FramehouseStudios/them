@@ -12753,6 +12753,19 @@ private var projectsSidebarContent: some View {
                         .foregroundStyle(Color.herText.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
 
+                    if !memory.storyRunwayLines.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(memory.storyRunwayLines, id: \.self) { line in
+                                Text(line)
+                                    .font(.system(size: 11, weight: .regular, design: .default))
+                                    .foregroundStyle(Color.herText.opacity(0.66))
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+
                     if !memory.lastSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("Saved: \(memory.lastSavedCorrection)")
                             .font(.system(size: 11, weight: .regular, design: .default))

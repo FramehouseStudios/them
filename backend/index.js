@@ -3223,10 +3223,37 @@ function buildCreativeMemoryRecallQuery(req = null, {
   return normalizeSnippet(lines.join("\n"), 4_000);
 }
 
+function buildScreenplayProjectMemoryPromptTrace(project = null) {
+  if (!project || typeof project !== "object") return null;
+  const trace = {
+    applied: true,
+    project_id: normalizeSnippet(project.projectId, 96),
+    project_title: normalizeSnippet(project.projectTitle, 160),
+    act: normalizeSnippet(project.act, 80),
+    feature_sequence: normalizeSnippet(project.featureSequence, 180),
+    current_beat: normalizeSnippet(project.currentBeat, 180),
+    next_scene_plan: normalizeSnippet(project.nextScenePlan, 220),
+    next_three_turns: normalizeScreenplayStringList(project.nextThreeTurns, 3, 180),
+    act_three_payoff_path: normalizeScreenplayStringList(project.actThreePayoffPath, 5, 200),
+    unresolved_setups: normalizeScreenplayStringList(project.unresolvedSetups, 5, 180),
+    unresolved_story_threads: normalizeScreenplayStringList(project.unresolvedStoryThreads, 5, 200),
+    character_arc_turns: normalizeScreenplayStringList(project.characterArcTurns, 5, 180),
+    image_motifs: normalizeScreenplayStringList(project.imageMotifs, 5, 120),
+  };
+  return Object.fromEntries(
+    Object.entries(trace).filter(([, value]) => {
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "boolean") return value;
+      return Boolean(value);
+    })
+  );
+}
+
 function buildCreativeMemoryPromptTrace(memory = null, {
   projectId = "",
   projectTitle = "",
   query = "",
+  screenplayProjectMemory = null,
 } = {}) {
   const characters = Array.isArray(memory?.characters)
     ? memory.characters.slice(0, 8).map((character) => {
@@ -3263,9 +3290,11 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     correctedTerms.push(...character.corrected_terms);
     correctionReplacements.push(...character.correction_replacements);
   }
+  const screenplayProjectTrace = buildScreenplayProjectMemoryPromptTrace(screenplayProjectMemory);
   const applied = Boolean(
     characters.length ||
     episodic.length ||
+    screenplayProjectTrace ||
     (memory?.style && Object.keys(memory.style).length) ||
     (memory?.tone && Object.keys(memory.tone).length) ||
     (memory?.habits && Object.keys(memory.habits).length)
@@ -3283,6 +3312,7 @@ function buildCreativeMemoryPromptTrace(memory = null, {
       episodic.filter((episode) => episode.correction).length,
     corrected_terms: normalizeScreenplayStringList(correctedTerms, 10, 80),
     correction_replacements: normalizeScreenplayStringList(correctionReplacements, 10, 120),
+    screenplay_project_memory: screenplayProjectTrace,
     style_applied: Boolean(memory?.style && Object.keys(memory.style).length),
     tone_applied: Boolean(memory?.tone && Object.keys(memory.tone).length),
     habits_applied: Boolean(memory?.habits && Object.keys(memory.habits).length),
@@ -3762,14 +3792,6 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
       recordEpisodicRecall: true,
     })
     : null;
-  if (req && typeof req === "object") {
-    req.creativeMemoryTrace = buildCreativeMemoryPromptTrace(memory, {
-      projectId,
-      projectTitle,
-      query: memoryRecallQuery,
-    });
-  }
-
   // T-block-signal-system-prompt: when the writer's habits indicate
   // medium/high block signal, inject a compact coaching note so the
   // model softens tone and asks for less. Cold users + low-block
@@ -3803,6 +3825,17 @@ async function wrapSystemPromptWithCreativeMemory(systemPrompt, req, {
       persistentMemory?.screenplayProjectMemory,
       SCREENPLAY_PROJECT_MEMORY_MAX
     ).length > 0;
+  const screenplayProjectMemoryForTrace = canUsePersistentScreenplayMemory
+    ? selectScreenplayProjectMemoryForPrompt(persistentMemory, studioMeta, body)
+    : null;
+  if (req && typeof req === "object") {
+    req.creativeMemoryTrace = buildCreativeMemoryPromptTrace(memory, {
+      projectId,
+      projectTitle,
+      query: memoryRecallQuery,
+      screenplayProjectMemory: screenplayProjectMemoryForTrace,
+    });
+  }
   const sessionContext = hasFeatureMapBlock
     ? null
     : buildTalkScreenplayPromptSessionContext(

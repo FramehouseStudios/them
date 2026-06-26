@@ -1042,6 +1042,25 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
       projectId: "rain-docket",
       projectTitle: "Rain Docket",
       query: "Continue Mara and the corrected evidence.",
+      screenplayProjectMemory: {
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        act: "Act II",
+        featureSequence: "Act II - Reversal Fallout",
+        currentBeat: "Mara sees the sealed affidavit under the vent.",
+        nextScenePlan: "Force Mara to use the affidavit in public.",
+        nextThreeTurns: [
+          "Mara pockets the affidavit.",
+          "Eli forces a public choice.",
+        ],
+        actThreePayoffPath: [
+          "The affidavit becomes courtroom testimony.",
+        ],
+        unresolvedSetups: ["sealed affidavit"],
+        unresolvedStoryThreads: ["Who forged the testimony?"],
+        characterArcTurns: ["Mara chooses exposure over control."],
+        imageMotifs: ["rain-swollen vent"],
+      },
     }
   );
 
@@ -1057,6 +1076,19 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.equal(trace.characters[0].has_corrections, true);
   assert.match(trace.episodic[0].summary, /Correction for Mara/);
   assert.equal(trace.episodic[0].correction, true);
+  assert.equal(trace.screenplay_project_memory.applied, true);
+  assert.equal(trace.screenplay_project_memory.project_id, "rain-docket");
+  assert.equal(trace.screenplay_project_memory.act, "Act II");
+  assert.deepEqual(trace.screenplay_project_memory.next_three_turns, [
+    "Mara pockets the affidavit.",
+    "Eli forces a public choice.",
+  ]);
+  assert.deepEqual(trace.screenplay_project_memory.act_three_payoff_path, [
+    "The affidavit becomes courtroom testimony.",
+  ]);
+  assert.deepEqual(trace.screenplay_project_memory.character_arc_turns, [
+    "Mara chooses exposure over control.",
+  ]);
   assert.equal(trace.style_applied, true);
   assert.ok(trace.query_chars > 0);
 });

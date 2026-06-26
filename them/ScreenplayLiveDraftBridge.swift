@@ -987,6 +987,18 @@ struct ScreenplayStudioAppliedMemoryInlineCorrection: Equatable {
 struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
     let id: UUID
     let source: String
+    let projectId: String?
+    let projectTitle: String?
+    let act: String?
+    let featureSequence: String?
+    let currentBeat: String?
+    let nextScenePlan: String?
+    let nextThreeTurns: [String]?
+    let actThreePayoffPath: [String]?
+    let unresolvedSetups: [String]?
+    let unresolvedStoryThreads: [String]?
+    let characterArcTurns: [String]?
+    let imageMotifs: [String]?
     let characters: [String]
     let correctedTerms: [String]
     let correctionReplacements: [String]
@@ -995,13 +1007,75 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
     let lastSavedCorrection: String
     let updatedAt: Date
 
+    init(
+        id: UUID,
+        source: String,
+        projectId: String? = nil,
+        projectTitle: String? = nil,
+        act: String? = nil,
+        featureSequence: String? = nil,
+        currentBeat: String? = nil,
+        nextScenePlan: String? = nil,
+        nextThreeTurns: [String]? = nil,
+        actThreePayoffPath: [String]? = nil,
+        unresolvedSetups: [String]? = nil,
+        unresolvedStoryThreads: [String]? = nil,
+        characterArcTurns: [String]? = nil,
+        imageMotifs: [String]? = nil,
+        characters: [String],
+        correctedTerms: [String],
+        correctionReplacements: [String],
+        characterBibleApplied: Bool,
+        correctionAppliedToPrompt: Bool,
+        lastSavedCorrection: String,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.projectId = Self.cleanOptional(projectId)
+        self.projectTitle = Self.cleanOptional(projectTitle)
+        self.act = Self.cleanOptional(act)
+        self.featureSequence = Self.cleanOptional(featureSequence)
+        self.currentBeat = Self.cleanOptional(currentBeat)
+        self.nextScenePlan = Self.cleanOptional(nextScenePlan)
+        self.nextThreeTurns = Self.cleanOptionalList(nextThreeTurns, limit: 3)
+        self.actThreePayoffPath = Self.cleanOptionalList(actThreePayoffPath, limit: 5)
+        self.unresolvedSetups = Self.cleanOptionalList(unresolvedSetups, limit: 5)
+        self.unresolvedStoryThreads = Self.cleanOptionalList(unresolvedStoryThreads, limit: 5)
+        self.characterArcTurns = Self.cleanOptionalList(characterArcTurns, limit: 5)
+        self.imageMotifs = Self.cleanOptionalList(imageMotifs, limit: 5)
+        self.characters = Self.cleanList(characters)
+        self.correctedTerms = Self.cleanList(correctedTerms)
+        self.correctionReplacements = Self.cleanList(correctionReplacements)
+        self.characterBibleApplied = characterBibleApplied
+        self.correctionAppliedToPrompt = correctionAppliedToPrompt
+        self.lastSavedCorrection = lastSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.updatedAt = updatedAt
+    }
+
     var hasContent: Bool {
         characterBibleApplied ||
         correctionAppliedToPrompt ||
+        storyMemoryHasContent ||
         !characters.isEmpty ||
         !correctedTerms.isEmpty ||
         !correctionReplacements.isEmpty ||
         !lastSavedCorrection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var storyMemoryHasContent: Bool {
+        !(projectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(projectTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(act ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(featureSequence ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(currentBeat ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(nextScenePlan ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !Self.cleanList(nextThreeTurns ?? []).isEmpty ||
+            !Self.cleanList(actThreePayoffPath ?? []).isEmpty ||
+            !Self.cleanList(unresolvedSetups ?? []).isEmpty ||
+            !Self.cleanList(unresolvedStoryThreads ?? []).isEmpty ||
+            !Self.cleanList(characterArcTurns ?? []).isEmpty ||
+            !Self.cleanList(imageMotifs ?? []).isEmpty
     }
 
     var primaryCharacter: String {
@@ -1021,10 +1095,36 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         if !cleanCharacters.isEmpty {
             return cleanCharacters.joined(separator: ", ")
         }
+        if let nextStoryMove = storyRunwayLines.first {
+            return nextStoryMove
+        }
         if !cleanReplacements.isEmpty {
             return cleanReplacements.prefix(2).joined(separator: " / ")
         }
         return correctionAppliedToPrompt ? "Latest correction" : "Project memory"
+    }
+
+    var storyRunwayLines: [String] {
+        var lines: [String] = []
+        let nextTurn = Self.cleanList(nextThreeTurns ?? [], limit: 3).first
+            ?? (nextScenePlan ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nextTurn.isEmpty {
+            lines.append("Next: \(nextTurn)")
+        }
+        if let payoff = Self.cleanList(actThreePayoffPath ?? [], limit: 3).first {
+            lines.append("Payoff: \(payoff)")
+        }
+        if let thread = Self.cleanList(unresolvedStoryThreads ?? [], limit: 3).first
+            ?? Self.cleanList(unresolvedSetups ?? [], limit: 3).first {
+            lines.append("Thread: \(thread)")
+        }
+        if let arc = Self.cleanList(characterArcTurns ?? [], limit: 3).first {
+            lines.append("Arc: \(arc)")
+        }
+        if let motif = Self.cleanList(imageMotifs ?? [], limit: 3).first, lines.count < 4 {
+            lines.append("Image: \(motif)")
+        }
+        return Array(lines.prefix(4))
     }
 
     var featureMemoryBrief: String {
@@ -1041,6 +1141,22 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         } else if !cleanTerms.isEmpty {
             parts.append("Do not repeat outdated terms: \(cleanTerms.prefix(4).joined(separator: ", "))")
         }
+        let cleanNextTurns = Self.cleanList(nextThreeTurns ?? [], limit: 3)
+        let cleanPayoffs = Self.cleanList(actThreePayoffPath ?? [], limit: 3)
+        let cleanThreads = Self.cleanList(unresolvedStoryThreads ?? [], limit: 3)
+        let cleanArcTurns = Self.cleanList(characterArcTurns ?? [], limit: 3)
+        if !cleanNextTurns.isEmpty {
+            parts.append("Next turns: \(cleanNextTurns.joined(separator: " -> "))")
+        }
+        if !cleanPayoffs.isEmpty {
+            parts.append("Act III payoff path: \(cleanPayoffs.joined(separator: " / "))")
+        }
+        if !cleanThreads.isEmpty {
+            parts.append("Story threads: \(cleanThreads.joined(separator: " / "))")
+        }
+        if !cleanArcTurns.isEmpty {
+            parts.append("Arc turns: \(cleanArcTurns.joined(separator: " / "))")
+        }
         if characterBibleApplied {
             parts.append("Use character bible continuity before inventing new facts.")
         }
@@ -1054,6 +1170,18 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
     static let empty = ScreenplayStudioAppliedMemoryState(
         id: UUID(),
         source: "",
+        projectId: nil,
+        projectTitle: nil,
+        act: nil,
+        featureSequence: nil,
+        currentBeat: nil,
+        nextScenePlan: nil,
+        nextThreeTurns: nil,
+        actThreePayoffPath: nil,
+        unresolvedSetups: nil,
+        unresolvedStoryThreads: nil,
+        characterArcTurns: nil,
+        imageMotifs: nil,
         characters: [],
         correctedTerms: [],
         correctionReplacements: [],
@@ -1075,6 +1203,18 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         return ScreenplayStudioAppliedMemoryState(
             id: UUID(),
             source: source.trimmingCharacters(in: .whitespacesAndNewlines),
+            projectId: nil,
+            projectTitle: nil,
+            act: nil,
+            featureSequence: nil,
+            currentBeat: nil,
+            nextScenePlan: nil,
+            nextThreeTurns: nil,
+            actThreePayoffPath: nil,
+            unresolvedSetups: nil,
+            unresolvedStoryThreads: nil,
+            characterArcTurns: nil,
+            imageMotifs: nil,
             characters: characters,
             correctedTerms: correctedTerms,
             correctionReplacements: replacements,
@@ -1103,9 +1243,22 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
             trace.correctionReplacements +
             trace.characters.flatMap(\.correctionReplacements)
         )
+        let projectMemory = trace.screenplayProjectMemory
         return ScreenplayStudioAppliedMemoryState(
             id: UUID(),
             source: source.trimmingCharacters(in: .whitespacesAndNewlines),
+            projectId: projectMemory?.projectId,
+            projectTitle: projectMemory?.projectTitle,
+            act: projectMemory?.act,
+            featureSequence: projectMemory?.featureSequence,
+            currentBeat: projectMemory?.currentBeat,
+            nextScenePlan: projectMemory?.nextScenePlan,
+            nextThreeTurns: projectMemory?.nextThreeTurns,
+            actThreePayoffPath: projectMemory?.actThreePayoffPath,
+            unresolvedSetups: projectMemory?.unresolvedSetups,
+            unresolvedStoryThreads: projectMemory?.unresolvedStoryThreads,
+            characterArcTurns: projectMemory?.characterArcTurns,
+            imageMotifs: projectMemory?.imageMotifs,
             characters: characterNames,
             correctedTerms: correctedTerms,
             correctionReplacements: replacements,
@@ -1329,7 +1482,19 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         return String(trimmed.prefix(160))
     }
 
-    private static func cleanList(_ values: [String]?) -> [String] {
+    private static func cleanOptional(_ value: String?) -> String? {
+        let clean = value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression) ?? ""
+        return clean.isEmpty ? nil : String(clean.prefix(220))
+    }
+
+    private static func cleanOptionalList(_ values: [String]?, limit: Int) -> [String]? {
+        let clean = cleanList(values, limit: limit)
+        return clean.isEmpty ? nil : clean
+    }
+
+    private static func cleanList(_ values: [String]?, limit: Int = 12) -> [String] {
         var seen = Set<String>()
         var out: [String] = []
         for value in values ?? [] {
@@ -1341,6 +1506,7 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
             guard !seen.contains(key) else { continue }
             seen.insert(key)
             out.append(String(clean.prefix(160)))
+            if out.count >= limit { break }
         }
         return out
     }
@@ -7656,6 +7822,18 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         latestAppliedMemory = ScreenplayStudioAppliedMemoryState(
             id: UUID(),
             source: latestAppliedMemory.source,
+            projectId: latestAppliedMemory.projectId,
+            projectTitle: latestAppliedMemory.projectTitle,
+            act: latestAppliedMemory.act,
+            featureSequence: latestAppliedMemory.featureSequence,
+            currentBeat: latestAppliedMemory.currentBeat,
+            nextScenePlan: latestAppliedMemory.nextScenePlan,
+            nextThreeTurns: latestAppliedMemory.nextThreeTurns,
+            actThreePayoffPath: latestAppliedMemory.actThreePayoffPath,
+            unresolvedSetups: latestAppliedMemory.unresolvedSetups,
+            unresolvedStoryThreads: latestAppliedMemory.unresolvedStoryThreads,
+            characterArcTurns: latestAppliedMemory.characterArcTurns,
+            imageMotifs: latestAppliedMemory.imageMotifs,
             characters: latestAppliedMemory.characters,
             correctedTerms: nextCorrectedTerms,
             correctionReplacements: nextCorrectionReplacements,

@@ -873,6 +873,7 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
     let correctionCount: Int
     let correctedTerms: [String]
     let correctionReplacements: [String]
+    let screenplayProjectMemory: BackendTalkScreenplayProjectMemoryTrace?
     let styleApplied: Bool
     let toneApplied: Bool
     let habitsApplied: Bool
@@ -889,6 +890,7 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
         case correctionCount = "correction_count"
         case correctedTerms = "corrected_terms"
         case correctionReplacements = "correction_replacements"
+        case screenplayProjectMemory = "screenplay_project_memory"
         case styleApplied = "style_applied"
         case toneApplied = "tone_applied"
         case habitsApplied = "habits_applied"
@@ -906,6 +908,7 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
         correctionCount: Int = 0,
         correctedTerms: [String] = [],
         correctionReplacements: [String] = [],
+        screenplayProjectMemory: BackendTalkScreenplayProjectMemoryTrace? = nil,
         styleApplied: Bool = false,
         toneApplied: Bool = false,
         habitsApplied: Bool = false
@@ -927,6 +930,7 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
         self.correctionReplacements = correctionReplacements
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        self.screenplayProjectMemory = screenplayProjectMemory?.hasContent == true ? screenplayProjectMemory : nil
         self.styleApplied = styleApplied
         self.toneApplied = toneApplied
         self.habitsApplied = habitsApplied
@@ -946,6 +950,7 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
             correctionCount: try container.decodeIfPresent(Int.self, forKey: .correctionCount) ?? 0,
             correctedTerms: try container.decodeIfPresent([String].self, forKey: .correctedTerms) ?? [],
             correctionReplacements: try container.decodeIfPresent([String].self, forKey: .correctionReplacements) ?? [],
+            screenplayProjectMemory: try container.decodeIfPresent(BackendTalkScreenplayProjectMemoryTrace.self, forKey: .screenplayProjectMemory),
             styleApplied: try container.decodeIfPresent(Bool.self, forKey: .styleApplied) ?? false,
             toneApplied: try container.decodeIfPresent(Bool.self, forKey: .toneApplied) ?? false,
             habitsApplied: try container.decodeIfPresent(Bool.self, forKey: .habitsApplied) ?? false
@@ -953,6 +958,121 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
     }
 
     static let empty = BackendTalkCreativeMemoryTrace(applied: false)
+}
+
+struct BackendTalkScreenplayProjectMemoryTrace: Codable, Equatable {
+    let applied: Bool
+    let projectId: String?
+    let projectTitle: String?
+    let act: String
+    let featureSequence: String
+    let currentBeat: String
+    let nextScenePlan: String
+    let nextThreeTurns: [String]
+    let actThreePayoffPath: [String]
+    let unresolvedSetups: [String]
+    let unresolvedStoryThreads: [String]
+    let characterArcTurns: [String]
+    let imageMotifs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case applied
+        case projectId = "project_id"
+        case projectTitle = "project_title"
+        case act
+        case featureSequence = "feature_sequence"
+        case currentBeat = "current_beat"
+        case nextScenePlan = "next_scene_plan"
+        case nextThreeTurns = "next_three_turns"
+        case actThreePayoffPath = "act_three_payoff_path"
+        case unresolvedSetups = "unresolved_setups"
+        case unresolvedStoryThreads = "unresolved_story_threads"
+        case characterArcTurns = "character_arc_turns"
+        case imageMotifs = "image_motifs"
+    }
+
+    var hasContent: Bool {
+        applied ||
+            !(projectId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !(projectTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !act.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !featureSequence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !currentBeat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !nextThreeTurns.isEmpty ||
+            !actThreePayoffPath.isEmpty ||
+            !unresolvedSetups.isEmpty ||
+            !unresolvedStoryThreads.isEmpty ||
+            !characterArcTurns.isEmpty ||
+            !imageMotifs.isEmpty
+    }
+
+    init(
+        applied: Bool = false,
+        projectId: String? = nil,
+        projectTitle: String? = nil,
+        act: String = "",
+        featureSequence: String = "",
+        currentBeat: String = "",
+        nextScenePlan: String = "",
+        nextThreeTurns: [String] = [],
+        actThreePayoffPath: [String] = [],
+        unresolvedSetups: [String] = [],
+        unresolvedStoryThreads: [String] = [],
+        characterArcTurns: [String] = [],
+        imageMotifs: [String] = []
+    ) {
+        let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.applied = applied
+        self.projectId = cleanProjectId.isEmpty ? nil : cleanProjectId
+        self.projectTitle = cleanProjectTitle.isEmpty ? nil : cleanProjectTitle
+        self.act = act.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.featureSequence = featureSequence.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.currentBeat = currentBeat.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.nextScenePlan = nextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.nextThreeTurns = Self.cleanList(nextThreeTurns)
+        self.actThreePayoffPath = Self.cleanList(actThreePayoffPath)
+        self.unresolvedSetups = Self.cleanList(unresolvedSetups)
+        self.unresolvedStoryThreads = Self.cleanList(unresolvedStoryThreads)
+        self.characterArcTurns = Self.cleanList(characterArcTurns)
+        self.imageMotifs = Self.cleanList(imageMotifs)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            applied: try container.decodeIfPresent(Bool.self, forKey: .applied) ?? false,
+            projectId: try container.decodeIfPresent(String.self, forKey: .projectId),
+            projectTitle: try container.decodeIfPresent(String.self, forKey: .projectTitle),
+            act: try container.decodeIfPresent(String.self, forKey: .act) ?? "",
+            featureSequence: try container.decodeIfPresent(String.self, forKey: .featureSequence) ?? "",
+            currentBeat: try container.decodeIfPresent(String.self, forKey: .currentBeat) ?? "",
+            nextScenePlan: try container.decodeIfPresent(String.self, forKey: .nextScenePlan) ?? "",
+            nextThreeTurns: try container.decodeIfPresent([String].self, forKey: .nextThreeTurns) ?? [],
+            actThreePayoffPath: try container.decodeIfPresent([String].self, forKey: .actThreePayoffPath) ?? [],
+            unresolvedSetups: try container.decodeIfPresent([String].self, forKey: .unresolvedSetups) ?? [],
+            unresolvedStoryThreads: try container.decodeIfPresent([String].self, forKey: .unresolvedStoryThreads) ?? [],
+            characterArcTurns: try container.decodeIfPresent([String].self, forKey: .characterArcTurns) ?? [],
+            imageMotifs: try container.decodeIfPresent([String].self, forKey: .imageMotifs) ?? []
+        )
+    }
+
+    private static func cleanList(_ values: [String], limit: Int = 8) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            let clean = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(String(clean.prefix(220)))
+            if result.count >= limit { break }
+        }
+        return result
+    }
 }
 
 struct BackendTalkScreenplayTrace {
