@@ -41,6 +41,10 @@ import {
   createTalkFailureError,
 } from "./talk_failure_diagnostics.js";
 import { buildMomentumRescueFallbackReply } from "./momentum_rescue_fallback.js";
+import {
+  buildTalkScreenplayExecutionBriefLines,
+  isNextSceneExecutionBriefRepairReason,
+} from "./talk_screenplay_repair_plan.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput"]);
 
@@ -802,6 +806,7 @@ function createTalkHandler(deps) {
       return 2_600;
     })();
     const featureLineLimit = (() => {
+      if (isNextSceneExecutionBriefRepairReason(failedReason)) return 18;
       if (failedReason === "missing_act_three_payoff") return 12;
       if (failedReason.startsWith("missing_act_")) return 10;
       if (failedReason === "missing_character_arc_memory") return 10;
@@ -892,6 +897,11 @@ function createTalkHandler(deps) {
       studioMeta?.screenplayEndingImage || studioMeta?.screenplay_ending_image,
       220
     );
+    const screenplayNextSceneMoves = normalizeRepairList(
+      studioMeta?.screenplayNextSceneMoves || studioMeta?.screenplay_next_scene_moves,
+      5,
+      180
+    );
     const screenplayNextThreeTurns = normalizeRepairList(
       studioMeta?.screenplayNextThreeTurns || studioMeta?.screenplay_next_three_turns,
       3,
@@ -922,6 +932,8 @@ function createTalkHandler(deps) {
       4,
       140
     );
+    const nextSceneExecutionBriefLines = buildTalkScreenplayExecutionBriefLines(studioMeta);
+    const nextSceneExecutionBriefRequired = isNextSceneExecutionBriefRepairReason(failedReason);
     const featureObligationLines = [
       screenplayAct ? `ACT: ${screenplayAct}` : "",
       screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
@@ -933,6 +945,7 @@ function createTalkHandler(deps) {
       ...screenplayCharacterArcMemoryLines,
       screenplayLastSceneOutcome ? `LAST_SCENE_OUTCOME: ${screenplayLastSceneOutcome}` : "",
       screenplayEndingImage ? `ENDING_IMAGE_PRESSURE: ${screenplayEndingImage}` : "",
+      ...screenplayNextSceneMoves.map((item) => `NEXT_SCENE_MOVE: ${item}`),
       ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
       ...screenplayActThreePayoffPath.map((item) => `ACT_THREE_PAYOFF: ${item}`),
       ...screenplayUnresolvedSetups.map((item) => `SETUP_TO_CARRY_OR_PAY: ${item}`),
@@ -955,6 +968,7 @@ function createTalkHandler(deps) {
           "If Act II context is supplied, dramatize the active reversal, cost, trap, or false-tactic pressure instead of repeating the premise.",
           "If Act III/finale context is supplied, pay off at least one supplied setup/path through changed behavior and final-image pressure.",
           "If CHARACTER_ARC_* context is supplied, turn want/need/false-belief/tactic into visible behavior on the page.",
+          "If NEXT_SCENE_EXECUTION_BRIEF is supplied, execute SCENE_ASSIGNMENT plus at least three support lanes: obstacle, changed behavior, payoff/setup, visual motif, or exit handoff.",
           "If REPAIR_DIRECTIVES are supplied, satisfy them literally before adding any new invention.",
         ].join("\n"),
       },
@@ -967,6 +981,12 @@ function createTalkHandler(deps) {
           sceneAnchor ? `SCENE_ANCHOR: ${sceneAnchor}` : "",
           repairDirectives.length ? "REPAIR_DIRECTIVES:" : "",
           ...repairDirectives.map((line) => `- ${line}`),
+          nextSceneExecutionBriefLines.length ? "NEXT_SCENE_EXECUTION_BRIEF:" : "",
+          ...nextSceneExecutionBriefLines.map((line) => `- ${line}`),
+          nextSceneExecutionBriefRequired ? "PASSING_REPAIR_REQUIREMENTS:" : "",
+          nextSceneExecutionBriefRequired ? "- Spend SCENE_ASSIGNMENT as the immediate page engine." : "",
+          nextSceneExecutionBriefRequired ? "- Use at least three support lanes as playable action, dialogue pressure, or changed behavior." : "",
+          nextSceneExecutionBriefRequired ? "- Preserve the concrete nouns from the supplied lanes; do not replace them with generic conflict." : "",
           effectiveFeatureObligationLines.length ? "FEATURE_OBLIGATIONS:" : "",
           ...effectiveFeatureObligationLines.map((line) => `- ${line}`),
           "",
@@ -985,7 +1005,7 @@ function createTalkHandler(deps) {
       if (process.env.NODE_ENV !== "production") {
         const promptChars = repairMessages.reduce((sum, message) => sum + String(message?.content || "").length, 0);
         logger.log(
-          `[${rid}] screenplay_repair_pass prompt_chars=${promptChars} failed_draft_chars=${failedDraft.length} feature_lines=${effectiveFeatureObligationLines.length}/${featureObligationLines.length} reason=${failedReason || "unknown"}`
+          `[${rid}] screenplay_repair_pass prompt_chars=${promptChars} failed_draft_chars=${failedDraft.length} feature_lines=${effectiveFeatureObligationLines.length}/${featureObligationLines.length} execution_brief_lines=${nextSceneExecutionBriefLines.length} reason=${failedReason || "unknown"}`
         );
       }
       const repairResult = await chatSupplier.chat({

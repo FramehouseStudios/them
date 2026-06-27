@@ -37,11 +37,13 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "buildTalkFailureBody",
   "buildTalkFailureDiagnostics",
   "buildMomentumRescueFallbackReply",
+  "buildTalkScreenplayExecutionBriefLines",
   "createChatSupplier",
   "createSttSupplier",
   "createTtsSupplier",
   "createTalkFailureError",
   "incrementErrorCounter",
+  "isNextSceneExecutionBriefRepairReason",
 ]);
 
 test("[phase7b] createTalkHandler dependency boundary is complete", () => {
