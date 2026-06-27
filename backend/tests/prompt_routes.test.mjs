@@ -266,6 +266,42 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
   });
 });
 
+test("POST /screenplay/prompt/build carries writer-block rescue lenses and runway", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+      persona: "PERSONA",
+      user_input: "",
+      screenplay_task_hint: "I'm stuck in act two and need the next beat.",
+      session_context: {
+        project_id: "rain-docket",
+        act: "Act II",
+        feature_sequence: "Midpoint trap",
+        current_beat: "Mara realizes the sealed affidavit points at the judge.",
+        act_pressure_state: "The apparent win must become a public trap.",
+        character_arc_state: "Mara still believes control can keep Eli safe.",
+        next_three_turns: [
+          "Father names the lie.",
+          "Mara chooses public exposure.",
+        ],
+        unresolved_setups: ["sealed affidavit"],
+        unresolved_story_threads: ["Why Marcus protected the fixer"],
+      },
+    });
+
+    assert.equal(status, 200);
+    assert.equal(body.screenplay_task_intent, "momentum_rescue");
+    assert.ok(body.prompt.includes("<writer_block_memory>"));
+    assert.ok(body.prompt.includes("strongest_remembered_next_turn: Father names the lie."));
+    assert.ok(body.prompt.includes("primary_engine: remembered_next_turn"));
+    assert.ok(body.prompt.includes("scene_machine: objective -> opposition -> tactic shift"));
+    assert.ok(body.prompt.includes("<screenplay_task>"));
+    assert.ok(body.prompt.includes("story_rescue_lenses:"));
+    assert.ok(body.prompt.includes("want_obstacle_cost: give the character a visible objective"));
+    assert.ok(body.prompt.includes("choice_closure: close one door"));
+    assert.ok(body.prompt.includes("reversal_engine: make the apparent win"));
+  });
+});
+
 test("POST /screenplay/prompt/build hydrates missing feature context from saved project/version", async () => {
   const owner = {
     projects: [
