@@ -153,6 +153,19 @@ test("[feature-screenplay-map] carries feature spine, promises, and Act III payo
   assert.ok(block.includes("Preserve the remembered next-three-turns runway"));
   assert.ok(block.includes("Aim Act III pages at the remembered payoff path"));
   assert.ok(block.includes("For Act I -> Act II -> Act III requests"));
+  assert.ok(block.includes("next_scene_execution_brief:"));
+  assert.ok(block.includes("purpose: condense act, memory, and page runway into the immediate scene Clementine should write next."));
+  assert.ok(block.includes("active_act_lane: Act II"));
+  assert.ok(block.includes("current_page_position: p78 / 110"));
+  assert.ok(block.includes("character_focus: Mara, Eli"));
+  assert.ok(block.includes("opening_handoff: The public betrayal destroyed her safe legal tactic."));
+  assert.ok(block.includes("scene_assignment: Mara loses the public case."));
+  assert.ok(block.includes("obstacle_to_pressurize: Who buried the first report?"));
+  assert.ok(block.includes("changed_behavior_due: Mara must sacrifice control to tell the truth."));
+  assert.ok(block.includes("payoff_or_setup_to_spend: Voicemail pays off as testimony."));
+  assert.ok(block.includes("image_to_stage: empty pool"));
+  assert.ok(block.includes("exit_handoff: The sister's voicemail reframes the cover-up."));
+  assert.ok(block.includes("output_rule: if the user asked for pages, translate this brief into Fountain screenplay only"));
 });
 
 test("[feature-screenplay-map] emits page-batch execution plan for feature page requests", () => {
@@ -208,6 +221,9 @@ test("[feature-screenplay-map] emits page-batch execution plan for feature page 
   assert.ok(block.includes("beat_to_page_math: inherited residue -> immediate objective -> obstacle -> tactic -> reversal/cost -> residue -> next handoff."));
   assert.ok(block.includes("current_beat_to_spend: June realizes the receipt makes the win a trap."));
   assert.ok(block.includes("requested_page_run: 10 pages"));
+  assert.ok(block.includes("next_scene_execution_brief:"));
+  assert.ok(block.includes("requested_run: 10 pages"));
+  assert.ok(block.includes("scene_assignment: June realizes the receipt makes the win a trap."));
   assert.ok(block.includes("Returned pages must include concrete story material from first_turn_locked when supplied."));
   assert.ok(block.includes("For page requests, silently lock act/sequence obligations and begin with playable Fountain text."));
   assert.ok(block.includes("write playable Fountain first with no diagnosis, strategy note"));

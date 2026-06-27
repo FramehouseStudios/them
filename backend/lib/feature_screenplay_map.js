@@ -1207,6 +1207,132 @@ function buildMemoryToPageExecutionLines(sessionContext = {}) {
   return lines;
 }
 
+function buildNextSceneExecutionBriefLines({
+  sessionContext = {},
+  screenplayTask = null,
+  sequence = null,
+  targetPages = DEFAULT_FEATURE_TARGET_PAGES,
+  currentPage = 0,
+  explicitAct = "",
+  requestedAct = "",
+} = {}) {
+  const requestedPages = requestedPageBatchFromTask(screenplayTask);
+  const activeAct = trimContextLine(requestedAct || explicitAct || sequence?.act, 120);
+  const activeSequence = sequence || firstSequenceForActLabel(activeAct);
+  const nextSequence = nextSequenceAfter(activeSequence);
+  const sceneObjective = trimContextLine(
+    sessionContext.sceneObjective ?? sessionContext.scene_objective ?? sessionContext.currentSceneObjective,
+    260
+  );
+  const currentBeat = trimContextLine(
+    sessionContext.currentBeat ?? sessionContext.current_beat ?? sessionContext.beat,
+    240
+  );
+  const emotionalHandoff = trimContextLine(
+    sessionContext.emotionalContinuity ?? sessionContext.emotional_continuity ?? sessionContext.emotionalHandoff,
+    260
+  );
+  const lastSceneOutcome = trimContextLine(
+    sessionContext.lastSceneOutcome ?? sessionContext.last_scene_outcome,
+    240
+  );
+  const nextScenePlan = trimContextLine(
+    sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
+    340
+  );
+  const nextThreeTurns = sanitizeContextList(
+    sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
+    3,
+    180
+  );
+  const unresolvedSetups = sanitizeContextList(
+    sessionContext.unresolvedSetups ?? sessionContext.unresolved_setups ?? sessionContext.openLoops ?? sessionContext.open_loops,
+    4,
+    200
+  );
+  const unresolvedStoryThreads = sanitizeContextList(
+    sessionContext.unresolvedStoryThreads ?? sessionContext.unresolved_story_threads,
+    4,
+    220
+  );
+  const actThreePayoffPath = sanitizeContextList(
+    sessionContext.actThreePayoffPath ?? sessionContext.act_three_payoff_path ?? sessionContext.payoffPath ?? sessionContext.payoff_path,
+    4,
+    200
+  );
+  const characterArcState = trimContextLine(
+    sessionContext.characterArcState ?? sessionContext.character_arc_state,
+    280
+  );
+  const characterArcTurns = sanitizeContextList(
+    sessionContext.characterArcTurns ?? sessionContext.character_arc_turns,
+    4,
+    180
+  );
+  const characterFocus = sanitizeContextList(
+    sessionContext.characterFocus ?? sessionContext.character_focus ?? sessionContext.characters ?? sessionContext.currentCharacters,
+    4,
+    120
+  );
+  const imageMotifs = sanitizeContextList(
+    sessionContext.imageMotifs ?? sessionContext.image_motifs ?? sessionContext.visualMotifs ?? sessionContext.visual_motifs,
+    4,
+    140
+  );
+  const endingImage = trimContextLine(
+    sessionContext.endingImage ?? sessionContext.ending_image ?? sessionContext.finalImage ?? sessionContext.final_image,
+    220
+  );
+  const sceneAssignment = nextThreeTurns[0] || nextScenePlan || sceneObjective || currentBeat || activeSequence?.nextMoves?.[0] || "";
+  const openingHandoff = lastSceneOutcome || emotionalHandoff || currentBeat;
+  const obstacle = unresolvedStoryThreads[0] || unresolvedSetups[0] || activeSequence?.obligation || "";
+  const arcBehavior = characterArcTurns[0] || characterArcState;
+  const payoffOrSetup = actThreePayoffPath[0] || unresolvedSetups[0] || "";
+  const imageToStage = imageMotifs[0] || endingImage || "";
+  const exitHandoff = nextThreeTurns[1] || nextSequence?.obligation || "";
+  const hasBriefContext = Boolean(
+    requestedPages > 0 ||
+    activeAct ||
+    activeSequence ||
+    sceneAssignment ||
+    openingHandoff ||
+    obstacle ||
+    arcBehavior ||
+    payoffOrSetup ||
+    imageToStage ||
+    characterFocus.length
+  );
+  if (!hasBriefContext) return [];
+
+  const lines = [
+    "  next_scene_execution_brief:",
+    "    purpose: condense act, memory, and page runway into the immediate scene Clementine should write next.",
+  ];
+  if (activeAct) lines.push(`    active_act_lane: ${activeAct}`);
+  if (activeSequence) {
+    const range = scaledRange(activeSequence, targetPages);
+    lines.push(`    active_sequence_lane: ${activeSequence.act} - ${activeSequence.label} (p${range.start}-${range.end})`);
+  }
+  if (currentPage > 0) lines.push(`    current_page_position: p${clamp(currentPage, 1, targetPages)} / ${targetPages}`);
+  if (requestedPages > 0) lines.push(`    requested_run: ${requestedPages} pages`);
+  if (characterFocus.length) lines.push(`    character_focus: ${characterFocus.join(", ")}`);
+  if (openingHandoff) lines.push(`    opening_handoff: ${openingHandoff}`);
+  if (sceneAssignment) lines.push(`    scene_assignment: ${sceneAssignment}`);
+  if (obstacle) lines.push(`    obstacle_to_pressurize: ${obstacle}`);
+  if (arcBehavior) lines.push(`    changed_behavior_due: ${arcBehavior}`);
+  if (payoffOrSetup) lines.push(`    payoff_or_setup_to_spend: ${payoffOrSetup}`);
+  if (imageToStage) lines.push(`    image_to_stage: ${imageToStage}`);
+  if (exitHandoff) lines.push(`    exit_handoff: ${exitHandoff}`);
+  lines.push("    execution_steps:");
+  lines.push("      - Open on inherited emotional residue as visible behavior or image.");
+  lines.push("      - Give the protagonist a concrete objective that can fail before the scene ends.");
+  lines.push("      - Pressurize that objective with the obstacle, setup, thread, or relationship cost above.");
+  lines.push("      - Force a tactic shift, reveal, cost, or changed behavior before the exit.");
+  lines.push("      - End with the exit_handoff as a decision, reveal, image, or irreversible cost.");
+  lines.push("    output_rule: if the user asked for pages, translate this brief into Fountain screenplay only; never print these labels.");
+  return lines;
+}
+
 function buildNextPageMoveLines(sequence) {
   const moves = Array.isArray(sequence?.nextMoves) ? sequence.nextMoves : [];
   if (!moves.length) return [];
@@ -1318,6 +1444,15 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     ...buildStorySpineLines(sessionContext || {}),
     ...buildContinuityAssetLines(sessionContext || {}),
     ...buildMemoryToPageExecutionLines(sessionContext || {}),
+    ...buildNextSceneExecutionBriefLines({
+      sessionContext: sessionContext || {},
+      screenplayTask,
+      sequence,
+      targetPages,
+      currentPage,
+      explicitAct,
+      requestedAct,
+    }),
   ];
 
   if (currentPage > 0) {

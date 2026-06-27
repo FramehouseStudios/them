@@ -471,6 +471,13 @@ test("POST /screenplay/prompt/build hydrates missing feature context from persis
       assert.ok(body.prompt.includes("<feature_film_map>"));
       assert.ok(body.prompt.includes("current_position: p62 / 110"));
       assert.ok(body.prompt.includes("current_sequence: Act II - Reversal Fallout"));
+      assert.ok(body.prompt.includes("next_scene_execution_brief:"));
+      assert.ok(body.prompt.includes("scene_assignment: The reel plays the wrong memory."));
+      assert.ok(body.prompt.includes("obstacle_to_pressurize: Who replaced the reel?"));
+      assert.ok(body.prompt.includes("changed_behavior_due: Mara stops cutting around her own guilt."));
+      assert.ok(body.prompt.includes("payoff_or_setup_to_spend: The reel exposes the fixer."));
+      assert.ok(body.prompt.includes("image_to_stage: projector flare"));
+      assert.ok(body.prompt.includes("exit_handoff: Marcus forces a public choice."));
     },
     {
       memory: {
