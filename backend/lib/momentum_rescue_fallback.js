@@ -86,6 +86,57 @@ function listMetaValue(studioMeta, names, maxItems = 5, maxChars = 180) {
   return [];
 }
 
+function actRescueLine(act = "") {
+  const lower = normalizeSnippet(act, 80).toLowerCase();
+  if (/\bact\s*(?:iii|3|three)\b|\bthird act\b|\bfinal\b|\bclimax\b/.test(lower)) {
+    return "Act III rescue lens: spend one planted setup through changed behavior, then aim the image toward the ending.";
+  }
+  if (/\bact\s*(?:ii|2|two)\b|\bsecond act\b|\bmiddle\b|\bmidpoint\b/.test(lower)) {
+    return "Act II rescue lens: make the old tactic fail, turn the apparent win into a cost, and force a new strategy.";
+  }
+  if (/\bact\s*(?:i|1|one)\b|\bfirst act\b|\bbeginning\b|\bopening\b/.test(lower)) {
+    return "Act I rescue lens: clarify the want, make the catalyst unavoidable, and burn a safe exit.";
+  }
+  return "Story rescue lens: want meets obstacle, tactic changes under pressure, and the exit image makes the next scene inevitable.";
+}
+
+function diagnoseFallbackStoryProblem({
+  transcript = "",
+  act = "",
+  featureSequence = "",
+  currentBeat = "",
+  nextTurns = [],
+  setups = [],
+  threads = [],
+  characterArc = "",
+  actPressure = "",
+} = {}) {
+  const lower = [
+    transcript,
+    act,
+    featureSequence,
+    currentBeat,
+    nextTurns.join(" "),
+    setups.join(" "),
+    threads.join(" "),
+    characterArc,
+    actPressure,
+  ].join(" ").toLowerCase();
+  if (/\bact\s*(?:iii|3|three)|third act|finale|climax|ending|payoff|setup\b/.test(lower)) {
+    return "Story diagnosis: the payoff path is asking for one planted promise to come due as behavior, not explanation.";
+  }
+  if (/\bact\s*(?:ii|2|two)|second act|middle|midpoint|drag|slow|static|repeating|stuck\b/.test(lower)) {
+    return "Story diagnosis: the middle needs a reversal that makes the old tactic expensive.";
+  }
+  if (/\bsecret|lie|truth|reveal|expose|withheld|proof|affidavit|tape|reel|receipt\b/.test(lower)) {
+    return "Story diagnosis: the cleanest engine is secret exposure under public pressure.";
+  }
+  if (/\bdialogue|conversation|argument|line|subtext|exposition|backstory\b/.test(lower)) {
+    return "Story diagnosis: the exchange needs a tactic and a cost underneath the words.";
+  }
+  return "Story diagnosis: the scene has feeling, but it needs a visible want, opposition, cost, and exit image.";
+}
+
 function buildMomentumRescueFallbackReply({
   transcript = "",
   studioMeta = null,
@@ -123,8 +174,23 @@ function buildMomentumRescueFallbackReply({
   const contextLine = position
     ? `At ${position}, the blockage is consequence, not imagination.`
     : "The blockage is consequence, not imagination.";
+  const diagnosisLine = diagnoseFallbackStoryProblem({
+    transcript,
+    act,
+    featureSequence,
+    currentBeat,
+    nextTurns,
+    setups,
+    threads,
+    characterArc,
+    actPressure,
+  });
+  const actLine = actRescueLine(act || featureSequence);
+  const beatEngineLine = `Beat engine: because ${problemSource}, force ${strongestTurn}; make ${cost} impose the cost; leave on ${imagePressure}.`;
   const pressureLine = [
     contextLine,
+    diagnosisLine,
+    actLine,
     `The story already has pressure in this: ${problemSource}.`,
     actPressure ? `Use that pressure instead of opening a new lane: ${actPressure}.` : "",
   ].filter(Boolean).join(" ");
@@ -135,6 +201,7 @@ function buildMomentumRescueFallbackReply({
 
   return [
     pressureLine,
+    beatEngineLine,
     turnLine,
     forkLine,
     "",

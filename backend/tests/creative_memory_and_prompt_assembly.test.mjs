@@ -706,6 +706,10 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   assert.ok(momentumRescue.includes("next_beat_ladder:"));
   assert.ok(momentumRescue.includes("storytelling_concepts:"));
   assert.ok(momentumRescue.includes("scene engine: a scene moves when a character wants"));
+  assert.ok(momentumRescue.includes("story_rescue_lenses:"));
+  assert.ok(momentumRescue.includes("want_obstacle_cost: give the character a visible objective"));
+  assert.ok(momentumRescue.includes("reversal_engine: make the apparent win"));
+  assert.ok(momentumRescue.includes("choice_closure: close one door"));
   assert.ok(momentumRescue.includes("response_contract: apply the diagnostic silently"));
   assert.ok(momentumRescue.includes("one decisive next move"));
 });
@@ -748,6 +752,8 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
   assert.ok(out.includes("primary_engine: remembered_next_turn"));
   assert.ok(out.includes("pressure_stack: remembered_next_turn -> open_setup -> character_arc_pressure -> act_obligation -> payoff_seed -> image_transformation"));
   assert.ok(out.includes("beat_formula: because Mara pockets the reel and realizes Marcus lied."));
+  assert.ok(out.includes("scene_machine: objective -> opposition -> tactic shift -> reversal/cost -> changed relationship -> exit image."));
+  assert.ok(out.includes("the cure for writer's block is not more premise"));
   assert.ok(out.includes("Convert it into one decisive playable next beat"));
   assert.ok(out.indexOf(WRITER_BLOCK_MEMORY_BLOCK_OPEN) < out.indexOf(SCREENPLAY_TASK_BLOCK_OPEN));
 
@@ -767,6 +773,9 @@ test("[screenplay-task] story diagnostics make blocked and continuation turns ac
   assert.ok(actTwoStall.includes("strongest_pressure_engine: force a reversal or new leverage"));
   assert.ok(actTwoStall.includes("act_obligation: Act II"));
   assert.ok(actTwoStall.includes("sequence engine: each beat should force a new tactic"));
+  assert.ok(actTwoStall.includes("story_rescue_lenses:"));
+  assert.ok(actTwoStall.includes("reversal_engine: make the apparent win"));
+  assert.ok(actTwoStall.includes("relationship_cost: make the next move solve a plot problem"));
 
   const continuation = buildModelPrompt({
     persona: "PERSONA",
@@ -777,6 +786,8 @@ test("[screenplay-task] story diagnostics make blocked and continuation turns ac
   assert.ok(continuation.includes("likely_scene_problem: missing turn / no exit image"));
   assert.ok(continuation.includes("end the beat on a decision, reveal, reversal, cost, or image"));
   assert.ok(continuation.includes("next_beat_ladder:"));
+  assert.ok(continuation.includes("secret_exposure: turn withheld information into public pressure"));
+  assert.ok(continuation.includes("choice_closure: close one door"));
 });
 
 test("[screenplay-task] inferScreenplayTask recognizes feature-scale page requests", () => {

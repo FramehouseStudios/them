@@ -106,6 +106,48 @@ const STORYCRAFT_RESCUE_CONCEPTS = Object.freeze([
   "emotion engine: the next event should externalize the feeling the character is avoiding, not explain it.",
   "page engine: convert advice into visible behavior, tactical dialogue, a changed power dynamic, and an exit image.",
 ]);
+const STORY_RESCUE_LENSES = Object.freeze([
+  Object.freeze({
+    key: "want_obstacle_cost",
+    triggers: [/\bwant|goal|objective|passive|inactive|aimless|no goal|unclear\b/],
+    line: "want_obstacle_cost: give the character a visible objective, a force that can say no, and a cost that lands before the scene exits.",
+  }),
+  Object.freeze({
+    key: "reversal_engine",
+    triggers: [/\breversal|turn|twist|static|same beat|repeating|middle|act\s*(?:ii|2|two)|second act|drag|slow|boring\b/],
+    line: "reversal_engine: make the apparent win, discovery, or plan become a trap, changed leverage, or new obligation.",
+  }),
+  Object.freeze({
+    key: "secret_exposure",
+    triggers: [/\bsecret|lie|truth|reveal|expose|hidden|withheld|information|discover|proof|affidavit|tape|reel|receipt\b/],
+    line: "secret_exposure: turn withheld information into public pressure, tactical dialogue, and a relationship cost.",
+  }),
+  Object.freeze({
+    key: "relationship_cost",
+    triggers: [/\brelationship|love|friend|family|father|mother|sister|brother|partner|betray|trust|forgive\b/],
+    line: "relationship_cost: make the next move solve a plot problem while damaging or redefining a bond.",
+  }),
+  Object.freeze({
+    key: "setup_payoff",
+    triggers: [/\bsetup|payoff|plant|promise|object|affidavit|tape|reel|receipt|ending|act\s*(?:iii|3|three)|third act|finale|climax\b/],
+    line: "setup_payoff: bring back one planted object, promise, image, or wound under higher pressure instead of inventing a new solution.",
+  }),
+  Object.freeze({
+    key: "image_transformation",
+    triggers: [/\bimage|motif|visual|symbol|object|room|light|rain|mirror|frame|final image\b/],
+    line: "image_transformation: let an image or object change meaning through action so the story feels authored, not explained.",
+  }),
+  Object.freeze({
+    key: "choice_closure",
+    triggers: [/\bchoice|decision|choose|dilemma|impossible|moral|cost|sacrifice|door\b/],
+    line: "choice_closure: close one door; force a decision that makes the next scene inevitable.",
+  }),
+  Object.freeze({
+    key: "subtext_tactic",
+    triggers: [/\bdialogue|conversation|argument|line|exchange|subtext|on[- ]the[- ]nose|exposition|backstory|info dump\b/],
+    line: "subtext_tactic: replace explanation with tactical dialogue, interruption, concealment, and behavior that carries the unsaid want.",
+  }),
+]);
 const STORY_STALL_DIAGNOSTICS = Object.freeze([
   {
     problem: "passive protagonist / unclear want",
@@ -334,6 +376,48 @@ function inferStoryStallDiagnostic(lower = "") {
   return null;
 }
 
+function selectStoryRescueLenses(lower = "", { intent = "", actKind = "", problem = "" } = {}) {
+  const haystack = `${trimToString(lower).toLowerCase()} ${trimToString(intent).toLowerCase()} ${trimToString(actKind).toLowerCase()} ${trimToString(problem).toLowerCase()}`;
+  const selected = [];
+  const add = (lens) => {
+    if (!lens || selected.some((item) => item.key === lens.key)) return;
+    selected.push(lens);
+  };
+
+  if (intent === "momentum_rescue" || /\bnext dramatic engine unclear\b/.test(haystack)) {
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "want_obstacle_cost"));
+  }
+  if (
+    intent === "momentum_rescue" ||
+    /\bmissing turn|no exit image|what happens next|next beat|next scene|where do i go\b/.test(haystack)
+  ) {
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "choice_closure"));
+  }
+
+  for (const lens of STORY_RESCUE_LENSES) {
+    if (lens.triggers.some((pattern) => pattern.test(haystack))) add(lens);
+  }
+
+  if (actKind === "act2") {
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "reversal_engine"));
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "relationship_cost"));
+  } else if (actKind === "act3") {
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "setup_payoff"));
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "image_transformation"));
+  } else if (actKind === "act1") {
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "want_obstacle_cost"));
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "choice_closure"));
+  }
+
+  if (!selected.length) {
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "want_obstacle_cost"));
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "reversal_engine"));
+    add(STORY_RESCUE_LENSES.find((lens) => lens.key === "choice_closure"));
+  }
+
+  return selected.slice(0, 4).map((lens) => lens.line);
+}
+
 function inferStoryMomentumDiagnostic(userInput = "", task = {}) {
   const lower = trimToString(userInput).toLowerCase();
   const intent = trimToString(task?.intent);
@@ -364,6 +448,7 @@ function inferStoryMomentumDiagnostic(userInput = "", task = {}) {
     likelyProblem: problem,
     pressureEngine: engine,
     actObligation,
+    rescueLenses: selectStoryRescueLenses(lower, { intent, actKind, problem }),
     nextBeatLadder: [
       "active want",
       "opposition",
@@ -531,6 +616,15 @@ function buildStoryDiagnosticPromptLines(storyDiagnostic) {
   if (concepts.length) {
     lines.push("  storytelling_concepts:");
     for (const concept of concepts) lines.push(`    - ${concept}`);
+  }
+  const rescueLenses = sanitizeContextList(
+    storyDiagnostic.rescueLenses ?? storyDiagnostic.rescue_lenses,
+    4,
+    240
+  );
+  if (rescueLenses.length) {
+    lines.push("  story_rescue_lenses:");
+    for (const lens of rescueLenses) lines.push(`    - ${lens}`);
   }
   lines.push("  response_contract: apply the diagnostic silently; answer with one decisive next move and playable page behavior, not a theory lecture.");
   return lines.length > 2 ? lines : [];
@@ -1042,6 +1136,8 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
   const cost = unresolvedStoryThreads[0] || unresolvedSetups[0] || actPressureState || characterArcState || "a real consequence";
   const exit = imageMotifs[0] || actThreePayoffPath[0] || "a changed exit image";
   engineLines.push(`  beat_formula: because ${because}, force ${must}; make ${cost} impose the cost; leave on ${exit}.`);
+  engineLines.push("  scene_machine: objective -> opposition -> tactic shift -> reversal/cost -> changed relationship -> exit image.");
+  engineLines.push("  expert_rule: the cure for writer's block is not more premise; it is a pressure source that changes the character's available choices.");
 
   return [
     WRITER_BLOCK_MEMORY_BLOCK_OPEN,
