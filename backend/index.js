@@ -5057,6 +5057,12 @@ function buildTalkScreenplayRepairDirectives({
         directives.push("Spend the supplied act obligation on the page through behavior, conflict, cost, and image pressure.");
       } else if (normalizedReason === "missing_next_turn_continuation") {
         directives.push("Use the first supplied next turn as the immediate page engine before inventing a new plot lane.");
+      } else if (normalizedReason === "missing_next_scene_assignment") {
+        directives.push("Spend the supplied next-scene assignment as the immediate page engine before adding new plot.");
+        directives.push("Make the assignment visible through action, dialogue pressure, or a changed decision.");
+      } else if (normalizedReason === "missing_next_scene_execution_brief") {
+        directives.push("Dramatize the supplied next-scene brief lanes: obstacle, character change, payoff/setup, visual motif, and exit handoff.");
+        directives.push("Use at least three of those lanes as playable page behavior, not notes or summary.");
       } else if (normalizedReason === "missing_character_arc_memory") {
         directives.push("Turn the supplied character want/need/false-belief/tactic into visible changed behavior.");
       }
@@ -5162,10 +5168,12 @@ function validateTalkAuthoritativeScreenplayOutput(screenplayOutput = null, {
       characterArcState: studioMeta?.screenplayCharacterArcState,
       characterArcMemory: studioMeta?.screenplayCharacterArcMemory,
       nextScenePlan: studioMeta?.screenplayNextScenePlan,
+      nextSceneMoves: studioMeta?.screenplayNextSceneMoves,
       nextThreeTurns: studioMeta?.screenplayNextThreeTurns,
       actThreePayoffPath: studioMeta?.screenplayActThreePayoffPath,
       unresolvedSetups: studioMeta?.screenplayUnresolvedSetups,
       unresolvedStoryThreads: studioMeta?.screenplayUnresolvedStoryThreads,
+      characterArcTurns: studioMeta?.screenplayCharacterArcTurns,
       imageMotifs: studioMeta?.screenplayImageMotifs,
     },
   });

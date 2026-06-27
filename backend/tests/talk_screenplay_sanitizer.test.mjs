@@ -512,6 +512,87 @@ test("[talk-screenplay-output] accepts Act II page output that spends supplied r
   assert.equal(output.quality.feature_act, "act2");
 });
 
+test("[talk-screenplay-output] rejects page output that ignores the next-scene execution brief", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. EDIT BAY - NIGHT",
+      "",
+      "Mara threads the warped reel through the Steenbeck.",
+      "On screen, the wrong memory stutters where the evidence should be.",
+      "",
+      "MARCUS",
+      "That's not what we shot.",
+      "",
+      "MARA",
+      "No. That's what someone wanted remembered.",
+    ].join("\n"),
+    transcript: "Continue this Act II scene as pages.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Reversal Fallout",
+      screenplayFeatureObligation: "The reel plays the wrong memory and turns evidence into a trap.",
+      screenplayNextThreeTurns: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+      ],
+      screenplayUnresolvedStoryThreads: ["The locked archive door blocks Mara."],
+      screenplayCharacterArcTurns: ["Mara stops cutting around her guilt."],
+      screenplayActThreePayoffPath: ["The fixer is exposed by the public splice."],
+      screenplayImageMotifs: ["projector flare"],
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "missing_next_scene_execution_brief");
+  assert.equal(output.quality.confidence, "needs_repair");
+  assert.ok(
+    output.quality.repair_directives.some((directive) => /next-scene brief lanes/i.test(directive))
+  );
+});
+
+test("[talk-screenplay-output] accepts page output that executes the next-scene brief", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. EDIT BAY - NIGHT",
+      "",
+      "Mara threads the warped reel through the Steenbeck.",
+      "On screen, the wrong memory stutters where the evidence should be.",
+      "The locked archive door rattles under someone's fist.",
+      "",
+      "MARCUS",
+      "If you say this in public, you don't get to take it back.",
+      "",
+      "MARA",
+      "Then stop cutting around my guilt.",
+      "",
+      "She lifts the splice marker and writes FIXER across the frame.",
+      "A projector flare washes the room white as Marcus opens the door to the crowd.",
+    ].join("\n"),
+    transcript: "Continue this Act II scene as pages.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Reversal Fallout",
+      screenplayFeatureObligation: "The reel plays the wrong memory and turns evidence into a trap.",
+      screenplayNextThreeTurns: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+      ],
+      screenplayUnresolvedStoryThreads: ["The locked archive door blocks Mara."],
+      screenplayCharacterArcTurns: ["Mara stops cutting around her guilt."],
+      screenplayActThreePayoffPath: ["The fixer is exposed by the public splice."],
+      screenplayImageMotifs: ["projector flare"],
+    },
+  });
+
+  assert.equal(output.target, "page");
+  assert.equal(output.source, "studio_target");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.reason, "ok");
+});
+
 test("[talk-screenplay-output] rejects page output that dodges structured character arc memory", () => {
   const output = buildTalkScreenplayOutput({
     reply: [

@@ -713,6 +713,101 @@ test("[screenplay-page-quality] accepts feature continuations that spend the fir
   );
 });
 
+test("[screenplay-page-quality] rejects continuations that dodge the richer next-scene execution brief", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. EDIT BAY - NIGHT",
+      "",
+      "Mara threads the warped reel through the Steenbeck.",
+      "On screen, the wrong memory stutters where the evidence should be.",
+      "",
+      "MARCUS",
+      "That's not what we shot.",
+      "",
+      "MARA",
+      "No. That's what someone wanted remembered.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. EDIT BAY - NIGHT", element: "sceneHeading" },
+      { text: "Mara threads the warped reel through the Steenbeck.", element: "action" },
+      { text: "On screen, the wrong memory stutters where the evidence should be.", element: "action" },
+      { text: "MARCUS", element: "character" },
+      { text: "That's not what we shot.", element: "dialogue" },
+      { text: "MARA", element: "character" },
+      { text: "No. That's what someone wanted remembered.", element: "dialogue" },
+    ],
+    featureContext: {
+      act: "Act II",
+      featureSequence: "Reversal Fallout",
+      featureObligation: "The reel plays the wrong memory and turns evidence into a trap.",
+      nextThreeTurns: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+      ],
+      unresolvedStoryThreads: ["The locked archive door blocks Mara."],
+      characterArcTurns: ["Mara stops cutting around her guilt."],
+      actThreePayoffPath: ["The fixer is exposed by the public splice."],
+      imageMotifs: ["projector flare"],
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_next_scene_execution_brief");
+  assert.equal(quality.featureObligation.executionBriefCoverage.minimumSupportFields, 3);
+});
+
+test("[screenplay-page-quality] accepts continuations that execute the next-scene brief lanes", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. EDIT BAY - NIGHT",
+      "",
+      "Mara threads the warped reel through the Steenbeck.",
+      "On screen, the wrong memory stutters where the evidence should be.",
+      "The locked archive door rattles under someone's fist.",
+      "",
+      "MARCUS",
+      "If you say this in public, you don't get to take it back.",
+      "",
+      "MARA",
+      "Then stop cutting around my guilt.",
+      "",
+      "She lifts the splice marker and writes FIXER across the frame.",
+      "A projector flare washes the room white as Marcus opens the door to the crowd.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. EDIT BAY - NIGHT", element: "sceneHeading" },
+      { text: "Mara threads the warped reel through the Steenbeck.", element: "action" },
+      { text: "On screen, the wrong memory stutters where the evidence should be.", element: "action" },
+      { text: "The locked archive door rattles under someone's fist.", element: "action" },
+      { text: "MARCUS", element: "character" },
+      { text: "If you say this in public, you don't get to take it back.", element: "dialogue" },
+      { text: "MARA", element: "character" },
+      { text: "Then stop cutting around my guilt.", element: "dialogue" },
+      { text: "She lifts the splice marker and writes FIXER across the frame.", element: "action" },
+      { text: "A projector flare washes the room white as Marcus opens the door to the crowd.", element: "action" },
+    ],
+    featureContext: {
+      act: "Act II",
+      featureSequence: "Reversal Fallout",
+      featureObligation: "The reel plays the wrong memory and turns evidence into a trap.",
+      nextThreeTurns: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+      ],
+      unresolvedStoryThreads: ["The locked archive door blocks Mara."],
+      characterArcTurns: ["Mara stops cutting around her guilt."],
+      actThreePayoffPath: ["The fixer is exposed by the public splice."],
+      imageMotifs: ["projector flare"],
+    },
+  });
+
+  assert.equal(quality.ok, true);
+  assert.deepEqual(
+    quality.featureObligation.executionBriefCoverage.matchedSupportFieldNames,
+    ["obstacle", "arc", "payoff", "image", "exit"],
+  );
+});
+
 test("[screenplay-page-quality] rejects Act III pages that dodge supplied payoff obligations", () => {
   const quality = evaluateScreenplayPageQuality({
     text: [

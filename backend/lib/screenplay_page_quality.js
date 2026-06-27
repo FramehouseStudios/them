@@ -820,6 +820,244 @@ function evaluateFirstNextTurnCoverage({ text = "", featureContext = null } = {}
   };
 }
 
+function cleanBriefScalar(value = "", maxChars = 220) {
+  if (Array.isArray(value)) return sanitizeQualityList(value, 1, maxChars)[0] || "";
+  if (value && typeof value === "object") return "";
+  return normalizeLineText(value).slice(0, Math.max(1, Number(maxChars || 220)));
+}
+
+function firstBriefValue(values = [], maxChars = 220) {
+  for (const value of values) {
+    const clean = cleanBriefScalar(value, maxChars);
+    if (clean) return clean;
+  }
+  return "";
+}
+
+function directBriefSource(featureContext = null) {
+  const source = featureContext?.nextSceneExecutionBrief ?? featureContext?.next_scene_execution_brief;
+  return source && typeof source === "object" && !Array.isArray(source) ? source : {};
+}
+
+function nextSceneExecutionBriefValues(featureContext = null) {
+  if (!featureContext || typeof featureContext !== "object") return null;
+  const brief = directBriefSource(featureContext);
+  const nextSceneMoves = sanitizeQualityList(
+    featureContext?.nextSceneMoves ?? featureContext?.next_scene_moves,
+    5,
+    180
+  );
+  const nextThreeTurns = sanitizeQualityList(
+    featureContext?.nextThreeTurns ?? featureContext?.next_three_turns,
+    3,
+    180
+  );
+  const unresolvedStoryThreads = sanitizeQualityList(
+    featureContext?.unresolvedStoryThreads ?? featureContext?.unresolved_story_threads,
+    4,
+    220
+  );
+  const unresolvedSetups = sanitizeQualityList(
+    featureContext?.unresolvedSetups ?? featureContext?.unresolved_setups,
+    4,
+    200
+  );
+  const actThreePayoffPath = sanitizeQualityList(
+    featureContext?.actThreePayoffPath ??
+    featureContext?.act_three_payoff_path ??
+    featureContext?.payoffPath ??
+    featureContext?.payoff_path,
+    4,
+    200
+  );
+  const characterArcTurns = sanitizeQualityList(
+    featureContext?.characterArcTurns ?? featureContext?.character_arc_turns,
+    4,
+    180
+  );
+  const imageMotifs = sanitizeQualityList(
+    featureContext?.imageMotifs ??
+    featureContext?.image_motifs ??
+    featureContext?.visualMotifs ??
+    featureContext?.visual_motifs,
+    4,
+    140
+  );
+
+  return {
+    assignment: firstBriefValue([
+      brief.assignment,
+      brief.sceneAssignment,
+      brief.scene_assignment,
+      brief.nextSceneAssignment,
+      brief.next_scene_assignment,
+      featureContext?.sceneAssignment,
+      featureContext?.scene_assignment,
+      featureContext?.nextSceneAssignment,
+      featureContext?.next_scene_assignment,
+      nextSceneMoves[0],
+      nextThreeTurns[0],
+      featureContext?.nextScenePlan,
+      featureContext?.next_scene_plan,
+      featureContext?.sceneObjective,
+      featureContext?.scene_objective,
+      featureContext?.currentBeat,
+      featureContext?.current_beat,
+    ], 240),
+    obstacle: firstBriefValue([
+      brief.obstacle,
+      brief.obstacleToPressurize,
+      brief.obstacle_to_pressurize,
+      featureContext?.obstacleToPressurize,
+      featureContext?.obstacle_to_pressurize,
+      unresolvedStoryThreads[0],
+      unresolvedSetups[0],
+      featureContext?.featureObligation,
+      featureContext?.feature_obligation,
+    ], 220),
+    arc: firstBriefValue([
+      brief.arc,
+      brief.changedBehaviorDue,
+      brief.changed_behavior_due,
+      featureContext?.changedBehaviorDue,
+      featureContext?.changed_behavior_due,
+      characterArcTurns[0],
+      featureContext?.characterArcState,
+      featureContext?.character_arc_state,
+    ], 220),
+    payoff: firstBriefValue([
+      brief.payoff,
+      brief.payoffOrSetupToSpend,
+      brief.payoff_or_setup_to_spend,
+      featureContext?.payoffOrSetupToSpend,
+      featureContext?.payoff_or_setup_to_spend,
+      actThreePayoffPath[0],
+      unresolvedSetups[0],
+    ], 220),
+    image: firstBriefValue([
+      brief.image,
+      brief.imageToStage,
+      brief.image_to_stage,
+      featureContext?.imageToStage,
+      featureContext?.image_to_stage,
+      imageMotifs[0],
+      featureContext?.endingImage,
+      featureContext?.ending_image,
+      featureContext?.finalImage,
+      featureContext?.final_image,
+    ], 180),
+    exit: firstBriefValue([
+      brief.exit,
+      brief.exitHandoff,
+      brief.exit_handoff,
+      featureContext?.exitHandoff,
+      featureContext?.exit_handoff,
+      nextSceneMoves[1],
+      nextThreeTurns[1],
+    ], 220),
+  };
+}
+
+function hasExplicitNextSceneExecutionBrief(featureContext = null) {
+  if (!featureContext || typeof featureContext !== "object") return false;
+  if (Object.keys(directBriefSource(featureContext)).length > 0) return true;
+  return [
+    "sceneAssignment",
+    "scene_assignment",
+    "nextSceneAssignment",
+    "next_scene_assignment",
+    "obstacleToPressurize",
+    "obstacle_to_pressurize",
+    "changedBehaviorDue",
+    "changed_behavior_due",
+    "payoffOrSetupToSpend",
+    "payoff_or_setup_to_spend",
+    "imageToStage",
+    "image_to_stage",
+    "exitHandoff",
+    "exit_handoff",
+  ].some((key) => cleanBriefScalar(featureContext?.[key], 220));
+}
+
+function executionBriefFieldCoverage({ name = "", phrase = "", textTokens = new Set(), minimumMatches = 1 } = {}) {
+  const tokens = [...qualityTokenSet(phrase)];
+  const matchedTokens = tokens.filter((token) => textTokens.has(token));
+  const requiredMatches = Math.min(Math.max(0, Number(minimumMatches || 0)), tokens.length);
+  return {
+    name,
+    phrase,
+    tokens,
+    matchedTokens,
+    tokenCount: tokens.length,
+    minimumMatches: requiredMatches,
+    ok: tokens.length < 1 || matchedTokens.length >= requiredMatches,
+  };
+}
+
+function executionBriefSupportMinimum(phrase = "") {
+  const tokenCount = qualityTokenSet(phrase).size;
+  if (tokenCount < 1) return 0;
+  return tokenCount >= 4 ? 2 : 1;
+}
+
+function evaluateNextSceneExecutionBriefCoverage({ text = "", featureContext = null } = {}) {
+  const values = nextSceneExecutionBriefValues(featureContext);
+  if (!values) return { ok: true, reason: "no_execution_brief" };
+  const textTokens = qualityTokenSet(text);
+  const assignment = executionBriefFieldCoverage({
+    name: "assignment",
+    phrase: values.assignment,
+    textTokens,
+    minimumMatches: 2,
+  });
+  const supportFields = [
+    executionBriefFieldCoverage({ name: "obstacle", phrase: values.obstacle, textTokens, minimumMatches: executionBriefSupportMinimum(values.obstacle) }),
+    executionBriefFieldCoverage({ name: "arc", phrase: values.arc, textTokens, minimumMatches: executionBriefSupportMinimum(values.arc) }),
+    executionBriefFieldCoverage({ name: "payoff", phrase: values.payoff, textTokens, minimumMatches: executionBriefSupportMinimum(values.payoff) }),
+    executionBriefFieldCoverage({ name: "image", phrase: values.image, textTokens, minimumMatches: executionBriefSupportMinimum(values.image) }),
+    executionBriefFieldCoverage({ name: "exit", phrase: values.exit, textTokens, minimumMatches: executionBriefSupportMinimum(values.exit) }),
+  ].filter((field) => field.tokenCount > 0);
+  const enforceBrief = hasExplicitNextSceneExecutionBrief(featureContext) || supportFields.length >= 3;
+  if (!enforceBrief) {
+    return {
+      ok: true,
+      reason: "insufficient_execution_brief",
+      assignment,
+      supportFields,
+    };
+  }
+  if (assignment.tokenCount > 0 && !assignment.ok) {
+    return {
+      ok: false,
+      reason: "missing_next_scene_assignment",
+      assignment,
+      supportFields,
+    };
+  }
+
+  const matchedSupportFields = supportFields.filter((field) => field.ok);
+  const minimumSupportFields = Math.min(3, supportFields.length);
+  if (matchedSupportFields.length < minimumSupportFields) {
+    return {
+      ok: false,
+      reason: "missing_next_scene_execution_brief",
+      assignment,
+      supportFields,
+      matchedSupportFieldNames: matchedSupportFields.map((field) => field.name),
+      minimumSupportFields,
+    };
+  }
+
+  return {
+    ok: true,
+    reason: "ok",
+    assignment,
+    supportFields,
+    matchedSupportFieldNames: matchedSupportFields.map((field) => field.name),
+    minimumSupportFields,
+  };
+}
+
 function isMomentumRescueTurn({ transcript = "", studioMeta = null } = {}) {
   const source = [
     transcript,
@@ -1124,6 +1362,22 @@ function evaluateScreenplayPageQuality({
       },
     };
   }
+  const executionBriefCoverage = evaluateNextSceneExecutionBriefCoverage({
+    text: normalizedText,
+    featureContext,
+  });
+  if (!executionBriefCoverage.ok) {
+    return {
+      ok: false,
+      reason: executionBriefCoverage.reason,
+      counts,
+      featureObligation: {
+        ...featureObligation,
+        nextTurnCoverage,
+        executionBriefCoverage,
+      },
+    };
+  }
 
   return {
     ok: true,
@@ -1143,6 +1397,13 @@ function evaluateScreenplayPageQuality({
           obligation.nextTurnCoverage = nextTurnCoverage;
         } else {
           obligation = { nextTurnCoverage };
+        }
+      }
+      if (!["no_execution_brief", "insufficient_execution_brief"].includes(executionBriefCoverage.reason)) {
+        if (obligation) {
+          obligation.executionBriefCoverage = executionBriefCoverage;
+        } else {
+          obligation = { executionBriefCoverage };
         }
       }
       return obligation;
