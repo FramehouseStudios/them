@@ -32,6 +32,11 @@ test("[momentum-rescue-fallback] turns Story Spine context into a passing playab
   assert.match(reply, /Act II rescue lens: make the old tactic fail/);
   assert.match(reply, /Beat engine: because Mara realizes the sealed affidavit points at the judge/);
   assert.match(reply, /Strongest next move: Father names the lie\./);
+  assert.match(reply, /Three clean ways forward:/);
+  assert.match(reply, /Option A - pressure engine: Father names the lie\./);
+  assert.match(reply, /Option B - exposure engine: make Why Marcus protected the fixer public/);
+  assert.match(reply, /Option C - character engine: make Mara still believes control can keep Eli safe/);
+  assert.match(reply, /Pick the one that changes story state fastest/);
   assert.match(reply, /sealed affidavit/);
   assert.match(reply, /INT\. COURTHOUSE HALLWAY - NIGHT/);
   assert.match(reply, /\nFATHER\n/);
@@ -58,6 +63,10 @@ test("[momentum-rescue-fallback] sparse block turns still get one decisive playa
   assert.match(reply, /Story rescue lens: want meets obstacle/);
   assert.match(reply, /Beat engine: because I have writer's block/);
   assert.match(reply, /Strongest next move:/);
+  assert.match(reply, /Three clean ways forward:/);
+  assert.match(reply, /Option A - pressure engine:/);
+  assert.match(reply, /Option B - exposure engine:/);
+  assert.match(reply, /Option C - choice engine:/);
   assert.match(reply, /INT\. PRESSURE POINT - NIGHT/);
   assert.match(reply, /\nPROTAGONIST\n/);
 

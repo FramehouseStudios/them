@@ -137,6 +137,45 @@ function diagnoseFallbackStoryProblem({
   return "Story diagnosis: the scene has feeling, but it needs a visible want, opposition, cost, and exit image.";
 }
 
+function buildFallbackMomentumMoveMenu({
+  strongestTurn = "",
+  problemSource = "",
+  cost = "",
+  objectPressure = "",
+  imagePressure = "",
+  actPressure = "",
+  characterArc = "",
+  featureObligation = "",
+  threads = [],
+  setups = [],
+  motifs = [],
+} = {}) {
+  const source = normalizeSnippet(problemSource, 180) || "the current beat";
+  const turn = normalizeSnippet(strongestTurn, 200) || "force a visible choice";
+  const consequence = normalizeSnippet(cost, 200) || "a real relationship cost";
+  const object = normalizeSnippet(objectPressure, 140) || "the proof";
+  const image = normalizeSnippet(imagePressure, 140) || "a changed image";
+  const thread = normalizeSnippet(threads[0], 160);
+  const setup = normalizeSnippet(setups[0], 140);
+  const motif = normalizeSnippet(motifs[0], 120);
+  const arc = normalizeSnippet(characterArc || actPressure || featureObligation, 200);
+  const options = [
+    `Option A - pressure engine: ${turn}. Put it in conflict with ${source}, make ${consequence} land, and exit on ${image}.`,
+  ];
+  if (thread || setup || object) {
+    options.push(`Option B - exposure engine: make ${thread || setup || object} public before the protagonist is ready, so the win becomes a trap.`);
+  }
+  if (arc) {
+    options.push(`Option C - character engine: make ${arc} impossible to avoid; the next plot move should reveal old tactic versus needed change.`);
+  } else if (motif) {
+    options.push(`Option C - image engine: let ${motif} change meaning through action, not explanation.`);
+  } else {
+    options.push("Option C - choice engine: close one safe door so the next scene becomes inevitable.");
+  }
+  options.push("Pick the one that changes story state fastest; do not add a brand-new lane unless these engines are truly unavailable.");
+  return options;
+}
+
 function buildMomentumRescueFallbackReply({
   transcript = "",
   studioMeta = null,
@@ -187,6 +226,19 @@ function buildMomentumRescueFallbackReply({
   });
   const actLine = actRescueLine(act || featureSequence);
   const beatEngineLine = `Beat engine: because ${problemSource}, force ${strongestTurn}; make ${cost} impose the cost; leave on ${imagePressure}.`;
+  const moveMenu = buildFallbackMomentumMoveMenu({
+    strongestTurn,
+    problemSource,
+    cost,
+    objectPressure,
+    imagePressure,
+    actPressure,
+    characterArc,
+    featureObligation,
+    threads,
+    setups,
+    motifs,
+  });
   const pressureLine = [
     contextLine,
     diagnosisLine,
@@ -203,6 +255,8 @@ function buildMomentumRescueFallbackReply({
     pressureLine,
     beatEngineLine,
     turnLine,
+    "Three clean ways forward:",
+    ...moveMenu,
     forkLine,
     "",
     heading,

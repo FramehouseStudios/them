@@ -700,6 +700,10 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   assert.ok(momentumRescue.includes("writer_block_contract:"));
   assert.ok(momentumRescue.includes("Never answer with generic encouragement alone."));
   assert.ok(momentumRescue.includes("Spend remembered story state before proposing a new plot lane."));
+  assert.ok(momentumRescue.includes("Every rescue must answer: what does the character do now"));
+  assert.ok(momentumRescue.includes("Use named characters, objects, setups, motifs, and act pressure"));
+  assert.ok(momentumRescue.includes("character pressure: solve plot through character behavior"));
+  assert.ok(momentumRescue.includes("specificity rule: use remembered names, objects, promises, and images"));
   assert.ok(momentumRescue.includes("story_diagnostic:"));
   assert.ok(momentumRescue.includes("likely_scene_problem:"));
   assert.ok(momentumRescue.includes("strongest_pressure_engine:"));
@@ -754,12 +758,21 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
   assert.ok(out.includes("beat_formula: because Mara pockets the reel and realizes Marcus lied."));
   assert.ok(out.includes("scene_machine: objective -> opposition -> tactic shift -> reversal/cost -> changed relationship -> exit image."));
   assert.ok(out.includes("the cure for writer's block is not more premise"));
+  assert.ok(out.includes("momentum_move_options:"));
+  assert.ok(out.includes("primary_move: Spend The reel plays the wrong memory."));
+  assert.ok(out.includes("act_escalation_move: Act II rescue should make the old tactic fail on the page"));
+  assert.ok(out.includes("setup_pressure_move: Put missing reel into the scene as leverage"));
+  assert.ok(out.includes("character_cost_move: Make Mara still edits pain into control."));
+  assert.ok(out.includes("payoff_move: Echo The reel exposes the fixer."));
+  assert.ok(out.includes("image_move: Transform blank frame through action"));
+  assert.ok(out.includes("selection_rule: choose the option that changes story state fastest"));
   assert.ok(out.includes("Convert it into one decisive playable next beat"));
   assert.ok(out.indexOf(WRITER_BLOCK_MEMORY_BLOCK_OPEN) < out.indexOf(SCREENPLAY_TASK_BLOCK_OPEN));
 
   const parts = buildModelPromptParts({ sessionContext, screenplayTask: task });
   assert.ok(parts.writerBlockMemoryBlock.includes("character_arc_pressure: Mara still edits pain into control."));
   assert.ok(parts.writerBlockMemoryBlock.includes("primary_engine: remembered_next_turn"));
+  assert.ok(parts.writerBlockMemoryBlock.includes("momentum_move_options:"));
 });
 
 test("[screenplay-task] story diagnostics make blocked and continuation turns act-aware", () => {
