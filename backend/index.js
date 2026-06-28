@@ -15298,6 +15298,75 @@ function mergeScreenplayProjectMemoryList(existingItems, incomingItems, maxItems
   return out;
 }
 
+const SCREENPLAY_MEMORY_ADVANCE_STOPWORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "because",
+  "before",
+  "being",
+  "from",
+  "into",
+  "must",
+  "next",
+  "only",
+  "page",
+  "scene",
+  "that",
+  "their",
+  "there",
+  "they",
+  "this",
+  "turn",
+  "under",
+  "with",
+]);
+
+function screenplayMemoryAdvanceTokenSet(value = "") {
+  const tokens = String(value || "")
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/'s\b/g, "")
+    .match(/[a-z0-9][a-z0-9-]{2,}/g);
+  if (!Array.isArray(tokens)) return new Set();
+  return new Set(tokens.filter((token) => token.length >= 4 && !SCREENPLAY_MEMORY_ADVANCE_STOPWORDS.has(token)));
+}
+
+function screenplayMemoryTextCoversPlannedTurn(text = "", plannedTurn = "") {
+  const plannedTokens = screenplayMemoryAdvanceTokenSet(plannedTurn);
+  if (plannedTokens.size < 2) return false;
+  const textTokens = screenplayMemoryAdvanceTokenSet(text);
+  const matched = [...plannedTokens].filter((token) => textTokens.has(token));
+  const minimumMatches = plannedTokens.size >= 4 ? 3 : Math.min(2, plannedTokens.size);
+  return matched.length >= minimumMatches;
+}
+
+function filterCoveredScreenplayRunwayItems(items = [], text = "") {
+  return (Array.isArray(items) ? items : []).filter((item) => (
+    !screenplayMemoryTextCoversPlannedTurn(text, item)
+  ));
+}
+
+function advanceScreenplayRunwayAfterAcceptedWrite({
+  plannedItems = [],
+  distilledItems = [],
+  acceptedText = "",
+  maxItems = 3,
+  maxChars = 180,
+} = {}) {
+  const planned = parseTalkScreenplayContextList(plannedItems, maxItems, maxChars);
+  const distilled = parseTalkScreenplayContextList(distilledItems, maxItems, maxChars);
+  if (!planned.length) return distilled;
+  const firstWasSpent = screenplayMemoryTextCoversPlannedTurn(acceptedText, planned[0]);
+  if (!firstWasSpent) return planned;
+  return mergeScreenplayProjectMemoryList(
+    distilled,
+    planned.slice(1),
+    maxItems,
+    maxChars
+  );
+}
+
 const SCREENPLAY_MEMORY_CORRECTION_PATTERN = /\b(?:actually,?\s*no|correction|scratch that|not that|retcon|change it to|make it so|instead)\b/i;
 
 function normalizeScreenplayCorrectionTerm(value = "", maxChars = 120) {
@@ -16030,6 +16099,72 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     studio.screenplayRevisedBlockText ||
     studio.screenplayTarget === "page"
   );
+  const acceptedPageTextAdvancedRunway = Boolean(
+    studio.screenplayTarget === "page" &&
+    distilled.hasScreenplayShape &&
+    (
+      screenplayMemoryTextCoversPlannedTurn(screenplayTextForMemory, studio.screenplayNextThreeTurns?.[0]) ||
+      screenplayMemoryTextCoversPlannedTurn(screenplayTextForMemory, studio.screenplayNextSceneMoves?.[0])
+    )
+  );
+  const resolvedCurrentBeat = acceptedPageTextAdvancedRunway && distilled.currentBeat
+    ? distilled.currentBeat
+    : (studio.screenplayCurrentBeat || distilled.currentBeat);
+  const resolvedLastSceneOutcome = acceptedPageTextAdvancedRunway && distilled.lastSceneOutcome
+    ? distilled.lastSceneOutcome
+    : (studio.screenplayLastSceneOutcome || distilled.lastSceneOutcome);
+  const resolvedNextScenePlan = acceptedPageTextAdvancedRunway && distilled.nextScenePlan
+    ? distilled.nextScenePlan
+    : (studio.screenplayNextScenePlan || distilled.nextScenePlan);
+  const resolvedNextSceneMoves = acceptedPageTextAdvancedRunway
+    ? advanceScreenplayRunwayAfterAcceptedWrite({
+      plannedItems: studio.screenplayNextSceneMoves,
+      distilledItems: distilled.nextSceneMoves,
+      acceptedText: screenplayTextForMemory,
+      maxItems: 5,
+      maxChars: 180,
+    })
+    : (studio.screenplayNextSceneMoves.length ? studio.screenplayNextSceneMoves : distilled.nextSceneMoves);
+  const resolvedNextThreeTurns = acceptedPageTextAdvancedRunway
+    ? advanceScreenplayRunwayAfterAcceptedWrite({
+      plannedItems: studio.screenplayNextThreeTurns,
+      distilledItems: distilled.nextThreeTurns,
+      acceptedText: screenplayTextForMemory,
+      maxItems: 3,
+      maxChars: 180,
+    })
+    : (studio.screenplayNextThreeTurns.length ? studio.screenplayNextThreeTurns : distilled.nextThreeTurns);
+  const resolvedActThreePayoffPath = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(
+      studio.screenplayActThreePayoffPath,
+      distilled.actThreePayoffPath,
+      5,
+      200
+    )
+    : (studio.screenplayActThreePayoffPath.length ? studio.screenplayActThreePayoffPath : distilled.actThreePayoffPath);
+  const resolvedBeatSequence = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(studio.screenplayBeatSequence, distilled.beatSequence, 8, 180)
+    : (studio.screenplayBeatSequence.length ? studio.screenplayBeatSequence : distilled.beatSequence);
+  const resolvedCharacterFocus = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(studio.screenplayCharacterFocus, distilled.characterFocus, 8, 120)
+    : (studio.screenplayCharacterFocus.length ? studio.screenplayCharacterFocus : distilled.characterFocus);
+  const resolvedUnresolvedSetups = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(studio.screenplayUnresolvedSetups, distilled.unresolvedSetups, 8, 220)
+    : (studio.screenplayUnresolvedSetups.length ? studio.screenplayUnresolvedSetups : distilled.unresolvedSetups);
+  const resolvedUnresolvedStoryThreads = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(
+      studio.screenplayUnresolvedStoryThreads,
+      distilled.unresolvedStoryThreads,
+      8,
+      220
+    )
+    : (studio.screenplayUnresolvedStoryThreads.length ? studio.screenplayUnresolvedStoryThreads : distilled.unresolvedStoryThreads);
+  const resolvedCharacterArcTurns = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(studio.screenplayCharacterArcTurns, distilled.characterArcTurns, 6, 180)
+    : (studio.screenplayCharacterArcTurns.length ? studio.screenplayCharacterArcTurns : distilled.characterArcTurns);
+  const resolvedImageMotifs = acceptedPageTextAdvancedRunway
+    ? mergeScreenplayProjectMemoryList(studio.screenplayImageMotifs, distilled.imageMotifs, 6, 140)
+    : (studio.screenplayImageMotifs.length ? studio.screenplayImageMotifs : distilled.imageMotifs);
   const correctionMotifs = correction?.correctedFact
     ? filterScreenplayCorrectionList(
       collectScreenplayMemoryMotifs([correction.correctedFact], 6),
@@ -16095,7 +16230,7 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       sceneLabel: studio.screenplayAnchorSceneLabel || distilled.sceneLabel,
       sceneObjective: studio.screenplaySceneObjective,
       sceneSummary: studio.screenplaySceneSummary || distilled.sceneSummary,
-      currentBeat: studio.screenplayCurrentBeat || distilled.currentBeat,
+      currentBeat: resolvedCurrentBeat,
       logline: studio.screenplayLogline,
       themeArgument: studio.screenplayThemeArgument,
       centralQuestion: studio.screenplayCentralQuestion,
@@ -16109,35 +16244,17 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
         distilled.actPressureState ||
         (position.featureObligation ? `Current sequence obligation: ${position.featureObligation}` : ""),
       characterArcState: studio.screenplayCharacterArcState || distilled.characterArcState,
-      lastSceneOutcome: studio.screenplayLastSceneOutcome || distilled.lastSceneOutcome,
-      nextScenePlan: studio.screenplayNextScenePlan || distilled.nextScenePlan,
-      nextSceneMoves: studio.screenplayNextSceneMoves.length
-        ? studio.screenplayNextSceneMoves
-        : distilled.nextSceneMoves,
-      nextThreeTurns: studio.screenplayNextThreeTurns.length
-        ? studio.screenplayNextThreeTurns
-        : distilled.nextThreeTurns,
-      actThreePayoffPath: studio.screenplayActThreePayoffPath.length
-        ? studio.screenplayActThreePayoffPath
-        : distilled.actThreePayoffPath,
-      beatSequence: studio.screenplayBeatSequence.length
-        ? studio.screenplayBeatSequence
-        : distilled.beatSequence,
-      characterFocus: studio.screenplayCharacterFocus.length
-        ? studio.screenplayCharacterFocus
-        : distilled.characterFocus,
-      unresolvedSetups: studio.screenplayUnresolvedSetups.length
-        ? studio.screenplayUnresolvedSetups
-        : distilled.unresolvedSetups,
-      unresolvedStoryThreads: studio.screenplayUnresolvedStoryThreads.length
-        ? studio.screenplayUnresolvedStoryThreads
-        : distilled.unresolvedStoryThreads,
-      characterArcTurns: studio.screenplayCharacterArcTurns.length
-        ? studio.screenplayCharacterArcTurns
-        : distilled.characterArcTurns,
-      imageMotifs: studio.screenplayImageMotifs.length
-        ? studio.screenplayImageMotifs
-        : distilled.imageMotifs,
+      lastSceneOutcome: resolvedLastSceneOutcome,
+      nextScenePlan: resolvedNextScenePlan,
+      nextSceneMoves: resolvedNextSceneMoves,
+      nextThreeTurns: resolvedNextThreeTurns,
+      actThreePayoffPath: resolvedActThreePayoffPath,
+      beatSequence: resolvedBeatSequence,
+      characterFocus: resolvedCharacterFocus,
+      unresolvedSetups: resolvedUnresolvedSetups,
+      unresolvedStoryThreads: resolvedUnresolvedStoryThreads,
+      characterArcTurns: resolvedCharacterArcTurns,
+      imageMotifs: resolvedImageMotifs,
       continuityNotes: studio.screenplayContinuityNotes,
       correctedTerms: [],
       correctionReplacements: [],
@@ -16215,10 +16332,20 @@ function mergeScreenplayProjectMemoryRecords(existingRecord, incomingRecord, now
   }
 
   for (const [field, maxItems, maxChars] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
-    const existingItems = isCorrectionMerge
+    let existingItems = isCorrectionMerge
       && !["correctedTerms", "correctionReplacements"].includes(field)
       ? filterScreenplayCorrectionList(existing[field], correction)
       : existing[field];
+    if (["nextSceneMoves", "nextThreeTurns"].includes(field)) {
+      const acceptedWriteText = [
+        incoming.lastWritePreview,
+        incoming.currentBeat,
+        incoming.lastSceneOutcome,
+      ].filter(Boolean).join("\n");
+      if (acceptedWriteText) {
+        existingItems = filterCoveredScreenplayRunwayItems(existingItems, acceptedWriteText);
+      }
+    }
     merged[field] = mergeScreenplayProjectMemoryList(
       existingItems,
       incoming[field],

@@ -176,8 +176,8 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.equal(merged.characterArcState, "Mara's control fractures into public courage.");
   assert.deepEqual(merged.nextThreeTurns, [
     "Private corridor confrontation redefines the case.",
-    "Father reveal corners Mara.",
     "Private corridor choice exposes the lie.",
+    "Mara burns the safe legal tactic.",
   ]);
   assert.deepEqual(merged.actThreePayoffPath, [
     "Mara uses the sealed affidavit publicly.",
@@ -214,8 +214,8 @@ test("[persistent-screenplay-memory] screenplay Studio metadata becomes durable 
   assert.equal(projectCard.storySpine.currentBeat, "The father reveal corners Mara emotionally.");
   assert.deepEqual(projectCard.storySpine.nextThreeTurns, [
     "Private corridor confrontation redefines the case.",
-    "Father reveal corners Mara.",
     "Private corridor choice exposes the lie.",
+    "Mara burns the safe legal tactic.",
   ]);
   assert.deepEqual(projectCard.storySpine.unresolvedStoryThreads, [
     "Who leaked the sealed affidavit?",
@@ -601,6 +601,110 @@ test("[persistent-screenplay-memory] generated page replies update payoff and ar
   assert.match(prompt, /next_three_turns:Force the consequence of: On her phone/);
   assert.match(prompt, /act3_payoff_path:Sealed Affidavit returns as proof or cost in Act III/);
   assert.match(prompt, /arc_turns:Mara is being pushed from private control toward public truth/);
+});
+
+test("[persistent-screenplay-memory] accepted page writes advance spent next-scene runway", () => {
+  const replyPages = [
+    "INT. EDIT BAY - NIGHT",
+    "",
+    "Mara threads the warped reel through the Steenbeck.",
+    "On screen, the wrong memory stutters where the evidence should be.",
+    "The locked archive door rattles under someone's fist.",
+    "",
+    "MARCUS",
+    "If you say this in public, you don't get to take it back.",
+    "",
+    "MARA",
+    "Then stop cutting around my guilt.",
+    "",
+    "She lifts the splice marker and writes FIXER across the frame.",
+    "A projector flare washes the room white as Marcus opens the door to the crowd.",
+  ].join("\n");
+  const studioMeta = {
+    screenplayProjectId: "feature-runway",
+    screenplayProjectTitle: "Runway",
+    screenplayTarget: "page",
+    screenplayAct: "Act II",
+    screenplayFeatureSequence: "Reversal Fallout",
+    screenplayFeatureObligation: "The reel plays the wrong memory and turns evidence into a trap.",
+    screenplayCurrentBeat: "Mara loads the reel before knowing what it contains.",
+    screenplayNextSceneMoves: [
+      "The reel plays the wrong memory.",
+      "Marcus forces a public choice.",
+    ],
+    screenplayNextThreeTurns: [
+      "The reel plays the wrong memory.",
+      "Marcus forces a public choice.",
+      "The fixer is exposed by the public splice.",
+    ],
+    screenplayUnresolvedStoryThreads: ["The locked archive door blocks Mara."],
+    screenplayCharacterArcTurns: ["Mara stops cutting around her guilt."],
+    screenplayActThreePayoffPath: ["The fixer is exposed by the public splice."],
+    screenplayImageMotifs: ["projector flare"],
+  };
+
+  const record = buildScreenplayProjectMemoryRecordFromStudioMeta(studioMeta, {
+    reply: replyPages,
+    nowTs: 1_800_000_123_000,
+  });
+
+  assert.equal(record.currentBeat, "A projector flare washes the room white as Marcus opens the door to the crowd.");
+  assert.equal(record.lastSceneOutcome, "A projector flare washes the room white as Marcus opens the door to the crowd.");
+  assert.deepEqual(record.nextThreeTurns, [
+    "Marcus forces a public choice.",
+    "The fixer is exposed by the public splice.",
+    "Force the consequence of: A projector flare washes the room white as Marcus opens the door to the crowd.",
+  ]);
+  assert.deepEqual(record.nextSceneMoves.slice(0, 2), [
+    "Marcus forces a public choice.",
+    "Force the consequence of: A projector flare washes the room white as Marcus opens the door to the crowd.",
+  ]);
+  assert.ok(record.characterArcTurns.includes("Mara is being pushed from private control toward public truth."));
+  assert.ok(record.imageMotifs.includes("reel"));
+  assert.ok(record.imageMotifs.includes("projector flare"));
+
+  let memory = createEmptyEmotionMemory();
+  memory.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems([
+    {
+      projectId: "feature-runway",
+      projectTitle: "Runway",
+      nextSceneMoves: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+      ],
+      nextThreeTurns: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+        "The fixer is exposed by the public splice.",
+      ],
+      updatedAt: 1_800_000_120_000,
+      createdAt: 1_800_000_100_000,
+    },
+  ]);
+
+  memory = withMockedNow(1_800_000_123_000, () => updateSessionAfterReply(
+    memory,
+    "Continue the edit bay page from the remembered next turn.",
+    replyPages,
+    false,
+    studioMeta
+  ));
+
+  const merged = memory.screenplayProjectMemory[0];
+  assert.equal(merged.currentBeat, "A projector flare washes the room white as Marcus opens the door to the crowd.");
+  assert.deepEqual(merged.nextThreeTurns, [
+    "Marcus forces a public choice.",
+    "The fixer is exposed by the public splice.",
+    "Force the consequence of: A projector flare washes the room white as Marcus opens the door to the crowd.",
+  ]);
+  assert.equal(
+    merged.nextThreeTurns.some((turn) => turn === "The reel plays the wrong memory."),
+    false
+  );
+  assert.equal(
+    merged.nextSceneMoves.some((turn) => turn === "The reel plays the wrong memory."),
+    false
+  );
 });
 
 test("[persistent-screenplay-memory] correction turns repair stale project continuity", () => {
