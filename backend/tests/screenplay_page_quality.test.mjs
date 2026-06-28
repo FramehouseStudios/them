@@ -52,6 +52,66 @@ test("[momentum-rescue-quality] accepts a decisive pressure engine plus playable
   assert.equal(quality.counts.hasFountainShape, 1);
 });
 
+test("[momentum-rescue-quality] rejects continuation answers that dodge remembered next turn", () => {
+  const quality = evaluateMomentumRescueQuality({
+    transcript: "What happens next?",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayNextThreeTurns: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+      ],
+    },
+    reply: [
+      "The strongest move is a relationship-cost reversal: Mara gets proof, but using it burns Eli.",
+      "",
+      "INT. ARCHIVE ROOM - NIGHT",
+      "",
+      "Mara slides the tape into Eli's coat pocket before the clerk can see it.",
+      "",
+      "ELI",
+      "If I carry this, I stop being your witness.",
+    ].join("\n"),
+  });
+
+  assert.equal(quality.applicable, true);
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_next_turn_continuation");
+  assert.ok(quality.repairDirectives.some((directive) => /first remembered next turn/i.test(directive)));
+  assert.equal(quality.counts.nextTurnTokenCount >= 3, true);
+});
+
+test("[momentum-rescue-quality] accepts continuation answers that spend remembered next turn", () => {
+  const quality = evaluateMomentumRescueQuality({
+    transcript: "What happens next?",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayNextThreeTurns: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+      ],
+    },
+    reply: [
+      "The strongest move is to spend the remembered turn: the reel plays the wrong memory, so Mara's private proof becomes public danger.",
+      "",
+      "INT. EDIT BAY - NIGHT",
+      "",
+      "Mara threads the reel into the projector. The wrong memory blooms across the wall before Marcus can block the lens.",
+      "",
+      "MARCUS",
+      "Turn it off.",
+      "",
+      "MARA",
+      "Not until everyone sees what you buried.",
+    ].join("\n"),
+  });
+
+  assert.equal(quality.applicable, true);
+  assert.equal(quality.ok, true);
+  assert.equal(quality.reason, "ok");
+  assert.equal(quality.counts.nextTurnMatchedTokens >= 3, true);
+});
+
 test("[momentum-rescue-quality] leaves ordinary non-block voice turns alone", () => {
   const quality = evaluateMomentumRescueQuality({
     transcript: "Say that again more softly.",

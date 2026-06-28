@@ -275,6 +275,72 @@ test("[talk-screenplay-output] accepts concrete momentum-rescue voice notes", ()
   assert.equal(output.quality.confidence, "authoritative");
 });
 
+test("[talk-screenplay-output] rejects continuation voice notes that ignore remembered next turn", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "The strongest move is a relationship-cost reversal: Mara gets proof, but using it burns Eli.",
+      "",
+      "INT. ARCHIVE ROOM - NIGHT",
+      "",
+      "Mara slides the tape into Eli's coat pocket before the clerk can see it.",
+      "",
+      "ELI",
+      "If I carry this, I stop being your witness.",
+    ].join("\n"),
+    transcript: "What happens next?",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayProjectId: "rain-docket",
+      screenplayNextThreeTurns: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+      ],
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_momentum_rescue_quality");
+  assert.equal(output.quality.ok, false);
+  assert.equal(output.quality.reason, "missing_next_turn_continuation");
+  assert.equal(output.quality.confidence, "needs_repair");
+  assert.ok(
+    output.quality.repair_directives.some((directive) => /first remembered next turn/i.test(directive))
+  );
+});
+
+test("[talk-screenplay-output] accepts continuation voice notes that spend remembered next turn", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "The strongest move is to spend the remembered turn: the reel plays the wrong memory, so Mara's private proof becomes public danger.",
+      "",
+      "INT. EDIT BAY - NIGHT",
+      "",
+      "Mara threads the reel into the projector. The wrong memory blooms across the wall before Marcus can block the lens.",
+      "",
+      "MARCUS",
+      "Turn it off.",
+      "",
+      "MARA",
+      "Not until everyone sees what you buried.",
+    ].join("\n"),
+    transcript: "What happens next?",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayProjectId: "rain-docket",
+      screenplayNextThreeTurns: [
+        "The reel plays the wrong memory.",
+        "Marcus forces a public choice.",
+      ],
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "studio_target");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.reason, "ok");
+  assert.equal(output.quality.confidence, "authoritative");
+});
+
 test("[talk-screenplay-output] rejects outline prose masquerading as page text", () => {
   const output = buildTalkScreenplayOutput({
     reply: [

@@ -1146,6 +1146,18 @@ function buildMomentumRescueRepairDirectives(reason = "") {
         "Convert the advice into visible page behavior: action, tactical dialogue, a changed power dynamic, and an exit image.",
         ...base.slice(0, 2),
       ];
+    case "missing_next_turn_continuation":
+      return [
+        "Use the first remembered next turn as the immediate story engine before inventing a new plot lane.",
+        "Make the remembered turn visible through action, tactical dialogue, cost, or an exit image.",
+        base[2],
+      ];
+    case "missing_next_scene_execution_brief":
+      return [
+        "Dramatize the supplied next-scene brief lanes: assignment, obstacle, character change, payoff/setup, visual motif, or exit handoff.",
+        "Use the concrete nouns from the remembered story state; do not replace them with generic pressure.",
+        base[2],
+      ];
     case "vague_option_menu":
       return [
         "Lead with the single strongest move; include at most two alternate forks after it.",
@@ -1159,6 +1171,28 @@ function buildMomentumRescueRepairDirectives(reason = "") {
     default:
       return base;
   }
+}
+
+function momentumFeatureContextFromStudioMeta(studioMeta = null) {
+  if (!studioMeta || typeof studioMeta !== "object") return null;
+  return {
+    act: studioMeta.screenplayAct ?? studioMeta.screenplay_act,
+    featureSequence: studioMeta.screenplayFeatureSequence ?? studioMeta.screenplay_feature_sequence,
+    featureObligation: studioMeta.screenplayFeatureObligation ?? studioMeta.screenplay_feature_obligation,
+    actPressureState: studioMeta.screenplayActPressureState ?? studioMeta.screenplay_act_pressure_state,
+    characterArcState: studioMeta.screenplayCharacterArcState ?? studioMeta.screenplay_character_arc_state,
+    currentBeat: studioMeta.screenplayCurrentBeat ?? studioMeta.screenplay_current_beat,
+    sceneObjective: studioMeta.screenplaySceneObjective ?? studioMeta.screenplay_scene_objective,
+    nextScenePlan: studioMeta.screenplayNextScenePlan ?? studioMeta.screenplay_next_scene_plan,
+    nextSceneMoves: studioMeta.screenplayNextSceneMoves ?? studioMeta.screenplay_next_scene_moves,
+    nextThreeTurns: studioMeta.screenplayNextThreeTurns ?? studioMeta.screenplay_next_three_turns,
+    nextSceneExecutionBrief: studioMeta.screenplayNextSceneExecutionBrief ?? studioMeta.screenplay_next_scene_execution_brief,
+    unresolvedSetups: studioMeta.screenplayUnresolvedSetups ?? studioMeta.screenplay_unresolved_setups,
+    unresolvedStoryThreads: studioMeta.screenplayUnresolvedStoryThreads ?? studioMeta.screenplay_unresolved_story_threads,
+    actThreePayoffPath: studioMeta.screenplayActThreePayoffPath ?? studioMeta.screenplay_act_three_payoff_path,
+    characterArcTurns: studioMeta.screenplayCharacterArcTurns ?? studioMeta.screenplay_character_arc_turns,
+    imageMotifs: studioMeta.screenplayImageMotifs ?? studioMeta.screenplay_image_motifs,
+  };
 }
 
 function evaluateMomentumRescueQuality({
@@ -1195,6 +1229,20 @@ function evaluateMomentumRescueQuality({
   const optionMenuCount = (normalized.match(/\b(?:option|idea|path|fork)\s*(?:\d+|one|two|three|[a-c])\b/gi) || []).length;
   const hasDecisiveLanguage = /\b(?:strongest|best|next beat|next move|the move|do this|make|force|put|have|let|the beat is|the scene turns when)\b/i.test(normalized);
   const hasPlayableMicroBeat = hasFountainShape || playableMoves > 0;
+  const featureContext = momentumFeatureContextFromStudioMeta(studioMeta);
+  const nextTurnCoverage = evaluateFirstNextTurnCoverage({
+    text: normalized,
+    featureContext,
+  });
+  const executionBriefCoverage = evaluateNextSceneExecutionBriefCoverage({
+    text: normalized,
+    featureContext,
+  });
+  const requiresNextTurn = !nextTurnCoverage.ok && nextTurnCoverage.reason !== "no_next_turn";
+  const requiresExecutionBrief = (
+    !executionBriefCoverage.ok &&
+    !["no_execution_brief", "insufficient_execution_brief"].includes(executionBriefCoverage.reason)
+  );
   const counts = {
     words,
     pressureSignals,
@@ -1202,6 +1250,10 @@ function evaluateMomentumRescueQuality({
     genericAdviceSignals,
     optionMenuCount,
     hasFountainShape: hasFountainShape ? 1 : 0,
+    nextTurnMatchedTokens: Array.isArray(nextTurnCoverage.matchedTokens)
+      ? nextTurnCoverage.matchedTokens.length
+      : 0,
+    nextTurnTokenCount: Math.max(0, Number(nextTurnCoverage.nextTurnTokenCount || 0)),
   };
 
   let reason = "";
@@ -1209,6 +1261,8 @@ function evaluateMomentumRescueQuality({
   else if (pressureSignals < 1) reason = "missing_pressure_engine";
   else if (!hasDecisiveLanguage && playableMoves < 1) reason = "missing_decisive_next_beat";
   else if (!hasPlayableMicroBeat) reason = "missing_playable_micro_beat";
+  else if (requiresNextTurn) reason = nextTurnCoverage.reason || "missing_next_turn_continuation";
+  else if (requiresExecutionBrief) reason = executionBriefCoverage.reason || "missing_next_scene_execution_brief";
   else if (optionMenuCount > 2 && !/\b(?:strongest|best|lead with|start with)\b/i.test(normalized)) reason = "vague_option_menu";
   else if (genericAdviceSignals >= 2 && pressureSignals < 2 && playableMoves < 1) reason = "generic_encouragement_only";
 
@@ -1219,6 +1273,9 @@ function evaluateMomentumRescueQuality({
       reason,
       counts,
       repairDirectives: buildMomentumRescueRepairDirectives(reason),
+      featureObligation: nextTurnCoverage.reason !== "no_next_turn"
+        ? nextTurnCoverage
+        : executionBriefCoverage,
     };
   }
 
@@ -1228,6 +1285,9 @@ function evaluateMomentumRescueQuality({
     reason: "ok",
     counts,
     repairDirectives: [],
+    featureObligation: nextTurnCoverage.reason !== "no_next_turn"
+      ? nextTurnCoverage
+      : executionBriefCoverage,
   };
 }
 
