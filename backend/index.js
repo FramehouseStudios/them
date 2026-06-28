@@ -2938,7 +2938,7 @@ function recordCreativeMemoryTriggersForRequest(req) {
 
 async function wrapSystemPromptWithCreativeMemory(systemPrompt, req) {
   if (String(systemPrompt || "").includes(MEMORY_BLOCK_OPEN)) return systemPrompt;
-  const userId = req?.authUser?.id || req?.user?.id || req?.userId || req?.get?.("X-User-Id") || null;
+  const userId = req?.authUser?.id || req?.user?.id || req?.userId || null;
   if (!userId) return systemPrompt;
   const memory = await creativeMemoryStore.getCreativeMemoryForPrompt({ userId });
   if (!memory) return systemPrompt;
@@ -3145,7 +3145,7 @@ console.log(
 );
 
 function clientIp(req) {
-  const authenticatedUserId = String(req?.authUser?.id || req?.userId || req?.headers?.["x-user-id"] || "").trim();
+  const authenticatedUserId = String(req?.authUser?.id || req?.userId || "").trim();
   if (authenticatedUserId) {
     return normalizeClientIp("authuser:" + authenticatedUserId);
   }
@@ -4735,7 +4735,7 @@ function canReadTalkTurnMeta(req, meta) {
   }
   const sessionId = String(meta.sessionId || "").trim();
   const metaUserId = normalizeScreenplayOwnerValue(meta.userId, "user");
-  const requestUserId = normalizeScreenplayOwnerValue(req.authUser?.id || req.get("X-User-Id"), "user");
+  const requestUserId = normalizeScreenplayOwnerValue(req.authUser?.id || req.userId, "user");
   if (metaUserId && requestUserId && metaUserId === requestUserId) {
     return true;
   }
@@ -7815,7 +7815,7 @@ function normalizeScreenplayOwnerValue(value, prefix = "owner") {
 }
 
 function resolveScreenplayOwnerKey(req) {
-  const userId = normalizeScreenplayOwnerValue(req.get("X-User-Id"), "user");
+  const userId = normalizeScreenplayOwnerValue(req.authUser?.id || req.userId, "user");
   if (userId) return userId;
   const clientToken = normalizeClientToken(req.get("X-Client-Token"));
   if (clientToken) return `token:${clientToken}`;
