@@ -482,6 +482,10 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
       act: "Act II",
       sceneObjective: "June must decide whether to betray the only person still protecting her.",
       currentBeat: "June sees the motel receipt.",
+      nextThreeTurns: [
+        "The missing cassette plays the wrong memory.",
+        "Marcus forces June into a public choice.",
+      ],
       beatSequence: ["Receipt reveal", "Marcus lies badly", "June pockets the key"],
       characterFocus: ["June", "Marcus"],
       unresolvedSetups: ["The missing cassette has not paid off yet."],
@@ -504,6 +508,12 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("target_pages: 110"));
   assert.ok(out.includes("current_scene_objective: June must decide whether to betray"));
   assert.ok(out.includes("current_beat: June sees the motel receipt."));
+  assert.ok(out.includes("next_three_turns:"));
+  assert.ok(out.includes("- The missing cassette plays the wrong memory."));
+  assert.ok(out.includes("continuation_memory_contract:"));
+  assert.ok(out.includes("first_turn_to_spend: The missing cassette plays the wrong memory."));
+  assert.ok(out.includes("make this first remembered turn the immediate story engine"));
+  assert.ok(out.includes("Preserve the concrete nouns from first_turn_to_spend"));
   assert.ok(out.includes("beat_sequence:"));
   assert.ok(out.includes("- Marcus lies badly"));
   assert.ok(out.includes("character_focus:"));
@@ -522,8 +532,12 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("coming_next:"));
   assert.ok(out.includes("Act II - Reversal Fallout"));
   assert.ok(out.includes("feature-length continuity"));
+  assert.ok(out.includes("continuation memory contract"));
   assert.ok(out.includes("feature compass"));
   assert.ok(out.includes("Silently lock the feature compass before pages"));
+  assert.ok(out.includes("If feature_continuity supplies continuation_memory_contract"));
+  assert.ok(out.includes("spend first_turn_to_spend in the first concrete beat"));
+  assert.ok(out.includes("Preserve its concrete nouns as action"));
   assert.ok(out.includes("whole-feature authorship"));
   assert.ok(out.includes("act engine"));
   assert.ok(out.includes("expert page engine"));

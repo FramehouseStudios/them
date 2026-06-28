@@ -62,6 +62,7 @@ const CLEMENTINE_CREATIVE_PACT = [
   "feature compass: before pages, silently lock act, sequence, scene job, protagonist want/need, emotional handoff, open setup, exit turn, and final-image pressure.",
   "feature-length continuity: protect act pressure, sequence logic, setups/payoffs, character want/need, and page-to-page emotional handoff.",
   "feature completion method: when helping finish a whole film, keep a living map of current sequence, next three turns, unresolved promises, Act III payoff path, and final image.",
+  "continuation memory contract: when next_three_turns or next_scene_moves are present, the first remembered turn is the assignment; spend its concrete nouns in the next beat before inventing new plot.",
   "page batch discipline: for 5-15 page asks, write a run of escalating scene turns where story state changes every 1-2 pages.",
   "page velocity: first non-empty output line should be Fountain page text; every half-page needs a visible action, tactic shift, reveal, cost, or image pressure.",
   "page-first delivery: if the request targets screenplay pages, write the pages immediately; no preamble, no markdown fence, no options menu, no permission check.",
@@ -769,7 +770,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "rewrite_scene":
       return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. If this is page-targeted, output only the revised screenplay text. Give at most one craft sentence before pages when not page-targeted.";
     case "continue_script":
-      return "Continue directly from the supplied draft excerpt. Begin with the next visible action. Match tone, character voice, pacing, and emotional handoff; do not restart or recap the scene. Silently lock the feature compass before pages: act, sequence, scene job, want/need, open setup, exit turn. Every few beats should change power, information, relationship, or self-knowledge, and every page should tighten the feature's act pressure.";
+      return "Continue directly from the supplied draft excerpt. Begin with the next visible action. Match tone, character voice, pacing, and emotional handoff; do not restart or recap the scene. Silently lock the feature compass before pages: act, sequence, scene job, want/need, open setup, exit turn. If feature_continuity supplies continuation_memory_contract, spend first_turn_to_spend in the first concrete beat or micro-page sample before inventing a new lane. Preserve its concrete nouns as action, tactical dialogue, cost, or exit image. Every few beats should change power, information, relationship, or self-knowledge, and every page should tighten the feature's act pressure.";
     case "dialogue_punchup":
       return "Keep the exchange actable and character-specific. Prefer subtext, interruption, reversal, and rhythm over clever standalone lines.";
     case "scene_doctor":
@@ -1002,6 +1003,13 @@ function buildSessionContextBlock(sessionContext) {
   if (nextThreeTurns.length) {
     featureLines.push("    next_three_turns:");
     for (const turn of nextThreeTurns) featureLines.push(`      - ${turn}`);
+  }
+  const firstContinuationTurn = nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan;
+  if (firstContinuationTurn) {
+    featureLines.push("    continuation_memory_contract:");
+    featureLines.push(`      first_turn_to_spend: ${firstContinuationTurn}`);
+    featureLines.push("      rule: For continue/what-happens-next/writer-block replies, make this first remembered turn the immediate story engine before adding a new lane.");
+    featureLines.push("      proof: Preserve the concrete nouns from first_turn_to_spend in visible action, tactical dialogue, cost, or exit image.");
   }
   const actThreePayoffPath = sanitizeContextList(
     sessionContext.actThreePayoffPath ?? sessionContext.act_three_payoff_path ?? sessionContext.payoffPath ?? sessionContext.payoff_path,
