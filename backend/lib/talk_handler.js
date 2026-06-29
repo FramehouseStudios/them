@@ -45,6 +45,7 @@ import {
   buildTalkScreenplayExecutionBriefLines,
   isNextSceneExecutionBriefRepairReason,
 } from "./talk_screenplay_repair_plan.js";
+import { selectStoryMoveLibraryLinesForContext } from "./story_rescue_move_library.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput"]);
 
@@ -635,6 +636,20 @@ function createTalkHandler(deps) {
       4,
       140
     );
+    const storyMoveLibraryLines = selectStoryMoveLibraryLinesForContext({
+      transcript: userRequest,
+      act: screenplayAct,
+      featureSequence: screenplayFeatureSequence,
+      featureObligation: screenplayFeatureObligation,
+      currentBeat: screenplayCurrentBeat,
+      actPressureState: screenplayActPressureState,
+      characterArcState: screenplayCharacterArcState,
+      problem: failedReason,
+      nextThreeTurns: screenplayNextThreeTurns,
+      unresolvedSetups: screenplayUnresolvedSetups,
+      unresolvedStoryThreads: screenplayUnresolvedStoryThreads,
+      imageMotifs: screenplayImageMotifs,
+    });
     const contextLines = [
       screenplayAct ? `ACT: ${screenplayAct}` : "",
       screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
@@ -644,11 +659,12 @@ function createTalkHandler(deps) {
       screenplayActPressureState ? `ACT_PRESSURE: ${screenplayActPressureState}` : "",
       screenplayLastSceneOutcome ? `LAST_SCENE_OUTCOME: ${screenplayLastSceneOutcome}` : "",
       screenplayCharacterArcState ? `CHARACTER_ARC_PRESSURE: ${screenplayCharacterArcState}` : "",
+      ...storyMoveLibraryLines.map((item) => `STORY_MOVE_LIBRARY: ${item}`),
       ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
       ...screenplayUnresolvedSetups.map((item) => `SETUP_TO_CARRY_OR_PAY: ${item}`),
       ...screenplayUnresolvedStoryThreads.map((item) => `UNRESOLVED_THREAD: ${item}`),
       ...screenplayImageMotifs.map((item) => `IMAGE_MOTIF: ${item}`),
-    ].filter(Boolean).slice(0, 12);
+    ].filter(Boolean).slice(0, 16);
     const repairMessages = [
       {
         role: "system",
@@ -658,6 +674,7 @@ function createTalkHandler(deps) {
           "Return Clementine's final answer only: no JSON, no markdown table, no apology, no long option menu.",
           "Diagnose the precise story blockage silently, then answer with one strongest next move.",
           "A passing answer must include a pressure engine, a decisive next beat, emotional cost, and a tiny playable micro-beat in clean screenplay/Fountain shape.",
+          "Use the STORY_MOVE_LIBRARY lines when supplied; pick the one engine that best solves the failed gate and dramatize it as action, tactical dialogue, cost, and exit image.",
           "Use act-aware story intelligence: Act I commits, Act II reverses/traps/costs, Act III pays off setup through changed behavior.",
           "If the user is only brainstorming, still give one playable beat they can write today, then at most two short alternate forks.",
           "Treat danger or harm as fictional story content only; never provide real-world instructions to hurt anyone.",

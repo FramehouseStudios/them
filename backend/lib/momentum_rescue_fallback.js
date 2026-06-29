@@ -1,3 +1,5 @@
+import { selectStoryMoveLibraryLinesForContext } from "./story_rescue_move_library.js";
+
 function trimToString(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -176,6 +178,15 @@ function buildFallbackMomentumMoveMenu({
   return options;
 }
 
+function readableStoryMoveLine(line = "") {
+  const clean = normalizeSnippet(line, 260);
+  if (!clean) return "";
+  const match = clean.match(/^([a-z_]+):\s*(.+)$/i);
+  if (!match) return clean;
+  const label = match[1].replace(/_/g, " ");
+  return `${label} - ${match[2]}`;
+}
+
 function buildMomentumRescueFallbackReply({
   transcript = "",
   studioMeta = null,
@@ -224,6 +235,23 @@ function buildMomentumRescueFallbackReply({
     characterArc,
     actPressure,
   });
+  const storyMoveLines = selectStoryMoveLibraryLinesForContext({
+    transcript,
+    act,
+    featureSequence,
+    featureObligation,
+    currentBeat,
+    actPressureState: actPressure,
+    characterArcState: characterArc,
+    problem: diagnosisLine,
+    nextThreeTurns: nextTurns,
+    unresolvedSetups: setups,
+    unresolvedStoryThreads: threads,
+    imageMotifs: motifs,
+  });
+  const storyMoveLine = storyMoveLines.length
+    ? `Story move library: ${storyMoveLines.slice(0, 4).map(readableStoryMoveLine).filter(Boolean).join("; ")}`
+    : "";
   const actLine = actRescueLine(act || featureSequence);
   const beatEngineLine = `Beat engine: because ${problemSource}, force ${strongestTurn}; make ${cost} impose the cost; leave on ${imagePressure}.`;
   const moveMenu = buildFallbackMomentumMoveMenu({
@@ -242,6 +270,7 @@ function buildMomentumRescueFallbackReply({
   const pressureLine = [
     contextLine,
     diagnosisLine,
+    storyMoveLine,
     actLine,
     `The story already has pressure in this: ${problemSource}.`,
     actPressure ? `Use that pressure instead of opening a new lane: ${actPressure}.` : "",

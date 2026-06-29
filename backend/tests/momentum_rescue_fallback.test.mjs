@@ -29,6 +29,9 @@ test("[momentum-rescue-fallback] turns Story Spine context into a passing playab
 
   assert.match(reply, /At Act II \/ Midpoint trap, the blockage is consequence/);
   assert.match(reply, /Story diagnosis: the middle needs a reversal/);
+  assert.match(reply, /Story move library:/);
+  assert.match(reply, /reversal pressure - make the current tactic appear to work/);
+  assert.match(reply, /relationship pressure - make the plot solution damage/);
   assert.match(reply, /Act II rescue lens: make the old tactic fail/);
   assert.match(reply, /Beat engine: because Mara realizes the sealed affidavit points at the judge/);
   assert.match(reply, /Strongest next move: Father names the lie\./);
@@ -60,6 +63,9 @@ test("[momentum-rescue-fallback] sparse block turns still get one decisive playa
 
   assert.match(reply, /The blockage is consequence, not imagination\./);
   assert.match(reply, /Story diagnosis: the middle needs a reversal|Story diagnosis: the scene has feeling/);
+  assert.match(reply, /Story move library:/);
+  assert.match(reply, /objective pressure - if the scene feels inactive/);
+  assert.match(reply, /image pressure - if the page feels abstract/);
   assert.match(reply, /Story rescue lens: want meets obstacle/);
   assert.match(reply, /Beat engine: because I have writer's block/);
   assert.match(reply, /Strongest next move:/);
