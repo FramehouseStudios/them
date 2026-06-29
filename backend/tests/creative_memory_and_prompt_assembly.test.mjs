@@ -724,6 +724,12 @@ test("[screenplay-task] task block carries Clementine feature-writing mode contr
   assert.ok(momentumRescue.includes("next_beat_ladder:"));
   assert.ok(momentumRescue.includes("storytelling_concepts:"));
   assert.ok(momentumRescue.includes("scene engine: a scene moves when a character wants"));
+  assert.ok(momentumRescue.includes("story_move_library:"));
+  assert.ok(momentumRescue.includes("objective_pressure: if the scene feels inactive"));
+  assert.ok(momentumRescue.includes("information_pressure: if the page has facts instead of drama"));
+  assert.ok(momentumRescue.includes("choice_pressure: if possibilities feel endless"));
+  assert.ok(momentumRescue.includes("payoff_pressure: if the ending feels vague"));
+  assert.ok(momentumRescue.includes("image_pressure: if the page feels abstract"));
   assert.ok(momentumRescue.includes("story_rescue_lenses:"));
   assert.ok(momentumRescue.includes("want_obstacle_cost: give the character a visible objective"));
   assert.ok(momentumRescue.includes("reversal_engine: make the apparent win"));
@@ -800,6 +806,10 @@ test("[screenplay-task] story diagnostics make blocked and continuation turns ac
   assert.ok(actTwoStall.includes("strongest_pressure_engine: force a reversal or new leverage"));
   assert.ok(actTwoStall.includes("act_obligation: Act II"));
   assert.ok(actTwoStall.includes("sequence engine: each beat should force a new tactic"));
+  assert.ok(actTwoStall.includes("story_move_library:"));
+  assert.ok(actTwoStall.includes("reversal_pressure: make the current tactic appear to work"));
+  assert.ok(actTwoStall.includes("relationship_pressure: make the plot solution damage"));
+  assert.ok(actTwoStall.includes("obstacle_pressure: put the want against a person"));
   assert.ok(actTwoStall.includes("story_rescue_lenses:"));
   assert.ok(actTwoStall.includes("reversal_engine: make the apparent win"));
   assert.ok(actTwoStall.includes("relationship_cost: make the next move solve a plot problem"));
@@ -813,8 +823,22 @@ test("[screenplay-task] story diagnostics make blocked and continuation turns ac
   assert.ok(continuation.includes("likely_scene_problem: missing turn / no exit image"));
   assert.ok(continuation.includes("end the beat on a decision, reveal, reversal, cost, or image"));
   assert.ok(continuation.includes("next_beat_ladder:"));
+  assert.ok(continuation.includes("story_move_library:"));
+  assert.ok(continuation.includes("information_pressure: if the page has facts instead of drama"));
+  assert.ok(continuation.includes("choice_pressure: if possibilities feel endless"));
   assert.ok(continuation.includes("secret_exposure: turn withheld information into public pressure"));
   assert.ok(continuation.includes("choice_closure: close one door"));
+
+  const actThreeBlock = buildModelPrompt({
+    persona: "PERSONA",
+    screenplayTask: inferScreenplayTask("I'm stuck in Act III and can't land the ending."),
+    userInput: "I'm stuck in Act III and can't land the ending.",
+  });
+  assert.ok(actThreeBlock.includes("intent: momentum_rescue"));
+  assert.ok(actThreeBlock.includes("act_obligation: Act III"));
+  assert.ok(actThreeBlock.includes("payoff_pressure: if the ending feels vague"));
+  assert.ok(actThreeBlock.includes("image_pressure: if the page feels abstract"));
+  assert.ok(actThreeBlock.includes("choice_pressure: if possibilities feel endless"));
 });
 
 test("[screenplay-task] inferScreenplayTask recognizes feature-scale page requests", () => {
