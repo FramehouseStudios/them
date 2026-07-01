@@ -493,6 +493,18 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
       emotionalContinuity: "Carry the fear from the previous diner scene into suspicion here.",
       pageCount: 47,
       targetPages: 110,
+      actProgress: {
+        currentAct: "Act II",
+        currentActKey: "act2",
+        currentSequence: "Act II - Midpoint Pressure",
+        currentObligation: "Turn the motel receipt into a trap.",
+        pageProgress: "47/110",
+        actOneStatus: "complete",
+        actTwoStatus: "active",
+        actThreeStatus: "pending",
+        nextActBridge: "Turn the active Act II tactic into a cost that points directly toward Act III.",
+        completionFocus: "Spend next remembered turn first: The missing cassette plays the wrong memory.",
+      },
       draftExcerpt: "INT. DINER - NIGHT\n\nJUNE waits with her coat still on.",
     },
     screenplayTask: inferScreenplayTask("Continue the script."),
@@ -506,6 +518,15 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("act: Act II"));
   assert.ok(out.includes("estimated_page_count: 47"));
   assert.ok(out.includes("target_pages: 110"));
+  assert.ok(out.includes("act_progress:"));
+  assert.ok(out.includes("current_act: Act II"));
+  assert.ok(out.includes("current_act_key: act2"));
+  assert.ok(out.includes("current_sequence: Act II - Midpoint Pressure"));
+  assert.ok(out.includes("page_progress: 47/110"));
+  assert.ok(out.includes("act_i: complete"));
+  assert.ok(out.includes("act_ii: active"));
+  assert.ok(out.includes("act_iii: pending"));
+  assert.ok(out.includes("completion_focus: Spend next remembered turn first: The missing cassette plays the wrong memory."));
   assert.ok(out.includes("current_scene_objective: June must decide whether to betray"));
   assert.ok(out.includes("current_beat: June sees the motel receipt."));
   assert.ok(out.includes("next_three_turns:"));

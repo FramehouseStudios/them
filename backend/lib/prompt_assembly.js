@@ -269,6 +269,30 @@ function sanitizeContextList(items, maxItems = 8, maxChars = 180) {
   return out;
 }
 
+function normalizeActProgressContext(value) {
+  if (!isNonEmptyObject(value)) return null;
+  const pageCount = Number(value.pageCount ?? value.page_count ?? 0);
+  const targetPages = Number(value.targetPages ?? value.target_pages ?? 0);
+  const progress = {
+    currentAct: trimContextLine(value.currentAct ?? value.current_act, 120),
+    currentActKey: trimContextLine(value.currentActKey ?? value.current_act_key, 40),
+    currentSequence: trimContextLine(value.currentSequence ?? value.current_sequence, 220),
+    currentObligation: trimContextLine(value.currentObligation ?? value.current_obligation, 280),
+    pageProgress: trimContextLine(value.pageProgress ?? value.page_progress, 40),
+    actOneStatus: trimContextLine(value.actOneStatus ?? value.act_one_status ?? value.act_i, 32),
+    actTwoStatus: trimContextLine(value.actTwoStatus ?? value.act_two_status ?? value.act_ii, 32),
+    actThreeStatus: trimContextLine(value.actThreeStatus ?? value.act_three_status ?? value.act_iii, 32),
+    nextActBridge: trimContextLine(value.nextActBridge ?? value.next_act_bridge, 240),
+    completionFocus: trimContextLine(value.completionFocus ?? value.completion_focus, 260),
+  };
+  if (Number.isFinite(pageCount) && pageCount > 0) progress.pageCount = Math.round(pageCount);
+  if (Number.isFinite(targetPages) && targetPages > 0) progress.targetPages = Math.round(targetPages);
+  const clean = Object.fromEntries(
+    Object.entries(progress).filter(([, item]) => item !== "" && item !== null && item !== undefined)
+  );
+  return Object.keys(clean).length ? clean : null;
+}
+
 function hasAny(text, patterns) {
   return patterns.some((pattern) => pattern.test(text));
 }
@@ -983,9 +1007,23 @@ function buildSessionContextBlock(sessionContext) {
   );
   const pageCount = Number(sessionContext.pageCount ?? sessionContext.page_count ?? 0);
   const targetPages = Number(sessionContext.targetPages ?? sessionContext.target_pages ?? 0);
+  const actProgress = normalizeActProgressContext(sessionContext.actProgress ?? sessionContext.act_progress);
   if (act) featureLines.push(`    act: ${act}`);
   if (Number.isFinite(pageCount) && pageCount > 0) featureLines.push(`    estimated_page_count: ${Math.round(pageCount)}`);
   if (Number.isFinite(targetPages) && targetPages > 0) featureLines.push(`    target_pages: ${Math.round(targetPages)}`);
+  if (actProgress) {
+    featureLines.push("    act_progress:");
+    if (actProgress.currentAct) featureLines.push(`      current_act: ${actProgress.currentAct}`);
+    if (actProgress.currentActKey) featureLines.push(`      current_act_key: ${actProgress.currentActKey}`);
+    if (actProgress.currentSequence) featureLines.push(`      current_sequence: ${actProgress.currentSequence}`);
+    if (actProgress.currentObligation) featureLines.push(`      current_obligation: ${actProgress.currentObligation}`);
+    if (actProgress.pageProgress) featureLines.push(`      page_progress: ${actProgress.pageProgress}`);
+    if (actProgress.actOneStatus) featureLines.push(`      act_i: ${actProgress.actOneStatus}`);
+    if (actProgress.actTwoStatus) featureLines.push(`      act_ii: ${actProgress.actTwoStatus}`);
+    if (actProgress.actThreeStatus) featureLines.push(`      act_iii: ${actProgress.actThreeStatus}`);
+    if (actProgress.nextActBridge) featureLines.push(`      next_act_bridge: ${actProgress.nextActBridge}`);
+    if (actProgress.completionFocus) featureLines.push(`      completion_focus: ${actProgress.completionFocus}`);
+  }
   if (sceneObjective) featureLines.push(`    current_scene_objective: ${sceneObjective}`);
   if (sceneSummary) featureLines.push(`    current_scene_summary: ${sceneSummary}`);
   if (currentBeat) featureLines.push(`    current_beat: ${currentBeat}`);

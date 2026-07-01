@@ -3232,6 +3232,7 @@ function buildScreenplayProjectMemoryPromptTrace(project = null) {
     act: normalizeSnippet(project.act, 80),
     feature_sequence: normalizeSnippet(project.featureSequence, 180),
     current_beat: normalizeSnippet(project.currentBeat, 180),
+    act_progress: screenplayActProgressToApi(project.actProgress),
     next_scene_plan: normalizeSnippet(project.nextScenePlan, 220),
     next_three_turns: normalizeScreenplayStringList(project.nextThreeTurns, 3, 180),
     act_three_payoff_path: normalizeScreenplayStringList(project.actThreePayoffPath, 5, 200),
@@ -3510,6 +3511,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       emotional_continuity: "",
       page_count: 0,
       target_pages: 0,
+      act_progress: null,
       memory_excerpt: "",
       is_correction: false,
       updated_at: 0,
@@ -3579,6 +3581,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     emotional_continuity: normalizeSnippet(project?.emotionalContinuity || "", 280),
     page_count: positiveTalkContextInteger(project?.pageCount),
     target_pages: positiveTalkContextInteger(project?.targetPages),
+    act_progress: screenplayActProgressToApi(project?.actProgress),
     memory_excerpt: normalizeSnippet(episode?.excerpt || episode?.summary || project?.lastWritePreview || "", 280),
     is_correction: episodeTags.includes("correction"),
     updated_at: Math.max(
@@ -15281,6 +15284,209 @@ function inferScreenplayMemoryPosition({ pageCount = 0, targetPages = 0 } = {}) 
   };
 }
 
+function normalizeScreenplayActKey(value = "") {
+  const text = normalizeSnippet(value, 120).toLowerCase();
+  if (!text) return "";
+  if (/\b(?:act\s*)?(?:iii|3|three)\b/.test(text) || /\bact3\b/.test(text)) return "act3";
+  if (/\b(?:act\s*)?(?:ii|2|two)\b/.test(text) || /\bact2\b/.test(text)) return "act2";
+  if (/\b(?:act\s*)?(?:i|1|one)\b/.test(text) || /\bact1\b/.test(text)) return "act1";
+  return "";
+}
+
+function normalizeScreenplayActStatus(value = "") {
+  const text = normalizeSnippet(value, 32).toLowerCase();
+  if (["complete", "completed", "done", "closed"].includes(text)) return "complete";
+  if (["active", "current", "in_progress", "in progress", "working"].includes(text)) return "active";
+  if (["pending", "upcoming", "not_started", "not started"].includes(text)) return "pending";
+  return "";
+}
+
+function screenplayActStatusFor(currentActKey, actKey, pageCount = 0, targetPages = 0) {
+  if (!currentActKey || !actKey) return "";
+  if (actKey === "act1") {
+    if (currentActKey === "act1") return "active";
+    return ["act2", "act3"].includes(currentActKey) ? "complete" : "pending";
+  }
+  if (actKey === "act2") {
+    if (currentActKey === "act2") return "active";
+    if (currentActKey === "act3") return "complete";
+    return "pending";
+  }
+  if (actKey === "act3") {
+    if (currentActKey !== "act3") return "pending";
+    const page = normalizeScreenplayMemoryInteger(pageCount);
+    const target = normalizeScreenplayMemoryInteger(targetPages);
+    return target > 0 && page >= target ? "complete" : "active";
+  }
+  return "";
+}
+
+function screenplayActProgressBridge(currentActKey = "") {
+  switch (currentActKey) {
+    case "act1":
+      return "Bridge Act I into Act II by forcing a choice that makes the old life impossible.";
+    case "act2":
+      return "Turn the active Act II tactic into a cost that points directly toward Act III.";
+    case "act3":
+      return "Pay off earlier setup through changed behavior and protect the final image.";
+    default:
+      return "";
+  }
+}
+
+function screenplayActProgressFocus(currentActKey = "", fallback = {}) {
+  const firstRunway = normalizeSnippet(
+    Array.isArray(fallback.nextThreeTurns) ? fallback.nextThreeTurns[0] : "",
+    180
+  ) || normalizeSnippet(
+    Array.isArray(fallback.nextSceneMoves) ? fallback.nextSceneMoves[0] : "",
+    180
+  ) || normalizeSnippet(fallback.nextScenePlan, 180);
+  if (firstRunway) return `Spend next remembered turn first: ${firstRunway}`;
+  switch (currentActKey) {
+    case "act1":
+      return "Clarify wound, want, catalyst pressure, and the choice that launches Act II.";
+    case "act2":
+      return "Escalate tactic failure, midpoint consequence, relationship cost, and all-is-lost pressure.";
+    case "act3":
+      return "Resolve the need through visible changed behavior, setup payoff, and final image.";
+    default:
+      return "";
+  }
+}
+
+function sanitizeScreenplayActProgress(value = null, fallback = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const pageCount = normalizeScreenplayMemoryInteger(
+    source.pageCount ?? source.page_count ?? fallback.pageCount
+  );
+  const targetPages = normalizeScreenplayMemoryInteger(
+    source.targetPages ?? source.target_pages ?? fallback.targetPages
+  );
+  const inferred = inferScreenplayMemoryPosition({ pageCount, targetPages });
+  const currentAct = normalizeSnippet(
+    source.currentAct ??
+      source.current_act ??
+      fallback.act ??
+      inferred.act,
+    120
+  );
+  const currentSequence = normalizeSnippet(
+    source.currentSequence ??
+      source.current_sequence ??
+      fallback.featureSequence ??
+      inferred.featureSequence,
+    220
+  );
+  const currentObligation = normalizeSnippet(
+    source.currentObligation ??
+      source.current_obligation ??
+      fallback.featureObligation ??
+      inferred.featureObligation,
+    280
+  );
+  const currentActKey = normalizeScreenplayActKey(
+    source.currentActKey ??
+      source.current_act_key ??
+      currentAct ??
+      currentSequence
+  );
+  const pageProgress = normalizeSnippet(
+    source.pageProgress ??
+      source.page_progress ??
+      ((pageCount > 0 || targetPages > 0) ? `${pageCount || "?"}/${targetPages || "?"}` : ""),
+    40
+  );
+  const actOneStatus = normalizeScreenplayActStatus(source.actOneStatus ?? source.act_one_status ?? source.act_i) ||
+    screenplayActStatusFor(currentActKey, "act1", pageCount, targetPages);
+  const actTwoStatus = normalizeScreenplayActStatus(source.actTwoStatus ?? source.act_two_status ?? source.act_ii) ||
+    screenplayActStatusFor(currentActKey, "act2", pageCount, targetPages);
+  const actThreeStatus = normalizeScreenplayActStatus(source.actThreeStatus ?? source.act_three_status ?? source.act_iii) ||
+    screenplayActStatusFor(currentActKey, "act3", pageCount, targetPages);
+  const nextActBridge = normalizeSnippet(
+    source.nextActBridge ??
+      source.next_act_bridge ??
+      screenplayActProgressBridge(currentActKey),
+    240
+  );
+  const completionFocus = normalizeSnippet(
+    source.completionFocus ??
+      source.completion_focus ??
+      screenplayActProgressFocus(currentActKey, fallback),
+    260
+  );
+
+  const hasProgress = Boolean(
+    currentAct ||
+      currentActKey ||
+      currentSequence ||
+      currentObligation ||
+      pageProgress ||
+      pageCount > 0 ||
+      targetPages > 0
+  );
+  if (!hasProgress) return null;
+
+  const progress = {
+    schemaVersion: 1,
+    currentAct,
+    currentActKey,
+    currentSequence,
+    currentObligation,
+    pageProgress,
+    actOneStatus,
+    actTwoStatus,
+    actThreeStatus,
+    nextActBridge,
+    completionFocus,
+  };
+  if (pageCount > 0) progress.pageCount = pageCount;
+  if (targetPages > 0) progress.targetPages = targetPages;
+  return Object.fromEntries(
+    Object.entries(progress).filter(([, item]) => item !== "" && item !== null && item !== undefined)
+  );
+}
+
+function screenplayActProgressToApi(progress = null) {
+  if (!progress || typeof progress !== "object") return null;
+  const pageCount = normalizeScreenplayMemoryInteger(progress.pageCount);
+  const targetPages = normalizeScreenplayMemoryInteger(progress.targetPages);
+  const out = {
+    schema_version: 1,
+    current_act: normalizeSnippet(progress.currentAct, 120),
+    current_act_key: normalizeScreenplayActKey(progress.currentActKey || progress.currentAct),
+    current_sequence: normalizeSnippet(progress.currentSequence, 220),
+    current_obligation: normalizeSnippet(progress.currentObligation, 280),
+    page_progress: normalizeSnippet(progress.pageProgress, 40),
+    act_i: normalizeScreenplayActStatus(progress.actOneStatus),
+    act_ii: normalizeScreenplayActStatus(progress.actTwoStatus),
+    act_iii: normalizeScreenplayActStatus(progress.actThreeStatus),
+    next_act_bridge: normalizeSnippet(progress.nextActBridge, 240),
+    completion_focus: normalizeSnippet(progress.completionFocus, 260),
+  };
+  if (pageCount > 0) out.page_count = pageCount;
+  if (targetPages > 0) out.target_pages = targetPages;
+  return Object.fromEntries(
+    Object.entries(out).filter(([, item]) => item !== "" && item !== null && item !== undefined)
+  );
+}
+
+function formatScreenplayActProgressForPrompt(progress = null) {
+  if (!progress || typeof progress !== "object") return "";
+  const lines = [
+    progress.currentAct ? `current_act:${progress.currentAct}` : "",
+    progress.currentSequence ? `current_sequence:${progress.currentSequence}` : "",
+    progress.currentObligation ? `current_obligation:${progress.currentObligation}` : "",
+    progress.pageProgress ? `page_progress:${progress.pageProgress}` : "",
+    progress.actOneStatus ? `act_i:${progress.actOneStatus}` : "",
+    progress.actTwoStatus ? `act_ii:${progress.actTwoStatus}` : "",
+    progress.actThreeStatus ? `act_iii:${progress.actThreeStatus}` : "",
+    progress.nextActBridge ? `next_act_bridge:${progress.nextActBridge}` : "",
+    progress.completionFocus ? `completion_focus:${progress.completionFocus}` : "",
+  ].filter(Boolean);
+  return lines.length ? ` act_progress:${lines.join(" / ")}` : "";
+}
+
 function mergeScreenplayProjectMemoryList(existingItems, incomingItems, maxItems = 8, maxChars = 180) {
   const out = [];
   const seen = new Set();
@@ -15635,6 +15841,10 @@ function sanitizeScreenplayProjectMemoryItems(items, maxItems = SCREENPLAY_PROJE
       record.targetPages > 0
     );
     if (!hasProjectMemory) continue;
+    record.actProgress = sanitizeScreenplayActProgress(
+      resolveScreenplayMemoryInput(item, "actProgress", "act_progress"),
+      record
+    );
 
     const key = record.projectId ||
       record.documentRevisionId ||
@@ -16450,6 +16660,7 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
     const nextTurns = item.nextThreeTurns.length
       ? ` next_three_turns:${item.nextThreeTurns.slice(0, 3).join(" / ")}`
       : "";
+    const actProgress = formatScreenplayActProgressForPrompt(item.actProgress);
     const payoffPath = item.actThreePayoffPath.length
       ? ` act3_payoff_path:${item.actThreePayoffPath.slice(0, 3).join(" / ")}`
       : "";
@@ -16479,6 +16690,7 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
         setups.trim(),
         storyThreads.trim(),
         nextTurns.trim(),
+        actProgress.trim(),
         payoffPath.trim(),
         arcTurns.trim(),
         motifs.trim(),
@@ -16502,7 +16714,7 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
         pages.trim(),
         notes.trim(),
       ].filter(Boolean).join("; "),
-      1500
+      1800
     );
   }).join(" || ");
 }
@@ -28820,6 +29032,7 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
         act: normalizeSnippet(item.act, 120),
         featureSequence: normalizeSnippet(item.featureSequence, 220),
         featureObligation: normalizeSnippet(item.featureObligation, 280),
+        actProgress: screenplayActProgressToApi(item.actProgress),
         sceneLabel: normalizeSnippet(item.sceneLabel, 120),
         sceneObjective: normalizeSnippet(item.sceneObjective, 280),
         sceneSummary: normalizeSnippet(item.sceneSummary, 280),

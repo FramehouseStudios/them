@@ -883,6 +883,11 @@ test("[persistent-screenplay-memory] screenplay memory changes state version and
     "burned reel",
     "sunrise on blank screen",
   ]);
+  assert.equal(sanitized.screenplayProjectMemory[0].actProgress.currentAct, "Act III");
+  assert.equal(sanitized.screenplayProjectMemory[0].actProgress.currentActKey, "act3");
+  assert.equal(sanitized.screenplayProjectMemory[0].actProgress.actOneStatus, "complete");
+  assert.equal(sanitized.screenplayProjectMemory[0].actProgress.actTwoStatus, "complete");
+  assert.equal(sanitized.screenplayProjectMemory[0].actProgress.actThreeStatus, "active");
   assert.equal(sanitized.screenplayProjectMemoryUpdatedAt, 200);
 });
 
@@ -1299,6 +1304,16 @@ test("[persistent-screenplay-memory] builds session continuity snapshot from lat
   assert.equal(snapshot.emotional_continuity, "Humiliation hardens into public courage.");
   assert.equal(snapshot.page_count, 47);
   assert.equal(snapshot.target_pages, 105);
+  assert.equal(snapshot.act_progress.current_act, "Act II");
+  assert.equal(snapshot.act_progress.current_act_key, "act2");
+  assert.equal(snapshot.act_progress.current_sequence, "Act II - Midpoint Pressure");
+  assert.equal(snapshot.act_progress.current_obligation, "Turn victory into a trap that forces public action.");
+  assert.equal(snapshot.act_progress.page_progress, "47/105");
+  assert.equal(snapshot.act_progress.act_i, "complete");
+  assert.equal(snapshot.act_progress.act_ii, "active");
+  assert.equal(snapshot.act_progress.act_iii, "pending");
+  assert.match(snapshot.act_progress.next_act_bridge, /Act II tactic/);
+  assert.equal(snapshot.act_progress.completion_focus, "Spend next remembered turn first: Father names the lie.");
   assert.ok(snapshot.opening_line.includes("Welcome back."));
   assert.ok(snapshot.opening_line.includes("Rain Docket"));
   assert.ok(snapshot.opening_line.includes("Next move: Move into a private corridor confrontation."));

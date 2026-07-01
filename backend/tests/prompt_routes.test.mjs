@@ -439,6 +439,14 @@ test("POST /screenplay/prompt/build hydrates missing feature context from persis
       assert.ok(body.prompt.includes("act: Act II"));
       assert.ok(body.prompt.includes("feature_sequence: Act II - Reversal Fallout"));
       assert.ok(body.prompt.includes("structural_obligation_due_now: Mara's old tactic should stop working."));
+      assert.ok(body.prompt.includes("act_progress:"));
+      assert.ok(body.prompt.includes("current_act: Act II"));
+      assert.ok(body.prompt.includes("current_act_key: act2"));
+      assert.ok(body.prompt.includes("page_progress: 62/110"));
+      assert.ok(body.prompt.includes("act_i: complete"));
+      assert.ok(body.prompt.includes("act_ii: active"));
+      assert.ok(body.prompt.includes("act_iii: pending"));
+      assert.ok(body.prompt.includes("completion_focus: Spend next remembered turn first: The reel plays the wrong memory."));
       assert.ok(body.prompt.includes("act_pressure_state: Act II must turn the recovered reel into a public trap."));
       assert.ok(body.prompt.includes("character_arc_state: Mara still edits pain into control."));
       assert.ok(body.prompt.includes("last_scene_outcome: The last page made the recovered reel feel unsafe."));

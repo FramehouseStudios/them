@@ -1,5 +1,6 @@
 import express from "express";
 
+import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./feature_screenplay_map.js";
 import { buildModelPrompt, inferScreenplayTask } from "./prompt_assembly.js";
 
 const PROMPT_SCHEMA_VERSION = 1;
@@ -47,6 +48,186 @@ function positiveIntegerOrZero(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
   return Math.round(parsed);
+}
+
+function normalizeActKey(value = "") {
+  const text = trimToString(value, 120).toLowerCase();
+  if (!text) return "";
+  if (/\b(?:act\s*)?(?:iii|3|three)\b/.test(text) || /\bact3\b/.test(text)) return "act3";
+  if (/\b(?:act\s*)?(?:ii|2|two)\b/.test(text) || /\bact2\b/.test(text)) return "act2";
+  if (/\b(?:act\s*)?(?:i|1|one)\b/.test(text) || /\bact1\b/.test(text)) return "act1";
+  return "";
+}
+
+function normalizeActStatus(value = "") {
+  const text = trimToString(value, 32).toLowerCase();
+  if (["complete", "completed", "done", "closed"].includes(text)) return "complete";
+  if (["active", "current", "in_progress", "in progress", "working"].includes(text)) return "active";
+  if (["pending", "upcoming", "not_started", "not started"].includes(text)) return "pending";
+  return "";
+}
+
+function inferActPosition(pageCount = 0, targetPages = 0) {
+  const currentPage = positiveIntegerOrZero(pageCount);
+  if (currentPage <= 0) {
+    return { act: "", featureSequence: "", featureObligation: "" };
+  }
+  const target = positiveIntegerOrZero(targetPages) || DEFAULT_FEATURE_TARGET_PAGES;
+  const sequence = findSequenceForPage(currentPage, target);
+  return {
+    act: trimToString(sequence?.act, 120),
+    featureSequence: sequence ? trimToString(`${sequence.act} - ${sequence.label}`, 240) : "",
+    featureObligation: trimToString(sequence?.obligation, 360),
+  };
+}
+
+function actStatusFor(currentActKey, actKey, pageCount = 0, targetPages = 0) {
+  if (!currentActKey || !actKey) return "";
+  if (actKey === "act1") {
+    if (currentActKey === "act1") return "active";
+    return ["act2", "act3"].includes(currentActKey) ? "complete" : "pending";
+  }
+  if (actKey === "act2") {
+    if (currentActKey === "act2") return "active";
+    if (currentActKey === "act3") return "complete";
+    return "pending";
+  }
+  if (actKey === "act3") {
+    if (currentActKey !== "act3") return "pending";
+    return targetPages > 0 && pageCount >= targetPages ? "complete" : "active";
+  }
+  return "";
+}
+
+function actBridgeFor(currentActKey = "") {
+  switch (currentActKey) {
+    case "act1":
+      return "Bridge Act I into Act II by forcing a choice that makes the old life impossible.";
+    case "act2":
+      return "Turn the active Act II tactic into a cost that points directly toward Act III.";
+    case "act3":
+      return "Pay off earlier setup through changed behavior and protect the final image.";
+    default:
+      return "";
+  }
+}
+
+function actCompletionFocusFor(currentActKey = "", fallback = {}) {
+  const firstRunway = trimToString(
+    Array.isArray(fallback.nextThreeTurns) ? fallback.nextThreeTurns[0] : "",
+    180
+  ) || trimToString(
+    Array.isArray(fallback.nextSceneMoves) ? fallback.nextSceneMoves[0] : "",
+    180
+  ) || trimToString(fallback.nextScenePlan, 180);
+  if (firstRunway) return `Spend next remembered turn first: ${firstRunway}`;
+  switch (currentActKey) {
+    case "act1":
+      return "Clarify wound, want, catalyst pressure, and the choice that launches Act II.";
+    case "act2":
+      return "Escalate tactic failure, midpoint consequence, relationship cost, and all-is-lost pressure.";
+    case "act3":
+      return "Resolve the need through visible changed behavior, setup payoff, and final image.";
+    default:
+      return "";
+  }
+}
+
+function sanitizeActProgressRecord(value = null, fallback = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const pageCount = positiveIntegerOrZero(source.pageCount ?? source.page_count ?? fallback.pageCount);
+  const targetPages = positiveIntegerOrZero(source.targetPages ?? source.target_pages ?? fallback.targetPages);
+  const inferred = inferActPosition(pageCount, targetPages);
+  const currentAct = trimToString(
+    source.currentAct ??
+      source.current_act ??
+      fallback.act ??
+      inferred.act,
+    120
+  );
+  const currentSequence = trimToString(
+    source.currentSequence ??
+      source.current_sequence ??
+      fallback.featureSequence ??
+      inferred.featureSequence,
+    240
+  );
+  const currentObligation = trimToString(
+    source.currentObligation ??
+      source.current_obligation ??
+      fallback.featureObligation ??
+      inferred.featureObligation,
+    360
+  );
+  const currentActKey = normalizeActKey(
+    source.currentActKey ??
+      source.current_act_key ??
+      currentAct ??
+      currentSequence
+  );
+  const pageProgress = trimToString(
+    source.pageProgress ??
+      source.page_progress ??
+      ((pageCount > 0 || targetPages > 0) ? `${pageCount || "?"}/${targetPages || "?"}` : ""),
+    40
+  );
+  const actOneStatus = normalizeActStatus(source.actOneStatus ?? source.act_one_status ?? source.act_i) ||
+    actStatusFor(currentActKey, "act1", pageCount, targetPages);
+  const actTwoStatus = normalizeActStatus(source.actTwoStatus ?? source.act_two_status ?? source.act_ii) ||
+    actStatusFor(currentActKey, "act2", pageCount, targetPages);
+  const actThreeStatus = normalizeActStatus(source.actThreeStatus ?? source.act_three_status ?? source.act_iii) ||
+    actStatusFor(currentActKey, "act3", pageCount, targetPages);
+  const nextActBridge = trimToString(
+    source.nextActBridge ??
+      source.next_act_bridge ??
+      actBridgeFor(currentActKey),
+    240
+  );
+  const completionFocus = trimToString(
+    source.completionFocus ??
+      source.completion_focus ??
+      actCompletionFocusFor(currentActKey, fallback),
+    260
+  );
+  const hasProgress = Boolean(
+    currentAct ||
+      currentActKey ||
+      currentSequence ||
+      currentObligation ||
+      pageProgress ||
+      pageCount > 0 ||
+      targetPages > 0
+  );
+  if (!hasProgress) return null;
+  const progress = {
+    currentAct,
+    currentActKey,
+    currentSequence,
+    currentObligation,
+    pageProgress,
+    actOneStatus,
+    actTwoStatus,
+    actThreeStatus,
+    nextActBridge,
+    completionFocus,
+  };
+  if (pageCount > 0) progress.pageCount = pageCount;
+  if (targetPages > 0) progress.targetPages = targetPages;
+  return Object.fromEntries(
+    Object.entries(progress).filter(([, item]) => item !== "" && item !== null && item !== undefined)
+  );
+}
+
+function formatActProgressBrief(progress = null) {
+  if (!progress || typeof progress !== "object") return "";
+  const parts = [
+    progress.currentAct ? `${progress.currentAct} ${progress.actTwoStatus === "active" ? "active" : ""}`.trim() : "",
+    progress.actOneStatus ? `Act I ${progress.actOneStatus}` : "",
+    progress.actTwoStatus ? `Act II ${progress.actTwoStatus}` : "",
+    progress.actThreeStatus ? `Act III ${progress.actThreeStatus}` : "",
+    progress.pageProgress ? `pages ${progress.pageProgress}` : "",
+  ].filter(Boolean);
+  return parts.length ? `act progress: ${parts.join("; ")}` : "";
 }
 
 function firstNonEmpty(...values) {
@@ -155,10 +336,12 @@ function sanitizeScreenplayMemoryRecords(memory, maxItems = 8) {
         Number(item.updatedAt ?? item.updated_at ?? item.lastUpdatedAt ?? item.last_updated_at ?? 0)
       ),
     };
+    record.actProgress = sanitizeActProgressRecord(memoryRecordValue(item, "actProgress"), record);
     const hasContext = Object.entries(record).some(([key, value]) => {
       if (key === "updatedAt") return false;
       if (Array.isArray(value)) return value.length > 0;
       if (typeof value === "number") return value > 0;
+      if (value && typeof value === "object") return Object.keys(value).length > 0;
       return trimToString(value).length > 0;
     });
     if (hasContext) records.push(record);
@@ -215,6 +398,7 @@ function buildPersistentFeatureMemoryBrief(record) {
   const parts = [
     record.logline ? `logline: ${record.logline}` : "",
     record.act || record.featureSequence ? `position: ${[record.act, record.featureSequence].filter(Boolean).join(" / ")}` : "",
+    formatActProgressBrief(record.actProgress),
     record.currentBeat ? `current beat: ${record.currentBeat}` : "",
     record.featureObligation ? `due now: ${record.featureObligation}` : "",
     record.actPressureState ? `act pressure: ${record.actPressureState}` : "",
@@ -436,6 +620,17 @@ function hydrateSessionContextFromScreenplayMemory(sessionContext, memory, {
     context[key] = merged;
     hydrated = true;
   }
+  function fillActProgress(value) {
+    const existingSource = context.actProgress ?? context.act_progress;
+    const existing = existingSource && typeof existingSource === "object" && !Array.isArray(existingSource)
+      ? sanitizeActProgressRecord(existingSource, {})
+      : null;
+    if (existing && Object.keys(existing).length) return;
+    const clean = sanitizeActProgressRecord(value, record);
+    if (!clean || !Object.keys(clean).length) return;
+    context.actProgress = clean;
+    hydrated = true;
+  }
 
   fillString("projectId", record.projectId, 160);
   fillString("versionId", record.documentRevisionId, 160);
@@ -457,6 +652,7 @@ function hydrateSessionContextFromScreenplayMemory(sessionContext, memory, {
   fillString("characterArcState", record.characterArcState, 280);
   fillString("lastSceneOutcome", record.lastSceneOutcome, 240);
   fillString("featureMemoryBrief", buildPersistentFeatureMemoryBrief(record), 900);
+  fillActProgress(record.actProgress);
   fillString("nextScenePlan", record.nextScenePlan, 420);
   fillString("emotionalContinuity", record.emotionalContinuity, 360);
   fillString("draftExcerpt", record.lastWritePreview, 6_000);
@@ -637,6 +833,19 @@ function sanitizeSessionContext(value) {
   );
   const pageCount = positiveIntegerOrZero(value.page_count ?? value.pageCount);
   const targetPages = positiveIntegerOrZero(value.target_pages ?? value.targetPages);
+  const actProgress = sanitizeActProgressRecord(
+    value.act_progress ?? value.actProgress,
+    {
+      act,
+      featureSequence,
+      featureObligation,
+      nextScenePlan,
+      nextSceneMoves,
+      nextThreeTurns,
+      pageCount,
+      targetPages,
+    }
+  );
   const draftExcerpt = trimToString(
     value.draftExcerpt ?? value.draft_excerpt ?? value.screenplayDraftExcerpt ?? value.screenplay_draft_excerpt,
     6_000
@@ -678,6 +887,7 @@ function sanitizeSessionContext(value) {
   if (continuityNotes.length) context.continuityNotes = continuityNotes;
   if (pageCount > 0) context.pageCount = pageCount;
   if (targetPages > 0) context.targetPages = targetPages;
+  if (actProgress) context.actProgress = actProgress;
   if (draftExcerpt) context.draftExcerpt = draftExcerpt;
   return Object.keys(context).length ? context : null;
 }
