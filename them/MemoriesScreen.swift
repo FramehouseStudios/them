@@ -273,6 +273,10 @@ final class MemoriesViewModel: ObservableObject {
             if selection?.id == updated.id {
                 selection = updated
             }
+            if result.payload.storySpineRepaired == true ||
+                (result.payload.storySpineRepairCount ?? 0) > 0 {
+                await load(force: true, sinceVersion: nil)
+            }
             return updated
         }
         await load(force: true, sinceVersion: nil)

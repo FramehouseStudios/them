@@ -437,6 +437,145 @@ test("[memories] POST /memories/character-bible/update: derives structured repla
   });
 });
 
+test("[memories] POST /memories/character-bible/update: repairs active Story Spine memory", async () => {
+  const memory = {
+    assistantSelfName: "Clementine",
+    userPrimaryName: "Ada",
+    relationshipDepthScore: 0.5,
+    behaviorMode: "surface",
+    cycleIndex: 1,
+    season: 1,
+    seasonProgress: 0.2,
+    screenplayProjectMemory: [
+      {
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        characterFocus: ["Mara"],
+        currentBeat: "Mara thinks Eli's mother forged the testimony.",
+        nextScenePlan: "Confront Eli's mother at the archive.",
+        unresolvedStoryThreads: ["Mara still believes the mother is the hidden witness."],
+        continuityNotes: [],
+        correctedTerms: [],
+        correctionReplacements: [],
+        updatedAt: 1_800_000_000_000,
+      },
+    ],
+    screenplayProjectMemoryUpdatedAt: 1_800_000_000_000,
+  };
+  let persistedMemory = null;
+  const recordCalls = [];
+  const repairCalls = [];
+  const applyReplacement = (value, replacements) => {
+    let out = String(value || "");
+    for (const replacement of replacements || []) {
+      const [from, to] = String(replacement || "").split(/\s*->\s*/);
+      if (!from || !to) continue;
+      out = out.replaceAll(from, to);
+    }
+    return out;
+  };
+  const deps = defaultDeps({
+    selectMemoryRecordForRead: () => ({ source: "ip", ip: "10.0.0.1", memory }),
+    resolveWritableMemoryContext: () => ({ memory, requesterIp: "10.0.0.1" }),
+    sanitizePersistedSessionMemory: (value) => value || memory,
+    persistWritableMemoryContext: (_context, value) => {
+      persistedMemory = JSON.parse(JSON.stringify(value));
+      return value;
+    },
+    creativeMemoryStore: {
+      recordCharacterMention: async (args) => {
+        recordCalls.push(args);
+        return { ok: true, action: "updated", characterName: args.characterName };
+      },
+      getCreativeMemoryForPrompt: async () => ({
+        characters: [
+          {
+            name: "Mara",
+            last_referenced: 1_800_000_001_000,
+            bible: {
+              canon: ["Authoritative correction for Mara: Mara is Eli's sister."],
+              corrections: ["Authoritative correction for Mara: Mara is Eli's sister, not his mother."],
+              correctedTerms: ["mother"],
+              correctionReplacements: ["mother -> Eli's sister"],
+            },
+          },
+        ],
+      }),
+    },
+    updateMemoryCardInMemory: (mem, args, nowTs) => {
+      repairCalls.push(args);
+      const project = mem.screenplayProjectMemory[0];
+      const replacements = args.storySpine?.correctionReplacements || [];
+      project.currentBeat = applyReplacement(project.currentBeat, replacements);
+      project.nextScenePlan = applyReplacement(project.nextScenePlan, replacements);
+      project.unresolvedStoryThreads = project.unresolvedStoryThreads.map((item) => (
+        applyReplacement(item, replacements)
+      ));
+      project.characterFocus = Array.from(new Set([
+        ...project.characterFocus,
+        ...(args.storySpine?.characterFocus || []),
+      ]));
+      project.continuityNotes = [
+        ...(args.storySpine?.continuityNotes || []),
+        ...project.continuityNotes,
+      ];
+      project.correctedTerms = args.storySpine?.correctedTerms || [];
+      project.correctionReplacements = replacements;
+      project.updatedAt = nowTs;
+      mem.screenplayProjectMemoryUpdatedAt = nowTs;
+      return {
+        ok: true,
+        status: "updated",
+        cardId: "screenplay-project-rain-docket",
+        projectId: "rain-docket",
+      };
+    },
+    buildMemoryCards: (currentMemory, _threads, _limit, creativeMemory) => [
+      {
+        id: "character-mara",
+        key: "character:Mara",
+        title: "Mara Character Memory",
+        summary: "Mara is Eli's sister.",
+        source: "character_bible",
+        character_bible: creativeMemory?.characters?.[0]?.bible || null,
+      },
+      {
+        id: "screenplay-project-rain-docket",
+        key: "rain-docket",
+        title: "Rain Docket",
+        summary: currentMemory.screenplayProjectMemory[0].currentBeat,
+        source: "screenplay_project",
+        storySpine: currentMemory.screenplayProjectMemory[0],
+      },
+    ],
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/character-bible/update", {
+      character_bible: {
+        character: "Mara",
+        corrections: ["Authoritative correction for Mara: Mara is Eli's sister, not his mother."],
+      },
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.story_spine_repaired, true);
+    assert.equal(r.body.story_spine_repair_count, 1);
+    assert.deepEqual(r.body.story_spine_repaired_card_ids, ["screenplay-project-rain-docket"]);
+    assert.equal(recordCalls.length, 1);
+    assert.equal(repairCalls.length, 1);
+    assert.deepEqual(repairCalls[0].storySpine.correctedTerms, ["mother"]);
+    assert.deepEqual(repairCalls[0].storySpine.correctionReplacements, ["mother -> Eli's sister"]);
+    assert.match(repairCalls[0].storySpine.continuityNotes[0], /Authoritative user correction for Mara/);
+    assert.ok(persistedMemory, "Story Spine repair should persist session memory");
+    assert.match(persistedMemory.screenplayProjectMemory[0].currentBeat, /Eli's sister/);
+    assert.doesNotMatch(persistedMemory.screenplayProjectMemory[0].currentBeat, /\bmother\b/);
+    assert.match(persistedMemory.screenplayProjectMemory[0].nextScenePlan, /Eli's sister/);
+    assert.deepEqual(persistedMemory.screenplayProjectMemory[0].correctedTerms, ["mother"]);
+  });
+});
+
 // ============== POST /memories/forget ==============
 
 test("[memories] POST /memories/forget: returns forgotten_id + theme_key", async () => {

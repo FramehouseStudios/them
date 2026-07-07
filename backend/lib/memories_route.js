@@ -280,6 +280,134 @@ function mountMemoriesRoutes(app, deps = {}) {
     };
   }
 
+  function buildCharacterArcCorrectionLine(character, arc = {}) {
+    const parts = [
+      arc.act ? `act=${arc.act}` : "",
+      arc.want ? `want=${arc.want}` : "",
+      arc.need ? `need=${arc.need}` : "",
+      arc.wound ? `wound=${arc.wound}` : "",
+      arc.falseBelief ? `false belief=${arc.falseBelief}` : "",
+      arc.relationshipPressure ? `pressure=${arc.relationshipPressure}` : "",
+      arc.currentTactic ? `tactic=${arc.currentTactic}` : "",
+      arc.nextEmotionalTurn ? `next turn=${arc.nextEmotionalTurn}` : "",
+    ].filter(Boolean);
+    if (!parts.length) return "";
+    return normalizeSnippet(`${character}: ${parts.join("; ")}`, 280);
+  }
+
+  function buildCharacterBibleStorySpinePatch(character, characterBible = {}) {
+    const correctionLines = normalizeStringListPayload(characterBible.corrections, 6, 260);
+    const canonLines = normalizeStringListPayload(characterBible.canon, 8, 220);
+    const correctedTerms = normalizeStringListPayload(characterBible.correctedTerms, 8, 120);
+    const correctionReplacements = normalizeStringListPayload(characterBible.correctionReplacements, 8, 160);
+    const arc = normalizeArcPatch(characterBible.arc);
+    const authoritativeLine = normalizeSnippet(
+      correctionLines[0] || canonLines[0] || buildCharacterArcCorrectionLine(character, arc),
+      220,
+    );
+    if (
+      !authoritativeLine &&
+      !correctedTerms.length &&
+      !correctionReplacements.length &&
+      !Object.keys(arc).length
+    ) {
+      return null;
+    }
+
+    const continuityNotes = [
+      authoritativeLine
+        ? `Authoritative user correction for ${character}: ${authoritativeLine}`
+        : `Authoritative user correction for ${character}'s character bible.`,
+    ];
+    const characterArcLine = buildCharacterArcCorrectionLine(character, arc);
+    const characterArcTurns = [
+      characterArcLine,
+      ...correctionLines.map((line) => `${character}: ${line}`),
+    ].filter(Boolean);
+
+    return {
+      characterFocus: [character],
+      continuityNotes,
+      correctedTerms,
+      correctionReplacements,
+      characterArcTurns,
+      characterArcState: characterArcLine,
+      emotionalContinuity: `Honor ${character}'s corrected character bible before writing new pages.`,
+      reason: authoritativeLine || `Corrected ${character}'s character bible.`,
+    };
+  }
+
+  function buildScreenplayProjectMemoryRepairCardId(item = {}, fallback = "") {
+    const key = [
+      "screenplay-project",
+      item?.projectId || item?.documentRevisionId || item?.sceneLabel || item?.updatedAt || fallback,
+    ].join("-").replace(/[^a-zA-Z0-9_-]+/g, "-");
+    return normalizeMemoryCardId(key);
+  }
+
+  function projectMemoryContainsCharacterCorrectionSignal(item = {}, character = "", patch = {}, total = 0) {
+    if (total <= 1) return true;
+    const characterKey = String(character || "").trim().toLowerCase();
+    const terms = [
+      characterKey,
+      ...(Array.isArray(patch.correctedTerms) ? patch.correctedTerms : []),
+      ...(Array.isArray(patch.correctionReplacements) ? patch.correctionReplacements : [])
+        .flatMap((entry) => String(entry || "").split(/\s*->\s*/)),
+    ]
+      .map((entry) => String(entry || "").trim().toLowerCase())
+      .filter(Boolean);
+    if (!terms.length) return false;
+    const haystack = JSON.stringify(item || {}).toLowerCase();
+    return terms.some((term) => haystack.includes(term));
+  }
+
+  function repairScreenplayProjectMemoryForCharacterBible(memory, character, characterBible, nowTs) {
+    if (!memory || typeof memory !== "object") {
+      return { repaired: false, count: 0, cardIds: [] };
+    }
+    const projects = Array.isArray(memory.screenplayProjectMemory)
+      ? memory.screenplayProjectMemory
+      : [];
+    if (!projects.length) {
+      return { repaired: false, count: 0, cardIds: [] };
+    }
+    const patch = buildCharacterBibleStorySpinePatch(character, characterBible);
+    if (!patch) {
+      return { repaired: false, count: 0, cardIds: [] };
+    }
+
+    const repairedIds = [];
+    const seenTargets = new Set();
+    projects.forEach((item, index) => {
+      const key = normalizeSnippet(item?.projectId || item?.documentRevisionId || "", 96);
+      const cardId = buildScreenplayProjectMemoryRepairCardId(item, index + 1);
+      const targetKey = key || cardId;
+      if (!targetKey || seenTargets.has(targetKey)) return;
+      if (!projectMemoryContainsCharacterCorrectionSignal(item, character, patch, projects.length)) return;
+      seenTargets.add(targetKey);
+      const mutation = updateMemoryCardInMemory(
+        memory,
+        {
+          cardId,
+          key,
+          title: normalizeSnippet(item?.projectTitle || item?.sceneLabel || "Screenplay Project", 84),
+          summary: "",
+          reason: patch.reason,
+          storySpine: patch,
+        },
+        nowTs,
+      );
+      if (mutation?.ok) {
+        repairedIds.push(String(mutation.cardId || cardId || targetKey));
+      }
+    });
+
+    if (!repairedIds.length) {
+      return { repaired: false, count: 0, cardIds: [] };
+    }
+    return { repaired: true, count: repairedIds.length, cardIds: repairedIds };
+  }
+
   // ============== GET /memories ==============
   app.get("/memories", async (req, res) => {
     const userId = requireMemoryUser(req, res, "memories");
@@ -418,18 +546,27 @@ function mountMemoriesRoutes(app, deps = {}) {
       });
     }
 
-    const selected = selectMemoryRecordForRead(req, nowTs);
-    const memory = sanitizePersistedSessionMemory(selected.memory);
-    const readMeta = buildReadStateMeta(req, memory, selected.ip);
-    const historyThreads = buildConversationHistoryThreads(memory, 160);
+    const context = resolveWritableMemoryContext(req, nowTs);
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const storySpineRepair = repairScreenplayProjectMemoryForCharacterBible(
+      memory,
+      character,
+      characterBible,
+      nowTs,
+    );
+    const persisted = storySpineRepair.repaired
+      ? persistWritableMemoryContext(context, memory, nowTs)
+      : memory;
+    const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
+    const historyThreads = buildConversationHistoryThreads(persisted, 160);
     const creativeMemory = await readCreativeMemoryForUser(userId, character);
-    const cards = buildMemoryCards(memory, historyThreads, 160, creativeMemory);
+    const cards = buildMemoryCards(persisted, historyThreads, 160, creativeMemory);
     const normalizedTargetId = normalizeMemoryCardId(`character-${character}`);
     const updatedCard = cards.find((card) => (
       normalizeMemoryCardId(card.id) === normalizedTargetId ||
       String(card.key || "") === `character:${character}`
     )) || null;
-    const memoryQuality = buildMemoryQualitySnapshot(memory, cards, nowTs);
+    const memoryQuality = buildMemoryQualitySnapshot(persisted, cards, nowTs);
 
     res.setHeader("Cache-Control", "no-store");
     applyReadStateHeaders(res, readMeta);
@@ -450,6 +587,9 @@ function mountMemoriesRoutes(app, deps = {}) {
       memory_updated_at: readMeta.memoryUpdatedAt || null,
       backend_boot_id: readMeta.backendBootId,
       memory_quality: memoryQuality,
+      story_spine_repaired: Boolean(storySpineRepair.repaired),
+      story_spine_repair_count: Math.max(0, Number(storySpineRepair.count || 0)),
+      story_spine_repaired_card_ids: storySpineRepair.cardIds || [],
       schema_version: readMeta.schemaVersion,
       backend_build: readMeta.backendBuild,
     });

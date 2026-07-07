@@ -935,6 +935,8 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let memoryCard: BackendMemoryCard?
     let forgottenId: String?
     let themeKey: String?
+    let storySpineRepaired: Bool?
+    let storySpineRepairCount: Int?
     let sessionId: String?
     let stateVersion: String?
     let lastTurnId: String?
