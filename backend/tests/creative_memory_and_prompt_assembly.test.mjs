@@ -68,6 +68,52 @@ test("recordCharacterMention dedupes by name and merges tags + last_referenced",
   assert.ok(mem.characters[0].last_referenced >= mem.characters[0].first_seen);
 });
 
+test("getCreativeMemoryForPrompt ranks active feature character bibles above recent filler", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordCharacterMention({
+    userId: "u-feature-bible-rank",
+    characterName: "Mara",
+    tags: ["protagonist"],
+    metadata: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+    },
+    characterBible: {
+      canon: ["Mara is Eli's sister.", "The sealed affidavit can destroy the judge."],
+      arc: {
+        act: "Act II",
+        want: "expose the forged testimony",
+        need: "stop hiding behind observation",
+        wound: "her father's disappearance",
+        falseBelief: "truth will get Eli killed",
+        currentTactic: "collecting evidence in silence",
+        nextEmotionalTurn: "public courage",
+      },
+      corrections: ["Authoritative correction for Mara: sister, not mother."],
+      correctedTerms: ["mother"],
+      correctionReplacements: ["mother -> Eli's sister"],
+    },
+  });
+  for (let index = 0; index < 10; index += 1) {
+    await store.recordCharacterMention({
+      userId: "u-feature-bible-rank",
+      characterName: `Recent ${index}`,
+      tags: ["side-character"],
+    });
+  }
+
+  const mem = await store.getCreativeMemoryForPrompt({
+    userId: "u-feature-bible-rank",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Continue Mara's Act II scene where the false belief blocks the affidavit payoff.",
+  });
+
+  assert.equal(mem.characters[0].name, "Mara");
+  assert.equal(mem.characters[0].bible.arc.falseBelief, "truth will get Eli killed");
+  assert.ok(mem.characters.length <= 16);
+});
+
 test("recordToneSignal stores tone and preferredTone", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordToneSignal({
@@ -414,6 +460,11 @@ test("buildModelPrompt emits character bible canon and corrections", () => {
   assert.ok(out.includes("next_emotional_turn=public courage"));
   assert.ok(out.includes("corrections: Authoritative correction for Mara"));
   assert.ok(out.includes("corrected_terms: mother -> Eli's sister"));
+  assert.ok(out.includes("story-bible-recall:"));
+  assert.ok(out.includes("durable character/story bible for this feature"));
+  assert.ok(out.includes("Mara: want=expose the forged testimony"));
+  assert.ok(out.includes("false_belief=truth will get Eli killed"));
+  assert.ok(out.includes("corrected_terms=mother -> Eli's sister"));
 });
 
 test("buildModelPrompt orders blocks: persona → memory → session → user", () => {

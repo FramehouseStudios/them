@@ -226,6 +226,8 @@ test("recordTriggersFromTalkTurn stores and repairs act-level character arc stat
   });
   let mara = memory.characters.find((character) => character.name === "Mara");
   assert.equal(mara.bible.arc.act, "Act II");
+  assert.equal(mara.metadata.projectId, "rain-docket");
+  assert.equal(mara.metadata.projectTitle, "Rain Docket");
   assert.equal(mara.bible.arc.want, "expose the forged testimony");
   assert.equal(mara.bible.arc.need, "stop hiding behind observation");
   assert.equal(mara.bible.arc.wound, "her father's disappearance");

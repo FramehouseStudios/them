@@ -25,6 +25,7 @@ import {
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
 const CHARACTERS_MAX = 32;
+const CHARACTER_PROMPT_MAX = 16;
 const CHARACTER_BIBLE_CANON_MAX = 12;
 const CHARACTER_BIBLE_CORRECTIONS_MAX = 8;
 const CHARACTER_BIBLE_TERMS_MAX = 12;
@@ -841,6 +842,96 @@ function selectEpisodicMemoriesForPrompt(items = [], {
     });
 }
 
+function collectSearchableStrings(value, out = []) {
+  if (value === null || value === undefined) return out;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    const clean = cleanText(value, 500);
+    if (clean) out.push(clean);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectSearchableStrings(item, out);
+    return out;
+  }
+  if (typeof value === "object") {
+    for (const item of Object.values(value)) collectSearchableStrings(item, out);
+  }
+  return out;
+}
+
+function characterSearchableText(character = {}) {
+  return collectSearchableStrings({
+    name: character.name,
+    voice: character.voice,
+    tags: character.tags,
+    traits: character.traits,
+    bible: character.bible,
+    metadata: character.metadata,
+  }).join(" ").toLowerCase();
+}
+
+function scoreCharacterForPrompt(character = {}, {
+  query = "",
+  projectId = "",
+  projectTitle = "",
+} = {}) {
+  const cleanQuery = cleanText(query, 2_000).toLowerCase();
+  const cleanProjectId = cleanText(projectId, 96).toLowerCase();
+  const cleanProjectTitle = cleanText(projectTitle, 160).toLowerCase();
+  const name = normalizeCharacterName(character.name);
+  const nameLower = name.toLowerCase();
+  const searchable = characterSearchableText(character);
+  const queryTokens = new Set(tokenizeMemoryText(cleanQuery));
+  const bible = character.bible && typeof character.bible === "object" ? character.bible : null;
+  const metadata = character.metadata && typeof character.metadata === "object" ? character.metadata : {};
+  const metadataProjectId = cleanText(metadata.projectId ?? metadata.project_id, 96).toLowerCase();
+  const metadataProjectTitle = cleanText(metadata.projectTitle ?? metadata.project_title, 160).toLowerCase();
+
+  let score = 0;
+  if (nameLower && cleanQuery.includes(nameLower)) score += 24;
+  for (const part of name.split(/\s+/)) {
+    const cleanPart = normalizeSemanticTerm(part);
+    if (cleanPart && cleanQuery.includes(cleanPart)) score += 4;
+  }
+  for (const token of queryTokens) {
+    if (searchable.includes(token)) score += 1;
+  }
+  if (cleanProjectId && metadataProjectId && metadataProjectId === cleanProjectId) score += 16;
+  if (cleanProjectTitle && metadataProjectTitle && metadataProjectTitle === cleanProjectTitle) score += 10;
+  if (cleanProjectTitle && searchable.includes(cleanProjectTitle)) score += 5;
+  if (bible) score += 4;
+  if (bible?.arc && typeof bible.arc === "object") score += 5;
+  if (Array.isArray(bible?.corrections) && bible.corrections.length) score += 5;
+  if (Array.isArray(bible?.correctedTerms) && bible.correctedTerms.length) score += 4;
+  if (Array.isArray(bible?.correctionReplacements) && bible.correctionReplacements.length) score += 4;
+  if (Array.isArray(character.tags) && character.tags.some((tag) => String(tag || "").toLowerCase() === "protagonist")) score += 2;
+  return score;
+}
+
+function selectCharactersForPrompt(characters = [], {
+  query = "",
+  projectId = "",
+  projectTitle = "",
+  maxItems = CHARACTER_PROMPT_MAX,
+} = {}) {
+  const source = Array.isArray(characters) ? characters : [];
+  if (!source.length) return [];
+  return source
+    .map((character, index) => ({
+      character,
+      index,
+      score: scoreCharacterForPrompt(character, { query, projectId, projectTitle }),
+      lastReferenced: Math.max(0, Number(character?.last_referenced || character?.lastReferenced || 0)),
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.lastReferenced !== a.lastReferenced) return b.lastReferenced - a.lastReferenced;
+      return a.index - b.index;
+    })
+    .slice(0, Math.max(1, Number(maxItems || CHARACTER_PROMPT_MAX)))
+    .map(({ character }) => clone(character));
+}
+
 function sortEpisodicMemoriesForStorage(memories = []) {
   return (Array.isArray(memories) ? memories : [])
     .sort((a, b) => {
@@ -1502,7 +1593,15 @@ function createCreativeMemoryStore({ persistence } = {}) {
       }
       if (Object.keys(style).length) out.style = style;
     }
-    if (Array.isArray(rec.characters) && rec.characters.length) out.characters = clone(rec.characters);
+    const promptCharacters = selectCharactersForPrompt(rec.characters, {
+      query,
+      projectId,
+      projectTitle,
+    });
+    if (promptCharacters.length) {
+      out.characters = promptCharacters;
+      out.characterSelection = { strategy: "relevance" };
+    }
     const episodicMemories = selectEpisodicMemoriesForPrompt(rec.episodicMemories, {
       query,
       projectId,
@@ -2019,6 +2118,13 @@ function createCreativeMemoryStore({ persistence } = {}) {
           userId,
           characterName: name,
           source: "talk_turn",
+          tags: ["screenplay"],
+          metadata: cleanProjectId || cleanProjectTitle
+            ? {
+              ...(cleanProjectId ? { projectId: cleanProjectId } : {}),
+              ...(cleanProjectTitle ? { projectTitle: cleanProjectTitle } : {}),
+            }
+            : null,
           traits: traitsHaveSignal(traits) ? traits : null,
           characterBible,
         });

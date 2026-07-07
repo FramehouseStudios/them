@@ -840,11 +840,12 @@ function serializeStyle(style) {
   return lines.length ? `style:\n  ${lines.join("\n  ")}` : "";
 }
 
-function serializeCharacters(characters) {
+function serializeCharacters(characters, { preserveOrder = false } = {}) {
   if (!isNonEmptyArray(characters)) return "";
-  // Most recently referenced first; cap to 8 to keep prompts compact.
-  const sorted = [...characters].sort((a, b) => (b.last_referenced || 0) - (a.last_referenced || 0));
-  const top = sorted.slice(0, 8);
+  const ordered = preserveOrder
+    ? characters
+    : [...characters].sort((a, b) => (b.last_referenced || 0) - (a.last_referenced || 0));
+  const top = ordered.slice(0, 8);
   const lines = [];
   for (const c of top) {
     const tags = isNonEmptyArray(c.tags) ? ` [${c.tags.join(", ")}]` : "";
@@ -885,6 +886,45 @@ function serializeCharacters(characters) {
     }
   }
   return `recurring-characters:\n${lines.join("\n")}`;
+}
+
+function serializeStoryBibleRecall(creativeMemory) {
+  if (!creativeMemory || typeof creativeMemory !== "object") return "";
+  const characters = isNonEmptyArray(creativeMemory.characters)
+    ? creativeMemory.characters
+    : [];
+  const bibleCharacters = characters
+    .filter((character) => character?.bible && typeof character.bible === "object")
+    .slice(0, 6);
+  if (!bibleCharacters.length) return "";
+
+  const lines = [
+    "  directive: durable character/story bible for this feature; corrections override older conflicting memory; use these pressures before inventing new character motivation.",
+    "  rule: move the next beat by testing want, wound, false belief, current tactic, and one open setup/payoff from feature_continuity.",
+  ];
+  for (const character of bibleCharacters) {
+    const name = trimContextLine(character.name, 80);
+    const bible = character.bible || {};
+    const arc = bible.arc && typeof bible.arc === "object" ? bible.arc : {};
+    const canon = sanitizeContextList(bible.canon ?? bible.facts, 3, 150);
+    const corrections = sanitizeContextList(bible.corrections, 2, 180);
+    const correctedTerms = sanitizeContextList(bible.correctionReplacements, 3, 120)
+      .concat(sanitizeContextList(bible.correctedTerms, 3, 80))
+      .slice(0, 4);
+    const parts = [
+      trimContextLine(arc.want, 120) ? `want=${trimContextLine(arc.want, 120)}` : "",
+      trimContextLine(arc.need, 120) ? `need=${trimContextLine(arc.need, 120)}` : "",
+      trimContextLine(arc.wound, 120) ? `wound=${trimContextLine(arc.wound, 120)}` : "",
+      trimContextLine(arc.falseBelief ?? arc.false_belief, 120) ? `false_belief=${trimContextLine(arc.falseBelief ?? arc.false_belief, 120)}` : "",
+      trimContextLine(arc.currentTactic ?? arc.current_tactic, 120) ? `current_tactic=${trimContextLine(arc.currentTactic ?? arc.current_tactic, 120)}` : "",
+      trimContextLine(arc.nextEmotionalTurn ?? arc.next_emotional_turn, 120) ? `next_emotional_turn=${trimContextLine(arc.nextEmotionalTurn ?? arc.next_emotional_turn, 120)}` : "",
+      canon.length ? `canon=${canon.join(" / ")}` : "",
+      corrections.length ? `corrections=${corrections.join(" / ")}` : "",
+      correctedTerms.length ? `corrected_terms=${correctedTerms.join(" / ")}` : "",
+    ].filter(Boolean);
+    if (name && parts.length) lines.push(`  - ${name}: ${parts.join("; ")}`);
+  }
+  return lines.length > 2 ? `story-bible-recall:\n${lines.join("\n")}` : "";
 }
 
 function serializeEpisodicMemories(memories) {
@@ -940,9 +980,11 @@ function serializeHabits(habits) {
 
 function buildMemoryBlock(creativeMemory) {
   if (!creativeMemory) return "";
+  const preserveCharacterOrder = creativeMemory?.characterSelection?.strategy === "relevance";
   const sections = [
     serializeStyle(creativeMemory.style),
-    serializeCharacters(creativeMemory.characters),
+    serializeCharacters(creativeMemory.characters, { preserveOrder: preserveCharacterOrder }),
+    serializeStoryBibleRecall(creativeMemory),
     serializeEpisodicMemories(creativeMemory.episodicMemories),
     serializeTone(creativeMemory.tone),
     serializeHabits(creativeMemory.habits),
