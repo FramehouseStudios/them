@@ -3224,7 +3224,11 @@ function buildCreativeMemoryRecallQuery(req = null, {
 }
 
 function buildScreenplayProjectMemoryPromptTrace(project = null) {
+  project = repairScreenplayProjectMemoryForPrompt(project);
   if (!project || typeof project !== "object") return null;
+  const correctedTerms = normalizeScreenplayStringList(project.correctedTerms, 8, 120);
+  const correctionReplacements = normalizeScreenplayStringList(project.correctionReplacements, 8, 160);
+  const correctionContract = buildScreenplayProjectCorrectionContract(project);
   const trace = {
     applied: true,
     project_id: normalizeSnippet(project.projectId, 96),
@@ -3240,6 +3244,10 @@ function buildScreenplayProjectMemoryPromptTrace(project = null) {
     unresolved_story_threads: normalizeScreenplayStringList(project.unresolvedStoryThreads, 5, 200),
     character_arc_turns: normalizeScreenplayStringList(project.characterArcTurns, 5, 180),
     image_motifs: normalizeScreenplayStringList(project.imageMotifs, 5, 120),
+    has_corrections: Boolean(correctedTerms.length || correctionReplacements.length || correctionContract),
+    corrected_terms: correctedTerms,
+    correction_replacements: correctionReplacements,
+    correction_contract: correctionContract,
   };
   return Object.fromEntries(
     Object.entries(trace).filter(([, value]) => {
@@ -3292,6 +3300,10 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     correctionReplacements.push(...character.correction_replacements);
   }
   const screenplayProjectTrace = buildScreenplayProjectMemoryPromptTrace(screenplayProjectMemory);
+  if (screenplayProjectTrace) {
+    correctedTerms.push(...(screenplayProjectTrace.corrected_terms || []));
+    correctionReplacements.push(...(screenplayProjectTrace.correction_replacements || []));
+  }
   const applied = Boolean(
     characters.length ||
     episodic.length ||
@@ -3310,7 +3322,8 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     episodic_count: episodic.length,
     episodic,
     correction_count: characters.filter((character) => character.has_corrections).length +
-      episodic.filter((episode) => episode.correction).length,
+      episodic.filter((episode) => episode.correction).length +
+      (screenplayProjectTrace?.has_corrections ? 1 : 0),
     corrected_terms: normalizeScreenplayStringList(correctedTerms, 10, 80),
     correction_replacements: normalizeScreenplayStringList(correctionReplacements, 10, 120),
     screenplay_project_memory: screenplayProjectTrace,
@@ -3377,22 +3390,27 @@ function selectScreenplayProjectMemoryForPrompt(memory, studioMeta = null, body 
   );
   if (projectId) {
     const byProject = items.find((item) => item.projectId === projectId);
-    if (byProject) return byProject;
+    if (byProject) return repairScreenplayProjectMemoryForPrompt(byProject) || byProject;
   }
   if (versionId) {
     const byVersion = items.find((item) => item.documentRevisionId === versionId);
-    if (byVersion) return byVersion;
+    if (byVersion) return repairScreenplayProjectMemoryForPrompt(byVersion) || byVersion;
   }
-  return items[0] || null;
+  return repairScreenplayProjectMemoryForPrompt(items[0]) || items[0] || null;
 }
 
 function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
   if (!memoryProject) return "";
+  const correctionContract = buildScreenplayProjectCorrectionContract(memoryProject, {
+    label: "corrections",
+    maxChars: 360,
+  });
   const parts = [
     memoryProject.logline ? `logline: ${memoryProject.logline}` : "",
     memoryProject.act || memoryProject.featureSequence
       ? `position: ${[memoryProject.act, memoryProject.featureSequence].filter(Boolean).join(" / ")}`
       : "",
+    correctionContract,
     memoryProject.currentBeat ? `current beat: ${memoryProject.currentBeat}` : "",
     memoryProject.featureObligation ? `due now: ${memoryProject.featureObligation}` : "",
     memoryProject.actPressureState ? `act pressure: ${memoryProject.actPressureState}` : "",
@@ -3420,6 +3438,25 @@ function buildTalkPersistentFeatureMemoryBrief(memoryProject) {
     memoryProject.endingImage ? `ending image: ${memoryProject.endingImage}` : "",
   ].filter(Boolean);
   return normalizeSnippet(parts.join("; "), 900);
+}
+
+function buildScreenplayProjectCorrectionContract(project = null, {
+  label = "CORRECTION_CONTRACT",
+  maxChars = 520,
+} = {}) {
+  if (!project || typeof project !== "object") return "";
+  const replacements = normalizeScreenplayStringList(project.correctionReplacements, 5, 160);
+  const terms = normalizeScreenplayStringList(project.correctedTerms, 5, 120);
+  const notes = normalizeScreenplayStringList(project.continuityNotes, 5, 220)
+    .filter((note) => /\b(authoritative|correction|corrected|actually|instead|not\b)/i.test(note));
+  if (!replacements.length && !terms.length && !notes.length) return "";
+  const parts = [
+    replacements.length ? `authoritative_replacements:${replacements.join(" / ")}` : "",
+    terms.length ? `retired_terms:${terms.join(" / ")}` : "",
+    notes.length ? `authoritative_notes:${notes.slice(0, 2).join(" / ")}` : "",
+    "rule: apply before older beat, character, setup, draft, or episodic memory",
+  ].filter(Boolean);
+  return normalizeSnippet(`${label}: ${parts.join("; ")}`, maxChars);
 }
 
 function buildSessionContinuityOpeningLine(snapshot = {}) {
@@ -3470,7 +3507,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     memory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
   );
-  const project = projects[0] || null;
+  const project = repairScreenplayProjectMemoryForPrompt(projects[0]) || projects[0] || null;
   const episodes = Array.isArray(creativeMemory?.episodicMemories)
     ? creativeMemory.episodicMemories
     : [];
@@ -3508,6 +3545,9 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       character_arc_turns: [],
       image_motifs: [],
       continuity_notes: [],
+      corrected_terms: [],
+      correction_replacements: [],
+      correction_contract: "",
       emotional_continuity: "",
       page_count: 0,
       target_pages: 0,
@@ -3526,6 +3566,22 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     episode?.characterNames || [],
     4,
     80
+  );
+  const continuityNotes = Array.isArray(project?.continuityNotes)
+    ? project.continuityNotes.slice(0, 8).map((item) => normalizeSnippet(item, 220)).filter(Boolean)
+    : [];
+  const correctedTerms = Array.isArray(project?.correctedTerms)
+    ? project.correctedTerms.slice(0, 8).map((item) => normalizeSnippet(item, 120)).filter(Boolean)
+    : [];
+  const correctionReplacements = Array.isArray(project?.correctionReplacements)
+    ? project.correctionReplacements.slice(0, 8).map((item) => normalizeSnippet(item, 160)).filter(Boolean)
+    : [];
+  const correctionContract = buildScreenplayProjectCorrectionContract(project);
+  const projectHasCorrection = Boolean(
+    correctedTerms.length ||
+    correctionReplacements.length ||
+    correctionContract ||
+    continuityNotes.some((note) => /\b(authoritative|correction|corrected)\b/i.test(note))
   );
   const snapshot = {
     has_continuity: true,
@@ -3575,15 +3631,16 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     image_motifs: Array.isArray(project?.imageMotifs)
       ? project.imageMotifs.slice(0, 6).map((item) => normalizeSnippet(item, 140)).filter(Boolean)
       : [],
-    continuity_notes: Array.isArray(project?.continuityNotes)
-      ? project.continuityNotes.slice(0, 8).map((item) => normalizeSnippet(item, 220)).filter(Boolean)
-      : [],
+    continuity_notes: continuityNotes,
+    corrected_terms: correctedTerms,
+    correction_replacements: correctionReplacements,
+    correction_contract: correctionContract,
     emotional_continuity: normalizeSnippet(project?.emotionalContinuity || "", 280),
     page_count: positiveTalkContextInteger(project?.pageCount),
     target_pages: positiveTalkContextInteger(project?.targetPages),
     act_progress: screenplayActProgressToApi(project?.actProgress),
     memory_excerpt: normalizeSnippet(episode?.excerpt || episode?.summary || project?.lastWritePreview || "", 280),
-    is_correction: episodeTags.includes("correction"),
+    is_correction: projectHasCorrection || episodeTags.includes("correction"),
     updated_at: Math.max(
       0,
       Number(project?.updatedAt || 0),
@@ -3710,6 +3767,23 @@ function buildTalkScreenplayPromptSessionContext(req, studioMeta = null, memory 
     characterArcState,
     lastSceneOutcome,
     featureMemoryBrief: buildTalkPersistentFeatureMemoryBrief(memoryProject),
+    correctionContract: buildScreenplayProjectCorrectionContract(memoryProject),
+    correctedTerms: parseTalkScreenplayContextList(
+      body.correctedTerms ??
+        body.corrected_terms ??
+        body.screenplayCorrectedTerms ??
+        body.screenplay_corrected_terms,
+      8,
+      120
+    ).concat(memoryProject?.correctedTerms || []).slice(0, 8),
+    correctionReplacements: parseTalkScreenplayContextList(
+      body.correctionReplacements ??
+        body.correction_replacements ??
+        body.screenplayCorrectionReplacements ??
+        body.screenplay_correction_replacements,
+      8,
+      160
+    ).concat(memoryProject?.correctionReplacements || []).slice(0, 8),
     nextScenePlan,
     nextSceneMoves: parseTalkScreenplayContextList(body.nextSceneMoves ?? body.next_scene_moves ?? body.screenplayNextSceneMoves ?? body.screenplay_next_scene_moves, 5, 180)
       .concat(memoryProject?.nextSceneMoves || [])
@@ -15726,6 +15800,46 @@ function filterScreenplayCorrectionList(items = [], correction = null) {
   return out;
 }
 
+function repairScreenplayProjectMemoryForPrompt(project = null) {
+  const item = sanitizeScreenplayProjectMemoryItems([project], 1)[0] || null;
+  if (!item) return null;
+  const correction = {
+    correctedTerms: collectScreenplayCorrectionItems(item.correctedTerms || []),
+    correctionReplacements: collectScreenplayCorrectionItems(item.correctionReplacements || []),
+  };
+  if (!correction.correctedTerms.length && !correction.correctionReplacements.length) {
+    return item;
+  }
+
+  const repaired = { ...item };
+  for (const [field, maxChars] of SCREENPLAY_PROJECT_MEMORY_TEXT_FIELDS) {
+    if (!repaired[field] || ["projectId", "projectTitle", "documentRevisionId"].includes(field)) continue;
+    const value = applyScreenplayCorrectionReplacements(
+      repaired[field],
+      correction.correctionReplacements,
+      maxChars
+    );
+    repaired[field] = textContainsScreenplayCorrectionTerm(value, correction.correctedTerms)
+      ? ""
+      : value;
+  }
+  if (repaired.lastWritePreview) {
+    const value = applyScreenplayCorrectionReplacements(
+      repaired.lastWritePreview,
+      correction.correctionReplacements,
+      900
+    );
+    repaired.lastWritePreview = textContainsScreenplayCorrectionTerm(value, correction.correctedTerms)
+      ? ""
+      : value;
+  }
+  for (const [field] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
+    if (["continuityNotes", "correctedTerms", "correctionReplacements"].includes(field)) continue;
+    repaired[field] = filterScreenplayCorrectionList(repaired[field], correction);
+  }
+  return sanitizeScreenplayProjectMemoryItems([repaired], 1)[0] || item;
+}
+
 function resolveScreenplayMemoryInput(item, camelKey, snakeKey = "") {
   if (!item || typeof item !== "object") return undefined;
   const screenKey = `screenplay${camelKey.charAt(0).toUpperCase()}${camelKey.slice(1)}`;
@@ -16644,7 +16758,9 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
     Math.max(1, maxItems)
   );
   if (!items.length) return "none";
-  return items.slice(0, Math.max(1, maxItems)).map((item) => {
+  return items.slice(0, Math.max(1, maxItems)).map((rawItem) => {
+    const item = repairScreenplayProjectMemoryForPrompt(rawItem) || rawItem;
+    const correctionContract = buildScreenplayProjectCorrectionContract(item);
     const pages = item.pageCount > 0 || item.targetPages > 0
       ? ` pages:${item.pageCount || "?"}/${item.targetPages || "?"}`
       : "";
@@ -16682,6 +16798,7 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
     return normalizeSnippet(
       [
         `project:${item.projectId || "unknown"}`,
+        correctionContract,
         corrections.trim(),
         item.act ? `act:${item.act}` : "",
         item.sceneLabel ? `scene:${item.sceneLabel}` : "",

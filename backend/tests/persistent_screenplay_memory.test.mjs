@@ -762,7 +762,12 @@ test("[persistent-screenplay-memory] correction turns repair stale project conti
 
   const prompt = buildMemoryAddendum(memory);
   assert.match(prompt, /VHS tape/);
+  assert.match(prompt, /CORRECTION_CONTRACT: authoritative_replacements:cassette -> VHS tape/);
   assert.match(prompt, /corrected_terms:cassette -> VHS tape/);
+  assert.ok(
+    prompt.indexOf("CORRECTION_CONTRACT") < prompt.indexOf("current_beat:"),
+    "correction contract should appear before older beat/runway memory"
+  );
 
   memory = withMockedNow(secondTs + 1_000, () => updateSessionAfterReply(
     memory,
@@ -1010,6 +1015,9 @@ test("[persistent-screenplay-memory] vague writer block turns use durable Story 
         actThreePayoffPath: ["The affidavit becomes courtroom testimony."],
         characterFocus: ["Mara", "Father"],
         imageMotifs: ["courthouse fluorescents"],
+        correctedTerms: ["sealed affidavit"],
+        correctionReplacements: ["sealed affidavit -> public affidavit"],
+        continuityNotes: ["Authoritative user correction: public affidavit, not sealed affidavit."],
         lastWritePreview: "MARA\nIf I say it out loud, they own it.",
         updatedAt: 500,
       },
@@ -1028,12 +1036,15 @@ test("[persistent-screenplay-memory] vague writer block turns use durable Story 
 
   assert.ok(prompt.includes("<session>"));
   assert.ok(prompt.includes("project: rain-docket"));
-  assert.ok(prompt.includes("current_beat: Mara realizes the sealed affidavit points at the judge."));
+  assert.ok(prompt.includes("correction_memory_contract:"));
+  assert.ok(prompt.includes("authoritative_replacements: sealed affidavit -> public affidavit"));
+  assert.ok(prompt.includes("current_beat: Mara realizes the public affidavit points at the judge."));
   assert.ok(prompt.includes("next_three_turns:"));
   assert.ok(prompt.includes("- Mara chooses public exposure."));
   assert.ok(prompt.includes("<writer_block_memory>"));
+  assert.ok(prompt.includes("correction_contract: replace sealed affidavit -> public affidavit"));
   assert.ok(prompt.includes("strongest_remembered_next_turn: Father names the lie."));
-  assert.ok(prompt.includes("open_setup_to_pressure: sealed affidavit"));
+  assert.ok(prompt.includes("open_setup_to_pressure: public affidavit"));
   assert.ok(prompt.includes("unresolved_story_thread: Why Marcus protected the fixer"));
   assert.ok(prompt.includes("act_three_payoff_seed: The affidavit becomes courtroom testimony."));
   assert.ok(prompt.includes("intent: momentum_rescue"));
@@ -1169,6 +1180,9 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
         unresolvedStoryThreads: ["Who forged the testimony?"],
         characterArcTurns: ["Mara chooses exposure over control."],
         imageMotifs: ["rain-swollen vent"],
+        correctedTerms: ["cassette"],
+        correctionReplacements: ["cassette -> VHS tape"],
+        continuityNotes: ["Authoritative user correction: VHS tape, not cassette."],
       },
     }
   );
@@ -1178,9 +1192,9 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.equal(trace.project_title, "Rain Docket");
   assert.equal(trace.character_count, 1);
   assert.equal(trace.episodic_count, 1);
-  assert.equal(trace.correction_count, 2);
-  assert.deepEqual(trace.corrected_terms, ["mother"]);
-  assert.deepEqual(trace.correction_replacements, ["mother -> Eli's sister"]);
+  assert.equal(trace.correction_count, 3);
+  assert.deepEqual(trace.corrected_terms, ["mother", "cassette"]);
+  assert.deepEqual(trace.correction_replacements, ["mother -> Eli's sister", "cassette -> VHS tape"]);
   assert.equal(trace.characters[0].name, "Mara");
   assert.equal(trace.characters[0].has_corrections, true);
   assert.match(trace.episodic[0].summary, /Correction for Mara/);
@@ -1188,6 +1202,10 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.equal(trace.screenplay_project_memory.applied, true);
   assert.equal(trace.screenplay_project_memory.project_id, "rain-docket");
   assert.equal(trace.screenplay_project_memory.act, "Act II");
+  assert.equal(trace.screenplay_project_memory.has_corrections, true);
+  assert.deepEqual(trace.screenplay_project_memory.corrected_terms, ["cassette"]);
+  assert.deepEqual(trace.screenplay_project_memory.correction_replacements, ["cassette -> VHS tape"]);
+  assert.match(trace.screenplay_project_memory.correction_contract, /CORRECTION_CONTRACT/);
   assert.deepEqual(trace.screenplay_project_memory.next_three_turns, [
     "Mara pockets the affidavit.",
     "Eli forces a public choice.",
@@ -1340,4 +1358,34 @@ test("[persistent-screenplay-memory] session continuity honors correction-only c
   assert.equal(snapshot.is_correction, true);
   assert.ok(snapshot.opening_line.includes("I'll honor your latest correction first."));
   assert.ok(snapshot.memory_excerpt.includes("coded weather station"));
+});
+
+test("[persistent-screenplay-memory] session continuity marks project corrections authoritative", () => {
+  const memory = {
+    ...createEmptyEmotionMemory(),
+    screenplayProjectMemory: sanitizeScreenplayProjectMemoryItems([
+      {
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        act: "Act II",
+        currentBeat: "Mara protects Eli with the VHS tape.",
+        nextScenePlan: "Make the VHS tape public.",
+        characterFocus: ["Mara"],
+        correctedTerms: ["cassette"],
+        correctionReplacements: ["cassette -> VHS tape"],
+        continuityNotes: ["Authoritative user correction: VHS tape, not cassette."],
+        updatedAt: 1_500,
+      },
+    ]),
+    screenplayProjectMemoryUpdatedAt: 1_500,
+  };
+
+  const snapshot = buildSessionContinuitySnapshot(memory, null);
+  assert.equal(snapshot.has_continuity, true);
+  assert.equal(snapshot.source, "screenplay_project_memory");
+  assert.equal(snapshot.is_correction, true);
+  assert.deepEqual(snapshot.corrected_terms, ["cassette"]);
+  assert.deepEqual(snapshot.correction_replacements, ["cassette -> VHS tape"]);
+  assert.match(snapshot.correction_contract, /CORRECTION_CONTRACT/);
+  assert.ok(snapshot.opening_line.includes("I'll honor your latest correction first."));
 });

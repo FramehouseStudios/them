@@ -993,6 +993,45 @@ function buildMemoryBlock(creativeMemory) {
   return `${MEMORY_BLOCK_OPEN}\n${sections.join("\n")}\n${MEMORY_BLOCK_CLOSE}`;
 }
 
+function buildCorrectionMemoryContract(sessionContext) {
+  if (!sessionContext || typeof sessionContext !== "object") return null;
+  const explicit = trimContextLine(
+    sessionContext.correctionContract ??
+      sessionContext.correction_contract ??
+      sessionContext.screenplayCorrectionContract ??
+      sessionContext.screenplay_correction_contract,
+    520
+  );
+  const replacements = sanitizeContextList(
+    sessionContext.correctionReplacements ??
+      sessionContext.correction_replacements ??
+      sessionContext.screenplayCorrectionReplacements ??
+      sessionContext.screenplay_correction_replacements,
+    8,
+    160
+  );
+  const terms = sanitizeContextList(
+    sessionContext.correctedTerms ??
+      sessionContext.corrected_terms ??
+      sessionContext.screenplayCorrectedTerms ??
+      sessionContext.screenplay_corrected_terms,
+    8,
+    120
+  );
+  if (!explicit && !replacements.length && !terms.length) return null;
+  return {
+    explicit,
+    replacements,
+    terms,
+    summary: [
+      replacements.length ? `replace ${replacements.join(" / ")}` : "",
+      terms.length ? `retire ${terms.join(" / ")}` : "",
+      explicit,
+      "apply before older Story Spine, Character Bible, draft, or episodic memory",
+    ].filter(Boolean).join("; "),
+  };
+}
+
 function buildSessionContextBlock(sessionContext) {
   if (!sessionContext || typeof sessionContext !== "object") return "";
   const parts = [];
@@ -1043,6 +1082,7 @@ function buildSessionContextBlock(sessionContext) {
     sessionContext.featureMemoryBrief ?? sessionContext.feature_memory_brief ?? sessionContext.persistentMemoryBrief ?? sessionContext.persistent_memory_brief,
     900
   );
+  const correctionContract = buildCorrectionMemoryContract(sessionContext);
   const nextScenePlan = trimContextLine(
     sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
     340
@@ -1076,6 +1116,19 @@ function buildSessionContextBlock(sessionContext) {
   if (characterArcState) featureLines.push(`    character_arc_state: ${characterArcState}`);
   if (lastSceneOutcome) featureLines.push(`    last_scene_outcome: ${lastSceneOutcome}`);
   if (featureMemoryBrief) featureLines.push(`    persistent_memory_brief: ${featureMemoryBrief}`);
+  if (correctionContract) {
+    featureLines.push("    correction_memory_contract:");
+    featureLines.push("      priority: authoritative correction; apply before older Story Spine, Character Bible, draft, or episodic memory.");
+    if (correctionContract.replacements.length) {
+      featureLines.push(`      authoritative_replacements: ${correctionContract.replacements.join(" / ")}`);
+    }
+    if (correctionContract.terms.length) {
+      featureLines.push(`      retired_terms: ${correctionContract.terms.join(" / ")}`);
+    }
+    if (correctionContract.explicit) {
+      featureLines.push(`      note: ${correctionContract.explicit}`);
+    }
+  }
   if (nextScenePlan) featureLines.push(`    next_scene_plan: ${nextScenePlan}`);
   const nextSceneMoves = sanitizeContextList(
     sessionContext.nextSceneMoves ?? sessionContext.next_scene_moves ?? sessionContext.nextPageMoves ?? sessionContext.next_page_moves,
@@ -1224,6 +1277,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
     sessionContext.featureMemoryBrief ?? sessionContext.feature_memory_brief ?? sessionContext.persistentMemoryBrief ?? sessionContext.persistent_memory_brief,
     900
   );
+  const correctionContract = buildCorrectionMemoryContract(sessionContext);
   const nextThreeTurns = sanitizeContextList(
     sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
     3,
@@ -1277,6 +1331,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
   push("unresolved_story_thread", unresolvedStoryThreads[0]);
   push("act_three_payoff_seed", actThreePayoffPath[0]);
   push("image_to_transform", imageMotifs[0]);
+  push("correction_contract", correctionContract?.summary);
   push("feature_memory_brief", featureMemoryBrief);
 
   if (!rescueLines.length) return "";

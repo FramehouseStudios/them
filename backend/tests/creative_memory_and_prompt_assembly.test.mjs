@@ -541,6 +541,8 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
       characterFocus: ["June", "Marcus"],
       unresolvedSetups: ["The missing cassette has not paid off yet."],
       continuityNotes: ["The outline says this scene should turn trust into suspicion."],
+      correctedTerms: ["cassette"],
+      correctionReplacements: ["cassette -> VHS tape"],
       emotionalContinuity: "Carry the fear from the previous diner scene into suspicion here.",
       pageCount: 47,
       targetPages: 110,
@@ -594,6 +596,10 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("missing cassette"));
   assert.ok(out.includes("continuity_notes:"));
   assert.ok(out.includes("trust into suspicion"));
+  assert.ok(out.includes("correction_memory_contract:"));
+  assert.ok(out.includes("authoritative_replacements: cassette -> VHS tape"));
+  assert.ok(out.includes("retired_terms: cassette"));
+  assert.ok(out.includes("apply before older Story Spine, Character Bible, draft, or episodic memory"));
   assert.ok(out.includes("emotional_handoff: Carry the fear"));
   assert.ok(out.includes("draft_excerpt:"));
   assert.ok(out.includes("    INT. DINER - NIGHT"));
@@ -829,6 +835,8 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
     unresolvedStoryThreads: ["Why Marcus protected the fixer"],
     actThreePayoffPath: ["The reel exposes the fixer."],
     imageMotifs: ["blank frame"],
+    correctedTerms: ["wrong memory"],
+    correctionReplacements: ["wrong memory -> hidden confession"],
   };
   const out = buildModelPrompt({
     persona: "PERSONA",
@@ -844,6 +852,7 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
   assert.ok(out.includes("open_setup_to_pressure: missing reel"));
   assert.ok(out.includes("unresolved_story_thread: Why Marcus protected the fixer"));
   assert.ok(out.includes("act_three_payoff_seed: The reel exposes the fixer."));
+  assert.ok(out.includes("correction_contract: replace wrong memory -> hidden confession"));
   assert.ok(out.includes("rescue_engine_selection:"));
   assert.ok(out.includes("primary_engine: remembered_next_turn"));
   assert.ok(out.includes("pressure_stack: remembered_next_turn -> open_setup -> character_arc_pressure -> act_obligation -> payoff_seed -> image_transformation"));
@@ -863,6 +872,7 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
 
   const parts = buildModelPromptParts({ sessionContext, screenplayTask: task });
   assert.ok(parts.writerBlockMemoryBlock.includes("character_arc_pressure: Mara still edits pain into control."));
+  assert.ok(parts.writerBlockMemoryBlock.includes("correction_contract: replace wrong memory -> hidden confession"));
   assert.ok(parts.writerBlockMemoryBlock.includes("primary_engine: remembered_next_turn"));
   assert.ok(parts.writerBlockMemoryBlock.includes("momentum_move_options:"));
 });
