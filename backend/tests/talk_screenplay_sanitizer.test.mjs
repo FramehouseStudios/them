@@ -754,6 +754,34 @@ test("[talk-screenplay-output] preserves structured character arc memory from st
   assert.equal(studio.screenplayCharacterArcMemory.nextEmotionalTurn, "public courage");
 });
 
+test("[talk-screenplay-output] preserves multiple structured character arc memories", () => {
+  const studio = sanitizeStudioTurnMetadata({
+    screenplayTarget: "page",
+    screenplayCharacterArcMemory: JSON.stringify([
+      {
+        character: "Mara",
+        act: "Act II",
+        want: "expose the forged testimony",
+        wound: "her father's disappearance",
+        false_belief: "truth destroys anyone who says it aloud",
+      },
+      {
+        character: "Eli",
+        act: "Act II",
+        want: "keep Mara alive until dawn",
+        need: "tell Mara the secret without asking permission",
+        next_emotional_turn: "chooses honesty over protection",
+      },
+    ]),
+  });
+
+  assert.equal(studio.screenplayCharacterArcMemory.character, "Mara");
+  assert.equal(studio.screenplayCharacterArcMemories.length, 2);
+  assert.equal(studio.screenplayCharacterArcMemories[1].character, "Eli");
+  assert.equal(studio.screenplayCharacterArcMemories[1].want, "keep Mara alive until dawn");
+  assert.equal(studio.screenplayCharacterArcMemories[1].nextEmotionalTurn, "chooses honesty over protection");
+});
+
 test("[talk-screenplay-output] rejects Act III page output that dodges supplied payoff memory", () => {
   const output = buildTalkScreenplayOutput({
     reply: [

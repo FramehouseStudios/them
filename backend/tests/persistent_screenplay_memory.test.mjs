@@ -785,6 +785,67 @@ test("[persistent-screenplay-memory] correction turns repair stale project conti
   assert.doesNotMatch(buildMemoryAddendum(memory), /VHS tape -> VHS tape/);
 });
 
+test("[persistent-screenplay-memory] character arc memory becomes durable Story Spine recall", () => {
+  const ts = 1_800_000_700_000;
+  let memory = createEmptyEmotionMemory();
+
+  memory = withMockedNow(ts, () => updateSessionAfterReply(
+    memory,
+    "Remember Mara and Eli's Act II character engines before we continue.",
+    "Locked. I will use Mara and Eli's arc pressure before inventing new plot.",
+    false,
+    {
+      screenplayProjectId: "mercy-court",
+      screenplayProjectTitle: "Mercy Court",
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act II",
+      screenplayCharacterArcMemory: [
+        {
+          character: "Mara",
+          act: "Act II",
+          want: "expose the forged testimony",
+          need: "stop hiding behind observation",
+          wound: "her father's disappearance",
+          falseBelief: "truth destroys anyone who says it aloud",
+          currentTactic: "collecting evidence in silence",
+          nextEmotionalTurn: "public courage",
+        },
+        {
+          character: "Eli",
+          act: "Act II",
+          want: "keep Mara alive until dawn",
+          need: "tell Mara the secret without asking permission",
+          wound: "the night he abandoned the witness",
+          falseBelief: "protection requires lying",
+          currentTactic: "stalling with half-truths",
+          nextEmotionalTurn: "chooses honesty over protection",
+        },
+      ],
+    }
+  ));
+
+  const project = memory.screenplayProjectMemory[0];
+  assert.equal(project.projectId, "mercy-court");
+  assert.deepEqual(project.characterFocus, ["Mara", "Eli"]);
+  assert.equal(project.protagonistWant, "expose the forged testimony");
+  assert.equal(project.protagonistNeed, "stop hiding behind observation");
+  assert.match(project.characterArcState, /Mara: want=expose the forged testimony/);
+  assert.ok(project.unresolvedStoryThreads.some((item) => /Test Mara's false belief: truth destroys/.test(item)));
+  assert.ok(project.unresolvedStoryThreads.some((item) => /Re-open Eli's wound: the night he abandoned/.test(item)));
+  assert.ok(project.nextSceneMoves.some((item) => /Make Mara's current tactic fail/.test(item)));
+  assert.ok(project.nextThreeTurns.some((item) => /Mara's next emotional turn: public courage/.test(item)));
+  assert.ok(project.characterArcTurns.some((item) => /Eli: want=keep Mara alive until dawn/.test(item)));
+  assert.ok(project.continuityNotes.some((item) => /Character bible: Mara/.test(item)));
+
+  const prompt = buildMemoryAddendum(memory);
+  assert.match(prompt, /characters:Mara, Eli/);
+  assert.match(prompt, /want:expose the forged testimony/);
+  assert.match(prompt, /need:stop hiding behind observation/);
+  assert.match(prompt, /story_threads:Test Mara's false belief: truth destroys anyone who says it aloud/);
+  assert.match(prompt, /arc_turns:Mara: want=expose the forged testimony/);
+  assert.match(prompt, /next_three_turns:Mara's next emotional turn: public courage/);
+});
+
 test("[persistent-screenplay-memory] keeps story spine memory even before scene context exists", () => {
   const memory = {
     ...createEmptyEmotionMemory(),
