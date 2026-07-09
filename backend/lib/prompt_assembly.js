@@ -764,6 +764,9 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - Character-change lane: make the old tactic fail on the page, then show the need/arc pressure through a new action, refusal, confession, or sacrifice.");
     lines.push("  - For Act I / Act II / Act III whole-feature asks, maintain the causal act chain invisibly but deliver the immediate next pages first unless the user asked only for planning.");
     lines.push("  - Act conversion: Act I burns a safe exit; Act II makes the false tactic costlier through reversal; Act III pays off setup through changed behavior and final-image pressure.");
+    lines.push("  - Writer-block-to-pages: if the user says stuck, blocked, or what happens next while asking for pages, convert the strongest rescue engine into Fountain pages immediately; no pep talk before pages.");
+    lines.push("  - Act-specific first page: Act I makes wound/want/catalyst choice visible; Act II breaks the false tactic through reversal/cost; Act III pays setup through changed behavior and final-image pressure.");
+    lines.push("  - When feature_map supplies writer_block_to_pages or next_scene_execution_brief, use that page engine before inventing a new sequence lane.");
     lines.push("  - If a requested act spans multiple sequences, end each scene turn with a handoff that makes the next sequence feel inevitable.");
     lines.push("  - Change leverage, information, relationship, tactic, or emotional cost every 1-2 pages.");
     lines.push("  - Avoid cinematic vapor: no vague tension, generic staring, abstract emotion, or repeated conversation beats without a concrete behavior or consequence.");

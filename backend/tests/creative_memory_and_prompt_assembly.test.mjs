@@ -984,6 +984,9 @@ Feature workflow context:
   assert.ok(out.includes("Character-change lane: make the old tactic fail on the page"));
   assert.ok(out.includes("For Act I / Act II / Act III whole-feature asks"));
   assert.ok(out.includes("Act conversion: Act I burns a safe exit"));
+  assert.ok(out.includes("Writer-block-to-pages: if the user says stuck, blocked, or what happens next"));
+  assert.ok(out.includes("Act-specific first page: Act I makes wound/want/catalyst choice visible"));
+  assert.ok(out.includes("When feature_map supplies writer_block_to_pages or next_scene_execution_brief"));
   assert.ok(out.includes("If a requested act spans multiple sequences"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("write the next playable Fountain pages immediately"));
@@ -1001,6 +1004,18 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
       pageCount: 47,
       targetPages: 110,
       currentBeat: "June realizes the receipt makes the win a trap.",
+      protagonistWant: "prove the motel ledger was forged",
+      protagonistNeed: "trust someone before the case destroys her",
+      featureObligation: "Break June's safe investigative tactic.",
+      actPressureState: "The midpoint must turn private proof into public cost.",
+      characterArcState: "June still believes control can keep everyone safe.",
+      nextThreeTurns: ["The receipt exposes the wrong witness.", "June chooses public risk."],
+      unresolvedSetups: ["receipt", "motel ledger"],
+      unresolvedStoryThreads: ["Who moved the witness?"],
+      characterArcTurns: ["June must stop confusing control with care."],
+      actThreePayoffPath: ["The ledger returns as courtroom proof."],
+      imageMotifs: ["flickering motel sign"],
+      characterFocus: ["June", "Detective"],
       emotionalContinuity: "Carry private suspicion into public pressure.",
       draftExcerpt: "INT. MOTEL ROOM - NIGHT\n\nJUNE folds the receipt.",
     },
@@ -1025,6 +1040,9 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("Character-change lane: make the old tactic fail on the page"));
   assert.ok(out.includes("For Act I / Act II / Act III whole-feature asks"));
   assert.ok(out.includes("Act conversion: Act I burns a safe exit"));
+  assert.ok(out.includes("Writer-block-to-pages: if the user says stuck, blocked, or what happens next"));
+  assert.ok(out.includes("Act-specific first page: Act I makes wound/want/catalyst choice visible"));
+  assert.ok(out.includes("When feature_map supplies writer_block_to_pages or next_scene_execution_brief"));
   assert.ok(out.includes("If a requested act spans multiple sequences"));
   assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
   assert.ok(out.includes("Start from the active draft/scene state; do not restart"));
@@ -1033,6 +1051,11 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("requested_pages: 10"));
   assert.ok(out.includes("target_act: Act II"));
   assert.ok(out.includes("starting_position: p47 / 110"));
+  assert.ok(out.includes("writer_block_to_pages:"));
+  assert.ok(out.includes("best_page_engine: Have June pursue prove the motel ledger was forged; collide with Who moved the witness?; make the cost June must stop confusing control with care.; exit on flickering motel sign."));
+  assert.ok(out.includes("Act II page engine: make the false tactic appear useful"));
+  assert.ok(out.includes("Act I: wound/want becomes catalyst pressure"));
+  assert.ok(out.includes("Act III: remembered setup becomes changed behavior"));
   assert.ok(out.includes("active_sequence_pressure: Act II - Midpoint Pressure"));
   assert.ok(out.includes("act_sequence_obligation_stack:"));
   assert.ok(out.includes("active_lane: Act II - Midpoint Pressure (p41-55)"));

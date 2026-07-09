@@ -58,6 +58,11 @@ test("[feature-screenplay-map] maps page position into feature sequence pressure
   assert.ok(block.includes("Act II - Collapse / All Is Lost"));
   assert.ok(block.includes("next_page_moves:"));
   assert.ok(block.includes("Build to a reversal that redefines"));
+  assert.ok(block.includes("writer_block_to_pages:"));
+  assert.ok(block.includes("Act II page engine: make the false tactic appear useful"));
+  assert.ok(block.includes("act_ladder:"));
+  assert.ok(block.includes("Act I: wound/want becomes catalyst pressure"));
+  assert.ok(block.includes("Act III: remembered setup becomes changed behavior"));
   assert.ok(block.includes("coming_next:"));
   assert.ok(block.includes("Act II - Reversal Fallout"));
   assert.ok(block.includes("feature_completion_protocol:"));
@@ -166,6 +171,54 @@ test("[feature-screenplay-map] carries feature spine, promises, and Act III payo
   assert.ok(block.includes("image_to_stage: empty pool"));
   assert.ok(block.includes("exit_handoff: The sister's voicemail reframes the cover-up."));
   assert.ok(block.includes("output_rule: if the user asked for pages, translate this brief into Fountain screenplay only"));
+});
+
+test("[feature-screenplay-map] writer-block-to-pages bridge is act-specific", () => {
+  const actOne = buildFeatureScreenplayMapBlock({
+    sessionContext: {
+      act: "Act I",
+      protagonistWant: "find the missing reel",
+      protagonistNeed: "ask for help before control costs her",
+      characterFocus: ["Mara"],
+      currentBeat: "Mara finds the locked projection booth.",
+      unresolvedSetups: ["locked projection booth"],
+      imageMotifs: ["flickering screen"],
+    },
+    screenplayTask: {
+      intent: "finish_feature",
+      requestedAct: "Act I",
+      requestedPages: 4,
+      label: "I'm stuck in Act I and need pages.",
+    },
+  });
+  assert.ok(actOne.includes("writer_block_to_pages:"));
+  assert.ok(actOne.includes("active_act: Act I"));
+  assert.ok(actOne.includes("Act I page engine: make wound and want visible"));
+  assert.ok(actOne.includes("best_page_engine: Have Mara pursue find the missing reel"));
+
+  const actThree = buildFeatureScreenplayMapBlock({
+    sessionContext: {
+      act: "Act III",
+      protagonistWant: "expose the forged testimony",
+      protagonistNeed: "tell the truth publicly",
+      characterFocus: ["Mara"],
+      currentBeat: "Mara returns to the courtroom with the repaired tape.",
+      unresolvedStoryThreads: ["Who will admit the testimony was forged?"],
+      actThreePayoffPath: ["The repaired tape becomes courtroom proof."],
+      imageMotifs: ["blank courtroom screen"],
+    },
+    screenplayTask: {
+      intent: "finish_feature",
+      requestedAct: "Act III",
+      requestedPages: 5,
+      label: "I'm stuck in Act III and need the final pages.",
+    },
+  });
+  assert.ok(actThree.includes("writer_block_to_pages:"));
+  assert.ok(actThree.includes("active_act: Act III"));
+  assert.ok(actThree.includes("Act III page engine: spend a planted setup through changed behavior"));
+  assert.ok(actThree.includes("Act III: remembered setup becomes changed behavior"));
+  assert.ok(actThree.includes("best_page_engine: Have Mara pursue expose the forged testimony"));
 });
 
 test("[feature-screenplay-map] emits page-batch execution plan for feature page requests", () => {

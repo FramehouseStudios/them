@@ -1207,6 +1207,142 @@ function buildMemoryToPageExecutionLines(sessionContext = {}) {
   return lines;
 }
 
+function buildWriterBlockToPagesLines({
+  sessionContext = {},
+  screenplayTask = null,
+  sequence = null,
+  explicitAct = "",
+  requestedAct = "",
+} = {}) {
+  const intent = trimToString(screenplayTask?.intent, 80);
+  const requestedPages = requestedPageBatchFromTask(screenplayTask);
+  const userLabel = trimToString(screenplayTask?.label ?? screenplayTask?.output, 220).toLowerCase();
+  const blockLike = intent === "momentum_rescue" ||
+    /\b(stuck|blocked|writer'?s block|writers block|what happens next|next beat|next move|out of ideas)\b/.test(userLabel);
+  const pageLike = requestedPages > 0 || intent === "finish_feature" || intent === "continue_script";
+  if (!blockLike && !pageLike) return [];
+
+  const activeAct = trimContextLine(requestedAct || explicitAct || sequence?.act, 120);
+  const activeActKind = inferActKind(activeAct);
+  const currentBeat = trimContextLine(
+    sessionContext.currentBeat ?? sessionContext.current_beat ?? sessionContext.beat,
+    220
+  );
+  const protagonistWant = trimContextLine(
+    sessionContext.protagonistWant ?? sessionContext.protagonist_want,
+    220
+  );
+  const protagonistNeed = trimContextLine(
+    sessionContext.protagonistNeed ?? sessionContext.protagonist_need,
+    220
+  );
+  const featureObligation = trimContextLine(
+    sessionContext.featureObligation ?? sessionContext.feature_obligation ?? sessionContext.structuralObligation ?? sessionContext.structural_obligation,
+    260
+  );
+  const actPressureState = trimContextLine(
+    sessionContext.actPressureState ?? sessionContext.act_pressure_state,
+    260
+  );
+  const characterArcState = trimContextLine(
+    sessionContext.characterArcState ?? sessionContext.character_arc_state,
+    260
+  );
+  const nextScenePlan = trimContextLine(
+    sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
+    300
+  );
+  const nextThreeTurns = sanitizeContextList(
+    sessionContext.nextThreeTurns ?? sessionContext.next_three_turns,
+    3,
+    180
+  );
+  const nextSceneMoves = sanitizeContextList(
+    sessionContext.nextSceneMoves ?? sessionContext.next_scene_moves ?? sessionContext.nextPageMoves ?? sessionContext.next_page_moves,
+    5,
+    180
+  );
+  const unresolvedSetups = sanitizeContextList(
+    sessionContext.unresolvedSetups ?? sessionContext.unresolved_setups ?? sessionContext.openLoops ?? sessionContext.open_loops,
+    5,
+    180
+  );
+  const unresolvedStoryThreads = sanitizeContextList(
+    sessionContext.unresolvedStoryThreads ?? sessionContext.unresolved_story_threads,
+    5,
+    200
+  );
+  const characterArcTurns = sanitizeContextList(
+    sessionContext.characterArcTurns ?? sessionContext.character_arc_turns,
+    5,
+    180
+  );
+  const actThreePayoffPath = sanitizeContextList(
+    sessionContext.actThreePayoffPath ?? sessionContext.act_three_payoff_path ?? sessionContext.payoffPath ?? sessionContext.payoff_path,
+    5,
+    180
+  );
+  const imageMotifs = sanitizeContextList(
+    sessionContext.imageMotifs ?? sessionContext.image_motifs ?? sessionContext.visualMotifs ?? sessionContext.visual_motifs,
+    5,
+    140
+  );
+  const characterFocus = sanitizeContextList(
+    sessionContext.characterFocus ?? sessionContext.character_focus ?? sessionContext.characters ?? sessionContext.currentCharacters,
+    5,
+    100
+  );
+
+  const rememberedTurn = nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan || "";
+  const protagonist = characterFocus[0] || "the protagonist";
+  const objective = protagonistWant || rememberedTurn || featureObligation || currentBeat || "a concrete objective that can fail";
+  const obstacle = unresolvedStoryThreads[0] || unresolvedSetups[0] || actPressureState || sequence?.obligation || "a force that can say no";
+  const oldTacticCost = characterArcTurns[0] || characterArcState || protagonistNeed || "the old tactic stops protecting them";
+  const payoff = actThreePayoffPath[0] || unresolvedSetups[0] || "one planted setup";
+  const exitImage = imageMotifs[0] || payoff || "a changed image";
+  const activeRule = activeActKind === "act1"
+    ? "Act I page engine: make wound and want visible, turn catalyst into pressure, and end the run on an irreversible choice."
+    : activeActKind === "act2"
+      ? "Act II page engine: make the false tactic appear useful, then make it costlier through reversal, relationship damage, or public exposure."
+      : activeActKind === "act3"
+        ? "Act III page engine: spend a planted setup through changed behavior, answer the need, and aim the image toward the final frame."
+        : "Act page engine: convert the strongest remembered pressure into objective, opposition, changed tactic, cost, and exit image.";
+
+  const hasUsefulBridge = Boolean(
+    activeAct ||
+      requestedPages > 0 ||
+      currentBeat ||
+      objective ||
+      rememberedTurn ||
+      obstacle ||
+      oldTacticCost ||
+      payoff ||
+      exitImage
+  );
+  if (!hasUsefulBridge) return [];
+
+  const lines = [
+    "  writer_block_to_pages:",
+    "    purpose: when the writer is stuck, convert rescue into immediate screenplay pages instead of more brainstorming.",
+  ];
+  if (requestedPages > 0) lines.push(`    requested_pages: ${requestedPages}`);
+  if (activeAct) lines.push(`    active_act: ${activeAct}`);
+  if (sequence) lines.push(`    active_sequence: ${sequence.act} - ${sequence.label}`);
+  if (rememberedTurn) lines.push(`    first_remembered_turn_to_spend: ${rememberedTurn}`);
+  lines.push(`    best_page_engine: Have ${protagonist} pursue ${objective}; collide with ${obstacle}; make the cost ${oldTacticCost}; exit on ${exitImage}.`);
+  lines.push(`    ${activeRule}`);
+  lines.push("    act_ladder:");
+  lines.push("      - Act I: wound/want becomes catalyst pressure, then commitment.");
+  lines.push("      - Act II: old tactic partially works, reverses, and exposes the false belief.");
+  lines.push("      - Act III: remembered setup becomes changed behavior and final-image pressure.");
+  lines.push("    page_run_contract:");
+  lines.push("      - Start with playable Fountain text if the user asked for pages.");
+  lines.push("      - First scene turn: objective meets obstacle; second turn: tactic changes; final turn: cost, reveal, decision, or image hands off.");
+  lines.push("      - Spend one remembered setup/payoff or image motif before introducing a brand-new solution.");
+  lines.push("      - Convert character need into behavior; never explain the arc as prose.");
+  return lines;
+}
+
 function buildNextSceneExecutionBriefLines({
   sessionContext = {},
   screenplayTask = null,
@@ -1444,6 +1580,13 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
     ...buildStorySpineLines(sessionContext || {}),
     ...buildContinuityAssetLines(sessionContext || {}),
     ...buildMemoryToPageExecutionLines(sessionContext || {}),
+    ...buildWriterBlockToPagesLines({
+      sessionContext: sessionContext || {},
+      screenplayTask,
+      sequence,
+      explicitAct,
+      requestedAct,
+    }),
     ...buildNextSceneExecutionBriefLines({
       sessionContext: sessionContext || {},
       screenplayTask,
