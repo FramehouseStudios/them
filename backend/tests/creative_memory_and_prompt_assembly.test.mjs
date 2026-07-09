@@ -826,6 +826,9 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
     featureObligation: "Break Mara's safe investigative tactic.",
     actPressureState: "The win must turn into a public trap.",
     characterArcState: "Mara still edits pain into control.",
+    protagonistWant: "expose the forged testimony",
+    protagonistNeed: "stop hiding behind observation",
+    characterFocus: ["Mara", "Marcus"],
     nextThreeTurns: [
       "The reel plays the wrong memory.",
       "Marcus forces a public choice.",
@@ -848,11 +851,13 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
   assert.ok(out.includes(WRITER_BLOCK_MEMORY_BLOCK_OPEN));
   assert.ok(out.includes("directive: The writer is blocked; use this available project state before inventing a new lane."));
   assert.ok(out.includes("position: Act II / Midpoint trap"));
+  assert.ok(out.includes("character_engine: Mara; want=expose the forged testimony; need=stop hiding behind observation"));
   assert.ok(out.includes("strongest_remembered_next_turn: The reel plays the wrong memory."));
   assert.ok(out.includes("open_setup_to_pressure: missing reel"));
   assert.ok(out.includes("unresolved_story_thread: Why Marcus protected the fixer"));
   assert.ok(out.includes("act_three_payoff_seed: The reel exposes the fixer."));
   assert.ok(out.includes("correction_contract: replace wrong memory -> hidden confession"));
+  assert.ok(out.includes("best_next_beat: Have Mara pursue expose the forged testimony; collide with Why Marcus protected the fixer"));
   assert.ok(out.includes("rescue_engine_selection:"));
   assert.ok(out.includes("primary_engine: remembered_next_turn"));
   assert.ok(out.includes("pressure_stack: remembered_next_turn -> open_setup -> character_arc_pressure -> act_obligation -> payoff_seed -> image_transformation"));
@@ -868,10 +873,12 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
   assert.ok(out.includes("image_move: Transform blank frame through action"));
   assert.ok(out.includes("selection_rule: choose the option that changes story state fastest"));
   assert.ok(out.includes("Convert it into one decisive playable next beat"));
+  assert.ok(out.includes("Lead with the best_next_beat when it exists"));
   assert.ok(out.indexOf(WRITER_BLOCK_MEMORY_BLOCK_OPEN) < out.indexOf(SCREENPLAY_TASK_BLOCK_OPEN));
 
   const parts = buildModelPromptParts({ sessionContext, screenplayTask: task });
   assert.ok(parts.writerBlockMemoryBlock.includes("character_arc_pressure: Mara still edits pain into control."));
+  assert.ok(parts.writerBlockMemoryBlock.includes("best_next_beat: Have Mara pursue expose the forged testimony"));
   assert.ok(parts.writerBlockMemoryBlock.includes("correction_contract: replace wrong memory -> hidden confession"));
   assert.ok(parts.writerBlockMemoryBlock.includes("primary_engine: remembered_next_turn"));
   assert.ok(parts.writerBlockMemoryBlock.includes("momentum_move_options:"));

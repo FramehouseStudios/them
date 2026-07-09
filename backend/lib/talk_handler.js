@@ -554,6 +554,13 @@ function createTalkHandler(deps) {
       screenplayCharacterArcTurns: mergeTalkMomentumRepairContextList(base.screenplayCharacterArcTurns, memoryProject.characterArcTurns, 6, 180),
       screenplayImageMotifs: mergeTalkMomentumRepairContextList(base.screenplayImageMotifs, memoryProject.imageMotifs, 6, 140),
       screenplayContinuityNotes: mergeTalkMomentumRepairContextList(base.screenplayContinuityNotes, memoryProject.continuityNotes, 8, 220),
+      screenplayCorrectedTerms: mergeTalkMomentumRepairContextList(base.screenplayCorrectedTerms, memoryProject.correctedTerms, 8, 120),
+      screenplayCorrectionReplacements: mergeTalkMomentumRepairContextList(
+        base.screenplayCorrectionReplacements,
+        memoryProject.correctionReplacements,
+        8,
+        160
+      ),
       screenplayEmotionalContinuity: pick(base.screenplayEmotionalContinuity, memoryProject.emotionalContinuity, 280),
       screenplayPageCount: positiveInt(base.screenplayPageCount, memoryProject.pageCount),
       screenplayTargetPages: positiveInt(base.screenplayTargetPages, memoryProject.targetPages),

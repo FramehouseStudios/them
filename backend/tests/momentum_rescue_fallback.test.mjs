@@ -12,18 +12,25 @@ test("[momentum-rescue-fallback] turns Story Spine context into a passing playab
       screenplayAnchorSceneLabel: "Courthouse Hallway",
       screenplayAct: "Act II",
       screenplayFeatureSequence: "Midpoint trap",
-      screenplayCurrentBeat: "Mara realizes the sealed affidavit points at the judge.",
+      screenplayCurrentBeat: "Mara realizes the public affidavit points at the judge.",
+      screenplayProtagonistWant: "expose the forged testimony",
+      screenplayProtagonistNeed: "stop hiding behind observation",
       screenplayActPressureState: "The midpoint must turn private proof into public cost.",
       screenplayCharacterArcState: "Mara still believes control can keep Eli safe.",
+      screenplayCharacterArcTurns: [
+        "Mara: want=expose the forged testimony; need=stop hiding behind observation; false belief=truth destroys anyone who says it aloud",
+      ],
       screenplayNextThreeTurns: [
         "Father names the lie.",
         "Mara chooses public exposure.",
-        "The sealed affidavit becomes dangerous.",
+        "The public affidavit becomes dangerous.",
       ],
-      screenplayUnresolvedSetups: ["sealed affidavit", "missing sketchbook"],
+      screenplayUnresolvedSetups: ["public affidavit", "missing sketchbook"],
       screenplayUnresolvedStoryThreads: ["Why Marcus protected the fixer"],
       screenplayImageMotifs: ["courthouse fluorescents"],
       screenplayCharacterFocus: ["Mara", "Father"],
+      screenplayCorrectedTerms: ["sealed affidavit"],
+      screenplayCorrectionReplacements: ["sealed affidavit -> public affidavit"],
     },
   });
 
@@ -33,14 +40,18 @@ test("[momentum-rescue-fallback] turns Story Spine context into a passing playab
   assert.match(reply, /reversal pressure - make the current tactic appear to work/);
   assert.match(reply, /relationship pressure - make the plot solution damage/);
   assert.match(reply, /Act II rescue lens: make the old tactic fail/);
-  assert.match(reply, /Beat engine: because Mara realizes the sealed affidavit points at the judge/);
+  assert.match(reply, /Memory priority: replace sealed affidavit -> public affidavit; retire sealed affidavit/);
+  assert.match(reply, /Character engine: Mara's want: expose the forged testimony; need: stop hiding behind observation/);
+  assert.match(reply, /Best next beat: have Mara pursue expose the forged testimony; collide with Why Marcus protected the fixer/);
+  assert.match(reply, /Beat engine: because Mara realizes the public affidavit points at the judge/);
   assert.match(reply, /Strongest next move: Father names the lie\./);
   assert.match(reply, /Three clean ways forward:/);
   assert.match(reply, /Option A - pressure engine: Father names the lie\./);
   assert.match(reply, /Option B - exposure engine: make Why Marcus protected the fixer public/);
-  assert.match(reply, /Option C - character engine: make Mara still believes control can keep Eli safe/);
+  assert.match(reply, /Option C - character engine: force Mara's want \(expose the forged testimony\) to collide with their need \(stop hiding behind observation\)/);
+  assert.match(reply, /Correction guard: replace sealed affidavit -> public affidavit; retire sealed affidavit/);
   assert.match(reply, /Pick the one that changes story state fastest/);
-  assert.match(reply, /sealed affidavit/);
+  assert.match(reply, /public affidavit/);
   assert.match(reply, /INT\. COURTHOUSE HALLWAY - NIGHT/);
   assert.match(reply, /\nFATHER\n/);
   assert.match(reply, /\nMARA\n/);

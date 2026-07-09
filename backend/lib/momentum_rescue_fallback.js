@@ -148,6 +148,10 @@ function buildFallbackMomentumMoveMenu({
   actPressure = "",
   characterArc = "",
   featureObligation = "",
+  protagonist = "the protagonist",
+  protagonistWant = "",
+  protagonistNeed = "",
+  correctionSummary = "",
   threads = [],
   setups = [],
   motifs = [],
@@ -161,18 +165,26 @@ function buildFallbackMomentumMoveMenu({
   const setup = normalizeSnippet(setups[0], 140);
   const motif = normalizeSnippet(motifs[0], 120);
   const arc = normalizeSnippet(characterArc || actPressure || featureObligation, 200);
+  const want = normalizeSnippet(protagonistWant, 160);
+  const need = normalizeSnippet(protagonistNeed, 160);
+  const correction = normalizeSnippet(correctionSummary, 180);
   const options = [
     `Option A - pressure engine: ${turn}. Put it in conflict with ${source}, make ${consequence} land, and exit on ${image}.`,
   ];
   if (thread || setup || object) {
     options.push(`Option B - exposure engine: make ${thread || setup || object} public before the protagonist is ready, so the win becomes a trap.`);
   }
-  if (arc) {
+  if (want || need) {
+    options.push(`Option C - character engine: force ${protagonist}'s want (${want || turn}) to collide with their need (${need || arc || "the truth they are avoiding"}).`);
+  } else if (arc) {
     options.push(`Option C - character engine: make ${arc} impossible to avoid; the next plot move should reveal old tactic versus needed change.`);
   } else if (motif) {
     options.push(`Option C - image engine: let ${motif} change meaning through action, not explanation.`);
   } else {
     options.push("Option C - choice engine: close one safe door so the next scene becomes inevitable.");
+  }
+  if (correction) {
+    options.push(`Correction guard: ${correction}. Treat this as canon before older memory.`);
   }
   options.push("Pick the one that changes story state fastest; do not add a brand-new lane unless these engines are truly unavailable.");
   return options;
@@ -197,28 +209,43 @@ function buildMomentumRescueFallbackReply({
   const featureObligation = firstMetaValue(meta, ["screenplayFeatureObligation", "screenplay_feature_obligation"], 240);
   const sceneObjective = firstMetaValue(meta, ["screenplaySceneObjective", "screenplay_scene_objective"], 240);
   const currentBeat = firstMetaValue(meta, ["screenplayCurrentBeat", "screenplay_current_beat"], 240);
+  const protagonistWant = firstMetaValue(meta, ["screenplayProtagonistWant", "screenplay_protagonist_want"], 200);
+  const protagonistNeed = firstMetaValue(meta, ["screenplayProtagonistNeed", "screenplay_protagonist_need"], 200);
   const actPressure = firstMetaValue(meta, ["screenplayActPressureState", "screenplay_act_pressure_state"], 240);
   const characterArc = firstMetaValue(meta, ["screenplayCharacterArcState", "screenplay_character_arc_state"], 240);
   const lastOutcome = firstMetaValue(meta, ["screenplayLastSceneOutcome", "screenplay_last_scene_outcome"], 240);
   const nextScenePlan = firstMetaValue(meta, ["screenplayNextScenePlan", "screenplay_next_scene_plan"], 260);
   const sceneLabel = firstMetaValue(meta, ["screenplayAnchorSceneLabel", "screenplay_anchor_scene_label"], 120);
   const nextTurns = listMetaValue(meta, ["screenplayNextThreeTurns", "screenplay_next_three_turns"], 3, 180);
+  const nextMoves = listMetaValue(meta, ["screenplayNextSceneMoves", "screenplay_next_scene_moves"], 5, 180);
   const setups = listMetaValue(meta, ["screenplayUnresolvedSetups", "screenplay_unresolved_setups"], 4, 160);
   const threads = listMetaValue(meta, ["screenplayUnresolvedStoryThreads", "screenplay_unresolved_story_threads"], 4, 180);
+  const characterArcTurns = listMetaValue(meta, ["screenplayCharacterArcTurns", "screenplay_character_arc_turns"], 4, 180);
+  const actThreePayoffPath = listMetaValue(meta, ["screenplayActThreePayoffPath", "screenplay_act_three_payoff_path"], 4, 180);
   const motifs = listMetaValue(meta, ["screenplayImageMotifs", "screenplay_image_motifs"], 4, 140);
   const characters = listMetaValue(meta, ["screenplayCharacterFocus", "screenplay_character_focus"], 4, 80);
+  const correctedTerms = listMetaValue(meta, ["screenplayCorrectedTerms", "screenplay_corrected_terms", "correctedTerms", "corrected_terms"], 4, 120);
+  const correctionReplacements = listMetaValue(meta, ["screenplayCorrectionReplacements", "screenplay_correction_replacements", "correctionReplacements", "correction_replacements"], 4, 160);
+  const correctionSummary = correctionReplacements.length || correctedTerms.length
+    ? [
+      correctionReplacements.length ? `replace ${correctionReplacements.join(" / ")}` : "",
+      correctedTerms.length ? `retire ${correctedTerms.join(" / ")}` : "",
+    ].filter(Boolean).join("; ")
+    : "";
   const protagonist = characterName(characters[0], "Protagonist");
   const opponent = characterName(characters[1], "Opposition");
   const protagonistCue = characterCue(characters[0], "PROTAGONIST");
   const opponentCue = characterCue(characters[1], "OPPOSITION");
   const objectPressure = articlePhrase(setups[0] || motifs[0], "the proof");
-  const imagePressure = articlePhrase(motifs[0] || setups[0], "the room going still");
-  const strongestTurn = nextTurns[0] || nextScenePlan || sceneObjective ||
+  const imagePressure = articlePhrase(motifs[0] || actThreePayoffPath[0] || setups[0], "the room going still");
+  const strongestTurn = nextTurns[0] || nextMoves[0] || nextScenePlan || sceneObjective ||
     "force the protagonist to choose between the thing they want and the truth they are avoiding";
-  const cost = characterArc || actPressure || featureObligation || threads[0] ||
+  const cost = characterArcTurns[0] || characterArc || protagonistNeed || actPressure || featureObligation || threads[0] ||
     "the choice changes the relationship and makes the next scene unavoidable";
   const problemSource = currentBeat || lastOutcome || sceneObjective || normalizeSnippet(transcript, 180) ||
     "the scene has feeling, but not enough visible consequence yet";
+  const oppositionPressure = threads[0] || setups[0] || actPressure || "a force that can say no";
+  const bestNextBeat = `Best next beat: have ${protagonist} pursue ${protagonistWant || strongestTurn}; collide with ${oppositionPressure}; make the cost ${cost}; exit on ${imagePressure}.`;
   const position = [act, featureSequence].filter(Boolean).join(" / ");
   const heading = sceneHeadingFromLabel(sceneLabel);
   const contextLine = position
@@ -245,8 +272,10 @@ function buildMomentumRescueFallbackReply({
     characterArcState: characterArc,
     problem: diagnosisLine,
     nextThreeTurns: nextTurns,
+    nextSceneMoves: nextMoves,
     unresolvedSetups: setups,
     unresolvedStoryThreads: threads,
+    actThreePayoffPath,
     imageMotifs: motifs,
   });
   const storyMoveLine = storyMoveLines.length
@@ -263,6 +292,10 @@ function buildMomentumRescueFallbackReply({
     actPressure,
     characterArc,
     featureObligation,
+    protagonist,
+    protagonistWant,
+    protagonistNeed,
+    correctionSummary,
     threads,
     setups,
     motifs,
@@ -274,14 +307,22 @@ function buildMomentumRescueFallbackReply({
     actLine,
     `The story already has pressure in this: ${problemSource}.`,
     actPressure ? `Use that pressure instead of opening a new lane: ${actPressure}.` : "",
+    correctionSummary ? `Memory priority: ${correctionSummary}. Apply that before older story memory.` : "",
   ].filter(Boolean).join(" ");
+  const characterLine = protagonistWant || protagonistNeed || characterArcTurns[0]
+    ? `Character engine: ${protagonist}${protagonistWant ? `'s want: ${protagonistWant}` : ""}${protagonistNeed ? `; need: ${protagonistNeed}` : ""}${characterArcTurns[0] ? `. Arc pressure: ${characterArcTurns[0]}` : "."}`
+    : "";
   const turnLine = `Strongest next move: ${strongestTurn}. Make it cost this: ${cost}.`;
   const forkLine = threads[0]
     ? `If you need one alternate fork, pay off the open thread: ${threads[0]}.`
+    : actThreePayoffPath[0]
+      ? `If you need one alternate fork, spend the payoff seed: ${actThreePayoffPath[0]}.`
     : `If you need one alternate fork, make ${objectPressure} expose a secret instead of solving the problem.`;
 
   return [
     pressureLine,
+    characterLine,
+    bestNextBeat,
     beatEngineLine,
     turnLine,
     "Three clean ways forward:",

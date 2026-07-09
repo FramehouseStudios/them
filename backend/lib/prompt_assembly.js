@@ -1269,6 +1269,14 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
     sessionContext.characterArcState ?? sessionContext.character_arc_state,
     280
   );
+  const protagonistWant = trimContextLine(
+    sessionContext.protagonistWant ?? sessionContext.protagonist_want,
+    240
+  );
+  const protagonistNeed = trimContextLine(
+    sessionContext.protagonistNeed ?? sessionContext.protagonist_need,
+    240
+  );
   const nextScenePlan = trimContextLine(
     sessionContext.nextScenePlan ?? sessionContext.next_scene_plan ?? sessionContext.nextPagePlan ?? sessionContext.next_page_plan,
     340
@@ -1287,6 +1295,11 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
     sessionContext.nextSceneMoves ?? sessionContext.next_scene_moves ?? sessionContext.nextPageMoves ?? sessionContext.next_page_moves,
     5,
     180
+  );
+  const characterFocus = sanitizeContextList(
+    sessionContext.characterFocus ?? sessionContext.character_focus ?? sessionContext.characters ?? sessionContext.currentCharacters,
+    8,
+    120
   );
   const unresolvedSetups = sanitizeContextList(
     sessionContext.unresolvedSetups ?? sessionContext.unresolved_setups ?? sessionContext.openLoops ?? sessionContext.open_loops,
@@ -1326,6 +1339,14 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
   push("structural_obligation_due", featureObligation);
   push("act_pressure", actPressureState);
   push("character_arc_pressure", characterArcState || characterArcTurns[0]);
+  push(
+    "character_engine",
+    [
+      characterFocus[0] ? `${characterFocus[0]}` : "",
+      protagonistWant ? `want=${protagonistWant}` : "",
+      protagonistNeed ? `need=${protagonistNeed}` : "",
+    ].filter(Boolean).join("; ")
+  );
   push("strongest_remembered_next_turn", nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan);
   push("open_setup_to_pressure", unresolvedSetups[0]);
   push("unresolved_story_thread", unresolvedStoryThreads[0]);
@@ -1333,6 +1354,16 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
   push("image_to_transform", imageMotifs[0]);
   push("correction_contract", correctionContract?.summary);
   push("feature_memory_brief", featureMemoryBrief);
+
+  const mainCharacter = characterFocus[0] || trimContextLine((characterArcState || characterArcTurns[0]).split(":")[0], 80) || "the protagonist";
+  const primaryPressure = nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan || featureObligation || currentBeat;
+  const oppositionPressure = unresolvedStoryThreads[0] || unresolvedSetups[0] || actPressureState || "a force that can say no";
+  const arcPressure = characterArcTurns[0] || characterArcState || protagonistNeed || protagonistWant || "the old tactic";
+  const exitImage = imageMotifs[0] || actThreePayoffPath[0] || "a changed exit image";
+  const bestNextBeat = primaryPressure
+    ? `Have ${mainCharacter} pursue ${protagonistWant || primaryPressure}; collide with ${oppositionPressure}; make ${arcPressure} cost them; exit on ${exitImage}.`
+    : "";
+  push("best_next_beat", bestNextBeat);
 
   if (!rescueLines.length) return "";
 
@@ -1381,6 +1412,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask) {
     ...moveOptionLines,
     "response_contract:",
     "  - Start from one remembered pressure source: next turn, open setup, character arc pressure, act obligation, or payoff seed.",
+    "  - Lead with the best_next_beat when it exists; use it as Clementine's decisive answer before alternatives.",
     "  - Convert it into one decisive playable next beat with objective, obstacle, tactic shift, cost, and exit image.",
     "  - If alternatives help, give at most two short forks after the strongest move.",
     "  - Keep the writer emotionally safe and keep the story moving.",
