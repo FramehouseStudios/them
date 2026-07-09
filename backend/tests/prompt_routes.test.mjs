@@ -243,7 +243,7 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
     const cases = [
       ["Replace that line with something sharper.", "rewrite_scene", "replace only the requested span"],
       ["Scene doctor this kitchen confrontation and tell me what's not working.", "scene_doctor", "highest-leverage fix"],
-      ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "only playable replacement screenplay text"],
+      ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "rewrite the weakest line silently"],
       ["Help me finish this feature-length screenplay.", "finish_feature", "for planning, orient act/sequence pressure"],
       ["Help me write the whole feature from Act 1 through Act 2 into Act 3.", "finish_feature", "Locate the current act/sequence"],
       ["Help me write act three of my feature screenplay.", "finish_feature", "next three turns"],

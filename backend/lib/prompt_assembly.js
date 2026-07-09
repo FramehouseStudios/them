@@ -71,6 +71,7 @@ const CLEMENTINE_CREATIVE_PACT = [
   "expert page engine: every written scene needs a playable objective, obstacle, escalation, reversal or turn, emotional residue, and an exit image.",
   "scene intelligence: before writing, silently know the scene job, pressure clock, relationship fracture, hidden want, turn, and exit problem.",
   "subtext engine: dialogue should carry tactic, concealment, interruption, pressure, and character-specific rhythm; avoid characters explaining the theme directly.",
+  "self-check loop: silently plan, write, verify against the requested craft bar, then fix the weakest point before final output; never announce the loop.",
   "image system: plant, echo, and transform visual motifs so later payoffs feel earned instead of invented.",
   "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation.",
   "story problem taxonomy: when momentum stalls, diagnose the page-level cause: unclear want, passive protagonist, weak obstacle, missing consequence, repeated tactic, unearned reveal, act-pressure drift, or no exit turn.",
@@ -84,6 +85,21 @@ const CLEMENTINE_CREATIVE_PACT = [
   "speed discipline: when the request asks for pages, output page work immediately; no throat-clearing, long diagnosis, permission loop, or generic writing advice.",
   "feature completion: for whole-movie work, orient the current act/sequence, choose the next structural obligation, and produce pages or a beat chain that advances the ending.",
 ];
+const DIALOGUE_LOOP_INTENTS = Object.freeze([
+  "write_scene",
+  "rewrite_scene",
+  "continue_script",
+  "dialogue_punchup",
+  "finish_feature",
+  "momentum_rescue",
+]);
+const CLEMENTINE_DIALOGUE_LOOP_CONTRACT = Object.freeze([
+  "self_check: before final output, score the exchange for character-specific tactic, subtext, power shift, interruption/behavior, and distinct voice; rewrite the weakest line silently.",
+  "tactic_first: every speaker should enter with a playable tactic, not a topic; each line should pressure, evade, reveal, corner, seduce, deflect, threaten, or force a choice.",
+  "voice_memory: let character want, wound, false belief, current tactic, and relationship pressure shape syntax, silence, rhythm, and what each character refuses to say.",
+  "subtext_rule: do not let characters explain the theme, state feelings plainly, or trade exposition unless another character weaponizes, interrupts, or misuses that information.",
+  "turn_rule: every 3-5 dialogue lines should change leverage, information, relationship, tactic, or emotional cost through behavior or a reversal.",
+]);
 const STORY_MOMENTUM_PLAYBOOK = Object.freeze([
   "diagnose: name the stall as a craft problem, not a personal failure.",
   "find pressure: identify the character's active want, the opposing force, and the consequence if nothing changes.",
@@ -745,6 +761,12 @@ function buildScreenplayTaskBlock(screenplayTask) {
   const featureScope = trimContextLine(task.featureScope ?? task.feature_scope, 80);
   if (featureScope) lines.push(`feature_scope: ${featureScope}`);
   if (requestedAct) lines.push(`requested_act: ${requestedAct}`);
+  if (requestedPages > 0 || DIALOGUE_LOOP_INTENTS.includes(intent)) {
+    lines.push("dialogue_loop:");
+    for (const item of CLEMENTINE_DIALOGUE_LOOP_CONTRACT) {
+      lines.push(`  - ${item}`);
+    }
+  }
   if (requestedPages > 0) {
     lines.push(`requested_page_batch: ${requestedPages}`);
     lines.push("page_batch_contract:");
@@ -810,7 +832,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "continue_script":
       return "Continue directly from the supplied draft excerpt. Begin with the next visible action. Match tone, character voice, pacing, and emotional handoff; do not restart or recap the scene. Silently lock the feature compass before pages: act, sequence, scene job, want/need, open setup, exit turn. If feature_continuity supplies continuation_memory_contract, spend first_turn_to_spend in the first concrete beat or micro-page sample before inventing a new lane. Preserve its concrete nouns as action, tactical dialogue, cost, or exit image. Every few beats should change power, information, relationship, or self-knowledge, and every page should tighten the feature's act pressure.";
     case "dialogue_punchup":
-      return "Keep the exchange actable and character-specific. Prefer subtext, interruption, reversal, and rhythm over clever standalone lines.";
+      return "Keep the exchange actable and character-specific. Give each speaker a private tactic and a pressure target; sharpen subtext, interruption, reversal, behavior, rhythm, and distinct voice. Remove exposition unless it is weaponized or misused on the page.";
     case "scene_doctor":
       return "Diagnose with surgical brevity: what works, what is not landing, the highest-leverage fix, and one concrete page-level move.";
     case "outline_structure":

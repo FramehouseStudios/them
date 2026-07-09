@@ -5122,6 +5122,12 @@ function compactTalkScreenplayQualityCounts(counts = {}) {
     summary_like_action: Math.max(0, Number(counts.summaryLikeAction ?? counts.summary_like_action ?? 0)),
     turn_event_action: Math.max(0, Number(counts.turnEventAction ?? counts.turn_event_action ?? 0)),
     max_dialogue_run: Math.max(0, Number(counts.maxDialogueRun ?? counts.max_dialogue_run ?? 0)),
+    dialogue_tactic_signal: Math.max(0, Number(counts.dialogueTacticSignal ?? counts.dialogue_tactic_signal ?? 0)),
+    dialogue_reversal_signal: Math.max(0, Number(counts.dialogueReversalSignal ?? counts.dialogue_reversal_signal ?? 0)),
+    expository_dialogue: Math.max(0, Number(counts.expositoryDialogue ?? counts.expository_dialogue ?? 0)),
+    generic_dialogue_voice: Math.max(0, Number(counts.genericDialogueVoice ?? counts.generic_dialogue_voice ?? 0)),
+    repeated_dialogue_start: Math.max(0, Number(counts.repeatedDialogueStart ?? counts.repeated_dialogue_start ?? 0)),
+    distinct_dialogue_characters: Math.max(0, Number(counts.distinctDialogueCharacters ?? counts.distinct_dialogue_characters ?? 0)),
   };
 }
 
@@ -5161,6 +5167,18 @@ function buildTalkScreenplayRepairDirectives({
     case "dialogue_tactic_lock":
       directives.push("Break the dialogue run with tactic shifts, interruptions, discoveries, and consequences.");
       directives.push("Do not let characters argue the same point; make each exchange change leverage or force new behavior.");
+      break;
+    case "expository_dialogue_dump":
+      directives.push("Convert exposition into conflict: make information withheld, weaponized, interrupted, misused, or tied to a visible cost.");
+      directives.push("Each character should use the facts for a different tactic instead of explaining backstory.");
+      break;
+    case "interchangeable_dialogue_voice":
+      directives.push("Rewrite the exchange so each character's want, wound, false belief, and current tactic shape syntax, silence, and rhythm.");
+      directives.push("Remove repeated generic line starts; give each speaker a distinct pressure move.");
+      break;
+    case "flat_dialogue_no_tactics":
+      directives.push("Give each speaker a private tactic and a pressure target; every line should push, evade, corner, reveal, or force a choice.");
+      directives.push("Add a reversal, interruption, behavior beat, or cost so the exchange changes leverage.");
       break;
     case "thin_long_page_batch":
       directives.push(`Add concrete page turns: at least ${minimumSpecificActions || 4} specific visible actions or reversals for this requested page batch.`);

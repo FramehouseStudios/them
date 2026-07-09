@@ -116,6 +116,32 @@ const MOMENTUM_GENERIC_ADVICE_PATTERNS = Object.freeze([
   /\btry (?:making|adding|having)\b/i,
 ]);
 const SCENE_TURN_ACTION_PATTERN = /\b(?:blocks?|burns?|breaks?|changes?|chooses?|confesses?|corners?|crosses?|cuts?|discovers?|drops?|exposes?|finds?|folds?|forces?|grabs?|hands?|hides?|locks?|opens?|palms?|pockets?|plants?|pulls?|pushes?|records?|refuses?|replaces?|reveals?|rewinds?|rattles?|signs?|slides?|slips?|steals?|tears?|threads?|turns?|unlocks?|writes?|yanks?)\b/i;
+const DIALOGUE_TACTIC_PATTERN = /\b(?:before|choice|choose|cost|deal|door|except|force|give|hide|if|listen|look|not until|not unless|open|or|proof|read|refuse|sign|show|stop|take|tell|trap|unless|until|watch)\b/i;
+const DIALOGUE_REVERSAL_PATTERN = /^(?:no|not\b|not if|not unless|not until|but|then|except|unless|good|wrong|you said|you told|that is not|that's not|if you|if i)\b/i;
+const DIALOGUE_GENERIC_START_STOPWORDS = Object.freeze(new Set([
+  "about",
+  "again",
+  "because",
+  "before",
+  "going",
+  "have",
+  "just",
+  "know",
+  "like",
+  "mean",
+  "need",
+  "really",
+  "that",
+  "then",
+  "there",
+  "this",
+  "want",
+  "what",
+  "when",
+  "where",
+  "with",
+  "would",
+]));
 
 function qualityTokenSet(value = "") {
   const tokens = String(value || "")
@@ -315,6 +341,65 @@ function isLowSubtextDialogueLine(line = "", element = "dialogue") {
   ].some((pattern) => pattern.test(lower));
 }
 
+function isDialogueTacticLine(line = "", element = "dialogue") {
+  if (normalizeElement(element) !== "dialogue") return false;
+  const lower = canonicalLowerLine(line);
+  if (!lower) return false;
+  return DIALOGUE_TACTIC_PATTERN.test(lower) || DIALOGUE_REVERSAL_PATTERN.test(lower);
+}
+
+function isDialogueReversalLine(line = "", element = "dialogue") {
+  if (normalizeElement(element) !== "dialogue") return false;
+  const lower = canonicalLowerLine(line);
+  return Boolean(lower && DIALOGUE_REVERSAL_PATTERN.test(lower));
+}
+
+function isExpositoryDialogueLine(line = "", element = "dialogue") {
+  if (normalizeElement(element) !== "dialogue") return false;
+  const lower = canonicalLowerLine(line);
+  if (!lower) return false;
+  return [
+    /\bas you know\b/,
+    /\blet me explain\b/,
+    /\bthe reason (?:is|was)\b/,
+    /\bwhat happened (?:is|was)\b/,
+    /\bremember when\b/,
+    /\bback then\b/,
+    /\bwhen we were\b/,
+    /\bi am telling you this because\b/,
+    /\bthis is important because\b/,
+    /\bso the audience\b/,
+  ].some((pattern) => pattern.test(lower));
+}
+
+function isGenericDialogueVoiceLine(line = "", element = "dialogue") {
+  if (normalizeElement(element) !== "dialogue") return false;
+  const lower = canonicalLowerLine(line);
+  if (!lower) return false;
+  if (isLowSubtextDialogueLine(line, element)) return true;
+  return [
+    /^what do you mean\??$/,
+    /^i (?:do not|don't) understand$/,
+    /^that (?:does not|doesn't) make sense$/,
+    /^we have to do something$/,
+    /^this changes everything$/,
+    /^everything is different now$/,
+    /^are you okay\??$/,
+    /^i(?: am|'m) sorry$/,
+    /^okay$/,
+  ].some((pattern) => pattern.test(lower));
+}
+
+function dialogueStartKey(line = "") {
+  const tokens = canonicalLowerLine(line).match(/[a-z0-9'][a-z0-9'-]*/g);
+  if (!Array.isArray(tokens)) return "";
+  const meaningful = tokens.filter((token) => {
+    const clean = token.replace(/^'+|'+$/g, "");
+    return clean.length >= 3 && !DIALOGUE_GENERIC_START_STOPWORDS.has(clean);
+  });
+  return meaningful.length >= 2 ? meaningful.slice(0, 2).join(" ") : "";
+}
+
 function isPlayableActionLine(line = "", element = "action") {
   if (normalizeElement(element) !== "action") return false;
   const text = normalizeLineText(line);
@@ -348,13 +433,22 @@ function summarizeLineCounts(lines = []) {
     summaryLikeAction: 0,
     specificAction: 0,
     turnEventAction: 0,
+    dialogueTacticSignal: 0,
+    dialogueReversalSignal: 0,
+    expositoryDialogue: 0,
+    genericDialogueVoice: 0,
+    repeatedDialogueStart: 0,
+    distinctDialogueCharacters: 0,
     dialogueWords: 0,
     distinctCharacters: 0,
     maxDialogueRun: 0,
     words: 0,
   };
   const characterNames = new Set();
+  const dialogueCharacterNames = new Set();
+  const dialogueStartCounts = new Map();
   let dialogueRun = 0;
+  let currentCharacter = "";
 
   for (const line of Array.isArray(lines) ? lines : []) {
     const text = normalizeLineText(line?.text ?? line);
@@ -366,11 +460,15 @@ function summarizeLineCounts(lines = []) {
     else if (element === "action") counts.action += 1;
     else if (element === "character") {
       counts.character += 1;
-      characterNames.add(canonicalLowerLine(text));
+      currentCharacter = canonicalLowerLine(text);
+      characterNames.add(currentCharacter);
     }
     else if (element === "dialogue") counts.dialogue += 1;
     else if (element === "parenthetical") counts.parenthetical += 1;
     else if (element === "transition") counts.transition += 1;
+    if (!["character", "dialogue", "parenthetical"].includes(element)) {
+      currentCharacter = "";
+    }
     if (isDialogueProtectedElement(element)) {
       dialogueRun += 1;
       counts.maxDialogueRun = Math.max(counts.maxDialogueRun, dialogueRun);
@@ -380,7 +478,16 @@ function summarizeLineCounts(lines = []) {
     if (isPlayableActionLine(text, element)) counts.playableAction += 1;
     if (isLikelyOutlineOrCraftArtifactLine(text, element)) counts.artifact += 1;
     if (isLikelyPlaceholderScreenplayLine(text, element)) counts.placeholder += 1;
-    if (element === "dialogue") counts.dialogueWords += countWords(text);
+    if (element === "dialogue") {
+      counts.dialogueWords += countWords(text);
+      if (currentCharacter) dialogueCharacterNames.add(currentCharacter);
+      if (isDialogueTacticLine(text, element)) counts.dialogueTacticSignal += 1;
+      if (isDialogueReversalLine(text, element)) counts.dialogueReversalSignal += 1;
+      if (isExpositoryDialogueLine(text, element)) counts.expositoryDialogue += 1;
+      if (isGenericDialogueVoiceLine(text, element)) counts.genericDialogueVoice += 1;
+      const startKey = dialogueStartKey(text);
+      if (startKey) dialogueStartCounts.set(startKey, (dialogueStartCounts.get(startKey) || 0) + 1);
+    }
     if (isLowSignalActionLine(text, element)) counts.lowSignalAction += 1;
     if (isLowSubtextDialogueLine(text, element)) counts.lowSubtextDialogue += 1;
     if (isSummaryLikeActionLine(text, element)) counts.summaryLikeAction += 1;
@@ -395,6 +502,9 @@ function summarizeLineCounts(lines = []) {
   }
 
   counts.distinctCharacters = characterNames.size;
+  counts.distinctDialogueCharacters = dialogueCharacterNames.size;
+  counts.repeatedDialogueStart = [...dialogueStartCounts.values()]
+    .reduce((total, count) => total + (count >= 3 ? count - 1 : 0), 0);
   return counts;
 }
 
@@ -1406,6 +1516,28 @@ function evaluateScreenplayPageQuality({
     counts.specificAction < 2
   ) {
     return { ok: false, reason: "static_dialogue_batch", counts };
+  }
+  const dialogueCraftBatch = counts.dialogue >= 6 && counts.distinctDialogueCharacters >= 2;
+  if (
+    dialogueCraftBatch &&
+    counts.expositoryDialogue >= 2 &&
+    counts.dialogueTacticSignal < 3
+  ) {
+    return { ok: false, reason: "expository_dialogue_dump", counts };
+  }
+  if (
+    dialogueCraftBatch &&
+    (counts.genericDialogueVoice >= 4 || counts.repeatedDialogueStart >= 3) &&
+    counts.dialogueTacticSignal < 3
+  ) {
+    return { ok: false, reason: "interchangeable_dialogue_voice", counts };
+  }
+  if (
+    dialogueCraftBatch &&
+    counts.dialogueTacticSignal < 2 &&
+    counts.turnEventAction < 2
+  ) {
+    return { ok: false, reason: "flat_dialogue_no_tactics", counts };
   }
   if (counts.words < minWords) {
     return { ok: false, reason: "underfilled_page_text", counts };

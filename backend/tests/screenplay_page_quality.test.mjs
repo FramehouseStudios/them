@@ -382,6 +382,152 @@ test("[screenplay-page-quality] rejects static dialogue batches without enough p
   assert.equal(quality.reason, "static_dialogue_batch");
 });
 
+test("[screenplay-page-quality] rejects expository dialogue dumps", () => {
+  const dialogue = [
+    "As you know, my father built this court after the marina fire.",
+    "Let me explain why the sealed affidavit matters to the case.",
+    "What happened was the clerk forged the timestamp to protect Marcus.",
+    "Remember when the judge said the docket was clean?",
+    "Back then, everyone believed the hearing was just procedure.",
+    "This is important because the audience needs to know the conspiracy.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      "Mara holds the sealed affidavit between both hands.",
+      "",
+      ...dialogue.flatMap((line, index) => [
+        index % 2 === 0 ? "MARA" : "ELI",
+        line,
+        "",
+      ]),
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: "Mara holds the sealed affidavit between both hands.", element: "action" },
+      ...dialogue.flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+    ],
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "expository_dialogue_dump");
+  assert.equal(quality.counts.expositoryDialogue >= 3, true);
+});
+
+test("[screenplay-page-quality] rejects interchangeable dialogue voice", () => {
+  const dialogue = [
+    "Maybe we can wait for morning.",
+    "Maybe we can call someone.",
+    "Maybe we can check the hallway first.",
+    "Maybe we can stay calm.",
+    "Maybe we can think this through.",
+    "Maybe we can warn the others.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. MOTEL ROOM - NIGHT",
+      "",
+      "Mara sets the folded receipt on the table.",
+      "",
+      ...dialogue.flatMap((line, index) => [
+        index % 2 === 0 ? "MARA" : "ELI",
+        line,
+        "",
+      ]),
+    ].join("\n"),
+    lines: [
+      { text: "INT. MOTEL ROOM - NIGHT", element: "sceneHeading" },
+      { text: "Mara sets the folded receipt on the table.", element: "action" },
+      ...dialogue.flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+    ],
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "interchangeable_dialogue_voice");
+  assert.equal(quality.counts.repeatedDialogueStart >= 3, true);
+});
+
+test("[screenplay-page-quality] rejects flat dialogue without tactics", () => {
+  const dialogue = [
+    "The hallway got quiet after lunch.",
+    "The clerk kept looking at the clock.",
+    "The cameras were gone by three.",
+    "Your sister's name stayed on the list.",
+    "The old file was still on the bench.",
+    "The night felt longer than yesterday.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      "Mara keeps one hand on the evidence folder.",
+      "",
+      ...dialogue.flatMap((line, index) => [
+        index % 2 === 0 ? "MARA" : "ELI",
+        line,
+        "",
+      ]),
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: "Mara keeps one hand on the evidence folder.", element: "action" },
+      ...dialogue.flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+    ],
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "flat_dialogue_no_tactics");
+  assert.equal(quality.counts.dialogueTacticSignal, 0);
+});
+
+test("[screenplay-page-quality] accepts tactical character-specific dialogue", () => {
+  const dialogue = [
+    "They moved the hearing.",
+    "No. They buried it.",
+    "Then stop guarding the shovel.",
+    "If I let go, your sister burns with mine.",
+    "Good. Make the fire public.",
+    "Unless you sign first, they call it grief.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      "Mara palms the marina receipt until the ink splits.",
+      "",
+      ...dialogue.flatMap((line, index) => [
+        index % 2 === 0 ? "MARA" : "ELI",
+        line,
+        "",
+      ]),
+      "Eli pushes the affidavit back across the bench.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: "Mara palms the marina receipt until the ink splits.", element: "action" },
+      ...dialogue.flatMap((line, index) => [
+        { text: index % 2 === 0 ? "MARA" : "ELI", element: "character" },
+        { text: line, element: "dialogue" },
+      ]),
+      { text: "Eli pushes the affidavit back across the bench.", element: "action" },
+    ],
+  });
+
+  assert.equal(quality.ok, true);
+  assert.equal(quality.counts.dialogueTacticSignal >= 4, true);
+  assert.equal(quality.counts.dialogueReversalSignal >= 3, true);
+});
+
 test("[screenplay-page-quality] rejects long page runs with motion but too few scene turns", () => {
   const actions = [
     "Mara studies the courthouse directory under the clock, tracing the same docket number until the ink stains her thumb and the hallway thins around her.",
