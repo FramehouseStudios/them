@@ -115,6 +115,7 @@ const MOMENTUM_GENERIC_ADVICE_PATTERNS = Object.freeze([
   /\bwhat if\b/i,
   /\btry (?:making|adding|having)\b/i,
 ]);
+const SCENE_TURN_ACTION_PATTERN = /\b(?:blocks?|burns?|breaks?|changes?|chooses?|confesses?|corners?|crosses?|cuts?|discovers?|drops?|exposes?|finds?|folds?|forces?|grabs?|hands?|hides?|locks?|opens?|palms?|pockets?|plants?|pulls?|pushes?|records?|refuses?|replaces?|reveals?|rewinds?|rattles?|signs?|slides?|slips?|steals?|tears?|threads?|turns?|unlocks?|writes?|yanks?)\b/i;
 
 function qualityTokenSet(value = "") {
   const tokens = String(value || "")
@@ -266,6 +267,34 @@ function isSummaryLikeActionLine(line = "", element = "action") {
   ].some((pattern) => pattern.test(lower));
 }
 
+function isWeakOpeningActionLine(line = "", element = "action") {
+  if (normalizeElement(element) !== "action") return false;
+  const lower = canonicalLowerLine(line);
+  if (!lower) return false;
+  if (isLowSignalActionLine(line, element) || isSummaryLikeActionLine(line, element)) return true;
+  return [
+    /^the (?:scene|page|moment|sequence) (?:opens|begins|starts)\b/,
+    /^(?:we|the audience) (?:see|watch|follow|find)\b/,
+    /^(?:the )?camera (?:finds|pushes|moves|drifts|glides|tracks)\b/,
+    /^(?:it is|it's|the room is|the space is|the air is|everything is) (?:quiet|silent|tense|dark|moody|still|heavy|awkward|charged)\b/,
+    /^a (?:quiet|silent|tense|dark|moody|lonely|beautiful|empty) (?:room|street|hallway|office|apartment|house|night|morning|space)\b/,
+  ].some((pattern) => pattern.test(lower));
+}
+
+function firstPageOpeningQuality(lines = []) {
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const text = normalizeLineText(line?.text ?? line);
+    if (!text) continue;
+    const element = normalizeElement(line?.element);
+    if (["blank", "sceneHeading", "transition"].includes(element)) continue;
+    if (element === "action" && isWeakOpeningActionLine(text, element)) {
+      return { ok: false, reason: "weak_first_page_opening", text };
+    }
+    return { ok: true, reason: "ok", text, element };
+  }
+  return { ok: true, reason: "empty" };
+}
+
 function isLowSubtextDialogueLine(line = "", element = "dialogue") {
   if (normalizeElement(element) !== "dialogue") return false;
   const lower = canonicalLowerLine(line);
@@ -294,6 +323,14 @@ function isPlayableActionLine(line = "", element = "action") {
   return /[A-Za-z]/.test(text);
 }
 
+function isSceneTurnActionLine(line = "", element = "action") {
+  if (!isPlayableActionLine(line, element)) return false;
+  if (isLowSignalActionLine(line, element) || isSummaryLikeActionLine(line, element)) return false;
+  const text = normalizeLineText(line);
+  if (countWords(text) < 5) return false;
+  return SCENE_TURN_ACTION_PATTERN.test(text);
+}
+
 function summarizeLineCounts(lines = []) {
   const counts = {
     nonEmpty: 0,
@@ -310,6 +347,7 @@ function summarizeLineCounts(lines = []) {
     lowSubtextDialogue: 0,
     summaryLikeAction: 0,
     specificAction: 0,
+    turnEventAction: 0,
     dialogueWords: 0,
     distinctCharacters: 0,
     maxDialogueRun: 0,
@@ -353,6 +391,7 @@ function summarizeLineCounts(lines = []) {
     ) {
       counts.specificAction += 1;
     }
+    if (isSceneTurnActionLine(text, element)) counts.turnEventAction += 1;
   }
 
   counts.distinctCharacters = characterNames.size;
@@ -366,6 +405,12 @@ function minimumExpectedWordsForRequestedPages(requestedPages = 0) {
   if (pages === 3) return 120;
   if (pages === 4) return 170;
   return Math.min(420, 170 + ((pages - 4) * 45));
+}
+
+function minimumSceneTurnsForRequestedPages(requestedPages = 0) {
+  const pages = Math.max(0, Math.min(30, Math.round(Number(requestedPages || 0))));
+  if (pages < 3) return 0;
+  return Math.min(5, Math.max(2, Math.ceil(pages / 2)));
 }
 
 function parseCharacterArcMemoryObject(value) {
@@ -1319,6 +1364,7 @@ function evaluateScreenplayPageQuality({
   const hasSceneShape = counts.sceneHeading > 0 || hasDialogueBlock || counts.transition > 0;
   const hasPlayableContent = counts.playableAction > 0 || hasDialogueBlock;
   const minWords = minimumExpectedWordsForRequestedPages(requestedPages);
+  const minimumSceneTurns = minimumSceneTurnsForRequestedPages(requestedPages);
 
   if (!hasSceneShape && !hasSceneAnchor) {
     return { ok: false, reason: "missing_screenplay_shape", counts };
@@ -1336,6 +1382,10 @@ function evaluateScreenplayPageQuality({
       counts,
       minimumSpecificActions: Math.min(6, Math.max(3, Math.ceil(requestedPages / 2))),
     };
+  }
+  const openingQuality = requestedPages >= 2 ? firstPageOpeningQuality(lines) : { ok: true };
+  if (!openingQuality.ok) {
+    return { ok: false, reason: openingQuality.reason, counts, openingQuality };
   }
   const dialogueHeavyBatch = requestedPages >= 2 && counts.dialogue >= 8;
   const lowSubtextRatio = counts.dialogue > 0
@@ -1369,6 +1419,26 @@ function evaluateScreenplayPageQuality({
       reason: "thin_long_page_batch",
       counts,
       minimumSpecificActions: minimumSpecificActionsForLongBatch,
+    };
+  }
+  if (minimumSceneTurns > 0 && counts.turnEventAction < minimumSceneTurns) {
+    return {
+      ok: false,
+      reason: "thin_scene_turn_batch",
+      counts,
+      minimumSceneTurns,
+    };
+  }
+  if (
+    requestedPages >= 3 &&
+    counts.maxDialogueRun >= 12 &&
+    counts.turnEventAction < 3
+  ) {
+    return {
+      ok: false,
+      reason: "dialogue_tactic_lock",
+      counts,
+      minimumSceneTurns: 3,
     };
   }
   if (

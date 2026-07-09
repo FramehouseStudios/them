@@ -316,6 +316,37 @@ test("[screenplay-page-quality] rejects on-the-nose dialogue-heavy batches", () 
   assert.equal(isLowSubtextDialogueLine("We need to talk.", "dialogue"), true);
 });
 
+test("[screenplay-page-quality] rejects soft first-page openings in requested page batches", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. APARTMENT - NIGHT",
+      "",
+      "The room is quiet and tense.",
+      "",
+      "MARA",
+      "Did you move the file?",
+      "",
+      "ELI",
+      "No.",
+      "",
+      "Mara studies the locked drawer beneath his hand.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. APARTMENT - NIGHT", element: "sceneHeading" },
+      { text: "The room is quiet and tense.", element: "action" },
+      { text: "MARA", element: "character" },
+      { text: "Did you move the file?", element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: "No.", element: "dialogue" },
+      { text: "Mara studies the locked drawer beneath his hand.", element: "action" },
+    ],
+    targetPages: 2,
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "weak_first_page_opening");
+});
+
 test("[screenplay-page-quality] rejects static dialogue batches without enough page turns", () => {
   const dialogue = [
     "The money was supposed to be there before the hearing started, and now every camera in the hallway is pointed at us.",
@@ -349,6 +380,66 @@ test("[screenplay-page-quality] rejects static dialogue batches without enough p
 
   assert.equal(quality.ok, false);
   assert.equal(quality.reason, "static_dialogue_batch");
+});
+
+test("[screenplay-page-quality] rejects long page runs with motion but too few scene turns", () => {
+  const actions = [
+    "Mara studies the courthouse directory under the clock, tracing the same docket number until the ink stains her thumb and the hallway thins around her.",
+    "Eli walks beside the metal detector with his jacket folded over both arms, watching security mirrors catch every reporter near the west doors.",
+    "The clerk copies case numbers into a ledger, slow and careful, while the public benches fill with families pretending not to listen.",
+    "Mara scans the witness list again, keeping her pen against the margin as if the pressure of it can hold the whole day in place.",
+  ];
+  const dialogue = [
+    "The hearing starts in ten.",
+    "Then ten is generous.",
+    "You keep saying that like time is a room we can leave.",
+    "No. I keep saying it because you are still treating the door like a question.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      actions[0],
+      "",
+      "MARA",
+      dialogue[0],
+      "",
+      "ELI",
+      dialogue[1],
+      "",
+      actions[1],
+      "",
+      actions[2],
+      "",
+      "MARA",
+      dialogue[2],
+      "",
+      "ELI",
+      dialogue[3],
+      "",
+      actions[3],
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: actions[0], element: "action" },
+      { text: "MARA", element: "character" },
+      { text: dialogue[0], element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: dialogue[1], element: "dialogue" },
+      { text: actions[1], element: "action" },
+      { text: actions[2], element: "action" },
+      { text: "MARA", element: "character" },
+      { text: dialogue[2], element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: dialogue[3], element: "dialogue" },
+      { text: actions[3], element: "action" },
+    ],
+    targetPages: 3,
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "thin_scene_turn_batch");
+  assert.equal(quality.minimumSceneTurns, 2);
 });
 
 test("[screenplay-page-quality] accepts dialogue batches with concrete turns and subtext", () => {
@@ -428,6 +519,83 @@ test("[screenplay-page-quality] accepts dialogue batches with concrete turns and
 
   assert.equal(quality.ok, true);
   assert.equal(quality.counts.specificAction >= 3, true);
+});
+
+test("[screenplay-page-quality] accepts requested page runs with concrete scene turns", () => {
+  const actions = [
+    "Mara palms the marina receipt, folding it until the ink splits across the judge's signature.",
+    "Eli blocks the elevator with his briefcase before the doors can close on the clerk.",
+    "A bailiff tears the public docket from the wall and replaces it with a blank sheet.",
+    "Mara slides the receipt under the blank sheet, leaving the marina stamp exposed for every reporter, then pushes the blank page toward the cameras before anyone can blink.",
+  ];
+  const dialogue = [
+    "They moved the hearing.",
+    "No. They buried it.",
+    "Then stop guarding the shovel.",
+    "If I let go, your sister burns with mine.",
+    "Good.",
+    "That is not what mercy sounds like.",
+    "No. It is what a witness sounds like.",
+  ];
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      actions[0],
+      "",
+      "MARA",
+      dialogue[0],
+      "",
+      "ELI",
+      dialogue[1],
+      "",
+      actions[1],
+      "",
+      "MARA",
+      dialogue[2],
+      "",
+      "ELI",
+      dialogue[3],
+      "",
+      actions[2],
+      "",
+      "MARA",
+      dialogue[4],
+      "",
+      "ELI",
+      dialogue[5],
+      "",
+      "MARA",
+      dialogue[6],
+      "",
+      actions[3],
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: actions[0], element: "action" },
+      { text: "MARA", element: "character" },
+      { text: dialogue[0], element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: dialogue[1], element: "dialogue" },
+      { text: actions[1], element: "action" },
+      { text: "MARA", element: "character" },
+      { text: dialogue[2], element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: dialogue[3], element: "dialogue" },
+      { text: actions[2], element: "action" },
+      { text: "MARA", element: "character" },
+      { text: dialogue[4], element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: dialogue[5], element: "dialogue" },
+      { text: "MARA", element: "character" },
+      { text: dialogue[6], element: "dialogue" },
+      { text: actions[3], element: "action" },
+    ],
+    targetPages: 3,
+  });
+
+  assert.equal(quality.ok, true);
+  assert.equal(quality.counts.turnEventAction >= 2, true);
 });
 
 test("[screenplay-page-quality] rejects Act I pages that dodge supplied commitment pressure", () => {

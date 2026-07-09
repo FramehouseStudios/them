@@ -5120,6 +5120,8 @@ function compactTalkScreenplayQualityCounts(counts = {}) {
     low_signal_action: Math.max(0, Number(counts.lowSignalAction ?? counts.low_signal_action ?? 0)),
     low_subtext_dialogue: Math.max(0, Number(counts.lowSubtextDialogue ?? counts.low_subtext_dialogue ?? 0)),
     summary_like_action: Math.max(0, Number(counts.summaryLikeAction ?? counts.summary_like_action ?? 0)),
+    turn_event_action: Math.max(0, Number(counts.turnEventAction ?? counts.turn_event_action ?? 0)),
+    max_dialogue_run: Math.max(0, Number(counts.maxDialogueRun ?? counts.max_dialogue_run ?? 0)),
   };
 }
 
@@ -5137,12 +5139,28 @@ function buildTalkScreenplayRepairDirectives({
     0,
     Number(quality?.minimumSpecificActions ?? authority?.quality?.minimumSpecificActions ?? 0)
   );
+  const minimumSceneTurns = Math.max(
+    0,
+    Number(quality?.minimumSceneTurns ?? authority?.quality?.minimumSceneTurns ?? 0)
+  );
   const directives = [];
   switch (normalizedReason) {
+    case "weak_first_page_opening":
+      directives.push("Start the page run with a concrete pressure image or action that changes story state; avoid soft camera/setup prose.");
+      directives.push("Make the first beat carry objective, obstacle, or emotional cost before any atmosphere.");
+      break;
     case "summary_like_page_batch":
       directives.push("Replace synopsis/overview language with playable Fountain pages: slugline, action, character cues, dialogue, and visible scene turns.");
       directives.push("Do not say what the scene shows, follows, establishes, or pays off; dramatize those facts as behavior and consequence.");
       directives.push("Every 1-2 pages must change leverage, information, relationship, tactic, or emotional cost.");
+      break;
+    case "thin_scene_turn_batch":
+      directives.push(`Add visible scene turns: at least ${minimumSceneTurns || 2} concrete reversals, discoveries, blocked choices, costs, or power shifts.`);
+      directives.push("Each turn should change leverage, information, relationship, tactic, or emotional cost on the page.");
+      break;
+    case "dialogue_tactic_lock":
+      directives.push("Break the dialogue run with tactic shifts, interruptions, discoveries, and consequences.");
+      directives.push("Do not let characters argue the same point; make each exchange change leverage or force new behavior.");
       break;
     case "thin_long_page_batch":
       directives.push(`Add concrete page turns: at least ${minimumSpecificActions || 4} specific visible actions or reversals for this requested page batch.`);
@@ -5240,6 +5258,10 @@ function buildTalkScreenplayQualityEnvelope({
     0,
     Number(quality?.minimumSpecificActions ?? authority?.quality?.minimumSpecificActions ?? 0)
   );
+  const minimumSceneTurns = Math.max(
+    0,
+    Number(quality?.minimumSceneTurns ?? authority?.quality?.minimumSceneTurns ?? 0)
+  );
   const repairDirectives = ok
     ? []
     : normalizeScreenplayStringList(
@@ -5268,6 +5290,7 @@ function buildTalkScreenplayQualityEnvelope({
       : [],
     counts,
     minimum_specific_actions: minimumSpecificActions || null,
+    minimum_scene_turns: minimumSceneTurns || null,
     repair_directives: resolvedRepairDirectives,
   };
 }
