@@ -9627,6 +9627,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         actPressureState: String,
         characterArcState: String,
         characterArcMemory: BackendScreenplayCharacterArcMemory?,
+        characterVoiceMemories: [BackendScreenplayCharacterVoiceMemory],
         lastSceneOutcome: String,
         beatSequence: [String],
         characterFocus: [String],
@@ -9986,6 +9987,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             currentTactic: promptCurrentBeat.isEmpty ? promptSceneObjective : promptCurrentBeat,
             nextEmotionalTurn: promptCharacterArcTurns.first ?? promptNextThreeTurns.first ?? promptNextScenePlan
         )
+        let promptCharacterVoiceMemories = screenplayDraftBridge.screenplayCharacterVoiceMemories(
+            matching: characterFocus
+        )
 
         return (
             act: promptAct,
@@ -10008,6 +10012,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             actPressureState: promptActPressureState,
             characterArcState: promptCharacterArcState,
             characterArcMemory: promptCharacterArcMemory.isMeaningful ? promptCharacterArcMemory : nil,
+            characterVoiceMemories: promptCharacterVoiceMemories,
             lastSceneOutcome: promptLastSceneOutcome,
             beatSequence: promptBeatSequence,
             characterFocus: characterFocus,
@@ -10860,6 +10865,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayActPressureState: promptContinuity.actPressureState,
             screenplayCharacterArcState: promptContinuity.characterArcState,
             screenplayCharacterArcMemory: promptContinuity.characterArcMemory,
+            screenplayCharacterVoiceMemories: promptContinuity.characterVoiceMemories,
             screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
             screenplayNextScenePlan: promptContinuity.nextScenePlan,
             screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
@@ -10938,6 +10944,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayActPressureState: promptContinuity.actPressureState,
             screenplayCharacterArcState: promptContinuity.characterArcState,
             screenplayCharacterArcMemory: promptContinuity.characterArcMemory,
+            screenplayCharacterVoiceMemories: promptContinuity.characterVoiceMemories,
             screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
             screenplayNextScenePlan: promptContinuity.nextScenePlan,
             screenplayNextSceneMoves: promptContinuity.nextSceneMoves,
@@ -11101,6 +11108,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             screenplayActPressureState: promptContinuity.actPressureState,
             screenplayCharacterArcState: promptContinuity.characterArcState,
             screenplayCharacterArcMemory: promptContinuity.characterArcMemory,
+            screenplayCharacterVoiceMemories: promptContinuity.characterVoiceMemories,
             screenplayLastSceneOutcome: promptContinuity.lastSceneOutcome,
             screenplayNextScenePlan: promptContinuity.nextScenePlan,
             screenplayNextSceneMoves: promptContinuity.nextSceneMoves,

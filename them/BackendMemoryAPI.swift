@@ -817,6 +817,106 @@ nonisolated struct BackendScreenplayCharacterArcMemory: Codable, Hashable {
     }
 }
 
+nonisolated struct BackendScreenplayCharacterVoiceFingerprint: Codable, Hashable {
+    let tactics: [String]
+    let silence: String
+    let emotionalTells: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case tactics
+        case silence
+        case emotionalTells = "emotional_tells"
+    }
+
+    init(
+        tactics: [String] = [],
+        silence: String = "",
+        emotionalTells: [String] = []
+    ) {
+        self.tactics = Self.cleanList(tactics, maxItems: 6, itemLimit: 80)
+        self.silence = Self.clean(silence, limit: 120)
+        self.emotionalTells = Self.cleanList(emotionalTells, maxItems: 6, itemLimit: 100)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            tactics: try container.decodeIfPresent([String].self, forKey: .tactics) ?? [],
+            silence: try container.decodeIfPresent(String.self, forKey: .silence) ?? "",
+            emotionalTells: try container.decodeIfPresent([String].self, forKey: .emotionalTells) ?? []
+        )
+    }
+
+    var isMeaningful: Bool {
+        !tactics.isEmpty ||
+        !silence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !emotionalTells.isEmpty
+    }
+
+    var payload: [String: Any] {
+        var out: [String: Any] = [:]
+        if !tactics.isEmpty { out["tactics"] = tactics }
+        if !silence.isEmpty { out["silence"] = silence }
+        if !emotionalTells.isEmpty { out["emotional_tells"] = emotionalTells }
+        return out
+    }
+
+    private static func cleanList(_ values: [String], maxItems: Int, itemLimit: Int) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in values {
+            let compact = clean(value, limit: itemLimit)
+            guard !compact.isEmpty else { continue }
+            let key = compact.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            out.append(compact)
+            if out.count >= maxItems { break }
+        }
+        return out
+    }
+
+    private static func clean(_ value: String, limit: Int) -> String {
+        let compact = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return String(compact.prefix(max(0, limit)))
+    }
+}
+
+nonisolated struct BackendScreenplayCharacterVoiceMemory: Codable, Hashable {
+    let character: String
+    let voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint
+
+    enum CodingKeys: String, CodingKey {
+        case character
+        case voiceFingerprint = "voice_fingerprint"
+    }
+
+    init(
+        character: String,
+        voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint
+    ) {
+        self.character = character
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .prefix(80)
+            .description
+        self.voiceFingerprint = voiceFingerprint
+    }
+
+    var isMeaningful: Bool {
+        !character.isEmpty && voiceFingerprint.isMeaningful
+    }
+
+    var payload: [String: Any] {
+        guard isMeaningful else { return [:] }
+        return [
+            "character": character,
+            "voice_fingerprint": voiceFingerprint.payload,
+        ]
+    }
+}
+
 nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     let screenplayProjectId: String
     let screenplayDocumentRevisionId: String
@@ -855,6 +955,7 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     var screenplayActPressureState: String = ""
     var screenplayCharacterArcState: String = ""
     var screenplayCharacterArcMemory: BackendScreenplayCharacterArcMemory? = nil
+    var screenplayCharacterVoiceMemories: [BackendScreenplayCharacterVoiceMemory] = []
     var screenplayLastSceneOutcome: String = ""
     var screenplayNextScenePlan: String = ""
     var screenplayNextSceneMoves: [String] = []
@@ -909,6 +1010,7 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
         !screenplayActPressureState.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayCharacterArcState.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         screenplayCharacterArcMemory?.isMeaningful == true ||
+        screenplayCharacterVoiceMemories.contains(where: \.isMeaningful) ||
         !screenplayLastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayNextScenePlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !screenplayNextSceneMoves.isEmpty ||
@@ -3306,6 +3408,12 @@ actor BackendMemoryAPI {
             payload[key] = value
         }
 
+        func appendDictionaries(_ key: String, _ values: [[String: Any]], maxItems: Int = 8) {
+            let cleanValues = values.filter { !$0.isEmpty }.prefix(maxItems)
+            guard !cleanValues.isEmpty else { return }
+            payload[key] = Array(cleanValues)
+        }
+
         appendString("screenplay_project_id", studioMetadata.screenplayProjectId, limit: 96)
         appendString("screenplay_document_revision_id", studioMetadata.screenplayDocumentRevisionId, limit: 96)
         appendString("screenplay_target", studioMetadata.screenplayTarget, limit: 80)
@@ -3343,6 +3451,10 @@ actor BackendMemoryAPI {
         appendString("screenplay_act_pressure_state", studioMetadata.screenplayActPressureState, limit: 280)
         appendString("screenplay_character_arc_state", studioMetadata.screenplayCharacterArcState, limit: 280)
         appendDictionary("screenplay_character_arc_memory", studioMetadata.screenplayCharacterArcMemory?.payload ?? [:])
+        appendDictionaries(
+            "screenplay_character_voice_memories",
+            studioMetadata.screenplayCharacterVoiceMemories.map(\.payload)
+        )
         appendString("screenplay_last_scene_outcome", studioMetadata.screenplayLastSceneOutcome, limit: 240)
         appendString("screenplay_next_scene_plan", studioMetadata.screenplayNextScenePlan, limit: 340)
         appendStrings("screenplay_next_scene_moves", studioMetadata.screenplayNextSceneMoves, maxItems: 5, limit: 180)

@@ -3709,6 +3709,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         do {
             let response = try await craftClient.fetchMemoryCharacterTraits()
             characterTraits = response
+            ScreenplayLiveDraftBridge.shared.updateCharacterVoiceMemories(from: response)
             characterArchetypes = try? await craftClient.fetchMemoryCharacterArchetypes()
             characterTraitsErrorText = ""
             characterTraitsInfoText = source
@@ -6263,9 +6264,9 @@ Replace is best when this file should become the script you edit. Append is safe
                 _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 await restoreStudioWorkspaceAfterProjectHydration()
                 await vm.refreshScreenplayExportFormatsAutomatically()
+                await vm.refreshCharacterTraits(source: "Studio open")
                 if directionOneRightPanelTab == .them {
                     await vm.refreshBlockSignal(source: "Studio open")
-                    await vm.refreshCharacterTraits(source: "Studio open")
                     await vm.refreshCraftTwists(source: "Studio open")
                     await vm.refreshAcceptedCraftTwists(source: "Studio open")
                 }

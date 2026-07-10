@@ -2658,6 +2658,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
     @Published private(set) var draftOrigin: ScreenplayLiveDraftOriginSnapshot = .empty
     @Published var featureSpine: ScreenplayFeatureSpine = .empty
+    @Published private(set) var characterVoiceMemories: [BackendScreenplayCharacterVoiceMemory] = []
     @Published var latestStudioRouteTarget: ScreenplayStudioUserPrompt.Target = .voicePin {
         didSet {
             persistStudioRoutingDebugMirror()
@@ -5972,6 +5973,64 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         refreshProjectBindingSnapshot()
         reconcileFeatureWorkflowContextWithActiveProject()
+    }
+
+    func updateCharacterVoiceMemories(from response: BackendCharacterTraitsResponse) {
+        var seen = Set<String>()
+        var memories: [BackendScreenplayCharacterVoiceMemory] = []
+        for record in response.characters {
+            let character = record.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !character.isEmpty,
+                  let traits = record.traits,
+                  traits.voiceFingerprint.isMeaningful else { continue }
+            let key = Self.normalizedVoiceCharacterKey(character)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            memories.append(
+                BackendScreenplayCharacterVoiceMemory(
+                    character: character,
+                    voiceFingerprint: traits.voiceFingerprint
+                )
+            )
+            if memories.count >= 24 { break }
+        }
+        characterVoiceMemories = memories
+    }
+
+    func screenplayCharacterVoiceMemories(
+        matching characterNames: [String],
+        limit: Int = 8
+    ) -> [BackendScreenplayCharacterVoiceMemory] {
+        let safeLimit = max(1, min(8, limit))
+        let memories = characterVoiceMemories.filter(\.isMeaningful)
+        guard !memories.isEmpty else { return [] }
+
+        var memoriesByCharacter: [String: BackendScreenplayCharacterVoiceMemory] = [:]
+        for memory in memories {
+            let key = Self.normalizedVoiceCharacterKey(memory.character)
+            if !key.isEmpty, memoriesByCharacter[key] == nil {
+                memoriesByCharacter[key] = memory
+            }
+        }
+
+        var selected: [BackendScreenplayCharacterVoiceMemory] = []
+        var selectedKeys = Set<String>()
+        for characterName in characterNames {
+            let key = Self.normalizedVoiceCharacterKey(characterName)
+            guard !key.isEmpty,
+                  selectedKeys.insert(key).inserted,
+                  let memory = memoriesByCharacter[key] else { continue }
+            selected.append(memory)
+            if selected.count >= safeLimit { return selected }
+        }
+        return selected.isEmpty ? Array(memories.prefix(safeLimit)) : selected
+    }
+
+    private static func normalizedVoiceCharacterKey(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s*\([^)]*\)\s*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .lowercased()
     }
 
     func recordStudioUserPrompt(

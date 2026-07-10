@@ -116,6 +116,50 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertTrue(metadata.isMeaningful)
     }
 
+    func testScreenplayCharacterVoiceMemoryPayloadUsesBackendContractKeys() throws {
+        let voiceMemory = BackendScreenplayCharacterVoiceMemory(
+            character: "Mara",
+            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                tactics: ["refuses first", "weaponizes facts"],
+                silence: "cuts lines short and lets silence carry threat",
+                emotionalTells: ["family pressure slips out"]
+            )
+        )
+
+        XCTAssertTrue(voiceMemory.isMeaningful)
+        XCTAssertEqual(voiceMemory.payload["character"] as? String, "Mara")
+        let fingerprint = try XCTUnwrap(voiceMemory.payload["voice_fingerprint"] as? [String: Any])
+        XCTAssertEqual(fingerprint["tactics"] as? [String], ["refuses first", "weaponizes facts"])
+        XCTAssertEqual(fingerprint["silence"] as? String, "cuts lines short and lets silence carry threat")
+        XCTAssertEqual(fingerprint["emotional_tells"] as? [String], ["family pressure slips out"])
+
+        let metadata = BackendStudioThreadCommitMetadata(
+            screenplayProjectId: "",
+            screenplayDocumentRevisionId: "",
+            screenplayTarget: "",
+            screenplayPromptSource: "",
+            screenplayWriteId: "",
+            screenplayAnchorLine: nil,
+            screenplayAnchorEndLine: nil,
+            screenplayInsertionMode: "",
+            screenplayAnchorSceneLabel: "",
+            screenplayAnchorDraftSceneId: "",
+            screenplayAnchorOutlineSceneId: "",
+            screenplayAnchorOutlineBeatIds: [],
+            screenplayAnchorScriptNodeId: "",
+            screenplayNoteTitle: "",
+            screenplayNoteBody: "",
+            screenplayInsertedText: "",
+            screenplayReplacementApplied: false,
+            screenplayReplacedWriteId: "",
+            screenplayRevisedBlockText: "",
+            screenplayResolvedAnchorExcerpt: "",
+            screenplayCharacterVoiceMemories: [voiceMemory]
+        )
+
+        XCTAssertTrue(metadata.isMeaningful)
+    }
+
     func testStudioRenderSendsScreenplayCharacterArcMemory() async throws {
         let recorder = CraftRequestRecorder()
         let client = makeClient(recorder: recorder) { request in
@@ -138,6 +182,14 @@ final class BackendClientCraftAPITests: XCTestCase {
             currentTactic: "collecting evidence in silence",
             nextEmotionalTurn: "public courage"
         )
+        let voiceMemory = BackendScreenplayCharacterVoiceMemory(
+            character: "Mara",
+            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                tactics: ["refuses first", "weaponizes facts"],
+                silence: "cuts lines short and lets silence carry threat",
+                emotionalTells: ["family pressure slips out"]
+            )
+        )
         let metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: "project-1",
             screenplayDocumentRevisionId: "version-1",
@@ -159,7 +211,8 @@ final class BackendClientCraftAPITests: XCTestCase {
             screenplayReplacedWriteId: "",
             screenplayRevisedBlockText: "",
             screenplayResolvedAnchorExcerpt: "",
-            screenplayCharacterArcMemory: arc
+            screenplayCharacterArcMemory: arc,
+            screenplayCharacterVoiceMemories: [voiceMemory]
         )
 
         let reply = try await client.renderRealtimeStudioText(
@@ -178,6 +231,14 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(arcBody["need"] as? String, "stop hiding behind observation")
         XCTAssertEqual(arcBody["current_tactic"] as? String, "collecting evidence in silence")
         XCTAssertEqual(arcBody["next_emotional_turn"] as? String, "public courage")
+        let voiceBodies = try XCTUnwrap(
+            renderRequest.bodyObject?["screenplay_character_voice_memories"] as? [[String: Any]]
+        )
+        XCTAssertEqual(voiceBodies.count, 1)
+        XCTAssertEqual(voiceBodies.first?["character"] as? String, "Mara")
+        let voiceBody = try XCTUnwrap(voiceBodies.first?["voice_fingerprint"] as? [String: Any])
+        XCTAssertEqual(voiceBody["tactics"] as? [String], ["refuses first", "weaponizes facts"])
+        XCTAssertEqual(voiceBody["emotional_tells"] as? [String], ["family pressure slips out"])
     }
 
     func testTalkTurnRateLimitNoticeParsesRetryAfterMsAndBannerCopy() throws {

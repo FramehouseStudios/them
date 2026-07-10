@@ -453,7 +453,12 @@ final class ScreenplayCraftModelsTests: XCTestCase {
                 "speech_style": { "pace": "terse", "syntax": "fragmented" },
                 "emotional_default": "guarded",
                 "goals": ["Protect Leo"],
-                "relationships": { "LEO": "estranged brother" }
+                "relationships": { "LEO": "estranged brother" },
+                "voice_fingerprint": {
+                  "tactics": ["refuses first", "weaponizes facts"],
+                  "silence": "cuts lines short",
+                  "emotional_tells": ["family pressure slips out"]
+                }
               }
             },
             { "name": "LEO", "traits": null }
@@ -465,6 +470,9 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(response.characters.count, 2)
         XCTAssertEqual(response.characters.first?.traits?.keywords, ["guarded", "wry"])
         XCTAssertEqual(response.characters.first?.traits?.speechStyle.syntax, "fragmented")
+        XCTAssertEqual(response.characters.first?.traits?.voiceFingerprint.tactics, ["refuses first", "weaponizes facts"])
+        XCTAssertEqual(response.characters.first?.traits?.voiceFingerprint.silence, "cuts lines short")
+        XCTAssertEqual(response.characters.first?.traits?.voiceFingerprint.emotionalTells, ["family pressure slips out"])
         XCTAssertEqual(response.characters.last?.traits, nil)
     }
 

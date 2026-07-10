@@ -424,6 +424,7 @@ struct BackendCharacterTraits: Codable, Equatable {
     let emotionalDefault: String
     let goals: [String]
     let relationships: [String: String]
+    let voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint
 
     enum CodingKeys: String, CodingKey {
         case vocabulary
@@ -432,6 +433,7 @@ struct BackendCharacterTraits: Codable, Equatable {
         case emotionalDefault = "emotional_default"
         case goals
         case relationships
+        case voiceFingerprint = "voice_fingerprint"
     }
 
     init(
@@ -440,7 +442,8 @@ struct BackendCharacterTraits: Codable, Equatable {
         speechStyle: BackendCharacterSpeechStyle = BackendCharacterSpeechStyle(),
         emotionalDefault: String = "",
         goals: [String] = [],
-        relationships: [String: String] = [:]
+        relationships: [String: String] = [:],
+        voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint = BackendScreenplayCharacterVoiceFingerprint()
     ) {
         self.vocabulary = vocabulary
         self.keywords = keywords
@@ -448,6 +451,7 @@ struct BackendCharacterTraits: Codable, Equatable {
         self.emotionalDefault = emotionalDefault
         self.goals = goals
         self.relationships = relationships
+        self.voiceFingerprint = voiceFingerprint
     }
 
     init(from decoder: Decoder) throws {
@@ -458,6 +462,7 @@ struct BackendCharacterTraits: Codable, Equatable {
         emotionalDefault = (try container.decodeIfPresent(String.self, forKey: .emotionalDefault)) ?? ""
         goals = (try container.decodeIfPresent([String].self, forKey: .goals)) ?? []
         relationships = (try container.decodeIfPresent([String: String].self, forKey: .relationships)) ?? [:]
+        voiceFingerprint = (try container.decodeIfPresent(BackendScreenplayCharacterVoiceFingerprint.self, forKey: .voiceFingerprint)) ?? BackendScreenplayCharacterVoiceFingerprint()
     }
 
     var hasContent: Bool {
@@ -467,7 +472,8 @@ struct BackendCharacterTraits: Codable, Equatable {
         !speechStyle.syntax.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !emotionalDefault.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !goals.isEmpty ||
-        !relationships.isEmpty
+        !relationships.isEmpty ||
+        voiceFingerprint.isMeaningful
     }
 }
 
@@ -2129,6 +2135,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -2171,6 +2178,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -2222,6 +2230,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -2263,6 +2272,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -2853,6 +2863,13 @@ final class BackendClient {
            !arcMemory.isEmpty {
             body["screenplay_character_arc_memory"] = arcMemory
         }
+        let characterVoiceMemories = studioMetadata?.screenplayCharacterVoiceMemories
+            .filter(\.isMeaningful)
+            .prefix(8)
+            .map(\.payload) ?? []
+        if !characterVoiceMemories.isEmpty {
+            body["screenplay_character_voice_memories"] = characterVoiceMemories
+        }
         let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
         func performRequest(
@@ -2971,6 +2988,13 @@ final class BackendClient {
         if let arcMemory = studioMetadata?.screenplayCharacterArcMemory?.payload,
            !arcMemory.isEmpty {
             body["screenplay_character_arc_memory"] = arcMemory
+        }
+        let characterVoiceMemories = studioMetadata?.screenplayCharacterVoiceMemories
+            .filter(\.isMeaningful)
+            .prefix(8)
+            .map(\.payload) ?? []
+        if !characterVoiceMemories.isEmpty {
+            body["screenplay_character_voice_memories"] = characterVoiceMemories
         }
         let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
@@ -3592,6 +3616,18 @@ final class BackendClient {
                 body.appendString("\r\n")
             }
 
+            func appendStudioDictionariesField(_ name: String, _ values: [[String: Any]]) {
+                let cleanValues = Array(values.filter { !$0.isEmpty }.prefix(8))
+                guard !cleanValues.isEmpty,
+                      JSONSerialization.isValidJSONObject(cleanValues),
+                      let data = try? JSONSerialization.data(withJSONObject: cleanValues, options: []),
+                      let json = String(data: data, encoding: .utf8) else { return }
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+                body.appendString(json)
+                body.appendString("\r\n")
+            }
+
             let projectId = studioMetadata.screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !projectId.isEmpty {
                 body.appendString("--\(boundary)\r\n")
@@ -3740,6 +3776,10 @@ final class BackendClient {
             appendStudioDictionaryField(
                 "screenplay_character_arc_memory",
                 studioMetadata.screenplayCharacterArcMemory?.payload ?? [:]
+            )
+            appendStudioDictionariesField(
+                "screenplay_character_voice_memories",
+                studioMetadata.screenplayCharacterVoiceMemories.map(\.payload)
             )
             appendStudioField("screenplay_last_scene_outcome", studioMetadata.screenplayLastSceneOutcome, limit: 240)
             appendStudioField("screenplay_next_scene_plan", studioMetadata.screenplayNextScenePlan, limit: 340)
