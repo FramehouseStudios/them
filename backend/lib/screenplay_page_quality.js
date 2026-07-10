@@ -400,6 +400,228 @@ function dialogueStartKey(line = "") {
   return meaningful.length >= 2 ? meaningful.slice(0, 2).join(" ") : "";
 }
 
+function normalizeCharacterCueKey(value = "") {
+  return canonicalLowerLine(value)
+    .replace(/\s*\([^)]*\)\s*$/g, "")
+    .replace(/\bcont'?d\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function collectDialogueByCharacter(lines = []) {
+  const byCharacter = new Map();
+  let currentCharacter = "";
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const text = normalizeLineText(line?.text ?? line);
+    if (!text) continue;
+    const element = normalizeElement(line?.element);
+    if (element === "character") {
+      currentCharacter = normalizeCharacterCueKey(text);
+      if (currentCharacter && !byCharacter.has(currentCharacter)) byCharacter.set(currentCharacter, []);
+      continue;
+    }
+    if (element === "dialogue" && currentCharacter) {
+      byCharacter.get(currentCharacter)?.push(text);
+      continue;
+    }
+    if (!["dialogue", "parenthetical"].includes(element)) currentCharacter = "";
+  }
+  return byCharacter;
+}
+
+function voiceFingerprintSource(source = null) {
+  if (!source || typeof source !== "object") return null;
+  if (source.voice_fingerprint && typeof source.voice_fingerprint === "object") return source.voice_fingerprint;
+  if (source.voiceFingerprint && typeof source.voiceFingerprint === "object") return source.voiceFingerprint;
+  if (source.traits && typeof source.traits === "object") return voiceFingerprintSource(source.traits);
+  return source;
+}
+
+function normalizeCharacterVoiceMemoryItem(value = null) {
+  if (!value) return null;
+  let source = value;
+  if (typeof source === "string") {
+    const raw = source.trim();
+    if (!raw) return null;
+    if (raw.startsWith("{")) {
+      try {
+        source = JSON.parse(raw);
+      } catch (_err) {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+  const character = normalizeLineText(
+    source.character ?? source.characterName ?? source.character_name ?? source.name ?? ""
+  ).slice(0, 80);
+  const fingerprint = voiceFingerprintSource(source);
+  const tactics = sanitizeQualityList(
+    fingerprint?.tactics ?? fingerprint?.dialogueTactics ?? fingerprint?.dialogue_tactics,
+    6,
+    80
+  );
+  const silence = normalizeLineText(
+    fingerprint?.silence ?? fingerprint?.silencePattern ?? fingerprint?.silence_pattern ?? ""
+  ).slice(0, 120);
+  const emotionalTells = sanitizeQualityList(
+    fingerprint?.emotional_tells ?? fingerprint?.emotionalTells ?? fingerprint?.tells,
+    6,
+    100
+  );
+  if (!character || (!tactics.length && !silence && !emotionalTells.length)) return null;
+  return { character, tactics, silence, emotionalTells };
+}
+
+function normalizeCharacterVoiceMemories(featureContext = null) {
+  if (!featureContext || typeof featureContext !== "object") return [];
+  const source =
+    featureContext.characterVoiceMemories ??
+    featureContext.character_voice_memories ??
+    featureContext.screenplayCharacterVoiceMemories ??
+    featureContext.screenplay_character_voice_memories ??
+    featureContext.characterVoiceMemory ??
+    featureContext.character_voice_memory ??
+    featureContext.screenplayCharacterVoiceMemory ??
+    featureContext.screenplay_character_voice_memory ??
+    null;
+  if (!source) return [];
+  if (typeof source === "string") {
+    const raw = source.trim();
+    if (!raw) return [];
+    if (raw.startsWith("[") || raw.startsWith("{")) {
+      try {
+        return normalizeCharacterVoiceMemories({
+          characterVoiceMemories: JSON.parse(raw),
+        });
+      } catch (_err) {
+        const item = normalizeCharacterVoiceMemoryItem(raw);
+        return item ? [item] : [];
+      }
+    }
+    return [];
+  }
+  const rawItems = Array.isArray(source) ? source : [source];
+  const out = [];
+  const seen = new Set();
+  for (const item of rawItems) {
+    const clean = normalizeCharacterVoiceMemoryItem(item);
+    if (!clean) continue;
+    const key = [
+      normalizeCharacterCueKey(clean.character),
+      clean.tactics.join(","),
+      clean.silence,
+      clean.emotionalTells.join(","),
+    ].join("|").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+function voiceTacticMatchesDialogue(tactic = "", dialogue = "") {
+  const lowerTactic = canonicalLowerLine(tactic);
+  const lowerDialogue = canonicalLowerLine(dialogue);
+  if (!lowerTactic || !lowerDialogue) return false;
+  if (lowerTactic.includes("refus")) return /^(?:no|not\b|never\b|not until|not unless)\b/.test(lowerDialogue);
+  if (lowerTactic.includes("conditional")) return /\b(?:if|unless|until|or)\b/.test(lowerDialogue);
+  if (lowerTactic.includes("question")) return /\?$/.test(normalizeLineText(dialogue));
+  if (lowerTactic.includes("command")) return /^(?:look|listen|stop|take|give|tell|show|read|open|sign|wait)\b/.test(lowerDialogue);
+  if (lowerTactic.includes("irony") || lowerTactic.includes("deflect")) {
+    return /\b(?:fine|sure|great|good|perfect|funny|cute|adorable)\b/.test(lowerDialogue);
+  }
+  if (lowerTactic.includes("fact") || lowerTactic.includes("proof")) {
+    return /\b(?:truth|lie|proof|evidence|receipt|affidavit|tape|reel|docket|file)\b/.test(lowerDialogue);
+  }
+  return qualityTokenSet(lowerTactic).size > 0 &&
+    [...qualityTokenSet(lowerTactic)].some((token) => qualityTokenSet(lowerDialogue).has(token));
+}
+
+function voiceTellMatchesDialogue(tell = "", dialogue = "") {
+  const lowerTell = canonicalLowerLine(tell);
+  const lowerDialogue = canonicalLowerLine(dialogue);
+  if (!lowerTell || !lowerDialogue) return false;
+  if (lowerTell.includes("security")) return /\b(?:safe|door|home|leave|run|hide)\b/.test(lowerDialogue);
+  if (lowerTell.includes("evidence")) return /\b(?:truth|lie|proof|evidence|receipt|affidavit|tape|reel|docket|file)\b/.test(lowerDialogue);
+  if (lowerTell.includes("guilt")) return /\b(?:sorry|forgive|mercy|fault|guilt|ashamed)\b/.test(lowerDialogue);
+  if (lowerTell.includes("family")) return /\b(?:sister|brother|mother|father|kid|family)\b/.test(lowerDialogue);
+  if (lowerTell.includes("violent image")) return /\b(?:burn|fire|blood|bury|grave|dead|ghost)\b/.test(lowerDialogue);
+  if (lowerTell.includes("refusal")) return /\b(?:can't|cannot|won't|never|not until|not unless)\b/.test(lowerDialogue);
+  return [...qualityTokenSet(lowerTell)].some((token) => qualityTokenSet(lowerDialogue).has(token));
+}
+
+function silencePatternMatchesDialogue(silence = "", dialogueLines = []) {
+  const lower = canonicalLowerLine(silence);
+  if (!lower) return false;
+  if (lower.includes("short") || lower.includes("silence")) {
+    return dialogueLines.some((line) => countWords(line) <= 4);
+  }
+  if (lower.includes("question")) return dialogueLines.some((line) => /\?$/.test(normalizeLineText(line)));
+  if (lower.includes("trails")) return dialogueLines.some((line) => /(?:\.{3}|—|--)$/.test(normalizeLineText(line)));
+  return false;
+}
+
+function evaluateCharacterVoiceFingerprintCoverage({
+  lines = [],
+  featureContext = null,
+} = {}) {
+  const memories = normalizeCharacterVoiceMemories(featureContext);
+  if (!memories.length) return { ok: true, reason: "no_character_voice_memory" };
+  const dialogueByCharacter = collectDialogueByCharacter(lines);
+  const checked = [];
+  for (const memory of memories) {
+    const key = normalizeCharacterCueKey(memory.character);
+    const dialogueLines = dialogueByCharacter.get(key) || [];
+    if (dialogueLines.length < 2) continue;
+    const matchedTactics = memory.tactics.filter((tactic) => {
+      return dialogueLines.some((line) => voiceTacticMatchesDialogue(tactic, line));
+    });
+    const matchedEmotionalTells = memory.emotionalTells.filter((tell) => {
+      return dialogueLines.some((line) => voiceTellMatchesDialogue(tell, line));
+    });
+    const silenceMatched = silencePatternMatchesDialogue(memory.silence, dialogueLines);
+    const requiredSignals = Math.min(2, Math.max(
+      1,
+      (memory.tactics.length ? 1 : 0) +
+      (memory.emotionalTells.length ? 1 : 0) +
+      (memory.silence ? 1 : 0)
+    ));
+    const matchedSignalCount = (
+      (matchedTactics.length ? 1 : 0) +
+      (matchedEmotionalTells.length ? 1 : 0) +
+      (silenceMatched ? 1 : 0)
+    );
+    const coverage = {
+      character: memory.character,
+      dialogueLineCount: dialogueLines.length,
+      requiredSignals,
+      matchedSignalCount,
+      matchedTactics,
+      matchedEmotionalTells,
+      silenceMatched,
+      expectedTactics: memory.tactics,
+      expectedEmotionalTells: memory.emotionalTells,
+      expectedSilence: memory.silence,
+    };
+    checked.push(coverage);
+    if (matchedSignalCount < requiredSignals) {
+      return {
+        ok: false,
+        reason: "missing_character_voice_fingerprint",
+        ...coverage,
+        checked,
+      };
+    }
+  }
+  return checked.length
+    ? { ok: true, reason: "ok", checked }
+    : { ok: true, reason: "no_matching_character_dialogue", checked };
+}
+
 function isPlayableActionLine(line = "", element = "action") {
   if (normalizeElement(element) !== "action") return false;
   const text = normalizeLineText(line);
@@ -1609,6 +1831,21 @@ function evaluateScreenplayPageQuality({
       featureObligation: characterArcMemoryCoverage,
     };
   }
+  const characterVoiceFingerprintCoverage = evaluateCharacterVoiceFingerprintCoverage({
+    lines,
+    featureContext,
+  });
+  if (!characterVoiceFingerprintCoverage.ok) {
+    return {
+      ok: false,
+      reason: characterVoiceFingerprintCoverage.reason,
+      counts,
+      featureObligation: {
+        ...featureObligation,
+        characterVoiceFingerprintCoverage,
+      },
+    };
+  }
   const nextTurnCoverage = evaluateFirstNextTurnCoverage({
     text: normalizedText,
     featureContext,
@@ -1659,6 +1896,13 @@ function evaluateScreenplayPageQuality({
           obligation.nextTurnCoverage = nextTurnCoverage;
         } else {
           obligation = { nextTurnCoverage };
+        }
+      }
+      if (!["no_character_voice_memory", "no_matching_character_dialogue"].includes(characterVoiceFingerprintCoverage.reason)) {
+        if (obligation) {
+          obligation.characterVoiceFingerprintCoverage = characterVoiceFingerprintCoverage;
+        } else {
+          obligation = { characterVoiceFingerprintCoverage };
         }
       }
       if (!["no_execution_brief", "insufficient_execution_brief"].includes(executionBriefCoverage.reason)) {

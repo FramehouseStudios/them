@@ -3182,6 +3182,132 @@ function parseTalkScreenplayCharacterArcMemoryItems(value, maxItems = 8) {
   return out.slice(0, Math.max(1, Number(maxItems || 8)));
 }
 
+function parseTalkScreenplayCharacterVoiceMemory(value) {
+  if (!value) return null;
+  let source = value;
+  if (Array.isArray(source)) {
+    source = source.find((item) => item && typeof item === "object") || null;
+  }
+  if (!source) return null;
+  if (typeof source === "string") {
+    const raw = source.trim();
+    if (!raw) return null;
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      try {
+        return parseTalkScreenplayCharacterVoiceMemory(JSON.parse(raw));
+      } catch (_err) {
+        return null;
+      }
+    }
+    return null;
+  }
+  if (!source || typeof source !== "object") return null;
+
+  const nestedTraits = source.traits && typeof source.traits === "object" ? source.traits : null;
+  const fingerprint =
+    (source.voice_fingerprint && typeof source.voice_fingerprint === "object" ? source.voice_fingerprint : null) ||
+    (source.voiceFingerprint && typeof source.voiceFingerprint === "object" ? source.voiceFingerprint : null) ||
+    (nestedTraits?.voice_fingerprint && typeof nestedTraits.voice_fingerprint === "object" ? nestedTraits.voice_fingerprint : null) ||
+    (nestedTraits?.voiceFingerprint && typeof nestedTraits.voiceFingerprint === "object" ? nestedTraits.voiceFingerprint : null) ||
+    source;
+  const character = normalizeSnippet(
+    source.character ?? source.characterName ?? source.character_name ?? source.name ?? fingerprint.character ?? fingerprint.characterName ?? fingerprint.character_name ?? "",
+    80
+  );
+  const voiceFingerprint = {
+    tactics: normalizeScreenplayStringList(
+      fingerprint.tactics ?? fingerprint.dialogueTactics ?? fingerprint.dialogue_tactics,
+      6,
+      80
+    ),
+    silence: normalizeSnippet(
+      fingerprint.silence ?? fingerprint.silencePattern ?? fingerprint.silence_pattern ?? "",
+      120
+    ),
+    emotionalTells: normalizeScreenplayStringList(
+      fingerprint.emotional_tells ?? fingerprint.emotionalTells ?? fingerprint.tells,
+      6,
+      100
+    ),
+  };
+  if (
+    !character ||
+    (
+      voiceFingerprint.tactics.length < 1 &&
+      !voiceFingerprint.silence &&
+      voiceFingerprint.emotionalTells.length < 1
+    )
+  ) {
+    return null;
+  }
+  return { character, voiceFingerprint };
+}
+
+function parseTalkScreenplayCharacterVoiceMemoryItems(value, maxItems = 8) {
+  if (!value) return [];
+  const out = [];
+  const seen = new Set();
+  const push = (candidate) => {
+    const clean = parseTalkScreenplayCharacterVoiceMemory(candidate);
+    if (!clean) return;
+    const key = [
+      clean.character,
+      clean.voiceFingerprint.tactics.join(","),
+      clean.voiceFingerprint.silence,
+      clean.voiceFingerprint.emotionalTells.join(","),
+    ].join("|").toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(clean);
+  };
+
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (!raw) return [];
+    if (raw.startsWith("[") || raw.startsWith("{")) {
+      try {
+        return parseTalkScreenplayCharacterVoiceMemoryItems(JSON.parse(raw), maxItems);
+      } catch (_err) {
+        push(raw);
+        return out;
+      }
+    }
+    push(raw);
+    return out.slice(0, Math.max(1, Number(maxItems || 8)));
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      push(item);
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  }
+
+  if (value && typeof value === "object") {
+    const nested =
+      value.characterVoiceFingerprints ??
+      value.character_voice_fingerprints ??
+      value.characterVoiceMemories ??
+      value.character_voice_memories ??
+      value.voiceFingerprints ??
+      value.voice_fingerprints ??
+      value.characters ??
+      value.items ??
+      null;
+    if (Array.isArray(nested)) {
+      for (const item of nested) {
+        push(item);
+        if (out.length >= maxItems) break;
+      }
+      return out;
+    }
+    push(value);
+  }
+
+  return out.slice(0, Math.max(1, Number(maxItems || 8)));
+}
+
 function buildCreativeMemoryRecallQuery(req = null, {
   screenplayTaskHint = "",
   studioMeta = null,
@@ -3271,6 +3397,30 @@ function buildCreativeMemoryRecallQuery(req = null, {
         arcMemory.relationshipPressure ? `relationship_pressure=${arcMemory.relationshipPressure}` : "",
         arcMemory.currentTactic ? `current_tactic=${arcMemory.currentTactic}` : "",
         arcMemory.nextEmotionalTurn ? `next_emotional_turn=${arcMemory.nextEmotionalTurn}` : "",
+      ].filter(Boolean).join("; "),
+      700
+    );
+  }
+  const voiceMemories = Array.isArray(studio?.screenplayCharacterVoiceMemories) && studio.screenplayCharacterVoiceMemories.length
+    ? studio.screenplayCharacterVoiceMemories
+    : (studio?.screenplayCharacterVoiceMemory ? [studio.screenplayCharacterVoiceMemory] : []);
+  for (const voiceMemory of voiceMemories.slice(0, 6)) {
+    if (!voiceMemory || typeof voiceMemory !== "object") continue;
+    const fingerprint = voiceMemory.voiceFingerprint || voiceMemory.voice_fingerprint || {};
+    addLine(
+      "character_voice_memory",
+      [
+        voiceMemory.character ? `character=${voiceMemory.character}` : "",
+        Array.isArray(fingerprint.tactics) && fingerprint.tactics.length
+          ? `tactics=${fingerprint.tactics.join(" / ")}`
+          : "",
+        fingerprint.silence ? `silence=${fingerprint.silence}` : "",
+        Array.isArray(fingerprint.emotionalTells) && fingerprint.emotionalTells.length
+          ? `emotional_tells=${fingerprint.emotionalTells.join(" / ")}`
+          : "",
+        Array.isArray(fingerprint.emotional_tells) && fingerprint.emotional_tells.length
+          ? `emotional_tells=${fingerprint.emotional_tells.join(" / ")}`
+          : "",
       ].filter(Boolean).join("; "),
       700
     );
@@ -5180,6 +5330,10 @@ function buildTalkScreenplayRepairDirectives({
       directives.push("Give each speaker a private tactic and a pressure target; every line should push, evade, corner, reveal, or force a choice.");
       directives.push("Add a reversal, interruption, behavior beat, or cost so the exchange changes leverage.");
       break;
+    case "missing_character_voice_fingerprint":
+      directives.push("Honor the supplied character voice fingerprint: use remembered tactics, silence pattern, or emotional tells in that character's dialogue.");
+      directives.push("Rewrite the character's lines so the stored voice shows up as playable pressure, not generic dialogue.");
+      break;
     case "thin_long_page_batch":
       directives.push(`Add concrete page turns: at least ${minimumSpecificActions || 4} specific visible actions or reversals for this requested page batch.`);
       directives.push("Break the run into escalating turns: launch pressure, complication, reversal/cost, and exit image.");
@@ -5355,6 +5509,8 @@ function validateTalkAuthoritativeScreenplayOutput(screenplayOutput = null, {
       actPressureState: studioMeta?.screenplayActPressureState,
       characterArcState: studioMeta?.screenplayCharacterArcState,
       characterArcMemory: studioMeta?.screenplayCharacterArcMemory,
+      characterVoiceMemory: studioMeta?.screenplayCharacterVoiceMemory,
+      characterVoiceMemories: studioMeta?.screenplayCharacterVoiceMemories,
       nextScenePlan: studioMeta?.screenplayNextScenePlan,
       nextSceneMoves: studioMeta?.screenplayNextSceneMoves,
       nextThreeTurns: studioMeta?.screenplayNextThreeTurns,
@@ -11359,6 +11515,21 @@ function sanitizeStudioTurnMetadata(input) {
     8
   );
   const screenplayCharacterArcMemory = screenplayCharacterArcMemories[0] || null;
+  const screenplayCharacterVoiceMemoryInput =
+    input.screenplayCharacterVoiceMemories ??
+      input.screenplay_character_voice_memories ??
+      input.screenplayCharacterVoiceMemory ??
+      input.screenplay_character_voice_memory ??
+      input.characterVoiceMemory ??
+      input.character_voice_memory ??
+      input.characterVoiceFingerprints ??
+      input.character_voice_fingerprints ??
+      null;
+  const screenplayCharacterVoiceMemories = parseTalkScreenplayCharacterVoiceMemoryItems(
+    screenplayCharacterVoiceMemoryInput,
+    8
+  );
+  const screenplayCharacterVoiceMemory = screenplayCharacterVoiceMemories[0] || null;
   const screenplayLastSceneOutcome = normalizeSnippet(
     input.screenplayLastSceneOutcome ?? input.screenplay_last_scene_outcome ?? input.lastSceneOutcome ?? input.last_scene_outcome ?? "",
     240
@@ -11467,6 +11638,7 @@ function sanitizeStudioTurnMetadata(input) {
     !screenplayActPressureState &&
     !screenplayCharacterArcState &&
     screenplayCharacterArcMemories.length < 1 &&
+    screenplayCharacterVoiceMemories.length < 1 &&
     !screenplayLastSceneOutcome &&
     !screenplayNextScenePlan &&
     screenplayNextSceneMoves.length < 1 &&
@@ -11526,6 +11698,8 @@ function sanitizeStudioTurnMetadata(input) {
     screenplayCharacterArcState,
     screenplayCharacterArcMemory,
     screenplayCharacterArcMemories,
+    screenplayCharacterVoiceMemory,
+    screenplayCharacterVoiceMemories,
     screenplayLastSceneOutcome,
     screenplayNextScenePlan,
     screenplayNextSceneMoves,
