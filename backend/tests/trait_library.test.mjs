@@ -15,6 +15,7 @@ import {
   VOCAB_MAX,
   KEYWORD_MAX,
   GOALS_MAX,
+  VOICE_TACTICS_MAX,
 } from "../lib/trait_library.js";
 import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
@@ -107,6 +108,25 @@ test("[trait-library] extractTraits respects hint.goals and hint.relationships",
   assert.equal(t.relationships.ELLA, "old friend");
 });
 
+test("[trait-library] extractTraits builds a durable character voice fingerprint", () => {
+  const t = extractTraits({
+    characterName: "MARA",
+    lines: [
+      "No. Not until you sign it.",
+      "If I open that door, my sister burns with yours.",
+      "Look at the receipt.",
+      "The proof stays buried unless you give me the file.",
+      "Fine.",
+    ],
+  });
+  assert.ok(t.voice_fingerprint.tactics.includes("refuses first"));
+  assert.ok(t.voice_fingerprint.tactics.includes("uses conditional pressure"));
+  assert.ok(t.voice_fingerprint.tactics.includes("commands under pressure"));
+  assert.ok(t.voice_fingerprint.tactics.includes("weaponizes facts"));
+  assert.ok(t.voice_fingerprint.emotional_tells.includes("family pressure slips out"));
+  assert.ok(t.voice_fingerprint.emotional_tells.includes("fixates on evidence"));
+});
+
 test("[trait-library] mergeTraits is idempotent (merging a value with itself is a no-op beyond ordering)", () => {
   const base = extractTraits({
     characterName: "JUNE",
@@ -118,6 +138,28 @@ test("[trait-library] mergeTraits is idempotent (merging a value with itself is 
   assert.deepEqual(merged.keywords.sort(), base.keywords.sort());
   assert.deepEqual(merged.goals.sort(), base.goals.sort());
   assert.equal(merged.emotional_default, base.emotional_default);
+});
+
+test("[trait-library] mergeTraits keeps voice fingerprints bounded and accepts camelCase input", () => {
+  const base = {
+    voiceFingerprint: {
+      tactics: Array.from({ length: VOICE_TACTICS_MAX }, (_, index) => `base tactic ${index}`),
+      silence: "cuts lines short",
+      emotionalTells: ["security language"],
+    },
+  };
+  const next = {
+    voice_fingerprint: {
+      tactics: ["new tactic"],
+      silence: "answers pressure with questions",
+      emotional_tells: ["fixates on evidence"],
+    },
+  };
+  const merged = mergeTraits(base, next);
+  assert.ok(merged.voice_fingerprint.tactics.length <= VOICE_TACTICS_MAX);
+  assert.equal(merged.voice_fingerprint.silence, "answers pressure with questions");
+  assert.ok(merged.voice_fingerprint.emotional_tells.includes("security language"));
+  assert.ok(merged.voice_fingerprint.emotional_tells.includes("fixates on evidence"));
 });
 
 test("[trait-library] mergeTraits respects the documented caps", () => {
@@ -154,10 +196,18 @@ test("[trait-library] buildTraitsBlockForPrompt produces a compact one-line summ
     emotional_default: "anxious",
     goals: ["find Marcus"],
     relationships: { MARCUS: "brother" },
+    voice_fingerprint: {
+      tactics: ["refuses first", "weaponizes facts"],
+      silence: "cuts lines short and lets silence carry threat",
+      emotional_tells: ["fixates on evidence"],
+    },
   });
   assert.ok(block.includes("emotion: anxious"));
   assert.ok(block.includes("keywords: anxious, tender"));
   assert.ok(block.includes("speech: terse / fragmented"));
+  assert.ok(block.includes("voice_fingerprint: tactics=refuses first, weaponizes facts"));
+  assert.ok(block.includes("silence=cuts lines short and lets silence carry threat"));
+  assert.ok(block.includes("tells=fixates on evidence"));
   assert.ok(block.includes("goals: find Marcus"));
   assert.ok(block.includes("relationships: MARCUS=brother"));
 });

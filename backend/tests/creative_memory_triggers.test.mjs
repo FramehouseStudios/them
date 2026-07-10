@@ -161,6 +161,47 @@ test("recordTriggersFromTalkTurn extracts character traits and goals from live t
   assert.equal(mara.traits.relationships.Eli, "protects");
 });
 
+test("recordTriggersFromTalkTurn learns character voice fingerprints from generated pages", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const reply = [
+    "INT. COURTHOUSE HALLWAY - DAY",
+    "",
+    "MARA",
+    "No. Not until you sign it.",
+    "",
+    "MARA",
+    "If I open that door, my sister burns with yours.",
+    "",
+    "MARA",
+    "Look at the receipt.",
+    "",
+    "ELI",
+    "The proof stays buried unless you give me the file.",
+  ].join("\n");
+
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-voice-fingerprint",
+    transcript: "",
+    reply,
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_screenplay_output",
+  });
+  assert.ok(summary.characterMentions >= 2);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-voice-fingerprint",
+    query: "Mara and Eli courthouse dialogue",
+    projectId: "rain-docket",
+  });
+  const mara = memory.characters.find((character) => character.name === "MARA");
+  assert.ok(mara?.traits?.voice_fingerprint, "expected Mara voice fingerprint");
+  assert.ok(mara.traits.voice_fingerprint.tactics.includes("refuses first"));
+  assert.ok(mara.traits.voice_fingerprint.tactics.includes("uses conditional pressure"));
+  assert.ok(mara.traits.voice_fingerprint.tactics.includes("commands under pressure"));
+  assert.ok(mara.traits.voice_fingerprint.emotional_tells.includes("family pressure slips out"));
+});
+
 test("recordTriggersFromTalkTurn stores and repairs character bible canon", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordTriggersFromTalkTurn({

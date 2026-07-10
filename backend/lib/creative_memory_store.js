@@ -1084,6 +1084,17 @@ function traitsHaveSignal(traits) {
   if (Array.isArray(traits.goals) && traits.goals.length) return true;
   if (traits.relationships && typeof traits.relationships === "object" && Object.keys(traits.relationships).length) return true;
   if (traits.emotional_default) return true;
+  const voiceFingerprint = traits.voice_fingerprint && typeof traits.voice_fingerprint === "object"
+    ? traits.voice_fingerprint
+    : traits.voiceFingerprint && typeof traits.voiceFingerprint === "object"
+      ? traits.voiceFingerprint
+      : null;
+  if (voiceFingerprint) {
+    if (Array.isArray(voiceFingerprint.tactics) && voiceFingerprint.tactics.length) return true;
+    if (voiceFingerprint.silence) return true;
+    if (Array.isArray(voiceFingerprint.emotional_tells) && voiceFingerprint.emotional_tells.length) return true;
+    if (Array.isArray(voiceFingerprint.emotionalTells) && voiceFingerprint.emotionalTells.length) return true;
+  }
   return Boolean(traits.speech_style?.pace || traits.speech_style?.syntax);
 }
 

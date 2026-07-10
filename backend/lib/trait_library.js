@@ -29,7 +29,12 @@
 //     },
 //     emotional_default: string,
 //     goals: string[],
-//     relationships: { [name: string]: string }
+//     relationships: { [name: string]: string },
+//     voice_fingerprint: {
+//       tactics: string[],
+//       silence: string,
+//       emotional_tells: string[]
+//     }
 //   }
 //
 // LLM mode: this module exposes deterministic extraction only. The
@@ -43,6 +48,8 @@ const VOCAB_MAX = 12;
 const KEYWORD_MAX = 16;
 const GOALS_MAX = 8;
 const RELATIONSHIPS_MAX = 24;
+const VOICE_TACTICS_MAX = 6;
+const EMOTIONAL_TELLS_MAX = 6;
 const PHRASE_MIN_WORDS = 2;
 const PHRASE_MAX_WORDS = 8;
 
@@ -95,6 +102,7 @@ function emptyTraits() {
     emotional_default: "",
     goals: [],
     relationships: {},
+    voice_fingerprint: { tactics: [], silence: "", emotional_tells: [] },
   };
 }
 
@@ -187,6 +195,70 @@ function inferEmotionalDefault(keywords) {
   return "";
 }
 
+function inferVoiceTactics(lines) {
+  const tactics = [];
+  const add = (label) => {
+    if (!tactics.includes(label)) tactics.push(label);
+  };
+  for (const raw of lines || []) {
+    const line = typeof raw === "string" ? raw.trim() : "";
+    if (!line) continue;
+    const lower = line.toLowerCase();
+    if (/^(?:no|not\b|not until|not unless|never)\b/.test(lower)) add("refuses first");
+    if (/\b(?:if|unless|until|or)\b/.test(lower)) add("uses conditional pressure");
+    if (/\?$/.test(line)) add("presses with questions");
+    if (/^(?:look|listen|stop|take|give|tell|show|read|open|sign|wait)\b/i.test(line)) add("commands under pressure");
+    if (/\b(?:fine|sure|great|good|perfect)\b[.!]?$/i.test(line) || /\b(?:funny|cute|adorable)\b/i.test(line)) add("deflects with dry irony");
+    if (/\b(?:truth|lie|proof|evidence|receipt|affidavit|tape|reel|docket|file)\b/i.test(line)) add("weaponizes facts");
+    if (tactics.length >= VOICE_TACTICS_MAX) break;
+  }
+  return clampArrayUnique(tactics, VOICE_TACTICS_MAX);
+}
+
+function inferSilencePattern(lines, speechStyle = {}) {
+  const cleanLines = (lines || []).filter((line) => typeof line === "string" && line.trim());
+  if (!cleanLines.length) return "";
+  const fragmentLines = cleanLines.filter((line) => line.trim().split(/\s+/).filter(Boolean).length <= 4).length;
+  const questionLines = cleanLines.filter((line) => /\?$/.test(line.trim())).length;
+  const ellipsisLines = cleanLines.filter((line) => /(?:\.{3}|—|--)$/.test(line.trim())).length;
+  if (ellipsisLines >= 2) return "trails off instead of naming the wound";
+  if (speechStyle?.pace === "terse" || fragmentLines / cleanLines.length >= 0.5) {
+    return "cuts lines short and lets silence carry threat";
+  }
+  if (questionLines / cleanLines.length >= 0.5) return "answers pressure with questions";
+  return "";
+}
+
+function inferEmotionalTells(lines) {
+  const tells = [];
+  const add = (label) => {
+    if (!tells.includes(label)) tells.push(label);
+  };
+  for (const raw of lines || []) {
+    const line = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (!line) continue;
+    if (/\b(?:safe|door|home|leave|run|hide)\b/.test(line)) add("security language");
+    if (/\b(?:truth|lie|proof|evidence|receipt|affidavit|tape|reel|docket|file)\b/.test(line)) add("fixates on evidence");
+    if (/\b(?:sorry|forgive|mercy|fault|guilt|ashamed)\b/.test(line)) add("guilt leaks through");
+    if (/\b(?:sister|brother|mother|father|kid|family)\b/.test(line)) add("family pressure slips out");
+    if (/\b(?:burn|fire|blood|bury|grave|dead|ghost)\b/.test(line)) add("turns feeling into violent image");
+    if (/\b(?:can't|cannot|won't|never|not until|not unless)\b/.test(line)) add("emotion surfaces as refusal");
+    if (tells.length >= EMOTIONAL_TELLS_MAX) break;
+  }
+  return clampArrayUnique(tells, EMOTIONAL_TELLS_MAX);
+}
+
+function inferVoiceFingerprint(lines, speechStyle = {}) {
+  const tactics = inferVoiceTactics(lines);
+  const silence = inferSilencePattern(lines, speechStyle);
+  const emotional_tells = inferEmotionalTells(lines);
+  return {
+    tactics,
+    silence,
+    emotional_tells,
+  };
+}
+
 function extractTraits({ characterName = "", lines = [], hint = null } = {}) {
   if (!characterName || typeof characterName !== "string") {
     return { ...emptyTraits(), schemaVersion: TRAIT_SCHEMA_VERSION };
@@ -199,6 +271,7 @@ function extractTraits({ characterName = "", lines = [], hint = null } = {}) {
   const keywords = extractKeywordsFromLines(cleanLines, hintKeywords);
   const speech_style = inferSpeechStyle(cleanLines);
   const emotional_default = inferEmotionalDefault(keywords);
+  const voice_fingerprint = inferVoiceFingerprint(cleanLines, speech_style);
   const goals = hint && Array.isArray(hint.goals)
     ? clampArrayUnique(hint.goals, GOALS_MAX)
     : [];
@@ -222,12 +295,23 @@ function extractTraits({ characterName = "", lines = [], hint = null } = {}) {
     emotional_default,
     goals,
     relationships,
+    voice_fingerprint,
   };
 }
 
 function mergeTraits(existing, next) {
   const base = existing && typeof existing === "object" ? existing : emptyTraits();
   const add = next && typeof next === "object" ? next : emptyTraits();
+  const baseFingerprint = base.voice_fingerprint && typeof base.voice_fingerprint === "object"
+    ? base.voice_fingerprint
+    : base.voiceFingerprint && typeof base.voiceFingerprint === "object"
+      ? base.voiceFingerprint
+      : {};
+  const addFingerprint = add.voice_fingerprint && typeof add.voice_fingerprint === "object"
+    ? add.voice_fingerprint
+    : add.voiceFingerprint && typeof add.voiceFingerprint === "object"
+      ? add.voiceFingerprint
+      : {};
   const merged = {
     schemaVersion: TRAIT_SCHEMA_VERSION,
     vocabulary: clampArrayUnique([...(base.vocabulary || []), ...(add.vocabulary || [])], VOCAB_MAX),
@@ -241,6 +325,17 @@ function mergeTraits(existing, next) {
       : (base.emotional_default || ""),
     goals: clampArrayUnique([...(base.goals || []), ...(add.goals || [])], GOALS_MAX),
     relationships: { ...(base.relationships || {}) },
+    voice_fingerprint: {
+      tactics: clampArrayUnique([
+        ...(baseFingerprint.tactics || []),
+        ...(addFingerprint.tactics || []),
+      ], VOICE_TACTICS_MAX),
+      silence: normalizeStyle(addFingerprint.silence) || normalizeStyle(baseFingerprint.silence) || "",
+      emotional_tells: clampArrayUnique([
+        ...(baseFingerprint.emotional_tells || baseFingerprint.emotionalTells || []),
+        ...(addFingerprint.emotional_tells || addFingerprint.emotionalTells || []),
+      ], EMOTIONAL_TELLS_MAX),
+    },
   };
   if (add.relationships && typeof add.relationships === "object" && !Array.isArray(add.relationships)) {
     let count = Object.keys(merged.relationships).length;
@@ -268,6 +363,23 @@ function buildTraitsBlockForPrompt(traits) {
     if (traits.speech_style.syntax) ss.push(traits.speech_style.syntax);
     parts.push(`speech: ${ss.join(" / ")}`);
   }
+  const fingerprint = traits.voice_fingerprint && typeof traits.voice_fingerprint === "object"
+    ? traits.voice_fingerprint
+    : traits.voiceFingerprint && typeof traits.voiceFingerprint === "object"
+      ? traits.voiceFingerprint
+      : null;
+  if (fingerprint) {
+    const fp = [];
+    if (Array.isArray(fingerprint.tactics) && fingerprint.tactics.length) {
+      fp.push(`tactics=${fingerprint.tactics.slice(0, 4).join(", ")}`);
+    }
+    if (fingerprint.silence) fp.push(`silence=${fingerprint.silence}`);
+    const emotionalTells = fingerprint.emotional_tells || fingerprint.emotionalTells;
+    if (Array.isArray(emotionalTells) && emotionalTells.length) {
+      fp.push(`tells=${emotionalTells.slice(0, 4).join(", ")}`);
+    }
+    if (fp.length) parts.push(`voice_fingerprint: ${fp.join("; ")}`);
+  }
   if (Array.isArray(traits.goals) && traits.goals.length) {
     parts.push(`goals: ${traits.goals.slice(0, 3).join("; ")}`);
   }
@@ -291,4 +403,6 @@ export {
   KEYWORD_MAX,
   GOALS_MAX,
   RELATIONSHIPS_MAX,
+  VOICE_TACTICS_MAX,
+  EMOTIONAL_TELLS_MAX,
 };

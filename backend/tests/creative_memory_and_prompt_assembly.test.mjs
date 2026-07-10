@@ -1177,6 +1177,11 @@ test("[prompt-wire] characters with traits emit an indented `traits:` line", () 
           speech_style: { pace: "terse", syntax: "fragmented" },
           emotional_default: "anxious",
           goals: ["find Marcus"],
+          voice_fingerprint: {
+            tactics: ["refuses first", "weaponizes facts"],
+            silence: "cuts lines short and lets silence carry threat",
+            emotional_tells: ["fixates on evidence"],
+          },
         },
       }],
     },
@@ -1185,6 +1190,9 @@ test("[prompt-wire] characters with traits emit an indented `traits:` line", () 
   assert.ok(out.includes("- JUNE"));
   assert.ok(/traits: .*emotion: anxious/.test(out));
   assert.ok(out.includes("speech: terse / fragmented"));
+  assert.ok(out.includes("voice_fingerprint: tactics=refuses first, weaponizes facts"));
+  assert.ok(out.includes("silence=cuts lines short and lets silence carry threat"));
+  assert.ok(out.includes("tells=fixates on evidence"));
 });
 
 test("[prompt-wire] characters without traits emit no traits line (no regression)", () => {
