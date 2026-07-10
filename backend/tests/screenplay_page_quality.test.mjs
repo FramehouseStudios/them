@@ -1008,6 +1008,108 @@ test("[screenplay-page-quality] accepts pages that spend character bible arc mem
   assert.equal(quality.featureObligation.featureActKind, "character_arc");
 });
 
+test("[screenplay-page-quality] rejects pages that ignore character voice fingerprints", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      "Mara sets the folder between herself and Eli.",
+      "",
+      "MARA",
+      "If the clerk moved it, we can still wait.",
+      "",
+      "MARA",
+      "Tell Eli the hallway is clear.",
+      "",
+      "ELI",
+      "Then move before the docket closes.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: "Mara sets the folder between herself and Eli.", element: "action" },
+      { text: "MARA", element: "character" },
+      { text: "If the clerk moved it, we can still wait.", element: "dialogue" },
+      { text: "MARA", element: "character" },
+      { text: "Tell Eli the hallway is clear.", element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: "Then move before the docket closes.", element: "dialogue" },
+    ],
+    featureContext: {
+      characterVoiceMemory: {
+        character: "MARA",
+        voice_fingerprint: {
+          tactics: ["refuses first", "weaponizes facts"],
+          silence: "cuts lines short and lets silence carry threat",
+          emotional_tells: ["family pressure slips out"],
+        },
+      },
+    },
+  });
+
+  assert.equal(quality.ok, false);
+  assert.equal(quality.reason, "missing_character_voice_fingerprint");
+  assert.equal(quality.featureObligation.characterVoiceFingerprintCoverage.character, "MARA");
+});
+
+test("[screenplay-page-quality] accepts pages that spend character voice fingerprints", () => {
+  const quality = evaluateScreenplayPageQuality({
+    text: [
+      "INT. COURTHOUSE HALLWAY - DAY",
+      "",
+      "Mara blocks the archive door with the signed affidavit.",
+      "",
+      "MARA",
+      "No.",
+      "",
+      "MARA",
+      "Not until you sign it.",
+      "",
+      "MARA",
+      "Look at the receipt.",
+      "",
+      "ELI",
+      "Mara, there is no clean version of this.",
+      "",
+      "MARA",
+      "If I open that door, my sister burns with yours.",
+      "",
+      "Eli reaches for the knob. Mara keeps the receipt in his line of sight.",
+    ].join("\n"),
+    lines: [
+      { text: "INT. COURTHOUSE HALLWAY - DAY", element: "sceneHeading" },
+      { text: "Mara blocks the archive door with the signed affidavit.", element: "action" },
+      { text: "MARA", element: "character" },
+      { text: "No.", element: "dialogue" },
+      { text: "MARA", element: "character" },
+      { text: "Not until you sign it.", element: "dialogue" },
+      { text: "MARA", element: "character" },
+      { text: "Look at the receipt.", element: "dialogue" },
+      { text: "ELI", element: "character" },
+      { text: "Mara, there is no clean version of this.", element: "dialogue" },
+      { text: "MARA", element: "character" },
+      { text: "If I open that door, my sister burns with yours.", element: "dialogue" },
+      { text: "Eli reaches for the knob. Mara keeps the receipt in his line of sight.", element: "action" },
+    ],
+    featureContext: {
+      characterVoiceMemory: {
+        character: "MARA",
+        voice_fingerprint: {
+          tactics: ["refuses first", "weaponizes facts"],
+          silence: "cuts lines short and lets silence carry threat",
+          emotional_tells: ["family pressure slips out"],
+        },
+      },
+    },
+  });
+
+  assert.equal(quality.ok, true);
+  assert.equal(quality.featureObligation.characterVoiceFingerprintCoverage.reason, "ok");
+  assert.equal(
+    quality.featureObligation.characterVoiceFingerprintCoverage.checked[0].matchedSignalCount >= 2,
+    true
+  );
+});
+
 test("[screenplay-page-quality] rejects feature continuations that dodge the first remembered next turn", () => {
   const quality = evaluateScreenplayPageQuality({
     text: [

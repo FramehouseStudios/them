@@ -782,6 +782,36 @@ test("[talk-screenplay-output] preserves multiple structured character arc memor
   assert.equal(studio.screenplayCharacterArcMemories[1].nextEmotionalTurn, "chooses honesty over protection");
 });
 
+test("[talk-screenplay-output] preserves structured character voice fingerprints", () => {
+  const studio = sanitizeStudioTurnMetadata({
+    screenplayTarget: "page",
+    screenplayCharacterVoiceMemory: JSON.stringify([{
+      character: "Mara",
+      voice_fingerprint: {
+        tactics: ["refuses first", "weaponizes facts"],
+        silence: "cuts lines short and lets silence carry threat",
+        emotional_tells: ["family pressure slips out"],
+      },
+    }]),
+  });
+
+  assert.equal(studio.screenplayTarget, "page");
+  assert.equal(studio.screenplayCharacterVoiceMemory.character, "Mara");
+  assert.equal(studio.screenplayCharacterVoiceMemories.length, 1);
+  assert.deepEqual(
+    studio.screenplayCharacterVoiceMemory.voiceFingerprint.tactics,
+    ["refuses first", "weaponizes facts"]
+  );
+  assert.equal(
+    studio.screenplayCharacterVoiceMemory.voiceFingerprint.silence,
+    "cuts lines short and lets silence carry threat"
+  );
+  assert.deepEqual(
+    studio.screenplayCharacterVoiceMemory.voiceFingerprint.emotionalTells,
+    ["family pressure slips out"]
+  );
+});
+
 test("[talk-screenplay-output] rejects Act III page output that dodges supplied payoff memory", () => {
   const output = buildTalkScreenplayOutput({
     reply: [
