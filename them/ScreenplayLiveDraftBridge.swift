@@ -6121,6 +6121,24 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.characterVoiceMemoriesStorageKey)
     }
 
+    func forgetCharacterVoiceMemory(
+        named characterName: String,
+        authenticatedUserID: String? = nil
+    ) {
+        let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let targetKey = Self.normalizedVoiceCharacterKey(characterName)
+        guard !currentUserID.isEmpty,
+              currentUserID == characterVoiceMemoryUserID,
+              !targetKey.isEmpty else { return }
+        let remaining = characterVoiceMemories.filter {
+            Self.normalizedVoiceCharacterKey($0.character) != targetKey
+        }
+        guard remaining.count != characterVoiceMemories.count else { return }
+        characterVoiceMemories = remaining
+        persistCharacterVoiceMemories()
+    }
+
     func screenplayCharacterVoiceMemories(
         matching characterNames: [String],
         limit: Int = 8,
@@ -6151,7 +6169,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             selected.append(memory)
             if selected.count >= safeLimit { return selected }
         }
-        return selected.isEmpty ? Array(memories.prefix(safeLimit)) : selected
+        if !selected.isEmpty { return selected }
+        return characterNames.isEmpty ? Array(memories.prefix(safeLimit)) : []
     }
 
     private static func normalizedVoiceCharacterKey(_ value: String) -> String {

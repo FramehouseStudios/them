@@ -444,6 +444,25 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
             ).map(\.character),
             ["ELI"]
         )
+
+        bridge.forgetCharacterVoiceMemory(
+            named: "ELI (V.O.)",
+            authenticatedUserID: "usr_test"
+        )
+        XCTAssertEqual(
+            bridge.screenplayCharacterVoiceMemories(
+                matching: ["ELI"],
+                authenticatedUserID: "usr_test"
+            ),
+            []
+        )
+        XCTAssertEqual(
+            bridge.screenplayCharacterVoiceMemories(
+                matching: [],
+                authenticatedUserID: "usr_test"
+            ).map(\.character),
+            ["MARA"]
+        )
     }
 
     func testCharacterVoiceMemoryCacheRestoresOnlyForFreshMatchingAccount() throws {

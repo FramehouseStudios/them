@@ -300,6 +300,12 @@ final class MemoriesViewModel: ObservableObject {
             latestSeenStateVersion = result.sync.stateVersion
         }
         let forgottenID = (result.payload.forgottenId ?? itemID).trimmingCharacters(in: .whitespacesAndNewlines)
+        let characterKeyPrefix = "character:"
+        if key.lowercased().hasPrefix(characterKeyPrefix) {
+            ScreenplayLiveDraftBridge.shared.forgetCharacterVoiceMemory(
+                named: String(key.dropFirst(characterKeyPrefix.count))
+            )
+        }
         removeMemoryItem(id: forgottenID, key: key)
         if let selected = selection,
            selected.id == forgottenID || selected.key == key {
