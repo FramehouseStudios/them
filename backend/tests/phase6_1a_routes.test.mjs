@@ -50,6 +50,7 @@ const dataDeps = {
   applyReadStateHeaders: () => {}, buildReadStateMeta: () => ({}),
   clearAllMemoriesMemory: () => ({}), clearConversationHistoryMemory: () => ({}),
   createRequestId: () => "rid", persistWritableMemoryContext: () => {},
+  creativeMemoryStore: { clearUserMemory: async () => ({ ok: true }) },
   resolveWritableMemoryContext: () => ({}),
 };
 

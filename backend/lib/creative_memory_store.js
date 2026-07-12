@@ -2065,6 +2065,21 @@ function createCreativeMemoryStore({ persistence } = {}) {
     });
   }
 
+  async function clearUserMemory({ userId } = {}) {
+    const cleanUserId = String(userId || "").trim();
+    if (!cleanUserId) {
+      return { ok: false, cleared: false, reason: "user_id_required" };
+    }
+    if (typeof store.delete !== "function") {
+      throw new Error("creative memory persistence must support per-user deletion");
+    }
+    return withUserLock(cleanUserId, async () => {
+      const existed = (await readUser(cleanUserId)) !== null;
+      await store.delete({ domain: DOMAIN, key: cleanUserId });
+      return { ok: true, cleared: existed, userId: cleanUserId };
+    });
+  }
+
   // Test seam — clear all entries in this domain.
   async function _clearAll() {
     if (typeof store.clear === "function") {
@@ -2282,6 +2297,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     getCharacterTraits,
     getHabitsForUser,
     hasMemoryForUser,
+    clearUserMemory,
     recordEpisodicMemory,
     recordCharacterMention,
     recordSceneCompletion,

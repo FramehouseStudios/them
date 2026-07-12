@@ -30978,14 +30978,15 @@ mountStateRoute(app, {
 
 // POST /data/history/clear + /data/memories/clear extracted to
 // lib/data_routes.js (Phase 6.1a module, now wired). Mounted in place to
-// preserve Express registration order; handler bodies are byte-identical
-// (deps injected; logger defaults to console).
+// preserve Express registration order. The memory-clear route also erases
+// the authenticated account's durable creative memory before reporting success.
 mountDataRoutes(app, {
   applyReadStateHeaders,
   buildReadStateMeta,
   clearAllMemoriesMemory,
   clearConversationHistoryMemory,
   createRequestId,
+  creativeMemoryStore,
   persistWritableMemoryContext,
   resolveWritableMemoryContext,
 });

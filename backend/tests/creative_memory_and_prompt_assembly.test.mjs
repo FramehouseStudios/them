@@ -57,6 +57,40 @@ test("recordCharacterMention round-trips", async () => {
   assert.deepEqual(mem.characters[0].tags, ["protagonist"]);
 });
 
+test("clearUserMemory erases only the requested account", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordCharacterMention({
+    userId: "writer-a",
+    characterName: "Mara",
+    voice: "precise and withheld",
+    tags: ["protagonist"],
+  });
+  await store.recordEpisodicMemory({
+    userId: "writer-a",
+    summary: "Mara hid the affidavit in the courthouse vent.",
+    characterNames: ["Mara"],
+    tags: ["screenplay"],
+  });
+  await store.recordCharacterMention({
+    userId: "writer-b",
+    characterName: "Eli",
+    voice: "warm until cornered",
+    tags: ["supporting"],
+  });
+
+  const receipt = await store.clearUserMemory({ userId: "writer-a" });
+
+  assert.deepEqual(receipt, { ok: true, cleared: true, userId: "writer-a" });
+  assert.equal(await store.hasMemoryForUser("writer-a"), false);
+  assert.equal(await store.getCreativeMemoryForPrompt({ userId: "writer-a" }), null);
+  assert.equal(await store.getCharacterTraits({ userId: "writer-a" }), null);
+  assert.equal(await store.hasMemoryForUser("writer-b"), true);
+  assert.equal(
+    (await store.getCreativeMemoryForPrompt({ userId: "writer-b" })).characters[0].name,
+    "Eli"
+  );
+});
+
 test("recordCharacterMention dedupes by name and merges tags + last_referenced", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({ userId: "u2", characterName: "Bob", tags: ["antagonist"] });
