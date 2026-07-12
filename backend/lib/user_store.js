@@ -509,6 +509,51 @@ function getUserByAppleSubject(appleSubject) {
   return usersByAppleSubject.get(normalized) || null;
 }
 
+async function deleteUserById(userId, now = Date.now()) {
+  const normalizedUserId = normalizeUserId(userId);
+  if (!normalizedUserId) {
+    return { ok: false, deleted: false, reason: "user_id_required" };
+  }
+  const user = usersById.get(normalizedUserId) || null;
+  if (user) {
+    usersById.delete(normalizedUserId);
+    usersByEmail.delete(user.email);
+    if (user.appleSubject) usersByAppleSubject.delete(user.appleSubject);
+  }
+  let deletedSessions = 0;
+  for (const [sessionId, session] of authSessionsById.entries()) {
+    if (session.userId !== normalizedUserId) continue;
+    authSessionsById.delete(sessionId);
+    authSessionIdByTokenHash.delete(String(session.tokenHash || ""));
+    deletedSessions += 1;
+  }
+  let deletedTokens = 0;
+  for (const targetMap of [passwordResetTokensByHash, emailVerificationTokensByHash]) {
+    for (const [tokenHash, record] of targetMap.entries()) {
+      if (record.userId !== normalizedUserId) continue;
+      targetMap.delete(tokenHash);
+      deletedTokens += 1;
+    }
+  }
+  const saveResult = saveUserStore(now);
+  if (saveResult.persistencePromise) {
+    const persistenceResult = await flushUserStorePersistenceWrites();
+    if (!persistenceResult?.ok) {
+      throw new Error("user store persistence deletion failed");
+    }
+  }
+  if (!saveResult.fileOk) {
+    throw new Error("user store file deletion failed");
+  }
+  return {
+    ok: true,
+    deleted: Boolean(user),
+    userId: normalizedUserId,
+    deletedSessions,
+    deletedTokens,
+  };
+}
+
 function createUser(input = {}, now = Date.now(), options = {}) {
   const normalizedEmail = normalizeEmail(input.email);
   if (!normalizedEmail) {
@@ -839,6 +884,7 @@ export {
   consumePasswordResetToken,
   createOrAttachAppleUser,
   createUser,
+  deleteUserById,
   emailVerificationTokensByHash,
   flushUserStorePersistenceWrites,
   getAuthSessionById,

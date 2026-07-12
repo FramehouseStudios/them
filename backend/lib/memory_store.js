@@ -415,30 +415,42 @@ function saveUserMemoryStore(now = Date.now()) {
     users,
   };
   // Existing JSON-file path stays canonical until cutover completes.
-  writeJsonFileAtomic(USER_MEMORY_STORE_PATH, payload, "user_memory");
+  const fileOk = writeJsonFileAtomic(USER_MEMORY_STORE_PATH, payload, "user_memory");
   // T07c: dual-write to the persistence adapter when configured.
   // Records are namespaced by source bucket so reverse migration can
   // reconstruct the legacy byUserId / byIp / byClientToken structure.
+  const persistenceWrites = [];
   if (persistence && typeof persistence.put === "function") {
     for (const entry of entries) {
-      void Promise.resolve(persistence.put({
+      persistenceWrites.push(Promise.resolve(persistence.put({
         domain: "user_memory",
         key: `byIp:${entry.ip}`,
         value: entry,
-      })).catch((err) => {
-        console.error(`[user_memory] adapter put byIp:${entry.ip} failed:`, err?.message || err);
-      });
+      })));
     }
     for (const userEntry of users) {
-      void Promise.resolve(persistence.put({
+      persistenceWrites.push(Promise.resolve(persistence.put({
         domain: "user_memory",
         key: `byUserId:${userEntry.userId}`,
         value: userEntry,
-      })).catch((err) => {
-        console.error(`[user_memory] adapter put byUserId:${userEntry.userId} failed:`, err?.message || err);
-      });
+      })));
     }
   }
+  const persistencePromise = persistenceWrites.length
+    ? Promise.allSettled(persistenceWrites).then((settled) => {
+      const failures = settled.filter((item) => item.status === "rejected");
+      for (const item of failures) {
+        console.error("[user_memory] adapter put failed:", item.reason?.message || item.reason);
+      }
+      return { ok: failures.length === 0, failureCount: failures.length };
+    })
+    : null;
+  if (persistencePromise) void persistencePromise;
+  return {
+    ok: Boolean(fileOk),
+    fileOk: Boolean(fileOk),
+    persistencePromise,
+  };
 }
 
 // T07c: load user-memory records from the persistence adapter.

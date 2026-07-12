@@ -120,6 +120,7 @@ import {
   loadScreenplayStoreFromAdapter,
   markScreenplayOwnerDirty,
   recalculateScreenplayProject,
+  saveScreenplayStore,
   screenplayStoreByOwner,
 } from "./lib/screenplay_store.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
@@ -139,6 +140,7 @@ import { mountRealtimeCallRoute } from "./lib/realtime_call_route.js";
 import { mountMemoriesRoutes } from "./lib/memories_route.js";
 import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
 import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
+import { createAccountPurgeWorker, purgePersistenceRowsForUser } from "./lib/account_purge_worker.js";
 import {
   createTalkRateLimitGuard,
   createTalkIdempotencyGuard,
@@ -157,6 +159,7 @@ import { mountFirstPageTelemetryRoute } from "./lib/first_page_telemetry_route.j
 import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
 import {
   configureUserStore,
+  deleteUserById,
   flushUserStorePersistenceWrites,
   loadUserStoreFromAdapter,
   loadUserStore,
@@ -4340,6 +4343,35 @@ function createAdapterAccountLifecycleStore(persistence) {
     async clearPendingDeletion(userId) {
       await persistence.delete({ domain, key: String(userId) });
     },
+    async listDueForHardDelete(limit = 100) {
+      const nowTs = Date.now();
+      const rows = await persistence.list({ domain, limit: 10_000 });
+      return (rows || [])
+        .filter((row) => {
+          const hardDeleteAt = Number(row?.value?.hardDeleteAt || 0);
+          return hardDeleteAt > 0 && hardDeleteAt <= nowTs;
+        })
+        .sort((a, b) => Number(a?.value?.hardDeleteAt || 0) - Number(b?.value?.hardDeleteAt || 0))
+        .slice(0, Math.max(1, Number(limit) || 100))
+        .map((row) => String(row?.value?.userId || row?.key || "").trim())
+        .filter(Boolean);
+    },
+    async finalizeHardDelete(userId) {
+      const normalizedUserId = String(userId || "").trim();
+      await persistence.put({
+        domain: "account_audit_log",
+        key: `${Date.now()}-${randomUUID()}`,
+        value: {
+          userId: normalizedUserId,
+          event: "account_hard_deleted",
+          requestId: null,
+          actorIp: null,
+          metadata: {},
+          createdAt: Date.now(),
+        },
+      });
+      await persistence.delete({ domain, key: normalizedUserId });
+    },
   };
 }
 
@@ -4371,6 +4403,8 @@ function persistenceRowBelongsToUser(row, userId) {
     key === normalizedUserId ||
     key === `user:${normalizedUserId}` ||
     key === `authuser:${normalizedUserId}` ||
+    key === `byUserId:${normalizedUserId}` ||
+    key === `byIp:authuser:${normalizedUserId}` ||
     key.startsWith(`${normalizedUserId}:`) ||
     key.startsWith(`user:${normalizedUserId}:`) ||
     key.startsWith(`authuser:${normalizedUserId}:`)
@@ -4387,6 +4421,7 @@ function persistenceRowBelongsToUser(row, userId) {
     value.owner_user_id,
     value.authUserId,
     value.auth_user_id,
+    value.ip === `authuser:${normalizedUserId}` ? normalizedUserId : "",
   ];
   return candidates.some((candidate) => String(candidate || "").trim() === normalizedUserId);
 }
@@ -4406,6 +4441,52 @@ async function exportAuthenticatedUserData({ userId, domains = EXPORTABLE_DOMAIN
   return { domains: payload };
 }
 
+async function purgeAuthenticatedUserData(userId) {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) throw new Error("account purge requires userId");
+  const persistenceResult = await purgePersistenceRowsForUser({
+    persistence: sharedPersistence,
+    userId: normalizedUserId,
+    domains: EXPORTABLE_DOMAINS,
+    rowBelongsToUser: persistenceRowBelongsToUser,
+  });
+
+  const authMemoryIp = legacyAuthMemoryIp(normalizedUserId);
+  userMemoryByUserId.delete(normalizedUserId);
+  userMemoryByIp.delete(authMemoryIp);
+  for (const [clientToken, mappedIp] of userMemoryByClientToken.entries()) {
+    if (String(mappedIp || "").trim() === authMemoryIp) {
+      userMemoryByClientToken.delete(clientToken);
+    }
+  }
+  const memorySave = saveUserMemoryStore(Date.now());
+  if (!memorySave?.fileOk) throw new Error("account purge failed to rewrite user memory mirror");
+  if (memorySave.persistencePromise) {
+    const memoryPersistence = await memorySave.persistencePromise;
+    if (!memoryPersistence?.ok) throw new Error("account purge failed to persist user memory deletion");
+  }
+
+  for (const [ownerKey, owner] of screenplayStoreByOwner.entries()) {
+    if (persistenceRowBelongsToUser({ key: ownerKey, value: owner }, normalizedUserId)) {
+      screenplayStoreByOwner.delete(ownerKey);
+    }
+  }
+  const screenplaySave = saveScreenplayStore(Date.now());
+  if (!screenplaySave?.fileOk) throw new Error("account purge failed to rewrite screenplay mirror");
+  if (screenplaySave.persistencePromise) {
+    const screenplayPersistence = await screenplaySave.persistencePromise;
+    if (!screenplayPersistence?.ok) throw new Error("account purge failed to persist screenplay deletion");
+  }
+
+  const authResult = await deleteUserById(normalizedUserId);
+  if (!authResult?.ok) throw new Error(authResult?.reason || "account auth deletion failed");
+  return {
+    userId: normalizedUserId,
+    deletedRows: persistenceResult.deletedRows,
+    authDeleted: authResult.deleted,
+  };
+}
+
 const accountLifecycleStore = sharedPersistence.kind === "postgres"
   ? createAccountLifecycleStore({ client: sharedPersistence })
   : createAdapterAccountLifecycleStore(sharedPersistence);
@@ -4418,6 +4499,28 @@ const accountAuditLog = sharedPersistence.kind === "postgres"
       await accountLifecycleStore.audit(entry);
     }
   : createAdapterAccountAuditLog(sharedPersistence);
+
+const accountPurgeWorker = createAccountPurgeWorker({
+  lifecycleStore: accountLifecycleStore,
+  purgeUserData: purgeAuthenticatedUserData,
+  logger: console,
+  batchSize: 50,
+});
+if (NODE_ENV === "production") {
+  const runAccountPurge = () => {
+    void accountPurgeWorker.runOnce().then((summary) => {
+      if (summary.due > 0) {
+        console.log(
+          `[account_purge] due=${summary.due} purged=${summary.purged} failed=${summary.failed}`
+        );
+      }
+    });
+  };
+  const bootPurgeTimer = setTimeout(runAccountPurge, 5_000);
+  bootPurgeTimer.unref?.();
+  const recurringPurgeTimer = setInterval(runAccountPurge, 15 * 60 * 1_000);
+  recurringPurgeTimer.unref?.();
+}
 
 // T07c: prefer adapter when it has data; fall back to legacy JSON-file load.
 const memoryLoadedFromAdapter = await loadUserMemoryStoreFromAdapter(userMemoryByIp, userMemoryByClientToken);

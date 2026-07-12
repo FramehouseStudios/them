@@ -28,6 +28,7 @@ import {
   configureUserStore,
   createOrAttachAppleUser,
   createUser,
+  deleteUserById,
   emailVerificationTokensByHash,
   getAuthSessionById,
   getAuthSessionByToken,
@@ -75,6 +76,21 @@ function setupStore() {
     },
   });
 }
+
+test("[user-store-deeper] deleteUserById removes identity, sessions, and lookup indexes", async () => {
+  setupStore();
+  const created = createUser({ email: "erase@example.com", password: "password-123" });
+  const session = issueAuthSession({ userId: created.user.id });
+
+  const receipt = await deleteUserById(created.user.id);
+
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.deleted, true);
+  assert.equal(receipt.deletedSessions, 1);
+  assert.equal(getUserById(created.user.id), null);
+  assert.equal(getUserByEmail("erase@example.com"), null);
+  assert.equal(getAuthSessionByToken(session.refreshToken), null);
+});
 
 // ---------- createUser ----------
 
