@@ -591,6 +591,55 @@ test("[memories] POST /memories/forget: returns forgotten_id + theme_key", async
   });
 });
 
+test("[memories] POST /memories/forget: deletes durable character memory before hiding its card", async () => {
+  const events = [];
+  await withTestServer(defaultDeps({
+    creativeMemoryStore: {
+      forgetMemoryCard: async ({ userId, key }) => {
+        events.push(`durable:${userId}:${key}`);
+        return { ok: true, forgotten: true };
+      },
+    },
+    forgetMemoryCardInMemory: (_memory, args) => {
+      events.push(`card:${args.cardId}`);
+      return { ok: true, status: "forgotten", forgottenId: args.cardId, themeKey: args.key };
+    },
+  }), async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/forget", {
+      card_id: "character-mara",
+      key: "character:Mara",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.durable_memory_deleted, true);
+    assert.deepEqual(events, ["durable:user_memories_test:character:Mara", "card:character-mara"]);
+  });
+});
+
+test("[memories] POST /memories/forget: does not hide a durable card when deletion fails", async () => {
+  let legacyForgetCalled = false;
+  await withTestServer(defaultDeps({
+    creativeMemoryStore: {
+      forgetMemoryCard: async () => {
+        throw new Error("persistence unavailable");
+      },
+    },
+    forgetMemoryCardInMemory: () => {
+      legacyForgetCalled = true;
+      return { ok: true, status: "forgotten" };
+    },
+  }), async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/forget", {
+      card_id: "episode-memory-1",
+      key: "episode:memory-1",
+    });
+
+    assert.equal(r.status, 500);
+    assert.equal(r.body.status, "creative_memory_forget_failed");
+    assert.equal(legacyForgetCalled, false);
+  });
+});
+
 // ============== POST /memories/promote ==============
 
 test("[memories] POST /memories/promote: returns theme_key + memory_card", async () => {

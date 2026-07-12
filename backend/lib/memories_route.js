@@ -27,14 +27,8 @@
 //   POST /memories/promote    — promote a card to a theme.
 //   POST /memories/feedback   — record human feedback on a theme.
 //
-// Behavior is byte-identical with the previous inline handlers:
-//   - same response envelopes (matching memories-*.md schema docs)
-//   - same 200/400/304 status routing
-//   - same Cache-Control: no-store + applyReadStateHeaders cycle
-//   - same per-route logger.log diagnostic lines
-//   - same body limits (256kb) for POSTs
-//   - same backfill side-effect on GET /memories
-//   - same persist-before-respond order on mutations
+// Response envelopes, body limits, cache controls, and read-state
+// headers remain compatible with the original inline handlers.
 //
 // Access-control posture: PER-USER. Memory record resolved via
 // `selectMemoryRecordForRead` (read) or
@@ -143,6 +137,10 @@ function mountMemoriesRoutes(app, deps = {}) {
     res.setHeader("Cache-Control", "no-store");
     res.status(401).json(memoryAuthRequired(stage));
     return "";
+  }
+
+  function isDurableCreativeMemoryKey(key = "") {
+    return /^(?:character|episode):\S/i.test(String(key || "").trim());
   }
 
   async function readCreativeMemoryForUser(userId, query = "memories character bible") {
@@ -722,14 +720,49 @@ function mountMemoriesRoutes(app, deps = {}) {
   });
 
   // ============== POST /memories/forget ==============
-  app.post("/memories/forget", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), (req, res) => {
-    if (!requireMemoryUser(req, res, "memories_forget")) return;
+  app.post("/memories/forget", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_forget");
+    if (!userId) return;
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
-    const context = resolveWritableMemoryContext(req, nowTs);
-    const memory = sanitizePersistedSessionMemory(context.memory);
     const cardId = normalizeMemoryCardId(req.body?.card_id ?? req.body?.id ?? "");
     const key = String(req.body?.key || "").trim();
+    let durableMemoryDeleted = null;
+    if (isDurableCreativeMemoryKey(key)) {
+      if (!creativeMemoryStore || typeof creativeMemoryStore.forgetMemoryCard !== "function") {
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(503).json({
+          ok: false,
+          action: "forget",
+          status: "creative_memory_unavailable",
+          message: "Durable creative memory is not available.",
+        });
+      }
+      try {
+        const receipt = await creativeMemoryStore.forgetMemoryCard({ userId, key });
+        if (!receipt?.ok) {
+          res.setHeader("Cache-Control", "no-store");
+          return res.status(400).json({
+            ok: false,
+            action: "forget",
+            status: String(receipt?.reason || "creative_memory_forget_failed"),
+            message: "Durable creative memory could not be forgotten.",
+          });
+        }
+        durableMemoryDeleted = Boolean(receipt.forgotten);
+      } catch (error) {
+        logger.log(`[${rid}] memories_forget creative_error=${error?.message || error}`);
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(500).json({
+          ok: false,
+          action: "forget",
+          status: "creative_memory_forget_failed",
+          message: "Durable creative memory could not be forgotten.",
+        });
+      }
+    }
+    const context = resolveWritableMemoryContext(req, nowTs);
+    const memory = sanitizePersistedSessionMemory(context.memory);
     const mutation = forgetMemoryCardInMemory(memory, { cardId, key }, nowTs);
     const persisted = persistWritableMemoryContext(context, memory, nowTs);
     const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
@@ -754,6 +787,7 @@ function mountMemoriesRoutes(app, deps = {}) {
       message: mutation.message || null,
       forgotten_id: String(mutation.forgottenId || cardId || ""),
       theme_key: String(mutation.themeKey || ""),
+      durable_memory_deleted: durableMemoryDeleted,
       session_id: readMeta.sessionId,
       state_version: readMeta.stateVersion,
       last_turn_id: readMeta.lastTurnId || null,

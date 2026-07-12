@@ -91,6 +91,41 @@ test("clearUserMemory erases only the requested account", async () => {
   );
 });
 
+test("forgetMemoryCard durably removes the selected character or episode", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordCharacterMention({ userId: "writer-a", characterName: "Mara" });
+  await store.recordCharacterMention({ userId: "writer-a", characterName: "Eli" });
+  const firstEpisode = await store.recordEpisodicMemory({
+    userId: "writer-a",
+    summary: "Mara finds the affidavit.",
+    characterNames: ["Mara"],
+  });
+  await store.recordEpisodicMemory({
+    userId: "writer-a",
+    summary: "Eli waits at the courthouse.",
+    characterNames: ["Eli"],
+  });
+
+  const characterReceipt = await store.forgetMemoryCard({
+    userId: "writer-a",
+    key: "character:mara",
+  });
+  assert.equal(characterReceipt.forgotten, true);
+  assert.deepEqual(
+    (await store.getCreativeMemoryForPrompt({ userId: "writer-a" })).characters.map((item) => item.name),
+    ["Eli"]
+  );
+
+  const episodeReceipt = await store.forgetMemoryCard({
+    userId: "writer-a",
+    key: `episode:${firstEpisode.memoryId}`,
+  });
+  const ledger = await store.getCreativeMemoryLedger({ userId: "writer-a" });
+  assert.equal(episodeReceipt.forgotten, true);
+  assert.equal(ledger.episodicMemories.some((item) => item.id === firstEpisode.memoryId), false);
+  assert.equal(ledger.episodicMemories.length, 1);
+});
+
 test("recordCharacterMention dedupes by name and merges tags + last_referenced", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordCharacterMention({ userId: "u2", characterName: "Bob", tags: ["antagonist"] });

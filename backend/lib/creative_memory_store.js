@@ -2080,6 +2080,47 @@ function createCreativeMemoryStore({ persistence } = {}) {
     });
   }
 
+  async function forgetMemoryCard({ userId, key } = {}) {
+    const cleanUserId = String(userId || "").trim();
+    const cleanKey = String(key || "").trim();
+    const separatorIndex = cleanKey.indexOf(":");
+    const type = separatorIndex > 0 ? cleanKey.slice(0, separatorIndex).toLowerCase() : "";
+    const target = separatorIndex > 0 ? cleanKey.slice(separatorIndex + 1).trim() : "";
+    if (!cleanUserId) {
+      return { ok: false, forgotten: false, reason: "user_id_required" };
+    }
+    if (!target || (type !== "character" && type !== "episode")) {
+      return { ok: false, forgotten: false, reason: "unsupported_memory_key" };
+    }
+
+    return withUserLock(cleanUserId, async () => {
+      const current = await readUser(cleanUserId);
+      if (!current) {
+        return { ok: true, forgotten: false, type, key: cleanKey, userId: cleanUserId };
+      }
+      let forgotten = false;
+      if (type === "character") {
+        const targetName = target.toLowerCase();
+        const characters = Array.isArray(current.characters) ? current.characters : [];
+        const remaining = characters.filter((character) => (
+          String(character?.name || "").trim().toLowerCase() !== targetName
+        ));
+        forgotten = remaining.length !== characters.length;
+        current.characters = remaining;
+      } else {
+        const memories = Array.isArray(current.episodicMemories) ? current.episodicMemories : [];
+        const remaining = memories.filter((memory) => String(memory?.id || "").trim() !== target);
+        forgotten = remaining.length !== memories.length;
+        current.episodicMemories = remaining;
+      }
+      if (forgotten) {
+        current.updatedAt = nowMs();
+        await writeUser(cleanUserId, current);
+      }
+      return { ok: true, forgotten, type, key: cleanKey, userId: cleanUserId };
+    });
+  }
+
   // Test seam — clear all entries in this domain.
   async function _clearAll() {
     if (typeof store.clear === "function") {
@@ -2298,6 +2339,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     getHabitsForUser,
     hasMemoryForUser,
     clearUserMemory,
+    forgetMemoryCard,
     recordEpisodicMemory,
     recordCharacterMention,
     recordSceneCompletion,
