@@ -272,6 +272,7 @@ struct AppShell: View {
             VoiceSettingsPlaceholderScreen()
         case .profile:
             ProfileAccountScreen(onSessionChanged: {
+                ScreenplayLiveDraftBridge.shared.reconcileCharacterVoiceMemoryAccount()
                 Task { await backendBridge.refresh(force: true) }
             })
         case .none:

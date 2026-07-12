@@ -185,7 +185,7 @@ struct DataControlsScreen: View {
                 Text("On this device (local)")
                     .font(.system(size: 14, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.86))
-                Text("UI preferences, cached session tokens, and temporary audio files used during active voice turns.")
+                Text("UI preferences, cached session tokens, recent draft state, temporary audio used during active voice turns, and a 30-day account-scoped cache of learned character voices for offline continuity.")
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.78))
             }
@@ -728,6 +728,7 @@ struct DataControlsScreen: View {
                     await refreshMemoryStats(force: true)
                 case .clearMemories:
                     let result = try await BackendMemoryAPI.shared.clearMemories()
+                    ScreenplayLiveDraftBridge.shared.clearCharacterVoiceMemoryCache()
                     stateVersion = result.sync.stateVersion
                     statusMessage = "All memories deleted."
                     _ = try? await BackendMemoryAPI.shared.fetchHistory(limit: 140, force: true, sinceTurnId: nil)
@@ -735,6 +736,7 @@ struct DataControlsScreen: View {
                     await refreshMemoryStats(force: true)
                 case .deleteAccount:
                     let result = try await BackendMemoryAPI.shared.requestAccountDeletion(reason: "Requested from Data Controls")
+                    ScreenplayLiveDraftBridge.shared.clearCharacterVoiceMemoryCache()
                     stateVersion = ""
                     let hardDelete = (result.hardDeleteAt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     let recovery = result.recoveryWindowDays.map { "\($0)-day recovery window" } ?? "backend recovery window"

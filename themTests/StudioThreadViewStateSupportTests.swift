@@ -369,6 +369,129 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         )
     }
 
+    func testCharacterVoiceMemorySelectionFollowsActiveSceneCharacters() {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let original = bridge.characterVoiceMemories
+        let originalUserID = BackendAuthClient.currentAuthSessionState().user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "test-restore"
+        defer {
+            bridge.updateCharacterVoiceMemories(
+                from: BackendCharacterTraitsResponse(
+                    schemaVersion: 1,
+                    userId: originalUserID,
+                    characters: original.map { memory in
+                        BackendCharacterTraitRecord(
+                            name: memory.character,
+                            traits: BackendCharacterTraits(voiceFingerprint: memory.voiceFingerprint)
+                        )
+                    },
+                    error: nil
+                ),
+                authenticatedUserID: originalUserID
+            )
+        }
+
+        bridge.updateCharacterVoiceMemories(
+            from: BackendCharacterTraitsResponse(
+                schemaVersion: 1,
+                userId: "usr_test",
+                characters: [
+                    BackendCharacterTraitRecord(
+                        name: "MARA",
+                        traits: BackendCharacterTraits(
+                            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                                tactics: ["refuses first"],
+                                silence: "cuts lines short"
+                            )
+                        )
+                    ),
+                    BackendCharacterTraitRecord(
+                        name: "ELI",
+                        traits: BackendCharacterTraits(
+                            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                                tactics: ["asks questions"],
+                                emotionalTells: ["security language"]
+                            )
+                        )
+                    ),
+                ],
+                error: nil
+            ),
+            authenticatedUserID: "usr_test"
+        )
+
+        let selected = bridge.screenplayCharacterVoiceMemories(
+            matching: ["ELI (V.O.)"],
+            authenticatedUserID: "usr_test"
+        )
+
+        XCTAssertEqual(selected.map(\.character), ["ELI"])
+        XCTAssertEqual(selected.first?.voiceFingerprint.tactics, ["asks questions"])
+
+        bridge.updateCharacterVoiceMemories(
+            from: BackendCharacterTraitsResponse(
+                schemaVersion: 1,
+                userId: "user-b",
+                characters: [],
+                error: nil
+            ),
+            authenticatedUserID: "usr_test"
+        )
+        XCTAssertEqual(
+            bridge.screenplayCharacterVoiceMemories(
+                matching: ["ELI"],
+                authenticatedUserID: "usr_test"
+            ).map(\.character),
+            ["ELI"]
+        )
+    }
+
+    func testCharacterVoiceMemoryCacheRestoresOnlyForFreshMatchingAccount() throws {
+        let updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let memory = BackendScreenplayCharacterVoiceMemory(
+            character: "MARA",
+            voiceFingerprint: BackendScreenplayCharacterVoiceFingerprint(
+                tactics: ["refuses first", "weaponizes facts"],
+                silence: "cuts lines short",
+                emotionalTells: ["family pressure slips out"]
+            )
+        )
+        let payload = try XCTUnwrap(
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.payloadForStorage(
+                userID: "user-a",
+                memories: [memory],
+                updatedAt: updatedAt
+            )
+        )
+
+        let restored = try XCTUnwrap(
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+                from: payload,
+                currentUserID: "user-a",
+                now: updatedAt.addingTimeInterval(60)
+            )
+        )
+
+        XCTAssertEqual(restored.userID, "user-a")
+        XCTAssertEqual(restored.memories, [memory])
+        XCTAssertNil(
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+                from: payload,
+                currentUserID: "user-b",
+                now: updatedAt.addingTimeInterval(60)
+            )
+        )
+        XCTAssertNil(
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+                from: payload,
+                currentUserID: "user-a",
+                now: updatedAt.addingTimeInterval(
+                    ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredMaxAge + 1
+                )
+            )
+        )
+    }
+
     func testCommittedWriteSnapshotsProjectAndVersionContext() {
         let bridge = ScreenplayLiveDraftBridge.shared
         let originalProjectID = bridge.preferredProjectID

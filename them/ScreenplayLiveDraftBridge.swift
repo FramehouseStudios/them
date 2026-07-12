@@ -1550,6 +1550,66 @@ struct ScreenplayStudioAppliedMemoryPersistencePolicy {
     }
 }
 
+struct ScreenplayCharacterVoiceMemoryCacheSnapshot: Codable, Equatable {
+    let userID: String
+    let memories: [BackendScreenplayCharacterVoiceMemory]
+    let updatedAt: Date
+
+    var isMeaningful: Bool {
+        !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        memories.contains(where: \.isMeaningful)
+    }
+}
+
+struct ScreenplayCharacterVoiceMemoryPersistencePolicy {
+    static let restoredMaxAge: TimeInterval = 30 * 24 * 60 * 60
+
+    static func payloadForStorage(
+        userID: String,
+        memories: [BackendScreenplayCharacterVoiceMemory],
+        updatedAt: Date = Date()
+    ) -> String? {
+        let cleanUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanMemories = Array(memories.filter(\.isMeaningful).prefix(24))
+        guard !cleanUserID.isEmpty, !cleanMemories.isEmpty else { return nil }
+        let snapshot = ScreenplayCharacterVoiceMemoryCacheSnapshot(
+            userID: cleanUserID,
+            memories: cleanMemories,
+            updatedAt: updatedAt
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(snapshot) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func restoredSnapshot(
+        from stored: String?,
+        currentUserID: String,
+        now: Date = Date()
+    ) -> ScreenplayCharacterVoiceMemoryCacheSnapshot? {
+        let cleanCurrentUserID = currentUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanCurrentUserID.isEmpty,
+              let stored,
+              let data = stored.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let snapshot = try? decoder.decode(ScreenplayCharacterVoiceMemoryCacheSnapshot.self, from: data),
+              snapshot.isMeaningful,
+              snapshot.userID == cleanCurrentUserID,
+              isFreshForRestore(snapshot, now: now) else { return nil }
+        return snapshot
+    }
+
+    static func isFreshForRestore(
+        _ snapshot: ScreenplayCharacterVoiceMemoryCacheSnapshot,
+        now: Date = Date()
+    ) -> Bool {
+        let age = now.timeIntervalSince(snapshot.updatedAt)
+        return age >= 0 && age < restoredMaxAge
+    }
+}
+
 struct ScreenplayStudioUserPrompt: Identifiable, Equatable {
     enum Source: String, Codable, Equatable {
         case typed
@@ -2616,6 +2676,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private static let debugProjectBindingStorageKey = "studio_debug_project_binding_json"
     private static let featureWorkflowContextStorageKey = "studio_feature_workflow_context_v1"
     private static let latestAppliedMemoryStorageKey = "studio_latest_applied_memory_v1"
+    private static let characterVoiceMemoriesStorageKey = "studio_character_voice_memories_v1"
 
     @Published var draftText: String = "" {
         didSet {
@@ -2659,6 +2720,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published private(set) var draftOrigin: ScreenplayLiveDraftOriginSnapshot = .empty
     @Published var featureSpine: ScreenplayFeatureSpine = .empty
     @Published private(set) var characterVoiceMemories: [BackendScreenplayCharacterVoiceMemory] = []
+    private var characterVoiceMemoryUserID: String = ""
     @Published var latestStudioRouteTarget: ScreenplayStudioUserPrompt.Target = .voicePin {
         didSet {
             persistStudioRoutingDebugMirror()
@@ -2939,6 +3001,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         self.companionRecentTurns = Self.restoreConversationTurns(forKey: Self.companionRecentTurnsStorageKey)
         self.latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext()
         self.latestAppliedMemory = Self.restoreLatestAppliedMemory()
+        if let voiceMemorySnapshot = Self.restoreCharacterVoiceMemorySnapshot() {
+            self.characterVoiceMemoryUserID = voiceMemorySnapshot.userID
+            self.characterVoiceMemories = voiceMemorySnapshot.memories
+        }
         persistPreferredProjectContext()
         persistActiveElementDebugMirror()
         persistStudioRoutingDebugMirror()
@@ -3044,6 +3110,31 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         ScreenplayStudioAppliedMemoryPersistencePolicy.restoredState(
             from: UserDefaults.standard.string(forKey: latestAppliedMemoryStorageKey)
         )
+    }
+
+    private static func currentAuthenticatedUserID() -> String {
+        BackendAuthClient.currentAuthSessionState().user?.userId
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private static func restoreCharacterVoiceMemorySnapshot() -> ScreenplayCharacterVoiceMemoryCacheSnapshot? {
+        ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+            from: UserDefaults.standard.string(forKey: characterVoiceMemoriesStorageKey),
+            currentUserID: currentAuthenticatedUserID()
+        )
+    }
+
+    private func persistCharacterVoiceMemories() {
+        let currentUserID = Self.currentAuthenticatedUserID()
+        guard !currentUserID.isEmpty, currentUserID == characterVoiceMemoryUserID else { return }
+        if let payload = ScreenplayCharacterVoiceMemoryPersistencePolicy.payloadForStorage(
+            userID: currentUserID,
+            memories: characterVoiceMemories
+        ) {
+            UserDefaults.standard.set(payload, forKey: Self.characterVoiceMemoriesStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.characterVoiceMemoriesStorageKey)
+        }
     }
 
     private func persistStructuredDraft() {
@@ -5975,7 +6066,18 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         reconcileFeatureWorkflowContextWithActiveProject()
     }
 
-    func updateCharacterVoiceMemories(from response: BackendCharacterTraitsResponse) {
+    func updateCharacterVoiceMemories(
+        from response: BackendCharacterTraitsResponse,
+        authenticatedUserID: String? = nil
+    ) {
+        let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let responseUserID = (response.userId ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedUserID = responseUserID.isEmpty ? currentUserID : responseUserID
+        guard !resolvedUserID.isEmpty,
+              currentUserID.isEmpty || resolvedUserID == currentUserID else { return }
+
         var seen = Set<String>()
         var memories: [BackendScreenplayCharacterVoiceMemory] = []
         for record in response.characters {
@@ -5993,13 +6095,40 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             )
             if memories.count >= 24 { break }
         }
+        characterVoiceMemoryUserID = resolvedUserID
         characterVoiceMemories = memories
+        persistCharacterVoiceMemories()
+    }
+
+    func reconcileCharacterVoiceMemoryAccount() {
+        let currentUserID = Self.currentAuthenticatedUserID()
+        guard currentUserID != characterVoiceMemoryUserID else { return }
+        if let snapshot = ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
+            from: UserDefaults.standard.string(forKey: Self.characterVoiceMemoriesStorageKey),
+            currentUserID: currentUserID
+        ) {
+            characterVoiceMemoryUserID = snapshot.userID
+            characterVoiceMemories = snapshot.memories
+        } else {
+            characterVoiceMemoryUserID = currentUserID
+            characterVoiceMemories = []
+        }
+    }
+
+    func clearCharacterVoiceMemoryCache() {
+        characterVoiceMemoryUserID = ""
+        characterVoiceMemories = []
+        UserDefaults.standard.removeObject(forKey: Self.characterVoiceMemoriesStorageKey)
     }
 
     func screenplayCharacterVoiceMemories(
         matching characterNames: [String],
-        limit: Int = 8
+        limit: Int = 8,
+        authenticatedUserID: String? = nil
     ) -> [BackendScreenplayCharacterVoiceMemory] {
+        let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !currentUserID.isEmpty, currentUserID == characterVoiceMemoryUserID else { return [] }
         let safeLimit = max(1, min(8, limit))
         let memories = characterVoiceMemories.filter(\.isMeaningful)
         guard !memories.isEmpty else { return [] }
