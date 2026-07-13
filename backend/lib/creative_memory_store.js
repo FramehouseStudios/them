@@ -1784,28 +1784,39 @@ function createCreativeMemoryStore({
 } = {}) {
   const store = persistence || createPersistence();
   const writeChain = new Map(); // userId -> Promise
+  const embeddingBackfillByUser = new Map();
   const resolvedEmbeddingModel = cleanText(embeddingModel, 96);
   let embeddingBackoffUntil = 0;
 
-  async function buildEmbeddingForMemory(memory) {
+  async function buildEmbeddingsForMemories(memories = []) {
     if (typeof embedTexts !== "function" || !resolvedEmbeddingModel) return null;
     if (nowMs() < embeddingBackoffUntil) return null;
-    const text = buildEpisodicEmbeddingText(memory);
-    if (!text) return null;
+    const candidates = (Array.isArray(memories) ? memories : [])
+      .map((memory) => ({ memory, text: buildEpisodicEmbeddingText(memory) }))
+      .filter((item) => item.text);
+    if (!candidates.length) return [];
     try {
-      const rows = await embedTexts([text]);
-      const first = Array.isArray(rows) ? rows[0] : null;
-      const vector = Array.isArray(first) ? first : first?.vector ?? first?.embedding;
-      return sanitizeEpisodicEmbedding({
-        model: resolvedEmbeddingModel,
-        textHash: episodicEmbeddingTextHash(memory, resolvedEmbeddingModel),
-        vector,
-        updatedAt: nowMs(),
+      const rows = await embedTexts(candidates.map((item) => item.text));
+      if (!Array.isArray(rows) || rows.length !== candidates.length) return [];
+      return candidates.map((candidate, index) => {
+        const row = rows[index];
+        const vector = Array.isArray(row) ? row : row?.vector ?? row?.embedding;
+        return sanitizeEpisodicEmbedding({
+          model: resolvedEmbeddingModel,
+          textHash: episodicEmbeddingTextHash(candidate.memory, resolvedEmbeddingModel),
+          vector,
+          updatedAt: nowMs(),
+        });
       });
     } catch (_err) {
       embeddingBackoffUntil = nowMs() + EPISODIC_EMBEDDING_BACKOFF_MS;
       return null;
     }
+  }
+
+  async function buildEmbeddingForMemory(memory) {
+    const embeddings = await buildEmbeddingsForMemories([memory]);
+    return Array.isArray(embeddings) ? embeddings[0] || null : null;
   }
 
   async function buildQueryEmbedding(query, episodicMemories = []) {
@@ -1859,6 +1870,114 @@ function createCreativeMemoryStore({
     });
   }
 
+  function episodicEmbeddingCoverage(memories = [], {
+    projectId = "",
+    projectTitle = "",
+  } = {}) {
+    const scoped = scopeRecordsToProject(
+      (Array.isArray(memories) ? memories : [])
+        .map(sanitizeEpisodicMemoryItem)
+        .filter((memory) => memory && !memory.supersededAt),
+      { projectId, projectTitle }
+    );
+    const missing = [];
+    let embedded = 0;
+    for (const memory of scoped) {
+      const embedding = sanitizeEpisodicEmbedding(memory.embedding);
+      const current = embedding &&
+        embedding.model === resolvedEmbeddingModel &&
+        embedding.textHash === episodicEmbeddingTextHash(memory, resolvedEmbeddingModel);
+      if (current) embedded += 1;
+      else missing.push(memory);
+    }
+    return {
+      memories: scoped,
+      total: scoped.length,
+      embedded,
+      missing,
+    };
+  }
+
+  async function backfillEpisodicEmbeddings({
+    userId,
+    projectId = "",
+    projectTitle = "",
+    maxItems = 16,
+  } = {}) {
+    const cleanUserId = cleanText(userId, 128);
+    if (!cleanUserId) return { ok: false, updated: 0, reason: "missing_userId" };
+    if (typeof embedTexts !== "function" || !resolvedEmbeddingModel) {
+      return { ok: false, updated: 0, reason: "embeddings_disabled" };
+    }
+    if (nowMs() < embeddingBackoffUntil) {
+      return { ok: false, updated: 0, reason: "provider_backoff" };
+    }
+    const active = embeddingBackfillByUser.get(cleanUserId);
+    if (active) return active;
+
+    const task = (async () => {
+      const rec = await readUser(cleanUserId);
+      if (!rec) return { ok: true, attempted: 0, updated: 0, reason: "cold_user" };
+      const coverage = episodicEmbeddingCoverage(rec.episodicMemories, {
+        projectId,
+        projectTitle,
+      });
+      const candidates = coverage.missing.slice(0, Math.max(1, Math.min(24, Number(maxItems || 16))));
+      if (!candidates.length) {
+        return { ok: true, attempted: 0, updated: 0, reason: "current" };
+      }
+      const embeddings = await buildEmbeddingsForMemories(candidates);
+      if (!Array.isArray(embeddings)) {
+        return { ok: false, attempted: candidates.length, updated: 0, reason: "provider_unavailable" };
+      }
+      const updates = new Map();
+      for (let index = 0; index < candidates.length; index += 1) {
+        const embedding = embeddings[index];
+        if (embedding) updates.set(candidates[index].id, embedding);
+      }
+      if (!updates.size) {
+        return { ok: false, attempted: candidates.length, updated: 0, reason: "invalid_vectors" };
+      }
+      let updated = 0;
+      await updateUser(cleanUserId, (latest) => {
+        latest.episodicMemories = sortEpisodicMemoriesForStorage(
+          (Array.isArray(latest.episodicMemories) ? latest.episodicMemories : [])
+            .map(sanitizeEpisodicMemoryItem)
+            .filter(Boolean)
+            .map((memory) => {
+              const embedding = updates.get(memory.id);
+              if (!embedding || memory.supersededAt) return memory;
+              const expectedHash = episodicEmbeddingTextHash(memory, resolvedEmbeddingModel);
+              if (embedding.textHash !== expectedHash) return memory;
+              updated += 1;
+              return { ...memory, embedding };
+            })
+        ).slice(0, EPISODIC_MEMORIES_MAX);
+        return latest;
+      });
+      return {
+        ok: true,
+        attempted: candidates.length,
+        updated,
+        remaining: Math.max(0, coverage.missing.length - updated),
+        reason: updated > 0 ? "backfilled" : "stale_candidates",
+      };
+    })().catch((_err) => ({
+      ok: false,
+      attempted: 0,
+      updated: 0,
+      reason: "backfill_failed",
+    }));
+    embeddingBackfillByUser.set(cleanUserId, task);
+    try {
+      return await task;
+    } finally {
+      if (embeddingBackfillByUser.get(cleanUserId) === task) {
+        embeddingBackfillByUser.delete(cleanUserId);
+      }
+    }
+  }
+
   // ---------- public reads ----------
 
   async function getCreativeMemoryForPrompt({
@@ -1871,7 +1990,26 @@ function createCreativeMemoryStore({
   } = {}) {
     const rec = await readUser(userId);
     if (!rec) return null;
+    const coverage = episodicEmbeddingCoverage(rec.episodicMemories, {
+      projectId,
+      projectTitle,
+    });
     const queryEmbedding = await buildQueryEmbedding(query, rec.episodicMemories);
+    const semanticUsed = Boolean(queryEmbedding && coverage.embedded > 0);
+    const canBackfill = Boolean(
+      coverage.missing.length &&
+      typeof embedTexts === "function" &&
+      resolvedEmbeddingModel &&
+      nowMs() >= embeddingBackoffUntil
+    );
+    if (canBackfill) {
+      void backfillEpisodicEmbeddings({
+        userId,
+        projectId,
+        projectTitle,
+        maxItems: 16,
+      });
+    }
     const out = {
       userId: rec.userId,
       version: rec.version,
@@ -1903,6 +2041,16 @@ function createCreativeMemoryStore({
       queryEmbedding,
     });
     if (episodicMemories.length) out.episodicMemories = episodicMemories;
+    if (coverage.total > 0) {
+      out.episodicSelection = {
+        strategy: semanticUsed ? "hybrid_embedding" : "deterministic_fallback",
+        semanticUsed,
+        embeddedCandidates: coverage.embedded,
+        missingEmbeddings: coverage.missing.length,
+        coverageRatio: Math.round((coverage.embedded / coverage.total) * 1000) / 1000,
+        backfillQueued: canBackfill,
+      };
+    }
     if (recordEpisodicRecall && episodicMemories.length) {
       const recalledIds = episodicMemories.map((memory) => memory.id).filter(Boolean);
       await updateUser(userId, (latest) => {
@@ -2744,6 +2892,7 @@ function createCreativeMemoryStore({
     DOMAIN,
     getCreativeMemoryForPrompt,
     getCreativeMemoryLedger,
+    backfillEpisodicEmbeddings,
     getCharacterTraits,
     getHabitsForUser,
     hasMemoryForUser,

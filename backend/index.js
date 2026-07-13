@@ -3571,6 +3571,10 @@ function buildCreativeMemoryPromptTrace(memory = null, {
         : false,
     })).filter((episode) => episode.summary || episode.excerpt)
     : [];
+  const episodicSelection = memory?.episodicSelection && typeof memory.episodicSelection === "object"
+    ? memory.episodicSelection
+    : null;
+  const episodicCoverageRatio = Number(episodicSelection?.coverageRatio);
   const correctedTerms = [];
   const correctionReplacements = [];
   for (const character of characters) {
@@ -3599,6 +3603,16 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     characters,
     episodic_count: episodic.length,
     episodic,
+    episodic_retrieval: episodicSelection ? {
+      strategy: normalizeSnippet(episodicSelection.strategy, 48),
+      semantic_used: Boolean(episodicSelection.semanticUsed),
+      embedded_candidates: Math.max(0, Math.floor(Number(episodicSelection.embeddedCandidates) || 0)),
+      missing_embeddings: Math.max(0, Math.floor(Number(episodicSelection.missingEmbeddings) || 0)),
+      coverage_ratio: Number.isFinite(episodicCoverageRatio)
+        ? Math.max(0, Math.min(1, episodicCoverageRatio))
+        : 0,
+      backfill_queued: Boolean(episodicSelection.backfillQueued),
+    } : null,
     correction_count: characters.filter((character) => character.has_corrections).length +
       episodic.filter((episode) => episode.correction).length +
       (screenplayProjectTrace?.has_corrections ? 1 : 0),

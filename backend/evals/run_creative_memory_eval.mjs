@@ -88,8 +88,76 @@ async function caseSeededUser() {
   check("memory-present: prompt mentions wry tone", prompt.includes("default: wry"));
 }
 
+async function caseSemanticLegacyBackfill() {
+  const persistence = freshPersistence();
+  const legacyStore = createCreativeMemoryStore({ persistence });
+  await legacyStore.recordEpisodicMemory({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    summary: "Mara seals the affidavit behind a loose courthouse tile.",
+    text: "The sworn statement proves the judge threatened Eli.",
+  });
+  await legacyStore.recordEpisodicMemory({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    summary: "Mara misses Eli's birthday dinner.",
+    text: "The untouched cake hardens beside the kitchen sink.",
+  });
+
+  const legacyMemory = await legacyStore.getCreativeMemoryForPrompt({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    query: "Which hidden sworn proof can expose the judge?",
+    maxEpisodicMemories: 1,
+  });
+  check(
+    "semantic-backfill: legacy recall remains available before migration",
+    legacyMemory?.episodicSelection?.strategy === "deterministic_fallback",
+  );
+
+  const embeddingModel = "eval-story-embedding";
+  const upgradedStore = createCreativeMemoryStore({
+    persistence,
+    embeddingModel,
+    embedTexts: async (inputs) => inputs.map((input) =>
+      String(input || "").toLowerCase().includes("affidavit") ? [1, 0, 0] : [0, 1, 0]),
+    embedQuery: async () => ({ model: embeddingModel, vector: [1, 0, 0] }),
+  });
+  const receipt = await upgradedStore.backfillEpisodicEmbeddings({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  check(
+    "semantic-backfill: persisted legacy episodes receive embeddings",
+    receipt.ok === true && receipt.updated === 2,
+    `receipt: ${JSON.stringify(receipt)}`,
+  );
+
+  const recalled = await upgradedStore.getCreativeMemoryForPrompt({
+    userId: "semantic-user",
+    projectId: "rain-docket",
+    query: "Which hidden sworn proof can expose the judge?",
+    maxEpisodicMemories: 1,
+  });
+  check(
+    "semantic-backfill: later turn uses hybrid semantic recall",
+    recalled?.episodicSelection?.strategy === "hybrid_embedding" &&
+      recalled?.episodicSelection?.coverageRatio === 1,
+    `selection: ${JSON.stringify(recalled?.episodicSelection)}`,
+  );
+  check(
+    "semantic-backfill: paraphrase retrieves the affidavit memory",
+    /affidavit/i.test(recalled?.episodicMemories?.[0]?.summary || ""),
+    `memory: ${JSON.stringify(recalled?.episodicMemories?.[0])}`,
+  );
+}
+
 await caseColdUser();
 await caseSeededUser();
+await caseSemanticLegacyBackfill();
 
 if (!allOK) {
   console.error("creative memory eval: FAILED");

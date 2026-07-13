@@ -484,6 +484,11 @@ test("episodic embeddings survive restart and recall paraphrased project memory"
   assert.match(memory.episodicMemories[0].summary, /affidavit/);
   assert.equal(memory.episodicMemories[0].projectId, "rain-docket");
   assert.equal("embedding" in memory.episodicMemories[0], false);
+  assert.equal(memory.episodicSelection.strategy, "hybrid_embedding");
+  assert.equal(memory.episodicSelection.semanticUsed, true);
+  assert.equal(memory.episodicSelection.embeddedCandidates, 2);
+  assert.equal(memory.episodicSelection.missingEmbeddings, 0);
+  assert.equal(memory.episodicSelection.coverageRatio, 1);
 
   const ledger = await restoredStore.getCreativeMemoryLedger({
     userId: "writer-semantic-recall",
@@ -523,6 +528,84 @@ test("episodic embedding failures keep lexical recall available and back off wri
   });
   assert.equal(embedCalls, 1);
   assert.match(memory.episodicMemories[0].summary, /cassette/);
+  assert.equal(memory.episodicSelection.strategy, "deterministic_fallback");
+  assert.equal(memory.episodicSelection.semanticUsed, false);
+  assert.equal(memory.episodicSelection.backfillQueued, false);
+});
+
+test("legacy episodic memories backfill once and upgrade later turns to semantic recall", async () => {
+  const persistence = freshPersistence();
+  const legacyStore = createCreativeMemoryStore({ persistence });
+  await legacyStore.recordEpisodicMemory({
+    userId: "writer-legacy-backfill",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    summary: "Mara seals the affidavit behind a loose courthouse tile.",
+    text: "The sworn statement proves the judge threatened Eli.",
+  });
+  await legacyStore.recordEpisodicMemory({
+    userId: "writer-legacy-backfill",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    summary: "Mara misses Eli's birthday dinner.",
+    text: "The untouched cake hardens beside the kitchen sink.",
+  });
+
+  const embeddingModel = "test-story-embedding";
+  let embedCalls = 0;
+  let releaseEmbeddingBatch = () => {};
+  const embeddingGate = new Promise((resolve) => {
+    releaseEmbeddingBatch = resolve;
+  });
+  const upgradedStore = createCreativeMemoryStore({
+    persistence,
+    embeddingModel,
+    embedTexts: async (inputs) => {
+      embedCalls += 1;
+      await embeddingGate;
+      return inputs.map((input) => String(input || "").toLowerCase().includes("affidavit")
+        ? [1, 0, 0]
+        : [0, 1, 0]);
+    },
+    embedQuery: async () => ({
+      model: embeddingModel,
+      vector: [1, 0, 0],
+    }),
+  });
+
+  const firstMemory = await upgradedStore.getCreativeMemoryForPrompt({
+    userId: "writer-legacy-backfill",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Which hidden sworn proof can destroy the judge?",
+    maxEpisodicMemories: 1,
+  });
+  assert.equal(firstMemory.episodicSelection.strategy, "deterministic_fallback");
+  assert.equal(firstMemory.episodicSelection.missingEmbeddings, 2);
+  assert.equal(firstMemory.episodicSelection.backfillQueued, true);
+
+  const backfillPromise = upgradedStore.backfillEpisodicEmbeddings({
+    userId: "writer-legacy-backfill",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  releaseEmbeddingBatch();
+  const receipt = await backfillPromise;
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.updated, 2);
+  assert.equal(embedCalls, 1);
+
+  const recalledMemory = await upgradedStore.getCreativeMemoryForPrompt({
+    userId: "writer-legacy-backfill",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Which hidden sworn proof can destroy the judge?",
+    maxEpisodicMemories: 1,
+  });
+  assert.equal(recalledMemory.episodicSelection.strategy, "hybrid_embedding");
+  assert.equal(recalledMemory.episodicSelection.semanticUsed, true);
+  assert.equal(recalledMemory.episodicSelection.coverageRatio, 1);
+  assert.match(recalledMemory.episodicMemories[0].summary, /affidavit/);
 });
 
 test("getCreativeMemoryForPrompt prioritizes active project memory on broad continuation turns", async () => {

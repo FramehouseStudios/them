@@ -1217,6 +1217,14 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
           tags: ["screenplay", "correction"],
         },
       ],
+      episodicSelection: {
+        strategy: "hybrid_embedding",
+        semanticUsed: true,
+        embeddedCandidates: 7,
+        missingEmbeddings: 2,
+        coverageRatio: 0.778,
+        backfillQueued: true,
+      },
       style: { preferredTone: "restrained" },
     },
     {
@@ -1260,6 +1268,14 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.equal(trace.characters[0].has_corrections, true);
   assert.match(trace.episodic[0].summary, /Correction for Mara/);
   assert.equal(trace.episodic[0].correction, true);
+  assert.deepEqual(trace.episodic_retrieval, {
+    strategy: "hybrid_embedding",
+    semantic_used: true,
+    embedded_candidates: 7,
+    missing_embeddings: 2,
+    coverage_ratio: 0.778,
+    backfill_queued: true,
+  });
   assert.equal(trace.screenplay_project_memory.applied, true);
   assert.equal(trace.screenplay_project_memory.project_id, "rain-docket");
   assert.equal(trace.screenplay_project_memory.act, "Act II");
