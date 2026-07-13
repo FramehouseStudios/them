@@ -31,6 +31,7 @@
     "eval:trait-library-canon": "node evals/run_trait_library_canon_eval.mjs",
     "eval:twist-engine-canon": "node evals/run_twist_engine_canon_eval.mjs",
     "eval:block-detector-canon": "node evals/run_block_detector_canon_eval.mjs",
+    "eval:writer-block-rescue": "node evals/run_writer_block_rescue_eval.mjs",
     "eval:format-linter-canon": "node evals/run_format_linter_canon_eval.mjs",
     "eval:v1-voice-to-page-smoke": "node ../scripts/v1_voice_to_page_smoke.mjs",
     "eval:v1-screenplay-smoke": "node ../scripts/v1_screenplay_smoke.mjs",

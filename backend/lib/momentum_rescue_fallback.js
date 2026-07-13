@@ -1,4 +1,7 @@
-import { selectStoryMoveLibraryLinesForContext } from "./story_rescue_move_library.js";
+import {
+  rankStoryRescueMovesForContext,
+  selectStoryMoveLibraryLinesForContext,
+} from "./story_rescue_move_library.js";
 
 function trimToString(value) {
   if (value === null || value === undefined) return "";
@@ -9,6 +12,10 @@ function normalizeSnippet(value, maxChars = 220) {
   const clean = trimToString(value).replace(/\s+/g, " ");
   if (!clean) return "";
   return clean.slice(0, Math.max(1, Number(maxChars || 220))).trim();
+}
+
+function sentenceFragment(value, maxChars = 220) {
+  return normalizeSnippet(value, maxChars).replace(/[.!?]+$/g, "").trim();
 }
 
 function normalizeList(value, maxItems = 5, maxChars = 180) {
@@ -139,55 +146,25 @@ function diagnoseFallbackStoryProblem({
   return "Story diagnosis: the scene has feeling, but it needs a visible want, opposition, cost, and exit image.";
 }
 
-function buildFallbackMomentumMoveMenu({
-  strongestTurn = "",
-  problemSource = "",
-  cost = "",
-  objectPressure = "",
-  imagePressure = "",
-  actPressure = "",
-  characterArc = "",
-  featureObligation = "",
-  protagonist = "the protagonist",
-  protagonistWant = "",
-  protagonistNeed = "",
-  correctionSummary = "",
-  threads = [],
-  setups = [],
-  motifs = [],
-} = {}) {
-  const source = normalizeSnippet(problemSource, 180) || "the current beat";
-  const turn = normalizeSnippet(strongestTurn, 200) || "force a visible choice";
-  const consequence = normalizeSnippet(cost, 200) || "a real relationship cost";
-  const object = normalizeSnippet(objectPressure, 140) || "the proof";
-  const image = normalizeSnippet(imagePressure, 140) || "a changed image";
-  const thread = normalizeSnippet(threads[0], 160);
-  const setup = normalizeSnippet(setups[0], 140);
-  const motif = normalizeSnippet(motifs[0], 120);
-  const arc = normalizeSnippet(characterArc || actPressure || featureObligation, 200);
-  const want = normalizeSnippet(protagonistWant, 160);
-  const need = normalizeSnippet(protagonistNeed, 160);
-  const correction = normalizeSnippet(correctionSummary, 180);
-  const options = [
-    `Option A - pressure engine: ${turn}. Put it in conflict with ${source}, make ${consequence} land, and exit on ${image}.`,
-  ];
-  if (thread || setup || object) {
-    options.push(`Option B - exposure engine: make ${thread || setup || object} public before the protagonist is ready, so the win becomes a trap.`);
+function buildRankedFallbackMoveLines(rankedMoves = []) {
+  const moves = Array.isArray(rankedMoves) ? rankedMoves.slice(0, 3) : [];
+  if (!moves.length) return [];
+  const lines = [];
+  for (const move of moves) {
+    const label = String(move?.key || "story_pressure").replace(/_/g, " ");
+    const playableMove = normalizeSnippet(move?.move, 520);
+    if (!playableMove) continue;
+    if (Number(move?.rank || 0) === 1) {
+      lines.push(`Ranked strongest move - ${label}: ${playableMove}`);
+      const evidence = normalizeList(move?.evidence, 3, 180);
+      if (evidence.length) lines.push(`Grounded in: ${evidence.join(" | ")}`);
+      const successCheck = normalizeSnippet(move?.successCheck, 220);
+      if (successCheck) lines.push(`Proof test: ${successCheck}`);
+    } else {
+      lines.push(`Alternate fork ${move.rank} - ${label}: ${playableMove}`);
+    }
   }
-  if (want || need) {
-    options.push(`Option C - character engine: force ${protagonist}'s want (${want || turn}) to collide with their need (${need || arc || "the truth they are avoiding"}).`);
-  } else if (arc) {
-    options.push(`Option C - character engine: make ${arc} impossible to avoid; the next plot move should reveal old tactic versus needed change.`);
-  } else if (motif) {
-    options.push(`Option C - image engine: let ${motif} change meaning through action, not explanation.`);
-  } else {
-    options.push("Option C - choice engine: close one safe door so the next scene becomes inevitable.");
-  }
-  if (correction) {
-    options.push(`Correction guard: ${correction}. Treat this as canon before older memory.`);
-  }
-  options.push("Pick the one that changes story state fastest; do not add a brand-new lane unless these engines are truly unavailable.");
-  return options;
+  return lines;
 }
 
 function readableStoryMoveLine(line = "") {
@@ -211,6 +188,8 @@ function buildMomentumRescueFallbackReply({
   const currentBeat = firstMetaValue(meta, ["screenplayCurrentBeat", "screenplay_current_beat"], 240);
   const protagonistWant = firstMetaValue(meta, ["screenplayProtagonistWant", "screenplay_protagonist_want"], 200);
   const protagonistNeed = firstMetaValue(meta, ["screenplayProtagonistNeed", "screenplay_protagonist_need"], 200);
+  const antagonisticForce = firstMetaValue(meta, ["screenplayAntagonisticForce", "screenplay_antagonistic_force"], 200);
+  const endingImage = firstMetaValue(meta, ["screenplayEndingImage", "screenplay_ending_image"], 180);
   const actPressure = firstMetaValue(meta, ["screenplayActPressureState", "screenplay_act_pressure_state"], 240);
   const characterArc = firstMetaValue(meta, ["screenplayCharacterArcState", "screenplay_character_arc_state"], 240);
   const lastOutcome = firstMetaValue(meta, ["screenplayLastSceneOutcome", "screenplay_last_scene_outcome"], 240);
@@ -224,6 +203,18 @@ function buildMomentumRescueFallbackReply({
   const actThreePayoffPath = listMetaValue(meta, ["screenplayActThreePayoffPath", "screenplay_act_three_payoff_path"], 4, 180);
   const motifs = listMetaValue(meta, ["screenplayImageMotifs", "screenplay_image_motifs"], 4, 140);
   const characters = listMetaValue(meta, ["screenplayCharacterFocus", "screenplay_character_focus"], 4, 80);
+  const acceptedPages = listMetaValue(
+    meta,
+    ["screenplayAcceptedPageContinuity", "screenplay_accepted_page_continuity"],
+    3,
+    240
+  );
+  const storyMoments = listMetaValue(
+    meta,
+    ["screenplayRetrievedStoryMoments", "screenplay_retrieved_story_moments"],
+    4,
+    220
+  );
   const correctedTerms = listMetaValue(meta, ["screenplayCorrectedTerms", "screenplay_corrected_terms", "correctedTerms", "corrected_terms"], 4, 120);
   const correctionReplacements = listMetaValue(meta, ["screenplayCorrectionReplacements", "screenplay_correction_replacements", "correctionReplacements", "correction_replacements"], 4, 160);
   const correctionSummary = correctionReplacements.length || correctedTerms.length
@@ -239,13 +230,43 @@ function buildMomentumRescueFallbackReply({
   const objectPressure = articlePhrase(setups[0] || motifs[0], "the proof");
   const imagePressure = articlePhrase(motifs[0] || actThreePayoffPath[0] || setups[0], "the room going still");
   const strongestTurn = nextTurns[0] || nextMoves[0] || nextScenePlan || sceneObjective ||
-    "force the protagonist to choose between the thing they want and the truth they are avoiding";
+    "the protagonist chooses between the thing they want and the truth they are avoiding";
   const cost = characterArcTurns[0] || characterArc || protagonistNeed || actPressure || featureObligation || threads[0] ||
     "the choice changes the relationship and makes the next scene unavoidable";
   const problemSource = currentBeat || lastOutcome || sceneObjective || normalizeSnippet(transcript, 180) ||
     "the scene has feeling, but not enough visible consequence yet";
   const oppositionPressure = threads[0] || setups[0] || actPressure || "a force that can say no";
-  const bestNextBeat = `Best next beat: have ${protagonist} pursue ${protagonistWant || strongestTurn}; collide with ${oppositionPressure}; make the cost ${cost}; exit on ${imagePressure}.`;
+  const rankedRescueMoves = rankStoryRescueMovesForContext({
+    transcript,
+    intent: "momentum_rescue",
+    act,
+    featureSequence,
+    featureObligation,
+    sceneObjective,
+    currentBeat,
+    lastSceneOutcome: lastOutcome,
+    actPressureState: actPressure,
+    characterArcState: characterArc,
+    protagonistWant,
+    protagonistNeed,
+    antagonisticForce,
+    endingImage,
+    characters,
+    nextThreeTurns: nextTurns,
+    nextSceneMoves: nextMoves,
+    nextScenePlan,
+    unresolvedSetups: setups,
+    unresolvedStoryThreads: threads,
+    characterArcTurns,
+    actThreePayoffPath,
+    imageMotifs: motifs,
+    acceptedPages,
+    storyMoments,
+  });
+  const rankedMoveLines = buildRankedFallbackMoveLines(rankedRescueMoves);
+  const bestNextBeat = rankedRescueMoves[0]?.move
+    ? `Best next beat: ${rankedRescueMoves[0].move}`
+    : `Best next beat: have ${protagonist} pursue ${protagonistWant || strongestTurn}; collide with ${oppositionPressure}; make the cost ${cost}; exit on ${imagePressure}.`;
   const position = [act, featureSequence].filter(Boolean).join(" / ");
   const heading = sceneHeadingFromLabel(sceneLabel);
   const contextLine = position
@@ -282,52 +303,30 @@ function buildMomentumRescueFallbackReply({
     ? `Story move library: ${storyMoveLines.slice(0, 4).map(readableStoryMoveLine).filter(Boolean).join("; ")}`
     : "";
   const actLine = actRescueLine(act || featureSequence);
-  const beatEngineLine = `Beat engine: because ${problemSource}, force ${strongestTurn}; make ${cost} impose the cost; leave on ${imagePressure}.`;
-  const moveMenu = buildFallbackMomentumMoveMenu({
-    strongestTurn,
-    problemSource,
-    cost,
-    objectPressure,
-    imagePressure,
-    actPressure,
-    characterArc,
-    featureObligation,
-    protagonist,
-    protagonistWant,
-    protagonistNeed,
-    correctionSummary,
-    threads,
-    setups,
-    motifs,
-  });
+  const beatEngineLine = `Beat engine: because ${sentenceFragment(problemSource)}, force this move: ${sentenceFragment(strongestTurn)}; make this cost land: ${sentenceFragment(cost)}; leave on ${sentenceFragment(imagePressure)}.`;
   const pressureLine = [
     contextLine,
     diagnosisLine,
     storyMoveLine,
     actLine,
-    `The story already has pressure in this: ${problemSource}.`,
-    actPressure ? `Use that pressure instead of opening a new lane: ${actPressure}.` : "",
+    `The story already has pressure in this: ${sentenceFragment(problemSource)}.`,
+    actPressure ? `Use that pressure instead of opening a new lane: ${sentenceFragment(actPressure)}.` : "",
+    acceptedPages[0] ? `Accepted page anchor: ${sentenceFragment(acceptedPages[0], 240)}. Treat it as committed continuity.` : "",
+    storyMoments[0] && storyMoments[0] !== acceptedPages[0]
+      ? `Retrieved story memory: ${sentenceFragment(storyMoments[0], 220)}.`
+      : "",
     correctionSummary ? `Memory priority: ${correctionSummary}. Apply that before older story memory.` : "",
   ].filter(Boolean).join(" ");
   const characterLine = protagonistWant || protagonistNeed || characterArcTurns[0]
     ? `Character engine: ${protagonist}${protagonistWant ? `'s want: ${protagonistWant}` : ""}${protagonistNeed ? `; need: ${protagonistNeed}` : ""}${characterArcTurns[0] ? `. Arc pressure: ${characterArcTurns[0]}` : "."}`
     : "";
-  const turnLine = `Strongest next move: ${strongestTurn}. Make it cost this: ${cost}.`;
-  const forkLine = threads[0]
-    ? `If you need one alternate fork, pay off the open thread: ${threads[0]}.`
-    : actThreePayoffPath[0]
-      ? `If you need one alternate fork, spend the payoff seed: ${actThreePayoffPath[0]}.`
-    : `If you need one alternate fork, make ${objectPressure} expose a secret instead of solving the problem.`;
 
   return [
     pressureLine,
     characterLine,
     bestNextBeat,
+    ...rankedMoveLines,
     beatEngineLine,
-    turnLine,
-    "Three clean ways forward:",
-    ...moveMenu,
-    forkLine,
     "",
     heading,
     "",

@@ -45,7 +45,11 @@ import {
   buildTalkScreenplayExecutionBriefLines,
   isNextSceneExecutionBriefRepairReason,
 } from "./talk_screenplay_repair_plan.js";
-import { selectStoryMoveLibraryLinesForContext } from "./story_rescue_move_library.js";
+import {
+  formatRankedStoryRescueMoveLine,
+  rankStoryRescueMovesForContext,
+  selectStoryMoveLibraryLinesForContext,
+} from "./story_rescue_move_library.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput"]);
 
@@ -508,10 +512,52 @@ function createTalkHandler(deps) {
     );
   }
 
-  function mergeTalkMomentumRepairStudioMeta(studioMeta = null, memory = null) {
+  function mergeTalkMomentumRepairStudioMeta(
+    studioMeta = null,
+    memory = null,
+    creativeMemoryTrace = null
+  ) {
     const base = studioMeta && typeof studioMeta === "object" ? { ...studioMeta } : {};
+    const tracedEpisodes = Array.isArray(creativeMemoryTrace?.episodic)
+      ? creativeMemoryTrace.episodic.filter((item) => item && typeof item === "object")
+      : [];
+    const acceptedPageContinuity = normalizeTalkRepairList(
+      tracedEpisodes
+        .filter((item) => String(item.authority || "").trim().toLowerCase() === "accepted_page")
+        .map((item) => item.excerpt || item.summary),
+      3,
+      240
+    );
+    const retrievedStoryMoments = normalizeTalkRepairList(
+      tracedEpisodes
+        .filter((item) => ["accepted_page", "user_note", "user_correction"].includes(
+          String(item.authority || "").trim().toLowerCase()
+        ))
+        .map((item) => item.excerpt || item.summary),
+      4,
+      220
+    );
+    const baseWithCreativeRecall = {
+      ...base,
+      screenplayAcceptedPageContinuity: mergeTalkMomentumRepairContextList(
+        base.screenplayAcceptedPageContinuity,
+        acceptedPageContinuity,
+        3,
+        240
+      ),
+      screenplayRetrievedStoryMoments: mergeTalkMomentumRepairContextList(
+        base.screenplayRetrievedStoryMoments,
+        retrievedStoryMoments,
+        4,
+        220
+      ),
+    };
     const memoryProject = selectTalkMomentumMemoryProject(memory, base);
-    if (!memoryProject) return studioMeta;
+    if (!memoryProject) {
+      return acceptedPageContinuity.length || retrievedStoryMoments.length
+        ? baseWithCreativeRecall
+        : studioMeta;
+    }
     const pick = (currentValue, memoryValue, maxChars = 220) =>
       normalizeSnippet(currentValue, maxChars) || normalizeSnippet(memoryValue, maxChars);
     const positiveInt = (currentValue, memoryValue) => {
@@ -521,7 +567,7 @@ function createTalkHandler(deps) {
       return remembered > 0 ? remembered : 0;
     };
     return {
-      ...base,
+      ...baseWithCreativeRecall,
       screenplayProjectId: pick(base.screenplayProjectId, memoryProject.projectId, 96),
       screenplayDocumentRevisionId: pick(base.screenplayDocumentRevisionId, memoryProject.documentRevisionId, 96),
       screenplayAnchorSceneLabel: pick(base.screenplayAnchorSceneLabel, memoryProject.sceneLabel, 120),
@@ -623,9 +669,30 @@ function createTalkHandler(deps) {
       studioMeta?.screenplayCharacterArcState || studioMeta?.screenplay_character_arc_state,
       220
     );
+    const screenplayProtagonistWant = normalizeSnippet(
+      studioMeta?.screenplayProtagonistWant || studioMeta?.screenplay_protagonist_want,
+      200
+    );
+    const screenplayProtagonistNeed = normalizeSnippet(
+      studioMeta?.screenplayProtagonistNeed || studioMeta?.screenplay_protagonist_need,
+      200
+    );
+    const screenplayAntagonisticForce = normalizeSnippet(
+      studioMeta?.screenplayAntagonisticForce || studioMeta?.screenplay_antagonistic_force,
+      200
+    );
+    const screenplayEndingImage = normalizeSnippet(
+      studioMeta?.screenplayEndingImage || studioMeta?.screenplay_ending_image,
+      180
+    );
     const screenplayNextThreeTurns = normalizeTalkRepairList(
       studioMeta?.screenplayNextThreeTurns || studioMeta?.screenplay_next_three_turns,
       3,
+      180
+    );
+    const screenplayNextSceneMoves = normalizeTalkRepairList(
+      studioMeta?.screenplayNextSceneMoves || studioMeta?.screenplay_next_scene_moves,
+      5,
       180
     );
     const screenplayUnresolvedSetups = normalizeTalkRepairList(
@@ -643,6 +710,31 @@ function createTalkHandler(deps) {
       4,
       140
     );
+    const screenplayCharacterArcTurns = normalizeTalkRepairList(
+      studioMeta?.screenplayCharacterArcTurns || studioMeta?.screenplay_character_arc_turns,
+      4,
+      180
+    );
+    const screenplayActThreePayoffPath = normalizeTalkRepairList(
+      studioMeta?.screenplayActThreePayoffPath || studioMeta?.screenplay_act_three_payoff_path,
+      4,
+      180
+    );
+    const screenplayCharacterFocus = normalizeTalkRepairList(
+      studioMeta?.screenplayCharacterFocus || studioMeta?.screenplay_character_focus,
+      4,
+      80
+    );
+    const screenplayAcceptedPageContinuity = normalizeTalkRepairList(
+      studioMeta?.screenplayAcceptedPageContinuity || studioMeta?.screenplay_accepted_page_continuity,
+      3,
+      240
+    );
+    const screenplayRetrievedStoryMoments = normalizeTalkRepairList(
+      studioMeta?.screenplayRetrievedStoryMoments || studioMeta?.screenplay_retrieved_story_moments,
+      4,
+      220
+    );
     const storyMoveLibraryLines = selectStoryMoveLibraryLinesForContext({
       transcript: userRequest,
       act: screenplayAct,
@@ -653,9 +745,38 @@ function createTalkHandler(deps) {
       characterArcState: screenplayCharacterArcState,
       problem: failedReason,
       nextThreeTurns: screenplayNextThreeTurns,
+      nextSceneMoves: screenplayNextSceneMoves,
       unresolvedSetups: screenplayUnresolvedSetups,
       unresolvedStoryThreads: screenplayUnresolvedStoryThreads,
+      actThreePayoffPath: screenplayActThreePayoffPath,
       imageMotifs: screenplayImageMotifs,
+    });
+    const rankedRescueMoves = rankStoryRescueMovesForContext({
+      transcript: userRequest,
+      intent: "momentum_rescue",
+      problem: failedReason,
+      act: screenplayAct,
+      featureSequence: screenplayFeatureSequence,
+      featureObligation: screenplayFeatureObligation,
+      sceneObjective: screenplaySceneObjective,
+      currentBeat: screenplayCurrentBeat,
+      lastSceneOutcome: screenplayLastSceneOutcome,
+      actPressureState: screenplayActPressureState,
+      characterArcState: screenplayCharacterArcState,
+      protagonistWant: screenplayProtagonistWant,
+      protagonistNeed: screenplayProtagonistNeed,
+      antagonisticForce: screenplayAntagonisticForce,
+      endingImage: screenplayEndingImage,
+      characters: screenplayCharacterFocus,
+      nextThreeTurns: screenplayNextThreeTurns,
+      nextSceneMoves: screenplayNextSceneMoves,
+      unresolvedSetups: screenplayUnresolvedSetups,
+      unresolvedStoryThreads: screenplayUnresolvedStoryThreads,
+      characterArcTurns: screenplayCharacterArcTurns,
+      actThreePayoffPath: screenplayActThreePayoffPath,
+      imageMotifs: screenplayImageMotifs,
+      acceptedPages: screenplayAcceptedPageContinuity,
+      storyMoments: screenplayRetrievedStoryMoments,
     });
     const contextLines = [
       screenplayAct ? `ACT: ${screenplayAct}` : "",
@@ -666,12 +787,16 @@ function createTalkHandler(deps) {
       screenplayActPressureState ? `ACT_PRESSURE: ${screenplayActPressureState}` : "",
       screenplayLastSceneOutcome ? `LAST_SCENE_OUTCOME: ${screenplayLastSceneOutcome}` : "",
       screenplayCharacterArcState ? `CHARACTER_ARC_PRESSURE: ${screenplayCharacterArcState}` : "",
+      ...screenplayAcceptedPageContinuity.map((item) => `ACCEPTED_PAGE_CONTINUITY: ${item}`),
+      ...screenplayRetrievedStoryMoments.map((item) => `AUTHORITATIVE_STORY_MEMORY: ${item}`),
+      ...rankedRescueMoves.map((item) => `RANKED_RESCUE_MOVE: ${formatRankedStoryRescueMoveLine(item)}`),
       ...storyMoveLibraryLines.map((item) => `STORY_MOVE_LIBRARY: ${item}`),
       ...screenplayNextThreeTurns.map((item) => `NEXT_TURN: ${item}`),
+      ...screenplayNextSceneMoves.map((item) => `NEXT_SCENE_MOVE: ${item}`),
       ...screenplayUnresolvedSetups.map((item) => `SETUP_TO_CARRY_OR_PAY: ${item}`),
       ...screenplayUnresolvedStoryThreads.map((item) => `UNRESOLVED_THREAD: ${item}`),
       ...screenplayImageMotifs.map((item) => `IMAGE_MOTIF: ${item}`),
-    ].filter(Boolean).slice(0, 16);
+    ].filter(Boolean).slice(0, 24);
     const repairMessages = [
       {
         role: "system",
@@ -681,6 +806,7 @@ function createTalkHandler(deps) {
           "Return Clementine's final answer only: no JSON, no markdown table, no apology, no long option menu.",
           "Diagnose the precise story blockage silently, then answer with one strongest next move.",
           "A passing answer must include a pressure engine, a decisive next beat, emotional cost, and a tiny playable micro-beat in clean screenplay/Fountain shape.",
+          "When RANKED_RESCUE_MOVE is supplied, execute rank_1 unless it conflicts with a writer correction; preserve its named evidence and satisfy its success check.",
           "Use the STORY_MOVE_LIBRARY lines when supplied; pick the one engine that best solves the failed gate and dramatize it as action, tactical dialogue, cost, and exit image.",
           "Use act-aware story intelligence: Act I commits, Act II reverses/traps/costs, Act III pays off setup through changed behavior.",
           "If the user is only brainstorming, still give one playable beat they can write today, then at most two short alternate forks.",
@@ -4031,7 +4157,11 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         talkScreenplayOutput?.quality?.reason || talkScreenplayOutput?.source || "guard_momentum_rescue_quality",
         96
       );
-      const momentumRepairStudioMeta = mergeTalkMomentumRepairStudioMeta(studioMeta, sessionMemory);
+      const momentumRepairStudioMeta = mergeTalkMomentumRepairStudioMeta(
+        studioMeta,
+        sessionMemory,
+        req.creativeMemoryTrace
+      );
       const repairPass = await attemptTalkMomentumRescueRepairPass({
         currentOutput: talkScreenplayOutput,
         rawReply,

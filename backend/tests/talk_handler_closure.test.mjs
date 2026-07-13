@@ -42,8 +42,10 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "createSttSupplier",
   "createTtsSupplier",
   "createTalkFailureError",
+  "formatRankedStoryRescueMoveLine",
   "incrementErrorCounter",
   "isNextSceneExecutionBriefRepairReason",
+  "rankStoryRescueMovesForContext",
   "selectStoryMoveLibraryLinesForContext",
 ]);
 

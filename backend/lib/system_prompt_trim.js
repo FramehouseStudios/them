@@ -5,6 +5,7 @@ const DEFAULT_PROTECTED_TAGS = Object.freeze([
   "session",
   "feature_film_map",
   "accepted_twists",
+  "writer_block_memory",
   "screenplay_task",
   "block_signal",
 ]);
@@ -49,6 +50,62 @@ function removeTaggedBlocks(text, blocks) {
   return normalizePromptText(out);
 }
 
+function compactPromptField(value, maxChars) {
+  const clean = normalizePromptText(value);
+  const limit = Math.max(8, Math.floor(Number(maxChars || 0)));
+  if (clean.length <= limit) return clean;
+  return `${clean.slice(0, Math.max(1, limit - 3)).trimEnd()}...`;
+}
+
+function compactWriterBlockBody(body, bodyLimit) {
+  const limit = Math.max(40, Math.floor(Number(bodyLimit || 0)));
+  const lines = String(body || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const rankLine = lines.find((line) => /^rank_1:/i.test(line)) || "";
+  const rankMatch = rankLine.match(
+    /^rank_1:\s*engine=([^;]+);\s*score=([^;]+);\s*evidence=([\s\S]*?);\s*move=([\s\S]*?);\s*success_check=([\s\S]*)$/i
+  );
+  const rule = "rule: execute rank_1 unless a writer correction conflicts.";
+  let compactRank = rankLine;
+  if (rankMatch) {
+    const ruleBudget = limit >= 120 ? rule.length + 1 : 0;
+    const available = Math.max(32, limit - ruleBudget);
+    const engine = compactPromptField(rankMatch[1], 40);
+    const fixedChars = 58 + engine.length;
+    const fieldBudget = Math.max(24, available - fixedChars);
+    const evidenceBudget = Math.max(8, Math.floor(fieldBudget * 0.28));
+    const moveBudget = Math.max(8, Math.floor(fieldBudget * 0.50));
+    const successBudget = Math.max(8, fieldBudget - evidenceBudget - moveBudget);
+    compactRank = [
+      `rank_1: engine=${engine}`,
+      `evidence=${compactPromptField(rankMatch[3], evidenceBudget)}`,
+      `move=${compactPromptField(rankMatch[4], moveBudget)}`,
+      `success=${compactPromptField(rankMatch[5], successBudget)}`,
+    ].join("; ");
+  }
+  const rankBudget = limit >= 120 ? limit - rule.length - 1 : limit;
+  compactRank = compactPromptField(compactRank, Math.max(24, rankBudget));
+  const selected = [compactRank].filter(Boolean);
+  if (selected.join("\n").length + rule.length + 1 <= limit) selected.push(rule);
+  const optionalPrefixes = [
+    "correction_contract:",
+    "accepted_page_anchor:",
+    "current_beat:",
+    "position:",
+  ];
+  for (const prefix of optionalPrefixes) {
+    const line = lines.find((item) => item.toLowerCase().startsWith(prefix));
+    if (!line) continue;
+    const used = selected.join("\n").length;
+    const remaining = limit - used - 1;
+    if (remaining < 32) break;
+    selected.push(compactPromptField(line, remaining));
+  }
+  return selected.join("\n").slice(0, limit).trim();
+}
+
 function compactTaggedBlock(block, maxChars) {
   const clean = String(block || "").trim();
   const limit = Math.max(120, Math.floor(Number(maxChars || 0)));
@@ -69,6 +126,12 @@ function compactTaggedBlock(block, maxChars) {
     .trim();
   const marker = "\n...\n";
   const bodyLimit = Math.max(40, limit - openTag.length - closeTag.length - marker.length - 2);
+  if (tag.toLowerCase() === "writer_block_memory") {
+    const priorityBody = compactWriterBlockBody(body, bodyLimit);
+    if (priorityBody) {
+      return `${openTag}\n${priorityBody}\n${closeTag}`.trim();
+    }
+  }
   if (tag.toLowerCase() === "creative_memory" && /\bCORRECTION:/i.test(body)) {
     const priorityLines = body
       .split(/\r?\n/)
@@ -166,7 +229,7 @@ function fitSystemPromptForTurnLatency(
     return `${head}\n...\n${tail}`.slice(0, budget).trim();
   }
 
-  const protectedBudget = Math.max(240, Math.floor(budget * 0.68));
+  const protectedBudget = Math.max(240, Math.floor(budget * 0.82));
   const protectedSection = buildProtectedSection(protectedBlocks, protectedBudget);
   const base = removeTaggedBlocks(normalized, protectedBlocks);
   const remainingBudget = Math.max(240, budget - protectedSection.length - 8);

@@ -124,6 +124,13 @@ test("[system-prompt-trim] does not slice through protected correction memory bl
     ["session", `project: rain-docket\n${"session. ".repeat(80)}`],
     ["feature_film_map", `act: II\n${"feature. ".repeat(80)}`],
     ["accepted_twists", `twist: Mara burns the false evidence.\n${"twist. ".repeat(80)}`],
+    ["writer_block_memory", [
+      "directive: use accepted continuity before inventing.",
+      "accepted_page_anchor: Mara puts the affidavit on the record.",
+      "rank_1: engine=reversal_pressure; score=88; evidence=accepted_page: Mara puts the affidavit on the record. | remembered_next_turn: The judge turns it against her; move=Turn the apparent win into a public trap that forces Mara to risk Eli's trust.; success_check=The gain becomes a cost and Mara changes tactic.",
+      "selection_rule: execute rank_1 unless a writer correction conflicts.",
+      "rescue detail. ".repeat(80),
+    ].join("\n")],
     ["screenplay_task", `intent: continue_script\n${"task. ".repeat(80)}`],
     ["block_signal", `level: low\n${"block. ".repeat(80)}`],
   ].map(([tag, body]) => `<${tag}>\n${body}\n</${tag}>`);
@@ -147,6 +154,7 @@ test("[system-prompt-trim] does not slice through protected correction memory bl
     "session",
     "feature_film_map",
     "accepted_twists",
+    "writer_block_memory",
     "screenplay_task",
     "block_signal",
   ]) {
@@ -155,4 +163,44 @@ test("[system-prompt-trim] does not slice through protected correction memory bl
   }
   assert.ok(out.includes("CORRECTION: Mara"));
   assert.ok(out.includes("VHS"));
+  assert.ok(out.includes("rank_1: engine=reversal_pressure"));
+});
+
+test("[system-prompt-trim] keeps ranked rescue authority inside the live rich-turn budget", () => {
+  const writerBlock = [
+    "<writer_block_memory>",
+    "directive: use project memory before invention.",
+    "position: Act II / Midpoint trap",
+    "current_beat: Mara puts the affidavit on the record.",
+    "accepted_page_anchor: Mara puts the affidavit on the record.",
+    "correction_contract: public affidavit, not sealed affidavit.",
+    "ranked_rescue_moves:",
+    `  rank_1: engine=reversal_pressure; score=91; evidence=accepted_page: Mara puts the affidavit on the record. | remembered_next_turn: The judge turns it against Mara; move=Use the accepted affidavit beat as an apparent win, then make the judge turn it into public cost so Mara must risk Eli's trust.; success_check=The gain becomes a cost and Mara changes tactic.`,
+    "  rank_2: engine=relationship_pressure; score=82; evidence=Eli distrusts Mara; move=Make exposure cost the bond.; success_check=Trust changes.",
+    "  selection_rule: execute rank_1 unless it conflicts with a writer correction.",
+    "response_contract:",
+    "  - Lead with rank_1.",
+    "  - Include a playable micro-beat.",
+    "detail: " + "story pressure. ".repeat(300),
+    "</writer_block_memory>",
+  ].join("\n");
+  const prompt = [
+    "PERSONA " + "companion voice. ".repeat(500),
+    writerBlock,
+    "DIRECTOR " + "behavior note. ".repeat(500),
+  ].join("\n\n");
+
+  const out = fitSystemPromptForTurnLatency(prompt, {
+    routingLane: "creative",
+    chatModelPlan: { tier: "rich" },
+    fastMaxChars: 3_800,
+    richMaxChars: 6_200,
+  });
+
+  assert.ok(out.length <= 6_200);
+  assert.ok(out.includes("<writer_block_memory>"));
+  assert.ok(out.includes("</writer_block_memory>"));
+  assert.ok(out.includes("rank_1: engine=reversal_pressure"));
+  assert.ok(out.includes("evidence=accepted_page: Mara puts the affidavit"));
+  assert.ok(out.includes("rule: execute rank_1 unless a writer correction conflicts."));
 });

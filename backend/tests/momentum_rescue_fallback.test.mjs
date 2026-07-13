@@ -31,6 +31,8 @@ test("[momentum-rescue-fallback] turns Story Spine context into a passing playab
       screenplayCharacterFocus: ["Mara", "Father"],
       screenplayCorrectedTerms: ["sealed affidavit"],
       screenplayCorrectionReplacements: ["sealed affidavit -> public affidavit"],
+      screenplayAcceptedPageContinuity: ["Mara puts the public affidavit on the record."],
+      screenplayRetrievedStoryMoments: ["Mara promised Eli she would not edit the truth again."],
     },
   });
 
@@ -41,16 +43,17 @@ test("[momentum-rescue-fallback] turns Story Spine context into a passing playab
   assert.match(reply, /relationship pressure - make the plot solution damage/);
   assert.match(reply, /Act II rescue lens: make the old tactic fail/);
   assert.match(reply, /Memory priority: replace sealed affidavit -> public affidavit; retire sealed affidavit/);
+  assert.match(reply, /Accepted page anchor: Mara puts the public affidavit on the record/);
+  assert.match(reply, /Retrieved story memory: Mara promised Eli she would not edit the truth again/);
   assert.match(reply, /Character engine: Mara's want: expose the forged testimony; need: stop hiding behind observation/);
-  assert.match(reply, /Best next beat: have Mara pursue expose the forged testimony; collide with Why Marcus protected the fixer/);
+  assert.match(reply, /Best next beat:/);
+  assert.match(reply, /Ranked strongest move - (?:reversal|relationship) pressure:/);
+  assert.match(reply, /Grounded in: accepted_page: Mara puts the public affidavit on the record/);
+  assert.match(reply, /Proof test:/);
+  assert.match(reply, /Alternate fork 2/);
+  assert.match(reply, /Alternate fork 3/);
   assert.match(reply, /Beat engine: because Mara realizes the public affidavit points at the judge/);
-  assert.match(reply, /Strongest next move: Father names the lie\./);
-  assert.match(reply, /Three clean ways forward:/);
-  assert.match(reply, /Option A - pressure engine: Father names the lie\./);
-  assert.match(reply, /Option B - exposure engine: make Why Marcus protected the fixer public/);
-  assert.match(reply, /Option C - character engine: force Mara's want \(expose the forged testimony\) to collide with their need \(stop hiding behind observation\)/);
-  assert.match(reply, /Correction guard: replace sealed affidavit -> public affidavit; retire sealed affidavit/);
-  assert.match(reply, /Pick the one that changes story state fastest/);
+  assert.doesNotMatch(reply, /Option [A-C] -/);
   assert.match(reply, /public affidavit/);
   assert.match(reply, /INT\. COURTHOUSE HALLWAY - NIGHT/);
   assert.match(reply, /\nFATHER\n/);
@@ -79,11 +82,12 @@ test("[momentum-rescue-fallback] sparse block turns still get one decisive playa
   assert.match(reply, /image pressure - if the page feels abstract/);
   assert.match(reply, /Story rescue lens: want meets obstacle/);
   assert.match(reply, /Beat engine: because I have writer's block/);
-  assert.match(reply, /Strongest next move:/);
-  assert.match(reply, /Three clean ways forward:/);
-  assert.match(reply, /Option A - pressure engine:/);
-  assert.match(reply, /Option B - exposure engine:/);
-  assert.match(reply, /Option C - choice engine:/);
+  assert.match(reply, /Best next beat:/);
+  assert.match(reply, /Ranked strongest move - objective pressure:/);
+  assert.match(reply, /Proof test: The protagonist can visibly succeed or fail/);
+  assert.match(reply, /Alternate fork 2 - choice pressure:/);
+  assert.match(reply, /Alternate fork 3 - image pressure:/);
+  assert.doesNotMatch(reply, /Option [A-C] -/);
   assert.match(reply, /INT\. PRESSURE POINT - NIGHT/);
   assert.match(reply, /\nPROTAGONIST\n/);
 
