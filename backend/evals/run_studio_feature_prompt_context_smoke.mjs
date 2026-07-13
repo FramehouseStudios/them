@@ -156,10 +156,11 @@ try {
     "position_basis: outline act label overrides low draft-page estimate.",
     "Act II must escalate tactics, reversals, midpoint pressure",
     "feature_completion_protocol:",
-    "diagnose act/sequence pressure",
+    "active_sequence_pressure: Act II - Promise Of The Premise",
   ]) {
     assertIncludes(continuePrompt, snippet, "continue prompt");
   }
+  assert.ok(continuePrompt.length <= 12_000, `continue prompt too large: ${continuePrompt.length}`);
 
   const rewriteBuild = await apiRequest(server, "/screenplay/prompt/build", {
     method: "POST",
@@ -187,11 +188,12 @@ try {
     "draft_excerpt:",
     marker,
     "intent: rewrite_scene",
-    "replace only the requested span",
+    "Preserve the writer's intention and continuity",
     "current_scene_objective: June decides whether to burn",
   ]) {
     assertIncludes(rewritePrompt, snippet, "rewrite prompt");
   }
+  assert.ok(rewritePrompt.length <= 12_000, `rewrite prompt too large: ${rewritePrompt.length}`);
 
   smokeResult = {
     ok: true,

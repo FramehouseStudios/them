@@ -1494,7 +1494,165 @@ function screenplayIntentNeedsFeatureMap(intent) {
   ]).has(trimToString(intent, 80));
 }
 
-function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask = null } = {}) {
+function groupFeatureMapLines(lines) {
+  const groups = [];
+  let current = { name: "header", lines: [] };
+  groups.push(current);
+  for (const line of lines) {
+    const match = /^  ([a-z][a-z0-9_]*):/.exec(line);
+    if (match) {
+      current = { name: match[1], lines: [line] };
+      groups.push(current);
+    } else {
+      current.lines.push(line);
+    }
+  }
+  return groups;
+}
+
+function keepFeatureMapLines(group, needles) {
+  if (!group?.lines?.length) return [];
+  return [
+    group.lines[0],
+    ...group.lines.slice(1).filter((line) => needles.some((needle) => line.includes(needle))),
+  ];
+}
+
+function compactFeatureMapLines(lines, { sessionContext = null, screenplayTask = null } = {}) {
+  const intent = trimToString(screenplayTask?.intent, 80);
+  const requestedPages = requestedPageBatchFromTask(screenplayTask);
+  const explicitAct = trimToString(
+    sessionContext?.act ?? sessionContext?.currentAct ?? sessionContext?.current_act,
+    120
+  );
+  const requestedAct = requestedActFromTask(screenplayTask);
+  const wholeFeature = isWholeFeatureTask({ screenplayTask, explicitAct, requestedAct });
+  const writerBlockText = `${screenplayTask?.label || ""} ${screenplayTask?.output || ""}`.toLowerCase();
+  const writerBlocked = screenplayTask?.writerBlocked === true || screenplayTask?.writer_blocked === true ||
+    intent === "momentum_rescue" || /\b(?:stuck|blocked|writer'?s block)\b/.test(writerBlockText);
+  const compact = [];
+
+  for (const group of groupFeatureMapLines(lines)) {
+    switch (group.name) {
+      case "header":
+      case "act_ladder":
+      case "story_spine":
+      case "continuity_assets":
+      case "current_position":
+      case "current_sequence":
+      case "active_act_label":
+      case "position_basis":
+      case "active_act_pressure":
+      case "due_now":
+      case "next_page_moves":
+      case "coming_next":
+        compact.push(...group.lines);
+        break;
+      case "act_bridge_ladder":
+        if (wholeFeature) compact.push(...group.lines);
+        break;
+      case "feature_compass":
+        compact.push(...keepFeatureMapLines(group, [
+          "before_pages:",
+          "page_velocity:",
+          "completion_output:",
+        ]));
+        break;
+      case "expert_scene_execution":
+        compact.push(...keepFeatureMapLines(group, [
+          "scene_job:",
+          "turn_engine:",
+          "image_system:",
+          "speed_protocol:",
+        ]));
+        break;
+      case "act_aware_page_engine":
+        compact.push(...keepFeatureMapLines(group, [
+          ...(requestedPages === 0 ? ["scene_math:"] : []),
+          "active_act:",
+          "page_job:",
+          "active_sequence_job:",
+          "The climax should make",
+          "Do not introduce unearned information",
+          "whole_feature_chain:",
+          "whole_feature_rule:",
+          "- Act I:",
+          "- Act II:",
+          "- Act III:",
+        ]));
+        break;
+      case "feature_scale_output_contract":
+        compact.push(...keepFeatureMapLines(group, [
+          "Page batches must change story state",
+          "Act I pages must earn commitment",
+        ]));
+        break;
+      case "feature_continuity_ledger":
+        break;
+      case "act_exit_checklist":
+        if (wholeFeature) compact.push(...group.lines);
+        break;
+      case "act_sequence_runway":
+        if (wholeFeature) {
+          compact.push(...keepFeatureMapLines(group, [
+            "target:",
+            "Act I - Opening Image / Ordinary World",
+            "Act II - Midpoint Pressure",
+            "Act III - Climax / Final Image",
+            "act_handoff:",
+          ]));
+        }
+        break;
+      case "whole_feature_act_progression":
+        if (wholeFeature) {
+          compact.push(...keepFeatureMapLines(group, [
+            "purpose:",
+            "planner_output_when_asked:",
+            "Act I choices must create",
+            "The midpoint must change",
+            "Act III payoffs must come",
+          ]));
+        }
+        break;
+      case "page_batch_execution_plan":
+        if (requestedPages > 0) {
+          compact.push(...keepFeatureMapLines(group, [
+            "requested_pages:",
+            "target_act:",
+            "starting_position:",
+            "active_sequence_pressure:",
+            "structural_obligation_due_now:",
+            "turn_budget:",
+            "delivery:",
+            "continuity:",
+            "end_condition:",
+          ]));
+        }
+        break;
+      case "act_sequence_obligation_stack":
+        break;
+      case "memory_to_page_execution":
+        break;
+      case "writer_block_to_pages":
+        if (writerBlocked) compact.push(...group.lines);
+        break;
+      case "next_scene_execution_brief":
+        break;
+      case "feature_completion_protocol":
+        compact.push(...keepFeatureMapLines(group, [
+          "Return a feature-scale beat chain",
+          "For multi-page requests",
+          "Never solve Act III",
+        ]));
+        break;
+      default:
+        break;
+    }
+  }
+  return compact;
+}
+
+function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask = null, compact = false } = {}) {
   const intent = trimToString(screenplayTask?.intent, 80);
   const hasFeatureContext = sessionContext && typeof sessionContext === "object" && (
     currentPageFromContext(sessionContext) > 0 ||
@@ -1652,7 +1810,10 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
   lines.push("    - For Act I -> Act II -> Act III requests, keep every beat causally linked to the protagonist's want/need and final image.");
   lines.push("    - Never solve Act III by adding information the movie has not earned; pay off planted behavior.");
 
-  return `${FEATURE_MAP_BLOCK_OPEN}\n${lines.join("\n")}\n${FEATURE_MAP_BLOCK_CLOSE}`;
+  const renderedLines = compact
+    ? compactFeatureMapLines(lines, { sessionContext, screenplayTask })
+    : lines;
+  return `${FEATURE_MAP_BLOCK_OPEN}\n${renderedLines.join("\n")}\n${FEATURE_MAP_BLOCK_CLOSE}`;
 }
 
 export {

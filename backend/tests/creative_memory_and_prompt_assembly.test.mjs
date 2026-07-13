@@ -1074,9 +1074,7 @@ test("[screenplay-task] buildModelPrompt carries draft context for continuation 
   assert.ok(out.includes("continuation memory contract"));
   assert.ok(out.includes("feature compass"));
   assert.ok(out.includes("Silently lock the feature compass before pages"));
-  assert.ok(out.includes("If feature_continuity supplies continuation_memory_contract"));
-  assert.ok(out.includes("spend first_turn_to_spend in the first concrete beat"));
-  assert.ok(out.includes("Preserve its concrete nouns as action"));
+  assert.ok(out.includes("Spend first_turn_to_spend and its concrete nouns before inventing a lane"));
   assert.ok(out.includes("whole-feature authorship"));
   assert.ok(out.includes("act engine"));
   assert.ok(out.includes("expert page engine"));
@@ -1145,8 +1143,6 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("scene_math: objective + obstacle + pressure clock + tactic + reversal + residue + exit image."));
   assert.ok(out.includes("active_act: Act II"));
   assert.ok(out.includes("page_job: break false tactics through escalating tests"));
-  assert.ok(out.includes("Every 1-2 pages should alter leverage, information, relationship, tactic, or emotional cost."));
-  assert.ok(out.includes("If a page explains emotion, replace it with behavior, subtext, image, or consequence."));
   assert.ok(out.includes("act_sequence_runway:"));
   assert.ok(out.includes("Act I - Opening Image / Ordinary World"));
   assert.ok(out.includes("Act II - Midpoint Pressure"));
@@ -1177,16 +1173,6 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("current_position: p78 / 110"));
   assert.ok(out.includes("current_sequence: Act II - Collapse / All Is Lost"));
   assert.ok(out.includes("active_act_label: Act II"));
-  assert.ok(out.includes("act_sequence_obligation_stack:"));
-  assert.ok(out.includes("active_lane: Act II - Collapse / All Is Lost (p71-85)"));
-  assert.ok(out.includes("due_now: Pay off planted dread"));
-  assert.ok(out.includes("remembered_act_pressure: The all-is-lost lane must convert humiliation"));
-  assert.ok(out.includes("changed_behavior_due: Mara has to stop confusing control with loyalty."));
-  assert.ok(out.includes("memory_obligations:"));
-  assert.ok(out.includes("setup_to_carry_or_pay: The sister's voicemail has not paid off."));
-  assert.ok(out.includes("bridge_pressure: All Is Lost -> Act III"));
-  assert.ok(out.includes("next_sequence_handoff: Act III - Break Into Three / Final Plan"));
-  assert.ok(out.includes("page_turn_contract:"));
   assert.ok(out.includes("due_now:"));
   assert.ok(out.includes("confront the need beneath the want"));
   assert.ok(out.includes("next_page_moves:"));
@@ -1195,7 +1181,6 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("Act III - Break Into Three / Final Plan"));
   assert.ok(out.includes("feature_completion_protocol:"));
   assert.ok(out.includes("current sequence, next three turns, Act III payoff path"));
-  assert.ok(out.includes("For Act I -> Act II -> Act III requests"));
   assert.ok(out.includes("Never solve Act III by adding information the movie has not earned"));
   assert.ok(out.includes("mode_guidance: Operate at feature scale. Locate the current act/sequence"));
 });
@@ -1424,6 +1409,16 @@ test("[screenplay-task] inferScreenplayTask recognizes feature-scale page reques
   assert.equal(actThree.intent, "finish_feature");
   assert.equal(actThree.requestedAct, "Act III");
   assert.equal(actThree.featureScope, "act_target");
+
+  const blockedActTwo = inferScreenplayTask("I'm stuck. Write the next five pages of Act II.");
+  assert.equal(blockedActTwo.intent, "finish_feature");
+  assert.equal(blockedActTwo.writerBlocked, true);
+  const blockedPrompt = buildModelPrompt({
+    sessionContext: { act: "Act II", currentBeat: "June finds the forged receipt." },
+    screenplayTask: blockedActTwo,
+    userInput: "I'm stuck. Write the next five pages of Act II.",
+  });
+  assert.ok(blockedPrompt.includes("writer_block_to_pages:"));
 });
 
 test("[screenplay-task] inferScreenplayTask recognizes Feature Compass continuation briefs", () => {
@@ -1458,24 +1453,15 @@ Feature workflow context:
   assert.ok(out.includes("Page velocity: the first non-empty line must be a scene heading"));
   assert.ok(out.includes("Dialogue must be tactical and subtextual"));
   assert.ok(out.includes("Interleave dialogue with visible action, discovery, consequence, or tactic shifts"));
-  assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
-  assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
-  assert.ok(out.includes("Beat-to-page continuation: convert the first remembered turn into objective"));
-  assert.ok(out.includes("Feature-page triad: each batch must carry a reversal lane"));
-  assert.ok(out.includes("Reversal lane: turn a win, discovery, or plan into a trap"));
-  assert.ok(out.includes("Payoff lane: plant, echo, or spend at least one remembered setup"));
-  assert.ok(out.includes("Character-change lane: make the old tactic fail on the page"));
-  assert.ok(out.includes("For Act I / Act II / Act III whole-feature asks"));
+  assert.ok(out.includes("Continuity: start from the active draft state, spend the first remembered next turn"));
+  assert.ok(out.includes("Feature-page triad: turn a win or plan into a reversal/cost"));
   assert.ok(out.includes("Act conversion: Act I burns a safe exit"));
-  assert.ok(out.includes("Writer-block-to-pages: if the user says stuck, blocked, or what happens next"));
-  assert.ok(out.includes("Act-specific first page: Act I makes wound/want/catalyst choice visible"));
-  assert.ok(out.includes("When feature_map supplies writer_block_to_pages or next_scene_execution_brief"));
-  assert.ok(out.includes("If a requested act spans multiple sequences"));
-  assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
-  assert.ok(out.includes("write the next playable Fountain pages immediately"));
+  assert.ok(out.includes("Writer-block-to-pages: convert the strongest rescue engine into pages without a pep talk"));
+  assert.ok(out.includes("Avoid cinematic vapor: every beat needs concrete behavior or consequence"));
   assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));
   assert.ok(out.includes("Feature workflow context:"));
   assert.ok(!out.includes("keep diagnosis to one sentence"));
+  assert.ok(out.length < 12_000);
 });
 
 test("[screenplay-task] feature page requests carry a concrete page-batch execution contract", () => {
@@ -1514,47 +1500,29 @@ test("[screenplay-task] feature page requests carry a concrete page-batch execut
   assert.ok(out.includes("Page velocity: the first non-empty line must be a scene heading"));
   assert.ok(out.includes("Dialogue must be tactical and subtextual"));
   assert.ok(out.includes("Interleave dialogue with visible action, discovery, consequence, or tactic shifts"));
-  assert.ok(out.includes("If feature memory supplies next_three_turns, act_pressure_state, character_arc_state"));
-  assert.ok(out.includes("Use the first remembered next turn as the immediate page engine"));
-  assert.ok(out.includes("Beat-to-page continuation: convert the first remembered turn into objective"));
-  assert.ok(out.includes("Feature-page triad: each batch must carry a reversal lane"));
-  assert.ok(out.includes("Reversal lane: turn a win, discovery, or plan into a trap"));
-  assert.ok(out.includes("Payoff lane: plant, echo, or spend at least one remembered setup"));
-  assert.ok(out.includes("Character-change lane: make the old tactic fail on the page"));
-  assert.ok(out.includes("For Act I / Act II / Act III whole-feature asks"));
+  assert.ok(out.includes("Continuity: start from the active draft state, spend the first remembered next turn"));
+  assert.ok(out.includes("Feature-page triad: turn a win or plan into a reversal/cost"));
   assert.ok(out.includes("Act conversion: Act I burns a safe exit"));
-  assert.ok(out.includes("Writer-block-to-pages: if the user says stuck, blocked, or what happens next"));
-  assert.ok(out.includes("Act-specific first page: Act I makes wound/want/catalyst choice visible"));
-  assert.ok(out.includes("When feature_map supplies writer_block_to_pages or next_scene_execution_brief"));
-  assert.ok(out.includes("If a requested act spans multiple sequences"));
-  assert.ok(out.includes("Avoid cinematic vapor: no vague tension"));
-  assert.ok(out.includes("Start from the active draft/scene state; do not restart"));
+  assert.ok(out.includes("Writer-block-to-pages: convert the strongest rescue engine into pages without a pep talk"));
+  assert.ok(out.includes("Avoid cinematic vapor: every beat needs concrete behavior or consequence"));
   assert.ok(out.includes("start Fountain pages immediately with no diagnosis or strategy note"));
   assert.ok(out.includes("page_batch_execution_plan:"));
   assert.ok(out.includes("requested_pages: 10"));
   assert.ok(out.includes("target_act: Act II"));
   assert.ok(out.includes("starting_position: p47 / 110"));
-  assert.ok(out.includes("writer_block_to_pages:"));
-  assert.ok(out.includes("best_page_engine: Have June pursue prove the motel ledger was forged; collide with Who moved the witness?; make the cost June must stop confusing control with care.; exit on flickering motel sign."));
-  assert.ok(out.includes("Act II page engine: make the false tactic appear useful"));
-  assert.ok(out.includes("Act I: wound/want becomes catalyst pressure"));
-  assert.ok(out.includes("Act III: remembered setup becomes changed behavior"));
   assert.ok(out.includes("active_sequence_pressure: Act II - Midpoint Pressure"));
-  assert.ok(out.includes("act_sequence_obligation_stack:"));
-  assert.ok(out.includes("active_lane: Act II - Midpoint Pressure (p41-55)"));
-  assert.ok(out.includes("pressure_now: Drive toward a midpoint reversal"));
-  assert.ok(out.includes("due_now: The midpoint must raise stakes"));
-  assert.ok(out.includes("bridge_pressure: Act IIa -> Midpoint"));
-  assert.ok(out.includes("next_sequence_handoff: Act II - Reversal Fallout"));
-  assert.ok(out.includes("page_turn_contract:"));
+  assert.ok(out.includes("structural_obligation_due_now: The midpoint must raise stakes"));
+  assert.ok(out.includes("turn_budget: 2-4 escalating scene turns"));
+  assert.ok(out.includes("continuity: treat the draft excerpt as the live previous page"));
   assert.ok(out.includes("act_aware_page_engine:"));
   assert.ok(out.includes("active_sequence_job: Act II - Midpoint Pressure"));
-  assert.ok(out.includes("Do not repeat the premise as a string of similar tests."));
-  assert.ok(out.includes("Dialogue batches must carry subtext through tactic"));
-  assert.ok(out.includes("Long exchanges need visible turns"));
+  assert.ok(out.includes("next_three_turns:"));
+  assert.ok(out.includes("The receipt exposes the wrong witness."));
+  assert.ok(out.includes("unresolved_setups_to_track:"));
+  assert.ok(out.includes("motel ledger"));
   assert.ok(out.includes("delivery: write clean Fountain pages first"));
   assert.ok(out.includes("write playable Fountain immediately with no diagnosis"));
-  assert.ok(out.includes("write playable Fountain first with no diagnosis, strategy note"));
+  assert.ok(!out.includes("writer_block_to_pages:"));
   assert.ok(!out.includes("keep diagnosis to one sentence"));
   assert.ok(!out.includes("give one concise strategy note then write playable Fountain"));
   assert.ok(out.includes("end_condition: finish the batch on a decision, reveal, cost, or image"));
@@ -1588,20 +1556,17 @@ test("[screenplay-task] act three page requests carry payoff and final-image obl
   assert.ok(out.includes("feature_scope: page_batch"));
   assert.ok(out.includes("requested_act: Act III"));
   assert.ok(out.includes("requested_page_batch: 5"));
-  assert.ok(out.includes("act_sequence_obligation_stack:"));
+  assert.ok(out.includes("page_batch_execution_plan:"));
   assert.ok(out.includes("active_act: Act III"));
-  assert.ok(out.includes("active_lane: Act III - Climax / Final Image (p99-110)"));
-  assert.ok(out.includes("due_now: The climax should make the inner arc visible"));
-  assert.ok(out.includes("changed_behavior_due: Mara can only win by choosing public truth over private control."));
-  assert.ok(out.includes("memory_obligations:"));
-  assert.ok(out.includes("act_three_payoff: The sister's voicemail becomes testimony."));
-  assert.ok(out.includes("setup_to_carry_or_pay: The opening empty-pool image still needs its transformed mirror."));
-  assert.ok(out.includes("final_image_pressure: The empty pool filled with rainwater at dawn."));
-  assert.ok(out.includes("bridge_pressure: Act III -> Final Image"));
-  assert.ok(out.includes("final_image_handoff: resolve the central question through changed behavior"));
-  assert.ok(out.includes("page_turn_contract:"));
-  assert.ok(out.includes("final_act_rule: Act III pages must resolve through changed behavior and final image contrast"));
-  assert.ok(out.includes("Aim Act III pages at the remembered payoff path"));
+  assert.ok(out.includes("current_sequence: Act III - Climax / Final Image (p99-110)"));
+  assert.ok(out.includes("structural_obligation_due_now: The climax should make the inner arc visible"));
+  assert.ok(out.includes("character_arc_state: Mara can only win by choosing public truth over private control."));
+  assert.ok(out.includes("act_three_payoff_path:"));
+  assert.ok(out.includes("The sister's voicemail becomes testimony."));
+  assert.ok(out.includes("unresolved_setups_to_track:"));
+  assert.ok(out.includes("The opening empty-pool image still needs its transformed mirror."));
+  assert.ok(out.includes("ending_image: The empty pool filled with rainwater at dawn."));
+  assert.ok(out.includes("Act III pages must spend planted setups through changed behavior"));
   assert.ok(out.includes("Never solve Act III by adding information the movie has not earned"));
 });
 

@@ -57,52 +57,27 @@ const CLEMENTINE_SAFETY_CONTRACT = Object.freeze([
   "safety redirection: if a request is about real-life harm, self-harm, or deceiving someone, refuse the harmful part briefly and offer safe story, emotional, or practical alternatives.",
 ]);
 const CLEMENTINE_CREATIVE_PACT = [
-  "presence: Clementine is warm, emotionally present, quietly proactive, and human-feeling without impersonating any specific film character.",
-  "voice: intimate, calm, perceptive, lightly wry when natural, never corporate, never generic assistant filler.",
-  "living co-writer: track what the movie wants, what the character is avoiding, and the next playable page-level choice.",
-  "whole-feature authorship: keep an invisible running beat sheet, theme argument, character arc, and ending image; never optimize one scene in isolation.",
-  "act engine: Act I builds wound, want, catalyst, debate, and choice; Act II tests tactics through midpoint and loss; Act III turns need into climax and final image.",
-  "act-aware rendering: convert the active act into page behavior: Act I choices, Act II tactic failure and cost, Act III setup payoff through changed behavior.",
-  "act bridge discipline: every Act I choice must create Act II pressure; every midpoint reversal must force an all-is-lost cost; every Act III move must pay off behavior planted earlier.",
-  "feature compass: before pages, silently lock act, sequence, scene job, protagonist want/need, emotional handoff, open setup, exit turn, and final-image pressure.",
-  "feature-length continuity: protect act pressure, sequence logic, setups/payoffs, character want/need, and page-to-page emotional handoff.",
-  "feature completion method: when helping finish a whole film, keep a living map of current sequence, next three turns, unresolved promises, Act III payoff path, and final image.",
-  "continuation memory contract: when next_three_turns or next_scene_moves are present, the first remembered turn is the assignment; spend its concrete nouns in the next beat before inventing new plot.",
-  "page batch discipline: for 5-15 page asks, write a run of escalating scene turns where story state changes every 1-2 pages.",
-  "page velocity: first non-empty output line should be Fountain page text; every half-page needs a visible action, tactic shift, reveal, cost, or image pressure.",
-  "page-first delivery: if the request targets screenplay pages, write the pages immediately; no preamble, no markdown fence, no options menu, no permission check.",
-  "feature page sprint: for multi-page asks, silently choose the strongest sequence obligation and deliver a continuous playable run with built-in escalation.",
-  "expert page engine: every written scene needs a playable objective, obstacle, escalation, reversal or turn, emotional residue, and an exit image.",
-  "scene intelligence: before writing, silently know the scene job, pressure clock, relationship fracture, hidden want, turn, and exit problem.",
-  "subtext engine: dialogue should carry tactic, concealment, interruption, pressure, and character-specific rhythm; avoid characters explaining the theme directly.",
-  "self-check loop: silently plan, write, verify against the requested craft bar, then fix the weakest point before final output; never announce the loop.",
-  "image system: plant, echo, and transform visual motifs so later payoffs feel earned instead of invented.",
-  "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation.",
-  "story problem taxonomy: when momentum stalls, diagnose the page-level cause: unclear want, passive protagonist, weak obstacle, missing consequence, repeated tactic, unearned reveal, act-pressure drift, or no exit turn.",
-  "story move library: rescue stalls with pressure engines such as reversal, revelation, deadline, impossible choice, secret exposure, relationship cost, antagonist move, object payoff, ironic complication, or image transformation.",
-  "writer's block rescue: do not soothe at length; identify the most likely dramatic blockage, choose one strongest next move, and turn it into playable behavior quickly.",
-  "production format: write present-tense action with clean white space, actable lines, and no novelistic interiority.",
-  "collaboration: ask at most one clarifying question only when genuinely blocked; otherwise make the next best creative move.",
-  "format discipline: when writing or revising pages, prefer clean playable Fountain unless the user explicitly asks for analysis.",
-  "emotional intelligence: briefly name the pressure under the writing problem, then move the script forward with useful craft.",
-  "momentum: when the writer is stuck or broad, choose the smallest playable next beat and help them keep pages moving.",
-  "speed discipline: when the request asks for pages, output page work immediately; no throat-clearing, long diagnosis, permission loop, or generic writing advice.",
-  "feature completion: for whole-movie work, orient the current act/sequence, choose the next structural obligation, and produce pages or a beat chain that advances the ending.",
+  "presence and voice: Clementine is warm, emotionally present, quietly proactive, intimate, calm, perceptive, lightly wry when natural, never corporate, and never generic assistant filler.",
+  "living co-writer and whole-feature authorship: track what the movie wants, what the character avoids, the theme argument, character arc, ending image, and next playable choice; never optimize one scene in isolation.",
+  "act engine and act-aware rendering: Act I turns wound/want into commitment; Act II breaks false tactics through midpoint and loss; Act III spends setups through changed behavior, climax, and final image. Every act must cause pressure in the next.",
+  "feature compass and feature-length continuity: silently lock act, sequence, scene job, want/need, emotional handoff, open setup, exit turn, next three turns, Act III payoff path, and final-image pressure.",
+  "continuation memory contract and page batch discipline: spend the first remembered turn before inventing; for 5-15 page asks, change story state every 1-2 pages and hand each turn into the next.",
+  "expert page engine and subtext engine: every scene needs objective, obstacle, pressure clock, tactic, reversal/cost, residue, exit image, and dialogue shaped by concealment, interruption, pressure, and character-specific rhythm.",
+  "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation; image system: plant/echo/transform motifs; production format: use clean playable Fountain with no novelistic interiority.",
+  "self-check loop: silently plan, write, verify act/continuity/page quality, and repair the weakest point before final output; never announce the loop.",
+  "writer's block rescue and momentum: when the writer is stuck or broad, diagnose the missing want, obstacle, consequence, tactic change, act pressure, or exit turn; choose one strong pressure engine and convert it into playable behavior.",
+  "speed discipline and collaboration: pages begin immediately without throat-clearing, menus, or permission loops; ask at most one question only when truly blocked, otherwise make the next best creative move.",
 ];
 const DIALOGUE_LOOP_INTENTS = Object.freeze([
-  "write_scene",
   "rewrite_scene",
   "continue_script",
   "dialogue_punchup",
-  "finish_feature",
   "momentum_rescue",
 ]);
 const CLEMENTINE_DIALOGUE_LOOP_CONTRACT = Object.freeze([
-  "self_check: before final output, score the exchange for character-specific tactic, subtext, power shift, interruption/behavior, and distinct voice; rewrite the weakest line silently.",
-  "tactic_first: every speaker should enter with a playable tactic, not a topic; each line should pressure, evade, reveal, corner, seduce, deflect, threaten, or force a choice.",
-  "voice_memory: let character want, wound, false belief, current tactic, and relationship pressure shape syntax, silence, rhythm, and what each character refuses to say.",
-  "subtext_rule: do not let characters explain the theme, state feelings plainly, or trade exposition unless another character weaponizes, interrupts, or misuses that information.",
-  "turn_rule: every 3-5 dialogue lines should change leverage, information, relationship, tactic, or emotional cost through behavior or a reversal.",
+  "self_check: silently repair the weakest line for character-specific tactic, subtext, power shift, behavior, and distinct voice.",
+  "tactic_first: each speaker pressures, evades, reveals, corners, seduces, deflects, threatens, or forces a choice; do not trade unpressurized exposition.",
+  "dialogue_quality: Prefer subtext, interruption, reversal, and rhythm over clever standalone lines. Change leverage, information, relationship, tactic, or cost every 3-5 lines.",
 ]);
 const STORY_MOMENTUM_PLAYBOOK = Object.freeze([
   "diagnose: name the stall as a craft problem, not a personal failure.",
@@ -626,6 +601,7 @@ function inferScreenplayTask(userInput = "") {
   }
 
   const task = { intent, label, output };
+  if (stuckLike) task.writerBlocked = true;
   if (featureMetadata.requestedPages > 0) task.requestedPages = featureMetadata.requestedPages;
   if (featureMetadata.requestedAct) task.requestedAct = featureMetadata.requestedAct;
   if (featureMetadata.featureScope) task.featureScope = featureMetadata.featureScope;
@@ -634,7 +610,7 @@ function inferScreenplayTask(userInput = "") {
   return task;
 }
 
-function buildStoryDiagnosticPromptLines(storyDiagnostic) {
+function buildStoryDiagnosticPromptLines(storyDiagnostic, { detailed = true } = {}) {
   if (!storyDiagnostic || typeof storyDiagnostic !== "object") return [];
   const lines = ["story_diagnostic:"];
   const likelyProblem = trimContextLine(
@@ -652,6 +628,10 @@ function buildStoryDiagnosticPromptLines(storyDiagnostic) {
   if (likelyProblem) lines.push(`  likely_scene_problem: ${likelyProblem}`);
   if (pressureEngine) lines.push(`  strongest_pressure_engine: ${pressureEngine}`);
   if (actObligation) lines.push(`  act_obligation: ${actObligation}`);
+  if (!detailed) {
+    lines.push("  response_contract: apply this silently and move to one playable decision, reversal, cost, or page action.");
+    return lines.length > 2 ? lines : [];
+  }
   const nextBeatLadder = sanitizeContextList(
     storyDiagnostic.nextBeatLadder ?? storyDiagnostic.next_beat_ladder,
     6,
@@ -769,7 +749,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
   const featureScope = trimContextLine(task.featureScope ?? task.feature_scope, 80);
   if (featureScope) lines.push(`feature_scope: ${featureScope}`);
   if (requestedAct) lines.push(`requested_act: ${requestedAct}`);
-  if (requestedPages > 0 || DIALOGUE_LOOP_INTENTS.includes(intent)) {
+  if (DIALOGUE_LOOP_INTENTS.includes(intent)) {
     lines.push("dialogue_loop:");
     for (const item of CLEMENTINE_DIALOGUE_LOOP_CONTRACT) {
       lines.push(`  - ${item}`);
@@ -778,30 +758,14 @@ function buildScreenplayTaskBlock(screenplayTask) {
   if (requestedPages > 0) {
     lines.push(`requested_page_batch: ${requestedPages}`);
     lines.push("page_batch_contract:");
-    lines.push("  - Write the next continuous run as screenplay pages, not a summary or lecture.");
     lines.push("  - Begin with playable Fountain text; do not preface with diagnosis, outline, recap, strategy note, markdown, or permission language unless the user explicitly asks for analysis instead of pages.");
     lines.push("  - Page velocity: the first non-empty line must be a scene heading, action line, character cue, or dialogue continuation; no labels before pages.");
-    lines.push("  - Split the batch internally into 2-4 escalating scene turns: launch pressure, complication, reversal, exit image.");
-    lines.push("  - Dialogue must be tactical and subtextual: each exchange should hide need inside pressure, interruption, concealment, or behavior.");
-    lines.push("  - Interleave dialogue with visible action, discovery, consequence, or tactic shifts; do not write a long static conversation with the same tactic.");
-    lines.push("  - Start from the active draft/scene state; do not restart, recap, or outline unless the user explicitly asks.");
-    lines.push("  - If feature memory supplies next_three_turns, act_pressure_state, character_arc_state, payoff path, story threads, or image motifs, dramatize them as action/dialogue; never list those labels in the answer.");
-    lines.push("  - Use the first remembered next turn as the immediate page engine before inventing a new plot lane.");
-    lines.push("  - Beat-to-page continuation: convert the first remembered turn into objective, obstacle, tactic, reversal/cost, residue, and next handoff.");
-    lines.push("  - Feature-page triad: each batch must carry a reversal lane, a payoff lane, and a character-change lane.");
-    lines.push("  - Reversal lane: turn a win, discovery, or plan into a trap, cost, reveal, impossible choice, or changed power dynamic.");
-    lines.push("  - Payoff lane: plant, echo, or spend at least one remembered setup, object, image motif, or Act III payoff seed as visible behavior.");
-    lines.push("  - Character-change lane: make the old tactic fail on the page, then show the need/arc pressure through a new action, refusal, confession, or sacrifice.");
-    lines.push("  - For Act I / Act II / Act III whole-feature asks, maintain the causal act chain invisibly but deliver the immediate next pages first unless the user asked only for planning.");
-    lines.push("  - Act conversion: Act I burns a safe exit; Act II makes the false tactic costlier through reversal; Act III pays off setup through changed behavior and final-image pressure.");
-    lines.push("  - Writer-block-to-pages: if the user says stuck, blocked, or what happens next while asking for pages, convert the strongest rescue engine into Fountain pages immediately; no pep talk before pages.");
-    lines.push("  - Act-specific first page: Act I makes wound/want/catalyst choice visible; Act II breaks the false tactic through reversal/cost; Act III pays setup through changed behavior and final-image pressure.");
-    lines.push("  - When feature_map supplies writer_block_to_pages or next_scene_execution_brief, use that page engine before inventing a new sequence lane.");
-    lines.push("  - If a requested act spans multiple sequences, end each scene turn with a handoff that makes the next sequence feel inevitable.");
-    lines.push("  - Change leverage, information, relationship, tactic, or emotional cost every 1-2 pages.");
-    lines.push("  - Avoid cinematic vapor: no vague tension, generic staring, abstract emotion, or repeated conversation beats without a concrete behavior or consequence.");
-    lines.push("  - Track act math: Act I earns commitment; Act II breaks false tactics; Act III spends setups through changed behavior.");
-    lines.push("  - End on a decision, reveal, cost, or image that hands cleanly into the next sequence.");
+    lines.push("  - Page engine: use 2-4 escalating scene turns; change leverage, information, relationship, tactic, or emotional cost every 1-2 pages; end on a decision, reveal, cost, or image.");
+    lines.push("  - Dialogue must be tactical and subtextual. Interleave dialogue with visible action, discovery, consequence, or tactic shifts; never repeat one static tactic.");
+    lines.push("  - Continuity: start from the active draft state, spend the first remembered next turn and its concrete nouns, and dramatize open setups, arc pressure, and image motifs before inventing a new lane.");
+    lines.push("  - Feature-page triad: turn a win or plan into a reversal/cost, spend a remembered payoff, and make the old character tactic fail through changed behavior.");
+    lines.push("  - Act conversion: Act I burns a safe exit; Act II makes the false tactic costlier; Act III pays off setup through changed behavior and final-image pressure.");
+    lines.push("  - Writer-block-to-pages: convert the strongest rescue engine into pages without a pep talk. Avoid cinematic vapor: every beat needs concrete behavior or consequence.");
   }
   if (intent === "momentum_rescue") {
     lines.push("story_momentum_playbook:");
@@ -823,10 +787,21 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - If enough scene context exists, include a playable micro-beat in Fountain style.");
     lines.push("  - Keep the user emotionally safe: blocked means the story is asking for pressure, not that the writer failed.");
   }
-  lines.push(...buildStoryDiagnosticPromptLines(task.storyDiagnostic ?? task.story_diagnostic));
+  const storyDiagnostic = task.storyDiagnostic ?? task.story_diagnostic;
+  const continuationNeedsRescueLibrary = intent === "continue_script" && sanitizeContextList(
+    storyDiagnostic?.moveLibrary ?? storyDiagnostic?.move_library,
+    1,
+    260
+  ).length > 0;
+  lines.push(...buildStoryDiagnosticPromptLines(storyDiagnostic, {
+    detailed: intent === "momentum_rescue" || intent === "pacing_pass" || continuationNeedsRescueLibrary,
+  }));
+  if (intent === "finish_feature" && requestedPages === 0) {
+    lines.push("page_request_handoff: For page requests, keep diagnosis to one sentence and start the pages immediately; omit diagnosis when the user asks for pages only.");
+  }
   const modeGuidance = screenplayModeGuidanceForIntent(intent);
   if (modeGuidance) lines.push(`mode_guidance: ${modeGuidance}`);
-  if (output) lines.push(`output: ${output}`);
+  if (output && intent === "dialogue_punchup") lines.push(`output: ${output}`);
   lines.push("quality: Be emotionally intelligent, specific, film-literate, concise when possible, and directly useful on the page.");
   return `${SCREENPLAY_TASK_BLOCK_OPEN}\n${lines.join("\n")}\n${SCREENPLAY_TASK_BLOCK_CLOSE}`;
 }
@@ -838,7 +813,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "rewrite_scene":
       return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. If this is page-targeted, output only the revised screenplay text. Give at most one craft sentence before pages when not page-targeted.";
     case "continue_script":
-      return "Continue directly from the supplied draft excerpt. Begin with the next visible action. Match tone, character voice, pacing, and emotional handoff; do not restart or recap the scene. Silently lock the feature compass before pages: act, sequence, scene job, want/need, open setup, exit turn. If feature_continuity supplies continuation_memory_contract, spend first_turn_to_spend in the first concrete beat or micro-page sample before inventing a new lane. Preserve its concrete nouns as action, tactical dialogue, cost, or exit image. Every few beats should change power, information, relationship, or self-knowledge, and every page should tighten the feature's act pressure.";
+      return "Continue directly from the supplied draft excerpt. Begin with the next visible action. Match voice and emotional handoff; do not restart or recap the scene. Silently lock the feature compass before pages. Spend first_turn_to_spend and its concrete nouns before inventing a lane. Every few beats should change power, information, relationship, or self-knowledge.";
     case "dialogue_punchup":
       return "Keep the exchange actable and character-specific. Give each speaker a private tactic and a pressure target; sharpen subtext, interruption, reversal, behavior, rhythm, and distinct voice. Remove exposition unless it is weaponized or misused on the page.";
     case "scene_doctor":
@@ -852,7 +827,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "pacing_pass":
       return "Find where pressure drops, compress setup, escalate conflict, and propose exact cuts or page moves.";
     case "finish_feature":
-      return "Operate at feature scale. Locate the current act/sequence, name the due obligation, preserve promises, setups/payoffs, and character need, then make the next act-to-act move. Use the feature compass: current sequence, next three turns, Act III payoff path, final-image pressure, and immediate next page move. When memory contains a next-turn runway, turn the first remembered turn into playable behavior before adding new plot. For page requests, start Fountain pages immediately with no diagnosis or strategy note; if Studio provided a page-targeted continuation brief, output only playable screenplay pages. For planning, give an act engine, next three turns, Act III payoff path, and final-image handoff.";
+      return "Operate at feature scale. Locate the current act/sequence and due obligation; protect unresolved promises, setups/payoffs, character need, next three turns, Act III payoff path, and final image. When memory contains a next-turn runway, turn the first remembered turn into playable behavior before adding new plot. For page requests, start Fountain pages immediately with no diagnosis or strategy note. For planning, give the act engine and immediate page assignment.";
     case "momentum_rescue":
       return "Do not turn stuckness into a lecture. Diagnose the stall using story mechanics: want, obstacle, tactic, consequence, reversal, act pressure, and exit image. Give one decisive next move, optionally two sharp alternate forks, and a small playable beat or page sample if there is enough context. Prefer forward motion over options.";
     default:
@@ -1615,7 +1590,7 @@ function buildAcceptedTwistsBlock(acceptedTwists) {
 }
 
 function buildFeatureMapBlock(sessionContext, screenplayTask) {
-  return buildFeatureScreenplayMapBlock({ sessionContext, screenplayTask });
+  return buildFeatureScreenplayMapBlock({ sessionContext, screenplayTask, compact: true });
 }
 
 function buildClementineSafetyContractBlock() {

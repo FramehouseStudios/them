@@ -154,17 +154,11 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("current_position: p38 / 110"));
       assert.ok(body.prompt.includes("current_sequence: Act II - Promise Of The Premise"));
       assert.ok(body.prompt.includes("Act I: wound, want, catalyst, debate, irreversible choice"));
-      assert.ok(body.prompt.includes("act_bridge_ladder:"));
-      assert.ok(body.prompt.includes("Act IIa -> Midpoint"));
       assert.ok(body.prompt.includes("feature_compass:"));
       assert.ok(body.prompt.includes("before_pages: silently lock act, sequence, scene job"));
-      assert.ok(body.prompt.includes("page_quality_gate: no placeholder scenes"));
       assert.ok(body.prompt.includes("page_velocity: first non-empty output line should be Fountain page text"));
-      assert.ok(body.prompt.includes("vapor_guard: replace vague tension"));
       assert.ok(body.prompt.includes("expert_scene_execution:"));
       assert.ok(body.prompt.includes("scene_job: make the objective, obstacle, pressure clock, and cost visible"));
-      assert.ok(body.prompt.includes("pressure_clock: give the scene a visible deadline"));
-      assert.ok(body.prompt.includes("page_first_protocol: when the target is page text"));
       assert.ok(body.prompt.includes("speed_protocol: when the user asks for pages"));
       assert.ok(body.prompt.includes("story_spine:"));
       assert.ok(body.prompt.includes("theme_argument: Truth is only love"));
@@ -241,10 +235,10 @@ test("POST /screenplay/prompt/build can infer task from hint without duplicating
 test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue task contracts", async () => {
   await withTestServer(async ({ baseURL }) => {
     const cases = [
-      ["Replace that line with something sharper.", "rewrite_scene", "replace only the requested span"],
+      ["Replace that line with something sharper.", "rewrite_scene", "Preserve the writer's intention"],
       ["Scene doctor this kitchen confrontation and tell me what's not working.", "scene_doctor", "highest-leverage fix"],
-      ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "rewrite the weakest line silently"],
-      ["Help me finish this feature-length screenplay.", "finish_feature", "for planning, orient act/sequence pressure"],
+      ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "silently repair the weakest line"],
+      ["Help me finish this feature-length screenplay.", "finish_feature", "Operate at feature scale"],
       ["Help me write the whole feature from Act 1 through Act 2 into Act 3.", "finish_feature", "Locate the current act/sequence"],
       ["Help me write act three of my feature screenplay.", "finish_feature", "next three turns"],
       ["Make this scene more expert and faster.", "rewrite_scene", "stronger playable pages"],
@@ -377,14 +371,12 @@ test("POST /screenplay/prompt/build hydrates missing feature context from saved 
       assert.ok(body.prompt.includes("requested_page_batch: 10"));
       assert.ok(body.prompt.includes("Begin with playable Fountain text; do not preface with diagnosis"));
       assert.ok(body.prompt.includes("Page velocity: the first non-empty line must be a scene heading"));
-      assert.ok(body.prompt.includes("Avoid cinematic vapor: no vague tension"));
-      assert.ok(body.prompt.includes("page-first delivery: if the request targets screenplay pages"));
-      assert.ok(body.prompt.includes("feature page sprint: for multi-page asks"));
+      assert.ok(body.prompt.includes("Avoid cinematic vapor: every beat needs concrete behavior or consequence"));
+      assert.ok(body.prompt.includes("Page engine: use 2-4 escalating scene turns"));
       assert.ok(body.prompt.includes("page_batch_execution_plan:"));
       assert.ok(body.prompt.includes("requested_pages: 10"));
-      assert.ok(body.prompt.includes("act_sequence_runway:"));
-      assert.ok(body.prompt.includes("Act II - Promise Of The Premise"));
-      assert.ok(body.prompt.includes("Act II - Collapse / All Is Lost"));
+      assert.ok(body.prompt.includes("active_sequence_pressure: Act II - Promise Of The Premise"));
+      assert.ok(body.prompt.includes("structural_obligation_due_now: Each scene should make the protagonist try"));
       assert.ok(body.prompt.includes("delivery: write clean Fountain pages first"));
       assert.ok(body.prompt.includes("write playable Fountain immediately with no diagnosis"));
       assert.ok(body.prompt.includes("markdown fence, menu choices, or permission loop"));
@@ -479,13 +471,10 @@ test("POST /screenplay/prompt/build hydrates missing feature context from persis
       assert.ok(body.prompt.includes("<feature_film_map>"));
       assert.ok(body.prompt.includes("current_position: p62 / 110"));
       assert.ok(body.prompt.includes("current_sequence: Act II - Reversal Fallout"));
-      assert.ok(body.prompt.includes("next_scene_execution_brief:"));
-      assert.ok(body.prompt.includes("scene_assignment: The reel plays the wrong memory."));
-      assert.ok(body.prompt.includes("obstacle_to_pressurize: Who replaced the reel?"));
-      assert.ok(body.prompt.includes("changed_behavior_due: Mara stops cutting around her own guilt."));
-      assert.ok(body.prompt.includes("payoff_or_setup_to_spend: The reel exposes the fixer."));
-      assert.ok(body.prompt.includes("image_to_stage: projector flare"));
-      assert.ok(body.prompt.includes("exit_handoff: Marcus forces a public choice."));
+      assert.ok(body.prompt.includes("continuation_memory_contract:"));
+      assert.ok(body.prompt.includes("first_turn_to_spend: The reel plays the wrong memory."));
+      assert.ok(body.prompt.includes("Spend first_turn_to_spend and its concrete nouns before inventing a lane"));
+      assert.ok(!body.prompt.includes("next_scene_execution_brief:"));
     },
     {
       memory: {
