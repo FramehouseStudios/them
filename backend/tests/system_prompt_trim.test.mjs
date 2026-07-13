@@ -38,6 +38,10 @@ test("[system-prompt-trim] preserves session and screenplay task when trimming l
     "truthfulness: never fabricate memory or certainty.",
     "</clementine_safety_contract>",
     "<creative_memory>",
+    "project-continuity:",
+    "  project_id: rain-docket",
+    "  current_beat: Mara finds the sealed affidavit.",
+    "  unresolved_setups: The sister's voicemail",
     "recurring-characters:",
     "  - JUNE - sparse, wounded, dry",
     "</creative_memory>",
@@ -84,6 +88,8 @@ test("[system-prompt-trim] preserves session and screenplay task when trimming l
   assert.ok(out.includes("<clementine_safety_contract>"));
   assert.ok(out.includes("never fabricate"));
   assert.ok(out.includes("<creative_memory>"));
+  assert.ok(out.includes("current_beat: Mara finds the sealed affidavit."));
+  assert.ok(out.includes("unresolved_setups: The sister's voicemail"));
   assert.ok(out.includes("JUNE"));
   assert.ok(out.includes("<session>"));
   assert.ok(out.includes("project: proj-7"));

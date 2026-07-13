@@ -30,6 +30,7 @@ const CHARACTER_BIBLE_CANON_MAX = 12;
 const CHARACTER_BIBLE_CORRECTIONS_MAX = 8;
 const CHARACTER_BIBLE_TERMS_MAX = 12;
 const CHARACTER_ARC_FIELD_MAX_CHARS = 180;
+const PROJECT_CONTINUITY_MAX = 24;
 const EPISODIC_MEMORIES_MAX = 64;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const EPISODIC_SEMANTIC_FINGERPRINT_MAX = 96;
@@ -112,6 +113,34 @@ const CHARACTER_ARC_FIELDS = Object.freeze([
   "relationshipPressure",
   "currentTactic",
   "nextEmotionalTurn",
+]);
+const PROJECT_CONTINUITY_SCALAR_FIELDS = Object.freeze([
+  ["act", 80],
+  ["featureSequence", 180],
+  ["featureObligation", 220],
+  ["actPressureState", 220],
+  ["sceneObjective", 220],
+  ["currentBeat", 200],
+  ["lastSceneOutcome", 220],
+  ["nextScenePlan", 280],
+  ["logline", 240],
+  ["themeArgument", 220],
+  ["protagonistWant", 180],
+  ["protagonistNeed", 180],
+  ["antagonisticForce", 180],
+  ["endingImage", 200],
+  ["characterArcState", 240],
+  ["emotionalContinuity", 240],
+]);
+const PROJECT_CONTINUITY_LIST_FIELDS = Object.freeze([
+  ["nextThreeTurns", 3, 180],
+  ["actThreePayoffPath", 5, 200],
+  ["unresolvedSetups", 8, 200],
+  ["unresolvedStoryThreads", 8, 200],
+  ["characterFocus", 8, 80],
+  ["characterArcTurns", 6, 180],
+  ["imageMotifs", 6, 140],
+  ["continuityNotes", 8, 200],
 ]);
 const EPISODIC_SEMANTIC_EXPANSIONS = Object.freeze([
   {
@@ -234,6 +263,7 @@ function makeEmptyMemory(userId) {
     style: {
       lexicalFingerprint: [],
     },
+    projects: [],
     characters: [],
     episodicMemories: [],
     tone: {},
@@ -298,6 +328,73 @@ function normalizeStringList(items, maxItems = 8, maxChars = 80) {
     if (out.length >= maxItems) break;
   }
   return out;
+}
+
+function sanitizeProjectContinuity(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const projectId = cleanText(source.projectId ?? source.project_id, 96);
+  const projectTitle = cleanText(source.projectTitle ?? source.project_title, 160);
+  if (!projectId && !projectTitle) return null;
+  const out = {
+    projectId,
+    projectTitle,
+    updatedAt: Math.max(0, Number(source.updatedAt ?? source.updated_at ?? nowMs())),
+  };
+  for (const [field, maxChars] of PROJECT_CONTINUITY_SCALAR_FIELDS) {
+    const clean = cleanText(source[field], maxChars);
+    if (clean) out[field] = clean;
+  }
+  for (const [field, maxItems, maxChars] of PROJECT_CONTINUITY_LIST_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(source, field)) continue;
+    out[field] = normalizeStringList(source[field], maxItems, maxChars);
+  }
+  return out;
+}
+
+function projectIdentity(value = {}, metadataKey = "") {
+  const source = metadataKey && value?.[metadataKey] && typeof value[metadataKey] === "object"
+    ? value[metadataKey]
+    : value;
+  return {
+    projectId: cleanText(source?.projectId ?? source?.project_id, 96).toLowerCase(),
+    projectTitle: cleanText(source?.projectTitle ?? source?.project_title, 160).toLowerCase(),
+  };
+}
+
+function scopeRecordsToProject(records = [], {
+  projectId = "",
+  projectTitle = "",
+  metadataKey = "",
+} = {}) {
+  const source = Array.isArray(records) ? records : [];
+  const activeProjectId = cleanText(projectId, 96).toLowerCase();
+  const activeProjectTitle = cleanText(projectTitle, 160).toLowerCase();
+  if (!activeProjectId && !activeProjectTitle) return source;
+  if (activeProjectId) {
+    const idMatches = source.filter((item) => projectIdentity(item, metadataKey).projectId === activeProjectId);
+    if (idMatches.length) return idMatches;
+  }
+  if (activeProjectTitle) {
+    const titleMatches = source.filter((item) => {
+      const identity = projectIdentity(item, metadataKey);
+      return identity.projectTitle === activeProjectTitle &&
+        (!activeProjectId || !identity.projectId);
+    });
+    if (titleMatches.length) return titleMatches;
+  }
+  return source.filter((item) => {
+    const identity = projectIdentity(item, metadataKey);
+    return !identity.projectId && !identity.projectTitle;
+  });
+}
+
+function selectProjectContinuity(projects = [], { projectId = "", projectTitle = "" } = {}) {
+  const scoped = scopeRecordsToProject(
+    (Array.isArray(projects) ? projects : []).map(sanitizeProjectContinuity).filter(Boolean),
+    { projectId, projectTitle }
+  );
+  return scoped
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))[0] || null;
 }
 
 function normalizeCharacterBibleFact(value = "", maxChars = 220) {
@@ -815,9 +912,12 @@ function selectEpisodicMemoriesForPrompt(items = [], {
   projectTitle = "",
   maxItems = EPISODIC_MEMORY_PROMPT_MAX,
 } = {}) {
-  const sanitized = (Array.isArray(items) ? items : [])
+  const sanitized = scopeRecordsToProject(
+    (Array.isArray(items) ? items : [])
     .map(sanitizeEpisodicMemoryItem)
-    .filter((item) => item && !item.supersededAt);
+    .filter((item) => item && !item.supersededAt),
+    { projectId, projectTitle }
+  );
   if (!sanitized.length) return [];
   const cleanQuery = cleanText(query, 2_000);
   return sanitized
@@ -914,7 +1014,11 @@ function selectCharactersForPrompt(characters = [], {
   projectTitle = "",
   maxItems = CHARACTER_PROMPT_MAX,
 } = {}) {
-  const source = Array.isArray(characters) ? characters : [];
+  const source = scopeRecordsToProject(characters, {
+    projectId,
+    projectTitle,
+    metadataKey: "metadata",
+  });
   if (!source.length) return [];
   return source
     .map((character, index) => ({
@@ -954,6 +1058,9 @@ function sanitizeCreativeMemoryLedgerRecord(rec = null, {
   };
   if (rec.style && typeof rec.style === "object" && !Array.isArray(rec.style)) {
     out.style = clone(rec.style);
+  }
+  if (Array.isArray(rec.projects) && rec.projects.length) {
+    out.projects = rec.projects.map(sanitizeProjectContinuity).filter(Boolean).map(clone);
   }
   if (Array.isArray(rec.characters) && rec.characters.length) {
     out.characters = clone(rec.characters);
@@ -1597,6 +1704,8 @@ function createCreativeMemoryStore({ persistence } = {}) {
       version: rec.version,
       updatedAt: rec.updatedAt,
     };
+    const projectContinuity = selectProjectContinuity(rec.projects, { projectId, projectTitle });
+    if (projectContinuity) out.projectContinuity = clone(projectContinuity);
     if (rec.style && Object.keys(rec.style).length) {
       const style = clone(rec.style);
       if (Array.isArray(style.lexicalFingerprint) && style.lexicalFingerprint.length === 0) {
@@ -1658,6 +1767,53 @@ function createCreativeMemoryStore({ persistence } = {}) {
 
   // ---------- write triggers ----------
 
+  async function recordProjectContinuity({ userId, continuity } = {}) {
+    if (!userId) return { ok: false, action: "skipped", reason: "missing_userId" };
+    const incoming = sanitizeProjectContinuity(continuity);
+    if (!incoming) return { ok: false, action: "skipped", reason: "missing_project_identity" };
+    let action = "recorded";
+    await updateUser(userId, (rec) => {
+      const projects = (Array.isArray(rec.projects) ? rec.projects : [])
+        .map(sanitizeProjectContinuity)
+        .filter(Boolean);
+      const incomingIdentity = projectIdentity(incoming);
+      let existingIdx = -1;
+      if (incomingIdentity.projectId) {
+        existingIdx = projects.findIndex((project) => (
+          projectIdentity(project).projectId === incomingIdentity.projectId
+        ));
+      }
+      if (existingIdx < 0 && incomingIdentity.projectTitle) {
+        existingIdx = projects.findIndex((project) => {
+          const identity = projectIdentity(project);
+          return !identity.projectId && identity.projectTitle === incomingIdentity.projectTitle;
+        });
+      }
+      if (existingIdx >= 0) {
+        action = "updated";
+        const next = { ...projects[existingIdx], ...incoming, updatedAt: nowMs() };
+        for (const [field] of PROJECT_CONTINUITY_LIST_FIELDS) {
+          if (Object.prototype.hasOwnProperty.call(incoming, field)) {
+            next[field] = incoming[field];
+          }
+        }
+        projects[existingIdx] = sanitizeProjectContinuity(next);
+      } else {
+        projects.push({ ...incoming, updatedAt: nowMs() });
+      }
+      rec.projects = projects
+        .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+        .slice(0, PROJECT_CONTINUITY_MAX);
+      return rec;
+    });
+    return {
+      ok: true,
+      action,
+      projectId: incoming.projectId,
+      projectTitle: incoming.projectTitle,
+    };
+  }
+
   // T30: optional `source` and `metadata` thread through so callers can
   // distinguish reply-side rendered mentions (e.g. `ios_screenplay_render`)
   // from user-input mentions. Schema stays backward-compatible: existing
@@ -1697,7 +1853,33 @@ function createCreativeMemoryStore({ persistence } = {}) {
     let resolvedAction = "recorded";
     await updateUser(userId, (rec) => {
       const characters = Array.isArray(rec.characters) ? rec.characters : [];
-      const existingIdx = characters.findIndex((c) => c.name === name);
+      const namedIndexes = characters
+        .map((character, index) => ({ character, index }))
+        .filter(({ character }) => (
+          String(character.name || "").toLowerCase() === name.toLowerCase()
+        ));
+      const incomingIdentity = projectIdentity({ metadata: cleanMetadata }, "metadata");
+      let existingIdx = -1;
+      if (incomingIdentity.projectId) {
+        existingIdx = namedIndexes.find(({ character }) => (
+          projectIdentity(character, "metadata").projectId === incomingIdentity.projectId
+        ))?.index ?? -1;
+      }
+      if (existingIdx < 0 && incomingIdentity.projectTitle) {
+        existingIdx = namedIndexes.find(({ character }) => {
+          const identity = projectIdentity(character, "metadata");
+          return !identity.projectId && identity.projectTitle === incomingIdentity.projectTitle;
+        })?.index ?? -1;
+      }
+      if (existingIdx < 0 && (incomingIdentity.projectId || incomingIdentity.projectTitle)) {
+        existingIdx = namedIndexes.find(({ character }) => {
+          const identity = projectIdentity(character, "metadata");
+          return !identity.projectId && !identity.projectTitle;
+        })?.index ?? -1;
+      }
+      if (existingIdx < 0 && !incomingIdentity.projectId && !incomingIdentity.projectTitle) {
+        existingIdx = namedIndexes[0]?.index ?? -1;
+      }
       const now = nowMs();
       if (existingIdx >= 0) {
         resolvedAction = "updated";
@@ -1861,18 +2043,28 @@ function createCreativeMemoryStore({ persistence } = {}) {
   }
 
   // T-trait-library: reader for one or all character trait records.
-  async function getCharacterTraits({ userId, characterName = null } = {}) {
+  async function getCharacterTraits({
+    userId,
+    characterName = null,
+    projectId = "",
+    projectTitle = "",
+  } = {}) {
     if (!userId) return null;
     const rec = await readUser(userId);
     if (!rec || !Array.isArray(rec.characters)) return null;
+    const characters = scopeRecordsToProject(rec.characters, {
+      projectId,
+      projectTitle,
+      metadataKey: "metadata",
+    });
     if (characterName && typeof characterName === "string") {
       const name = characterName.trim();
       if (!name) return null;
-      const found = rec.characters.find((c) => c.name === name);
+      const found = characters.find((c) => c.name.toLowerCase() === name.toLowerCase());
       if (!found) return null;
       return { name: found.name, traits: found.traits || null };
     }
-    return rec.characters.map((c) => ({ name: c.name, traits: c.traits || null }));
+    return characters.map((c) => ({ name: c.name, traits: c.traits || null }));
   }
 
   async function recordSceneCompletion({ userId, scenePageCount }) {
@@ -2140,6 +2332,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     sessionDurationMs = null,
     projectId = "",
     projectTitle = "",
+    projectContinuity = null,
     source = "talk_turn",
   } = {}) {
     if (!userId) return { skipped: true, reason: "no userId" };
@@ -2151,14 +2344,34 @@ function createCreativeMemoryStore({ persistence } = {}) {
       episodicMemories: 0,
       corrections: 0,
       lexicalPhrases: 0,
+      projectContinuityRecorded: false,
       sessionRecorded: false,
     };
+
+    if (projectContinuity && typeof projectContinuity === "object") {
+      try {
+        const receipt = await recordProjectContinuity({
+          userId,
+          continuity: {
+            ...projectContinuity,
+            projectId: cleanProjectId || projectContinuity.projectId,
+            projectTitle: cleanProjectTitle || projectContinuity.projectTitle,
+          },
+        });
+        summary.projectContinuityRecorded = Boolean(receipt?.ok);
+      } catch (_e) { /* never block the response on memory writes */ }
+    }
 
     const combined = `${String(transcript || "")}\n${String(reply || "")}`;
     const isCorrectionTurn = CORRECTION_KEYWORDS.test(combined);
     const knownCharacterNames = await readUser(userId)
       .then((rec) => (Array.isArray(rec?.characters) ? rec.characters : []))
       .catch(() => [])
+      .then((characters) => scopeRecordsToProject(characters, {
+        projectId: cleanProjectId,
+        projectTitle: cleanProjectTitle,
+        metadataKey: "metadata",
+      }))
       .then((characters) => characters
         .map((character) => normalizeCharacterName(character?.name))
         .filter(Boolean));
@@ -2340,6 +2553,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
     hasMemoryForUser,
     clearUserMemory,
     forgetMemoryCard,
+    recordProjectContinuity,
     recordEpisodicMemory,
     recordCharacterMention,
     recordSceneCompletion,

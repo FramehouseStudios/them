@@ -3707,7 +3707,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         isCharacterTraitsLoading = true
         defer { isCharacterTraitsLoading = false }
         do {
-            let response = try await craftClient.fetchMemoryCharacterTraits()
+            let bridge = ScreenplayLiveDraftBridge.shared
+            let response = try await craftClient.fetchMemoryCharacterTraits(
+                projectID: bridge.preferredProjectID,
+                projectTitle: bridge.projectBinding.projectTitle
+            )
             characterTraits = response
             ScreenplayLiveDraftBridge.shared.updateCharacterVoiceMemories(from: response)
             characterArchetypes = try? await craftClient.fetchMemoryCharacterArchetypes()

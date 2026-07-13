@@ -369,6 +369,33 @@ test("[trait-library] GET /memory/character-traits returns the full library for 
   });
 });
 
+test("[trait-library] GET /memory/character-traits scopes duplicate names to the active project", async () => {
+  await withTestServer(async ({ baseURL, creativeMemoryStore }) => {
+    await creativeMemoryStore.recordCharacterMention({
+      userId: "user-trait",
+      characterName: "MARA",
+      metadata: { projectId: "rain-docket", projectTitle: "Rain Docket" },
+      traits: { goals: ["Expose the forged testimony"] },
+    });
+    await creativeMemoryStore.recordCharacterMention({
+      userId: "user-trait",
+      characterName: "MARA",
+      metadata: { projectId: "night-train", projectTitle: "Night Train" },
+      traits: { goals: ["Stop the train before the border"] },
+    });
+
+    const { status, body } = await get(
+      baseURL,
+      "/memory/character-traits?projectId=rain-docket&projectTitle=Rain%20Docket"
+    );
+
+    assert.equal(status, 200);
+    assert.equal(body.characters.length, 1);
+    assert.equal(body.characters[0].name, "MARA");
+    assert.deepEqual(body.characters[0].traits.goals, ["Expose the forged testimony"]);
+  });
+});
+
 test("[trait-library] GET /memory/character-traits filters to one character when characterName is supplied", async () => {
   await withTestServer(async ({ baseURL }) => {
     await postJson(baseURL, "/memory/character-trait", {

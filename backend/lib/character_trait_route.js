@@ -113,14 +113,19 @@ function mountCharacterTraitRoute(app, {
           error: "no_trait_payload",
         });
       }
+      const projectId = pickFirstString(body.project_id, body.projectId).slice(0, 96);
+      const projectTitle = pickFirstString(body.project_title, body.projectTitle).slice(0, 160);
       const result = await creativeMemoryStore.recordCharacterMention({
         userId,
         characterName,
         traits: merged,
+        metadata: projectId || projectTitle ? { projectId, projectTitle } : null,
       });
       const persisted = await creativeMemoryStore.getCharacterTraits({
         userId,
         characterName,
+        projectId,
+        projectTitle,
       });
       return res.status(200).json({
         ok: Boolean(result && result.ok),
@@ -150,10 +155,14 @@ function mountCharacterTraitRoute(app, {
       : typeof req.query?.character_name === "string"
         ? req.query.character_name
         : "";
+    const projectId = pickFirstString(req.query?.projectId, req.query?.project_id).slice(0, 96);
+    const projectTitle = pickFirstString(req.query?.projectTitle, req.query?.project_title).slice(0, 160);
     try {
       const data = await creativeMemoryStore.getCharacterTraits({
         userId,
         characterName: characterName || null,
+        projectId,
+        projectTitle,
       });
       if (!data) {
         return res.status(200).json({

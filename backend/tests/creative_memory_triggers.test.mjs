@@ -242,6 +242,42 @@ test("recordTriggersFromTalkTurn stores and repairs character bible canon", asyn
   assert.ok(mara.bible.correctionReplacements.includes("mother -> Eli's sister"));
 });
 
+test("recordTriggersFromTalkTurn persists structured feature continuity for cold-session recall", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-project-continuity",
+    transcript: "Continue Mara after she finds the affidavit.",
+    reply: "Mara folds the affidavit into her coat as Eli enters.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    projectContinuity: {
+      act: "Act II",
+      featureSequence: "Midpoint pressure",
+      currentBeat: "Mara finds the sealed affidavit.",
+      nextThreeTurns: ["Mara hides it", "Eli catches the lie", "The judge moves the witness"],
+      unresolvedSetups: ["The sister's voicemail"],
+      unresolvedStoryThreads: ["Who forged the first report?"],
+      actThreePayoffPath: ["The voicemail becomes testimony"],
+      characterArcState: "Mara protects Eli by lying.",
+      emotionalContinuity: "Mara is ashamed but newly committed.",
+    },
+  });
+  assert.equal(summary.projectContinuityRecorded, true);
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "u-trig-project-continuity",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "What comes next?",
+  });
+  assert.equal(memory.projectContinuity.act, "Act II");
+  assert.equal(memory.projectContinuity.characterArcState, "Mara protects Eli by lying.");
+  assert.deepEqual(memory.projectContinuity.unresolvedSetups, ["The sister's voicemail"]);
+  assert.deepEqual(memory.projectContinuity.actThreePayoffPath, ["The voicemail becomes testimony"]);
+});
+
 test("recordTriggersFromTalkTurn stores and repairs act-level character arc state", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordTriggersFromTalkTurn({

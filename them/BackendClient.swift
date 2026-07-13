@@ -2200,16 +2200,26 @@ final class BackendClient {
     }
 
 
-    func fetchMemoryCharacterTraits(characterName: String? = nil) async throws -> BackendCharacterTraitsResponse {
+    func fetchMemoryCharacterTraits(
+        characterName: String? = nil,
+        projectID: String? = nil,
+        projectTitle: String? = nil
+    ) async throws -> BackendCharacterTraitsResponse {
         persistSharedBackendBaseURL(baseURL)
         var url = baseURL
         url.appendPathComponent("memory")
         url.appendPathComponent("character-traits")
 
         let normalizedName = characterName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !normalizedName.isEmpty {
+        let normalizedProjectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedName.isEmpty || !normalizedProjectID.isEmpty || !normalizedProjectTitle.isEmpty {
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            components?.queryItems = [URLQueryItem(name: "characterName", value: normalizedName)]
+            components?.queryItems = [
+                normalizedName.isEmpty ? nil : URLQueryItem(name: "characterName", value: normalizedName),
+                normalizedProjectID.isEmpty ? nil : URLQueryItem(name: "projectId", value: normalizedProjectID),
+                normalizedProjectTitle.isEmpty ? nil : URLQueryItem(name: "projectTitle", value: normalizedProjectTitle)
+            ].compactMap { $0 }
             if let componentURL = components?.url {
                 url = componentURL
             }

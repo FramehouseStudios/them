@@ -748,7 +748,10 @@ final class BackendClientCraftAPITests: XCTestCase {
         let client = makeClient(recorder: recorder) { request in
             switch (request.httpMethod, request.url?.path) {
             case ("GET", "/memory/character-traits"):
-                XCTAssertEqual(request.url?.query, "characterName=JUNE")
+                XCTAssertEqual(
+                    request.url?.query,
+                    "characterName=JUNE&projectId=rain-docket&projectTitle=Rain%20Docket"
+                )
                 return .json(#"""
                 {
                   "schemaVersion": 1,
@@ -773,7 +776,11 @@ final class BackendClientCraftAPITests: XCTestCase {
             }
         }
 
-        let response = try await client.fetchMemoryCharacterTraits(characterName: " JUNE ")
+        let response = try await client.fetchMemoryCharacterTraits(
+            characterName: " JUNE ",
+            projectID: " rain-docket ",
+            projectTitle: " Rain Docket "
+        )
 
         XCTAssertEqual(response.schemaVersion, 1)
         XCTAssertEqual(response.characters.first?.name, "JUNE")

@@ -183,6 +183,117 @@ test("getCreativeMemoryForPrompt ranks active feature character bibles above rec
   assert.ok(mem.characters.length <= 16);
 });
 
+test("creative memory restores only the active project's feature ledger, characters, and episodes", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  await store.recordProjectContinuity({
+    userId: "writer-project-scope",
+    continuity: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      act: "Act II",
+      currentBeat: "Mara finds the sealed affidavit.",
+      nextThreeTurns: ["Mara hides the affidavit", "Eli catches the lie", "The judge moves the witness"],
+      unresolvedSetups: ["The courthouse vent", "The sister's voicemail"],
+      actThreePayoffPath: ["The voicemail becomes public testimony"],
+      imageMotifs: ["charcoal dust"],
+    },
+  });
+  await store.recordProjectContinuity({
+    userId: "writer-project-scope",
+    continuity: {
+      projectId: "night-train",
+      projectTitle: "Night Train",
+      act: "Act III",
+      currentBeat: "Mara uncouples the final carriage.",
+      unresolvedSetups: ["The brass ticket punch"],
+    },
+  });
+  await store.recordProjectContinuity({
+    userId: "writer-project-scope",
+    continuity: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      currentBeat: "Eli catches Mara hiding the affidavit.",
+      nextThreeTurns: ["Eli demands the truth", "The judge moves the witness"],
+      unresolvedSetups: ["The sister's voicemail"],
+    },
+  });
+  await store.recordCharacterMention({
+    userId: "writer-project-scope",
+    characterName: "Mara",
+    metadata: { projectId: "rain-docket", projectTitle: "Rain Docket" },
+    characterBible: { arc: { want: "expose the forged testimony" } },
+  });
+  await store.recordCharacterMention({
+    userId: "writer-project-scope",
+    characterName: "Mara",
+    metadata: { projectId: "night-train", projectTitle: "Night Train" },
+    characterBible: { arc: { want: "stop the train before the border" } },
+  });
+  await store.recordEpisodicMemory({
+    userId: "writer-project-scope",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    summary: "Mara hides the affidavit in the courthouse vent.",
+    characterNames: ["Mara"],
+  });
+  await store.recordEpisodicMemory({
+    userId: "writer-project-scope",
+    projectId: "night-train",
+    projectTitle: "Night Train",
+    summary: "Mara uncouples the sleeper car.",
+    characterNames: ["Mara"],
+  });
+
+  const restoredStore = createCreativeMemoryStore({ persistence });
+  const rain = await restoredStore.getCreativeMemoryForPrompt({
+    userId: "writer-project-scope",
+    query: "Continue Mara's next scene.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+
+  assert.equal(rain.projectContinuity.act, "Act II");
+  assert.equal(rain.projectContinuity.currentBeat, "Eli catches Mara hiding the affidavit.");
+  assert.deepEqual(rain.projectContinuity.unresolvedSetups, ["The sister's voicemail"]);
+  assert.equal(rain.characters.length, 1);
+  assert.equal(rain.characters[0].bible.arc.want, "expose the forged testimony");
+  assert.equal(rain.episodicMemories.length, 1);
+  assert.match(rain.episodicMemories[0].summary, /affidavit/);
+  assert.doesNotMatch(JSON.stringify(rain), /uncouples|brass ticket|stop the train/);
+});
+
+test("buildModelPrompt emits durable active-feature continuity before story recall", () => {
+  const out = buildModelPrompt({
+    persona: "Persona",
+    creativeMemory: {
+      userId: "writer",
+      version: 1,
+      projectContinuity: {
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        act: "Act II",
+        currentBeat: "Mara finds the sealed affidavit.",
+        nextThreeTurns: ["Mara hides it", "Eli catches the lie"],
+        unresolvedSetups: ["The sister's voicemail"],
+        actThreePayoffPath: ["The voicemail becomes testimony"],
+        characterArcState: "Mara protects Eli by lying.",
+        emotionalContinuity: "Mara leaves ashamed but committed.",
+      },
+      characters: [{ name: "Mara", bible: { arc: { wound: "her father's disappearance" } } }],
+    },
+    userInput: "Continue the screenplay.",
+  });
+
+  assert.ok(out.includes("project-continuity:"));
+  assert.ok(out.includes("durable active-feature continuity"));
+  assert.ok(out.includes("current_beat: Mara finds the sealed affidavit."));
+  assert.ok(out.includes("unresolved_setups: The sister's voicemail"));
+  assert.ok(out.includes("act_three_payoff_path: The voicemail becomes testimony"));
+  assert.ok(out.indexOf("project-continuity:") < out.indexOf("story-bible-recall:"));
+});
+
 test("recordToneSignal stores tone and preferredTone", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordToneSignal({

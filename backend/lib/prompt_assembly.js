@@ -865,6 +865,53 @@ function serializeStyle(style) {
   return lines.length ? `style:\n  ${lines.join("\n  ")}` : "";
 }
 
+function serializeProjectContinuity(project) {
+  if (!isNonEmptyObject(project)) return "";
+  const projectId = trimContextLine(project.projectId ?? project.project_id, 96);
+  const projectTitle = trimContextLine(project.projectTitle ?? project.project_title, 140);
+  if (!projectId && !projectTitle) return "";
+  const lines = [
+    "  directive: durable active-feature continuity; preserve these facts across sessions, spend open setups before inventing replacements, and treat corrections in character memory as authoritative.",
+  ];
+  if (projectId) lines.push(`  project_id: ${projectId}`);
+  if (projectTitle) lines.push(`  project_title: ${projectTitle}`);
+  const scalarFields = [
+    ["act", project.act, 80],
+    ["feature_sequence", project.featureSequence, 160],
+    ["feature_obligation", project.featureObligation, 200],
+    ["act_pressure", project.actPressureState, 200],
+    ["scene_objective", project.sceneObjective, 200],
+    ["current_beat", project.currentBeat, 180],
+    ["last_scene_outcome", project.lastSceneOutcome, 200],
+    ["next_scene_plan", project.nextScenePlan, 240],
+    ["character_arc_state", project.characterArcState, 220],
+    ["emotional_continuity", project.emotionalContinuity, 220],
+    ["protagonist_want", project.protagonistWant, 160],
+    ["protagonist_need", project.protagonistNeed, 160],
+    ["antagonistic_force", project.antagonisticForce, 160],
+    ["ending_image", project.endingImage, 180],
+  ];
+  for (const [label, value, maxChars] of scalarFields) {
+    const clean = trimContextLine(value, maxChars);
+    if (clean) lines.push(`  ${label}: ${clean}`);
+  }
+  const listFields = [
+    ["next_three_turns", project.nextThreeTurns, 3, 160],
+    ["unresolved_setups", project.unresolvedSetups, 5, 180],
+    ["unresolved_story_threads", project.unresolvedStoryThreads, 5, 180],
+    ["act_three_payoff_path", project.actThreePayoffPath, 4, 180],
+    ["character_focus", project.characterFocus, 6, 72],
+    ["character_arc_turns", project.characterArcTurns, 5, 160],
+    ["image_motifs", project.imageMotifs, 5, 120],
+    ["continuity_notes", project.continuityNotes, 5, 180],
+  ];
+  for (const [label, value, maxItems, maxChars] of listFields) {
+    const items = sanitizeContextList(value, maxItems, maxChars);
+    if (items.length) lines.push(`  ${label}: ${items.join(" / ")}`);
+  }
+  return `project-continuity:\n${lines.join("\n")}`;
+}
+
 function serializeCharacters(characters, { preserveOrder = false } = {}) {
   if (!isNonEmptyArray(characters)) return "";
   const ordered = preserveOrder
@@ -1008,6 +1055,7 @@ function buildMemoryBlock(creativeMemory) {
   const preserveCharacterOrder = creativeMemory?.characterSelection?.strategy === "relevance";
   const sections = [
     serializeStyle(creativeMemory.style),
+    serializeProjectContinuity(creativeMemory.projectContinuity),
     serializeCharacters(creativeMemory.characters, { preserveOrder: preserveCharacterOrder }),
     serializeStoryBibleRecall(creativeMemory),
     serializeEpisodicMemories(creativeMemory.episodicMemories),

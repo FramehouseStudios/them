@@ -3023,6 +3023,36 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
       body.screenplay_pack,
     160
   );
+  const projectContinuity = studioMeta && (projectId || projectTitle)
+    ? {
+      projectId,
+      projectTitle,
+      act: studioMeta.screenplayAct,
+      featureSequence: studioMeta.screenplayFeatureSequence,
+      featureObligation: studioMeta.screenplayFeatureObligation,
+      actPressureState: studioMeta.screenplayActPressureState,
+      sceneObjective: studioMeta.screenplaySceneObjective,
+      currentBeat: studioMeta.screenplayCurrentBeat,
+      lastSceneOutcome: studioMeta.screenplayLastSceneOutcome,
+      nextScenePlan: studioMeta.screenplayNextScenePlan,
+      logline: studioMeta.screenplayLogline,
+      themeArgument: studioMeta.screenplayThemeArgument,
+      protagonistWant: studioMeta.screenplayProtagonistWant,
+      protagonistNeed: studioMeta.screenplayProtagonistNeed,
+      antagonisticForce: studioMeta.screenplayAntagonisticForce,
+      endingImage: studioMeta.screenplayEndingImage,
+      characterArcState: studioMeta.screenplayCharacterArcState,
+      emotionalContinuity: studioMeta.screenplayEmotionalContinuity,
+      nextThreeTurns: studioMeta.screenplayNextThreeTurns,
+      actThreePayoffPath: studioMeta.screenplayActThreePayoffPath,
+      unresolvedSetups: studioMeta.screenplayUnresolvedSetups,
+      unresolvedStoryThreads: studioMeta.screenplayUnresolvedStoryThreads,
+      characterFocus: studioMeta.screenplayCharacterFocus,
+      characterArcTurns: studioMeta.screenplayCharacterArcTurns,
+      imageMotifs: studioMeta.screenplayImageMotifs,
+      continuityNotes: studioMeta.screenplayContinuityNotes,
+    }
+    : null;
   const source = normalizeSnippet(
     turn?.source ||
       (screenplayOutput?.target === "page" ? "talk_screenplay_output" : "talk_turn"),
@@ -3036,6 +3066,7 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
     sessionDurationMs: Number.isFinite(durationMs) ? durationMs : null,
     projectId,
     projectTitle,
+    projectContinuity,
     source,
   });
 }
