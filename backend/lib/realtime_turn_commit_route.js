@@ -12,7 +12,7 @@
 // by docs/v1-definition.md line 68. After 5b.3, only 5b.4
 // (/realtime/call) remains in the 5b chain.
 //
-// Behavior is byte-identical with the previous inline handler.
+// The HTTP contract remains identical to the previous inline handler.
 // The 201 envelope, the 400 missing-fields envelope, the read-
 // state headers (x-turn-id, x-turn-meta-available,
 // Cache-Control: no-store + headers from applyReadStateHeaders),
@@ -69,6 +69,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
     updateSessionAfterReply,
     recordUserTalkMetrics,
     maybeRefineActiveThemesWithLLM,
+    recordCreativeMemoryTriggersForRequest,
     // ---------- turn meta storage + read state ----------
     storeTalkTurnMeta,
     buildReadStateMeta,
@@ -94,6 +95,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
     updateSessionAfterReply,
     recordUserTalkMetrics,
     maybeRefineActiveThemesWithLLM,
+    recordCreativeMemoryTriggersForRequest,
     storeTalkTurnMeta,
     buildReadStateMeta,
     applyReadStateHeaders,
@@ -183,6 +185,17 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       });
 
     const persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
+    const acceptedPageText = normalizeSnippet(studioMeta?.screenplayInsertedText ?? "", 12_000);
+    void Promise.resolve(recordCreativeMemoryTriggersForRequest(req, {
+      transcript,
+      reply: acceptedPageText || reply,
+      studioMeta,
+      source: acceptedPageText ? "talk_screenplay_output" : "realtime_turn_commit",
+    })).catch((error) => {
+      console.error(
+        `[${rid}] realtime_turn_commit creative_memory_failed error=${String(error?.message || error || "unknown")}`,
+      );
+    });
     const readMeta = buildReadStateMeta(req, persisted, requesterIp);
     if (readMeta.lastTurnId) {
       storeTalkTurnMeta({

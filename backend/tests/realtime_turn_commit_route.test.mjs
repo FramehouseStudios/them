@@ -1,7 +1,7 @@
 // T-decompose-phase5b3-turn-commit — integration tests for
 // `mountRealtimeTurnCommitRoute`. Cover:
 //
-// - Required-deps mount guard (20 fns + 1 const).
+// - Required-deps mount guard (21 fns + 1 const).
 // - 400 envelope on missing transcript / reply.
 // - 201 envelope on happy path with the canonical field set.
 // - storeTalkTurnMeta called exactly once with the canonical
@@ -35,6 +35,7 @@ function defaultDeps(overrides = {}) {
     updateSessionAfterReply: [],
     recordUserTalkMetrics: [],
     maybeRefineActiveThemesWithLLM: [],
+    recordCreativeMemoryTriggersForRequest: [],
     storeTalkTurnMeta: [],
     buildReadStateMeta: [],
     applyReadStateHeaders: [],
@@ -80,6 +81,10 @@ function defaultDeps(overrides = {}) {
     maybeRefineActiveThemesWithLLM: async () => {
       calls.maybeRefineActiveThemesWithLLM.push({});
       return undefined;
+    },
+    recordCreativeMemoryTriggersForRequest: async (_req, args) => {
+      calls.recordCreativeMemoryTriggersForRequest.push(args);
+      return { skipped: false };
     },
     // Turn meta + read state
     storeTalkTurnMeta: (args) => {
@@ -149,6 +154,7 @@ test("[turn-commit] mount fails when any required dep function is missing", () =
     "countSessionStartsForDay", "formatLocalDateStamp",
     "updateSessionEmotionMemory", "updateSessionAfterReply",
     "recordUserTalkMetrics", "maybeRefineActiveThemesWithLLM",
+    "recordCreativeMemoryTriggersForRequest",
     "storeTalkTurnMeta", "buildReadStateMeta", "applyReadStateHeaders",
   ];
   for (const key of required) {
@@ -382,6 +388,37 @@ test("[turn-commit] memory write pipeline: emotion → afterReply → persist (i
     // updateSessionEmotionMemory feeds updateSessionAfterReply.
     // updateSessionAfterReply feeds persistWritableMemoryContext.
     // (Stub asserts the order by capture-time, not by tree.)
+  });
+});
+
+test("[turn-commit] queues durable project memory with accepted page text and structured arc metadata", async () => {
+  const deps = defaultDeps();
+  const acceptedPage = "INT. ARCHIVE - NIGHT\n\nMARA opens the sealed affidavit.";
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, {
+      transcript: "Continue Mara from the archive.",
+      reply: "I moved Mara into the archive.",
+      studio: {
+        screenplayProjectId: "rain-docket",
+        screenplayTarget: "page",
+        screenplayInsertedText: acceptedPage,
+        screenplayCharacterArcMemory: {
+          character: "Mara",
+          want: "expose the forged testimony",
+          wound: "her father's disappearance",
+          falseBelief: "perfect proof keeps Eli safe",
+        },
+      },
+    });
+
+    assert.equal(r.status, 201);
+    assert.equal(deps._calls.recordCreativeMemoryTriggersForRequest.length, 1);
+    const memoryTurn = deps._calls.recordCreativeMemoryTriggersForRequest[0];
+    assert.equal(memoryTurn.transcript, "Continue Mara from the archive.");
+    assert.equal(memoryTurn.reply, acceptedPage);
+    assert.equal(memoryTurn.source, "talk_screenplay_output");
+    assert.equal(memoryTurn.studioMeta.screenplayProjectId, "rain-docket");
+    assert.equal(memoryTurn.studioMeta.screenplayCharacterArcMemory.character, "Mara");
   });
 });
 

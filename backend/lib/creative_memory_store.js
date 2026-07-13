@@ -447,18 +447,20 @@ function parseCharacterBibleReplacement(value = "") {
   return { from, to };
 }
 
-function mergeProjectCorrectionReplacements(incoming = [], existing = []) {
-  const newest = normalizeStringList(incoming, 8, 160);
+function mergeCorrectionReplacements(incoming = [], existing = [], maxItems = 8, maxChars = 160) {
+  const limit = Math.max(1, Number(maxItems || 8));
+  const charLimit = Math.max(1, Number(maxChars || 160));
+  const newest = normalizeStringList(incoming, limit, charLimit);
   const retiredKeys = new Set(
     newest
       .map((item) => parseCharacterBibleReplacement(item)?.from?.toLowerCase() || "")
       .filter(Boolean)
   );
-  const older = normalizeStringList(existing, 8, 160).filter((item) => {
+  const older = normalizeStringList(existing, limit, charLimit).filter((item) => {
     const retired = parseCharacterBibleReplacement(item)?.from?.toLowerCase() || "";
     return !retired || !retiredKeys.has(retired);
   });
-  return normalizeStringList([...newest, ...older], 8, 160);
+  return normalizeStringList([...newest, ...older], limit, charLimit);
 }
 
 function textContainsCharacterCorrectionTerm(value = "", terms = []) {
@@ -518,6 +520,20 @@ function sanitizeCharacterArcState(value = null) {
     if (clean) out[field] = clean;
   }
   return Object.keys(out).length > 1 ? out : null;
+}
+
+function sanitizeStructuredCharacterArcMemory(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const character = normalizeCharacterName(
+    value.character ?? value.characterName ?? value.character_name ?? value.name
+  );
+  const source = value.bible?.arc && typeof value.bible.arc === "object"
+    ? value.bible.arc
+    : value.arc && typeof value.arc === "object"
+      ? value.arc
+      : value;
+  const arc = sanitizeCharacterArcState(source);
+  return character && arc ? { character, arc } : null;
 }
 
 function repairCharacterArcStateForCorrection(arc = null, correction = null) {
@@ -625,13 +641,25 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
   const incoming = sanitizeCharacterBibleDelta(incomingBible);
   if (!incoming) return existing;
   const correction = {
-    correctedTerms: incoming.correctedTerms,
-    correctionReplacements: incoming.correctionReplacements,
+    correctedTerms: collectCharacterBibleItems(
+      [...incoming.correctedTerms, ...existing.correctedTerms],
+      CHARACTER_BIBLE_TERMS_MAX,
+      120
+    ),
+    correctionReplacements: mergeCorrectionReplacements(
+      incoming.correctionReplacements,
+      existing.correctionReplacements,
+      CHARACTER_BIBLE_TERMS_MAX,
+      180
+    ),
   };
   const hasCorrection = Boolean(correction.correctedTerms.length || correction.correctionReplacements.length);
   const existingCanon = hasCorrection
     ? filterCharacterBibleItems(existing.canon, correction, CHARACTER_BIBLE_CANON_MAX, 220)
     : existing.canon;
+  const incomingCanon = hasCorrection
+    ? filterCharacterBibleItems(incoming.canon, correction, CHARACTER_BIBLE_CANON_MAX, 220)
+    : incoming.canon;
   const arc = mergeCharacterArcState(existing.arc, incoming.arc, hasCorrection ? correction : null);
   const existingCorrections = filterCharacterBibleItems(
     existing.corrections,
@@ -641,7 +669,7 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
   );
   return sanitizeCharacterBibleDelta({
     canon: collectCharacterBibleItems(
-      [...incoming.canon, ...existingCanon],
+      [...incomingCanon, ...existingCanon],
       CHARACTER_BIBLE_CANON_MAX,
       220
     ),
@@ -651,16 +679,8 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
       260
     ),
     ...(arc ? { arc } : {}),
-    correctedTerms: collectCharacterBibleItems(
-      [...incoming.correctedTerms, ...existing.correctedTerms],
-      CHARACTER_BIBLE_TERMS_MAX,
-      120
-    ),
-    correctionReplacements: collectCharacterBibleItems(
-      [...incoming.correctionReplacements, ...existing.correctionReplacements],
-      CHARACTER_BIBLE_TERMS_MAX,
-      180
-    ),
+    correctedTerms: correction.correctedTerms,
+    correctionReplacements: correction.correctionReplacements,
     updatedAt: Math.max(Number(existing.updatedAt || 0), Number(incoming.updatedAt || 0), nowMs()),
   });
 }
@@ -2190,7 +2210,7 @@ function createCreativeMemoryStore({
                 120
               );
             } else if (field === "correctionReplacements") {
-              next[field] = mergeProjectCorrectionReplacements(incoming[field], existing[field]);
+              next[field] = mergeCorrectionReplacements(incoming[field], existing[field]);
             } else {
               next[field] = incoming[field];
             }
@@ -2302,14 +2322,15 @@ function createCreativeMemoryStore({
           );
         }
         if (cleanCharacterBible) {
-          characters[existingIdx].bible = mergeCharacterBible(
+          const mergedBible = mergeCharacterBible(
             characters[existingIdx].bible,
             cleanCharacterBible,
           );
+          characters[existingIdx].bible = mergedBible;
           if (characters[existingIdx].traits) {
             characters[existingIdx].traits = repairCharacterTraitsForCorrection(
               characters[existingIdx].traits,
-              cleanCharacterBible,
+              mergedBible,
             );
           }
         }
@@ -2749,6 +2770,7 @@ function createCreativeMemoryStore({
     projectId = "",
     projectTitle = "",
     projectContinuity = null,
+    characterArcMemories = [],
     acceptedPageText = "",
     source = "talk_turn",
   } = {}) {
@@ -2760,7 +2782,9 @@ function createCreativeMemoryStore({
       characterMentions: 0,
       episodicMemories: 0,
       corrections: 0,
+      structuredCharacterBibles: 0,
       acceptedPagesPromoted: 0,
+      acceptedPagesRecorded: 0,
       lexicalPhrases: 0,
       projectContinuityRecorded: false,
       sessionRecorded: false,
@@ -2791,16 +2815,47 @@ function createCreativeMemoryStore({
     const storyMemoryText = isGeneratedScreenplayOutput && !isCorrectionTurn
       ? combined
       : userText;
-    if (cleanText(acceptedPageText, 20_000)) {
+    const cleanAcceptedPageText = cleanText(acceptedPageText, 20_000);
+    if (cleanAcceptedPageText) {
       try {
         const receipt = await promoteAcceptedGeneratedPageMemory({
           userId,
           projectId: cleanProjectId,
           projectTitle: cleanProjectTitle,
-          acceptedPageText,
+          acceptedPageText: cleanAcceptedPageText,
         });
         summary.acceptedPagesPromoted = Math.max(0, Number(receipt?.promoted || 0));
       } catch (_e) { /* never block the response on memory promotion */ }
+    }
+
+    const structuredCharacterNames = [];
+    if (cleanProjectId || cleanProjectTitle) {
+      const structuredArcSources = Array.isArray(characterArcMemories)
+        ? characterArcMemories
+        : characterArcMemories && typeof characterArcMemories === "object"
+          ? [characterArcMemories]
+          : [];
+      for (const value of structuredArcSources.slice(0, 8)) {
+        const structured = sanitizeStructuredCharacterArcMemory(value);
+        if (!structured) continue;
+        try {
+          const receipt = await recordCharacterMention({
+            userId,
+            characterName: structured.character,
+            source: cleanSource,
+            tags: ["screenplay", "character-bible"],
+            metadata: {
+              ...(cleanProjectId ? { projectId: cleanProjectId } : {}),
+              ...(cleanProjectTitle ? { projectTitle: cleanProjectTitle } : {}),
+            },
+            characterBible: { arc: structured.arc },
+          });
+          if (receipt?.ok) {
+            summary.structuredCharacterBibles += 1;
+            structuredCharacterNames.push(structured.character);
+          }
+        } catch (_e) { /* never block the response on memory writes */ }
+      }
     }
     const knownCharacterNames = await readUser(userId)
       .then((rec) => (Array.isArray(rec?.characters) ? rec.characters : []))
@@ -2887,6 +2942,13 @@ function createCreativeMemoryStore({
       limit -= 1;
     }
 
+    for (const name of structuredCharacterNames) {
+      if (turnCharacterNames.length >= 8) break;
+      if (!turnCharacterNames.some((item) => item.toLowerCase() === name.toLowerCase())) {
+        turnCharacterNames.push(name);
+      }
+    }
+
     const sceneHeading = firstScreenplaySceneHeading(storyMemoryText);
     const moment = firstMemoryMoment(userText) ||
       (isGeneratedScreenplayOutput ? firstMemoryMoment(assistantText) : "");
@@ -2915,17 +2977,23 @@ function createCreativeMemoryStore({
             characterNames: turnCharacterNames,
           })
           : null;
+        const tags = buildEpisodicTags({
+          transcript: userText,
+          source: cleanSource,
+          projectId: cleanProjectId,
+          projectTitle: cleanProjectTitle,
+        });
+        const acceptedOutput = Boolean(
+          cleanAcceptedPageText &&
+          screenplayPageMemoryHash(assistantText) === screenplayPageMemoryHash(cleanAcceptedPageText)
+        );
+        if (acceptedOutput) tags.push(ACCEPTED_PAGE_TAG);
         const receipt = await recordEpisodicMemory({
           userId,
           summary: memorySummary,
           text: storyMemoryText,
           characterNames: turnCharacterNames,
-          tags: buildEpisodicTags({
-            transcript: userText,
-            source: cleanSource,
-            projectId: cleanProjectId,
-            projectTitle: cleanProjectTitle,
-          }),
+          tags,
           projectId: cleanProjectId,
           projectTitle: cleanProjectTitle,
           source: cleanSource,
@@ -2935,6 +3003,7 @@ function createCreativeMemoryStore({
           correction: correctionSignal,
         });
         if (receipt?.ok) summary.episodicMemories += 1;
+        if (receipt?.ok && acceptedOutput) summary.acceptedPagesRecorded += 1;
         if (receipt?.ok && isCorrectionTurn) summary.corrections += 1;
       } catch (_e) { /* never block the response on memory writes */ }
     }

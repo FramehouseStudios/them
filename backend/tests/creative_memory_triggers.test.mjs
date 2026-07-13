@@ -390,6 +390,86 @@ test("recordTriggersFromTalkTurn stores and repairs act-level character arc stat
   assert.ok(mara.bible.correctionReplacements.includes("perfect proof can keep everyone safe -> truth will get Eli killed"));
 });
 
+test("realtime commits durably restore project-scoped character arcs without reviving corrected beliefs", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const staleRainArc = {
+    character: "Mara",
+    act: "Act II",
+    want: "expose the forged testimony",
+    need: "stop hiding behind observation",
+    wound: "her father's disappearance",
+    falseBelief: "perfect proof can keep everyone safe",
+    relationshipPressure: "protecting Eli by lying",
+    currentTactic: "collecting evidence in silence",
+    nextEmotionalTurn: "public courage",
+  };
+
+  const first = await store.recordTriggersFromTalkTurn({
+    userId: "u-realtime-structured-arc",
+    transcript: "Keep moving from the current pressure point.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    characterArcMemories: [staleRainArc],
+    source: "realtime_turn_commit",
+  });
+  assert.equal(first.structuredCharacterBibles, 1);
+
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-realtime-structured-arc",
+    transcript: "Actually, no, Mara's false belief is that truth will get Eli killed, not that perfect proof can keep everyone safe.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "realtime_turn_commit",
+  });
+
+  const staleClientSync = await store.recordTriggersFromTalkTurn({
+    userId: "u-realtime-structured-arc",
+    transcript: "Continue the next scene.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    characterArcMemories: [staleRainArc],
+    source: "realtime_turn_commit",
+  });
+  assert.equal(staleClientSync.structuredCharacterBibles, 1);
+
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-realtime-structured-arc",
+    transcript: "Keep the train sequence moving.",
+    projectId: "night-train",
+    projectTitle: "Night Train",
+    characterArcMemories: [{
+      character: "Mara",
+      act: "Act III",
+      want: "stop the train before the border",
+      wound: "the derailment she caused as a child",
+      falseBelief: "escape is the same thing as freedom",
+    }],
+    source: "realtime_turn_commit",
+  });
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const rain = await restored.getCreativeMemoryForPrompt({
+    userId: "u-realtime-structured-arc",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Continue Mara's Act II false-belief turn.",
+  });
+  const mara = rain.characters.find((character) => character.name === "Mara");
+  assert.equal(rain.characters.length, 1);
+  assert.equal(mara.bible.arc.act, "Act II");
+  assert.equal(mara.bible.arc.want, "expose the forged testimony");
+  assert.equal(mara.bible.arc.need, "stop hiding behind observation");
+  assert.equal(mara.bible.arc.wound, "her father's disappearance");
+  assert.equal(mara.bible.arc.falseBelief, "truth will get Eli killed");
+  assert.equal(mara.bible.arc.relationshipPressure, "protecting Eli by lying");
+  assert.equal(mara.bible.arc.currentTactic, "collecting evidence in silence");
+  assert.equal(mara.bible.arc.nextEmotionalTurn, "public courage");
+  assert.equal(mara.bible.canon.every((item) => !item.includes("perfect proof can keep everyone safe")), true);
+  assert.ok(mara.bible.correctionReplacements.includes("perfect proof can keep everyone safe -> truth will get Eli killed"));
+  assert.doesNotMatch(JSON.stringify(rain), /stop the train|derailment|escape is the same thing/);
+});
+
 test("recordTriggersFromTalkTurn persists corrections and retrieves them before older conflicting memory", async () => {
   const persistence = freshPersistence();
   const store = createCreativeMemoryStore({ persistence });
@@ -465,6 +545,35 @@ Eli watches the burned star map curl in her hand.`;
   assert.equal(episode.source, "talk_screenplay_output");
   assert.match(episode.excerpt, /PLANETARIUM/);
   assert.deepEqual(episode.characterNames, ["MARA"]);
+});
+
+test("a directly committed Studio page is stored as accepted without a prior draft-memory row", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const page = `INT. ARCHIVE - NIGHT
+
+MARA
+The affidavit was never sealed.
+
+She hands the original to Eli.`;
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-realtime-accepted-page",
+    transcript: "Write the archive confrontation.",
+    reply: page,
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    acceptedPageText: page,
+    source: "talk_screenplay_output",
+  });
+
+  assert.equal(summary.acceptedPagesPromoted, 0);
+  assert.equal(summary.acceptedPagesRecorded, 1);
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-realtime-accepted-page",
+    projectId: "rain-docket",
+    query: "Mara archive affidavit Eli",
+  });
+  assert.equal(memory.episodicMemories.length, 1);
+  assert.equal(memory.episodicMemories[0].tags.includes("accepted-pages"), true);
 });
 
 test("committed Studio pages promote only the matching project's generated draft", async () => {

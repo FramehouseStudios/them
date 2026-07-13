@@ -3093,6 +3093,12 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
       "",
     20_000
   );
+  const characterArcMemories = Array.isArray(studioMeta?.screenplayCharacterArcMemories) &&
+    studioMeta.screenplayCharacterArcMemories.length
+    ? studioMeta.screenplayCharacterArcMemories
+    : studioMeta?.screenplayCharacterArcMemory
+      ? [studioMeta.screenplayCharacterArcMemory]
+      : [];
   return creativeMemoryStore.recordTriggersFromTalkTurn({
     userId,
     transcript,
@@ -3102,6 +3108,7 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
     projectId,
     projectTitle,
     projectContinuity,
+    characterArcMemories,
     acceptedPageText,
     source,
   });
@@ -32057,6 +32064,7 @@ mountRealtimeTurnCommitRoute(app, {
   updateSessionAfterReply,
   recordUserTalkMetrics,
   maybeRefineActiveThemesWithLLM,
+  recordCreativeMemoryTriggersForRequest,
   storeTalkTurnMeta,
   buildReadStateMeta,
   applyReadStateHeaders,
