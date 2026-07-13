@@ -3761,11 +3761,27 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     memory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
   );
-  const project = repairScreenplayProjectMemoryForPrompt(projects[0]) || projects[0] || null;
+  const legacyProject = repairScreenplayProjectMemoryForPrompt(projects[0]) || projects[0] || null;
+  const durableProject = creativeMemory?.projectContinuity &&
+    typeof creativeMemory.projectContinuity === "object"
+    ? creativeMemory.projectContinuity
+    : null;
+  const project = legacyProject || durableProject;
   const episodes = Array.isArray(creativeMemory?.episodicMemories)
     ? creativeMemory.episodicMemories
     : [];
-  const episode = episodes[0] || null;
+  const projectId = normalizeSnippet(project?.projectId || "", 96).toLowerCase();
+  const projectTitle = normalizeSnippet(project?.projectTitle || "", 160).toLowerCase();
+  const episode = project
+    ? episodes.find((item) => {
+        const episodeProjectId = normalizeSnippet(item?.projectId || "", 96).toLowerCase();
+        const episodeProjectTitle = normalizeSnippet(item?.projectTitle || "", 160).toLowerCase();
+        return Boolean(
+          (projectId && episodeProjectId === projectId) ||
+          (projectTitle && episodeProjectTitle === projectTitle)
+        );
+      }) || null
+    : episodes[0] || null;
   if (!project && !episode) {
     return {
       has_continuity: false,
@@ -3839,10 +3855,14 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
   );
   const snapshot = {
     has_continuity: true,
-    source: project && episode
-      ? "screenplay_project_memory+creative_memory"
-      : project
-        ? "screenplay_project_memory"
+    source: legacyProject
+      ? episode
+        ? "screenplay_project_memory+creative_memory"
+        : "screenplay_project_memory"
+      : durableProject
+        ? episode
+          ? "creative_project_continuity+creative_memory"
+          : "creative_project_continuity"
         : "creative_memory",
     project_id: normalizeSnippet(project?.projectId || episode?.projectId || "", 96),
     project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || project?.projectId || "", 160),

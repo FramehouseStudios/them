@@ -1398,6 +1398,68 @@ test("[persistent-screenplay-memory] builds session continuity snapshot from lat
   assert.ok(snapshot.opening_line.includes("Next move: Move into a private corridor confrontation."));
 });
 
+test("[persistent-screenplay-memory] cold session restores from durable project continuity", () => {
+  const snapshot = buildSessionContinuitySnapshot(createEmptyEmotionMemory(), {
+    projectContinuity: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      act: "Act II",
+      featureSequence: "Midpoint pressure",
+      featureObligation: "Turn private proof into a public choice.",
+      actPressureState: "Mara can no longer protect Eli and expose the judge.",
+      sceneObjective: "Force Mara to choose between Eli and public truth.",
+      currentBeat: "Eli catches Mara hiding the affidavit.",
+      lastSceneOutcome: "The affidavit is no longer secret.",
+      nextScenePlan: "Force Mara to choose between Eli and public truth.",
+      nextThreeTurns: [
+        "Eli demands the truth.",
+        "Mara lies to protect him.",
+        "The judge moves the witness.",
+      ],
+      unresolvedSetups: ["The sister's voicemail"],
+      unresolvedStoryThreads: ["Who forged the first report?"],
+      actThreePayoffPath: ["The voicemail becomes testimony"],
+      characterFocus: ["Mara", "Eli"],
+      characterArcState: "Mara protects Eli by lying.",
+      characterArcTurns: ["Mara chooses protection over truth."],
+      imageMotifs: ["charcoal dust"],
+      emotionalContinuity: "Mara is ashamed but committed.",
+      updatedAt: 2_400,
+    },
+    episodicMemories: [
+      {
+        projectId: "night-train",
+        projectTitle: "Night Train",
+        summary: "A different screenplay's latest scene.",
+        excerpt: "Mara uncouples the final carriage.",
+        updatedAt: 2_500,
+      },
+    ],
+  });
+
+  assert.equal(snapshot.has_continuity, true);
+  assert.equal(snapshot.source, "creative_project_continuity");
+  assert.equal(snapshot.project_id, "rain-docket");
+  assert.equal(snapshot.project_title, "Rain Docket");
+  assert.equal(snapshot.act, "Act II");
+  assert.equal(snapshot.feature_sequence, "Midpoint pressure");
+  assert.equal(snapshot.current_beat, "Eli catches Mara hiding the affidavit.");
+  assert.equal(snapshot.last_scene_outcome, "The affidavit is no longer secret.");
+  assert.equal(snapshot.next_scene_plan, "Force Mara to choose between Eli and public truth.");
+  assert.deepEqual(snapshot.unresolved_setups, ["The sister's voicemail"]);
+  assert.deepEqual(snapshot.unresolved_story_threads, ["Who forged the first report?"]);
+  assert.deepEqual(snapshot.act_three_payoff_path, ["The voicemail becomes testimony"]);
+  assert.deepEqual(snapshot.character_focus, ["Mara", "Eli"]);
+  assert.equal(snapshot.character_arc_state, "Mara protects Eli by lying.");
+  assert.equal(snapshot.emotional_continuity, "Mara is ashamed but committed.");
+  assert.equal(snapshot.memory_excerpt, "");
+  assert.equal(snapshot.updated_at, 2_400);
+  assert.ok(snapshot.opening_line.includes("Rain Docket"));
+  assert.ok(snapshot.opening_line.includes("Act II / Midpoint pressure"));
+  assert.ok(snapshot.opening_line.includes("Next move: Force Mara to choose between Eli and public truth."));
+  assert.doesNotMatch(JSON.stringify(snapshot), /Night Train|uncouples/);
+});
+
 test("[persistent-screenplay-memory] session continuity honors correction-only creative memory", () => {
   const snapshot = buildSessionContinuitySnapshot(createEmptyEmotionMemory(), {
     episodicMemories: [

@@ -137,6 +137,52 @@ test("[6.1a] state continuity helper reads user/project creative memory", async 
   assert.equal(snapshot.next_scene_plan, "Force the affidavit into public view.");
 });
 
+test("[6.1a] state continuity helper forwards durable project continuity without legacy state", async () => {
+  let requestedMemoryArgs = null;
+  let receivedCreativeMemory = null;
+  const snapshot = await buildStateContinuityPayload(
+    { authUser: { id: "user-cold-restore" } },
+    { screenplayProjectMemory: [] },
+    {
+      creativeMemoryStore: {
+        async getCreativeMemoryForPrompt(args) {
+          requestedMemoryArgs = args;
+          return {
+            projectContinuity: {
+              projectId: "rain-docket",
+              projectTitle: "Rain Docket",
+              act: "Act II",
+              currentBeat: "Eli catches Mara hiding the affidavit.",
+              nextScenePlan: "Force Mara to choose between Eli and public truth.",
+            },
+          };
+        },
+      },
+      buildSessionContinuitySnapshot: (_memory, creativeMemory) => {
+        receivedCreativeMemory = creativeMemory;
+        return {
+          has_continuity: true,
+          source: "creative_project_continuity",
+          project_id: creativeMemory.projectContinuity.projectId,
+          project_title: creativeMemory.projectContinuity.projectTitle,
+          act: creativeMemory.projectContinuity.act,
+          current_beat: creativeMemory.projectContinuity.currentBeat,
+          next_scene_plan: creativeMemory.projectContinuity.nextScenePlan,
+        };
+      },
+    }
+  );
+
+  assert.equal(requestedMemoryArgs.userId, "user-cold-restore");
+  assert.equal(requestedMemoryArgs.projectId, "");
+  assert.equal(requestedMemoryArgs.projectTitle, "");
+  assert.match(requestedMemoryArgs.query, /continue screenplay session restore/);
+  assert.equal(receivedCreativeMemory.projectContinuity.projectId, "rain-docket");
+  assert.equal(snapshot.source, "creative_project_continuity");
+  assert.equal(snapshot.project_title, "Rain Docket");
+  assert.equal(snapshot.current_beat, "Eli catches Mara hiding the affidavit.");
+});
+
 test("[6.1a] mountDataRoutes registers POST /data/history/clear + /data/memories/clear", () => {
   const app = express();
   mountDataRoutes(app, dataDeps);
