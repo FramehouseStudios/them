@@ -184,6 +184,73 @@ function normalizeElement(value = "") {
   return clean || "action";
 }
 
+function isScreenplaySceneHeadingLine(line = "") {
+  return /^(INT|EXT|EST|INT\/EXT|I\/E)\.?(?:\s|$)/i.test(String(line || "").trim());
+}
+
+function isScreenplayTransitionLine(line = "") {
+  const trimmed = String(line || "").trim();
+  return (
+    /^[A-Z0-9 .'\-]+ TO:$/.test(trimmed)
+    || /^(FADE IN|FADE OUT|CUT TO BLACK)\.?$/i.test(trimmed)
+  );
+}
+
+function isScreenplayParentheticalLine(line = "") {
+  return /^\([^()\n]{1,80}\)$/.test(String(line || "").trim());
+}
+
+function isScreenplayCharacterCueLine(line = "", nextNonEmpty = "") {
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return false;
+  if (
+    isScreenplaySceneHeadingLine(trimmed)
+    || isScreenplayTransitionLine(trimmed)
+    || isScreenplayParentheticalLine(trimmed)
+  ) {
+    return false;
+  }
+  if (trimmed.length > 42 || /[.!?]$/.test(trimmed)) return false;
+  if (trimmed !== trimmed.toUpperCase() || !/[A-Z]/.test(trimmed)) return false;
+  const cleanNext = String(nextNonEmpty || "").trim();
+  if (!cleanNext) return false;
+  return !isScreenplaySceneHeadingLine(cleanNext) && !isScreenplayTransitionLine(cleanNext);
+}
+
+function classifyScreenplayLines(text = "") {
+  const normalized = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  if (!normalized.trim()) return [];
+  const rawLines = normalized.split("\n");
+  const classified = [];
+  let previousElement = "blank";
+
+  for (let index = 0; index < rawLines.length; index += 1) {
+    const rawLine = String(rawLines[index] || "");
+    const trimmed = rawLine.trim();
+    const nextNonEmpty = rawLines
+      .slice(index + 1)
+      .map((line) => String(line || "").trim())
+      .find(Boolean) || "";
+    let element = "action";
+    if (!trimmed) element = "blank";
+    else if (isScreenplaySceneHeadingLine(trimmed)) element = "sceneHeading";
+    else if (isScreenplayTransitionLine(trimmed)) element = "transition";
+    else if (isScreenplayParentheticalLine(trimmed)) element = "parenthetical";
+    else if (isScreenplayCharacterCueLine(trimmed, nextNonEmpty)) element = "character";
+    else if (previousElement === "character" || previousElement === "parenthetical") element = "dialogue";
+
+    classified.push({
+      index,
+      text: trimmed ? rawLine.replace(/\s+$/g, "") : "",
+      element,
+    });
+    previousElement = element;
+  }
+  return classified;
+}
+
 function isDialogueProtectedElement(element = "") {
   return ["character", "dialogue", "parenthetical"].includes(normalizeElement(element));
 }
@@ -1918,6 +1985,7 @@ function evaluateScreenplayPageQuality({
 }
 
 export {
+  classifyScreenplayLines,
   evaluateCharacterArcMemoryCoverage,
   evaluateMomentumRescueQuality,
   evaluateScreenplayPageQuality,

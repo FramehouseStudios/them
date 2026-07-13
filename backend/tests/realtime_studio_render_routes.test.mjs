@@ -13,18 +13,47 @@ import {
   STUDIO_RENDER_BODY_LIMIT,
 } from "../lib/realtime_studio_render_routes.js";
 
+const VALID_SCREENPLAY_REPLY = [
+  "INT. ARCHIVE - NIGHT",
+  "",
+  "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+  "",
+  "ELI",
+  "You said the file was gone.",
+  "",
+  "Mara snaps the key before the lock can release it.",
+  "",
+  "MARA",
+  "I said they could not use it.",
+  "",
+  "The broken half drops inside the locker. Eli raises the original subpoena, its red seal reflected in the steel door.",
+  "",
+  "ELI",
+  "Then we use this.",
+  "",
+  "Mara takes the subpoena and steps toward the approaching guard instead of the exit.",
+].join("\n");
+
 function defaultDeps(overrides = {}) {
   const calls = { renderInvocations: [], streamInvocations: [] };
   return {
     getOpenAIApiKey: () => "sk-test",
     createRequestId: () => "req_studio_test",
     normalizeSnippet: (v, _max) => (typeof v === "string" ? v.trim() : ""),
-    renderStudioRealtimeText: async ({ systemPrompt, transcript }) => {
-      calls.renderInvocations.push({ systemPrompt, transcript });
-      return "rendered reply";
+    renderStudioRealtimeText: async (options) => {
+      calls.renderInvocations.push(options);
+      return options.modelTier === "rich" ? VALID_SCREENPLAY_REPLY : "rendered reply";
     },
-    streamStudioRealtimeText: async ({ systemPrompt, transcript, onDelta }) => {
-      calls.streamInvocations.push({ systemPrompt, transcript });
+    streamStudioRealtimeText: async (options) => {
+      const { onDelta } = options;
+      calls.streamInvocations.push(options);
+      if (options.modelTier === "rich") {
+        const splitAt = VALID_SCREENPLAY_REPLY.indexOf("MARA\n");
+        const first = VALID_SCREENPLAY_REPLY.slice(0, splitAt);
+        await onDelta(first, first);
+        await onDelta(VALID_SCREENPLAY_REPLY.slice(splitAt), VALID_SCREENPLAY_REPLY);
+        return VALID_SCREENPLAY_REPLY;
+      }
       await onDelta("hello ", "hello ");
       await onDelta("world", "hello world");
       return "hello world";
@@ -307,6 +336,166 @@ test("[studio-render] sync: page target strips labels, dividers, and trailing cr
   });
 });
 
+test("[studio-render] sync: page generation uses rich model budget and returns quality metadata", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Continue the scene from here.",
+      screenplay_target: "page",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, VALID_SCREENPLAY_REPLY);
+    assert.equal(r.body.screenplay_quality.ok, true);
+    assert.equal(r.body.screenplay_quality.repair_outcome, "not_needed");
+    assert.equal(deps._calls.renderInvocations.length, 1);
+    assert.equal(deps._calls.renderInvocations[0].modelTier, "rich");
+    assert.equal(deps._calls.renderInvocations[0].maxTokens, 1_600);
+  });
+});
+
+test("[studio-render] sync: first page pass receives feature metadata when client prompt is not canonical", async () => {
+  const contextualReply = [
+    "INT. COURTHOUSE ARCHIVE - NIGHT",
+    "",
+    "The prosecutor's lockdown alarm seals the archive doors.",
+    "",
+    "Mara gives Eli the only brass key, the one he stole in Act I. He drives it into the wrong evidence locker before she can stop him.",
+    "",
+    "ELI",
+    "You wanted me to choose.",
+    "",
+    "The locker opens. The planted subpoena slides across the floor under a red emergency light.",
+    "",
+    "MARA",
+    "Then we make it public.",
+    "",
+    "Mara takes Eli's hand instead of the subpoena. Together they shoulder through the archive door as the prosecutor reaches for the alarm.",
+  ].join("\n");
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async (options) => {
+      deps._calls.renderInvocations.push(options);
+      return contextualReply;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the next page from the courthouse trap.",
+      system_prompt: "Return screenplay pages only.",
+      screenplay_target: "page",
+      screenplay_project_id: "project-glass-orchard",
+      screenplay_document_revision_id: "revision-12",
+      screenplay_act: "Act II",
+      screenplay_feature_sequence: "Courthouse trap",
+      screenplay_feature_obligation: "Force Mara to choose Eli over winning.",
+      screenplay_scene_summary: "Mara discovers the subpoena was planted.",
+      screenplay_current_beat: "The bailiff locks the archive doors.",
+      screenplay_antagonistic_force: "The prosecutor controls the building.",
+      screenplay_next_three_turns: [
+        "Mara gives Eli the only key.",
+        "Eli opens the wrong evidence locker.",
+        "The planted subpoena becomes public.",
+      ],
+      screenplay_unresolved_setups: ["The brass key Eli stole in Act I."],
+      screenplay_beat_sequence: ["Locked archive", "Wrong locker", "Public reversal"],
+      screenplay_character_focus: ["Mara", "Eli"],
+      screenplay_continuity_notes: ["Mara still believes control keeps Eli safe."],
+      screenplay_page_count: 58,
+      screenplay_target_pages: 110,
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(deps._calls.renderInvocations.length, 1);
+    const prompt = deps._calls.renderInvocations[0].systemPrompt;
+    assert.match(prompt, /<feature_film_map>/);
+    assert.match(prompt, /project-glass-orchard/);
+    assert.match(prompt, /Act II/);
+    assert.match(prompt, /Courthouse trap/);
+    assert.match(prompt, /Force Mara to choose Eli over winning/);
+    assert.match(prompt, /Mara gives Eli the only key/);
+    assert.match(prompt, /The brass key Eli stole in Act I/);
+    assert.match(prompt, /The prosecutor controls the building/);
+    assert.match(prompt, /Mara still believes control keeps Eli safe/);
+  });
+});
+
+test("[studio-render] sync: canonical Apple feature prompt is not duplicated", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Continue the scene.",
+      system_prompt: [
+        "Return screenplay pages only.",
+        "<feature_film_map>",
+        "active_act: Act II",
+        "</feature_film_map>",
+      ].join("\n"),
+      screenplay_target: "page",
+      screenplay_act: "Act II",
+      screenplay_feature_sequence: "Courthouse trap",
+    });
+
+    assert.equal(r.status, 200);
+    const prompt = deps._calls.renderInvocations[0].systemPrompt;
+    assert.equal((prompt.match(/<feature_film_map>/g) || []).length, 1);
+  });
+});
+
+test("[studio-render] sync: malformed page receives exactly one repair before success", async () => {
+  const calls = [];
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async (options) => {
+      calls.push(options);
+      return calls.length === 1
+        ? "Here are three ideas for what the scene could do next."
+        : VALID_SCREENPLAY_REPLY;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the next page.",
+      system_prompt: "CANON_CORRECTION: Mara is Eli's sister.",
+      screenplay_target: "page",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, VALID_SCREENPLAY_REPLY);
+    assert.equal(r.body.screenplay_quality.repair_outcome, "repaired");
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].repairAttempt, true);
+    assert.equal(calls[1].modelTier, "rich");
+    assert.match(calls[1].systemPrompt, /QUALITY_FAILURE:/);
+    assert.match(calls[1].systemPrompt, /Mara is Eli's sister/);
+    assert.match(calls[1].transcript, /WRITER_REQUEST:/);
+  });
+});
+
+test("[studio-render] sync: rejected repair cannot be returned as a successful page", async () => {
+  let calls = 0;
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async () => {
+      calls += 1;
+      return calls === 1
+        ? "Here is a recap instead of screenplay pages."
+        : "The scene should probably become more intense.";
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the next page.",
+      screenplay_target: "page",
+    });
+
+    assert.equal(r.status, 502);
+    assert.equal(r.body.stage, "studio_render_quality");
+    assert.equal(r.body.reply, undefined);
+    assert.equal(r.body.screenplay_quality.repair_outcome, "rejected");
+    assert.equal(calls, 2);
+  });
+});
+
 test("[studio-render] sync: infers page target for typed screenplay continuation", async () => {
   const rawReply = [
     "Here are the next pages:",
@@ -325,8 +514,7 @@ test("[studio-render] sync: infers page target for typed screenplay continuation
 
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
-      transcript: "Write the next ten pages of act two.",
-      screenplay_act: "Act II",
+      transcript: "Continue the scene from here.",
       screenplay_draft_excerpt: "INT. COURTHOUSE HALLWAY - NIGHT\n\nMARA stops walking.",
     });
     assert.equal(r.status, 200);
@@ -566,6 +754,68 @@ test("[studio-render-stream] sse: page target strips labels and craft notes from
     assert.doesNotMatch(r.text, /Here are the next pages/);
     assert.doesNotMatch(r.text, /END SCENE/);
     assert.doesNotMatch(r.text, /Why this works/);
+  });
+});
+
+test("[studio-render-stream] sse: repaired final replaces provisional page without duplicate delta", async () => {
+  const provisional = "INT. HALL - NIGHT\n\nMara crosses the room.\n\n[INSERT SCENE HERE]";
+  const repairCalls = [];
+  const deps = defaultDeps({
+    streamStudioRealtimeText: async ({ onDelta, modelTier, maxTokens }) => {
+      assert.equal(modelTier, "rich");
+      assert.equal(maxTokens, 1_600);
+      await onDelta(provisional, provisional);
+      return provisional;
+    },
+    renderStudioRealtimeText: async (options) => {
+      repairCalls.push(options);
+      return VALID_SCREENPLAY_REPLY;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", {
+      transcript: "Write the next page.",
+      screenplay_target: "page",
+    });
+
+    assert.equal(r.status, 200);
+    assert.match(r.text, /"kind":"quality_repair"/);
+    assert.match(r.text, /event: done\b/);
+    assert.doesNotMatch(r.text, /event: error\b/);
+    assert.match(r.text, /"repair_outcome":"repaired"/);
+    assert.equal((r.text.match(/Mara drives a brass key/g) || []).length, 1);
+    assert.equal(repairCalls.length, 1);
+    assert.equal(repairCalls[0].repairAttempt, true);
+  });
+});
+
+test("[studio-render-stream] sse: failed repair emits error and never commits done", async () => {
+  const provisional = "INT. HALL - NIGHT\n\nMara crosses the room.\n\n[INSERT SCENE HERE]";
+  let repairCalls = 0;
+  const deps = defaultDeps({
+    streamStudioRealtimeText: async ({ onDelta }) => {
+      await onDelta(provisional, provisional);
+      return provisional;
+    },
+    renderStudioRealtimeText: async () => {
+      repairCalls += 1;
+      return "A generic summary of what might happen next.";
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", {
+      transcript: "Write the next page.",
+      screenplay_target: "page",
+    });
+
+    assert.equal(r.status, 200);
+    assert.match(r.text, /event: error\b/);
+    assert.match(r.text, /"stage":"studio_render_quality"/);
+    assert.match(r.text, /"repair_outcome":"rejected"/);
+    assert.doesNotMatch(r.text, /event: done\b/);
+    assert.equal(repairCalls, 1);
   });
 });
 

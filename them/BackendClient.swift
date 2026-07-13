@@ -2848,6 +2848,27 @@ final class BackendClient {
         return result.reply
     }
 
+    private func realtimeStudioRequestBody(
+        transcript: String,
+        systemPrompt: String,
+        screenplayTarget: String?,
+        studioMetadata: BackendStudioThreadCommitMetadata?
+    ) throws -> Data {
+        var body: [String: Any] = [
+            "transcript": transcript,
+            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+        let cleanScreenplayTarget = (screenplayTarget ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanScreenplayTarget.isEmpty {
+            body["screenplay_target"] = cleanScreenplayTarget
+        }
+        if let studioMetadata, studioMetadata.isMeaningful {
+            body.merge(BackendMemoryAPI.studioTurnPayload(studioMetadata)) { current, _ in current }
+        }
+        return try JSONSerialization.data(withJSONObject: body, options: [])
+    }
+
     func renderRealtimeStudioResult(
         transcript: String,
         systemPrompt: String,
@@ -2861,26 +2882,12 @@ final class BackendClient {
 
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveStudioRenderUserID()
-        var body: [String: Any] = [
-            "transcript": cleanTranscript,
-            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        ]
-        let cleanScreenplayTarget = (screenplayTarget ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanScreenplayTarget.isEmpty {
-            body["screenplay_target"] = cleanScreenplayTarget
-        }
-        if let arcMemory = studioMetadata?.screenplayCharacterArcMemory?.payload,
-           !arcMemory.isEmpty {
-            body["screenplay_character_arc_memory"] = arcMemory
-        }
-        let characterVoiceMemories = studioMetadata?.screenplayCharacterVoiceMemories
-            .filter(\.isMeaningful)
-            .prefix(8)
-            .map(\.payload) ?? []
-        if !characterVoiceMemories.isEmpty {
-            body["screenplay_character_voice_memories"] = characterVoiceMemories
-        }
-        let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let requestBody = try realtimeStudioRequestBody(
+            transcript: cleanTranscript,
+            systemPrompt: systemPrompt,
+            screenplayTarget: screenplayTarget,
+            studioMetadata: studioMetadata
+        )
 
         func performRequest(
             clientToken: String,
@@ -2987,26 +2994,12 @@ final class BackendClient {
 
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveStudioRenderUserID()
-        var body: [String: Any] = [
-            "transcript": cleanTranscript,
-            "system_prompt": systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        ]
-        let cleanScreenplayTarget = (screenplayTarget ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanScreenplayTarget.isEmpty {
-            body["screenplay_target"] = cleanScreenplayTarget
-        }
-        if let arcMemory = studioMetadata?.screenplayCharacterArcMemory?.payload,
-           !arcMemory.isEmpty {
-            body["screenplay_character_arc_memory"] = arcMemory
-        }
-        let characterVoiceMemories = studioMetadata?.screenplayCharacterVoiceMemories
-            .filter(\.isMeaningful)
-            .prefix(8)
-            .map(\.payload) ?? []
-        if !characterVoiceMemories.isEmpty {
-            body["screenplay_character_voice_memories"] = characterVoiceMemories
-        }
-        let requestBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        let requestBody = try realtimeStudioRequestBody(
+            transcript: cleanTranscript,
+            systemPrompt: systemPrompt,
+            screenplayTarget: screenplayTarget,
+            studioMetadata: studioMetadata
+        )
 
         func performRequest(
             clientToken: String,

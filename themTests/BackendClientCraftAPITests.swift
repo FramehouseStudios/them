@@ -190,7 +190,7 @@ final class BackendClientCraftAPITests: XCTestCase {
                 emotionalTells: ["family pressure slips out"]
             )
         )
-        let metadata = BackendStudioThreadCommitMetadata(
+        var metadata = BackendStudioThreadCommitMetadata(
             screenplayProjectId: "project-1",
             screenplayDocumentRevisionId: "version-1",
             screenplayTarget: "page",
@@ -214,6 +214,24 @@ final class BackendClientCraftAPITests: XCTestCase {
             screenplayCharacterArcMemory: arc,
             screenplayCharacterVoiceMemories: [voiceMemory]
         )
+        metadata.screenplayDraftExcerpt = "INT. ARCHIVE - NIGHT\n\nMara reaches the sealed locker."
+        metadata.screenplayAct = "Act II"
+        metadata.screenplaySceneObjective = "steal the sealed subpoena before the guard arrives"
+        metadata.screenplayCurrentBeat = "Mara chooses public courage over control"
+        metadata.screenplayFeatureSequence = "Courthouse trap"
+        metadata.screenplayFeatureObligation = "turn the midpoint discovery into an irreversible commitment"
+        metadata.screenplayLastSceneOutcome = "Eli learned Mara hid the original testimony"
+        metadata.screenplayNextThreeTurns = [
+            "Mara steals the subpoena",
+            "Eli catches her",
+            "the guard locks the archive"
+        ]
+        metadata.screenplayUnresolvedSetups = ["the red seal on the subpoena"]
+        metadata.screenplayActThreePayoffPath = ["Mara reads the testimony in open court"]
+        metadata.screenplayImageMotifs = ["red seal reflected in steel"]
+        metadata.screenplayEmotionalContinuity = "Mara is ashamed, cornered, and done hiding"
+        metadata.screenplayPageCount = 54
+        metadata.screenplayTargetPages = 110
 
         let reply = try await client.renderRealtimeStudioText(
             transcript: "Continue the next page.",
@@ -225,6 +243,28 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(reply, "INT. ARCHIVE - NIGHT")
         let renderRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/realtime/studio_render" })
         XCTAssertEqual(renderRequest.bodyObject?["screenplay_target"] as? String, "page")
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_project_id"] as? String, "project-1")
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_document_revision_id"] as? String, "version-1")
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_act"] as? String, "Act II")
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_feature_sequence"] as? String, "Courthouse trap")
+        XCTAssertEqual(
+            renderRequest.bodyObject?["screenplay_feature_obligation"] as? String,
+            "turn the midpoint discovery into an irreversible commitment"
+        )
+        XCTAssertEqual(
+            renderRequest.bodyObject?["screenplay_next_three_turns"] as? [String],
+            ["Mara steals the subpoena", "Eli catches her", "the guard locks the archive"]
+        )
+        XCTAssertEqual(
+            renderRequest.bodyObject?["screenplay_unresolved_setups"] as? [String],
+            ["the red seal on the subpoena"]
+        )
+        XCTAssertEqual(
+            renderRequest.bodyObject?["screenplay_act_three_payoff_path"] as? [String],
+            ["Mara reads the testimony in open court"]
+        )
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_page_count"] as? Int, 54)
+        XCTAssertEqual(renderRequest.bodyObject?["screenplay_target_pages"] as? Int, 110)
         let arcBody = try XCTUnwrap(renderRequest.bodyObject?["screenplay_character_arc_memory"] as? [String: Any])
         XCTAssertEqual(arcBody["character"] as? String, "Mara")
         XCTAssertEqual(arcBody["want"] as? String, "expose the forged testimony")

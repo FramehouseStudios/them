@@ -3379,7 +3379,7 @@ actor BackendMemoryAPI {
         static let userName = "user_primary_name"
     }
 
-    private static func studioTurnPayload(_ studioMetadata: BackendStudioThreadCommitMetadata) -> [String: Any] {
+    static func studioTurnPayload(_ studioMetadata: BackendStudioThreadCommitMetadata) -> [String: Any] {
         var payload: [String: Any] = [:]
 
         func appendString(_ key: String, _ value: String, limit: Int = 1_000) {

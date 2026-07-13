@@ -74,7 +74,11 @@ import { mountHealthRoutes } from "./lib/health_route.js";
 import { mountHealthzRoute } from "./lib/healthz_route.js";
 import { respondScreenplayMarkdown } from "./lib/screenplay_markdown_export.js";
 import { normalizeScreenplayOutputContractText } from "./lib/screenplay_output_contract.js";
-import { evaluateMomentumRescueQuality, evaluateScreenplayPageQuality } from "./lib/screenplay_page_quality.js";
+import {
+  classifyScreenplayLines,
+  evaluateMomentumRescueQuality,
+  evaluateScreenplayPageQuality,
+} from "./lib/screenplay_page_quality.js";
 import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
 import {
   buildTalkScreenplayQualityAlert,
@@ -5951,45 +5955,7 @@ function isLikelyConversationalScreenplayLine(line = "") {
 
 function buildTalkScreenplayOutputLines(text = "") {
   const normalized = normalizeTalkScreenplayText(text);
-  if (!normalized) return [];
-  const rawLines = normalized.split("\n");
-  const classified = [];
-  let previousElement = "blank";
-
-  for (let index = 0; index < rawLines.length; index += 1) {
-    const rawLine = String(rawLines[index] || "");
-    const trimmed = rawLine.trim();
-    const nextNonEmpty = rawLines
-      .slice(index + 1)
-      .map((line) => String(line || "").trim())
-      .find(Boolean) || "";
-
-    let element = "action";
-    if (!trimmed) {
-      element = "blank";
-    } else if (isTalkSceneHeadingLine(trimmed)) {
-      element = "sceneHeading";
-    } else if (isTalkTransitionLine(trimmed)) {
-      element = "transition";
-    } else if (isTalkParentheticalLine(trimmed)) {
-      element = "parenthetical";
-    } else if (isTalkCharacterCueLine(trimmed, nextNonEmpty)) {
-      element = "character";
-    } else if (previousElement === "character" || previousElement === "parenthetical") {
-      element = "dialogue";
-    } else {
-      element = "action";
-    }
-
-    classified.push({
-      index,
-      text: trimmed ? rawLine.replace(/\s+$/g, "") : "",
-      element,
-    });
-    previousElement = element;
-  }
-
-  return classified;
+  return classifyScreenplayLines(normalized);
 }
 
 function isRenderableTalkScreenplayOutput(lines = []) {
@@ -19821,6 +19787,8 @@ async function summarizeVisualContextFromImage({
 async function renderStudioRealtimeText({
   systemPrompt = "",
   transcript = "",
+  modelTier = "fast",
+  maxTokens = 0,
 }) {
   const cleanSystemPrompt =
     normalizeSnippet(systemPrompt, 16_000) ||
@@ -19845,9 +19813,14 @@ async function renderStudioRealtimeText({
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: CHAT_MODEL_FAST,
+        model: String(modelTier || "").toLowerCase() === "rich"
+          ? (CHAT_MODEL_RICH || CHAT_MODEL_FAST)
+          : CHAT_MODEL_FAST,
         temperature: CHAT_TEMPERATURE,
-        max_tokens: Math.max(220, Number(CHAT_MAX_TOKENS || 900)),
+        max_tokens: Math.min(
+          8_000,
+          Math.max(220, Number(maxTokens || CHAT_MAX_TOKENS || 900)),
+        ),
         messages: [
           { role: "system", content: cleanSystemPrompt },
           { role: "user", content: cleanTranscript },
@@ -19891,6 +19864,8 @@ async function renderStudioRealtimeText({
 async function streamStudioRealtimeText({
   systemPrompt = "",
   transcript = "",
+  modelTier = "fast",
+  maxTokens = 0,
   onDelta,
 }) {
   const cleanSystemPrompt =
@@ -19919,9 +19894,14 @@ async function streamStudioRealtimeText({
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: CHAT_MODEL_FAST,
+        model: String(modelTier || "").toLowerCase() === "rich"
+          ? (CHAT_MODEL_RICH || CHAT_MODEL_FAST)
+          : CHAT_MODEL_FAST,
         temperature: CHAT_TEMPERATURE,
-        max_tokens: Math.max(220, Number(CHAT_MAX_TOKENS || 900)),
+        max_tokens: Math.min(
+          8_000,
+          Math.max(220, Number(maxTokens || CHAT_MAX_TOKENS || 900)),
+        ),
         stream: true,
         messages: [
           { role: "system", content: cleanSystemPrompt },
