@@ -3082,6 +3082,13 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
       (screenplayOutput?.target === "page" ? "talk_screenplay_output" : "talk_turn"),
     64
   );
+  const acceptedPageText = normalizeSnippet(
+    studioMeta?.screenplayInsertedText ??
+      body.screenplayInsertedText ??
+      body.screenplay_inserted_text ??
+      "",
+    20_000
+  );
   return creativeMemoryStore.recordTriggersFromTalkTurn({
     userId,
     transcript,
@@ -3091,6 +3098,7 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
     projectId,
     projectTitle,
     projectContinuity,
+    acceptedPageText,
     source,
   });
 }
@@ -3564,15 +3572,18 @@ function buildCreativeMemoryPromptTrace(memory = null, {
       const source = normalizeSnippet(episode?.source, 64);
       const correction = tags.some((tag) => tag.toLowerCase() === "correction");
       const userNote = tags.some((tag) => tag.toLowerCase() === "user-note");
+      const acceptedPage = tags.some((tag) => tag.toLowerCase() === "accepted-pages");
       const authority = correction
         ? "user_correction"
         : userNote
           ? "user_note"
-          : source === "talk_screenplay_output"
-            ? "generated_draft"
-            : source === "talk_turn"
-              ? "conversation_context"
-              : "persisted_memory";
+          : acceptedPage
+            ? "accepted_page"
+            : source === "talk_screenplay_output"
+              ? "generated_draft"
+              : source === "talk_turn"
+                ? "conversation_context"
+                : "persisted_memory";
       return {
         summary: normalizeSnippet(episode?.summary, 180),
         excerpt: normalizeSnippet(episode?.excerpt, 220),

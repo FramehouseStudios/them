@@ -467,6 +467,86 @@ Eli watches the burned star map curl in her hand.`;
   assert.deepEqual(episode.characterNames, ["MARA"]);
 });
 
+test("committed Studio pages promote only the matching project's generated draft", async () => {
+  const persistence = freshPersistence();
+  const page = `INT. PLANETARIUM - NIGHT
+
+MARA
+The sky is lying to us.
+
+Eli watches the burned star map curl in her hand.`;
+  const store = createCreativeMemoryStore({ persistence });
+  for (const [projectId, projectTitle] of [
+    ["rain-docket", "Rain Docket"],
+    ["night-train", "Night Train"],
+  ]) {
+    await store.recordTriggersFromTalkTurn({
+      userId: "u-trig-accepted-page",
+      transcript: "Continue the planetarium scene.",
+      reply: page,
+      projectId,
+      projectTitle,
+      source: "talk_screenplay_output",
+    });
+  }
+
+  const raw = await persistence.get({
+    domain: "creative_memory",
+    key: "u-trig-accepted-page",
+  });
+  assert.equal(raw.episodicMemories.length, 2);
+  assert.equal(raw.episodicMemories.every((episode) => episode.contentHash?.length === 64), true);
+
+  const before = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-accepted-page",
+    projectId: "rain-docket",
+    query: "planetarium burned star map",
+  });
+  assert.equal(before.episodicMemories[0].tags.includes("accepted-pages"), false);
+  assert.equal(Object.hasOwn(before.episodicMemories[0], "contentHash"), false);
+  const ledger = await store.getCreativeMemoryLedger({ userId: "u-trig-accepted-page" });
+  assert.equal(ledger.episodicMemories.some((episode) => Object.hasOwn(episode, "contentHash")), false);
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const promotion = await restored.recordTriggersFromTalkTurn({
+    userId: "u-trig-accepted-page",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    acceptedPageText: page,
+  });
+  assert.equal(promotion.acceptedPagesPromoted, 1);
+  assert.equal(promotion.episodicMemories, 0);
+
+  const accepted = await restored.getCreativeMemoryForPrompt({
+    userId: "u-trig-accepted-page",
+    projectId: "rain-docket",
+    query: "planetarium burned star map",
+  });
+  const otherProject = await restored.getCreativeMemoryForPrompt({
+    userId: "u-trig-accepted-page",
+    projectId: "night-train",
+    query: "planetarium burned star map",
+  });
+  assert.equal(accepted.episodicMemories[0].tags.includes("accepted-pages"), true);
+  assert.equal(otherProject.episodicMemories[0].tags.includes("accepted-pages"), false);
+
+  const beforeIdempotent = await persistence.get({
+    domain: "creative_memory",
+    key: "u-trig-accepted-page",
+  });
+  const idempotent = await restored.promoteAcceptedGeneratedPageMemory({
+    userId: "u-trig-accepted-page",
+    projectId: "rain-docket",
+    acceptedPageText: page,
+  });
+  const afterIdempotent = await persistence.get({
+    domain: "creative_memory",
+    key: "u-trig-accepted-page",
+  });
+  assert.deepEqual(idempotent, { ok: true, promoted: 0, reason: "already_accepted" });
+  assert.equal(afterIdempotent.updatedAt, beforeIdempotent.updatedAt);
+});
+
 test("recordTriggersFromTalkTurn stores explicit project memory without named characters", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   const summary = await store.recordTriggersFromTalkTurn({

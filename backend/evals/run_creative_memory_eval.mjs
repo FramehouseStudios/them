@@ -2,7 +2,7 @@
 //
 // Eval skeleton for the creative memory tier (T08).
 //
-// Four regression cases:
+// Five regression cases:
 //   1. memory-absent — cold user; the assembled prompt must NOT
 //      include a creative_memory block.
 //   2. memory-present — seeded user; the prompt must include a
@@ -12,6 +12,8 @@
 //      paraphrases recover the right project memory.
 //   4. canon-authority — assistant proposals cannot silently mutate
 //      writer-authored character canon.
+//   5. accepted-page — generated page continuity becomes authoritative
+//      only after Studio reports that exact page as committed.
 //
 // This is a deterministic, fast eval — no LLM call. It guards the
 // PROMPT-CONSTRUCTION path. LLM-output evals (does the model use the
@@ -204,10 +206,65 @@ async function caseWriterCanonAuthority() {
   );
 }
 
+async function caseAcceptedPagePromotion() {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const page = "INT. COURTHOUSE - DAY\n\nMARA\nPut the affidavit on the record.";
+  await store.recordTriggersFromTalkTurn({
+    userId: "accepted-page-user",
+    transcript: "Write the hearing turn.",
+    reply: page,
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_screenplay_output",
+  });
+  const draftMemory = await store.getCreativeMemoryForPrompt({
+    userId: "accepted-page-user",
+    projectId: "rain-docket",
+    query: "affidavit hearing",
+  });
+  const draftPrompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: draftMemory,
+    userInput: "Continue the hearing.",
+  });
+  const receipt = await store.promoteAcceptedGeneratedPageMemory({
+    userId: "accepted-page-user",
+    projectId: "rain-docket",
+    acceptedPageText: page,
+  });
+  const acceptedMemory = await store.getCreativeMemoryForPrompt({
+    userId: "accepted-page-user",
+    projectId: "rain-docket",
+    query: "affidavit hearing",
+  });
+  const acceptedPrompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: acceptedMemory,
+    userInput: "Continue the hearing.",
+  });
+  check(
+    "accepted-page: generated output starts as provisional draft continuity",
+    draftPrompt.includes("DRAFT_PAGE:"),
+    `prompt:\n${draftPrompt}`,
+  );
+  check(
+    "accepted-page: exact Studio commit promotes one durable episode",
+    receipt.ok === true && receipt.promoted === 1,
+    `receipt: ${JSON.stringify(receipt)}`,
+  );
+  check(
+    "accepted-page: promoted episode is authoritative and hides its private hash",
+    acceptedPrompt.includes("ACCEPTED_PAGE:") &&
+      !Object.hasOwn(acceptedMemory?.episodicMemories?.[0] || {}, "contentHash"),
+    `prompt:\n${acceptedPrompt}`,
+  );
+}
+
 await caseColdUser();
 await caseSeededUser();
 await caseSemanticLegacyBackfill();
 await caseWriterCanonAuthority();
+await caseAcceptedPagePromotion();
 
 if (!allOK) {
   console.error("creative memory eval: FAILED");

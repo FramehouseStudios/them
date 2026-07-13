@@ -848,6 +848,11 @@ test("buildModelPrompt distinguishes writer canon from generated draft continuit
           tags: ["screenplay", "generated-pages"],
         },
         {
+          summary: "Mara uses the affidavit during the public hearing.",
+          source: "talk_screenplay_output",
+          tags: ["screenplay", "generated-pages", "accepted-pages"],
+        },
+        {
           summary: "The ending image is Mara opening the courtroom doors.",
           source: "talk_turn",
           tags: ["screenplay", "user-note"],
@@ -863,9 +868,11 @@ test("buildModelPrompt distinguishes writer canon from generated draft continuit
   });
 
   assert.ok(out.includes("DRAFT_PAGE: Mara finds the affidavit"));
+  assert.ok(out.includes("ACCEPTED_PAGE: Mara uses the affidavit"));
   assert.ok(out.includes("USER_NOTE: The ending image"));
   assert.ok(out.includes("CONVERSATION_CONTEXT: They discussed"));
   assert.ok(out.includes("CONVERSATION_CONTEXT is a recall clue, not canon"));
+  assert.ok(out.includes("ACCEPTED_PAGE was committed into Studio"));
   assert.ok(out.includes("Current project continuity and user corrections win every conflict"));
 });
 

@@ -1216,6 +1216,14 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
           characterNames: ["Mara"],
           tags: ["screenplay", "correction"],
         },
+        {
+          summary: "Mara carries the VHS tape into the hearing.",
+          projectId: "rain-docket",
+          projectTitle: "Rain Docket",
+          characterNames: ["Mara"],
+          tags: ["screenplay", "generated-pages", "accepted-pages"],
+          source: "talk_screenplay_output",
+        },
       ],
       episodicSelection: {
         strategy: "hybrid_embedding",
@@ -1260,7 +1268,7 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.equal(trace.project_id, "rain-docket");
   assert.equal(trace.project_title, "Rain Docket");
   assert.equal(trace.character_count, 1);
-  assert.equal(trace.episodic_count, 1);
+  assert.equal(trace.episodic_count, 2);
   assert.equal(trace.correction_count, 3);
   assert.deepEqual(trace.corrected_terms, ["mother", "cassette"]);
   assert.deepEqual(trace.correction_replacements, ["mother -> Eli's sister", "cassette -> VHS tape"]);
@@ -1269,6 +1277,7 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.match(trace.episodic[0].summary, /Correction for Mara/);
   assert.equal(trace.episodic[0].correction, true);
   assert.equal(trace.episodic[0].authority, "user_correction");
+  assert.equal(trace.episodic[1].authority, "accepted_page");
   assert.deepEqual(trace.episodic_retrieval, {
     strategy: "hybrid_embedding",
     semantic_used: true,

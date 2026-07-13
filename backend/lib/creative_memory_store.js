@@ -16,6 +16,8 @@
 // Cross-process safety comes from the adapter's underlying store
 // (Postgres in production; single-process discipline in JSON mode).
 
+import { createHash } from "node:crypto";
+
 import { createPersistence } from "./persistence_adapter.js";
 import {
   extractTraits,
@@ -107,6 +109,7 @@ const EXPLICIT_MEMORY_KEYWORDS = /\b(?:remember|keep in mind|do not forget|don't
 const CORRECTION_KEYWORDS = /\b(?:actually,\s*no|correction|scratch that|not that|instead|retcon|change it to|make it so)\b/i;
 const CORRECTION_TAG = "correction";
 const SUPERSEDED_TAG = "superseded";
+const ACCEPTED_PAGE_TAG = "accepted-pages";
 const CHARACTER_BIBLE_FACT_KEYWORDS = /\b(?:is|was|becomes|became|turns out|wants|needs|must|believes|hides|knows|protects|fears|misses|betrays|trusts|forgives|loves|hates|secret|wound|goal|arc|relationship|mother|father|sister|brother|daughter|son|wife|husband|partner)\b/i;
 const CHARACTER_ARC_FIELDS = Object.freeze([
   "act",
@@ -879,6 +882,13 @@ function buildEpisodicEmbeddingText(memory = {}) {
   ].filter(Boolean).join("\n"), 1_800);
 }
 
+function screenplayPageMemoryHash(text = "") {
+  const normalized = cleanText(text, 20_000);
+  return normalized
+    ? createHash("sha256").update(`screenplay-page|${normalized}`).digest("hex")
+    : "";
+}
+
 function episodicEmbeddingTextHash(memory = {}, model = "") {
   const text = buildEpisodicEmbeddingText(memory);
   return text ? stableHash(`${cleanText(model, 96)}|${text}`) : "";
@@ -931,6 +941,7 @@ function sanitizeEpisodicMemoryItem(item = {}) {
     80
   );
   const embedding = sanitizeEpisodicEmbedding(item.embedding);
+  const contentHash = cleanText(item.contentHash ?? item.content_hash, 96);
   return {
     id,
     summary: summary || firstMemoryMoment(text) || (characterNames.length ? `Story memory for ${characterNames.join(", ")}` : "Story memory"),
@@ -941,6 +952,7 @@ function sanitizeEpisodicMemoryItem(item = {}) {
     projectId,
     projectTitle,
     source: cleanText(item.source, 64),
+    ...(contentHash ? { contentHash } : {}),
     ...(embedding ? { embedding } : {}),
     semanticFingerprint: buildEpisodicSemanticFingerprint({
       summary: summary || firstMemoryMoment(text) || (characterNames.length ? `Story memory for ${characterNames.join(", ")}` : "Story memory"),
@@ -1064,6 +1076,7 @@ function selectEpisodicMemoriesForPrompt(items = [], {
       delete out.text;
       delete out.semanticFingerprint;
       delete out.embedding;
+      delete out.contentHash;
       return out;
     });
 }
@@ -1202,6 +1215,7 @@ function sanitizeCreativeMemoryLedgerRecord(rec = null, {
       delete item.text;
       delete item.semanticFingerprint;
       delete item.embedding;
+      delete item.contentHash;
       return item;
     });
   if (episodicMemories.length) out.episodicMemories = episodicMemories;
@@ -1870,6 +1884,58 @@ function createCreativeMemoryStore({
     });
   }
 
+  async function promoteAcceptedGeneratedPageMemory({
+    userId,
+    projectId = "",
+    projectTitle = "",
+    acceptedPageText = "",
+    contentHash = "",
+  } = {}) {
+    const cleanUserId = cleanText(userId, 128);
+    if (!cleanUserId) return { ok: false, promoted: 0, reason: "missing_userId" };
+    const acceptedHash = cleanText(contentHash, 96) || screenplayPageMemoryHash(acceptedPageText);
+    if (!acceptedHash) return { ok: false, promoted: 0, reason: "missing_page_text" };
+    const cleanProjectId = cleanText(projectId, 96);
+    const cleanProjectTitle = cleanText(projectTitle, 160).toLowerCase();
+    return withUserLock(cleanUserId, async () => {
+      const rec = await readUser(cleanUserId);
+      if (!rec) return { ok: true, promoted: 0, reason: "cold_user" };
+      let matched = 0;
+      let promoted = 0;
+      rec.episodicMemories = sortEpisodicMemoriesForStorage(
+        (Array.isArray(rec.episodicMemories) ? rec.episodicMemories : [])
+          .map(sanitizeEpisodicMemoryItem)
+          .filter(Boolean)
+          .map((memory) => {
+            if (memory.supersededAt || memory.source !== "talk_screenplay_output") return memory;
+            if (cleanText(memory.contentHash, 96) !== acceptedHash) return memory;
+            if (cleanProjectId && memory.projectId !== cleanProjectId) return memory;
+            if (!cleanProjectId && cleanProjectTitle && memory.projectTitle.toLowerCase() !== cleanProjectTitle) {
+              return memory;
+            }
+            matched += 1;
+            if (hasTag(memory, ACCEPTED_PAGE_TAG)) return memory;
+            promoted += 1;
+            return {
+              ...memory,
+              tags: normalizeStringList([...(memory.tags || []), ACCEPTED_PAGE_TAG], 8, 48)
+                .map((tag) => tag.toLowerCase()),
+              updatedAt: nowMs(),
+            };
+          })
+      ).slice(0, EPISODIC_MEMORIES_MAX);
+      if (promoted > 0) {
+        rec.updatedAt = nowMs();
+        await writeUser(cleanUserId, rec);
+      }
+      return {
+        ok: true,
+        promoted,
+        reason: promoted > 0 ? "accepted" : matched > 0 ? "already_accepted" : "no_matching_draft",
+      };
+    });
+  }
+
   function episodicEmbeddingCoverage(memories = [], {
     projectId = "",
     projectTitle = "",
@@ -2282,6 +2348,7 @@ function createCreativeMemoryStore({
     projectId = "",
     projectTitle = "",
     source = "",
+    contentHash = "",
     correction = null,
   } = {}) {
     if (!userId) return { ok: false, action: "skipped", reason: "missing_userId" };
@@ -2293,6 +2360,7 @@ function createCreativeMemoryStore({
       projectId,
       projectTitle,
       source,
+      contentHash,
       createdAt: nowMs(),
       updatedAt: nowMs(),
       lastReferencedAt: nowMs(),
@@ -2309,17 +2377,20 @@ function createCreativeMemoryStore({
       const itemCharacters = new Set((item.characterNames || []).map((name) => name.toLowerCase()));
       const duplicateIdx = memories.findIndex((memory) => {
         if (memory.id === item.id) return true;
+        const itemHasProject = Boolean(item.projectId || item.projectTitle);
+        const memoryHasProject = Boolean(memory.projectId || memory.projectTitle);
+        const projectMatches = item.projectId && memory.projectId
+          ? item.projectId === memory.projectId
+          : item.projectTitle && memory.projectTitle
+            ? item.projectTitle.toLowerCase() === memory.projectTitle.toLowerCase()
+            : !itemHasProject && !memoryHasProject;
+        if (!projectMatches) return false;
         if (memory.summary.toLowerCase() === item.summary.toLowerCase()) return true;
         if (!itemCharacters.size) return false;
         const memoryCharacters = new Set((memory.characterNames || []).map((name) => name.toLowerCase()));
         const overlap = [...itemCharacters].some((name) => memoryCharacters.has(name));
         if (!overlap) return false;
-        const projectMatches = item.projectId && memory.projectId
-          ? item.projectId === memory.projectId
-          : item.projectTitle && memory.projectTitle
-            ? item.projectTitle.toLowerCase() === memory.projectTitle.toLowerCase()
-            : true;
-        return projectMatches && memory.summary.toLowerCase().includes(item.summary.toLowerCase().slice(0, 80));
+        return memory.summary.toLowerCase().includes(item.summary.toLowerCase().slice(0, 80));
       });
       if (duplicateIdx >= 0) {
         action = "updated";
@@ -2344,6 +2415,7 @@ function createCreativeMemoryStore({
           projectId: item.projectId || existing.projectId,
           projectTitle: item.projectTitle || existing.projectTitle,
           source: item.source || existing.source,
+          contentHash: item.contentHash || existing.contentHash,
           updatedAt: nowMs(),
           lastReferencedAt: nowMs(),
           referenceCount: Math.max(0, Number(existing.referenceCount || 0)) + 1,
@@ -2677,6 +2749,7 @@ function createCreativeMemoryStore({
     projectId = "",
     projectTitle = "",
     projectContinuity = null,
+    acceptedPageText = "",
     source = "talk_turn",
   } = {}) {
     if (!userId) return { skipped: true, reason: "no userId" };
@@ -2687,6 +2760,7 @@ function createCreativeMemoryStore({
       characterMentions: 0,
       episodicMemories: 0,
       corrections: 0,
+      acceptedPagesPromoted: 0,
       lexicalPhrases: 0,
       projectContinuityRecorded: false,
       sessionRecorded: false,
@@ -2717,6 +2791,17 @@ function createCreativeMemoryStore({
     const storyMemoryText = isGeneratedScreenplayOutput && !isCorrectionTurn
       ? combined
       : userText;
+    if (cleanText(acceptedPageText, 20_000)) {
+      try {
+        const receipt = await promoteAcceptedGeneratedPageMemory({
+          userId,
+          projectId: cleanProjectId,
+          projectTitle: cleanProjectTitle,
+          acceptedPageText,
+        });
+        summary.acceptedPagesPromoted = Math.max(0, Number(receipt?.promoted || 0));
+      } catch (_e) { /* never block the response on memory promotion */ }
+    }
     const knownCharacterNames = await readUser(userId)
       .then((rec) => (Array.isArray(rec?.characters) ? rec.characters : []))
       .catch(() => [])
@@ -2844,6 +2929,9 @@ function createCreativeMemoryStore({
           projectId: cleanProjectId,
           projectTitle: cleanProjectTitle,
           source: cleanSource,
+          contentHash: isGeneratedScreenplayOutput
+            ? screenplayPageMemoryHash(assistantText)
+            : "",
           correction: correctionSignal,
         });
         if (receipt?.ok) summary.episodicMemories += 1;
@@ -2903,6 +2991,7 @@ function createCreativeMemoryStore({
     getCreativeMemoryForPrompt,
     getCreativeMemoryLedger,
     backfillEpisodicEmbeddings,
+    promoteAcceptedGeneratedPageMemory,
     getCharacterTraits,
     getHabitsForUser,
     hasMemoryForUser,

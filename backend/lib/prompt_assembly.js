@@ -1019,7 +1019,7 @@ function serializeStoryBibleRecall(creativeMemory) {
 function serializeEpisodicMemories(memories) {
   if (!isNonEmptyArray(memories)) return "";
   const lines = [
-    "  directive: durable user/project memories retrieved for this turn; use them for continuity, treat CORRECTION items as overriding older conflicting memory, and do not invent memories not listed here. USER_NOTE is writer-authored; DRAFT_PAGE is generated working-page continuity; CONVERSATION_CONTEXT is a recall clue, not canon. Current project continuity and user corrections win every conflict.",
+    "  directive: durable user/project memories retrieved for this turn; use them for continuity, treat CORRECTION items as overriding older conflicting memory, and do not invent memories not listed here. USER_NOTE is writer-authored; ACCEPTED_PAGE was committed into Studio; DRAFT_PAGE is generated working-page continuity; CONVERSATION_CONTEXT is a recall clue, not canon. Current project continuity and user corrections win every conflict.",
   ];
   for (const memory of memories.slice(0, 6)) {
     if (!memory || typeof memory !== "object") continue;
@@ -1030,16 +1030,19 @@ function serializeEpisodicMemories(memories) {
     const tags = sanitizeContextList(memory.tags, 4, 40);
     const isCorrection = tags.some((tag) => tag.toLowerCase() === "correction");
     const isUserNote = tags.some((tag) => tag.toLowerCase() === "user-note");
+    const isAcceptedPage = tags.some((tag) => tag.toLowerCase() === "accepted-pages");
     const source = trimContextLine(memory.source, 64).toLowerCase();
     const authorityLabel = isCorrection
       ? "CORRECTION:"
       : isUserNote
         ? "USER_NOTE:"
-        : source === "talk_screenplay_output"
-          ? "DRAFT_PAGE:"
-          : source === "talk_turn"
-            ? "CONVERSATION_CONTEXT:"
-            : "";
+        : isAcceptedPage
+          ? "ACCEPTED_PAGE:"
+          : source === "talk_screenplay_output"
+            ? "DRAFT_PAGE:"
+            : source === "talk_turn"
+              ? "CONVERSATION_CONTEXT:"
+              : "";
     const headline = [
       authorityLabel,
       characters.length ? `${characters.join(", ")}:` : "",
