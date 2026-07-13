@@ -837,6 +837,38 @@ test("buildModelPrompt marks correction memories as authoritative repairs", () =
   assert.ok(out.includes("tags=screenplay,correction"));
 });
 
+test("buildModelPrompt distinguishes writer canon from generated draft continuity", () => {
+  const out = buildModelPrompt({
+    persona: "Persona",
+    creativeMemory: {
+      episodicMemories: [
+        {
+          summary: "Mara finds the affidavit behind the courthouse tile.",
+          source: "talk_screenplay_output",
+          tags: ["screenplay", "generated-pages"],
+        },
+        {
+          summary: "The ending image is Mara opening the courtroom doors.",
+          source: "talk_turn",
+          tags: ["screenplay", "user-note"],
+        },
+        {
+          summary: "They discussed moving the midpoint into the hearing.",
+          source: "talk_turn",
+          tags: ["screenplay"],
+        },
+      ],
+    },
+    userInput: "Continue the feature.",
+  });
+
+  assert.ok(out.includes("DRAFT_PAGE: Mara finds the affidavit"));
+  assert.ok(out.includes("USER_NOTE: The ending image"));
+  assert.ok(out.includes("CONVERSATION_CONTEXT: They discussed"));
+  assert.ok(out.includes("CONVERSATION_CONTEXT is a recall clue, not canon"));
+  assert.ok(out.includes("Current project continuity and user corrections win every conflict"));
+});
+
 test("buildModelPrompt emits character bible canon and corrections", () => {
   const out = buildModelPrompt({
     persona: "Persona",

@@ -1268,6 +1268,7 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.equal(trace.characters[0].has_corrections, true);
   assert.match(trace.episodic[0].summary, /Correction for Mara/);
   assert.equal(trace.episodic[0].correction, true);
+  assert.equal(trace.episodic[0].authority, "user_correction");
   assert.deepEqual(trace.episodic_retrieval, {
     strategy: "hybrid_embedding",
     semantic_used: true,

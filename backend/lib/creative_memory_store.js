@@ -2706,8 +2706,17 @@ function createCreativeMemoryStore({
       } catch (_e) { /* never block the response on memory writes */ }
     }
 
-    const combined = `${String(transcript || "")}\n${String(reply || "")}`;
-    const isCorrectionTurn = CORRECTION_KEYWORDS.test(combined);
+    // Only writer text can mutate canon. Generated pages remain useful for draft continuity and voice.
+    const userText = String(transcript || "");
+    const assistantText = String(reply || "");
+    const combined = `${userText}\n${assistantText}`;
+    const isGeneratedScreenplayOutput = cleanSource === "talk_screenplay_output";
+    const isCorrectionTurn = CORRECTION_KEYWORDS.test(userText);
+    const characterDiscoveryText = isGeneratedScreenplayOutput ? combined : userText;
+    const traitText = isGeneratedScreenplayOutput ? combined : userText;
+    const storyMemoryText = isGeneratedScreenplayOutput && !isCorrectionTurn
+      ? combined
+      : userText;
     const knownCharacterNames = await readUser(userId)
       .then((rec) => (Array.isArray(rec?.characters) ? rec.characters : []))
       .catch(() => [])
@@ -2728,20 +2737,20 @@ function createCreativeMemoryStore({
       if (turnCharacterNames.length >= 8) return false;
       turnCharacterNames.push(name);
       try {
-        const traitLines = extractTraitLinesForCharacter(combined, name);
-        const traitHint = extractTraitHintForCharacter(combined, name);
+        const traitLines = extractTraitLinesForCharacter(traitText, name);
+        const traitHint = extractTraitHintForCharacter(traitText, name);
         const traits = traitLines.length || traitHint
           ? extractTraits({ characterName: name, lines: traitLines, hint: traitHint })
           : null;
         const characterBible = extractCharacterBibleDelta({
-          text: combined,
+          text: userText,
           characterName: name,
           isCorrectionTurn,
         });
         await recordCharacterMention({
           userId,
           characterName: name,
-          source: "talk_turn",
+          source: cleanSource,
           tags: ["screenplay"],
           metadata: cleanProjectId || cleanProjectTitle
             ? {
@@ -2757,13 +2766,13 @@ function createCreativeMemoryStore({
       return true;
     };
 
-    for (const declaredName of extractDeclaredCharacterNames(transcript)) {
+    for (const declaredName of extractDeclaredCharacterNames(userText)) {
       if (turnCharacterNames.length >= 8) break;
       await rememberCharacterName(declaredName);
     }
     for (const knownName of knownCharacterNames) {
       if (turnCharacterNames.length >= 8) break;
-      if (textMentionsName(combined, knownName)) {
+      if (textMentionsName(characterDiscoveryText, knownName)) {
         await rememberCharacterName(knownName);
       }
     }
@@ -2778,7 +2787,7 @@ function createCreativeMemoryStore({
     const seen = new Set();
     let match;
     let limit = 8;
-    while (limit > 0 && (match = cueRegex.exec(combined)) !== null) {
+    while (limit > 0 && (match = cueRegex.exec(characterDiscoveryText)) !== null) {
       const raw = String(match[1] || "").trim();
       if (!raw || raw.length < 2) continue;
       // Skip screenplay scene headings (INT./EXT. + LOCATION) and common
@@ -2793,11 +2802,12 @@ function createCreativeMemoryStore({
       limit -= 1;
     }
 
-    const sceneHeading = firstScreenplaySceneHeading(combined);
-    const moment = firstMemoryMoment(transcript) || firstMemoryMoment(reply);
+    const sceneHeading = firstScreenplaySceneHeading(storyMemoryText);
+    const moment = firstMemoryMoment(userText) ||
+      (isGeneratedScreenplayOutput ? firstMemoryMoment(assistantText) : "");
     if (isStoryMemoryCandidate({
-      transcript,
-      reply,
+      transcript: userText,
+      reply: isGeneratedScreenplayOutput ? assistantText : "",
       projectId: cleanProjectId,
       projectTitle: cleanProjectTitle,
       sceneHeading,
@@ -2810,23 +2820,23 @@ function createCreativeMemoryStore({
         sceneHeading,
         moment,
         projectTitle: cleanProjectTitle,
-        transcript,
+        transcript: userText,
         isCorrection: isCorrectionTurn,
       });
       try {
         const correctionSignal = isCorrectionTurn
           ? collectEpisodicCorrectionSignal({
-            text: combined,
+            text: userText,
             characterNames: turnCharacterNames,
           })
           : null;
         const receipt = await recordEpisodicMemory({
           userId,
           summary: memorySummary,
-          text: combined,
+          text: storyMemoryText,
           characterNames: turnCharacterNames,
           tags: buildEpisodicTags({
-            transcript,
+            transcript: userText,
             source: cleanSource,
             projectId: cleanProjectId,
             projectTitle: cleanProjectTitle,

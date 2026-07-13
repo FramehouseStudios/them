@@ -40,6 +40,7 @@ You should both be ashamed.
     userId: "u-trig-1",
     transcript: "",
     reply,
+    source: "talk_screenplay_output",
   });
   assert.ok(summary.characterMentions >= 3, `got ${summary.characterMentions}`);
   const memory = await store.getCreativeMemoryForPrompt({ userId: "u-trig-1" });
@@ -63,6 +64,7 @@ real character`;
     userId: "u-trig-2",
     transcript: "",
     reply,
+    source: "talk_screenplay_output",
   });
   const memory = await store.getCreativeMemoryForPrompt({ userId: "u-trig-2" });
   const names = (memory?.characters || []).map((c) => c.name);
@@ -84,6 +86,7 @@ once more`;
     userId: "u-trig-3",
     transcript: "",
     reply,
+    source: "talk_screenplay_output",
   });
   assert.equal(summary.characterMentions, 1);
 });
@@ -240,6 +243,42 @@ test("recordTriggersFromTalkTurn stores and repairs character bible canon", asyn
   assert.ok(mara.bible.corrections.some((item) => /Authoritative correction/.test(item)));
   assert.ok(mara.bible.correctedTerms.includes("mother"));
   assert.ok(mara.bible.correctionReplacements.includes("mother -> Eli's sister"));
+});
+
+test("assistant proposals cannot rewrite user-authored character canon", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-canon-authority",
+    transcript: "My protagonist is named Mara. Mara is Eli's mother. Mara wants to keep Eli alive through the hearing.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+
+  const proposal = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-canon-authority",
+    transcript: "What other relationship would raise the stakes in this story?",
+    reply: "Actually, no, Mara is Eli's sister, not his mother.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_turn",
+  });
+  assert.equal(proposal.corrections, 0);
+  assert.equal(proposal.characterMentions, 0);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-canon-authority",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "What is Mara's relationship to Eli?",
+  });
+  const mara = memory.characters.find((character) => character.name === "Mara");
+  assert.ok(mara.bible.canon.some((item) => /Mara is Eli's mother/.test(item)));
+  assert.ok(mara.bible.canon.every((item) => !/sister/i.test(item)));
+  assert.deepEqual(mara.bible.correctedTerms, []);
+  assert.equal(memory.episodicMemories.every((episode) => {
+    return !/sister/i.test(`${episode.summary} ${episode.excerpt}`);
+  }), true);
 });
 
 test("recordTriggersFromTalkTurn persists structured feature continuity for cold-session recall", async () => {
@@ -462,6 +501,7 @@ test("recordTriggersFromTalkTurn caps at 8 character mentions per turn", async (
     userId: "u-trig-5",
     transcript: "",
     reply,
+    source: "talk_screenplay_output",
   });
   assert.equal(summary.characterMentions, 8);
 });

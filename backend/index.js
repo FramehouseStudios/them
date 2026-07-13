@@ -3559,17 +3559,32 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     }).filter((character) => character.name)
     : [];
   const episodic = Array.isArray(memory?.episodicMemories)
-    ? memory.episodicMemories.slice(0, 4).map((episode) => ({
-      summary: normalizeSnippet(episode?.summary, 180),
-      excerpt: normalizeSnippet(episode?.excerpt, 220),
-      project_id: normalizeSnippet(episode?.projectId ?? episode?.project_id, 96),
-      project_title: normalizeSnippet(episode?.projectTitle ?? episode?.project_title, 160),
-      characters: normalizeScreenplayStringList(episode?.characterNames ?? episode?.characters, 6, 80),
-      tags: normalizeScreenplayStringList(episode?.tags, 6, 48),
-      correction: Array.isArray(episode?.tags)
-        ? episode.tags.some((tag) => String(tag || "").trim().toLowerCase() === "correction")
-        : false,
-    })).filter((episode) => episode.summary || episode.excerpt)
+    ? memory.episodicMemories.slice(0, 4).map((episode) => {
+      const tags = normalizeScreenplayStringList(episode?.tags, 6, 48);
+      const source = normalizeSnippet(episode?.source, 64);
+      const correction = tags.some((tag) => tag.toLowerCase() === "correction");
+      const userNote = tags.some((tag) => tag.toLowerCase() === "user-note");
+      const authority = correction
+        ? "user_correction"
+        : userNote
+          ? "user_note"
+          : source === "talk_screenplay_output"
+            ? "generated_draft"
+            : source === "talk_turn"
+              ? "conversation_context"
+              : "persisted_memory";
+      return {
+        summary: normalizeSnippet(episode?.summary, 180),
+        excerpt: normalizeSnippet(episode?.excerpt, 220),
+        project_id: normalizeSnippet(episode?.projectId ?? episode?.project_id, 96),
+        project_title: normalizeSnippet(episode?.projectTitle ?? episode?.project_title, 160),
+        characters: normalizeScreenplayStringList(episode?.characterNames ?? episode?.characters, 6, 80),
+        tags,
+        source,
+        authority,
+        correction,
+      };
+    }).filter((episode) => episode.summary || episode.excerpt)
     : [];
   const episodicSelection = memory?.episodicSelection && typeof memory.episodicSelection === "object"
     ? memory.episodicSelection

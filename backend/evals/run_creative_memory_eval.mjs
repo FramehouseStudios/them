@@ -2,12 +2,16 @@
 //
 // Eval skeleton for the creative memory tier (T08).
 //
-// Two regression cases:
+// Four regression cases:
 //   1. memory-absent — cold user; the assembled prompt must NOT
 //      include a creative_memory block.
 //   2. memory-present — seeded user; the prompt must include a
 //      creative_memory block referencing the seeded character and
 //      tone signal.
+//   3. semantic-backfill — legacy episodes gain vectors and later
+//      paraphrases recover the right project memory.
+//   4. canon-authority — assistant proposals cannot silently mutate
+//      writer-authored character canon.
 //
 // This is a deterministic, fast eval — no LLM call. It guards the
 // PROMPT-CONSTRUCTION path. LLM-output evals (does the model use the
@@ -155,9 +159,55 @@ async function caseSemanticLegacyBackfill() {
   );
 }
 
+async function caseWriterCanonAuthority() {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordTriggersFromTalkTurn({
+    userId: "canon-user",
+    transcript: "My protagonist is named Mara. Mara is Eli's mother.",
+    reply: "",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+  const proposal = await store.recordTriggersFromTalkTurn({
+    userId: "canon-user",
+    transcript: "What other relationship would raise the stakes in this story?",
+    reply: "Actually, no, Mara is Eli's sister, not his mother.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_turn",
+  });
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "canon-user",
+    projectId: "rain-docket",
+    query: "What is Mara's relationship to Eli?",
+  });
+  const mara = memory?.characters?.find((character) => character.name === "Mara");
+  const prompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: memory,
+    userInput: "Continue Mara's feature.",
+  });
+  check(
+    "canon-authority: assistant proposal does not become a correction",
+    proposal.corrections === 0,
+    `proposal: ${JSON.stringify(proposal)}`,
+  );
+  check(
+    "canon-authority: writer-authored relationship remains canonical",
+    mara?.bible?.canon?.some((item) => /Mara is Eli's mother/.test(item)) === true,
+    `bible: ${JSON.stringify(mara?.bible)}`,
+  );
+  check(
+    "canon-authority: assistant-only relationship never reaches the next prompt",
+    !prompt.includes("sister"),
+    `prompt:\n${prompt}`,
+  );
+}
+
 await caseColdUser();
 await caseSeededUser();
 await caseSemanticLegacyBackfill();
+await caseWriterCanonAuthority();
 
 if (!allOK) {
   console.error("creative memory eval: FAILED");
