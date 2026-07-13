@@ -426,6 +426,105 @@ test("recordEpisodicMemory retrieves relevant named-character story memory", asy
   assert.equal("text" in mem.episodicMemories[0], false);
 });
 
+test("episodic embeddings survive restart and recall paraphrased project memory", async () => {
+  const persistence = freshPersistence();
+  const embeddingModel = "test-story-embedding";
+  const embedTexts = async (inputs) => inputs.map((input) => {
+    const text = String(input || "").toLowerCase();
+    if (text.includes("affidavit")) return [1, 0, 0];
+    if (text.includes("birthday")) return [0, 1, 0];
+    return [0, 0, 1];
+  });
+  const embedQuery = async () => ({
+    model: embeddingModel,
+    vector: [1, 0, 0],
+  });
+  const store = createCreativeMemoryStore({
+    persistence,
+    embedTexts,
+    embedQuery,
+    embeddingModel,
+  });
+  await store.recordEpisodicMemory({
+    userId: "writer-semantic-recall",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    summary: "Mara seals the affidavit behind a loose courthouse tile.",
+    text: "Eli leaves before Mara hides the affidavit where the judge cannot reach it.",
+    characterNames: ["Mara", "Eli"],
+  });
+  await store.recordEpisodicMemory({
+    userId: "writer-semantic-recall",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    summary: "Mara misses Eli's birthday dinner.",
+    text: "The untouched cake hardens beside the kitchen sink.",
+    characterNames: ["Mara", "Eli"],
+  });
+  await store.recordEpisodicMemory({
+    userId: "writer-semantic-recall",
+    projectId: "night-train",
+    projectTitle: "Night Train",
+    summary: "A forged affidavit surfaces in the sleeper car.",
+    text: "The conductor locks it inside a brass case.",
+  });
+
+  const raw = await persistence.get({ domain: "creative_memory", key: "writer-semantic-recall" });
+  assert.equal(raw.episodicMemories.every((memory) => memory.embedding?.model === embeddingModel), true);
+
+  const restoredStore = createCreativeMemoryStore({ persistence, embedQuery, embeddingModel });
+  const memory = await restoredStore.getCreativeMemoryForPrompt({
+    userId: "writer-semantic-recall",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Which hidden sworn proof could rupture the siblings' trust?",
+    maxEpisodicMemories: 1,
+  });
+  assert.equal(memory.episodicMemories.length, 1);
+  assert.match(memory.episodicMemories[0].summary, /affidavit/);
+  assert.equal(memory.episodicMemories[0].projectId, "rain-docket");
+  assert.equal("embedding" in memory.episodicMemories[0], false);
+
+  const ledger = await restoredStore.getCreativeMemoryLedger({
+    userId: "writer-semantic-recall",
+  });
+  assert.equal(ledger.episodicMemories.some((episode) => "embedding" in episode), false);
+});
+
+test("episodic embedding failures keep lexical recall available and back off writes", async () => {
+  let embedCalls = 0;
+  const store = createCreativeMemoryStore({
+    persistence: freshPersistence(),
+    embeddingModel: "test-story-embedding",
+    embedTexts: async () => {
+      embedCalls += 1;
+      throw new Error("provider unavailable");
+    },
+    embedQuery: async () => {
+      throw new Error("query provider unavailable");
+    },
+  });
+  await store.recordEpisodicMemory({
+    userId: "writer-embedding-fallback",
+    summary: "Mara hides the cassette under the courthouse vent.",
+    projectId: "rain-docket",
+  });
+  await store.recordEpisodicMemory({
+    userId: "writer-embedding-fallback",
+    summary: "Eli waits beside the sealed records room.",
+    projectId: "rain-docket",
+  });
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "writer-embedding-fallback",
+    projectId: "rain-docket",
+    query: "Where is the cassette?",
+    maxEpisodicMemories: 1,
+  });
+  assert.equal(embedCalls, 1);
+  assert.match(memory.episodicMemories[0].summary, /cassette/);
+});
+
 test("getCreativeMemoryForPrompt prioritizes active project memory on broad continuation turns", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordEpisodicMemory({

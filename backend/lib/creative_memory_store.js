@@ -34,6 +34,10 @@ const PROJECT_CONTINUITY_MAX = 24;
 const EPISODIC_MEMORIES_MAX = 64;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const EPISODIC_SEMANTIC_FINGERPRINT_MAX = 96;
+const EPISODIC_EMBEDDING_DIMENSIONS_MAX = 3_072;
+const EPISODIC_EMBEDDING_MIN_SIMILARITY = 0.35;
+const EPISODIC_EMBEDDING_SCORE_WEIGHT = 12;
+const EPISODIC_EMBEDDING_BACKOFF_MS = 5 * 60 * 1_000;
 const DOMAIN = "creative_memory";
 const EPISODIC_MEMORY_STOPWORDS = new Set([
   "about",
@@ -827,6 +831,85 @@ function firstMemoryMoment(text = "") {
   return lines[0] || "";
 }
 
+function sanitizeEmbeddingVector(vector) {
+  if (!Array.isArray(vector) || !vector.length || vector.length > EPISODIC_EMBEDDING_DIMENSIONS_MAX) {
+    return null;
+  }
+  const out = [];
+  for (const value of vector) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    out.push(number);
+  }
+  return out;
+}
+
+function embeddingVectorNorm(vector) {
+  if (!Array.isArray(vector) || !vector.length) return 0;
+  let sum = 0;
+  for (const value of vector) sum += value * value;
+  return Math.sqrt(sum);
+}
+
+function sanitizeEpisodicEmbedding(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const vector = sanitizeEmbeddingVector(value.vector ?? value.embedding);
+  const model = cleanText(value.model, 96);
+  const textHash = cleanText(value.textHash ?? value.text_hash, 96);
+  if (!vector || !model || !textHash) return null;
+  const norm = Number(value.norm);
+  const resolvedNorm = Number.isFinite(norm) && norm > 0 ? norm : embeddingVectorNorm(vector);
+  if (!(resolvedNorm > 0)) return null;
+  return {
+    model,
+    dimensions: vector.length,
+    textHash,
+    norm: resolvedNorm,
+    updatedAt: Math.max(0, Number(value.updatedAt ?? value.updated_at ?? nowMs())),
+    vector,
+  };
+}
+
+function buildEpisodicEmbeddingText(memory = {}) {
+  return cleanText([
+    memory.projectTitle ? `Project: ${memory.projectTitle}` : "",
+    memory.summary ? `Memory: ${memory.summary}` : "",
+    memory.excerpt ? `Excerpt: ${memory.excerpt}` : "",
+    memory.text ? `Story context: ${memory.text}` : "",
+  ].filter(Boolean).join("\n"), 1_800);
+}
+
+function episodicEmbeddingTextHash(memory = {}, model = "") {
+  const text = buildEpisodicEmbeddingText(memory);
+  return text ? stableHash(`${cleanText(model, 96)}|${text}`) : "";
+}
+
+function sanitizeQueryEmbedding(value = null, model = "") {
+  const source = Array.isArray(value) ? { vector: value } : value;
+  if (!source || typeof source !== "object") return null;
+  const vector = sanitizeEmbeddingVector(source.vector ?? source.embedding);
+  const resolvedModel = cleanText(source.model || model, 96);
+  if (!vector || !resolvedModel) return null;
+  const norm = Number(source.norm);
+  const resolvedNorm = Number.isFinite(norm) && norm > 0 ? norm : embeddingVectorNorm(vector);
+  if (!(resolvedNorm > 0)) return null;
+  return { model: resolvedModel, vector, norm: resolvedNorm };
+}
+
+function cosineSimilarityForEpisodicMemory(memory = {}, queryEmbedding = null) {
+  const stored = sanitizeEpisodicEmbedding(memory.embedding);
+  if (!stored || !queryEmbedding) return null;
+  if (stored.model !== queryEmbedding.model || stored.vector.length !== queryEmbedding.vector.length) return null;
+  const denominator = stored.norm * queryEmbedding.norm;
+  if (!(denominator > 0)) return null;
+  let dot = 0;
+  for (let index = 0; index < stored.vector.length; index += 1) {
+    dot += stored.vector[index] * queryEmbedding.vector[index];
+  }
+  const similarity = dot / denominator;
+  return Number.isFinite(similarity) ? Math.max(-1, Math.min(1, similarity)) : null;
+}
+
 function sanitizeEpisodicMemoryItem(item = {}) {
   if (!item || typeof item !== "object") return null;
   const characterNames = normalizeStringList(item.characterNames ?? item.characters, 8, 48)
@@ -847,6 +930,7 @@ function sanitizeEpisodicMemoryItem(item = {}) {
     item.id || `episode_${stableHash([projectId, projectTitle, summary, text, characterNames.join("|")].join("|"))}`,
     80
   );
+  const embedding = sanitizeEpisodicEmbedding(item.embedding);
   return {
     id,
     summary: summary || firstMemoryMoment(text) || (characterNames.length ? `Story memory for ${characterNames.join(", ")}` : "Story memory"),
@@ -857,6 +941,7 @@ function sanitizeEpisodicMemoryItem(item = {}) {
     projectId,
     projectTitle,
     source: cleanText(item.source, 64),
+    ...(embedding ? { embedding } : {}),
     semanticFingerprint: buildEpisodicSemanticFingerprint({
       summary: summary || firstMemoryMoment(text) || (characterNames.length ? `Story memory for ${characterNames.join(", ")}` : "Story memory"),
       excerpt: cleanText(item.excerpt || text, 420),
@@ -890,6 +975,7 @@ function hasTag(memory, tag) {
 function scoreEpisodicMemoryForQuery(memory, query = "", {
   projectId = "",
   projectTitle = "",
+  queryEmbedding = null,
 } = {}) {
   const cleanQuery = cleanText(query, 2_000).toLowerCase();
   const cleanProjectId = cleanText(projectId, 96).toLowerCase();
@@ -910,14 +996,19 @@ function scoreEpisodicMemoryForQuery(memory, query = "", {
       ? memory.semanticFingerprint
       : buildEpisodicSemanticFingerprint(memory)
   );
+  const embeddingSimilarity = cosineSimilarityForEpisodicMemory(memory, queryEmbedding);
+  const embeddingScore = Number.isFinite(embeddingSimilarity) &&
+    embeddingSimilarity >= EPISODIC_EMBEDDING_MIN_SIMILARITY
+    ? embeddingSimilarity * EPISODIC_EMBEDDING_SCORE_WEIGHT
+    : 0;
   if (!queryTokens.size) {
     let score = Math.min(4, Number(memory.referenceCount || 0)) +
       Math.min(3, Math.floor(Number(memory.updatedAt || 0) / 86_400_000_000));
     if (cleanProjectId && cleanText(memory.projectId, 96).toLowerCase() === cleanProjectId) score += 8;
     if (cleanProjectTitle && cleanText(memory.projectTitle, 160).toLowerCase() === cleanProjectTitle) score += 5;
-    return score + correctionBoost + semanticScore;
+    return score + correctionBoost + semanticScore + embeddingScore;
   }
-  let score = correctionBoost + semanticScore;
+  let score = correctionBoost + semanticScore + embeddingScore;
   for (const token of queryTokens) {
     if (searchable.includes(token)) score += 1;
   }
@@ -940,6 +1031,7 @@ function selectEpisodicMemoriesForPrompt(items = [], {
   projectId = "",
   projectTitle = "",
   maxItems = EPISODIC_MEMORY_PROMPT_MAX,
+  queryEmbedding = null,
 } = {}) {
   const sanitized = scopeRecordsToProject(
     (Array.isArray(items) ? items : [])
@@ -952,7 +1044,11 @@ function selectEpisodicMemoriesForPrompt(items = [], {
   return sanitized
     .map((item) => ({
       item,
-      score: scoreEpisodicMemoryForQuery(item, cleanQuery, { projectId, projectTitle }),
+      score: scoreEpisodicMemoryForQuery(item, cleanQuery, {
+        projectId,
+        projectTitle,
+        queryEmbedding,
+      }),
     }))
     .filter((entry) => !cleanQuery || entry.score > 0)
     .sort((a, b) => {
@@ -967,6 +1063,7 @@ function selectEpisodicMemoriesForPrompt(items = [], {
       const out = clone(item);
       delete out.text;
       delete out.semanticFingerprint;
+      delete out.embedding;
       return out;
     });
 }
@@ -1104,6 +1201,7 @@ function sanitizeCreativeMemoryLedgerRecord(rec = null, {
       const item = clone(memory);
       delete item.text;
       delete item.semanticFingerprint;
+      delete item.embedding;
       return item;
     });
   if (episodicMemories.length) out.episodicMemories = episodicMemories;
@@ -1678,9 +1776,54 @@ function extractCharacterBibleDelta({ text = "", characterName = "", isCorrectio
   });
 }
 
-function createCreativeMemoryStore({ persistence } = {}) {
+function createCreativeMemoryStore({
+  persistence,
+  embedTexts = null,
+  embedQuery = null,
+  embeddingModel = "",
+} = {}) {
   const store = persistence || createPersistence();
   const writeChain = new Map(); // userId -> Promise
+  const resolvedEmbeddingModel = cleanText(embeddingModel, 96);
+  let embeddingBackoffUntil = 0;
+
+  async function buildEmbeddingForMemory(memory) {
+    if (typeof embedTexts !== "function" || !resolvedEmbeddingModel) return null;
+    if (nowMs() < embeddingBackoffUntil) return null;
+    const text = buildEpisodicEmbeddingText(memory);
+    if (!text) return null;
+    try {
+      const rows = await embedTexts([text]);
+      const first = Array.isArray(rows) ? rows[0] : null;
+      const vector = Array.isArray(first) ? first : first?.vector ?? first?.embedding;
+      return sanitizeEpisodicEmbedding({
+        model: resolvedEmbeddingModel,
+        textHash: episodicEmbeddingTextHash(memory, resolvedEmbeddingModel),
+        vector,
+        updatedAt: nowMs(),
+      });
+    } catch (_err) {
+      embeddingBackoffUntil = nowMs() + EPISODIC_EMBEDDING_BACKOFF_MS;
+      return null;
+    }
+  }
+
+  async function buildQueryEmbedding(query, episodicMemories = []) {
+    if (typeof embedQuery !== "function" || !resolvedEmbeddingModel || !cleanText(query, 2_000)) {
+      return null;
+    }
+    if (nowMs() < embeddingBackoffUntil) return null;
+    const hasCompatibleMemory = (Array.isArray(episodicMemories) ? episodicMemories : [])
+      .some((memory) => sanitizeEpisodicEmbedding(memory?.embedding)?.model === resolvedEmbeddingModel);
+    if (!hasCompatibleMemory) return null;
+    try {
+      const value = await embedQuery(query);
+      return sanitizeQueryEmbedding(value, resolvedEmbeddingModel);
+    } catch (_err) {
+      embeddingBackoffUntil = nowMs() + EPISODIC_EMBEDDING_BACKOFF_MS;
+      return null;
+    }
+  }
 
   function withUserLock(userId, fn) {
     const prev = writeChain.get(userId) || Promise.resolve();
@@ -1728,6 +1871,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
   } = {}) {
     const rec = await readUser(userId);
     if (!rec) return null;
+    const queryEmbedding = await buildQueryEmbedding(query, rec.episodicMemories);
     const out = {
       userId: rec.userId,
       version: rec.version,
@@ -1756,6 +1900,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
       projectId,
       projectTitle,
       maxItems: maxEpisodicMemories,
+      queryEmbedding,
     });
     if (episodicMemories.length) out.episodicMemories = episodicMemories;
     if (recordEpisodicRecall && episodicMemories.length) {
@@ -2006,6 +2151,8 @@ function createCreativeMemoryStore({ persistence } = {}) {
       referenceCount: 1,
     });
     if (!item) return { ok: false, action: "skipped", reason: "empty_memory" };
+    const embedding = await buildEmbeddingForMemory(item);
+    if (embedding) item.embedding = embedding;
     let action = "recorded";
     await updateUser(userId, (rec) => {
       const memories = Array.isArray(rec.episodicMemories)
@@ -2039,7 +2186,7 @@ function createCreativeMemoryStore({ persistence } = {}) {
           8,
           48
         ).map((tag) => tag.toLowerCase());
-        memories[duplicateIdx] = {
+        const nextMemory = {
           ...existing,
           summary: item.summary || existing.summary,
           excerpt: item.excerpt || existing.excerpt,
@@ -2053,6 +2200,15 @@ function createCreativeMemoryStore({ persistence } = {}) {
           lastReferencedAt: nowMs(),
           referenceCount: Math.max(0, Number(existing.referenceCount || 0)) + 1,
         };
+        const embeddingModelForHash = resolvedEmbeddingModel || existing.embedding?.model || "";
+        const embeddingTextUnchanged = existing.embedding?.textHash &&
+          existing.embedding.textHash === episodicEmbeddingTextHash(nextMemory, embeddingModelForHash);
+        if (item.embedding) {
+          nextMemory.embedding = item.embedding;
+        } else if (!embeddingTextUnchanged) {
+          delete nextMemory.embedding;
+        }
+        memories[duplicateIdx] = nextMemory;
       } else {
         memories.push(item);
       }

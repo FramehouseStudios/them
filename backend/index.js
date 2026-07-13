@@ -2939,7 +2939,23 @@ console.log(`[persistence] kind=${sharedPersistence.kind}`);
 // T08 + T08-postgres: creative memory tier — per-user style/characters/
 // tone/habits. Persistence-adapter-backed (Postgres when DATABASE_URL
 // is set, JSON-file otherwise via the shared adapter from T07).
-const creativeMemoryStore = createCreativeMemoryStore({ persistence: sharedPersistence });
+const creativeMemoryStore = createCreativeMemoryStore({
+  persistence: sharedPersistence,
+  embeddingModel: KNOWLEDGE_RAG_EMBEDDING_MODEL,
+  embedTexts: KNOWLEDGE_RAG_EMBEDDINGS_ENABLED
+    ? (inputs) => fetchKnowledgeEmbeddings(inputs, {
+      timeoutMs: KNOWLEDGE_RAG_EMBEDDING_TIMEOUT_MS,
+    })
+    : null,
+  embedQuery: KNOWLEDGE_RAG_EMBEDDINGS_ENABLED
+    ? async (query) => {
+      const embedding = await getKnowledgeQueryEmbedding(query, {
+        timeoutMs: Math.min(KNOWLEDGE_RAG_QUERY_TIMEOUT_MS, 650),
+      });
+      return embedding ? { ...embedding, model: KNOWLEDGE_RAG_EMBEDDING_MODEL } : null;
+    }
+    : null,
+});
 
 // T08: wraps a final system prompt with the user's creative-companion
 // memory if any is present. No-op for cold users - the memory block is
