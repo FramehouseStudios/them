@@ -169,7 +169,24 @@ final class BackendClientCraftAPITests: XCTestCase {
             case ("POST", "/session"):
                 return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
             case ("POST", "/realtime/studio_render"):
-                return .json(#"{ "ok": true, "action": "studio_render", "reply": "INT. ARCHIVE - NIGHT" }"#)
+                return .json(#"""
+                {
+                  "ok": true,
+                  "action": "studio_render",
+                  "reply": "INT. ARCHIVE - NIGHT",
+                  "screenplay_quality": {
+                    "ok": true,
+                    "reason": "ok",
+                    "source": "initial",
+                    "requested_pages": 1,
+                    "attempted_repair": false,
+                    "repair_outcome": "not_needed",
+                    "initial_reason": null,
+                    "repair_ms": 0,
+                    "counts": { "scene_headings": 1, "action_lines": 1 }
+                  }
+                }
+                """#)
             default:
                 return .json(#"{ "error": "not_found" }"#, status: 404)
             }
@@ -233,14 +250,17 @@ final class BackendClientCraftAPITests: XCTestCase {
         metadata.screenplayPageCount = 54
         metadata.screenplayTargetPages = 110
 
-        let reply = try await client.renderRealtimeStudioText(
+        let result = try await client.renderRealtimeStudioResult(
             transcript: "Continue the next page.",
             systemPrompt: "Return screenplay only.",
             screenplayTarget: "page",
             studioMetadata: metadata
         )
 
-        XCTAssertEqual(reply, "INT. ARCHIVE - NIGHT")
+        XCTAssertEqual(result.reply, "INT. ARCHIVE - NIGHT")
+        XCTAssertEqual(result.screenplayQuality?.ok, true)
+        XCTAssertEqual(result.screenplayQuality?.repairOutcome, "not_needed")
+        XCTAssertEqual(result.screenplayQuality?.counts["scene_headings"], 1)
         let renderRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/realtime/studio_render" })
         XCTAssertEqual(renderRequest.bodyObject?["screenplay_target"] as? String, "page")
         XCTAssertEqual(renderRequest.bodyObject?["screenplay_project_id"] as? String, "project-1")
@@ -279,6 +299,159 @@ final class BackendClientCraftAPITests: XCTestCase {
         let voiceBody = try XCTUnwrap(voiceBodies.first?["voice_fingerprint"] as? [String: Any])
         XCTAssertEqual(voiceBody["tactics"] as? [String], ["refuses first", "weaponizes facts"])
         XCTAssertEqual(voiceBody["emotional_tells"] as? [String], ["family pressure slips out"])
+    }
+
+    func testStudioRenderQualityRejectionUsesTypedError() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render"):
+                return .json(#"""
+                {
+                  "stage": "studio_render_quality",
+                  "error": "Studio screenplay output did not pass the live quality gate (insufficient_action).",
+                  "screenplay_quality": {
+                    "ok": false,
+                    "reason": "insufficient_action",
+                    "source": "repair",
+                    "requested_pages": 1,
+                    "attempted_repair": true,
+                    "repair_outcome": "rejected",
+                    "initial_reason": "insufficient_action",
+                    "repair_ms": 184,
+                    "counts": { "scene_headings": 1, "action_lines": 0 }
+                  }
+                }
+                """#, status: 502)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        do {
+            _ = try await client.renderRealtimeStudioResult(
+                transcript: "Write the next page.",
+                systemPrompt: "Return screenplay only.",
+                screenplayTarget: "page"
+            )
+            XCTFail("Expected Studio quality rejection")
+        } catch BackendError.studioRenderQuality(let quality, let message) {
+            XCTAssertFalse(quality.ok)
+            XCTAssertEqual(quality.reason, "insufficient_action")
+            XCTAssertEqual(quality.repairOutcome, "rejected")
+            XCTAssertEqual(quality.repairMs, 184)
+            XCTAssertTrue(message.contains("live quality gate"))
+            XCTAssertEqual(
+                BackendError.studioRenderQuality(quality, message).localizedDescription,
+                "Clementine held this page back because it did not pass the screenplay quality check. Your draft is unchanged."
+            )
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testStudioRenderStreamReturnsOnlyAuthoritativeDoneReply() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render_stream"):
+                return .sse(#"""
+                event: delta
+                data: {"delta":"INT. ARCHIVE - NIGHT"}
+
+                event: done
+                data: {"ok":true,"action":"studio_render_stream","kind":"done","reply":"INT. ARCHIVE - NIGHT\n\nMara opens the locker.","screenplay_quality":{"ok":true,"reason":"ok","source":"repair","requested_pages":1,"attempted_repair":true,"repair_outcome":"repaired","initial_reason":"insufficient_action","repair_ms":92,"counts":{"scene_headings":1,"action_lines":1}}}
+
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        let result = try await client.streamRealtimeStudioResult(
+            transcript: "Write the next page.",
+            systemPrompt: "Return screenplay only.",
+            screenplayTarget: "page"
+        )
+
+        XCTAssertEqual(result.reply, "INT. ARCHIVE - NIGHT\n\nMara opens the locker.")
+        XCTAssertEqual(result.screenplayQuality?.repairOutcome, "repaired")
+        XCTAssertEqual(result.screenplayQuality?.talkQuality.confidence, "repaired")
+    }
+
+    func testStudioRenderStreamRejectsProvisionalDeltaWhenQualityFails() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render_stream"):
+                return .sse(#"""
+                event: delta
+                data: {"delta":"INT. ARCHIVE - NIGHT"}
+
+                event: error
+                data: {"stage":"studio_render_quality","error":"Studio screenplay output did not pass the live quality gate (insufficient_action).","screenplay_quality":{"ok":false,"reason":"insufficient_action","source":"repair","requested_pages":1,"attempted_repair":true,"repair_outcome":"rejected","initial_reason":"insufficient_action","repair_ms":101,"counts":{"scene_headings":1,"action_lines":0}}}
+
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        do {
+            _ = try await client.streamRealtimeStudioResult(
+                transcript: "Write the next page.",
+                systemPrompt: "Return screenplay only.",
+                screenplayTarget: "page"
+            )
+            XCTFail("Expected provisional stream rejection")
+        } catch BackendError.studioRenderQuality(let quality, _) {
+            XCTAssertEqual(quality.repairOutcome, "rejected")
+            XCTAssertFalse(quality.permitsSingleFallbackRender)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testStudioRenderStreamRejectsPageEOFWithoutDone() async throws {
+        let client = makeClient(recorder: CraftRequestRecorder()) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/health"):
+                return .json(#"{ "ok": true }"#)
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/studio_render_stream"):
+                return .sse(#"""
+                event: delta
+                data: {"delta":"INT. ARCHIVE - NIGHT\n\nMara reaches for the locker."}
+
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+
+        do {
+            _ = try await client.streamRealtimeStudioResult(
+                transcript: "Write the next page.",
+                systemPrompt: "Return screenplay only.",
+                screenplayTarget: "page"
+            )
+            XCTFail("Expected authoritative completion error")
+        } catch BackendError.stage(let stage, let message) {
+            XCTAssertEqual(stage, "studio_render")
+            XCTAssertTrue(message.contains("authoritative quality confirmation"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testTalkTurnRateLimitNoticeParsesRetryAfterMsAndBannerCopy() throws {
@@ -1145,9 +1318,14 @@ final class BackendClientCraftAPITests: XCTestCase {
 private struct CraftHTTPStub {
     let status: Int
     let body: Data
+    let contentType: String
 
     static func json(_ raw: String, status: Int = 200) -> CraftHTTPStub {
-        CraftHTTPStub(status: status, body: Data(raw.utf8))
+        CraftHTTPStub(status: status, body: Data(raw.utf8), contentType: "application/json")
+    }
+
+    static func sse(_ raw: String, status: Int = 200) -> CraftHTTPStub {
+        CraftHTTPStub(status: status, body: Data(raw.utf8), contentType: "text/event-stream")
     }
 }
 
@@ -1173,7 +1351,7 @@ private final class CraftURLProtocolStub: URLProtocol {
                 url: request.url!,
                 statusCode: stub.status,
                 httpVersion: "HTTP/1.1",
-                headerFields: ["Content-Type": "application/json"]
+                headerFields: ["Content-Type": stub.contentType]
             )!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: stub.body)

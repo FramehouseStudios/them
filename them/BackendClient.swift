@@ -1557,12 +1557,102 @@ struct BackendRealtimeStudioRenderPayload: Decodable {
     let action: String?
     let reply: String?
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
 
     enum CodingKeys: String, CodingKey {
         case ok
         case action
         case reply
         case memoryApplied = "memory_applied"
+        case screenplayQuality = "screenplay_quality"
+    }
+}
+
+private struct BackendRealtimeStudioRenderErrorPayload: Decodable {
+    let stage: String?
+    let error: String?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
+
+    enum CodingKeys: String, CodingKey {
+        case stage
+        case error
+        case screenplayQuality = "screenplay_quality"
+    }
+}
+
+struct BackendRealtimeStudioScreenplayQuality: Decodable, Equatable, Sendable {
+    let ok: Bool
+    let reason: String
+    let source: String
+    let requestedPages: Int
+    let attemptedRepair: Bool
+    let repairOutcome: String
+    let initialReason: String?
+    let repairMs: Int
+    let counts: [String: Int]
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case reason
+        case source
+        case requestedPages = "requested_pages"
+        case attemptedRepair = "attempted_repair"
+        case repairOutcome = "repair_outcome"
+        case initialReason = "initial_reason"
+        case repairMs = "repair_ms"
+        case counts
+    }
+
+    init(
+        ok: Bool,
+        reason: String,
+        source: String,
+        requestedPages: Int = 0,
+        attemptedRepair: Bool = false,
+        repairOutcome: String = "",
+        initialReason: String? = nil,
+        repairMs: Int = 0,
+        counts: [String: Int] = [:]
+    ) {
+        self.ok = ok
+        self.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.requestedPages = max(0, requestedPages)
+        self.attemptedRepair = attemptedRepair
+        self.repairOutcome = repairOutcome.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanInitialReason = initialReason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.initialReason = cleanInitialReason?.isEmpty == true ? nil : cleanInitialReason
+        self.repairMs = max(0, repairMs)
+        self.counts = counts.filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            ok: try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false,
+            reason: try container.decodeIfPresent(String.self, forKey: .reason) ?? "",
+            source: try container.decodeIfPresent(String.self, forKey: .source) ?? "",
+            requestedPages: try container.decodeIfPresent(Int.self, forKey: .requestedPages) ?? 0,
+            attemptedRepair: try container.decodeIfPresent(Bool.self, forKey: .attemptedRepair) ?? false,
+            repairOutcome: try container.decodeIfPresent(String.self, forKey: .repairOutcome) ?? "",
+            initialReason: try container.decodeIfPresent(String.self, forKey: .initialReason),
+            repairMs: try container.decodeIfPresent(Int.self, forKey: .repairMs) ?? 0,
+            counts: try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:]
+        )
+    }
+
+    var talkQuality: BackendTalkScreenplayQuality {
+        BackendTalkScreenplayQuality(
+            ok: ok,
+            reason: reason,
+            source: source,
+            confidence: repairOutcome,
+            counts: counts
+        )
+    }
+
+    var permitsSingleFallbackRender: Bool {
+        repairOutcome == "supplier_failed" || repairOutcome == "unavailable"
     }
 }
 
@@ -1599,6 +1689,7 @@ struct BackendRealtimeStudioMemoryApplied: Decodable, Equatable, Hashable, Senda
 struct BackendRealtimeStudioRenderResult: Equatable, Sendable {
     let reply: String
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
 }
 
 private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
@@ -1614,6 +1705,7 @@ private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
     let totalMs: Int?
     let deltaChunks: Int?
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
 
     enum CodingKeys: String, CodingKey {
         case action
@@ -1628,6 +1720,7 @@ private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
         case totalMs = "total_ms"
         case deltaChunks = "delta_chunks"
         case memoryApplied = "memory_applied"
+        case screenplayQuality = "screenplay_quality"
     }
 }
 
@@ -1640,6 +1733,7 @@ struct BackendRealtimeStudioRenderStreamTrace: Sendable {
     let totalMs: Int?
     let deltaChunks: Int?
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
+    let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
 }
 
 struct BackendVisualContextEnvelope {
@@ -1718,6 +1812,7 @@ enum BackendError: LocalizedError {
     case stage(String, String)
     case http(Int, String)
     case realtimeUnavailable(BackendRealtimeUnavailable)
+    case studioRenderQuality(BackendRealtimeStudioScreenplayQuality, String)
     case continueListening
     case emptyAudio
     case invalidAudioType(String)
@@ -1735,6 +1830,8 @@ enum BackendError: LocalizedError {
         case let .http(status, message):
             return status == 401 && message.lowercased().contains("user_auth")
         case .realtimeUnavailable:
+            return false
+        case .studioRenderQuality:
             return false
         default:
             return false
@@ -1773,6 +1870,8 @@ enum BackendError: LocalizedError {
             return "HTTP \(status): \(BackendErrorMessageSanitizer.displayMessage(message, status: status))"
         case let .realtimeUnavailable(unavailable):
             return unavailable.userMessage
+        case .studioRenderQuality:
+            return "Clementine held this page back because it did not pass the screenplay quality check. Your draft is unchanged."
         case .continueListening:
             return "Continue listening."
         case .emptyAudio:
@@ -2879,6 +2978,9 @@ final class BackendClient {
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
         }
+        let requiresScreenplayQuality = screenplayTarget?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "page"
 
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveStudioRenderUserID()
@@ -2913,6 +3015,16 @@ final class BackendClient {
                 throw BackendError.http(-1, "Invalid Studio render response.")
             }
             guard (200...299).contains(http.statusCode) else {
+                if let errorPayload = try? JSONDecoder().decode(
+                    BackendRealtimeStudioRenderErrorPayload.self,
+                    from: data
+                ), let quality = errorPayload.screenplayQuality {
+                    throw BackendError.studioRenderQuality(
+                        quality,
+                        (errorPayload.error ?? "Studio screenplay output did not pass the live quality gate.")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                }
                 let parsedStageError = parseStageError(from: data)
                 if let stageError = parsedStageError {
                     if allowClientTokenRefresh,
@@ -2950,9 +3062,22 @@ final class BackendClient {
             guard !reply.isEmpty else {
                 throw BackendError.stage("studio_render", "Studio render response was empty.")
             }
+            if let quality = payload.screenplayQuality, !quality.ok {
+                throw BackendError.studioRenderQuality(
+                    quality,
+                    "Studio screenplay output did not pass the live quality gate."
+                )
+            }
+            if requiresScreenplayQuality, payload.screenplayQuality == nil {
+                throw BackendError.stage(
+                    "studio_render",
+                    "Studio render response ended without screenplay quality confirmation."
+                )
+            }
             return BackendRealtimeStudioRenderResult(
                 reply: reply,
-                memoryApplied: payload.memoryApplied?.hasSignal == true ? payload.memoryApplied : nil
+                memoryApplied: payload.memoryApplied?.hasSignal == true ? payload.memoryApplied : nil,
+                screenplayQuality: payload.screenplayQuality
             )
         }
 
@@ -2991,6 +3116,9 @@ final class BackendClient {
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
         }
+        let requiresAuthoritativeDone = screenplayTarget?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "page"
 
         let resolvedBaseURL = try await resolveBaseURL()
         let userID = resolveStudioRenderUserID()
@@ -3027,6 +3155,16 @@ final class BackendClient {
             }
             guard (200...299).contains(http.statusCode) else {
                 let data = try await collectAsyncBytes(bytes)
+                if let errorPayload = try? JSONDecoder().decode(
+                    BackendRealtimeStudioRenderErrorPayload.self,
+                    from: data
+                ), let quality = errorPayload.screenplayQuality {
+                    throw BackendError.studioRenderQuality(
+                        quality,
+                        (errorPayload.error ?? "Studio screenplay output did not pass the live quality gate.")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                }
                 let parsedStageError = parseStageError(from: data)
                 if let stageError = parsedStageError {
                     if allowClientTokenRefresh,
@@ -3060,6 +3198,35 @@ final class BackendClient {
             var lastPartialCallbackAt = Date.distantPast
             var lastPartialCallbackCharacterCount = 0
             var latestMemoryApplied: BackendRealtimeStudioMemoryApplied?
+            var latestScreenplayQuality: BackendRealtimeStudioScreenplayQuality?
+
+            func validatedResult(
+                reply rawReply: String,
+                quality eventQuality: BackendRealtimeStudioScreenplayQuality?
+            ) throws -> BackendRealtimeStudioRenderResult {
+                let reply = rawReply.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !reply.isEmpty else {
+                    throw BackendError.stage("studio_render", "Studio render stream response was empty.")
+                }
+                let quality = eventQuality ?? latestScreenplayQuality
+                if let quality, !quality.ok {
+                    throw BackendError.studioRenderQuality(
+                        quality,
+                        "Studio screenplay output did not pass the live quality gate."
+                    )
+                }
+                if requiresAuthoritativeDone, quality == nil {
+                    throw BackendError.stage(
+                        "studio_render",
+                        "Studio render stream ended without screenplay quality confirmation."
+                    )
+                }
+                return BackendRealtimeStudioRenderResult(
+                    reply: reply,
+                    memoryApplied: latestMemoryApplied,
+                    screenplayQuality: quality
+                )
+            }
 
             func trace(
                 from payload: BackendRealtimeStudioRenderStreamEvent?,
@@ -3078,6 +3245,9 @@ final class BackendClient {
                    memoryApplied.hasSignal {
                     latestMemoryApplied = memoryApplied
                 }
+                if let screenplayQuality = payload?.screenplayQuality {
+                    latestScreenplayQuality = screenplayQuality
+                }
                 let hasSignal =
                     !action.isEmpty ||
                     !kind.isEmpty ||
@@ -3086,7 +3256,8 @@ final class BackendClient {
                     payload?.firstDeltaMs != nil ||
                     payload?.totalMs != nil ||
                     payload?.deltaChunks != nil ||
-                    payload?.memoryApplied?.hasSignal == true
+                    payload?.memoryApplied?.hasSignal == true ||
+                    payload?.screenplayQuality != nil
                 guard hasSignal else { return nil }
                 return BackendRealtimeStudioRenderStreamTrace(
                     action: action.isEmpty ? "studio_render_stream" : action,
@@ -3096,7 +3267,8 @@ final class BackendClient {
                     firstDeltaMs: payload?.firstDeltaMs,
                     totalMs: payload?.totalMs,
                     deltaChunks: payload?.deltaChunks,
-                    memoryApplied: payload?.memoryApplied?.hasSignal == true ? payload?.memoryApplied : nil
+                    memoryApplied: payload?.memoryApplied?.hasSignal == true ? payload?.memoryApplied : nil,
+                    screenplayQuality: payload?.screenplayQuality
                 )
             }
 
@@ -3113,14 +3285,14 @@ final class BackendClient {
 
                 switch eventName {
                 case "meta":
-                    if let onTrace,
-                       let trace = trace(from: payload, fallbackKind: "meta") {
-                        await onTrace(trace)
+                    let eventTrace = trace(from: payload, fallbackKind: "meta")
+                    if let onTrace, let eventTrace {
+                        await onTrace(eventTrace)
                     }
                 case "trace":
-                    if let onTrace,
-                       let trace = trace(from: payload, fallbackKind: "trace") {
-                        await onTrace(trace)
+                    let eventTrace = trace(from: payload, fallbackKind: "trace")
+                    if let onTrace, let eventTrace {
+                        await onTrace(eventTrace)
                     }
                 case "delta":
                     let delta = (payload?.delta ?? "").trimmingCharacters(in: .newlines)
@@ -3138,9 +3310,9 @@ final class BackendClient {
                         }
                     }
                 case "done":
-                    if let onTrace,
-                       let trace = trace(from: payload, fallbackKind: "done") {
-                        await onTrace(trace)
+                    let eventTrace = trace(from: payload, fallbackKind: "done")
+                    if let onTrace, let eventTrace {
+                        await onTrace(eventTrace)
                     }
                     let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !reply.isEmpty else { return }
@@ -3155,6 +3327,12 @@ final class BackendClient {
                     let stage = (payload?.stage ?? "studio_render").trimmingCharacters(in: .whitespacesAndNewlines)
                     let message = (payload?.error ?? "Studio render stream failed.")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let quality = payload?.screenplayQuality {
+                        throw BackendError.studioRenderQuality(
+                            quality,
+                            message.isEmpty ? "Studio screenplay output did not pass the live quality gate." : message
+                        )
+                    }
                     throw BackendError.stage(stage.isEmpty ? "studio_render" : stage, message.isEmpty ? "Studio render stream failed." : message)
                 default:
                     break
@@ -3167,12 +3345,9 @@ final class BackendClient {
                     try await dispatchEvent()
                     if didReceiveDone {
                         let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-                        guard !resolvedReply.isEmpty else {
-                            throw BackendError.stage("studio_render", "Studio render stream response was empty.")
-                        }
-                        return BackendRealtimeStudioRenderResult(
+                        return try validatedResult(
                             reply: resolvedReply,
-                            memoryApplied: latestMemoryApplied
+                            quality: latestScreenplayQuality
                         )
                     }
                     continue
@@ -3189,22 +3364,19 @@ final class BackendClient {
                     if eventName == "done" {
                         let payloadData = Data(payloadText.utf8)
                         let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
-                        if let onTrace,
-                           let trace = trace(from: payload, fallbackKind: "done") {
-                            await onTrace(trace)
+                        let eventTrace = trace(from: payload, fallbackKind: "done")
+                        if let onTrace, let eventTrace {
+                            await onTrace(eventTrace)
                         }
                         let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !reply.isEmpty else {
-                            throw BackendError.stage("studio_render", "Studio render stream response was empty.")
-                        }
                         if let onPartial, reply.count != lastPartialCallbackCharacterCount {
                             lastPartialCallbackAt = Date()
                             lastPartialCallbackCharacterCount = reply.count
                             await onPartial(reply)
                         }
-                        return BackendRealtimeStudioRenderResult(
+                        return try validatedResult(
                             reply: reply,
-                            memoryApplied: latestMemoryApplied
+                            quality: payload?.screenplayQuality
                         )
                     }
                     if eventName == "error" {
@@ -3213,6 +3385,12 @@ final class BackendClient {
                         let stage = (payload?.stage ?? "studio_render").trimmingCharacters(in: .whitespacesAndNewlines)
                         let message = (payload?.error ?? "Studio render stream failed.")
                             .trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let quality = payload?.screenplayQuality {
+                            throw BackendError.studioRenderQuality(
+                                quality,
+                                message.isEmpty ? "Studio screenplay output did not pass the live quality gate." : message
+                            )
+                        }
                         throw BackendError.stage(stage.isEmpty ? "studio_render" : stage, message.isEmpty ? "Studio render stream failed." : message)
                     }
                     dataLines.append(payloadText)
@@ -3220,13 +3398,17 @@ final class BackendClient {
             }
             try await dispatchEvent()
 
-            let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-            guard !resolvedReply.isEmpty else {
-                throw BackendError.stage("studio_render", "Studio render stream response was empty.")
+            if requiresAuthoritativeDone, !didReceiveDone {
+                throw BackendError.stage(
+                    "studio_render",
+                    "Studio render stream ended before authoritative quality confirmation."
+                )
             }
-            return BackendRealtimeStudioRenderResult(
+
+            let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
+            return try validatedResult(
                 reply: resolvedReply,
-                memoryApplied: latestMemoryApplied
+                quality: latestScreenplayQuality
             )
         }
 
