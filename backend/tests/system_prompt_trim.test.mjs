@@ -204,3 +204,130 @@ test("[system-prompt-trim] keeps ranked rescue authority inside the live rich-tu
   assert.ok(out.includes("evidence=accepted_page: Mara puts the affidavit"));
   assert.ok(out.includes("rule: execute rank_1 unless a writer correction conflicts."));
 });
+
+test("[system-prompt-trim] semantically preserves a feature page assignment under the live rich budget", () => {
+  const prompt = [
+    "CLEMENTINE PERSONA " + "relationship texture. ".repeat(300),
+    [
+      "<clementine_core>",
+      "identity: CLEMENTINE is a truthful, emotionally intelligent feature-film writing companion.",
+      "priority_order:",
+      "1. Truth and safety: never fabricate memory or certainty.",
+      "2. Screenwriting usefulness: make the strongest next cinematic move.",
+      "3. Feature-film continuity: protect act, sequence, character, setup, payoff, and emotional handoff.",
+      "writing_mode:",
+      "- Page requests start with playable Fountain text.",
+      "- For whole-feature work, track the next three turns, Act III payoff path, and final image.",
+      "detail: " + "core voice. ".repeat(250),
+      "</clementine_core>",
+    ].join("\n"),
+    [
+      "<clementine_safety_contract>",
+      "truthfulness: do not claim certainty or memory you do not have.",
+      "no fabrication: never invent user history, project facts, sources, or real-world events.",
+      "no deception help: never help deceive real people.",
+      "real-world harm boundary: never give actionable instructions for harming a real person or oneself.",
+      "fiction boundary: screenplay conflict is allowed only as non-instructional story craft.",
+      "detail: " + "safety boundary. ".repeat(250),
+      "</clementine_safety_contract>",
+    ].join("\n"),
+    [
+      "<creative_memory>",
+      "project-continuity:",
+      "project_id: rain-docket",
+      "authoritative_corrections: cassette -> VHS tape",
+      "current_beat: Mara puts the affidavit on the public record.",
+      "first_turn_to_spend: The judge turns Mara's apparent win into a public trap.",
+      "unresolved_setups:",
+      "- The sister's voicemail must pay off.",
+      "recurring-characters:",
+      "- MARA - controlled until truth costs her Eli.",
+      "detail: " + "remembered story. ".repeat(250),
+      "</creative_memory>",
+    ].join("\n"),
+    [
+      "<session>",
+      "project: rain-docket",
+      "version: v8",
+      "phase: scene_draft",
+      "act: Act II",
+      "current_sequence: Act II - Midpoint Pressure (p41-55)",
+      "structural_obligation_due_now: Turn Mara's public win into a costly trap.",
+      "current_scene_objective: Mara must keep Eli beside her while exposing the judge.",
+      "current_beat: Mara puts the affidavit on the public record.",
+      "emotional_handoff: Carry relief into dread.",
+      "draft_excerpt:",
+      "INT. COURTROOM - DAY",
+      "MARA lays the affidavit beside the microphone.",
+      "THE JUDGE smiles before anyone else understands why.",
+      "detail: " + "session continuity. ".repeat(250),
+      "</session>",
+    ].join("\n"),
+    [
+      "<feature_film_map>",
+      "feature_compass:",
+      "detail: " + "feature guidance. ".repeat(250),
+      "page_batch_execution_plan:",
+      "requested_pages: 10",
+      "target_act: Act II",
+      "starting_position: p47 / 110",
+      "active_sequence_pressure: Act II - Midpoint Pressure: victory must become a trap.",
+      "structural_obligation_due_now: Make the midpoint irreversible and force a new tactic.",
+      "turn_budget: 2-4 escalating scene turns.",
+      "delivery: write clean Fountain pages first.",
+      "end_condition: finish on a cost that hands into reversal fallout.",
+      "ending_image: The empty pool filled with rainwater at dawn.",
+      "current_position: p47 / 110",
+      "current_sequence: Act II - Midpoint Pressure (p41-55)",
+      "active_act_label: Act II",
+      "next_page_moves:",
+      "- Let the judge weaponize the affidavit.",
+      "- Make Mara choose between the case and Eli.",
+      "</feature_film_map>",
+    ].join("\n"),
+    [
+      "<screenplay_task>",
+      "intent: finish_feature",
+      "label: Finish Feature",
+      "role: Clementine is an elite cinematic writing partner, not a generic chatbot.",
+      "feature_scope: page_batch",
+      "requested_act: Act II",
+      "requested_page_batch: 10",
+      "detail: " + "screenplay task rule. ".repeat(250),
+      "mode_guidance: Operate at feature scale and start page requests immediately.",
+      "quality: Be specific, film-literate, and directly useful on the page.",
+      "</screenplay_task>",
+    ].join("\n"),
+    "DIRECTOR NOTES " + "runtime behavior. ".repeat(300),
+    "Continue the next ten pages of Act Two from the courtroom.",
+  ].join("\n\n");
+
+  const out = fitSystemPromptForTurnLatency(prompt, {
+    routingLane: "creative",
+    chatModelPlan: { tier: "rich" },
+    fastMaxChars: 3_800,
+    richMaxChars: 6_200,
+  });
+
+  assert.ok(out.length <= 6_200);
+  assert.ok(out.includes("core_contract: truthful and memory-grounded"));
+  assert.ok(out.includes("truthfulness: never fabricate memory"));
+  assert.ok(out.includes("real_world_safety:"));
+  assert.ok(out.includes("harm a real person or oneself."));
+  assert.ok(out.includes("fiction_boundary:"));
+  assert.ok(out.includes("non-instructional craft."));
+  assert.ok(out.includes("authoritative_corrections: cassette -> VHS tape"));
+  assert.ok(out.includes("memory_authority: corrections and accepted writer pages outrank"));
+  assert.ok(out.includes("draft_excerpt:"));
+  assert.ok(out.includes("INT. COURTROOM - DAY"));
+  assert.ok(out.includes("current_sequence: Act II - Midpoint Pressure (p41-55)"));
+  assert.ok(out.includes("requested_pages: 10"));
+  assert.ok(out.includes("requested_page_batch: 10"));
+  assert.ok(out.includes("active_sequence_pressure: Act II - Midpoint Pressure"));
+  assert.ok(out.includes("structural_obligation_due_now: Make the midpoint irreversible"));
+  assert.ok(out.includes("craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline"));
+  assert.ok(out.includes("mode_contract: locate active act/sequence/due obligation"));
+  assert.ok(out.includes("planning returns an immediate page assignment."));
+  assert.ok(out.includes("Continue the next ten pages of Act Two from the courtroom."));
+  assert.ok(!/^craft_contract:.*\.\.\.$/m.test(out));
+});

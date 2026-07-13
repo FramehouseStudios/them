@@ -20,6 +20,7 @@ import {
   FEATURE_MAP_BLOCK_OPEN,
   SCREENPLAY_TASK_BLOCK_OPEN,
 } from "../lib/prompt_assembly.js";
+import { fitSystemPromptForTurnLatency } from "../lib/system_prompt_trim.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,6 +96,12 @@ function validateCoverage(cases) {
 
 function validateCase(item, globals) {
   const { prompt, screenplayTask } = buildPromptForCase(item);
+  const fittedPrompt = fitSystemPromptForTurnLatency(prompt, {
+    routingLane: "creative",
+    chatModelPlan: { tier: "rich" },
+    fastMaxChars: 3_800,
+    richMaxChars: 6_200,
+  });
   const id = item.id || "<missing-id>";
   const expectedIntent = String(item.expectedIntent || "").trim();
   const maxChars = Number(item.maxChars || 0);
@@ -113,6 +120,28 @@ function validateCase(item, globals) {
   check(`${id}: prompt includes expert scene execution`, prompt.includes("expert_scene_execution:"));
   check(`${id}: prompt includes page-first speed discipline`, prompt.includes("speed discipline"));
   check(`${id}: prompt includes speed protocol`, prompt.includes("speed_protocol:"));
+  check(`${id}: fitted prompt is within live rich budget`, fittedPrompt.length <= 6_200);
+  check(`${id}: fitted prompt preserves feature map`, fittedPrompt.includes(FEATURE_MAP_BLOCK_OPEN));
+  check(`${id}: fitted prompt preserves screenplay task`, fittedPrompt.includes(SCREENPLAY_TASK_BLOCK_OPEN));
+  check(`${id}: fitted prompt preserves intent`, fittedPrompt.includes(`intent: ${screenplayTask?.intent}`));
+  check(`${id}: fitted prompt preserves expert craft contract`, fittedPrompt.includes(
+    "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline"
+  ));
+  check(`${id}: fitted prompt preserves mode contract`, fittedPrompt.includes("mode_contract:"));
+  check(`${id}: fitted prompt preserves the writer request`, fittedPrompt.includes(String(item.userInput || "").trim()));
+  check(`${id}: fitted craft contract is complete`, !/^craft_contract:.*\.\.\.$/m.test(fittedPrompt));
+
+  const expectedSequence = asArray(item.mustInclude).find((needle) =>
+    String(needle || "").startsWith("current_sequence:")
+  );
+  if (expectedSequence) {
+    check(`${id}: fitted prompt preserves active sequence`, fittedPrompt.includes(expectedSequence));
+  }
+  const requestedPages = Number(screenplayTask?.requestedPages || 0);
+  if (requestedPages > 0) {
+    check(`${id}: fitted prompt preserves feature page assignment`, fittedPrompt.includes(`requested_pages: ${requestedPages}`));
+    check(`${id}: fitted prompt preserves task page assignment`, fittedPrompt.includes(`requested_page_batch: ${requestedPages}`));
+  }
 
   if (maxChars > 0) {
     check(`${id}: prompt under ${maxChars} chars (got ${prompt.length})`, prompt.length <= maxChars);
