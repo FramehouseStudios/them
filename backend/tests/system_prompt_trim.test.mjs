@@ -40,6 +40,7 @@ test("[system-prompt-trim] preserves session and screenplay task when trimming l
     "<creative_memory>",
     "project-continuity:",
     "  project_id: rain-docket",
+    "  authoritative_corrections: cassette -> VHS tape",
     "  current_beat: Mara finds the sealed affidavit.",
     "  unresolved_setups: The sister's voicemail",
     "recurring-characters:",
@@ -88,6 +89,7 @@ test("[system-prompt-trim] preserves session and screenplay task when trimming l
   assert.ok(out.includes("<clementine_safety_contract>"));
   assert.ok(out.includes("never fabricate"));
   assert.ok(out.includes("<creative_memory>"));
+  assert.ok(out.includes("authoritative_corrections: cassette -> VHS tape"));
   assert.ok(out.includes("current_beat: Mara finds the sealed affidavit."));
   assert.ok(out.includes("unresolved_setups: The sister's voicemail"));
   assert.ok(out.includes("JUNE"));

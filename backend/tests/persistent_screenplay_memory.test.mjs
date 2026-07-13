@@ -1408,14 +1408,18 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
       featureObligation: "Turn private proof into a public choice.",
       actPressureState: "Mara can no longer protect Eli and expose the judge.",
       sceneObjective: "Force Mara to choose between Eli and public truth.",
+      sceneSummary: "Eli corners Mara beside the sealed records room.",
       currentBeat: "Eli catches Mara hiding the affidavit.",
       lastSceneOutcome: "The affidavit is no longer secret.",
       nextScenePlan: "Force Mara to choose between Eli and public truth.",
+      centralQuestion: "Can Mara expose the court without sacrificing Eli?",
+      nextSceneMoves: ["Eli demands the truth.", "Mara chooses a protective lie."],
       nextThreeTurns: [
         "Eli demands the truth.",
         "Mara lies to protect him.",
         "The judge moves the witness.",
       ],
+      beatSequence: ["Affidavit found", "Eli catches the lie", "Witness moved"],
       unresolvedSetups: ["The sister's voicemail"],
       unresolvedStoryThreads: ["Who forged the first report?"],
       actThreePayoffPath: ["The voicemail becomes testimony"],
@@ -1423,7 +1427,12 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
       characterArcState: "Mara protects Eli by lying.",
       characterArcTurns: ["Mara chooses protection over truth."],
       imageMotifs: ["charcoal dust"],
+      continuityNotes: ["Authoritative correction: VHS tape, not cassette."],
+      correctedTerms: ["cassette"],
+      correctionReplacements: ["cassette -> VHS tape"],
       emotionalContinuity: "Mara is ashamed but committed.",
+      pageCount: 54,
+      targetPages: 108,
       updatedAt: 2_400,
     },
     episodicMemories: [
@@ -1443,15 +1452,24 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
   assert.equal(snapshot.project_title, "Rain Docket");
   assert.equal(snapshot.act, "Act II");
   assert.equal(snapshot.feature_sequence, "Midpoint pressure");
+  assert.equal(snapshot.scene_summary, "Eli corners Mara beside the sealed records room.");
   assert.equal(snapshot.current_beat, "Eli catches Mara hiding the affidavit.");
+  assert.equal(snapshot.central_question, "Can Mara expose the court without sacrificing Eli?");
   assert.equal(snapshot.last_scene_outcome, "The affidavit is no longer secret.");
   assert.equal(snapshot.next_scene_plan, "Force Mara to choose between Eli and public truth.");
+  assert.deepEqual(snapshot.next_scene_moves, ["Eli demands the truth.", "Mara chooses a protective lie."]);
   assert.deepEqual(snapshot.unresolved_setups, ["The sister's voicemail"]);
   assert.deepEqual(snapshot.unresolved_story_threads, ["Who forged the first report?"]);
   assert.deepEqual(snapshot.act_three_payoff_path, ["The voicemail becomes testimony"]);
   assert.deepEqual(snapshot.character_focus, ["Mara", "Eli"]);
   assert.equal(snapshot.character_arc_state, "Mara protects Eli by lying.");
   assert.equal(snapshot.emotional_continuity, "Mara is ashamed but committed.");
+  assert.deepEqual(snapshot.corrected_terms, ["cassette"]);
+  assert.deepEqual(snapshot.correction_replacements, ["cassette -> VHS tape"]);
+  assert.match(snapshot.correction_contract, /cassette -> VHS tape/);
+  assert.equal(snapshot.is_correction, true);
+  assert.equal(snapshot.page_count, 54);
+  assert.equal(snapshot.target_pages, 108);
   assert.equal(snapshot.memory_excerpt, "");
   assert.equal(snapshot.updated_at, 2_400);
   assert.ok(snapshot.opening_line.includes("Rain Docket"));

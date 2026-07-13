@@ -254,13 +254,22 @@ test("recordTriggersFromTalkTurn persists structured feature continuity for cold
     projectContinuity: {
       act: "Act II",
       featureSequence: "Midpoint pressure",
+      sceneSummary: "Eli corners Mara beside the sealed records room.",
       currentBeat: "Mara finds the sealed affidavit.",
+      centralQuestion: "Can Mara expose the court without sacrificing Eli?",
+      nextSceneMoves: ["Eli demands the truth", "Mara chooses a protective lie"],
       nextThreeTurns: ["Mara hides it", "Eli catches the lie", "The judge moves the witness"],
+      beatSequence: ["Affidavit found", "Eli catches the lie", "Witness moved"],
       unresolvedSetups: ["The sister's voicemail"],
       unresolvedStoryThreads: ["Who forged the first report?"],
       actThreePayoffPath: ["The voicemail becomes testimony"],
       characterArcState: "Mara protects Eli by lying.",
       emotionalContinuity: "Mara is ashamed but newly committed.",
+      continuityNotes: ["Authoritative correction: VHS tape, not cassette."],
+      correctedTerms: ["cassette"],
+      correctionReplacements: ["cassette -> VHS tape"],
+      pageCount: 54,
+      targetPages: 108,
     },
   });
   assert.equal(summary.projectContinuityRecorded, true);
@@ -273,9 +282,17 @@ test("recordTriggersFromTalkTurn persists structured feature continuity for cold
     query: "What comes next?",
   });
   assert.equal(memory.projectContinuity.act, "Act II");
+  assert.equal(memory.projectContinuity.sceneSummary, "Eli corners Mara beside the sealed records room.");
+  assert.equal(memory.projectContinuity.centralQuestion, "Can Mara expose the court without sacrificing Eli?");
+  assert.deepEqual(memory.projectContinuity.nextSceneMoves, ["Eli demands the truth", "Mara chooses a protective lie"]);
+  assert.deepEqual(memory.projectContinuity.beatSequence, ["Affidavit found", "Eli catches the lie", "Witness moved"]);
   assert.equal(memory.projectContinuity.characterArcState, "Mara protects Eli by lying.");
   assert.deepEqual(memory.projectContinuity.unresolvedSetups, ["The sister's voicemail"]);
   assert.deepEqual(memory.projectContinuity.actThreePayoffPath, ["The voicemail becomes testimony"]);
+  assert.deepEqual(memory.projectContinuity.correctedTerms, ["cassette"]);
+  assert.deepEqual(memory.projectContinuity.correctionReplacements, ["cassette -> VHS tape"]);
+  assert.equal(memory.projectContinuity.pageCount, 54);
+  assert.equal(memory.projectContinuity.targetPages, 108);
 });
 
 test("recordTriggersFromTalkTurn stores and repairs act-level character arc state", async () => {

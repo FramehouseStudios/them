@@ -120,11 +120,13 @@ const PROJECT_CONTINUITY_SCALAR_FIELDS = Object.freeze([
   ["featureObligation", 220],
   ["actPressureState", 220],
   ["sceneObjective", 220],
+  ["sceneSummary", 240],
   ["currentBeat", 200],
   ["lastSceneOutcome", 220],
   ["nextScenePlan", 280],
   ["logline", 240],
   ["themeArgument", 220],
+  ["centralQuestion", 240],
   ["protagonistWant", 180],
   ["protagonistNeed", 180],
   ["antagonisticForce", 180],
@@ -133,7 +135,9 @@ const PROJECT_CONTINUITY_SCALAR_FIELDS = Object.freeze([
   ["emotionalContinuity", 240],
 ]);
 const PROJECT_CONTINUITY_LIST_FIELDS = Object.freeze([
+  ["nextSceneMoves", 5, 180],
   ["nextThreeTurns", 3, 180],
+  ["beatSequence", 8, 180],
   ["actThreePayoffPath", 5, 200],
   ["unresolvedSetups", 8, 200],
   ["unresolvedStoryThreads", 8, 200],
@@ -141,6 +145,12 @@ const PROJECT_CONTINUITY_LIST_FIELDS = Object.freeze([
   ["characterArcTurns", 6, 180],
   ["imageMotifs", 6, 140],
   ["continuityNotes", 8, 200],
+  ["correctedTerms", 8, 120],
+  ["correctionReplacements", 8, 160],
+]);
+const PROJECT_CONTINUITY_INTEGER_FIELDS = Object.freeze([
+  ["pageCount", 1_000],
+  ["targetPages", 1_000],
 ]);
 const EPISODIC_SEMANTIC_EXPANSIONS = Object.freeze([
   {
@@ -348,6 +358,11 @@ function sanitizeProjectContinuity(value = {}) {
     if (!Object.prototype.hasOwnProperty.call(source, field)) continue;
     out[field] = normalizeStringList(source[field], maxItems, maxChars);
   }
+  for (const [field, maxValue] of PROJECT_CONTINUITY_INTEGER_FIELDS) {
+    const value = Number(source[field]);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    out[field] = Math.min(maxValue, Math.round(value));
+  }
   return out;
 }
 
@@ -423,6 +438,20 @@ function parseCharacterBibleReplacement(value = "") {
   const to = normalizeCharacterCorrectionTerm(parts[1], 120);
   if (!from || !to || from.toLowerCase() === to.toLowerCase()) return null;
   return { from, to };
+}
+
+function mergeProjectCorrectionReplacements(incoming = [], existing = []) {
+  const newest = normalizeStringList(incoming, 8, 160);
+  const retiredKeys = new Set(
+    newest
+      .map((item) => parseCharacterBibleReplacement(item)?.from?.toLowerCase() || "")
+      .filter(Boolean)
+  );
+  const older = normalizeStringList(existing, 8, 160).filter((item) => {
+    const retired = parseCharacterBibleReplacement(item)?.from?.toLowerCase() || "";
+    return !retired || !retiredKeys.has(retired);
+  });
+  return normalizeStringList([...newest, ...older], 8, 160);
 }
 
 function textContainsCharacterCorrectionTerm(value = "", terms = []) {
@@ -1791,10 +1820,21 @@ function createCreativeMemoryStore({ persistence } = {}) {
       }
       if (existingIdx >= 0) {
         action = "updated";
-        const next = { ...projects[existingIdx], ...incoming, updatedAt: nowMs() };
+        const existing = projects[existingIdx];
+        const next = { ...existing, ...incoming, updatedAt: nowMs() };
         for (const [field] of PROJECT_CONTINUITY_LIST_FIELDS) {
           if (Object.prototype.hasOwnProperty.call(incoming, field)) {
-            next[field] = incoming[field];
+            if (field === "correctedTerms") {
+              next[field] = normalizeStringList(
+                [...incoming[field], ...(existing[field] || [])],
+                8,
+                120
+              );
+            } else if (field === "correctionReplacements") {
+              next[field] = mergeProjectCorrectionReplacements(incoming[field], existing[field]);
+            } else {
+              next[field] = incoming[field];
+            }
           }
         }
         projects[existingIdx] = sanitizeProjectContinuity(next);

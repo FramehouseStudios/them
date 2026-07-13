@@ -264,6 +264,47 @@ test("creative memory restores only the active project's feature ledger, charact
   assert.doesNotMatch(JSON.stringify(rain), /uncouples|brass ticket|stop the train/);
 });
 
+test("project continuity keeps corrections and supersedes conflicting replacements", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordProjectContinuity({
+    userId: "writer-project-corrections",
+    continuity: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      currentBeat: "Mara finds the cassette.",
+      correctedTerms: ["cassette"],
+      correctionReplacements: ["cassette -> VHS tape"],
+    },
+  });
+  await store.recordProjectContinuity({
+    userId: "writer-project-corrections",
+    continuity: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      currentBeat: "Mara gives Eli the tape.",
+      correctedTerms: [],
+      correctionReplacements: [],
+    },
+  });
+  await store.recordProjectContinuity({
+    userId: "writer-project-corrections",
+    continuity: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      correctedTerms: ["cassette"],
+      correctionReplacements: ["cassette -> MiniDV tape"],
+    },
+  });
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "writer-project-corrections",
+    projectId: "rain-docket",
+  });
+  assert.deepEqual(memory.projectContinuity.correctedTerms, ["cassette"]);
+  assert.deepEqual(memory.projectContinuity.correctionReplacements, ["cassette -> MiniDV tape"]);
+  assert.doesNotMatch(JSON.stringify(memory.projectContinuity), /VHS tape/);
+});
+
 test("buildModelPrompt emits durable active-feature continuity before story recall", () => {
   const out = buildModelPrompt({
     persona: "Persona",
@@ -274,12 +315,22 @@ test("buildModelPrompt emits durable active-feature continuity before story reca
         projectId: "rain-docket",
         projectTitle: "Rain Docket",
         act: "Act II",
+        sceneSummary: "Eli corners Mara beside the records room.",
         currentBeat: "Mara finds the sealed affidavit.",
+        logline: "A court artist discovers every verdict has been staged.",
+        themeArgument: "Justice begins when performance fails.",
+        centralQuestion: "Can Mara expose the court without sacrificing Eli?",
+        nextSceneMoves: ["Eli demands the truth", "Mara chooses a protective lie"],
         nextThreeTurns: ["Mara hides it", "Eli catches the lie"],
+        beatSequence: ["Affidavit found", "Eli catches the lie"],
         unresolvedSetups: ["The sister's voicemail"],
         actThreePayoffPath: ["The voicemail becomes testimony"],
         characterArcState: "Mara protects Eli by lying.",
         emotionalContinuity: "Mara leaves ashamed but committed.",
+        correctedTerms: ["cassette"],
+        correctionReplacements: ["cassette -> VHS tape"],
+        pageCount: 54,
+        targetPages: 108,
       },
       characters: [{ name: "Mara", bible: { arc: { wound: "her father's disappearance" } } }],
     },
@@ -288,9 +339,18 @@ test("buildModelPrompt emits durable active-feature continuity before story reca
 
   assert.ok(out.includes("project-continuity:"));
   assert.ok(out.includes("durable active-feature continuity"));
+  assert.ok(out.includes("authoritative_corrections: cassette -> VHS tape"));
+  assert.ok(out.includes("retired_terms: cassette"));
+  assert.ok(out.includes("scene_summary: Eli corners Mara beside the records room."));
   assert.ok(out.includes("current_beat: Mara finds the sealed affidavit."));
+  assert.ok(out.includes("logline: A court artist discovers every verdict has been staged."));
+  assert.ok(out.includes("theme_argument: Justice begins when performance fails."));
+  assert.ok(out.includes("central_question: Can Mara expose the court without sacrificing Eli?"));
+  assert.ok(out.includes("next_scene_moves: Eli demands the truth / Mara chooses a protective lie"));
+  assert.ok(out.includes("beat_sequence: Affidavit found / Eli catches the lie"));
   assert.ok(out.includes("unresolved_setups: The sister's voicemail"));
   assert.ok(out.includes("act_three_payoff_path: The voicemail becomes testimony"));
+  assert.ok(out.includes("page_progress: 54/108"));
   assert.ok(out.indexOf("project-continuity:") < out.indexOf("story-bible-recall:"));
 });
 

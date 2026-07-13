@@ -871,19 +871,29 @@ function serializeProjectContinuity(project) {
   const projectTitle = trimContextLine(project.projectTitle ?? project.project_title, 140);
   if (!projectId && !projectTitle) return "";
   const lines = [
-    "  directive: durable active-feature continuity; preserve these facts across sessions, spend open setups before inventing replacements, and treat corrections in character memory as authoritative.",
+    "  directive: durable active-feature continuity; preserve these facts across sessions, spend open setups before inventing replacements, and apply authoritative corrections before any older story memory.",
   ];
   if (projectId) lines.push(`  project_id: ${projectId}`);
   if (projectTitle) lines.push(`  project_title: ${projectTitle}`);
+  const correctionReplacements = sanitizeContextList(project.correctionReplacements, 6, 150);
+  const correctedTerms = sanitizeContextList(project.correctedTerms, 6, 110);
+  if (correctionReplacements.length) {
+    lines.push(`  authoritative_corrections: ${correctionReplacements.join(" / ")}`);
+  }
+  if (correctedTerms.length) lines.push(`  retired_terms: ${correctedTerms.join(" / ")}`);
   const scalarFields = [
     ["act", project.act, 80],
     ["feature_sequence", project.featureSequence, 160],
     ["feature_obligation", project.featureObligation, 200],
     ["act_pressure", project.actPressureState, 200],
     ["scene_objective", project.sceneObjective, 200],
+    ["scene_summary", project.sceneSummary, 220],
     ["current_beat", project.currentBeat, 180],
     ["last_scene_outcome", project.lastSceneOutcome, 200],
     ["next_scene_plan", project.nextScenePlan, 240],
+    ["logline", project.logline, 220],
+    ["theme_argument", project.themeArgument, 200],
+    ["central_question", project.centralQuestion, 220],
     ["character_arc_state", project.characterArcState, 220],
     ["emotional_continuity", project.emotionalContinuity, 220],
     ["protagonist_want", project.protagonistWant, 160],
@@ -896,7 +906,9 @@ function serializeProjectContinuity(project) {
     if (clean) lines.push(`  ${label}: ${clean}`);
   }
   const listFields = [
+    ["next_scene_moves", project.nextSceneMoves, 5, 160],
     ["next_three_turns", project.nextThreeTurns, 3, 160],
+    ["beat_sequence", project.beatSequence, 6, 160],
     ["unresolved_setups", project.unresolvedSetups, 5, 180],
     ["unresolved_story_threads", project.unresolvedStoryThreads, 5, 180],
     ["act_three_payoff_path", project.actThreePayoffPath, 4, 180],
@@ -908,6 +920,11 @@ function serializeProjectContinuity(project) {
   for (const [label, value, maxItems, maxChars] of listFields) {
     const items = sanitizeContextList(value, maxItems, maxChars);
     if (items.length) lines.push(`  ${label}: ${items.join(" / ")}`);
+  }
+  const pageCount = Math.max(0, Math.round(Number(project.pageCount || 0)));
+  const targetPages = Math.max(0, Math.round(Number(project.targetPages || 0)));
+  if (pageCount > 0 || targetPages > 0) {
+    lines.push(`  page_progress: ${pageCount > 0 ? pageCount : "?"}/${targetPages > 0 ? targetPages : "?"}`);
   }
   return `project-continuity:\n${lines.join("\n")}`;
 }
