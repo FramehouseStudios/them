@@ -416,6 +416,7 @@ test("[turn-commit] queues durable project memory with accepted page text and st
     const memoryTurn = deps._calls.recordCreativeMemoryTriggersForRequest[0];
     assert.equal(memoryTurn.transcript, "Continue Mara from the archive.");
     assert.equal(memoryTurn.reply, acceptedPage);
+    assert.equal(memoryTurn.acceptedPageText, acceptedPage);
     assert.equal(memoryTurn.source, "talk_screenplay_output");
     assert.equal(memoryTurn.studioMeta.screenplayProjectId, "rain-docket");
     assert.equal(memoryTurn.studioMeta.screenplayCharacterArcMemory.character, "Mara");

@@ -3086,19 +3086,27 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
       (screenplayOutput?.target === "page" ? "talk_screenplay_output" : "talk_turn"),
     64
   );
-  const acceptedPageText = normalizeSnippet(
-    studioMeta?.screenplayInsertedText ??
+  const acceptedPageText = String(
+    turn?.acceptedPageText ??
+      studioMeta?.screenplayInsertedText ??
       body.screenplayInsertedText ??
       body.screenplay_inserted_text ??
-      "",
-    20_000
-  );
+      ""
+  ).trim().slice(0, 20_000);
   const characterArcMemories = Array.isArray(studioMeta?.screenplayCharacterArcMemories) &&
     studioMeta.screenplayCharacterArcMemories.length
     ? studioMeta.screenplayCharacterArcMemories
     : studioMeta?.screenplayCharacterArcMemory
       ? [studioMeta.screenplayCharacterArcMemory]
       : [];
+  const acceptedSceneContext = studioMeta
+    ? {
+      writeId: studioMeta.screenplayWriteId,
+      anchorSceneId: studioMeta.screenplayAnchorDraftSceneId || studioMeta.screenplayAnchorOutlineSceneId,
+      sceneLabel: studioMeta.screenplayAnchorSceneLabel,
+      documentRevisionId: studioMeta.screenplayDocumentRevisionId,
+    }
+    : null;
   return creativeMemoryStore.recordTriggersFromTalkTurn({
     userId,
     transcript,
@@ -3109,6 +3117,7 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
     projectTitle,
     projectContinuity,
     characterArcMemories,
+    acceptedSceneContext,
     acceptedPageText,
     source,
   });

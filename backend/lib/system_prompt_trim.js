@@ -231,6 +231,7 @@ function compactCreativeMemoryBody(body, bodyLimit) {
     { value: firstLineStartingWith(lines, "first_turn_to_spend:"), maxChars: 180 },
     { value: firstLineStartingWith(lines, "next_scene_plan:"), maxChars: 180 },
     { value: summarizeBulletSection(lines, "unresolved_setups:", 2), maxChars: 170 },
+    { value: linesContaining(lines, "accepted_scene", 1)[0], maxChars: 180 },
     { value: summarizeBulletSection(lines, "recurring-characters:", 2), maxChars: 170 },
     { value: summarizeBulletSection(lines, "episodic-memory:", 2), maxChars: 180 },
     { value: firstLineStartingWith(lines, "episodic-memory:"), maxChars: 120 },

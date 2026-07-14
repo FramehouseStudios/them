@@ -332,6 +332,18 @@ test("buildModelPrompt emits durable active-feature continuity before story reca
         pageCount: 54,
         targetPages: 108,
       },
+      acceptedScenes: [{
+        act: "Act II",
+        featureSequence: "Midpoint pressure",
+        sceneHeading: "INT. ARCHIVE - NIGHT",
+        summary: "Mara hides the MiniDV tape behind the vent grille.",
+        outcome: "Eli catches her lie and pockets the archive key.",
+        characterNames: ["Mara", "Eli"],
+        characterArcTurns: ["Mara chooses secrecy over trust"],
+        unresolvedSetups: ["The MiniDV tape behind the vent", "The sister's voicemail"],
+        actThreePayoffPath: ["The tape and voicemail become public testimony"],
+        nextScenePlan: "Eli enters the archive while the judge moves the witness.",
+      }],
       characters: [{ name: "Mara", bible: { arc: { wound: "her father's disappearance" } } }],
     },
     userInput: "Continue the screenplay.",
@@ -351,7 +363,16 @@ test("buildModelPrompt emits durable active-feature continuity before story reca
   assert.ok(out.includes("unresolved_setups: The sister's voicemail"));
   assert.ok(out.includes("act_three_payoff_path: The voicemail becomes testimony"));
   assert.ok(out.includes("page_progress: 54/108"));
+  assert.ok(out.includes("accepted-scene-causality:"));
+  assert.ok(out.includes("ACCEPTED_SCENE [Act II · Midpoint pressure · INT. ARCHIVE - NIGHT]"));
+  assert.ok(out.includes("happened=Mara hides the MiniDV tape behind the vent grille."));
+  assert.ok(out.includes("changed=Eli catches her lie and pockets the archive key."));
+  assert.ok(out.includes("still_open=The MiniDV tape behind the vent / The sister's voicemail"));
+  assert.ok(out.includes("promised_payoff=The tape and voicemail become public testimony"));
+  assert.ok(out.includes("next_pressure=Eli enters the archive while the judge moves the witness."));
   assert.ok(out.indexOf("project-continuity:") < out.indexOf("story-bible-recall:"));
+  assert.ok(out.indexOf("project-continuity:") < out.indexOf("accepted-scene-causality:"));
+  assert.ok(out.indexOf("accepted-scene-causality:") < out.indexOf("story-bible-recall:"));
 });
 
 test("recordToneSignal stores tone and preferredTone", async () => {

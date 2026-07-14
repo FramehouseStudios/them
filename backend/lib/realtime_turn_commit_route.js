@@ -121,7 +121,17 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       8_000,
     );
     const requestId = normalizeSnippet(req.body?.request_id ?? req.body?.requestId ?? "", 32);
-    const studioMeta = sanitizeStudioTurnMetadata(req.body?.studio || req.body || null);
+    const rawStudioInput = req.body?.studio && typeof req.body.studio === "object"
+      ? req.body.studio
+      : req.body || null;
+    const studioMeta = sanitizeStudioTurnMetadata(rawStudioInput);
+    const acceptedPageText = String(
+      rawStudioInput?.screenplayInsertedText ??
+        rawStudioInput?.screenplay_inserted_text ??
+        rawStudioInput?.insertedText ??
+        rawStudioInput?.inserted_text ??
+        ""
+    ).trim().slice(0, 20_000);
 
     if (!transcript || !reply) {
       return res.status(400).json({
@@ -185,17 +195,19 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       });
 
     const persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
-    const acceptedPageText = normalizeSnippet(studioMeta?.screenplayInsertedText ?? "", 12_000);
-    void Promise.resolve(recordCreativeMemoryTriggersForRequest(req, {
-      transcript,
-      reply: acceptedPageText || reply,
-      studioMeta,
-      source: acceptedPageText ? "talk_screenplay_output" : "realtime_turn_commit",
-    })).catch((error) => {
-      console.error(
-        `[${rid}] realtime_turn_commit creative_memory_failed error=${String(error?.message || error || "unknown")}`,
-      );
-    });
+    void Promise.resolve()
+      .then(() => recordCreativeMemoryTriggersForRequest(req, {
+        transcript,
+        reply: acceptedPageText || reply,
+        acceptedPageText,
+        studioMeta,
+        source: acceptedPageText ? "talk_screenplay_output" : "realtime_turn_commit",
+      }))
+      .catch((error) => {
+        console.error(
+          `[${rid}] realtime_turn_commit creative_memory_failed error=${String(error?.message || error || "unknown")}`,
+        );
+      });
     const readMeta = buildReadStateMeta(req, persisted, requesterIp);
     if (readMeta.lastTurnId) {
       storeTalkTurnMeta({

@@ -912,6 +912,39 @@ function serializeProjectContinuity(project) {
   return `project-continuity:\n${lines.join("\n")}`;
 }
 
+function serializeAcceptedSceneCausality(scenes) {
+  if (!isNonEmptyArray(scenes)) return "";
+  const lines = [
+    "  directive: authoritative accepted Studio scenes, newest first. Preserve their cause-and-effect chain; continue from the newest changed state, keep listed setups alive until paid off, and never replace a promised payoff without the writer's correction.",
+  ];
+  for (const scene of scenes.slice(0, 3)) {
+    if (!scene || typeof scene !== "object") continue;
+    const identity = [
+      trimContextLine(scene.act, 60),
+      trimContextLine(scene.featureSequence, 90),
+      trimContextLine(scene.sceneHeading ?? scene.sceneLabel, 110),
+    ].filter(Boolean).join(" · ") || "accepted scene";
+    const characters = sanitizeContextList(scene.characterNames, 4, 48);
+    const openSetups = sanitizeContextList(scene.unresolvedSetups, 2, 120);
+    const payoffPath = sanitizeContextList(scene.actThreePayoffPath, 2, 120);
+    const arcTurns = sanitizeContextList(scene.characterArcTurns, 2, 120);
+    const parts = [
+      trimContextLine(scene.summary, 140) ? `happened=${trimContextLine(scene.summary, 140)}` : "",
+      trimContextLine(scene.outcome, 140) ? `changed=${trimContextLine(scene.outcome, 140)}` : "",
+      characters.length ? `characters=${characters.join(", ")}` : "",
+      arcTurns.length ? `arc_turn=${arcTurns.join(" / ")}` : "",
+      openSetups.length ? `still_open=${openSetups.join(" / ")}` : "",
+      payoffPath.length ? `promised_payoff=${payoffPath.join(" / ")}` : "",
+      trimContextLine(scene.nextScenePlan, 140) ? `next_pressure=${trimContextLine(scene.nextScenePlan, 140)}` : "",
+      !trimContextLine(scene.summary, 140) && trimContextLine(scene.excerpt, 160)
+        ? `page_evidence=${trimContextLine(scene.excerpt, 160)}`
+        : "",
+    ].filter(Boolean);
+    if (parts.length) lines.push(`  - ACCEPTED_SCENE [${identity}]: ${parts.join(" | ")}`);
+  }
+  return lines.length > 1 ? `accepted-scene-causality:\n${lines.join("\n")}` : "";
+}
+
 function serializeCharacters(characters, { preserveOrder = false } = {}) {
   if (!isNonEmptyArray(characters)) return "";
   const ordered = preserveOrder
@@ -1070,6 +1103,7 @@ function buildMemoryBlock(creativeMemory) {
   const sections = [
     serializeStyle(creativeMemory.style),
     serializeProjectContinuity(creativeMemory.projectContinuity),
+    serializeAcceptedSceneCausality(creativeMemory.acceptedScenes),
     serializeCharacters(creativeMemory.characters, { preserveOrder: preserveCharacterOrder }),
     serializeStoryBibleRecall(creativeMemory),
     serializeEpisodicMemories(creativeMemory.episodicMemories),

@@ -576,6 +576,190 @@ She hands the original to Eli.`;
   assert.equal(memory.episodicMemories[0].tags.includes("accepted-pages"), true);
 });
 
+test("accepted Studio scenes restore a correction-safe causal ledger scoped to one project", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const firstPage = `INT. ARCHIVE - NIGHT
+
+MARA slides the cassette into a courthouse vent.
+
+ELI
+What are you hiding?`;
+  const first = await store.recordTriggersFromTalkTurn({
+    userId: "u-accepted-scene-ledger",
+    transcript: "Commit the archive scene.",
+    reply: firstPage,
+    acceptedPageText: firstPage,
+    acceptedSceneContext: {
+      writeId: "write-archive-1",
+      anchorSceneId: "scene-archive",
+      documentRevisionId: "rev-17",
+    },
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    projectContinuity: {
+      act: "Act II",
+      featureSequence: "Midpoint pressure",
+      sceneSummary: "Mara hides the cassette in the courthouse vent.",
+      lastSceneOutcome: "Eli now knows Mara is lying to him.",
+      nextScenePlan: "Eli follows Mara into the hearing.",
+      characterFocus: ["Mara", "Eli"],
+      characterArcTurns: ["Mara chooses secrecy over trust"],
+      unresolvedSetups: ["The cassette in the vent", "The sister's voicemail"],
+      actThreePayoffPath: ["The cassette and voicemail become public testimony"],
+      pageCount: 54,
+    },
+    source: "talk_screenplay_output",
+  });
+  assert.equal(first.acceptedScenesRecorded, 1);
+
+  const revisedPage = `INT. ARCHIVE - NIGHT
+
+MARA hides the cassette behind the vent grille as Eli enters.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-accepted-scene-ledger",
+    transcript: "Replace the archive scene with this tighter version.",
+    reply: revisedPage,
+    acceptedPageText: revisedPage,
+    acceptedSceneContext: {
+      writeId: "write-archive-2",
+      anchorSceneId: "scene-archive",
+      documentRevisionId: "rev-18",
+    },
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    projectContinuity: {
+      act: "Act II",
+      featureSequence: "Midpoint pressure",
+      sceneSummary: "Mara hides the cassette behind the archive vent grille.",
+      lastSceneOutcome: "Eli catches the protective lie but not the evidence.",
+      nextScenePlan: "Eli tests Mara's lie during the hearing.",
+      characterFocus: ["Mara", "Eli"],
+      unresolvedSetups: ["The cassette behind the vent", "The sister's voicemail"],
+      actThreePayoffPath: ["The cassette and voicemail become public testimony"],
+      pageCount: 55,
+    },
+    source: "talk_screenplay_output",
+  });
+
+  const hallwayPage = `INT. COURTHOUSE HALLWAY - DAY
+
+ELI watches Mara lie to the judge and pockets her dropped key.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-accepted-scene-ledger",
+    transcript: "Commit the hallway consequence.",
+    reply: hallwayPage,
+    acceptedPageText: hallwayPage,
+    acceptedSceneContext: { anchorSceneId: "scene-hallway", writeId: "write-hallway-1" },
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    projectContinuity: {
+      act: "Act II",
+      featureSequence: "Bad guys close in",
+      sceneSummary: "Eli pockets Mara's archive key after she lies to the judge.",
+      lastSceneOutcome: "Eli can now reach the hidden evidence before Mara.",
+      nextScenePlan: "The judge moves the witness while Eli enters the archive.",
+      characterFocus: ["Mara", "Eli"],
+      unresolvedSetups: ["The cassette behind the vent", "The sister's voicemail"],
+      actThreePayoffPath: ["The cassette and voicemail become public testimony"],
+      pageCount: 58,
+    },
+    source: "talk_screenplay_output",
+  });
+
+  const trainPage = `INT. SLEEPER CAR - NIGHT
+
+MARA pulls the emergency brake.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-accepted-scene-ledger",
+    transcript: "Commit the train scene.",
+    reply: trainPage,
+    acceptedPageText: trainPage,
+    acceptedSceneContext: { anchorSceneId: "scene-train" },
+    projectId: "night-train",
+    projectTitle: "Night Train",
+    projectContinuity: {
+      act: "Act III",
+      sceneSummary: "Mara pulls the emergency brake before the border.",
+      unresolvedSetups: ["The brass ticket punch"],
+    },
+    source: "talk_screenplay_output",
+  });
+
+  await store.recordProjectContinuity({
+    userId: "u-accepted-scene-ledger",
+    continuity: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      correctedTerms: ["cassette"],
+      correctionReplacements: ["cassette -> MiniDV tape"],
+    },
+  });
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const ledger = await restored.getCreativeMemoryLedger({ userId: "u-accepted-scene-ledger" });
+  const rainProject = ledger.projects.find((project) => project.projectId === "rain-docket");
+  assert.equal(rainProject.acceptedScenes.length, 2);
+  assert.equal(rainProject.acceptedScenes[0].sceneHeading, "INT. COURTHOUSE HALLWAY - DAY");
+  assert.equal(rainProject.acceptedScenes[1].sceneHeading, "INT. ARCHIVE - NIGHT");
+  assert.doesNotMatch(JSON.stringify(rainProject.acceptedScenes), /cassette/i);
+  assert.match(JSON.stringify(rainProject.acceptedScenes), /MiniDV tape/);
+  assert.doesNotMatch(JSON.stringify(rainProject.unresolvedSetups), /cassette/i);
+  assert.match(JSON.stringify(rainProject.unresolvedSetups), /MiniDV tape/);
+
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "u-accepted-scene-ledger",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Continue the voicemail testimony payoff after Eli takes Mara's key.",
+  });
+  assert.equal(memory.acceptedScenes.length, 2);
+  assert.equal(memory.acceptedScenes[0].sceneHeading, "INT. COURTHOUSE HALLWAY - DAY");
+  assert.equal(memory.acceptedScenes[1].sceneHeading, "INT. ARCHIVE - NIGHT");
+  assert.equal(Object.hasOwn(memory.acceptedScenes[0], "id"), false);
+  assert.doesNotMatch(JSON.stringify(memory), /emergency brake|brass ticket|border/);
+  assert.doesNotMatch(JSON.stringify(memory.acceptedScenes), /cassette/i);
+  assert.match(JSON.stringify(memory.acceptedScenes), /MiniDV tape/);
+  assert.doesNotMatch(JSON.stringify(memory.projectContinuity.unresolvedSetups), /cassette/i);
+  assert.match(JSON.stringify(memory.projectContinuity.unresolvedSetups), /MiniDV tape/);
+});
+
+test("accepted scene history spans a full feature and retrieves an early setup near the ending", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  for (let index = 0; index < 100; index += 1) {
+    await store.recordProjectContinuity({
+      userId: "u-feature-scene-history",
+      continuity: {
+        projectId: "feature-100",
+        projectTitle: "The Long Return",
+        acceptedScenes: [{
+          anchorSceneId: `scene-${index}`,
+          sceneHeading: `INT. LOCATION ${index} - NIGHT`,
+          summary: index === 4
+            ? "Nora hides the red locket inside the courthouse clock."
+            : `Nora crosses story threshold ${index}.`,
+          unresolvedSetups: index === 4 ? ["The red locket inside the courthouse clock"] : [],
+          acceptedAt: index + 1,
+        }],
+      },
+    });
+  }
+
+  const ledger = await store.getCreativeMemoryLedger({ userId: "u-feature-scene-history" });
+  assert.equal(ledger.projects[0].acceptedScenes.length, 96);
+  assert.equal(ledger.projects[0].acceptedScenes[0].sceneHeading, "INT. LOCATION 99 - NIGHT");
+  assert.equal(ledger.projects[0].acceptedScenes[95].sceneHeading, "INT. LOCATION 4 - NIGHT");
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-feature-scene-history",
+    projectId: "feature-100",
+    query: "Pay off the red locket hidden in the courthouse clock during the ending.",
+  });
+  assert.equal(memory.acceptedScenes[0].sceneHeading, "INT. LOCATION 99 - NIGHT");
+  assert.equal(memory.acceptedScenes.some((scene) => scene.sceneHeading === "INT. LOCATION 4 - NIGHT"), true);
+});
+
 test("committed Studio pages promote only the matching project's generated draft", async () => {
   const persistence = freshPersistence();
   const page = `INT. PLANETARIUM - NIGHT

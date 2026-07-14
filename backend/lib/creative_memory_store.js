@@ -33,6 +33,8 @@ const CHARACTER_BIBLE_CORRECTIONS_MAX = 8;
 const CHARACTER_BIBLE_TERMS_MAX = 12;
 const CHARACTER_ARC_FIELD_MAX_CHARS = 180;
 const PROJECT_CONTINUITY_MAX = 24;
+const ACCEPTED_SCENES_MAX = 96;
+const ACCEPTED_SCENE_PROMPT_MAX = 3;
 const EPISODIC_MEMORIES_MAX = 64;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const EPISODIC_SEMANTIC_FINGERPRINT_MAX = 96;
@@ -158,6 +160,25 @@ const PROJECT_CONTINUITY_LIST_FIELDS = Object.freeze([
 const PROJECT_CONTINUITY_INTEGER_FIELDS = Object.freeze([
   ["pageCount", 1_000],
   ["targetPages", 1_000],
+]);
+const ACCEPTED_SCENE_SCALAR_FIELDS = Object.freeze([
+  ["writeId", "write_id", 80],
+  ["anchorSceneId", "anchor_scene_id", 120],
+  ["documentRevisionId", "document_revision_id", 120],
+  ["sceneLabel", "scene_label", 140],
+  ["sceneHeading", "scene_heading", 140],
+  ["featureSequence", "feature_sequence", 180],
+  ["summary", "scene_summary", 240],
+  ["outcome", "scene_outcome", 220],
+  ["nextScenePlan", "next_scene_plan", 240],
+  ["excerpt", "page_excerpt", 420],
+]);
+const ACCEPTED_SCENE_LIST_FIELDS = Object.freeze([
+  ["characterNames", "character_names", 8, 72],
+  ["characterArcTurns", "character_arc_turns", 5, 180],
+  ["unresolvedSetups", "unresolved_setups", 6, 200],
+  ["actThreePayoffPath", "act_three_payoff_path", 4, 200],
+  ["continuityNotes", "continuity_notes", 5, 200],
 ]);
 const EPISODIC_SEMANTIC_EXPANSIONS = Object.freeze([
   {
@@ -347,6 +368,105 @@ function normalizeStringList(items, maxItems = 8, maxChars = 80) {
   return out;
 }
 
+function acceptedSceneHasCausalSignal(scene = {}) {
+  return Boolean(
+    cleanText(scene.sceneHeading || scene.sceneLabel, 140) ||
+    cleanText(scene.summary, 240) ||
+    cleanText(scene.outcome, 220) ||
+    cleanText(scene.nextScenePlan, 240) ||
+    cleanText(scene.excerpt, 420) ||
+    ACCEPTED_SCENE_LIST_FIELDS.some(([field]) => Array.isArray(scene[field]) && scene[field].length)
+  );
+}
+
+function sanitizeAcceptedSceneContinuity(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out = {};
+  for (const [field, alias, maxChars] of ACCEPTED_SCENE_SCALAR_FIELDS) {
+    const clean = cleanText(value[field] ?? value[alias], maxChars);
+    if (clean) out[field] = clean;
+  }
+  const act = normalizeActLabel(value.act ?? value.currentAct ?? value.current_act) ||
+    cleanText(value.act ?? value.currentAct ?? value.current_act, 80);
+  if (act) out.act = act;
+  for (const [field, alias, maxItems, maxChars] of ACCEPTED_SCENE_LIST_FIELDS) {
+    const items = normalizeStringList(value[field] ?? value[alias], maxItems, maxChars);
+    if (items.length) out[field] = items;
+  }
+  const pageCount = Math.max(0, Math.round(Number(value.pageCount ?? value.page_count ?? 0)));
+  if (pageCount > 0) out.pageCount = Math.min(1_000, pageCount);
+  const rawAcceptedAt = Number(value.acceptedAt ?? value.accepted_at ?? nowMs());
+  const acceptedAt = Number.isFinite(rawAcceptedAt) ? Math.max(0, rawAcceptedAt) : nowMs();
+  const rawUpdatedAt = Number(value.updatedAt ?? value.updated_at ?? acceptedAt);
+  const updatedAt = Number.isFinite(rawUpdatedAt) ? Math.max(acceptedAt, rawUpdatedAt) : acceptedAt;
+  out.acceptedAt = acceptedAt;
+  out.updatedAt = updatedAt;
+  if (!acceptedSceneHasCausalSignal(out)) return null;
+  out.id = cleanText(
+    value.id || `accepted_scene_${stableHash([
+      out.anchorSceneId,
+      out.writeId,
+      out.sceneHeading,
+      out.summary,
+      out.excerpt,
+    ].filter(Boolean).join("|"))}`,
+    80
+  );
+  return out;
+}
+
+function repairAcceptedSceneForCorrection(scene = null, correction = null) {
+  const current = sanitizeAcceptedSceneContinuity(scene);
+  if (!current || !correction) return current;
+  const terms = collectCharacterBibleItems(
+    correction.correctedTerms || [],
+    CHARACTER_BIBLE_TERMS_MAX,
+    120
+  );
+  const replacements = correction.correctionReplacements || [];
+  const out = { ...current };
+  for (const [field, _alias, maxChars] of ACCEPTED_SCENE_SCALAR_FIELDS) {
+    if (field === "writeId" || field === "anchorSceneId" || field === "documentRevisionId") continue;
+    if (!current[field]) continue;
+    const repaired = applyCharacterBibleReplacements(current[field], replacements, maxChars);
+    if (!repaired || textContainsCharacterCorrectionTerm(repaired, terms)) delete out[field];
+    else out[field] = repaired;
+  }
+  for (const [field, _alias, maxItems, maxChars] of ACCEPTED_SCENE_LIST_FIELDS) {
+    if (!Array.isArray(current[field])) continue;
+    out[field] = current[field]
+      .map((item) => applyCharacterBibleReplacements(item, replacements, maxChars))
+      .filter((item) => item && !textContainsCharacterCorrectionTerm(item, terms))
+      .slice(0, maxItems);
+    if (!out[field].length) delete out[field];
+  }
+  return acceptedSceneHasCausalSignal(out) ? out : null;
+}
+
+function acceptedSceneIdentity(scene = {}) {
+  const anchorSceneId = cleanText(scene.anchorSceneId ?? scene.anchor_scene_id, 120).toLowerCase();
+  if (anchorSceneId) return `anchor:${anchorSceneId}`;
+  const writeId = cleanText(scene.writeId ?? scene.write_id, 80).toLowerCase();
+  if (writeId) return `write:${writeId}`;
+  return `id:${cleanText(scene.id, 80).toLowerCase()}`;
+}
+
+function mergeAcceptedSceneContinuity(incoming = [], existing = [], correction = null) {
+  const merged = [];
+  const seen = new Set();
+  for (const value of [...(Array.isArray(incoming) ? incoming : []), ...(Array.isArray(existing) ? existing : [])]) {
+    const scene = repairAcceptedSceneForCorrection(value, correction);
+    if (!scene) continue;
+    const key = acceptedSceneIdentity(scene);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(scene);
+  }
+  return merged
+    .sort((a, b) => Number(b.acceptedAt || b.updatedAt || 0) - Number(a.acceptedAt || a.updatedAt || 0))
+    .slice(0, ACCEPTED_SCENES_MAX);
+}
+
 function sanitizeProjectContinuity(value = {}) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const projectId = cleanText(source.projectId ?? source.project_id, 96);
@@ -369,6 +489,29 @@ function sanitizeProjectContinuity(value = {}) {
     const value = Number(source[field]);
     if (!Number.isFinite(value) || value <= 0) continue;
     out[field] = Math.min(maxValue, Math.round(value));
+  }
+  const correction = {
+    correctedTerms: out.correctedTerms || [],
+    correctionReplacements: out.correctionReplacements || [],
+  };
+  if (correction.correctedTerms.length || correction.correctionReplacements.length) {
+    for (const [field, maxChars] of PROJECT_CONTINUITY_SCALAR_FIELDS) {
+      if (!out[field]) continue;
+      const repaired = applyCharacterBibleReplacements(out[field], correction.correctionReplacements, maxChars);
+      if (!repaired || textContainsCharacterCorrectionTerm(repaired, correction.correctedTerms)) delete out[field];
+      else out[field] = repaired;
+    }
+    for (const [field, maxItems, maxChars] of PROJECT_CONTINUITY_LIST_FIELDS) {
+      if (field === "correctedTerms" || field === "correctionReplacements" || !Array.isArray(out[field])) continue;
+      out[field] = out[field]
+        .map((item) => applyCharacterBibleReplacements(item, correction.correctionReplacements, maxChars))
+        .filter((item) => item && !textContainsCharacterCorrectionTerm(item, correction.correctedTerms))
+        .slice(0, maxItems);
+    }
+  }
+  const acceptedScenes = value.acceptedScenes ?? value.accepted_scenes;
+  if (Array.isArray(acceptedScenes)) {
+    out.acceptedScenes = mergeAcceptedSceneContinuity(acceptedScenes, [], correction);
   }
   return out;
 }
@@ -842,6 +985,68 @@ function firstScreenplaySceneHeading(text = "") {
   return cleanText(match?.[1] || "", 140);
 }
 
+function acceptedPageExcerpt(text = "") {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => cleanText(line, 180))
+    .filter(Boolean)
+    .filter((line) => !/^(?:INT\.|EXT\.|INT\/EXT\.|INT\.\/EXT\.|CUT TO:|FADE (?:IN|OUT)|SMASH CUT:|DISSOLVE TO:)/i.test(line));
+  return cleanText(lines.slice(0, 4).join(" "), 420);
+}
+
+function buildAcceptedSceneContinuity({
+  pageText = "",
+  projectId = "",
+  projectTitle = "",
+  projectContinuity = null,
+  characterNames = [],
+  context = null,
+} = {}) {
+  const rawPage = String(pageText || "").trim().slice(0, 20_000);
+  if (!rawPage) return null;
+  const continuity = projectContinuity && typeof projectContinuity === "object" && !Array.isArray(projectContinuity)
+    ? projectContinuity
+    : {};
+  const sceneContext = context && typeof context === "object" && !Array.isArray(context) ? context : {};
+  const pageHash = screenplayPageMemoryHash(rawPage);
+  const anchorSceneId = cleanText(
+    sceneContext.anchorSceneId ?? sceneContext.anchor_scene_id ?? sceneContext.sceneId ?? sceneContext.scene_id,
+    120
+  );
+  const writeId = cleanText(sceneContext.writeId ?? sceneContext.write_id, 80);
+  const sceneHeading = firstScreenplaySceneHeading(rawPage);
+  const excerpt = acceptedPageExcerpt(rawPage);
+  const identity = anchorSceneId || writeId || pageHash;
+  return sanitizeAcceptedSceneContinuity({
+    id: `accepted_scene_${stableHash(`${cleanText(projectId, 96)}|${identity}`)}`,
+    writeId,
+    anchorSceneId,
+    documentRevisionId: sceneContext.documentRevisionId ?? sceneContext.document_revision_id,
+    sceneLabel: sceneContext.sceneLabel ?? sceneContext.scene_label,
+    sceneHeading,
+    act: continuity.act,
+    featureSequence: continuity.featureSequence,
+    summary: continuity.sceneSummary || continuity.currentBeat || excerpt,
+    outcome: continuity.lastSceneOutcome,
+    nextScenePlan: continuity.nextScenePlan,
+    characterNames: normalizeStringList(
+      [...normalizeStringList(continuity.characterFocus, 8, 72), ...normalizeStringList(characterNames, 8, 72)],
+      8,
+      72
+    ),
+    characterArcTurns: continuity.characterArcTurns,
+    unresolvedSetups: continuity.unresolvedSetups,
+    actThreePayoffPath: continuity.actThreePayoffPath,
+    continuityNotes: continuity.continuityNotes,
+    excerpt,
+    pageCount: continuity.pageCount,
+    acceptedAt: nowMs(),
+    updatedAt: nowMs(),
+    projectId,
+    projectTitle,
+  });
+}
+
 function firstMemoryMoment(text = "") {
   const lines = String(text || "")
     .split(/\r?\n|[.!?]\s+/)
@@ -1056,6 +1261,91 @@ function scoreEpisodicMemoryForQuery(memory, query = "", {
   if (cleanProjectId && cleanText(memory.projectId, 96).toLowerCase() === cleanProjectId) score += 8;
   if (cleanProjectTitle && cleanText(memory.projectTitle, 160).toLowerCase() === cleanProjectTitle) score += 5;
   return score;
+}
+
+function scoreAcceptedSceneForQuery(scene, query = "", activeAct = "", recencyIndex = 0) {
+  const cleanQuery = cleanText(query, 2_000).toLowerCase();
+  const queryTokens = new Set(tokenizeMemoryText(cleanQuery));
+  const searchable = [
+    scene.act,
+    scene.featureSequence,
+    scene.sceneLabel,
+    scene.sceneHeading,
+    scene.summary,
+    scene.outcome,
+    scene.nextScenePlan,
+    scene.excerpt,
+    ...(scene.characterNames || []),
+    ...(scene.characterArcTurns || []),
+    ...(scene.unresolvedSetups || []),
+    ...(scene.actThreePayoffPath || []),
+    ...(scene.continuityNotes || []),
+  ].join(" ").toLowerCase();
+  let score = Math.max(0, 4 - Math.max(0, Number(recencyIndex || 0)));
+  const sceneAct = normalizeActLabel(scene.act);
+  if (activeAct && sceneAct === activeAct) score += 8;
+  for (const token of queryTokens) {
+    if (searchable.includes(token)) score += 1;
+  }
+  for (const name of scene.characterNames || []) {
+    const cleanName = String(name || "").toLowerCase();
+    if (cleanName && cleanQuery.includes(cleanName)) score += 6;
+  }
+  return score;
+}
+
+function selectAcceptedScenesForPrompt(items = [], {
+  query = "",
+  currentAct = "",
+  maxItems = ACCEPTED_SCENE_PROMPT_MAX,
+} = {}) {
+  const scenes = (Array.isArray(items) ? items : [])
+    .map(sanitizeAcceptedSceneContinuity)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.acceptedAt || b.updatedAt || 0) - Number(a.acceptedAt || a.updatedAt || 0));
+  if (!scenes.length) return [];
+  const requestedLimit = Number(maxItems);
+  const limit = Math.max(
+    1,
+    Math.min(
+      ACCEPTED_SCENE_PROMPT_MAX,
+      Number.isFinite(requestedLimit) ? Math.round(requestedLimit) : ACCEPTED_SCENE_PROMPT_MAX
+    )
+  );
+  const cleanQuery = cleanText(query, 2_000);
+  if (!cleanQuery) return scenes.slice(0, limit).map(stripAcceptedScenePrivateFields);
+  const activeAct = normalizeActLabel(cleanQuery) || normalizeActLabel(currentAct);
+  const selected = [scenes[0]];
+  const selectedIds = new Set([acceptedSceneIdentity(scenes[0])]);
+  const ranked = scenes
+    .slice(1)
+    .map((scene, index) => ({
+      scene,
+      score: scoreAcceptedSceneForQuery(scene, cleanQuery, activeAct, index + 1),
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return Number(b.scene.acceptedAt || 0) - Number(a.scene.acceptedAt || 0);
+    });
+  for (const entry of ranked) {
+    if (selected.length >= limit) break;
+    const key = acceptedSceneIdentity(entry.scene);
+    if (selectedIds.has(key)) continue;
+    selectedIds.add(key);
+    selected.push(entry.scene);
+  }
+  return selected
+    .sort((a, b) => Number(b.acceptedAt || b.updatedAt || 0) - Number(a.acceptedAt || a.updatedAt || 0))
+    .map(stripAcceptedScenePrivateFields);
+}
+
+function stripAcceptedScenePrivateFields(scene = {}) {
+  const out = clone(scene);
+  delete out.id;
+  delete out.writeId;
+  delete out.anchorSceneId;
+  delete out.documentRevisionId;
+  return out;
 }
 
 function selectEpisodicMemoriesForPrompt(items = [], {
@@ -2102,7 +2392,16 @@ function createCreativeMemoryStore({
       updatedAt: rec.updatedAt,
     };
     const projectContinuity = selectProjectContinuity(rec.projects, { projectId, projectTitle });
-    if (projectContinuity) out.projectContinuity = clone(projectContinuity);
+    if (projectContinuity) {
+      const acceptedScenes = selectAcceptedScenesForPrompt(projectContinuity.acceptedScenes, {
+        query,
+        currentAct: projectContinuity.act,
+      });
+      const promptProjectContinuity = clone(projectContinuity);
+      delete promptProjectContinuity.acceptedScenes;
+      out.projectContinuity = promptProjectContinuity;
+      if (acceptedScenes.length) out.acceptedScenes = acceptedScenes;
+    }
     if (rec.style && Object.keys(rec.style).length) {
       const style = clone(rec.style);
       if (Array.isArray(style.lexicalFingerprint) && style.lexicalFingerprint.length === 0) {
@@ -2215,6 +2514,16 @@ function createCreativeMemoryStore({
               next[field] = incoming[field];
             }
           }
+        }
+        if (Object.prototype.hasOwnProperty.call(incoming, "acceptedScenes")) {
+          next.acceptedScenes = mergeAcceptedSceneContinuity(
+            incoming.acceptedScenes,
+            existing.acceptedScenes,
+            {
+              correctedTerms: next.correctedTerms,
+              correctionReplacements: next.correctionReplacements,
+            }
+          );
         }
         projects[existingIdx] = sanitizeProjectContinuity(next);
       } else {
@@ -2771,6 +3080,7 @@ function createCreativeMemoryStore({
     projectTitle = "",
     projectContinuity = null,
     characterArcMemories = [],
+    acceptedSceneContext = null,
     acceptedPageText = "",
     source = "talk_turn",
   } = {}) {
@@ -2778,11 +3088,23 @@ function createCreativeMemoryStore({
     const cleanProjectId = cleanText(projectId, 96);
     const cleanProjectTitle = cleanText(projectTitle, 160);
     const cleanSource = cleanText(source || "talk_turn", 64) || "talk_turn";
+    const userText = String(transcript || "");
+    const assistantText = String(reply || "");
+    const cleanAcceptedPageText = String(acceptedPageText || "").trim().slice(0, 20_000);
+    const structuredArcSources = Array.isArray(characterArcMemories)
+      ? characterArcMemories.slice(0, 8)
+      : characterArcMemories && typeof characterArcMemories === "object"
+        ? [characterArcMemories]
+        : [];
+    const structuredArcs = structuredArcSources
+      .map(sanitizeStructuredCharacterArcMemory)
+      .filter(Boolean);
     const summary = {
       characterMentions: 0,
       episodicMemories: 0,
       corrections: 0,
       structuredCharacterBibles: 0,
+      acceptedScenesRecorded: 0,
       acceptedPagesPromoted: 0,
       acceptedPagesRecorded: 0,
       lexicalPhrases: 0,
@@ -2790,23 +3112,34 @@ function createCreativeMemoryStore({
       sessionRecorded: false,
     };
 
-    if (projectContinuity && typeof projectContinuity === "object") {
+    const continuitySource = projectContinuity && typeof projectContinuity === "object" && !Array.isArray(projectContinuity)
+      ? projectContinuity
+      : {};
+    const acceptedScene = buildAcceptedSceneContinuity({
+      pageText: cleanAcceptedPageText,
+      projectId: cleanProjectId || continuitySource.projectId,
+      projectTitle: cleanProjectTitle || continuitySource.projectTitle,
+      projectContinuity: continuitySource,
+      characterNames: structuredArcs.map((item) => item.character),
+      context: acceptedSceneContext,
+    });
+    if ((Object.keys(continuitySource).length || acceptedScene) && (cleanProjectId || cleanProjectTitle || continuitySource.projectId || continuitySource.projectTitle)) {
       try {
         const receipt = await recordProjectContinuity({
           userId,
           continuity: {
-            ...projectContinuity,
-            projectId: cleanProjectId || projectContinuity.projectId,
-            projectTitle: cleanProjectTitle || projectContinuity.projectTitle,
+            ...continuitySource,
+            projectId: cleanProjectId || continuitySource.projectId,
+            projectTitle: cleanProjectTitle || continuitySource.projectTitle,
+            ...(acceptedScene ? { acceptedScenes: [acceptedScene] } : {}),
           },
         });
         summary.projectContinuityRecorded = Boolean(receipt?.ok);
+        summary.acceptedScenesRecorded = receipt?.ok && acceptedScene ? 1 : 0;
       } catch (_e) { /* never block the response on memory writes */ }
     }
 
     // Only writer text can mutate canon. Generated pages remain useful for draft continuity and voice.
-    const userText = String(transcript || "");
-    const assistantText = String(reply || "");
     const combined = `${userText}\n${assistantText}`;
     const isGeneratedScreenplayOutput = cleanSource === "talk_screenplay_output";
     const isCorrectionTurn = CORRECTION_KEYWORDS.test(userText);
@@ -2815,7 +3148,6 @@ function createCreativeMemoryStore({
     const storyMemoryText = isGeneratedScreenplayOutput && !isCorrectionTurn
       ? combined
       : userText;
-    const cleanAcceptedPageText = cleanText(acceptedPageText, 20_000);
     if (cleanAcceptedPageText) {
       try {
         const receipt = await promoteAcceptedGeneratedPageMemory({
@@ -2830,14 +3162,7 @@ function createCreativeMemoryStore({
 
     const structuredCharacterNames = [];
     if (cleanProjectId || cleanProjectTitle) {
-      const structuredArcSources = Array.isArray(characterArcMemories)
-        ? characterArcMemories
-        : characterArcMemories && typeof characterArcMemories === "object"
-          ? [characterArcMemories]
-          : [];
-      for (const value of structuredArcSources.slice(0, 8)) {
-        const structured = sanitizeStructuredCharacterArcMemory(value);
-        if (!structured) continue;
+      for (const structured of structuredArcs) {
         try {
           const receipt = await recordCharacterMention({
             userId,
