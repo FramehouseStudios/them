@@ -344,6 +344,16 @@ test("buildModelPrompt emits durable active-feature continuity before story reca
         actThreePayoffPath: ["The tape and voicemail become public testimony"],
         nextScenePlan: "Eli enters the archive while the judge moves the witness.",
       }],
+      dueStoryThread: {
+        kind: "payoff",
+        setup: "The sister's voicemail",
+        promisedPayoff: "The voicemail becomes testimony",
+        sourceAct: "Act II",
+        sourceSceneHeading: "INT. ARCHIVE - NIGHT",
+        sourceSceneSummary: "Mara hides the MiniDV tape behind the vent grille.",
+        sourceSceneOutcome: "Eli catches her lie and pockets the archive key.",
+        ageInScenes: 14,
+      },
       characters: [{ name: "Mara", bible: { arc: { wound: "her father's disappearance" } } }],
     },
     userInput: "Continue the screenplay.",
@@ -370,9 +380,16 @@ test("buildModelPrompt emits durable active-feature continuity before story reca
   assert.ok(out.includes("still_open=The MiniDV tape behind the vent / The sister's voicemail"));
   assert.ok(out.includes("promised_payoff=The tape and voicemail become public testimony"));
   assert.ok(out.includes("next_pressure=Eli enters the archive while the judge moves the witness."));
+  assert.ok(out.includes("due-story-thread:"));
+  assert.ok(out.includes("oldest_due_story_thread: The sister's voicemail"));
+  assert.ok(out.includes("promised_payoff: The voicemail becomes testimony"));
+  assert.ok(out.includes("planted_in: Act II · INT. ARCHIVE - NIGHT"));
+  assert.ok(out.includes("open_for_accepted_scenes: 14"));
   assert.ok(out.indexOf("project-continuity:") < out.indexOf("story-bible-recall:"));
   assert.ok(out.indexOf("project-continuity:") < out.indexOf("accepted-scene-causality:"));
   assert.ok(out.indexOf("accepted-scene-causality:") < out.indexOf("story-bible-recall:"));
+  assert.ok(out.indexOf("accepted-scene-causality:") < out.indexOf("due-story-thread:"));
+  assert.ok(out.indexOf("due-story-thread:") < out.indexOf("story-bible-recall:"));
 });
 
 test("recordToneSignal stores tone and preferredTone", async () => {
@@ -1371,6 +1388,58 @@ test("[screenplay-task] momentum rescue gets a dedicated writer-block memory run
   assert.ok(parts.writerBlockMemoryBlock.includes("correction_contract: replace wrong memory -> hidden confession"));
   assert.ok(parts.writerBlockMemoryBlock.includes("primary_engine: remembered_next_turn"));
   assert.ok(parts.writerBlockMemoryBlock.includes("ranked_rescue_moves:"));
+});
+
+test("[screenplay-task] writer block rescue spends the oldest accepted-scene promise first", () => {
+  const task = inferScreenplayTask("I'm stuck. What should happen next?");
+  const out = buildModelPrompt({
+    persona: "PERSONA",
+    screenplayTask: task,
+    userInput: "I'm stuck. What should happen next?",
+    sessionContext: {
+      projectId: "rain-docket",
+      act: "Act II",
+      featureSequence: "Bad Guys Close In",
+      currentBeat: "Mara reaches the hearing with no leverage.",
+      protagonistWant: "expose who altered the verdict",
+      protagonistNeed: "risk the truth in public",
+      characterFocus: ["Mara", "Judge Vale"],
+      nextThreeTurns: ["Vale calls the surprise witness."],
+      unresolvedSetups: ["The sealed affidavit"],
+      unresolvedStoryThreads: ["Who altered the verdict?"],
+      actThreePayoffPath: ["The public record finally names Vale."],
+    },
+    creativeMemory: {
+      acceptedScenes: [{
+        act: "Act II",
+        sceneHeading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+        summary: "Mara hides the red locket before the bailiff enters.",
+        outcome: "The locket survives the search.",
+        nextScenePlan: "Mara carries the locket into the hearing.",
+      }],
+      dueStoryThread: {
+        kind: "payoff",
+        setup: "The red locket hidden in the courthouse clock.",
+        promisedPayoff: "Mara uses the locket to expose who altered the verdict.",
+        sourceAct: "Act II",
+        sourceSceneHeading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+        sourceSceneSummary: "Mara hides the red locket before the bailiff enters.",
+        sourceSceneOutcome: "The locket survives the search.",
+        ageInScenes: 17,
+      },
+    },
+  });
+
+  assert.ok(out.includes("oldest_due_story_thread: The red locket hidden in the courthouse clock."));
+  assert.ok(out.includes("due_thread_promised_payoff: Mara uses the locket to expose who altered the verdict."));
+  assert.ok(out.includes("due_thread_source: Act II / INT. COURTHOUSE CLOCK TOWER - NIGHT"));
+  assert.ok(out.includes("due_thread_age_in_accepted_scenes: 17"));
+  assert.ok(out.includes("open_setup_to_pressure: The red locket hidden in the courthouse clock."));
+  assert.ok(out.includes("accepted_page_anchor: The locket survives the search."));
+  assert.ok(out.includes("primary_engine: oldest_due_story_thread"));
+  assert.ok(out.includes("rank_1: engine=payoff_pressure"));
+  assert.ok(out.includes("evidence=due_story_thread: The red locket hidden in the courthouse clock."));
+  assert.ok(out.includes("Mara uses the locket to expose who altered the verdict."));
 });
 
 test("[screenplay-task] story diagnostics make blocked and continuation turns act-aware", () => {

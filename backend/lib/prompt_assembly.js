@@ -693,6 +693,7 @@ function buildMomentumRescueMoveOptionLines({
   endingImage = "",
   acceptedPages = [],
   storyMoments = [],
+  dueStoryThread = null,
 } = {}) {
   const ranked = rankStoryRescueMovesForContext({
     transcript,
@@ -720,6 +721,7 @@ function buildMomentumRescueMoveOptionLines({
     endingImage,
     acceptedPages,
     storyMoments,
+    dueStoryThread,
   });
   return [
     "ranked_rescue_moves:",
@@ -945,6 +947,38 @@ function serializeAcceptedSceneCausality(scenes) {
   return lines.length > 1 ? `accepted-scene-causality:\n${lines.join("\n")}` : "";
 }
 
+function normalizeDueStoryThread(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out = {
+    kind: trimContextLine(value.kind, 24),
+    setup: trimContextLine(value.setup ?? value.oldestOpenSetup ?? value.oldest_open_setup, 220),
+    promisedPayoff: trimContextLine(value.promisedPayoff ?? value.promised_payoff ?? value.payoff, 220),
+    sourceSceneHeading: trimContextLine(value.sourceSceneHeading ?? value.source_scene_heading, 140),
+    sourceSceneSummary: trimContextLine(value.sourceSceneSummary ?? value.source_scene_summary, 220),
+    sourceSceneOutcome: trimContextLine(value.sourceSceneOutcome ?? value.source_scene_outcome, 220),
+    sourceAct: trimContextLine(value.sourceAct ?? value.source_act, 80),
+    ageInScenes: Math.max(0, Math.round(Number(value.ageInScenes ?? value.age_in_scenes ?? 0))),
+  };
+  return out.setup || out.promisedPayoff ? out : null;
+}
+
+function serializeDueStoryThread(value) {
+  const thread = normalizeDueStoryThread(value);
+  if (!thread) return "";
+  const lines = [
+    "  authority: derived only from accepted Studio scenes and the active project's still-open continuity; do not imply it has already paid off.",
+  ];
+  if (thread.setup) lines.push(`  oldest_due_story_thread: ${thread.setup}`);
+  if (thread.promisedPayoff) lines.push(`  promised_payoff: ${thread.promisedPayoff}`);
+  const source = [thread.sourceAct, thread.sourceSceneHeading].filter(Boolean).join(" · ");
+  if (source) lines.push(`  planted_in: ${source}`);
+  if (thread.sourceSceneSummary) lines.push(`  planted_as: ${thread.sourceSceneSummary}`);
+  if (thread.sourceSceneOutcome) lines.push(`  source_consequence: ${thread.sourceSceneOutcome}`);
+  if (thread.ageInScenes > 0) lines.push(`  open_for_accepted_scenes: ${thread.ageInScenes}`);
+  lines.push("  directive: pressure or spend this thread before inventing a replacement; make its return alter behavior, leverage, relationship, or cost.");
+  return `due-story-thread:\n${lines.join("\n")}`;
+}
+
 function serializeCharacters(characters, { preserveOrder = false } = {}) {
   if (!isNonEmptyArray(characters)) return "";
   const ordered = preserveOrder
@@ -1104,6 +1138,7 @@ function buildMemoryBlock(creativeMemory) {
     serializeStyle(creativeMemory.style),
     serializeProjectContinuity(creativeMemory.projectContinuity),
     serializeAcceptedSceneCausality(creativeMemory.acceptedScenes),
+    serializeDueStoryThread(creativeMemory.dueStoryThread),
     serializeCharacters(creativeMemory.characters, { preserveOrder: preserveCharacterOrder }),
     serializeStoryBibleRecall(creativeMemory),
     serializeEpisodicMemories(creativeMemory.episodicMemories),
@@ -1370,6 +1405,14 @@ function buildWriterBlockCreativeRecall(creativeMemory) {
     target.push(clean);
     if (target.length > maxItems) target.length = maxItems;
   };
+  const acceptedScenes = Array.isArray(creativeMemory?.acceptedScenes)
+    ? creativeMemory.acceptedScenes
+    : [];
+  for (const scene of acceptedScenes) {
+    if (!scene || typeof scene !== "object") continue;
+    addUnique(acceptedPages, scene.outcome || scene.summary || scene.excerpt, 3);
+    addUnique(storyMoments, scene.summary || scene.outcome || scene.excerpt, 4);
+  }
   for (const episode of episodes) {
     if (!episode || typeof episode !== "object") continue;
     const tags = sanitizeContextList(episode.tags, 8, 48).map((tag) => tag.toLowerCase());
@@ -1379,7 +1422,11 @@ function buildWriterBlockCreativeRecall(creativeMemory) {
     if (accepted) addUnique(acceptedPages, text, 3);
     if (writerAuthored) addUnique(storyMoments, text, 4);
   }
-  return { acceptedPages, storyMoments };
+  return {
+    acceptedPages,
+    storyMoments,
+    dueStoryThread: normalizeDueStoryThread(creativeMemory?.dueStoryThread),
+  };
 }
 
 function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMemory = null) {
@@ -1484,6 +1531,14 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     140
   );
   const creativeRecall = buildWriterBlockCreativeRecall(creativeMemory);
+  const dueStoryThread = creativeRecall.dueStoryThread;
+  const dueSetup = dueStoryThread?.setup || "";
+  const duePayoff = dueStoryThread?.promisedPayoff || "";
+  const rankedUnresolvedSetups = sanitizeContextList(
+    [dueSetup, ...unresolvedSetups].filter(Boolean),
+    8,
+    220
+  );
   const rescueLines = [];
   const push = (label, value) => {
     const clean = trimContextLine(value, 320);
@@ -1506,7 +1561,16 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     ].filter(Boolean).join("; ")
   );
   push("strongest_remembered_next_turn", nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan);
-  push("open_setup_to_pressure", unresolvedSetups[0]);
+  push("oldest_due_story_thread", dueSetup || duePayoff);
+  push("due_thread_promised_payoff", duePayoff);
+  push(
+    "due_thread_source",
+    dueStoryThread
+      ? [dueStoryThread.sourceAct, dueStoryThread.sourceSceneHeading].filter(Boolean).join(" / ")
+      : ""
+  );
+  if (dueStoryThread?.ageInScenes > 0) push("due_thread_age_in_accepted_scenes", String(dueStoryThread.ageInScenes));
+  push("open_setup_to_pressure", rankedUnresolvedSetups[0]);
   push("unresolved_story_thread", unresolvedStoryThreads[0]);
   push("act_three_payoff_seed", actThreePayoffPath[0]);
   push("image_to_transform", imageMotifs[0]);
@@ -1518,16 +1582,16 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
   const asClause = (value, fallback = "") =>
     (trimContextLine(value, 320) || fallback).replace(/[.!?]+$/g, "").trim();
   const mainCharacter = characterFocus[0] || trimContextLine((characterArcState || characterArcTurns[0]).split(":")[0], 80) || "the protagonist";
-  const primaryPressure = asClause(nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan || featureObligation || currentBeat);
+  const primaryPressure = asClause(dueSetup || duePayoff || nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan || featureObligation || currentBeat);
   const oppositionPressure = asClause(
-    antagonisticForce || unresolvedStoryThreads[0] || unresolvedSetups[0] || actPressureState,
+    antagonisticForce || unresolvedStoryThreads[0] || rankedUnresolvedSetups[0] || actPressureState,
     "a force that can say no"
   );
   const arcPressure = asClause(
     characterArcTurns[0] || characterArcState || protagonistNeed || protagonistWant,
     "the old tactic"
   );
-  const exitImage = asClause(imageMotifs[0] || actThreePayoffPath[0], "a changed exit image");
+  const exitImage = asClause(duePayoff || imageMotifs[0] || actThreePayoffPath[0], "a changed exit image");
   const bestNextBeat = primaryPressure
     ? `Have ${mainCharacter} pursue this now: ${asClause(protagonistWant || primaryPressure)}. Make this pressure oppose them: ${oppositionPressure}. Let this character cost land: ${arcPressure}. Exit on ${exitImage}.`
     : "";
@@ -1536,8 +1600,9 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
   if (!rescueLines.length) return "";
 
   const engineStack = [];
+  if (dueSetup || duePayoff) engineStack.push("oldest_due_story_thread");
   if (nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan) engineStack.push("remembered_next_turn");
-  if (unresolvedSetups[0]) engineStack.push("open_setup");
+  if (rankedUnresolvedSetups[0]) engineStack.push("open_setup");
   if (characterArcState || characterArcTurns[0]) engineStack.push("character_arc_pressure");
   if (featureObligation || actPressureState) engineStack.push("act_obligation");
   if (actThreePayoffPath[0]) engineStack.push("payoff_seed");
@@ -1548,14 +1613,14 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
   if (engineStack.length) engineLines.push(`  pressure_stack: ${engineStack.join(" -> ")}`);
   const because = asClause(currentBeat || lastSceneOutcome || featureObligation, "the current beat stalls");
   const must = asClause(
-    nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan || unresolvedSetups[0],
+    dueSetup || duePayoff || nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan || rankedUnresolvedSetups[0],
     "a visible choice"
   );
   const cost = asClause(
-    unresolvedStoryThreads[0] || unresolvedSetups[0] || actPressureState || characterArcState,
+    unresolvedStoryThreads[0] || rankedUnresolvedSetups[0] || actPressureState || characterArcState,
     "a real consequence"
   );
-  const exit = asClause(imageMotifs[0] || actThreePayoffPath[0], "a changed exit image");
+  const exit = asClause(duePayoff || imageMotifs[0] || actThreePayoffPath[0], "a changed exit image");
   engineLines.push(`  beat_formula: because ${because}, force this move: ${must}; make this cost land: ${cost}; leave on ${exit}.`);
   engineLines.push("  scene_machine: objective -> opposition -> tactic shift -> reversal/cost -> changed relationship -> exit image.");
   engineLines.push("  expert_rule: the cure for writer's block is not more premise; it is a pressure source that changes the character's available choices.");
@@ -1575,7 +1640,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     nextThreeTurns,
     nextSceneMoves,
     nextScenePlan,
-    unresolvedSetups,
+    unresolvedSetups: rankedUnresolvedSetups,
     unresolvedStoryThreads,
     characterArcTurns,
     actThreePayoffPath,
@@ -1583,6 +1648,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     endingImage,
     acceptedPages: creativeRecall.acceptedPages,
     storyMoments: creativeRecall.storyMoments,
+    dueStoryThread,
   });
 
   return [
@@ -1594,7 +1660,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     ...engineLines,
     ...moveOptionLines,
     "response_contract:",
-    "  - Start from one remembered pressure source: next turn, open setup, character arc pressure, act obligation, or payoff seed.",
+    "  - If oldest_due_story_thread exists, spend or pressure it first; otherwise start from the next turn, open setup, character arc pressure, act obligation, or payoff seed.",
     "  - Lead with rank_1; use its evidence and success check as Clementine's decisive answer before alternatives.",
     "  - Convert it into one decisive playable next beat with objective, obstacle, tactic shift, cost, and exit image.",
     "  - If alternatives help, give at most two short forks after the strongest move.",

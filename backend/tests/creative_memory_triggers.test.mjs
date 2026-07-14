@@ -733,9 +733,17 @@ test("accepted scene history spans a full feature and retrieves an early setup n
       continuity: {
         projectId: "feature-100",
         projectTitle: "The Long Return",
+        act: index >= 70 ? "Act III" : "Act II",
+        ...(index === 4 ? {
+          unresolvedSetups: ["The red locket inside the courthouse clock"],
+        } : {}),
+        ...(index === 99 ? {
+          actThreePayoffPath: ["Nora uses the red locket to expose the forged verdict"],
+        } : {}),
         acceptedScenes: [{
           anchorSceneId: `scene-${index}`,
           sceneHeading: `INT. LOCATION ${index} - NIGHT`,
+          act: index >= 70 ? "Act III" : "Act II",
           summary: index === 4
             ? "Nora hides the red locket inside the courthouse clock."
             : `Nora crosses story threshold ${index}.`,
@@ -758,6 +766,59 @@ test("accepted scene history spans a full feature and retrieves an early setup n
   });
   assert.equal(memory.acceptedScenes[0].sceneHeading, "INT. LOCATION 99 - NIGHT");
   assert.equal(memory.acceptedScenes.some((scene) => scene.sceneHeading === "INT. LOCATION 4 - NIGHT"), true);
+  assert.deepEqual(memory.dueStoryThread, {
+    kind: "payoff",
+    setup: "The red locket inside the courthouse clock",
+    promisedPayoff: "Nora uses the red locket to expose the forged verdict",
+    sourceSceneHeading: "INT. LOCATION 4 - NIGHT",
+    sourceSceneSummary: "Nora hides the red locket inside the courthouse clock.",
+    sourceAct: "Act II",
+    ageInScenes: 95,
+    acceptedSceneCount: 96,
+  });
+});
+
+test("due story threads require accepted-scene provenance and never pair unrelated payoffs", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordProjectContinuity({
+    userId: "u-unproven-due-thread",
+    continuity: {
+      projectId: "unproven-feature",
+      unresolvedSetups: ["The red locket"],
+      actThreePayoffPath: ["The voicemail becomes testimony"],
+    },
+  });
+  const unproven = await store.getCreativeMemoryForPrompt({
+    userId: "u-unproven-due-thread",
+    projectId: "unproven-feature",
+  });
+  assert.equal(unproven.dueStoryThread, undefined);
+
+  await store.recordProjectContinuity({
+    userId: "u-unrelated-due-payoffs",
+    continuity: {
+      projectId: "causal-feature",
+      act: "Act II",
+      unresolvedSetups: ["The red locket inside the courthouse clock", "The brass key"],
+      actThreePayoffPath: ["The voicemail becomes testimony", "The ticket stops the train"],
+      acceptedScenes: [{
+        sceneHeading: "INT. CLOCK TOWER - NIGHT",
+        act: "Act II",
+        summary: "Nora hides the red locket inside the courthouse clock.",
+        unresolvedSetups: ["The red locket inside the courthouse clock"],
+        acceptedAt: 10,
+      }],
+    },
+  });
+  const causal = await store.getCreativeMemoryForPrompt({
+    userId: "u-unrelated-due-payoffs",
+    projectId: "causal-feature",
+  });
+  assert.equal(causal.dueStoryThread.kind, "setup");
+  assert.equal(causal.dueStoryThread.setup, "The red locket inside the courthouse clock");
+  assert.equal(causal.dueStoryThread.promisedPayoff, undefined);
+  assert.equal(causal.dueStoryThread.sourceSceneHeading, "INT. CLOCK TOWER - NIGHT");
+  assert.doesNotMatch(JSON.stringify(causal.dueStoryThread), /voicemail|ticket|train/i);
 });
 
 test("committed Studio pages promote only the matching project's generated draft", async () => {

@@ -4049,8 +4049,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
     }
 
-    private static func restoredContinuityNextMove(_ snapshot: BackendSessionContinuitySnapshot) -> String {
-        firstRestoredContinuityValue(
+    static func restoredContinuityNextMove(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        let immediateMove = firstRestoredContinuityValue(
             [
                 snapshot.nextScenePlan,
                 snapshot.nextSceneMoves.first ?? "",
@@ -4059,6 +4059,30 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             ],
             fallback: ""
         )
+        guard let due = snapshot.dueStoryThread, due.isMeaningful else { return immediateMove }
+        let setup = restoredContinuityClause(due.setup, limit: 180)
+        let setupPhrase = restoredContinuityMidSentencePhrase(setup)
+        let payoff = restoredContinuityClause(due.promisedPayoff, limit: 180)
+        let dueMove: String
+        if due.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "payoff",
+           !setup.isEmpty,
+           !payoff.isEmpty {
+            dueMove = "turning \(setupPhrase) into its promised payoff: \(payoff)"
+        } else if !setup.isEmpty, !payoff.isEmpty {
+            dueMove = "pressuring \(setupPhrase) toward this payoff: \(payoff)"
+        } else if !setup.isEmpty {
+            dueMove = "pressuring \(setupPhrase)"
+        } else {
+            dueMove = "delivering this promised payoff: \(payoff)"
+        }
+        guard !immediateMove.isEmpty else { return restoredContinuityText(dueMove, limit: 260) }
+        let lowerMove = immediateMove.lowercased()
+        if (!setup.isEmpty && lowerMove.contains(setup.lowercased())) ||
+            (!payoff.isEmpty && lowerMove.contains(payoff.lowercased())) {
+            return immediateMove
+        }
+        let immediateClause = restoredContinuityClause(immediateMove, limit: 220)
+        return restoredContinuityText("\(immediateClause), while \(dueMove)", limit: 260)
     }
 
     private static func firstRestoredContinuityValue(
@@ -4078,6 +4102,19 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
         guard !compact.isEmpty else { return "" }
         return String(compact.prefix(max(0, limit))).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func restoredContinuityClause(_ value: String, limit: Int) -> String {
+        restoredContinuityText(value, limit: limit)
+            .replacingOccurrences(of: #"[.!?]+$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func restoredContinuityMidSentencePhrase(_ value: String) -> String {
+        for article in ["The ", "This ", "That ", "A ", "An "] where value.hasPrefix(article) {
+            return article.lowercased() + String(value.dropFirst(article.count))
+        }
+        return value
     }
 
     func recentTurnPairs(for memoryDomain: StudioMemoryDomain) -> [(user: String, assistant: String)] {

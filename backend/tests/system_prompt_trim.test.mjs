@@ -46,6 +46,9 @@ test("[system-prompt-trim] preserves session and screenplay task when trimming l
     "accepted-scene-causality:",
     "  directive: authoritative accepted Studio scenes, newest first.",
     "  - ACCEPTED_SCENE [Act II · INT. ARCHIVE - NIGHT]: happened=Mara hides the VHS tape | changed=Eli pockets her key | still_open=The sister's voicemail",
+    "due-story-thread:",
+    "  oldest_due_story_thread: The sister's voicemail hidden behind the vent.",
+    "  promised_payoff: The voicemail becomes public testimony.",
     "recurring-characters:",
     "  - JUNE - sparse, wounded, dry",
     "</creative_memory>",
@@ -94,9 +97,9 @@ test("[system-prompt-trim] preserves session and screenplay task when trimming l
   assert.ok(out.includes("<creative_memory>"));
   assert.ok(out.includes("authoritative_corrections: cassette -> VHS tape"));
   assert.ok(out.includes("current_beat: Mara finds the sealed affidavit."));
-  assert.ok(out.includes("unresolved_setups: The sister's voicemail"));
   assert.ok(out.includes("ACCEPTED_SCENE [Act II"));
   assert.ok(out.includes("Eli pockets her key"));
+  assert.ok(out.includes("oldest_due_story_thread: The sister's voicemail hidden behind the vent."));
   assert.ok(out.includes("JUNE"));
   assert.ok(out.includes("<session>"));
   assert.ok(out.includes("project: proj-7"));

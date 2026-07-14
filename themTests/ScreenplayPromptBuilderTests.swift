@@ -296,6 +296,7 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertFalse(result.fallbackReason.isEmpty)
     }
 
+    @MainActor
     func testSessionContinuitySnapshotDecodesRicherFeatureMemoryRestore() throws {
         let data = Data("""
         {
@@ -344,6 +345,17 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
           "page_count": 47,
           "target_pages": 105,
           "memory_excerpt": "The sealed affidavit becomes dangerous.",
+          "due_story_thread": {
+            "kind": "payoff",
+            "setup": "The red locket hidden in the courthouse clock.",
+            "promised_payoff": "Mara uses the locket to expose who altered the verdict.",
+            "source_scene_heading": "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+            "source_scene_summary": "Mara hides the locket before the bailiff enters.",
+            "source_scene_outcome": "The locket survives the search.",
+            "source_act": "Act II",
+            "age_in_scenes": 17,
+            "accepted_scene_count": 42
+          },
           "is_correction": false,
           "updated_at": 950
         }
@@ -376,6 +388,16 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(snapshot.imageMotifs, ["charcoal dust", "courthouse fluorescents"])
         XCTAssertEqual(snapshot.pageCount, 47)
         XCTAssertEqual(snapshot.targetPages, 105)
+        XCTAssertEqual(snapshot.dueStoryThread?.kind, "payoff")
+        XCTAssertEqual(snapshot.dueStoryThread?.setup, "The red locket hidden in the courthouse clock.")
+        XCTAssertEqual(snapshot.dueStoryThread?.promisedPayoff, "Mara uses the locket to expose who altered the verdict.")
+        XCTAssertEqual(snapshot.dueStoryThread?.sourceSceneHeading, "INT. COURTHOUSE CLOCK TOWER - NIGHT")
+        XCTAssertEqual(snapshot.dueStoryThread?.ageInScenes, 17)
+        XCTAssertEqual(snapshot.dueStoryThread?.acceptedSceneCount, 42)
+        XCTAssertEqual(
+            ScreenplayLiveDraftBridge.restoredContinuityNextMove(snapshot),
+            "Move into a private corridor confrontation, while turning the red locket hidden in the courthouse clock into its promised payoff: Mara uses the locket to expose who altered the verdict"
+        )
     }
 }
 

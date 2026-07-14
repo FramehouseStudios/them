@@ -1050,6 +1050,48 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let backendBootId: String?
 }
 
+nonisolated struct BackendDueStoryThread: Decodable, Hashable {
+    let kind: String
+    let setup: String
+    let promisedPayoff: String
+    let sourceSceneHeading: String
+    let sourceSceneSummary: String
+    let sourceSceneOutcome: String
+    let sourceAct: String
+    let ageInScenes: Int
+    let acceptedSceneCount: Int
+
+    var isMeaningful: Bool {
+        !setup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !promisedPayoff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case setup
+        case promisedPayoff
+        case sourceSceneHeading
+        case sourceSceneSummary
+        case sourceSceneOutcome
+        case sourceAct
+        case ageInScenes
+        case acceptedSceneCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        setup = try container.decodeIfPresent(String.self, forKey: .setup) ?? ""
+        promisedPayoff = try container.decodeIfPresent(String.self, forKey: .promisedPayoff) ?? ""
+        sourceSceneHeading = try container.decodeIfPresent(String.self, forKey: .sourceSceneHeading) ?? ""
+        sourceSceneSummary = try container.decodeIfPresent(String.self, forKey: .sourceSceneSummary) ?? ""
+        sourceSceneOutcome = try container.decodeIfPresent(String.self, forKey: .sourceSceneOutcome) ?? ""
+        sourceAct = try container.decodeIfPresent(String.self, forKey: .sourceAct) ?? ""
+        ageInScenes = try container.decodeIfPresent(Int.self, forKey: .ageInScenes) ?? 0
+        acceptedSceneCount = try container.decodeIfPresent(Int.self, forKey: .acceptedSceneCount) ?? 0
+    }
+}
+
 nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
     let hasContinuity: Bool
     let source: String
@@ -1088,6 +1130,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
     let memoryExcerpt: String
     let isCorrection: Bool
     let updatedAt: TimeInterval
+    let dueStoryThread: BackendDueStoryThread?
 
     var isMeaningful: Bool {
         hasContinuity && ([
@@ -1124,6 +1167,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
             !characterArcTurns.isEmpty ||
             !imageMotifs.isEmpty ||
             !continuityNotes.isEmpty ||
+            dueStoryThread?.isMeaningful == true ||
             pageCount > 0 ||
             targetPages > 0)
     }
@@ -1166,6 +1210,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
         case memoryExcerpt
         case isCorrection
         case updatedAt
+        case dueStoryThread
     }
 
     init(from decoder: Decoder) throws {
@@ -1207,6 +1252,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
         memoryExcerpt = try container.decodeIfPresent(String.self, forKey: .memoryExcerpt) ?? ""
         isCorrection = try container.decodeIfPresent(Bool.self, forKey: .isCorrection) ?? false
         updatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
+        dueStoryThread = try container.decodeIfPresent(BackendDueStoryThread.self, forKey: .dueStoryThread)
     }
 }
 

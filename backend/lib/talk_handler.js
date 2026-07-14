@@ -521,10 +521,19 @@ function createTalkHandler(deps) {
     const tracedEpisodes = Array.isArray(creativeMemoryTrace?.episodic)
       ? creativeMemoryTrace.episodic.filter((item) => item && typeof item === "object")
       : [];
+    const tracedAcceptedScenes = Array.isArray(creativeMemoryTrace?.accepted_scenes)
+      ? creativeMemoryTrace.accepted_scenes.filter((item) => item && typeof item === "object")
+      : [];
     const acceptedPageContinuity = normalizeTalkRepairList(
-      tracedEpisodes
-        .filter((item) => String(item.authority || "").trim().toLowerCase() === "accepted_page")
-        .map((item) => item.excerpt || item.summary),
+      [
+        ...tracedAcceptedScenes.map((item) => [
+          normalizeSnippet(item.scene_heading, 120),
+          normalizeSnippet(item.outcome || item.summary || item.excerpt, 220),
+        ].filter(Boolean).join(" - ")),
+        ...tracedEpisodes
+          .filter((item) => String(item.authority || "").trim().toLowerCase() === "accepted_page")
+          .map((item) => item.excerpt || item.summary),
+      ],
       3,
       240
     );
@@ -537,6 +546,20 @@ function createTalkHandler(deps) {
       4,
       220
     );
+    const tracedDueStoryThread = creativeMemoryTrace?.due_story_thread &&
+      typeof creativeMemoryTrace.due_story_thread === "object" &&
+      !Array.isArray(creativeMemoryTrace.due_story_thread)
+      ? {
+        kind: normalizeSnippet(creativeMemoryTrace.due_story_thread.kind, 24),
+        setup: normalizeSnippet(creativeMemoryTrace.due_story_thread.setup, 220),
+        promisedPayoff: normalizeSnippet(creativeMemoryTrace.due_story_thread.promised_payoff, 220),
+        sourceSceneHeading: normalizeSnippet(creativeMemoryTrace.due_story_thread.source_scene_heading, 140),
+        sourceSceneSummary: normalizeSnippet(creativeMemoryTrace.due_story_thread.source_scene_summary, 220),
+        sourceSceneOutcome: normalizeSnippet(creativeMemoryTrace.due_story_thread.source_scene_outcome, 220),
+        sourceAct: normalizeSnippet(creativeMemoryTrace.due_story_thread.source_act, 80),
+        ageInScenes: Math.max(0, Math.round(Number(creativeMemoryTrace.due_story_thread.age_in_scenes || 0))),
+      }
+      : null;
     const baseWithCreativeRecall = {
       ...base,
       screenplayAcceptedPageContinuity: mergeTalkMomentumRepairContextList(
@@ -551,10 +574,16 @@ function createTalkHandler(deps) {
         4,
         220
       ),
+      ...(tracedDueStoryThread?.setup || tracedDueStoryThread?.promisedPayoff
+        ? { screenplayDueStoryThread: tracedDueStoryThread }
+        : {}),
     };
     const memoryProject = selectTalkMomentumMemoryProject(memory, base);
     if (!memoryProject) {
-      return acceptedPageContinuity.length || retrievedStoryMoments.length
+      return acceptedPageContinuity.length ||
+        retrievedStoryMoments.length ||
+        tracedDueStoryThread?.setup ||
+        tracedDueStoryThread?.promisedPayoff
         ? baseWithCreativeRecall
         : studioMeta;
     }
@@ -735,6 +764,22 @@ function createTalkHandler(deps) {
       4,
       220
     );
+    const rawDueStoryThread = studioMeta?.screenplayDueStoryThread ||
+      studioMeta?.screenplay_due_story_thread ||
+      studioMeta?.dueStoryThread ||
+      studioMeta?.due_story_thread;
+    const screenplayDueStoryThread = rawDueStoryThread && typeof rawDueStoryThread === "object" && !Array.isArray(rawDueStoryThread)
+      ? {
+        kind: normalizeSnippet(rawDueStoryThread.kind, 24),
+        setup: normalizeSnippet(rawDueStoryThread.setup, 220),
+        promisedPayoff: normalizeSnippet(rawDueStoryThread.promisedPayoff || rawDueStoryThread.promised_payoff, 220),
+        sourceSceneHeading: normalizeSnippet(rawDueStoryThread.sourceSceneHeading || rawDueStoryThread.source_scene_heading, 140),
+        sourceSceneSummary: normalizeSnippet(rawDueStoryThread.sourceSceneSummary || rawDueStoryThread.source_scene_summary, 220),
+        sourceSceneOutcome: normalizeSnippet(rawDueStoryThread.sourceSceneOutcome || rawDueStoryThread.source_scene_outcome, 220),
+        sourceAct: normalizeSnippet(rawDueStoryThread.sourceAct || rawDueStoryThread.source_act, 80),
+        ageInScenes: Math.max(0, Math.round(Number(rawDueStoryThread.ageInScenes || rawDueStoryThread.age_in_scenes || 0))),
+      }
+      : null;
     const storyMoveLibraryLines = selectStoryMoveLibraryLinesForContext({
       transcript: userRequest,
       act: screenplayAct,
@@ -750,6 +795,7 @@ function createTalkHandler(deps) {
       unresolvedStoryThreads: screenplayUnresolvedStoryThreads,
       actThreePayoffPath: screenplayActThreePayoffPath,
       imageMotifs: screenplayImageMotifs,
+      dueStoryThread: screenplayDueStoryThread,
     });
     const rankedRescueMoves = rankStoryRescueMovesForContext({
       transcript: userRequest,
@@ -777,6 +823,7 @@ function createTalkHandler(deps) {
       imageMotifs: screenplayImageMotifs,
       acceptedPages: screenplayAcceptedPageContinuity,
       storyMoments: screenplayRetrievedStoryMoments,
+      dueStoryThread: screenplayDueStoryThread,
     });
     const contextLines = [
       screenplayAct ? `ACT: ${screenplayAct}` : "",
@@ -787,6 +834,10 @@ function createTalkHandler(deps) {
       screenplayActPressureState ? `ACT_PRESSURE: ${screenplayActPressureState}` : "",
       screenplayLastSceneOutcome ? `LAST_SCENE_OUTCOME: ${screenplayLastSceneOutcome}` : "",
       screenplayCharacterArcState ? `CHARACTER_ARC_PRESSURE: ${screenplayCharacterArcState}` : "",
+      screenplayDueStoryThread?.setup ? `DUE_STORY_THREAD: ${screenplayDueStoryThread.setup}` : "",
+      screenplayDueStoryThread?.promisedPayoff ? `DUE_STORY_PAYOFF: ${screenplayDueStoryThread.promisedPayoff}` : "",
+      screenplayDueStoryThread?.sourceSceneHeading ? `DUE_STORY_SOURCE: ${screenplayDueStoryThread.sourceSceneHeading}` : "",
+      screenplayDueStoryThread?.ageInScenes ? `DUE_STORY_AGE: ${screenplayDueStoryThread.ageInScenes} accepted scenes` : "",
       ...screenplayAcceptedPageContinuity.map((item) => `ACCEPTED_PAGE_CONTINUITY: ${item}`),
       ...screenplayRetrievedStoryMoments.map((item) => `AUTHORITATIVE_STORY_MEMORY: ${item}`),
       ...rankedRescueMoves.map((item) => `RANKED_RESCUE_MOVE: ${formatRankedStoryRescueMoveLine(item)}`),
@@ -807,6 +858,7 @@ function createTalkHandler(deps) {
           "Diagnose the precise story blockage silently, then answer with one strongest next move.",
           "A passing answer must include a pressure engine, a decisive next beat, emotional cost, and a tiny playable micro-beat in clean screenplay/Fountain shape.",
           "When RANKED_RESCUE_MOVE is supplied, execute rank_1 unless it conflicts with a writer correction; preserve its named evidence and satisfy its success check.",
+          "When DUE_STORY_THREAD is supplied, pressure or pay that accepted-page obligation before inventing a replacement thread.",
           "Use the STORY_MOVE_LIBRARY lines when supplied; pick the one engine that best solves the failed gate and dramatize it as action, tactical dialogue, cost, and exit image.",
           "Use act-aware story intelligence: Act I commits, Act II reverses/traps/costs, Act III pays off setup through changed behavior.",
           "If the user is only brainstorming, still give one playable beat they can write today, then at most two short alternate forks.",

@@ -1233,6 +1233,29 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
         coverageRatio: 0.778,
         backfillQueued: true,
       },
+      acceptedScenes: [
+        {
+          sceneHeading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+          act: "Act II",
+          summary: "Mara hides the red locket before the bailiff enters.",
+          outcome: "The locket survives the search.",
+          nextScenePlan: "Mara carries the locket into the hearing.",
+          excerpt: "Mara slides the red locket behind the frozen minute hand.",
+          characterNames: ["Mara", "Bailiff"],
+          acceptedAt: 1_800,
+        },
+      ],
+      dueStoryThread: {
+        kind: "payoff",
+        setup: "The red locket hidden in the courthouse clock.",
+        promisedPayoff: "Mara uses the locket to expose who altered the verdict.",
+        sourceSceneHeading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+        sourceSceneSummary: "Mara hides the red locket before the bailiff enters.",
+        sourceSceneOutcome: "The locket survives the search.",
+        sourceAct: "Act II",
+        ageInScenes: 17,
+        acceptedSceneCount: 42,
+      },
       style: { preferredTone: "restrained" },
     },
     {
@@ -1269,6 +1292,28 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.equal(trace.project_title, "Rain Docket");
   assert.equal(trace.character_count, 1);
   assert.equal(trace.episodic_count, 2);
+  assert.equal(trace.accepted_scene_count, 1);
+  assert.deepEqual(trace.accepted_scenes[0], {
+    scene_heading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+    act: "Act II",
+    summary: "Mara hides the red locket before the bailiff enters.",
+    outcome: "The locket survives the search.",
+    next_scene_plan: "Mara carries the locket into the hearing.",
+    excerpt: "Mara slides the red locket behind the frozen minute hand.",
+    characters: ["Mara", "Bailiff"],
+    accepted_at: 1_800,
+  });
+  assert.deepEqual(trace.due_story_thread, {
+    kind: "payoff",
+    setup: "The red locket hidden in the courthouse clock.",
+    promised_payoff: "Mara uses the locket to expose who altered the verdict.",
+    source_scene_heading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+    source_scene_summary: "Mara hides the red locket before the bailiff enters.",
+    source_scene_outcome: "The locket survives the search.",
+    source_act: "Act II",
+    age_in_scenes: 17,
+    accepted_scene_count: 42,
+  });
   assert.equal(trace.correction_count, 3);
   assert.deepEqual(trace.corrected_terms, ["mother", "cassette"]);
   assert.deepEqual(trace.correction_replacements, ["mother -> Eli's sister", "cassette -> VHS tape"]);
@@ -1461,6 +1506,30 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
       targetPages: 108,
       updatedAt: 2_400,
     },
+    acceptedScenes: [
+      {
+        sceneHeading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+        act: "Act II",
+        featureSequence: "Act II - Bad Guys Close In",
+        summary: "Mara retrieves the locket while Eli holds the stairwell.",
+        outcome: "Judge Vale sees the locket in Mara's hand.",
+        nextScenePlan: "Mara enters the hearing before Vale can seal the room.",
+        excerpt: "Mara closes her fist around the red locket as the alarm wakes.",
+        characterNames: ["Mara", "Eli", "Judge Vale"],
+        acceptedAt: 2_600,
+      },
+    ],
+    dueStoryThread: {
+      kind: "payoff",
+      setup: "The red locket hidden in the courthouse clock.",
+      promisedPayoff: "Mara uses the locket to expose who altered the verdict.",
+      sourceSceneHeading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+      sourceSceneSummary: "Mara hid the locket behind the frozen minute hand.",
+      sourceSceneOutcome: "The locket survived the bailiff's search.",
+      sourceAct: "Act II",
+      ageInScenes: 17,
+      acceptedSceneCount: 42,
+    },
     episodicMemories: [
       {
         projectId: "night-train",
@@ -1477,17 +1546,17 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
   assert.equal(snapshot.project_id, "rain-docket");
   assert.equal(snapshot.project_title, "Rain Docket");
   assert.equal(snapshot.act, "Act II");
-  assert.equal(snapshot.feature_sequence, "Midpoint pressure");
-  assert.equal(snapshot.scene_summary, "Eli corners Mara beside the sealed records room.");
-  assert.equal(snapshot.current_beat, "Eli catches Mara hiding the affidavit.");
+  assert.equal(snapshot.feature_sequence, "Act II - Bad Guys Close In");
+  assert.equal(snapshot.scene_summary, "Mara retrieves the locket while Eli holds the stairwell.");
+  assert.equal(snapshot.current_beat, "Mara retrieves the locket while Eli holds the stairwell.");
   assert.equal(snapshot.central_question, "Can Mara expose the court without sacrificing Eli?");
-  assert.equal(snapshot.last_scene_outcome, "The affidavit is no longer secret.");
-  assert.equal(snapshot.next_scene_plan, "Force Mara to choose between Eli and public truth.");
+  assert.equal(snapshot.last_scene_outcome, "Judge Vale sees the locket in Mara's hand.");
+  assert.equal(snapshot.next_scene_plan, "Mara enters the hearing before Vale can seal the room.");
   assert.deepEqual(snapshot.next_scene_moves, ["Eli demands the truth.", "Mara chooses a protective lie."]);
   assert.deepEqual(snapshot.unresolved_setups, ["The sister's voicemail"]);
   assert.deepEqual(snapshot.unresolved_story_threads, ["Who forged the first report?"]);
   assert.deepEqual(snapshot.act_three_payoff_path, ["The voicemail becomes testimony"]);
-  assert.deepEqual(snapshot.character_focus, ["Mara", "Eli"]);
+  assert.deepEqual(snapshot.character_focus, ["Mara", "Eli", "Judge Vale"]);
   assert.equal(snapshot.character_arc_state, "Mara protects Eli by lying.");
   assert.equal(snapshot.emotional_continuity, "Mara is ashamed but committed.");
   assert.deepEqual(snapshot.corrected_terms, ["cassette"]);
@@ -1496,11 +1565,26 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
   assert.equal(snapshot.is_correction, true);
   assert.equal(snapshot.page_count, 54);
   assert.equal(snapshot.target_pages, 108);
-  assert.equal(snapshot.memory_excerpt, "");
-  assert.equal(snapshot.updated_at, 2_400);
+  assert.equal(snapshot.memory_excerpt, "Mara closes her fist around the red locket as the alarm wakes.");
+  assert.equal(snapshot.updated_at, 2_600);
+  assert.deepEqual(snapshot.due_story_thread, {
+    kind: "payoff",
+    setup: "The red locket hidden in the courthouse clock.",
+    promised_payoff: "Mara uses the locket to expose who altered the verdict.",
+    source_scene_heading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+    source_scene_summary: "Mara hid the locket behind the frozen minute hand.",
+    source_scene_outcome: "The locket survived the bailiff's search.",
+    source_act: "Act II",
+    age_in_scenes: 17,
+    accepted_scene_count: 42,
+  });
   assert.ok(snapshot.opening_line.includes("Rain Docket"));
-  assert.ok(snapshot.opening_line.includes("Act II / Midpoint pressure"));
-  assert.ok(snapshot.opening_line.includes("Next move: Force Mara to choose between Eli and public truth."));
+  assert.ok(snapshot.opening_line.includes("Act II / Act II - Bad Guys Close In"));
+  assert.ok(snapshot.opening_line.includes("Judge Vale sees the locket in Mara's hand."));
+  assert.ok(snapshot.opening_line.includes("The thread waiting longest is The red locket hidden in the courthouse clock"));
+  assert.ok(snapshot.opening_line.includes("still open after 17 accepted scenes"));
+  assert.ok(snapshot.opening_line.includes("Its promised payoff is Mara uses the locket to expose who altered the verdict."));
+  assert.ok(snapshot.opening_line.includes("Next move: Mara enters the hearing before Vale can seal the room."));
   assert.doesNotMatch(JSON.stringify(snapshot), /Night Train|uncouples/);
 });
 

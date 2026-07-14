@@ -100,3 +100,34 @@ test("[momentum-rescue-fallback] sparse block turns still get one decisive playa
   assert.equal(quality.ok, true);
   assert.equal(quality.reason, "ok");
 });
+
+test("[momentum-rescue-fallback] spends the oldest accepted-scene promise during provider fallback", () => {
+  const reply = buildMomentumRescueFallbackReply({
+    transcript: "I'm stuck before the hearing.",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Bad Guys Close In",
+      screenplayCurrentBeat: "Mara reaches the hearing with no leverage.",
+      screenplayCharacterFocus: ["Mara", "Judge Vale"],
+      screenplayUnresolvedSetups: ["The sealed affidavit"],
+      screenplayAcceptedPageContinuity: ["The locket survives the bailiff's search."],
+      screenplayDueStoryThread: {
+        kind: "payoff",
+        setup: "The red locket hidden in the courthouse clock.",
+        promisedPayoff: "Mara uses the locket to expose who altered the verdict.",
+        sourceSceneHeading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+        sourceSceneOutcome: "The locket survives the bailiff's search.",
+        sourceAct: "Act II",
+        ageInScenes: 17,
+      },
+    },
+  });
+
+  assert.match(reply, /Oldest due story thread: The red locket hidden in the courthouse clock, still open after 17 accepted scenes/);
+  assert.match(reply, /Promised payoff: Mara uses the locket to expose who altered the verdict/);
+  assert.match(reply, /Ranked strongest move - payoff pressure:/);
+  assert.match(reply, /Grounded in: due_story_thread: The red locket hidden in the courthouse clock/);
+  assert.match(reply, /Mara uses the locket to expose who altered the verdict/);
+  assert.match(reply, /Mara puts the red locket hidden in the courthouse clock where Judge Vale can see it/);
+});

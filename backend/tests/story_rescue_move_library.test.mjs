@@ -77,3 +77,30 @@ test("[story-rescue-move-library] ranks accepted continuity by act, character, a
   assert.match(line, /accepted_page: Mara puts the affidavit on the record/);
   assert.doesNotMatch(line, /contentHash|content_hash/);
 });
+
+test("[story-rescue-move-library] an old accepted setup outranks generic Act II invention", () => {
+  const ranked = rankStoryRescueMovesForContext({
+    transcript: "I'm stuck in the middle. What happens next?",
+    act: "Act II",
+    featureSequence: "Bad guys close in",
+    currentBeat: "Nora reaches the courthouse before dawn.",
+    featureObligation: "Make Nora's private proof dangerous in public.",
+    characters: ["Nora"],
+    unresolvedSetups: ["The red locket inside the courthouse clock"],
+    actThreePayoffPath: ["Nora uses the red locket to expose the forged verdict"],
+    acceptedPages: ["Nora reaches the courthouse before dawn."],
+    dueStoryThread: {
+      kind: "setup",
+      setup: "The red locket inside the courthouse clock",
+      promisedPayoff: "Nora uses the red locket to expose the forged verdict",
+      sourceSceneHeading: "INT. COURTHOUSE CLOCK - NIGHT",
+      sourceSceneSummary: "Nora hides the red locket inside the courthouse clock.",
+      ageInScenes: 17,
+    },
+  });
+
+  assert.equal(ranked[0].key, "payoff_pressure");
+  assert.ok(ranked[0].evidence[0].startsWith("due_story_thread:"));
+  assert.match(ranked[0].move, /red locket inside the courthouse clock/i);
+  assert.match(ranked[0].move, /expose the forged verdict/i);
+});

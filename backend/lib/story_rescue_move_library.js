@@ -168,7 +168,9 @@ function selectStoryMoveLibraryLinesForContext({
   unresolvedStoryThreads = [],
   actThreePayoffPath = [],
   imageMotifs = [],
+  dueStoryThread = null,
 } = {}) {
+  const due = normalizeDueStoryThread(dueStoryThread);
   const source = [
     transcript,
     act,
@@ -183,6 +185,10 @@ function selectStoryMoveLibraryLinesForContext({
     ...normalizeList(unresolvedStoryThreads, 6, 180),
     ...normalizeList(actThreePayoffPath, 5, 180),
     ...normalizeList(imageMotifs, 5, 140),
+    due?.setup,
+    due?.promisedPayoff,
+    due?.sourceSceneSummary,
+    due?.sourceSceneOutcome,
   ].filter(Boolean).join(" ");
   const actKind = inferStoryMoveActKind([act, featureSequence, featureObligation, actPressureState, transcript].join(" "));
   return selectStoryMoveLibraryLines(source, { intent, actKind, act, problem });
@@ -216,6 +222,21 @@ function firstStoryValue(values = [], fallback = "") {
 
 function storyClause(value, fallback = "") {
   return firstStoryValue([value], fallback).replace(/[.!?]+$/g, "").trim();
+}
+
+function normalizeDueStoryThread(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out = {
+    kind: normalizeSnippet(value.kind, 24),
+    setup: normalizeSnippet(value.setup ?? value.oldestOpenSetup ?? value.oldest_open_setup, 220),
+    promisedPayoff: normalizeSnippet(value.promisedPayoff ?? value.promised_payoff ?? value.payoff, 220),
+    sourceSceneHeading: normalizeSnippet(value.sourceSceneHeading ?? value.source_scene_heading, 140),
+    sourceSceneSummary: normalizeSnippet(value.sourceSceneSummary ?? value.source_scene_summary, 220),
+    sourceSceneOutcome: normalizeSnippet(value.sourceSceneOutcome ?? value.source_scene_outcome, 220),
+    sourceAct: normalizeSnippet(value.sourceAct ?? value.source_act, 80),
+    ageInScenes: Math.max(0, Math.round(Number(value.ageInScenes ?? value.age_in_scenes ?? 0))),
+  };
+  return out.setup || out.promisedPayoff ? out : null;
 }
 
 function normalizeStoryRescueContext(context = {}) {
@@ -258,6 +279,7 @@ function normalizeStoryRescueContext(context = {}) {
   const featureObligation = normalizeSnippet(context.featureObligation ?? context.feature_obligation, 220);
   const actPressureState = normalizeSnippet(context.actPressureState ?? context.act_pressure_state, 220);
   const transcript = normalizeSnippet(context.transcript, 600);
+  const dueStoryThread = normalizeDueStoryThread(context.dueStoryThread ?? context.due_story_thread);
   return {
     transcript,
     intent: normalizeSnippet(context.intent || "momentum_rescue", 64),
@@ -288,6 +310,7 @@ function normalizeStoryRescueContext(context = {}) {
     imageMotifs,
     characterArcTurns,
     characters,
+    dueStoryThread,
   };
 }
 
@@ -302,11 +325,18 @@ function storyMoveEvidence(key, context) {
     }
   };
   const nextTurn = context.nextThreeTurns[0] || context.nextSceneMoves[0] || context.nextScenePlan;
-  const setup = context.unresolvedSetups[0] || context.actThreePayoffPath[0];
+  const dueThread = context.dueStoryThread;
+  const setup = dueThread?.setup || dueThread?.promisedPayoff || context.unresolvedSetups[0] || context.actThreePayoffPath[0];
   const thread = context.unresolvedStoryThreads[0] || context.antagonisticForce;
   const characterPressure = context.characterArcTurns[0] || context.characterArcState || context.protagonistNeed;
   const image = context.imageMotifs[0] || context.endingImage;
 
+  if (
+    dueThread &&
+    ["payoff_pressure", "information_pressure", "reversal_pressure", "image_pressure"].includes(key)
+  ) {
+    add("due_story_thread", dueThread.setup || dueThread.promisedPayoff);
+  }
   add("accepted_page", context.acceptedPages[0]);
   if (["objective_pressure", "choice_pressure", "reversal_pressure"].includes(key)) {
     add("remembered_next_turn", nextTurn);
@@ -337,7 +367,12 @@ function storyMoveScore(key, context, selectedKeys) {
   if (actIndex >= 0) score += Math.max(10, 20 - actIndex * 5);
 
   const hasNextTurn = Boolean(context.nextThreeTurns[0] || context.nextSceneMoves[0] || context.nextScenePlan);
-  const hasSetup = Boolean(context.unresolvedSetups[0] || context.actThreePayoffPath[0]);
+  const hasSetup = Boolean(
+    context.dueStoryThread?.setup ||
+    context.dueStoryThread?.promisedPayoff ||
+    context.unresolvedSetups[0] ||
+    context.actThreePayoffPath[0]
+  );
   const hasThread = Boolean(context.unresolvedStoryThreads[0] || context.antagonisticForce);
   const hasCharacterPressure = Boolean(
     context.characterArcTurns[0] || context.characterArcState || context.protagonistWant || context.protagonistNeed
@@ -345,6 +380,7 @@ function storyMoveScore(key, context, selectedKeys) {
   const hasActPressure = Boolean(context.featureObligation || context.actPressureState);
   const hasImage = Boolean(context.imageMotifs[0] || context.endingImage);
   const hasAcceptedPage = Boolean(context.acceptedPages[0]);
+  const hasDueStoryThread = Boolean(context.dueStoryThread?.setup || context.dueStoryThread?.promisedPayoff);
 
   if (hasNextTurn && key === "objective_pressure") score += 12;
   if (hasNextTurn && key === "choice_pressure") score += 8;
@@ -363,12 +399,18 @@ function storyMoveScore(key, context, selectedKeys) {
   if (hasAcceptedPage && ["reversal_pressure", "information_pressure", "payoff_pressure", "image_pressure"].includes(key)) {
     score += 8;
   }
+  if (hasDueStoryThread && key === "payoff_pressure") {
+    score += 48 + Math.min(12, Math.floor(Number(context.dueStoryThread.ageInScenes || 0) / 4));
+  }
+  if (hasDueStoryThread && key === "information_pressure") score += 10;
+  if (hasDueStoryThread && key === "reversal_pressure") score += 6;
   score += Math.min(6, storyMoveEvidence(key, context).length * 2);
   return Math.max(1, Math.min(100, score));
 }
 
 function buildGroundedStoryMove(key, context) {
   const protagonist = firstStoryValue(context.characters, "the protagonist");
+  const dueThread = context.dueStoryThread;
   const nextTurn = storyClause(context.nextThreeTurns[0] || context.nextSceneMoves[0] || context.nextScenePlan);
   const sourceBeat = storyClause(
     context.currentBeat || context.lastSceneOutcome || context.acceptedPages[0],
@@ -384,8 +426,12 @@ function buildGroundedStoryMove(key, context) {
     "a force that can say no"
   );
   const setup = storyClause(
-    context.unresolvedSetups[0] || context.actThreePayoffPath[0] || context.storyMoments[0],
+    dueThread?.setup || dueThread?.promisedPayoff || context.unresolvedSetups[0] || context.actThreePayoffPath[0] || context.storyMoments[0],
     "an earlier promise"
+  );
+  const promisedPayoff = storyClause(
+    dueThread?.promisedPayoff || context.actThreePayoffPath[0],
+    "a changed image"
   );
   const cost = storyClause(
     context.characterArcTurns[0] || context.characterArcState || context.protagonistNeed || context.unresolvedStoryThreads[0],
@@ -400,6 +446,10 @@ function buildGroundedStoryMove(key, context) {
     "the next story obligation"
   );
   const acceptedAnchor = storyClause(context.acceptedPages[0] || context.storyMoments[0] || setup);
+  const dueSource = storyClause(
+    dueThread?.sourceSceneOutcome || dueThread?.sourceSceneSummary || dueThread?.sourceSceneHeading,
+    acceptedAnchor
+  );
 
   switch (key) {
     case "objective_pressure":
@@ -407,9 +457,9 @@ function buildGroundedStoryMove(key, context) {
     case "obstacle_pressure":
       return `Turn this into active opposition: ${opposition}. Put it between ${protagonist} and ${want}, forcing a tactic shift before the beat exits on ${image}.`;
     case "reversal_pressure":
-      return `Treat this beat as apparent progress: ${sourceBeat}. Then use this established continuity against it: ${acceptedAnchor}. The gain becomes this cost: ${cost}, forcing ${protagonist} to change tactic.`;
+      return `Treat this beat as apparent progress: ${sourceBeat}. Then use this established continuity against it: ${dueSource}. The gain becomes this cost: ${cost}, forcing ${protagonist} to change tactic.`;
     case "information_pressure":
-      return `Move this established fact into the wrong hands or a public space: ${acceptedAnchor}. Make the reveal force ${protagonist} to act before ready.`;
+      return `Move this established fact into the wrong hands or a public space: ${dueSource}. Make the reveal force ${protagonist} to act before ready.`;
     case "relationship_pressure":
       return `Make ${protagonist}'s move toward ${want} damage or redefine this bond: ${storyClause(context.unresolvedStoryThreads[0] || cost)}. The plot advances only through that emotional price.`;
     case "deadline_pressure":
@@ -417,7 +467,7 @@ function buildGroundedStoryMove(key, context) {
     case "choice_pressure":
       return `Force ${protagonist} to choose between ${want} and ${need}; close the safe door so the next scene becomes inevitable.`;
     case "payoff_pressure":
-      return `Spend this setup now: ${setup}. Inside this obligation: ${obligation}. Make ${protagonist}'s changed behavior, not explanation, deliver the payoff toward ${image}.`;
+      return `Spend this setup now: ${setup}. Inside this obligation: ${obligation}. Make ${protagonist}'s changed behavior, not explanation, deliver the promised payoff: ${promisedPayoff}. Land it through ${image}.`;
     case "image_pressure":
       return `Transform ${image} through one visible action by ${protagonist}; let the changed image put this character pressure on screen: ${cost}.`;
     default:
@@ -435,6 +485,7 @@ function rankStoryRescueMovesForContext(input = {}, { limit = 3 } = {}) {
     unresolvedStoryThreads: context.unresolvedStoryThreads,
     actThreePayoffPath: context.actThreePayoffPath,
     imageMotifs: context.imageMotifs,
+    dueStoryThread: context.dueStoryThread,
   });
   const selectedKeys = selectedLines
     .map((line) => normalizeSnippet(line, 80).split(":")[0])

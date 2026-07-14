@@ -9573,6 +9573,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if !restoredFirstMove.isEmpty {
             notes.append("First restored-response target: if the user asks to continue or speaks hands-free, start from this page move before inventing a new lane: \(restoredFirstMove)")
         }
+        if let due = snapshot.dueStoryThread, due.isMeaningful {
+            let sentenceBoundary = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!?"))
+            let setup = due.setup.trimmingCharacters(in: sentenceBoundary)
+            let payoff = due.promisedPayoff.trimmingCharacters(in: sentenceBoundary)
+            let thread = setup.isEmpty ? payoff : setup
+            let age = due.ageInScenes > 0 ? " Open for \(due.ageInScenes) accepted scenes." : ""
+            let promise = payoff.isEmpty ? "" : " Promised payoff: \(payoff)."
+            notes.append("Oldest accepted-page story obligation: \(thread).\(age)\(promise) Pressure or pay this before inventing a replacement plot thread.")
+        }
         let lastOutcome = snapshot.lastSceneOutcome.trimmingCharacters(in: .whitespacesAndNewlines)
         if !lastOutcome.isEmpty {
             notes.append("Last remembered scene outcome: \(lastOutcome)")
@@ -9625,6 +9634,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             snapshot.nextScenePlan,
             snapshot.nextThreeTurns.joined(separator: "/"),
             snapshot.actThreePayoffPath.joined(separator: "/"),
+            snapshot.dueStoryThread?.setup ?? "",
+            snapshot.dueStoryThread?.promisedPayoff ?? "",
+            String(snapshot.dueStoryThread?.ageInScenes ?? 0),
             String(Int(snapshot.updatedAt))
         ]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
@@ -9668,10 +9680,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         ]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? ""
+        let dueThread = snapshot.dueStoryThread?.setup.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let dueAge = snapshot.dueStoryThread?.ageInScenes ?? 0
 
         var parts: [String] = []
         if !position.isEmpty { parts.append(position) }
         if !lastThread.isEmpty { parts.append(lastThread) }
+        if !dueThread.isEmpty {
+            parts.append("Oldest open thread: \(dueThread)\(dueAge > 0 ? " (\(dueAge) accepted scenes)" : "")")
+        }
         if !nextMove.isEmpty { parts.append("Next: \(nextMove)") }
         return parts.isEmpty ? "Clementine restored your latest writing context." : parts.joined(separator: " ")
     }

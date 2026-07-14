@@ -63,8 +63,10 @@ function characterName(value, fallback) {
 }
 
 function articlePhrase(value, fallback = "the proof") {
-  const clean = normalizeSnippet(value, 140) || fallback;
-  if (/^(?:a|an|the|this|that|their|his|her|its|our)\b/i.test(clean)) return clean;
+  const clean = sentenceFragment(value, 140) || sentenceFragment(fallback, 140);
+  if (/^(?:a|an|the|this|that|their|his|her|its|our)\b/i.test(clean)) {
+    return `${clean.charAt(0).toLowerCase()}${clean.slice(1)}`;
+  }
   return `the ${clean}`;
 }
 
@@ -93,6 +95,25 @@ function listMetaValue(studioMeta, names, maxItems = 5, maxChars = 180) {
     if (items.length) return items;
   }
   return [];
+}
+
+function dueStoryThreadMetaValue(studioMeta) {
+  const value = studioMeta?.screenplayDueStoryThread ??
+    studioMeta?.screenplay_due_story_thread ??
+    studioMeta?.dueStoryThread ??
+    studioMeta?.due_story_thread;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out = {
+    kind: normalizeSnippet(value.kind, 24),
+    setup: normalizeSnippet(value.setup ?? value.oldestOpenSetup ?? value.oldest_open_setup, 220),
+    promisedPayoff: normalizeSnippet(value.promisedPayoff ?? value.promised_payoff ?? value.payoff, 220),
+    sourceSceneHeading: normalizeSnippet(value.sourceSceneHeading ?? value.source_scene_heading, 140),
+    sourceSceneSummary: normalizeSnippet(value.sourceSceneSummary ?? value.source_scene_summary, 220),
+    sourceSceneOutcome: normalizeSnippet(value.sourceSceneOutcome ?? value.source_scene_outcome, 220),
+    sourceAct: normalizeSnippet(value.sourceAct ?? value.source_act, 80),
+    ageInScenes: Math.max(0, Math.round(Number(value.ageInScenes ?? value.age_in_scenes ?? 0))),
+  };
+  return out.setup || out.promisedPayoff ? out : null;
 }
 
 function actRescueLine(act = "") {
@@ -215,6 +236,7 @@ function buildMomentumRescueFallbackReply({
     4,
     220
   );
+  const dueStoryThread = dueStoryThreadMetaValue(meta);
   const correctedTerms = listMetaValue(meta, ["screenplayCorrectedTerms", "screenplay_corrected_terms", "correctedTerms", "corrected_terms"], 4, 120);
   const correctionReplacements = listMetaValue(meta, ["screenplayCorrectionReplacements", "screenplay_correction_replacements", "correctionReplacements", "correction_replacements"], 4, 160);
   const correctionSummary = correctionReplacements.length || correctedTerms.length
@@ -227,9 +249,13 @@ function buildMomentumRescueFallbackReply({
   const opponent = characterName(characters[1], "Opposition");
   const protagonistCue = characterCue(characters[0], "PROTAGONIST");
   const opponentCue = characterCue(characters[1], "OPPOSITION");
-  const objectPressure = articlePhrase(setups[0] || motifs[0], "the proof");
-  const imagePressure = articlePhrase(motifs[0] || actThreePayoffPath[0] || setups[0], "the room going still");
-  const strongestTurn = nextTurns[0] || nextMoves[0] || nextScenePlan || sceneObjective ||
+  const objectPressure = articlePhrase(dueStoryThread?.setup || setups[0] || motifs[0], "the proof");
+  const imagePressure = articlePhrase(
+    motifs[0] || dueStoryThread?.setup || actThreePayoffPath[0] || setups[0],
+    "the room going still"
+  );
+  const strongestTurn = dueStoryThread?.promisedPayoff || dueStoryThread?.setup ||
+    nextTurns[0] || nextMoves[0] || nextScenePlan || sceneObjective ||
     "the protagonist chooses between the thing they want and the truth they are avoiding";
   const cost = characterArcTurns[0] || characterArc || protagonistNeed || actPressure || featureObligation || threads[0] ||
     "the choice changes the relationship and makes the next scene unavoidable";
@@ -262,6 +288,7 @@ function buildMomentumRescueFallbackReply({
     imageMotifs: motifs,
     acceptedPages,
     storyMoments,
+    dueStoryThread,
   });
   const rankedMoveLines = buildRankedFallbackMoveLines(rankedRescueMoves);
   const bestNextBeat = rankedRescueMoves[0]?.move
@@ -298,6 +325,7 @@ function buildMomentumRescueFallbackReply({
     unresolvedStoryThreads: threads,
     actThreePayoffPath,
     imageMotifs: motifs,
+    dueStoryThread,
   });
   const storyMoveLine = storyMoveLines.length
     ? `Story move library: ${storyMoveLines.slice(0, 4).map(readableStoryMoveLine).filter(Boolean).join("; ")}`
@@ -312,6 +340,12 @@ function buildMomentumRescueFallbackReply({
     `The story already has pressure in this: ${sentenceFragment(problemSource)}.`,
     actPressure ? `Use that pressure instead of opening a new lane: ${sentenceFragment(actPressure)}.` : "",
     acceptedPages[0] ? `Accepted page anchor: ${sentenceFragment(acceptedPages[0], 240)}. Treat it as committed continuity.` : "",
+    dueStoryThread?.setup
+      ? `Oldest due story thread: ${sentenceFragment(dueStoryThread.setup, 220)}${dueStoryThread.ageInScenes ? `, still open after ${dueStoryThread.ageInScenes} accepted scenes` : ""}.`
+      : "",
+    dueStoryThread?.promisedPayoff
+      ? `Promised payoff: ${sentenceFragment(dueStoryThread.promisedPayoff, 220)}.`
+      : "",
     storyMoments[0] && storyMoments[0] !== acceptedPages[0]
       ? `Retrieved story memory: ${sentenceFragment(storyMoments[0], 220)}.`
       : "",

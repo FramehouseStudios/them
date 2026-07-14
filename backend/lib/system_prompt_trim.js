@@ -218,6 +218,7 @@ function compactSessionBody(body, bodyLimit) {
 
 function compactCreativeMemoryBody(body, bodyLimit) {
   const lines = bodyLines(body);
+  const dueStoryThread = firstLineStartingWith(lines, "oldest_due_story_thread:");
   const correctionLines = linesContaining(lines, [
     "correction:",
     "authoritative_corrections:",
@@ -230,8 +231,9 @@ function compactCreativeMemoryBody(body, bodyLimit) {
     { value: firstLineStartingWith(lines, "current_beat:"), maxChars: 170 },
     { value: firstLineStartingWith(lines, "first_turn_to_spend:"), maxChars: 180 },
     { value: firstLineStartingWith(lines, "next_scene_plan:"), maxChars: 180 },
-    { value: summarizeBulletSection(lines, "unresolved_setups:", 2), maxChars: 170 },
-    { value: linesContaining(lines, "accepted_scene", 1)[0], maxChars: 180 },
+    { value: dueStoryThread, maxChars: 180 },
+    { value: dueStoryThread ? "" : summarizeBulletSection(lines, "unresolved_setups:", 2), maxChars: 170 },
+    { value: linesContaining(lines, "accepted_scene", 1)[0], maxChars: 125 },
     { value: summarizeBulletSection(lines, "recurring-characters:", 2), maxChars: 170 },
     { value: summarizeBulletSection(lines, "episodic-memory:", 2), maxChars: 180 },
     { value: firstLineStartingWith(lines, "episodic-memory:"), maxChars: 120 },

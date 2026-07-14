@@ -3617,6 +3617,35 @@ function buildCreativeMemoryPromptTrace(memory = null, {
       };
     }).filter((episode) => episode.summary || episode.excerpt)
     : [];
+  const acceptedScenes = Array.isArray(memory?.acceptedScenes)
+    ? memory.acceptedScenes.slice(0, 3).map((scene) => ({
+      scene_heading: normalizeSnippet(scene?.sceneHeading ?? scene?.scene_heading ?? scene?.sceneLabel, 140),
+      act: normalizeSnippet(scene?.act, 80),
+      feature_sequence: normalizeSnippet(scene?.featureSequence ?? scene?.feature_sequence, 180),
+      summary: normalizeSnippet(scene?.summary ?? scene?.scene_summary, 240),
+      outcome: normalizeSnippet(scene?.outcome ?? scene?.scene_outcome, 220),
+      next_scene_plan: normalizeSnippet(scene?.nextScenePlan ?? scene?.next_scene_plan, 240),
+      excerpt: normalizeSnippet(scene?.excerpt ?? scene?.page_excerpt, 420),
+      characters: normalizeScreenplayStringList(scene?.characterNames ?? scene?.character_names, 8, 72),
+      accepted_at: Math.max(0, Number(scene?.acceptedAt ?? scene?.accepted_at ?? 0) || 0),
+    })).map((scene) => Object.fromEntries(
+      Object.entries(scene).filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value))
+    )).filter((scene) => scene.scene_heading || scene.summary || scene.outcome || scene.excerpt)
+    : [];
+  const rawDueStoryThread = memory?.dueStoryThread ?? memory?.due_story_thread;
+  const dueStoryThread = rawDueStoryThread && typeof rawDueStoryThread === "object" && !Array.isArray(rawDueStoryThread)
+    ? Object.fromEntries(Object.entries({
+      kind: normalizeSnippet(rawDueStoryThread.kind, 24),
+      setup: normalizeSnippet(rawDueStoryThread.setup, 220),
+      promised_payoff: normalizeSnippet(rawDueStoryThread.promisedPayoff ?? rawDueStoryThread.promised_payoff, 220),
+      source_scene_heading: normalizeSnippet(rawDueStoryThread.sourceSceneHeading ?? rawDueStoryThread.source_scene_heading, 140),
+      source_scene_summary: normalizeSnippet(rawDueStoryThread.sourceSceneSummary ?? rawDueStoryThread.source_scene_summary, 220),
+      source_scene_outcome: normalizeSnippet(rawDueStoryThread.sourceSceneOutcome ?? rawDueStoryThread.source_scene_outcome, 220),
+      source_act: normalizeSnippet(rawDueStoryThread.sourceAct ?? rawDueStoryThread.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(rawDueStoryThread.ageInScenes ?? rawDueStoryThread.age_in_scenes ?? 0))),
+      accepted_scene_count: Math.max(0, Math.round(Number(rawDueStoryThread.acceptedSceneCount ?? rawDueStoryThread.accepted_scene_count ?? 0))),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
+    : null;
   const episodicSelection = memory?.episodicSelection && typeof memory.episodicSelection === "object"
     ? memory.episodicSelection
     : null;
@@ -3635,6 +3664,8 @@ function buildCreativeMemoryPromptTrace(memory = null, {
   const applied = Boolean(
     characters.length ||
     episodic.length ||
+    acceptedScenes.length ||
+    dueStoryThread ||
     screenplayProjectTrace ||
     (memory?.style && Object.keys(memory.style).length) ||
     (memory?.tone && Object.keys(memory.tone).length) ||
@@ -3649,6 +3680,9 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     characters,
     episodic_count: episodic.length,
     episodic,
+    accepted_scene_count: acceptedScenes.length,
+    accepted_scenes: acceptedScenes,
+    due_story_thread: dueStoryThread,
     episodic_retrieval: episodicSelection ? {
       strategy: normalizeSnippet(episodicSelection.strategy, 48),
       semantic_used: Boolean(episodicSelection.semanticUsed),
@@ -3798,6 +3832,9 @@ function buildScreenplayProjectCorrectionContract(project = null, {
 }
 
 function buildSessionContinuityOpeningLine(snapshot = {}) {
+  const sentenceFragment = (value, maxChars) => normalizeSnippet(value, maxChars)
+    .replace(/[.!?]+$/g, "")
+    .trim();
   const project = normalizeSnippet(snapshot.projectTitle || snapshot.projectId || "", 120);
   const position = normalizeSnippet(
     [snapshot.act, snapshot.featureSequence].filter(Boolean).join(" / "),
@@ -3806,8 +3843,9 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   const characters = Array.isArray(snapshot.characterFocus)
     ? snapshot.characterFocus.slice(0, 2).map((item) => normalizeSnippet(item, 48)).filter(Boolean)
     : [];
-  const lastState = normalizeSnippet(
+  const lastState = sentenceFragment(
     snapshot.lastSceneOutcome ||
+      snapshot.sceneSummary ||
       snapshot.currentBeat ||
       snapshot.actPressureState ||
       snapshot.characterArcState ||
@@ -3815,13 +3853,22 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
       "",
     180
   );
-  const nextMove = normalizeSnippet(
+  const nextMove = sentenceFragment(
     snapshot.nextScenePlan ||
       (Array.isArray(snapshot.nextThreeTurns) ? snapshot.nextThreeTurns[0] : "") ||
       (Array.isArray(snapshot.actThreePayoffPath) ? snapshot.actThreePayoffPath[0] : "") ||
       "",
     180
   );
+  const rawDueStoryThread = snapshot.dueStoryThread ?? snapshot.due_story_thread;
+  const dueSetup = sentenceFragment(rawDueStoryThread?.setup || rawDueStoryThread?.promised_payoff || "", 180);
+  const duePayoff = sentenceFragment(
+    rawDueStoryThread?.promisedPayoff ?? rawDueStoryThread?.promised_payoff ?? "",
+    180
+  );
+  const dueAge = Math.max(0, Math.round(Number(
+    rawDueStoryThread?.ageInScenes ?? rawDueStoryThread?.age_in_scenes ?? 0
+  )));
   const parts = ["Welcome back."];
   if (project || position) {
     parts.push(`We were in ${[project, position].filter(Boolean).join(" - ")}.`);
@@ -3831,13 +3878,21 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   } else if (lastState) {
     parts.push(`The last live thread was: ${lastState}.`);
   }
-  if (snapshot.isCorrection) {
-    parts.push("I'll honor your latest correction first.");
-  }
   if (nextMove) {
     parts.push(`Next move: ${nextMove}.`);
   }
-  return normalizeSnippet(parts.join(" "), 420);
+  if (snapshot.isCorrection) {
+    parts.push("I'll honor your latest correction first.");
+  }
+  if (dueSetup) {
+    parts.push(
+      `The thread waiting longest is ${dueSetup}${dueAge ? `, still open after ${dueAge} accepted scenes` : ""}.`
+    );
+  }
+  if (duePayoff && duePayoff.toLowerCase() !== dueSetup.toLowerCase()) {
+    parts.push(`Its promised payoff is ${duePayoff}.`);
+  }
+  return normalizeSnippet(parts.join(" "), 640);
 }
 
 function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
@@ -3849,6 +3904,26 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
   const durableProject = creativeMemory?.projectContinuity &&
     typeof creativeMemory.projectContinuity === "object"
     ? creativeMemory.projectContinuity
+    : null;
+  const acceptedScenes = Array.isArray(creativeMemory?.acceptedScenes)
+    ? creativeMemory.acceptedScenes
+      .filter((item) => item && typeof item === "object" && !Array.isArray(item))
+      .sort((a, b) => Number(b.acceptedAt || b.updatedAt || 0) - Number(a.acceptedAt || a.updatedAt || 0))
+    : [];
+  const acceptedScene = acceptedScenes[0] || null;
+  const rawDueStoryThread = creativeMemory?.dueStoryThread ?? creativeMemory?.due_story_thread;
+  const dueStoryThread = rawDueStoryThread && typeof rawDueStoryThread === "object" && !Array.isArray(rawDueStoryThread)
+    ? Object.fromEntries(Object.entries({
+      kind: normalizeSnippet(rawDueStoryThread.kind, 24),
+      setup: normalizeSnippet(rawDueStoryThread.setup, 220),
+      promised_payoff: normalizeSnippet(rawDueStoryThread.promisedPayoff ?? rawDueStoryThread.promised_payoff, 220),
+      source_scene_heading: normalizeSnippet(rawDueStoryThread.sourceSceneHeading ?? rawDueStoryThread.source_scene_heading, 140),
+      source_scene_summary: normalizeSnippet(rawDueStoryThread.sourceSceneSummary ?? rawDueStoryThread.source_scene_summary, 220),
+      source_scene_outcome: normalizeSnippet(rawDueStoryThread.sourceSceneOutcome ?? rawDueStoryThread.source_scene_outcome, 220),
+      source_act: normalizeSnippet(rawDueStoryThread.sourceAct ?? rawDueStoryThread.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(rawDueStoryThread.ageInScenes ?? rawDueStoryThread.age_in_scenes ?? 0))),
+      accepted_scene_count: Math.max(0, Math.round(Number(rawDueStoryThread.acceptedSceneCount ?? rawDueStoryThread.accepted_scene_count ?? 0))),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
     : null;
   const project = legacyProject || durableProject;
   const episodes = Array.isArray(creativeMemory?.episodicMemories)
@@ -3866,7 +3941,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
         );
       }) || null
     : episodes[0] || null;
-  if (!project && !episode) {
+  if (!project && !episode && !acceptedScene && !dueStoryThread) {
     return {
       has_continuity: false,
       source: "none",
@@ -3909,6 +3984,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       memory_excerpt: "",
       is_correction: false,
       updated_at: 0,
+      due_story_thread: null,
     };
   }
 
@@ -3916,7 +3992,12 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     ? episode.tags.map((tag) => String(tag || "").toLowerCase())
     : [];
   const characterFocus = mergeScreenplayProjectMemoryList(
-    project?.characterFocus || [],
+    mergeScreenplayProjectMemoryList(
+      acceptedScene?.characterNames || [],
+      project?.characterFocus || [],
+      4,
+      80
+    ),
     episode?.characterNames || [],
     4,
     80
@@ -3950,12 +4031,12 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
         : "creative_memory",
     project_id: normalizeSnippet(project?.projectId || episode?.projectId || "", 96),
     project_title: normalizeSnippet(episode?.projectTitle || project?.projectTitle || project?.projectId || "", 160),
-    act: normalizeSnippet(project?.act || "", 120),
-    feature_sequence: normalizeSnippet(project?.featureSequence || "", 220),
+    act: normalizeSnippet(acceptedScene?.act || project?.act || "", 120),
+    feature_sequence: normalizeSnippet(acceptedScene?.featureSequence || project?.featureSequence || "", 220),
     feature_obligation: normalizeSnippet(project?.featureObligation || "", 280),
     scene_objective: normalizeSnippet(project?.sceneObjective || "", 280),
-    scene_summary: normalizeSnippet(project?.sceneSummary || "", 280),
-    current_beat: normalizeSnippet(project?.currentBeat || episode?.summary || "", 220),
+    scene_summary: normalizeSnippet(acceptedScene?.summary || project?.sceneSummary || "", 280),
+    current_beat: normalizeSnippet(acceptedScene?.summary || project?.currentBeat || episode?.summary || "", 220),
     logline: normalizeSnippet(project?.logline || "", 280),
     theme_argument: normalizeSnippet(project?.themeArgument || "", 280),
     central_question: normalizeSnippet(project?.centralQuestion || "", 280),
@@ -3965,8 +4046,8 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     ending_image: normalizeSnippet(project?.endingImage || "", 240),
     act_pressure_state: normalizeSnippet(project?.actPressureState || "", 280),
     character_arc_state: normalizeSnippet(project?.characterArcState || "", 280),
-    last_scene_outcome: normalizeSnippet(project?.lastSceneOutcome || "", 240),
-    next_scene_plan: normalizeSnippet(project?.nextScenePlan || "", 340),
+    last_scene_outcome: normalizeSnippet(acceptedScene?.outcome || project?.lastSceneOutcome || "", 240),
+    next_scene_plan: normalizeSnippet(acceptedScene?.nextScenePlan || project?.nextScenePlan || "", 340),
     next_scene_moves: Array.isArray(project?.nextSceneMoves)
       ? project.nextSceneMoves.slice(0, 5).map((item) => normalizeSnippet(item, 180)).filter(Boolean)
       : [],
@@ -3997,13 +4078,18 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     page_count: positiveTalkContextInteger(project?.pageCount),
     target_pages: positiveTalkContextInteger(project?.targetPages),
     act_progress: screenplayActProgressToApi(project?.actProgress),
-    memory_excerpt: normalizeSnippet(episode?.excerpt || episode?.summary || project?.lastWritePreview || "", 280),
+    memory_excerpt: normalizeSnippet(
+      acceptedScene?.excerpt || acceptedScene?.summary || episode?.excerpt || episode?.summary || project?.lastWritePreview || "",
+      280
+    ),
     is_correction: projectHasCorrection || episodeTags.includes("correction"),
     updated_at: Math.max(
       0,
       Number(project?.updatedAt || 0),
-      Number(episode?.updatedAt || episode?.lastReferencedAt || 0)
+      Number(episode?.updatedAt || episode?.lastReferencedAt || 0),
+      Number(acceptedScene?.acceptedAt || acceptedScene?.updatedAt || 0)
     ),
+    due_story_thread: dueStoryThread,
   };
   return {
     ...snapshot,
@@ -4012,6 +4098,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       projectTitle: snapshot.project_title,
       act: snapshot.act,
       featureSequence: snapshot.feature_sequence,
+      sceneSummary: snapshot.scene_summary,
       currentBeat: snapshot.current_beat,
       actPressureState: snapshot.act_pressure_state,
       characterArcState: snapshot.character_arc_state,
@@ -4022,6 +4109,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       characterFocus: snapshot.character_focus,
       memoryExcerpt: snapshot.memory_excerpt,
       isCorrection: snapshot.is_correction,
+      dueStoryThread: snapshot.due_story_thread,
     }),
   };
 }

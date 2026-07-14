@@ -61,6 +61,36 @@ check(
   JSON.stringify(actTwoRanked) === JSON.stringify(rankStoryRescueMovesForContext(actTwoContext))
 );
 
+const dueStoryThread = {
+  kind: "payoff",
+  setup: "The red locket hidden in the courthouse clock.",
+  promisedPayoff: "Mara uses the locket to expose who altered the verdict.",
+  sourceAct: "Act II",
+  sourceSceneHeading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+  sourceSceneSummary: "Mara hides the red locket before the bailiff enters.",
+  sourceSceneOutcome: "The locket survives the search.",
+  ageInScenes: 17,
+};
+const dueThreadContext = {
+  ...actTwoContext,
+  dueStoryThread,
+};
+const dueThreadRanked = rankStoryRescueMovesForContext(dueThreadContext);
+check(
+  "an old accepted-scene promise outranks generic Act II invention",
+  dueThreadRanked[0]?.key === "payoff_pressure",
+  JSON.stringify(dueThreadRanked, null, 2)
+);
+check(
+  "due-thread rank one names the exact setup and promised payoff",
+  dueThreadRanked[0]?.move?.includes(dueStoryThread.setup) &&
+    dueThreadRanked[0]?.move?.includes(dueStoryThread.promisedPayoff)
+);
+check(
+  "due-thread rank one cites causal-ledger authority",
+  dueThreadRanked[0]?.evidence?.[0] === `due_story_thread: ${dueStoryThread.setup}`
+);
+
 const actThreeRanked = rankStoryRescueMovesForContext({
   ...actTwoContext,
   transcript: "I can't land Act III.",
@@ -148,6 +178,46 @@ check(
   fittedPrompt
 );
 
+const dueThreadPrompt = buildModelPrompt({
+  persona: "You are Clementine.",
+  sessionContext,
+  creativeMemory: {
+    acceptedScenes: [{
+      act: "Act II",
+      sceneHeading: dueStoryThread.sourceSceneHeading,
+      summary: dueStoryThread.sourceSceneSummary,
+      outcome: dueStoryThread.sourceSceneOutcome,
+      nextScenePlan: "Mara carries the locket into the hearing.",
+    }],
+    dueStoryThread,
+  },
+  screenplayTask: inferScreenplayTask(actTwoContext.transcript),
+  userInput: actTwoContext.transcript,
+});
+check(
+  "prompt exposes the exact oldest due thread and age",
+  dueThreadPrompt.includes(`oldest_due_story_thread: ${dueStoryThread.setup}`) &&
+    dueThreadPrompt.includes(`due_thread_promised_payoff: ${dueStoryThread.promisedPayoff}`) &&
+    dueThreadPrompt.includes("due_thread_age_in_accepted_scenes: 17")
+);
+check(
+  "prompt ranks the due payoff first",
+  dueThreadPrompt.includes("rank_1: engine=payoff_pressure") &&
+    dueThreadPrompt.includes(`evidence=due_story_thread: ${dueStoryThread.setup}`)
+);
+const fittedDueThreadPrompt = fitSystemPromptForTurnLatency(dueThreadPrompt, {
+  routingLane: "creative",
+  chatModelPlan: { tier: "rich" },
+  fastMaxChars: 3_800,
+  richMaxChars: 6_200,
+});
+check(
+  "live fitted prompt keeps the due payoff as rank one",
+  fittedDueThreadPrompt.includes("rank_1: engine=payoff_pressure") &&
+    fittedDueThreadPrompt.includes("evidence=due_story_thread:"),
+  fittedDueThreadPrompt
+);
+
 const fallback = buildMomentumRescueFallbackReply({
   transcript: actTwoContext.transcript,
   studioMeta: {
@@ -180,6 +250,26 @@ check(
   "fallback passes live momentum quality gate",
   fallbackQuality.applicable === true && fallbackQuality.ok === true,
   JSON.stringify(fallbackQuality)
+);
+
+const dueThreadFallback = buildMomentumRescueFallbackReply({
+  transcript: actTwoContext.transcript,
+  studioMeta: {
+    screenplayTarget: "voice_pin",
+    screenplayAct: actTwoContext.act,
+    screenplayFeatureSequence: actTwoContext.featureSequence,
+    screenplayCurrentBeat: actTwoContext.currentBeat,
+    screenplayCharacterFocus: actTwoContext.characters,
+    screenplayAcceptedPageContinuity: [dueStoryThread.sourceSceneOutcome],
+    screenplayDueStoryThread: dueStoryThread,
+  },
+});
+check(
+  "provider fallback spends the same due story promise",
+  dueThreadFallback.includes("Ranked strongest move - payoff pressure:") &&
+    dueThreadFallback.includes(`Oldest due story thread: ${dueStoryThread.setup.replace(/\.$/, "")}`) &&
+    dueThreadFallback.includes(`Promised payoff: ${dueStoryThread.promisedPayoff.replace(/\.$/, "")}`),
+  dueThreadFallback
 );
 
 if (!allOK) {

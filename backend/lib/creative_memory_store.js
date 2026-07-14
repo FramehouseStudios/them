@@ -1297,6 +1297,8 @@ function scoreAcceptedSceneForQuery(scene, query = "", activeAct = "", recencyIn
 function selectAcceptedScenesForPrompt(items = [], {
   query = "",
   currentAct = "",
+  preferredSceneHeading = "",
+  preferredSceneSummary = "",
   maxItems = ACCEPTED_SCENE_PROMPT_MAX,
 } = {}) {
   const scenes = (Array.isArray(items) ? items : [])
@@ -1313,10 +1315,28 @@ function selectAcceptedScenesForPrompt(items = [], {
     )
   );
   const cleanQuery = cleanText(query, 2_000);
-  if (!cleanQuery) return scenes.slice(0, limit).map(stripAcceptedScenePrivateFields);
   const activeAct = normalizeActLabel(cleanQuery) || normalizeActLabel(currentAct);
   const selected = [scenes[0]];
   const selectedIds = new Set([acceptedSceneIdentity(scenes[0])]);
+  const cleanPreferredHeading = cleanText(preferredSceneHeading, 140).toLowerCase();
+  const cleanPreferredSummary = cleanText(preferredSceneSummary, 220);
+  if (selected.length < limit && cleanPreferredHeading) {
+    const preferred = scenes.find((scene) => {
+      const heading = cleanText(scene.sceneHeading || scene.sceneLabel, 140).toLowerCase();
+      if (heading !== cleanPreferredHeading) return false;
+      return !cleanPreferredSummary || storyThreadMatchScore(
+        cleanPreferredSummary,
+        scene.summary || scene.excerpt
+      ) > 0;
+    }) || scenes.find((scene) => (
+      cleanText(scene.sceneHeading || scene.sceneLabel, 140).toLowerCase() === cleanPreferredHeading
+    ));
+    const key = preferred ? acceptedSceneIdentity(preferred) : "";
+    if (preferred && key && !selectedIds.has(key)) {
+      selected.push(preferred);
+      selectedIds.add(key);
+    }
+  }
   const ranked = scenes
     .slice(1)
     .map((scene, index) => ({
@@ -1346,6 +1366,94 @@ function stripAcceptedScenePrivateFields(scene = {}) {
   delete out.anchorSceneId;
   delete out.documentRevisionId;
   return out;
+}
+
+function storyThreadMatchScore(left = "", right = "") {
+  const leftText = cleanText(left, 240).toLowerCase();
+  const rightText = cleanText(right, 240).toLowerCase();
+  if (!leftText || !rightText) return 0;
+  if (leftText === rightText) return 1;
+  const leftTerms = new Set(tokenizeMemoryText(leftText).map(normalizeSemanticTerm).filter(Boolean));
+  const rightTerms = new Set(tokenizeMemoryText(rightText).map(normalizeSemanticTerm).filter(Boolean));
+  if (!leftTerms.size || !rightTerms.size) return 0;
+  let overlap = 0;
+  for (const term of leftTerms) {
+    if (rightTerms.has(term)) overlap += 1;
+  }
+  if (overlap <= 0) return 0;
+  const coverage = overlap / Math.max(1, Math.min(leftTerms.size, rightTerms.size));
+  return overlap >= 2 || Math.min(leftTerms.size, rightTerms.size) === 1 ? coverage : 0;
+}
+
+function bestStoryThreadMatch(target = "", candidates = []) {
+  let best = "";
+  let bestScore = 0;
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    const score = storyThreadMatchScore(target, candidate);
+    if (score <= bestScore) continue;
+    best = cleanText(candidate, 220);
+    bestScore = score;
+  }
+  return { value: best, score: bestScore };
+}
+
+function selectDueStoryThreadForPrompt(project = null) {
+  if (!project || typeof project !== "object" || Array.isArray(project)) return null;
+  const openSetups = normalizeStringList(project.unresolvedSetups, 8, 220);
+  const promisedPayoffs = normalizeStringList(project.actThreePayoffPath, 5, 220);
+  if (!openSetups.length && !promisedPayoffs.length) return null;
+  const scenes = (Array.isArray(project.acceptedScenes) ? project.acceptedScenes : [])
+    .map(sanitizeAcceptedSceneContinuity)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.acceptedAt || b.updatedAt || 0) - Number(a.acceptedAt || a.updatedAt || 0));
+
+  const setupCandidates = openSetups.length ? openSetups : [""];
+  const candidates = setupCandidates.map((setup, setupIndex) => {
+    let sourceScene = null;
+    let ageInScenes = 0;
+    for (let index = scenes.length - 1; index >= 0; index -= 1) {
+      const sceneThreads = setup
+        ? scenes[index].unresolvedSetups
+        : scenes[index].actThreePayoffPath;
+      if (!bestStoryThreadMatch(setup || promisedPayoffs[0], sceneThreads).value) continue;
+      sourceScene = scenes[index];
+      ageInScenes = index;
+      break;
+    }
+    const payoffMatch = setup ? bestStoryThreadMatch(setup, promisedPayoffs) : { value: promisedPayoffs[0] || "", score: 0 };
+    const unambiguousPayoff = setup && setupCandidates.length === 1 && promisedPayoffs.length === 1
+      ? promisedPayoffs[0]
+      : "";
+    return {
+      setup,
+      setupIndex,
+      sourceScene,
+      ageInScenes,
+      promisedPayoff: payoffMatch.value || unambiguousPayoff || (!setup ? promisedPayoffs[0] : "") || "",
+    };
+  }).filter((candidate) => candidate.sourceScene);
+  candidates.sort((a, b) => b.ageInScenes - a.ageInScenes || a.setupIndex - b.setupIndex);
+  const selected = candidates[0];
+  if (!selected) return null;
+  const activeAct = normalizeActLabel(project.act);
+  const kind = selected.promisedPayoff && (activeAct === "Act III" || !selected.setup)
+    ? "payoff"
+    : "setup";
+  const source = selected.sourceScene;
+  const out = {
+    kind,
+    setup: cleanText(selected.setup, 220),
+    promisedPayoff: cleanText(selected.promisedPayoff, 220),
+    sourceSceneHeading: cleanText(source?.sceneHeading || source?.sceneLabel, 140),
+    sourceSceneSummary: cleanText(source?.summary || source?.excerpt, 220),
+    sourceSceneOutcome: cleanText(source?.outcome, 220),
+    sourceAct: normalizeActLabel(source?.act) || cleanText(source?.act, 80),
+    ageInScenes: Math.max(0, Math.round(Number(selected.ageInScenes || 0))),
+    acceptedSceneCount: scenes.length,
+  };
+  return Object.fromEntries(
+    Object.entries(out).filter(([, value]) => typeof value === "number" || Boolean(value))
+  );
 }
 
 function selectEpisodicMemoriesForPrompt(items = [], {
@@ -2393,14 +2501,18 @@ function createCreativeMemoryStore({
     };
     const projectContinuity = selectProjectContinuity(rec.projects, { projectId, projectTitle });
     if (projectContinuity) {
+      const dueStoryThread = selectDueStoryThreadForPrompt(projectContinuity);
       const acceptedScenes = selectAcceptedScenesForPrompt(projectContinuity.acceptedScenes, {
         query,
         currentAct: projectContinuity.act,
+        preferredSceneHeading: dueStoryThread?.sourceSceneHeading,
+        preferredSceneSummary: dueStoryThread?.sourceSceneSummary,
       });
       const promptProjectContinuity = clone(projectContinuity);
       delete promptProjectContinuity.acceptedScenes;
       out.projectContinuity = promptProjectContinuity;
       if (acceptedScenes.length) out.acceptedScenes = acceptedScenes;
+      if (dueStoryThread) out.dueStoryThread = dueStoryThread;
     }
     if (rec.style && Object.keys(rec.style).length) {
       const style = clone(rec.style);
