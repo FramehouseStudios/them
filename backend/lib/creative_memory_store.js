@@ -23,6 +23,7 @@ import {
   extractTraits,
   mergeTraits as mergeCharacterTraits,
 } from "./trait_library.js";
+import { isExplicitCanonCorrectionRequest } from "./screenplay_canon_guard.js";
 
 const SCHEMA_VERSION = 1;
 const LEXICAL_FINGERPRINT_MAX = 64;
@@ -184,6 +185,11 @@ const ACCEPTED_SCENE_LIST_FIELDS = Object.freeze([
   ["relationshipChanges", "relationship_changes", 4, 220],
   ["irreversibleConsequences", "irreversible_consequences", 4, 220],
 ]);
+
+function isCorrectionTurnText(value = "") {
+  const text = String(value || "");
+  return CORRECTION_KEYWORDS.test(text) || isExplicitCanonCorrectionRequest(text);
+}
 const ACCEPTED_CAUSAL_FACT_FIELDS = Object.freeze([
   ["decision", "decisions"],
   ["revelation", "revelations"],
@@ -191,6 +197,12 @@ const ACCEPTED_CAUSAL_FACT_FIELDS = Object.freeze([
   ["irreversible_consequence", "irreversibleConsequences"],
 ]);
 const ACCEPTED_CAUSAL_FACT_PROMPT_MAX = 8;
+const ACCEPTED_CANON_ACTION_TERMS = new Set([
+  "abandon", "admit", "arrest", "betray", "broadcast", "burn", "choose", "confess",
+  "chose", "decide", "destroy", "die", "died", "forg", "forgive", "forge", "kill", "leave",
+  "left", "publish", "refuse", "reject", "reveal", "shoot", "shot", "sign", "stab",
+  "surrender", "trust",
+]);
 const EPISODIC_SEMANTIC_EXPANSIONS = Object.freeze([
   {
     concept: "recorded_evidence",
@@ -1906,7 +1918,7 @@ function buildEpisodicTags({ transcript = "", source = "", projectId = "", proje
   const text = String(transcript || "");
   if (cleanText(projectId, 96) || cleanText(projectTitle, 160)) tags.push("project");
   if (EXPLICIT_MEMORY_KEYWORDS.test(text)) tags.push("user-note");
-  if (CORRECTION_KEYWORDS.test(text)) tags.push(CORRECTION_TAG);
+  if (isCorrectionTurnText(text)) tags.push(CORRECTION_TAG);
   if (/\boutput|page|studio\b/i.test(String(source || ""))) tags.push("generated-pages");
   return [...new Set(tags)];
 }
@@ -2079,7 +2091,7 @@ function extractCharacterReplacementBeforeNot(text = "", notIndex = -1, characte
 
 function extractCharacterMemoryCorrection(text = "", characterName = "") {
   const raw = cleanText(text, 1_200);
-  if (!raw || !CORRECTION_KEYWORDS.test(raw) || !textMentionsName(raw, characterName)) return null;
+  if (!raw || !isCorrectionTurnText(raw) || !textMentionsName(raw, characterName)) return null;
   let correctedFact = normalizeCharacterBibleFact(raw, 420);
   const correctedTerms = [];
   const correctionReplacements = [];
@@ -2105,7 +2117,7 @@ function extractCharacterMemoryCorrection(text = "", characterName = "") {
     correctedFact = `Change ${normalizeCharacterCorrectionTerm(changeMatch[1], 90)} to ${normalizeCharacterCorrectionTerm(changeMatch[2], 160)}.`;
   }
 
-  const notPattern = /\bnot\s+(?:a|an|the|that|this|his|her|their|its)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)(?=\.|,|;|$|\s+but\b|\s+instead\b|\s+anymore\b)/gi;
+  const notPattern = /\b(?:not|never)\s+(?:a|an|the|that|this|his|her|their|its)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)(?=\.|,|;|$|\s+but\b|\s+instead\b|\s+anymore\b)/gi;
   for (const match of raw.matchAll(notPattern)) {
     const removed = normalizeCharacterCorrectionTerm(match[1], 90);
     if (!removed) continue;
@@ -2117,7 +2129,7 @@ function extractCharacterMemoryCorrection(text = "", characterName = "") {
   let authoritativeFact = correctedFact;
   for (const term of correctedTerms) {
     authoritativeFact = authoritativeFact.replace(
-      new RegExp(`\\s*,?\\s*\\bnot\\s+(?:a|an|the|that|this|his|her|their|its)?\\s*${escapeRegex(term)}\\b(?:\\s+anymore)?`, "ig"),
+      new RegExp(`\\s*,?\\s*\\b(?:not|never)\\s+(?:a|an|the|that|this|his|her|their|its)?\\s*${escapeRegex(term)}\\b(?:\\s+anymore)?`, "ig"),
       ""
     );
   }
@@ -2174,7 +2186,7 @@ function mergeCorrectionSignals(...signals) {
 
 function extractGenericEpisodicCorrectionSignal(text = "") {
   const raw = cleanText(text, 1_200);
-  if (!raw || !CORRECTION_KEYWORDS.test(raw)) return null;
+  if (!raw || !isCorrectionTurnText(raw)) return null;
   const correctedTerms = [];
   const correctionReplacements = [];
   const addTerm = (value) => {
@@ -2195,9 +2207,9 @@ function extractGenericEpisodicCorrectionSignal(text = "") {
 
   const changeMatch = raw.match(/\bchange\s+(.{1,90}?)\s+to\s+(.{1,160}?)(?:[.;]|$)/i);
   if (changeMatch) addReplacement(changeMatch[1], changeMatch[2]);
-  const notButPattern = /\bnot\s+(?:a|an|the|that|this|his|her|their|its)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)\s*(?:,?\s*(?:but|instead)\s+)([A-Za-z0-9][A-Za-z0-9' -]{1,120}?)(?:[.;]|$)/gi;
+  const notButPattern = /\b(?:not|never)\s+(?:a|an|the|that|this|his|her|their|its)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)\s*(?:,?\s*(?:but|instead)\s+)([A-Za-z0-9][A-Za-z0-9' -]{1,120}?)(?:[.;]|$)/gi;
   for (const match of raw.matchAll(notButPattern)) addReplacement(match[1], match[2]);
-  const notPattern = /\bnot\s+(?:a|an|the|that|this|his|her|their|its)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)(?=\.|,|;|$|\s+but\b|\s+instead\b|\s+anymore\b)/gi;
+  const notPattern = /\b(?:not|never)\s+(?:a|an|the|that|this|his|her|their|its)?\s*([A-Za-z0-9][A-Za-z0-9' -]{0,80}?)(?=\.|,|;|$|\s+but\b|\s+instead\b|\s+anymore\b)/gi;
   for (const match of raw.matchAll(notPattern)) addTerm(match[1]);
 
   return mergeCorrectionSignals({
@@ -2218,6 +2230,49 @@ function collectEpisodicCorrectionSignal({ text = "", characterNames = [] } = {}
     ...characterSignals,
     extractGenericEpisodicCorrectionSignal(text)
   );
+}
+
+function acceptedCanonCorrectionMatchScore(fact = "", correctionText = "") {
+  const factTerms = new Set(tokenizeMemoryText(fact).map(normalizeSemanticTerm).filter(Boolean));
+  const correctionTerms = new Set(
+    tokenizeMemoryText(correctionText).map(normalizeSemanticTerm).filter(Boolean)
+  );
+  if (!factTerms.size || !correctionTerms.size) return 0;
+  const shared = [...factTerms].filter((term) => correctionTerms.has(term));
+  if (shared.length < 2) return 0;
+  const coverage = shared.length / Math.max(1, factTerms.size);
+  const actionHits = shared.filter((term) => ACCEPTED_CANON_ACTION_TERMS.has(term)).length;
+  return (shared.length * 100) + (actionHits * 250) + Math.round(coverage * 10);
+}
+
+function collectAcceptedCanonCorrectionSignal({
+  text = "",
+  project = null,
+  correction = null,
+} = {}) {
+  const base = mergeCorrectionSignals(correction);
+  if (!isCorrectionTurnText(text) || !project) {
+    return { correction: base, matchedFacts: [] };
+  }
+  const ranked = selectAcceptedCausalFactsForPrompt(project, {
+    query: text,
+    maxItems: ACCEPTED_CAUSAL_FACT_PROMPT_MAX,
+  })
+    .map((item) => ({
+      item,
+      score: acceptedCanonCorrectionMatchScore(item.fact, text),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.item.ageInScenes - b.item.ageInScenes);
+  const matchedFact = ranked[0]?.item?.fact || "";
+  if (!matchedFact) return { correction: base, matchedFacts: [] };
+  return {
+    correction: mergeCorrectionSignals({
+      correctedTerms: [matchedFact],
+      correctionNote: `Retired accepted canon: ${matchedFact}`,
+    }, base),
+    matchedFacts: [matchedFact],
+  };
 }
 
 function memoryMatchesCorrectionSignal(memory = {}, correction = null) {
@@ -3407,6 +3462,9 @@ function createCreativeMemoryStore({
     const cleanSource = cleanText(source || "talk_turn", 64) || "talk_turn";
     const userText = String(transcript || "");
     const assistantText = String(reply || "");
+    const combined = `${userText}\n${assistantText}`;
+    const isGeneratedScreenplayOutput = cleanSource === "talk_screenplay_output";
+    const isCorrectionTurn = isCorrectionTurnText(userText);
     const cleanAcceptedPageText = String(acceptedPageText || "").trim().slice(0, 20_000);
     const structuredArcSources = Array.isArray(characterArcMemories)
       ? characterArcMemories.slice(0, 8)
@@ -3422,6 +3480,7 @@ function createCreativeMemoryStore({
       corrections: 0,
       structuredCharacterBibles: 0,
       acceptedScenesRecorded: 0,
+      acceptedCanonFactsRetired: 0,
       acceptedPagesPromoted: 0,
       acceptedPagesRecorded: 0,
       lexicalPhrases: 0,
@@ -3432,34 +3491,81 @@ function createCreativeMemoryStore({
     const continuitySource = projectContinuity && typeof projectContinuity === "object" && !Array.isArray(projectContinuity)
       ? projectContinuity
       : {};
+    const resolvedProjectId = cleanProjectId || cleanText(
+      continuitySource.projectId ?? continuitySource.project_id,
+      96
+    );
+    const resolvedProjectTitle = cleanProjectTitle || cleanText(
+      continuitySource.projectTitle ?? continuitySource.project_title,
+      160
+    );
+    let projectCorrection = isCorrectionTurn
+      ? collectEpisodicCorrectionSignal({ text: userText })
+      : null;
+    let matchedAcceptedCanonFacts = 0;
+    if (isCorrectionTurn && (resolvedProjectId || resolvedProjectTitle)) {
+      const currentRecord = await readUser(userId).catch(() => null);
+      const currentProject = selectProjectContinuity(currentRecord?.projects, {
+        projectId: resolvedProjectId,
+        projectTitle: resolvedProjectTitle,
+      });
+      const matched = collectAcceptedCanonCorrectionSignal({
+        text: userText,
+        project: currentProject,
+        correction: projectCorrection,
+      });
+      projectCorrection = matched.correction;
+      matchedAcceptedCanonFacts = matched.matchedFacts.length;
+    }
+    const continuityForWrite = projectCorrection
+      ? {
+        ...continuitySource,
+        correctedTerms: normalizeStringList(
+          [
+            ...normalizeStringList(projectCorrection.correctedTerms, 8, 120),
+            ...normalizeStringList(
+              continuitySource.correctedTerms ?? continuitySource.corrected_terms,
+              8,
+              120
+            ),
+          ],
+          8,
+          120
+        ),
+        correctionReplacements: mergeCorrectionReplacements(
+          projectCorrection.correctionReplacements,
+          continuitySource.correctionReplacements ?? continuitySource.correction_replacements,
+          8,
+          160
+        ),
+      }
+      : continuitySource;
     const acceptedScene = buildAcceptedSceneContinuity({
       pageText: cleanAcceptedPageText,
-      projectId: cleanProjectId || continuitySource.projectId,
-      projectTitle: cleanProjectTitle || continuitySource.projectTitle,
-      projectContinuity: continuitySource,
+      projectId: resolvedProjectId,
+      projectTitle: resolvedProjectTitle,
+      projectContinuity: continuityForWrite,
       characterNames: structuredArcs.map((item) => item.character),
       context: acceptedSceneContext,
     });
-    if ((Object.keys(continuitySource).length || acceptedScene) && (cleanProjectId || cleanProjectTitle || continuitySource.projectId || continuitySource.projectTitle)) {
+    if ((Object.keys(continuityForWrite).length || acceptedScene) && (resolvedProjectId || resolvedProjectTitle)) {
       try {
         const receipt = await recordProjectContinuity({
           userId,
           continuity: {
-            ...continuitySource,
-            projectId: cleanProjectId || continuitySource.projectId,
-            projectTitle: cleanProjectTitle || continuitySource.projectTitle,
+            ...continuityForWrite,
+            projectId: resolvedProjectId,
+            projectTitle: resolvedProjectTitle,
             ...(acceptedScene ? { acceptedScenes: [acceptedScene] } : {}),
           },
         });
         summary.projectContinuityRecorded = Boolean(receipt?.ok);
         summary.acceptedScenesRecorded = receipt?.ok && acceptedScene ? 1 : 0;
+        summary.acceptedCanonFactsRetired = receipt?.ok ? matchedAcceptedCanonFacts : 0;
       } catch (_e) { /* never block the response on memory writes */ }
     }
 
     // Only writer text can mutate canon. Generated pages remain useful for draft continuity and voice.
-    const combined = `${userText}\n${assistantText}`;
-    const isGeneratedScreenplayOutput = cleanSource === "talk_screenplay_output";
-    const isCorrectionTurn = CORRECTION_KEYWORDS.test(userText);
     const characterDiscoveryText = isGeneratedScreenplayOutput ? combined : userText;
     const traitText = isGeneratedScreenplayOutput ? combined : userText;
     const storyMemoryText = isGeneratedScreenplayOutput && !isCorrectionTurn
@@ -3614,10 +3720,13 @@ function createCreativeMemoryStore({
       });
       try {
         const correctionSignal = isCorrectionTurn
-          ? collectEpisodicCorrectionSignal({
-            text: userText,
-            characterNames: turnCharacterNames,
-          })
+          ? mergeCorrectionSignals(
+            projectCorrection,
+            collectEpisodicCorrectionSignal({
+              text: userText,
+              characterNames: turnCharacterNames,
+            })
+          )
           : null;
         const tags = buildEpisodicTags({
           transcript: userText,

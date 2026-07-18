@@ -786,6 +786,66 @@ I choose the case over us.`;
   assert.match(JSON.stringify(scene), /deposition/i);
 });
 
+test("an explicit writer retcon durably retires the matched accepted causal fact", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const page = `INT. COURTHOUSE STEPS - DAY
+
+MARA
+I admit I forged the affidavit.
+
+Mara burns the only copy before the cameras arrive.
+
+ELI
+I choose the case over us.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-durable-canon-retcon",
+    transcript: "Commit the courthouse steps scene.",
+    reply: page,
+    acceptedPageText: page,
+    acceptedSceneContext: { anchorSceneId: "scene-courthouse-steps" },
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    projectContinuity: {
+      act: "Act II",
+      sceneSummary: "Mara confesses, burns the affidavit, and Eli chooses the case.",
+    },
+    source: "talk_screenplay_output",
+  });
+
+  const correction = await store.recordTriggersFromTalkTurn({
+    userId: "u-durable-canon-retcon",
+    transcript: "Actually, Mara never burns the affidavit. The affidavit survives, and Mara hides it in Eli's ferry locker.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_turn",
+  });
+  assert.equal(correction.acceptedCanonFactsRetired, 1);
+  assert.equal(correction.corrections, 1);
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const ledger = await restored.getCreativeMemoryLedger({ userId: "u-durable-canon-retcon" });
+  const project = ledger.projects.find((item) => item.projectId === "rain-docket");
+  assert.ok(project.correctedTerms.some((item) => /burns the only copy/i.test(item)));
+  assert.doesNotMatch(JSON.stringify(project.acceptedScenes), /burns the only copy/i);
+  assert.match(JSON.stringify(project.acceptedScenes), /I admit I forged the affidavit/);
+  assert.match(JSON.stringify(project.acceptedScenes), /I choose the case over us/);
+
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "u-durable-canon-retcon",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Continue after Mara hides the surviving affidavit in Eli's ferry locker.",
+  });
+  assert.equal(memory.acceptedCausalFacts.some((item) => /burns the only copy/i.test(item.fact)), false);
+  assert.equal(memory.projectContinuity.sceneSummary, undefined);
+  assert.ok(memory.acceptedCausalFacts.some((item) => /I admit I forged the affidavit/i.test(item.fact)));
+  assert.ok(memory.episodicMemories.some((item) => (
+    item.tags.includes("correction") && /ferry locker/i.test(item.excerpt)
+  )));
+  assert.equal(memory.episodicMemories.some((item) => /burns the only copy/i.test(item.excerpt)), false);
+});
+
 test("accepted scene history spans a full feature and retrieves an early setup near the ending", async () => {
   const persistence = freshPersistence();
   const store = createCreativeMemoryStore({ persistence });
