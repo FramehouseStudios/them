@@ -1626,6 +1626,10 @@ struct BackendRealtimeStudioScreenplayQuality: Decodable, Equatable, Sendable {
     let initialReason: String?
     let repairMs: Int
     let counts: [String: Int]
+    let canonFactsChecked: Int
+    let canonViolationCount: Int
+    let canonViolationTypes: [String]
+    let canonCorrectionOverride: Bool
 
     enum CodingKeys: String, CodingKey {
         case ok
@@ -1637,6 +1641,10 @@ struct BackendRealtimeStudioScreenplayQuality: Decodable, Equatable, Sendable {
         case initialReason = "initial_reason"
         case repairMs = "repair_ms"
         case counts
+        case canonFactsChecked = "canon_facts_checked"
+        case canonViolationCount = "canon_violation_count"
+        case canonViolationTypes = "canon_violation_types"
+        case canonCorrectionOverride = "canon_correction_override"
     }
 
     init(
@@ -1648,7 +1656,11 @@ struct BackendRealtimeStudioScreenplayQuality: Decodable, Equatable, Sendable {
         repairOutcome: String = "",
         initialReason: String? = nil,
         repairMs: Int = 0,
-        counts: [String: Int] = [:]
+        counts: [String: Int] = [:],
+        canonFactsChecked: Int = 0,
+        canonViolationCount: Int = 0,
+        canonViolationTypes: [String] = [],
+        canonCorrectionOverride: Bool = false
     ) {
         self.ok = ok
         self.reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1660,6 +1672,12 @@ struct BackendRealtimeStudioScreenplayQuality: Decodable, Equatable, Sendable {
         self.initialReason = cleanInitialReason?.isEmpty == true ? nil : cleanInitialReason
         self.repairMs = max(0, repairMs)
         self.counts = counts.filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        self.canonFactsChecked = max(0, canonFactsChecked)
+        self.canonViolationCount = max(0, canonViolationCount)
+        self.canonViolationTypes = canonViolationTypes
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        self.canonCorrectionOverride = canonCorrectionOverride
     }
 
     init(from decoder: Decoder) throws {
@@ -1673,7 +1691,11 @@ struct BackendRealtimeStudioScreenplayQuality: Decodable, Equatable, Sendable {
             repairOutcome: try container.decodeIfPresent(String.self, forKey: .repairOutcome) ?? "",
             initialReason: try container.decodeIfPresent(String.self, forKey: .initialReason),
             repairMs: try container.decodeIfPresent(Int.self, forKey: .repairMs) ?? 0,
-            counts: try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:]
+            counts: try container.decodeIfPresent([String: Int].self, forKey: .counts) ?? [:],
+            canonFactsChecked: try container.decodeIfPresent(Int.self, forKey: .canonFactsChecked) ?? 0,
+            canonViolationCount: try container.decodeIfPresent(Int.self, forKey: .canonViolationCount) ?? 0,
+            canonViolationTypes: try container.decodeIfPresent([String].self, forKey: .canonViolationTypes) ?? [],
+            canonCorrectionOverride: try container.decodeIfPresent(Bool.self, forKey: .canonCorrectionOverride) ?? false
         )
     }
 
@@ -1700,6 +1722,7 @@ struct BackendRealtimeStudioMemoryApplied: Decodable, Equatable, Hashable, Senda
     let characters: [String]?
     let correctedTerms: [String]?
     let correctionReplacements: [String]?
+    let acceptedCausalFacts: Int?
 
     enum CodingKeys: String, CodingKey {
         case creativeMemory = "creative_memory"
@@ -1709,6 +1732,7 @@ struct BackendRealtimeStudioMemoryApplied: Decodable, Equatable, Hashable, Senda
         case characters
         case correctedTerms = "corrected_terms"
         case correctionReplacements = "correction_replacements"
+        case acceptedCausalFacts = "accepted_causal_facts"
     }
 
     var hasSignal: Bool {
@@ -1718,7 +1742,8 @@ struct BackendRealtimeStudioMemoryApplied: Decodable, Equatable, Hashable, Senda
         correctionAppliedToPrompt == true ||
         !(characters ?? []).isEmpty ||
         !(correctedTerms ?? []).isEmpty ||
-        !(correctionReplacements ?? []).isEmpty
+        !(correctionReplacements ?? []).isEmpty ||
+        (acceptedCausalFacts ?? 0) > 0
     }
 }
 

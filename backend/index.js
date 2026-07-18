@@ -79,6 +79,10 @@ import {
   evaluateMomentumRescueQuality,
   evaluateScreenplayPageQuality,
 } from "./lib/screenplay_page_quality.js";
+import {
+  evaluateScreenplayCanonContinuity,
+  normalizeAcceptedCausalFacts,
+} from "./lib/screenplay_canon_guard.js";
 import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
 import {
   buildTalkScreenplayQualityAlert,
@@ -5671,8 +5675,20 @@ function buildTalkScreenplayRepairDirectives({
     0,
     Number(quality?.minimumSceneTurns ?? authority?.quality?.minimumSceneTurns ?? 0)
   );
+  const canonContinuity = quality?.canonContinuity ||
+    authority?.canonContinuity ||
+    authority?.quality?.canonContinuity ||
+    null;
   const directives = [];
   switch (normalizedReason) {
+    case "accepted_canon_contradiction":
+      directives.push(...normalizeScreenplayStringList(
+        canonContinuity?.repairDirectives,
+        4,
+        280
+      ));
+      directives.push("Continue from the accepted changed condition. Never replay a known revelation, reset a changed relationship, erase a decision, or restore an irreversible loss.");
+      break;
     case "weak_first_page_opening":
       directives.push("Start the page run with a concrete pressure image or action that changes story state; avoid soft camera/setup prose.");
       directives.push("Make the first beat carry objective, obstacle, or emotional cost before any atmosphere.");
@@ -5806,6 +5822,26 @@ function buildTalkScreenplayQualityEnvelope({
     0,
     Number(quality?.minimumSceneTurns ?? authority?.quality?.minimumSceneTurns ?? 0)
   );
+  const canonContinuity = quality?.canonContinuity ||
+    authority?.canonContinuity ||
+    authority?.quality?.canonContinuity ||
+    null;
+  const rawCanonViolations = Array.isArray(canonContinuity?.violations)
+    ? canonContinuity.violations
+    : (Array.isArray(quality?.canon_violations) ? quality.canon_violations : []);
+  const canonViolations = rawCanonViolations.slice(0, 3).map((item) => ({
+    type: normalizeSnippet(item?.type, 48),
+    kind: normalizeSnippet(item?.kind, 48),
+    fact: normalizeSnippet(item?.fact, 220),
+    excerpt: normalizeSnippet(item?.excerpt, 260),
+  })).filter((item) => item.type && item.fact);
+  const canonFactsChecked = Math.max(
+    0,
+    Math.round(Number(canonContinuity?.factsChecked ?? quality?.canon_facts_checked ?? 0))
+  );
+  const canonCorrectionOverride = Boolean(
+    canonContinuity?.correctionOverride ?? quality?.canon_correction_override
+  );
   const repairDirectives = ok
     ? []
     : normalizeScreenplayStringList(
@@ -5836,6 +5872,11 @@ function buildTalkScreenplayQualityEnvelope({
     minimum_specific_actions: minimumSpecificActions || null,
     minimum_scene_turns: minimumSceneTurns || null,
     repair_directives: resolvedRepairDirectives,
+    canon_facts_checked: canonFactsChecked,
+    canon_violation_count: canonViolations.length,
+    canon_violation_types: [...new Set(canonViolations.map((item) => item.type))],
+    canon_correction_override: canonCorrectionOverride,
+    canon_violations: canonViolations,
   };
 }
 
@@ -5896,7 +5937,34 @@ function validateTalkAuthoritativeScreenplayOutput(screenplayOutput = null, {
   if (!quality.ok) {
     return { ok: false, reason: quality.reason || "low_page_quality", text, lines, quality };
   }
-  return { ok: true, reason: "ok", text, lines, quality };
+  const acceptedCausalFacts = normalizeAcceptedCausalFacts(
+    studioMeta?.screenplayAcceptedCausalFacts ??
+    studioMeta?.screenplay_accepted_causal_facts ??
+    studioMeta?.acceptedCausalFacts ??
+    studioMeta?.accepted_causal_facts ??
+    []
+  );
+  const canonContinuity = evaluateScreenplayCanonContinuity({
+    text,
+    acceptedCausalFacts,
+    writerRequest: transcript,
+  });
+  const qualityWithCanon = {
+    ...quality,
+    canonContinuity,
+    ...(!canonContinuity.ok ? { repairDirectives: canonContinuity.repairDirectives } : {}),
+  };
+  if (!canonContinuity.ok) {
+    return {
+      ok: false,
+      reason: canonContinuity.reason,
+      text,
+      lines,
+      quality: qualityWithCanon,
+      canonContinuity,
+    };
+  }
+  return { ok: true, reason: "ok", text, lines, quality: qualityWithCanon, canonContinuity };
 }
 
 function isAuthoritativeTalkScreenplayOutput(screenplayOutput = null, options = {}) {
@@ -32522,6 +32590,7 @@ const handleTalkRequest = createTalkHandler({
   maybeRefineActiveThemesWithLLM,
   mergeTurnQualitySignals,
   normalizeAffectionStyle,
+  normalizeAcceptedCausalFacts,
   normalizeAssistantSelfName,
   normalizeClientIp,
   normalizeClientToken,

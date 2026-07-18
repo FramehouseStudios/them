@@ -471,6 +471,68 @@ test("[studio-render] sync: malformed page receives exactly one repair before su
   });
 });
 
+test("[studio-render] sync: accepted canon contradiction receives exactly one repair", async () => {
+  const contradictoryReply = [
+    "INT. ARCHIVE - NIGHT",
+    "",
+    "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+    "",
+    "ELI",
+    "I had no idea you forged the affidavit.",
+    "",
+    "Mara freezes with the key halfway through the lock.",
+    "",
+    "MARA",
+    "Then listen now.",
+    "",
+    "The broken half drops inside the locker. Eli raises the original subpoena, its red seal reflected in the steel door.",
+    "",
+    "Mara takes the subpoena and steps toward the approaching guard instead of the exit.",
+  ].join("\n");
+  const calls = [];
+  const deps = defaultDeps({
+    resolveUserId: () => "user-1",
+    creativeMemoryStore: {
+      getCreativeMemoryForPrompt: async () => ({
+        userId: "user-1",
+        version: 1,
+        characters: [],
+        acceptedCausalFacts: [{
+          kind: "revelation",
+          fact: "MARA: I forged the affidavit.",
+          sourceSceneHeading: "INT. COURTHOUSE - DAY",
+          sourceAct: "Act II",
+        }],
+      }),
+    },
+    renderStudioRealtimeText: async (options) => {
+      calls.push(options);
+      return calls.length === 1 ? contradictoryReply : VALID_SCREENPLAY_REPLY;
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Continue the archive scene from the accepted reveal.",
+      system_prompt: "Return screenplay pages only.",
+      screenplay_target: "page",
+      screenplay_project_id: "project-1",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, VALID_SCREENPLAY_REPLY);
+    assert.equal(r.body.screenplay_quality.repair_outcome, "repaired");
+    assert.equal(r.body.screenplay_quality.initial_reason, "accepted_canon_contradiction");
+    assert.equal(r.body.screenplay_quality.canon_facts_checked, 1);
+    assert.deepEqual(r.body.screenplay_quality.canon_violation_types, []);
+    assert.equal(r.body.memory_applied.accepted_causal_facts, 1);
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].systemPrompt, /MARA: I forged the affidavit/);
+    assert.match(calls[1].transcript, /BINDING_CAUSAL_FACT \[revelation\]: MARA: I forged the affidavit/);
+    assert.match(calls[1].transcript, /CANON_VIOLATION \[revelation_reset\]:/);
+  });
+});
+
 test("[studio-render] sync: rejected repair cannot be returned as a successful page", async () => {
   let calls = 0;
   const deps = defaultDeps({

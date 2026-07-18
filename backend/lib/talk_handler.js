@@ -51,7 +51,7 @@ import {
   selectStoryMoveLibraryLinesForContext,
 } from "./story_rescue_move_library.js";
 
-const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput"]);
+const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts"]);
 
 function createTalkHandler(deps) {
   if (!deps || typeof deps !== "object") {
@@ -276,6 +276,7 @@ function createTalkHandler(deps) {
     maybeRefineActiveThemesWithLLM,
     mergeTurnQualitySignals,
     normalizeAffectionStyle,
+    normalizeAcceptedCausalFacts,
     normalizeAssistantSelfName,
     normalizeClientIp,
     normalizeClientToken,
@@ -441,6 +442,21 @@ function createTalkHandler(deps) {
     if (quality.feature_act) {
       res.setHeader("x-screenplay-quality-feature-act", encodeURIComponent(normalizeSnippet(quality.feature_act, 40)));
     }
+    res.setHeader(
+      "x-screenplay-canon-facts-checked",
+      String(Math.max(0, Math.round(Number(quality.canon_facts_checked || 0))))
+    );
+    res.setHeader(
+      "x-screenplay-canon-violation-count",
+      String(Math.max(0, Math.round(Number(quality.canon_violation_count || 0))))
+    );
+    if (Array.isArray(quality.canon_violation_types) && quality.canon_violation_types.length) {
+      res.setHeader(
+        "x-screenplay-canon-violation-types",
+        encodeURIComponent(quality.canon_violation_types.slice(0, 4).map((item) => normalizeSnippet(item, 48)).filter(Boolean).join(","))
+      );
+    }
+    res.setHeader("x-screenplay-canon-correction-override", quality.canon_correction_override ? "1" : "0");
     if (Array.isArray(quality.repair_directives) && quality.repair_directives.length) {
       res.setHeader(
         "x-screenplay-repair-directives",
@@ -1036,6 +1052,7 @@ function createTalkHandler(deps) {
       if (failedReason === "outline_or_craft_artifact" || failedReason === "non_screenplay_output") return 1_800;
       if (failedReason === "summary_like_page_batch") return 2_800;
       if (failedReason === "thin_long_page_batch" || failedReason === "underfilled_page_text") return 3_400;
+      if (failedReason === "accepted_canon_contradiction") return 3_600;
       if (requestedPageCount >= 4) return 3_600;
       return 2_600;
     })();
@@ -1045,6 +1062,7 @@ function createTalkHandler(deps) {
       if (failedReason.startsWith("missing_act_")) return 10;
       if (failedReason === "missing_character_arc_memory") return 10;
       if (failedReason === "summary_like_page_batch" || failedReason === "thin_long_page_batch") return 8;
+      if (failedReason === "accepted_canon_contradiction") return 16;
       return 6;
     })();
     const failedDraft = normalizeTalkMultilineSnippet(rawReply, failedDraftLimit);
@@ -1078,6 +1096,19 @@ function createTalkHandler(deps) {
       5,
       220
     );
+    const screenplayAcceptedCausalFacts = normalizeAcceptedCausalFacts(
+      studioMeta?.screenplayAcceptedCausalFacts ??
+      studioMeta?.screenplay_accepted_causal_facts ??
+      studioMeta?.acceptedCausalFacts ??
+      studioMeta?.accepted_causal_facts ??
+      []
+    );
+    const screenplayCanonViolations = Array.isArray(currentOutput?.quality?.canon_violations)
+      ? currentOutput.quality.canon_violations.slice(0, 3).map((item) => ({
+        type: normalizeSnippet(item?.type, 48),
+        excerpt: normalizeSnippet(item?.excerpt, 260),
+      })).filter((item) => item.type && item.excerpt)
+      : [];
     const screenplayAct = normalizeSnippet(studioMeta?.screenplayAct || studioMeta?.screenplay_act, 120);
     const screenplayFeatureSequence = normalizeSnippet(
       studioMeta?.screenplayFeatureSequence || studioMeta?.screenplay_feature_sequence,
@@ -1169,6 +1200,8 @@ function createTalkHandler(deps) {
     const nextSceneExecutionBriefLines = buildTalkScreenplayExecutionBriefLines(studioMeta);
     const nextSceneExecutionBriefRequired = isNextSceneExecutionBriefRepairReason(failedReason);
     const featureObligationLines = [
+      ...screenplayAcceptedCausalFacts.map((item) => `BINDING_CAUSAL_FACT [${item.kind}]: ${item.fact}`),
+      ...screenplayCanonViolations.map((item) => `CANON_VIOLATION [${item.type}]: ${item.excerpt}`),
       screenplayAct ? `ACT: ${screenplayAct}` : "",
       screenplayFeatureSequence ? `FEATURE_SEQUENCE: ${screenplayFeatureSequence}` : "",
       screenplayFeatureObligation ? `STRUCTURAL_OBLIGATION: ${screenplayFeatureObligation}` : "",
@@ -1203,6 +1236,7 @@ function createTalkHandler(deps) {
           "If Act III/finale context is supplied, pay off at least one supplied setup/path through changed behavior and final-image pressure.",
           "If CHARACTER_ARC_* context is supplied, turn want/need/false-belief/tactic into visible behavior on the page.",
           "If NEXT_SCENE_EXECUTION_BRIEF is supplied, execute SCENE_ASSIGNMENT plus at least three support lanes: obstacle, changed behavior, payoff/setup, visual motif, or exit handoff.",
+          "If BINDING_CAUSAL_FACT context is supplied, preserve it exactly: do not unknow a revelation, reset a changed relationship, erase an accepted decision, or restore an irreversible loss.",
           "If REPAIR_DIRECTIVES are supplied, satisfy them literally before adding any new invention.",
         ].join("\n"),
       },
@@ -2791,24 +2825,30 @@ function createTalkHandler(deps) {
       const talkScreenplayPhase = talkScreenplayModeEnabled
         ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page" ? "scene_draft" : "voice_pin")
         : "";
+      const talkDebugScreenplayStudioMeta = isScreenplayPageWriteTurn
+        ? mergeTalkMomentumRepairStudioMeta(studioMeta, sessionMemory, req.creativeMemoryTrace)
+        : studioMeta;
       let talkScreenplayOutput = buildTalkScreenplayOutput({
         reply: "",
         transcript: talkGenerationTranscript,
-        studioMeta,
+        studioMeta: talkDebugScreenplayStudioMeta,
       });
       if (
         String(talkScreenplayOutput?.target || "").trim().toLowerCase() !== "page" &&
         isScreenplayPageWriteTurn &&
         talkGenerationTranscript
       ) {
-        const directTranscriptOutput = buildTalkDirectTranscriptScreenplayOutput(talkGenerationTranscript, studioMeta);
+        const directTranscriptOutput = buildTalkDirectTranscriptScreenplayOutput(
+          talkGenerationTranscript,
+          talkDebugScreenplayStudioMeta
+        );
         if (directTranscriptOutput) {
           talkScreenplayOutput = directTranscriptOutput;
         }
       }
       const hasAuthoritativeScreenplayText = isAuthoritativeTalkScreenplayOutput(
         talkScreenplayOutput,
-        { studioMeta, transcript: talkGenerationTranscript }
+        { studioMeta: talkDebugScreenplayStudioMeta, transcript: talkGenerationTranscript }
       );
       const reply = hasAuthoritativeScreenplayText
         ? normalizeTalkScreenplayText(talkScreenplayOutput?.text || "")
@@ -4185,10 +4225,13 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     const talkScreenplayPhase = talkScreenplayModeEnabled
       ? (String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page" ? "scene_draft" : "voice_pin")
       : "";
+    const talkScreenplayContinuityStudioMeta = isScreenplayPageWriteTurn
+      ? mergeTalkMomentumRepairStudioMeta(studioMeta, sessionMemory, req.creativeMemoryTrace)
+      : studioMeta;
     let talkScreenplayOutput = buildTalkScreenplayOutput({
       reply,
       transcript: talkGenerationTranscript,
-      studioMeta,
+      studioMeta: talkScreenplayContinuityStudioMeta,
     });
     const talkScreenplayRepairTrace = {
       attempted: false,
@@ -4210,7 +4253,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         currentOutput: talkScreenplayOutput,
         rawReply,
         transcript: talkGenerationTranscript,
-        studioMeta,
+        studioMeta: talkScreenplayContinuityStudioMeta,
         chatModelPlan,
         chatTemperature,
         chatMaxTokens,
@@ -4588,7 +4631,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     }
     const hasAuthoritativeScreenplayText = isAuthoritativeTalkScreenplayOutput(
       talkScreenplayOutput,
-      { studioMeta, transcript: talkGenerationTranscript }
+      { studioMeta: talkScreenplayContinuityStudioMeta, transcript: talkGenerationTranscript }
     );
     const talkRenderContract = {
       reply_role: hasAuthoritativeScreenplayText ? "preview" : "final",

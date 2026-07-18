@@ -174,6 +174,10 @@ final class BackendClientCraftAPITests: XCTestCase {
                   "ok": true,
                   "action": "studio_render",
                   "reply": "INT. ARCHIVE - NIGHT",
+                  "memory_applied": {
+                    "creative_memory": true,
+                    "accepted_causal_facts": 3
+                  },
                   "screenplay_quality": {
                     "ok": true,
                     "reason": "ok",
@@ -183,7 +187,11 @@ final class BackendClientCraftAPITests: XCTestCase {
                     "repair_outcome": "not_needed",
                     "initial_reason": null,
                     "repair_ms": 0,
-                    "counts": { "scene_headings": 1, "action_lines": 1 }
+                    "counts": { "scene_headings": 1, "action_lines": 1 },
+                    "canon_facts_checked": 3,
+                    "canon_violation_count": 0,
+                    "canon_violation_types": [],
+                    "canon_correction_override": false
                   }
                 }
                 """#)
@@ -261,6 +269,12 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(result.screenplayQuality?.ok, true)
         XCTAssertEqual(result.screenplayQuality?.repairOutcome, "not_needed")
         XCTAssertEqual(result.screenplayQuality?.counts["scene_headings"], 1)
+        XCTAssertEqual(result.screenplayQuality?.canonFactsChecked, 3)
+        XCTAssertEqual(result.screenplayQuality?.canonViolationCount, 0)
+        XCTAssertEqual(result.screenplayQuality?.canonViolationTypes, [])
+        XCTAssertEqual(result.screenplayQuality?.canonCorrectionOverride, false)
+        XCTAssertEqual(result.memoryApplied?.acceptedCausalFacts, 3)
+        XCTAssertEqual(result.memoryApplied?.hasSignal, true)
         let renderRequest = try XCTUnwrap(recorder.requests.first { $0.path == "/realtime/studio_render" })
         XCTAssertEqual(renderRequest.bodyObject?["screenplay_target"] as? String, "page")
         XCTAssertEqual(renderRequest.bodyObject?["screenplay_project_id"] as? String, "project-1")

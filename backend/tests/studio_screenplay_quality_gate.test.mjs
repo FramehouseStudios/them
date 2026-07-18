@@ -31,6 +31,11 @@ const VALID_PAGE = [
   "Mara takes the subpoena and steps toward the approaching guard instead of the exit.",
 ].join("\n");
 
+const CONTRADICTORY_PAGE = VALID_PAGE.replace(
+  "You said the file was gone.",
+  "I had no idea you forged the affidavit."
+);
+
 test("[studio-quality] valid Fountain passes without spending the repair", async () => {
   let repairCalls = 0;
   const result = await enforceStudioScreenplayQuality({
@@ -100,6 +105,50 @@ test("[studio-quality] weak repair is rejected and never becomes the final reply
   assert.equal(result.reply, "");
   assert.equal(result.quality.repair_outcome, "rejected");
   assert.equal(repairCalls, 1);
+});
+
+test("[studio-quality] accepted canon contradiction spends exactly one repair and rechecks the result", async () => {
+  const repairCalls = [];
+  const body = {
+    screenplay_target: "page",
+    screenplay_act: "Act II",
+    screenplay_accepted_causal_facts: [{
+      kind: "revelation",
+      fact: "MARA: I forged the affidavit.",
+      source_scene_heading: "INT. ARCHIVE - NIGHT",
+      age_in_scenes: 4,
+    }],
+  };
+  const initial = evaluateStudioScreenplayReply({
+    reply: CONTRADICTORY_PAGE,
+    transcript: "Continue the hearing.",
+    body,
+  });
+  assert.equal(initial.ok, false);
+  assert.equal(initial.reason, "accepted_canon_contradiction");
+  assert.equal(initial.canonContinuity.violations[0].type, "revelation_reset");
+
+  const result = await enforceStudioScreenplayQuality({
+    reply: CONTRADICTORY_PAGE,
+    transcript: "Continue the hearing.",
+    body,
+    systemPrompt: "Return screenplay pages only.",
+    renderRepair: async (request) => {
+      repairCalls.push(request);
+      return VALID_PAGE;
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.repaired, true);
+  assert.equal(result.reply, VALID_PAGE);
+  assert.equal(result.quality.initial_reason, "accepted_canon_contradiction");
+  assert.equal(result.quality.repair_outcome, "repaired");
+  assert.equal(result.quality.canon_facts_checked, 1);
+  assert.equal(result.quality.canon_violation_count, 0);
+  assert.equal(repairCalls.length, 1);
+  assert.match(repairCalls[0].systemPrompt, /accepted revelation/i);
+  assert.match(repairCalls[0].transcript, /BINDING_CAUSAL_FACT \[revelation\]: MARA: I forged the affidavit/);
+  assert.match(repairCalls[0].transcript, /CANON_VIOLATION \[revelation_reset\]/);
 });
 
 test("[studio-quality] supplier failure is contained inside the one repair pass", async () => {

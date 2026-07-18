@@ -938,6 +938,129 @@ test("[talk-screenplay-output] accepts a repair-pass candidate after the live gu
   );
 });
 
+test("[talk-screenplay-output] rejects a page that resets an accepted revelation", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. ARCHIVE - NIGHT",
+      "",
+      "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+      "",
+      "ELI",
+      "I had no idea you forged the affidavit.",
+      "",
+      "Mara freezes with the key halfway through the lock.",
+      "",
+      "MARA",
+      "Then listen now.",
+      "",
+      "The broken half drops inside the locker. Eli raises the original subpoena toward the approaching guard.",
+    ].join("\n"),
+    transcript: "Continue the archive scene from the accepted reveal.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAcceptedCausalFacts: [{
+        kind: "revelation",
+        fact: "MARA: I forged the affidavit.",
+        sourceSceneHeading: "INT. COURTHOUSE - DAY",
+        sourceAct: "Act II",
+      }],
+    },
+  });
+
+  assert.equal(output.target, "voice_pin");
+  assert.equal(output.source, "guard_low_page_quality");
+  assert.equal(output.quality.reason, "accepted_canon_contradiction");
+  assert.equal(output.quality.canon_facts_checked, 1);
+  assert.equal(output.quality.canon_violation_count, 1);
+  assert.deepEqual(output.quality.canon_violation_types, ["revelation_reset"]);
+  assert.equal(output.quality.canon_violations[0].fact, "MARA: I forged the affidavit.");
+  assert.ok(output.quality.repair_directives.some((directive) => /accepted revelation/i.test(directive)));
+});
+
+test("[talk-screenplay-output] accepts one canon-consistent repair candidate", () => {
+  const transcript = "Continue the archive scene from the accepted reveal.";
+  const studioMeta = {
+    screenplayTarget: "page",
+    screenplayAcceptedCausalFacts: [{
+      kind: "revelation",
+      fact: "MARA: I forged the affidavit.",
+    }],
+  };
+  const failed = buildTalkScreenplayOutput({
+    reply: [
+      "INT. ARCHIVE - NIGHT",
+      "",
+      "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+      "",
+      "ELI",
+      "I had no idea you forged the affidavit.",
+      "",
+      "Mara freezes with the key halfway through the lock.",
+      "",
+      "The broken half drops inside the locker beside the original subpoena.",
+    ].join("\n"),
+    transcript,
+    studioMeta,
+  });
+  const repaired = applyTalkScreenplayRepairCandidate({
+    currentOutput: failed,
+    candidateReply: [
+      "INT. ARCHIVE - NIGHT",
+      "",
+      "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+      "",
+      "ELI",
+      "You forged it. Now they own both of us.",
+      "",
+      "Mara snaps the key before the lock can release it.",
+      "",
+      "MARA",
+      "Then make them prove it in public.",
+      "",
+      "The broken half drops inside the locker. Eli raises the original subpoena and steps toward the approaching guard.",
+    ].join("\n"),
+    transcript,
+    studioMeta,
+  });
+
+  assert.equal(repaired?.target, "page");
+  assert.equal(repaired?.source, "repair_pass");
+  assert.equal(repaired?.quality.ok, true);
+  assert.equal(repaired?.quality.canon_facts_checked, 1);
+  assert.equal(repaired?.quality.canon_violation_count, 0);
+  assert.ok(repaired?.quality.repair_directives.some((directive) => /accepted revelation/i.test(directive)));
+});
+
+test("[talk-screenplay-output] lets an explicit writer retcon override accepted canon", () => {
+  const output = buildTalkScreenplayOutput({
+    reply: [
+      "INT. ARCHIVE - NIGHT",
+      "",
+      "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+      "",
+      "ELI",
+      "I had no idea you forged the affidavit.",
+      "",
+      "Mara freezes with the key halfway through the lock.",
+      "",
+      "The broken half drops inside the locker beside the original subpoena.",
+    ].join("\n"),
+    transcript: "Retcon the canon: change what happened so Eli learns about the forgery here.",
+    studioMeta: {
+      screenplayTarget: "page",
+      screenplayAcceptedCausalFacts: [{
+        kind: "revelation",
+        fact: "MARA: I forged the affidavit.",
+      }],
+    },
+  });
+
+  assert.equal(output.target, "page");
+  assert.equal(output.quality.ok, true);
+  assert.equal(output.quality.canon_facts_checked, 1);
+  assert.equal(output.quality.canon_correction_override, true);
+});
+
 test("[talk-screenplay-output] exposes repair directives for summary-like page batches", () => {
   const studioMeta = {
     screenplayTarget: "page",

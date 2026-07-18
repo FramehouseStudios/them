@@ -3,6 +3,10 @@ import {
   classifyScreenplayLines,
   evaluateScreenplayPageQuality,
 } from "./screenplay_page_quality.js";
+import {
+  evaluateScreenplayCanonContinuity,
+  normalizeAcceptedCausalFacts,
+} from "./screenplay_canon_guard.js";
 import { normalizeScreenplayOutputContractText } from "./screenplay_output_contract.js";
 
 const MAX_REPAIR_SYSTEM_CONTEXT_CHARS = 11_000;
@@ -131,6 +135,12 @@ function studioScreenplayFeatureContext(body = {}) {
     continuityNotes: read("screenplay_continuity_notes", "screenplayContinuityNotes", "continuity_notes", "continuityNotes"),
     emotionalContinuity: read("screenplay_emotional_continuity", "screenplayEmotionalContinuity", "emotional_continuity", "emotionalContinuity"),
     lastSceneOutcome: read("screenplay_last_scene_outcome", "screenplayLastSceneOutcome", "last_scene_outcome", "lastSceneOutcome"),
+    acceptedCausalFacts: normalizeAcceptedCausalFacts(read(
+      "screenplay_accepted_causal_facts",
+      "screenplayAcceptedCausalFacts",
+      "accepted_causal_facts",
+      "acceptedCausalFacts",
+    )),
   };
   if (Object.values(nextSceneExecutionBrief).some((value) => cleanInline(value, 240))) {
     context.nextSceneExecutionBrief = nextSceneExecutionBrief;
@@ -169,14 +179,32 @@ function evaluateStudioScreenplayReply({ reply = "", transcript = "", body = {} 
   const text = normalizeScreenplayOutputContractText(String(reply || "").trim());
   const lines = classifyScreenplayLines(text);
   const requestedPages = studioScreenplayRequestedPages({ body, transcript });
+  const featureContext = studioScreenplayFeatureContext(body);
   const result = evaluateScreenplayPageQuality({
     text,
     lines,
     targetPages: requestedPages,
     hasSceneAnchor: hasStudioScreenplaySceneAnchor(body),
-    featureContext: studioScreenplayFeatureContext(body),
+    featureContext,
   });
-  return { ...result, text, lines, requestedPages };
+  const canonContinuity = evaluateScreenplayCanonContinuity({
+    text,
+    acceptedCausalFacts: featureContext.acceptedCausalFacts,
+    writerRequest: transcript,
+  });
+  if (result.ok && !canonContinuity.ok) {
+    return {
+      ...result,
+      ok: false,
+      reason: canonContinuity.reason,
+      repairDirectives: canonContinuity.repairDirectives,
+      canonContinuity,
+      text,
+      lines,
+      requestedPages,
+    };
+  }
+  return { ...result, canonContinuity, text, lines, requestedPages };
 }
 
 function repairDirectivesForQuality(quality = {}) {
@@ -185,7 +213,12 @@ function repairDirectivesForQuality(quality = {}) {
     "Return only clean playable Fountain screenplay text, with no preamble, diagnosis, outline, markdown, labels, recap, or afterword.",
     "Preserve the writer's canon, supplied corrections, active act/sequence, emotional handoff, and concrete nouns from the live draft.",
   ];
-  if (["empty_page_text", "empty_page_lines", "missing_screenplay_shape", "missing_batch_scene_anchor", "outline_or_craft_artifact"].includes(reason)) {
+  if (reason === "accepted_canon_contradiction") {
+    directives.push(...(Array.isArray(quality?.canonContinuity?.repairDirectives)
+      ? quality.canonContinuity.repairDirectives
+      : []));
+    directives.push("Continue from the accepted changed condition. Never replay a known revelation, reset a changed relationship, erase a decision, or restore an irreversible loss.");
+  } else if (["empty_page_text", "empty_page_lines", "missing_screenplay_shape", "missing_batch_scene_anchor", "outline_or_craft_artifact"].includes(reason)) {
     directives.push("Use screenplay shape now: scene heading or anchored continuation, visible action, character cues, tactical dialogue, and a consequential exit turn.");
   } else if (["underfilled_page_text", "thin_long_page_batch", "thin_scene_turn_batch", "summary_like_page_batch"].includes(reason)) {
     directives.push("Complete the requested page run as scenes, changing leverage, information, relationship, tactic, or cost every 1-2 pages.");
@@ -198,10 +231,10 @@ function repairDirectivesForQuality(quality = {}) {
   } else {
     directives.push("Repair the failed quality condition with specific playable behavior, a clear scene objective, obstacle, tactic shift, cost, and exit image.");
   }
-  return directives;
+  return [...new Set(directives.map((item) => cleanInline(item, 320)).filter(Boolean))];
 }
 
-function repairContextLines(body = {}) {
+function repairContextLines(body = {}, quality = {}) {
   const feature = studioScreenplayFeatureContext(body);
   const entries = [
     ["ACT", feature.act],
@@ -227,13 +260,22 @@ function repairContextLines(body = {}) {
       if (clean) lines.push(`${label}: ${clean}`);
     }
   };
+  for (const item of feature.acceptedCausalFacts.slice(0, 6)) {
+    lines.push(`BINDING_CAUSAL_FACT [${item.kind}]: ${item.fact}`);
+  }
+  const violations = Array.isArray(quality?.canonContinuity?.violations)
+    ? quality.canonContinuity.violations
+    : [];
+  for (const violation of violations.slice(0, 3)) {
+    lines.push(`CANON_VIOLATION [${cleanInline(violation.type, 48)}]: ${cleanInline(violation.excerpt, 260)}`);
+  }
   appendList("NEXT_TURN", feature.nextThreeTurns, 3);
   appendList("NEXT_SCENE_MOVE", feature.nextSceneMoves, 3);
   appendList("ACT_THREE_PAYOFF", feature.actThreePayoffPath, 3);
   appendList("UNRESOLVED_SETUP", feature.unresolvedSetups, 3);
   appendList("STORY_THREAD", feature.unresolvedStoryThreads, 3);
   appendList("IMAGE_MOTIF", feature.imageMotifs, 3);
-  return lines.slice(0, 20);
+  return lines.slice(0, 28);
 }
 
 function buildStudioScreenplayRepairRequest({
@@ -258,7 +300,7 @@ function buildStudioScreenplayRepairRequest({
   const repairTranscript = [
     "WRITER_REQUEST:",
     cleanMultiline(transcript, MAX_REPAIR_USER_REQUEST_CHARS),
-    ...repairContextLines(body),
+    ...repairContextLines(body, quality),
     "FAILED_DRAFT_TO_REPAIR:",
     cleanMultiline(failedReply, MAX_REPAIR_FAILED_DRAFT_CHARS),
   ].filter(Boolean).join("\n");
@@ -273,6 +315,12 @@ function qualityEnvelope({
   initialReason = "",
   elapsedMs = 0,
 } = {}) {
+  const canonContinuity = result?.canonContinuity && typeof result.canonContinuity === "object"
+    ? result.canonContinuity
+    : null;
+  const canonViolations = Array.isArray(canonContinuity?.violations)
+    ? canonContinuity.violations
+    : [];
   return {
     ok: Boolean(result?.ok),
     reason: cleanInline(result?.reason || (result?.ok ? "ok" : "low_page_quality"), 96),
@@ -283,6 +331,10 @@ function qualityEnvelope({
     initial_reason: cleanInline(initialReason, 96) || null,
     repair_ms: Math.max(0, Math.round(Number(elapsedMs || 0))),
     counts: compactQualityCounts(result?.counts),
+    canon_facts_checked: Math.max(0, Math.round(Number(canonContinuity?.factsChecked || 0))),
+    canon_violation_count: canonViolations.length,
+    canon_violation_types: [...new Set(canonViolations.map((item) => cleanInline(item?.type, 48)).filter(Boolean))],
+    canon_correction_override: Boolean(canonContinuity?.correctionOverride),
   };
 }
 

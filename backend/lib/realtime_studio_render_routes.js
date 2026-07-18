@@ -247,10 +247,17 @@ function buildStudioRenderMemoryAppliedMeta(creativeMemory = null, query = "") {
   const characters = Array.isArray(creativeMemory?.characters)
     ? creativeMemory.characters
     : [];
+  const acceptedCausalFactCount = Array.isArray(creativeMemory?.acceptedCausalFacts)
+    ? creativeMemory.acceptedCausalFacts.length
+    : 0;
   const withBible = characters.filter(characterBibleHasSignal);
   if (!withBible.length) {
     return creativeMemory
-      ? { creative_memory: true, character_bible: false }
+      ? {
+          creative_memory: true,
+          character_bible: false,
+          ...(acceptedCausalFactCount > 0 ? { accepted_causal_facts: acceptedCausalFactCount } : {}),
+        }
       : null;
   }
   const correctedCharacters = withBible.filter(characterBibleHasCorrection);
@@ -273,6 +280,7 @@ function buildStudioRenderMemoryAppliedMeta(creativeMemory = null, query = "") {
     character_corrections: selected.some(characterBibleHasCorrection),
     correction_applied_to_prompt: selected.some(characterBibleHasCorrection),
     characters: unique(selected.map((character) => character?.name).filter(Boolean)),
+    ...(acceptedCausalFactCount > 0 ? { accepted_causal_facts: acceptedCausalFactCount } : {}),
   };
   const uniqueTerms = unique(correctedTerms);
   const uniqueReplacements = unique(correctionReplacements);
@@ -290,7 +298,7 @@ async function buildStudioRenderPromptMemoryContext({
   resolveUserId = null,
 } = {}) {
   if (!shouldApplyScreenplayContract) {
-    return { systemPrompt, memoryApplied: null };
+    return { systemPrompt, memoryApplied: null, acceptedCausalFacts: [] };
   }
   const body = req?.body && typeof req.body === "object" ? req.body : {};
   const promptText = String(systemPrompt || "");
@@ -302,7 +310,7 @@ async function buildStudioRenderPromptMemoryContext({
 
   let userId = "";
   let creativeMemory = null;
-  if (!hasMemoryBlock && creativeMemoryStore?.getCreativeMemoryForPrompt) {
+  if (creativeMemoryStore?.getCreativeMemoryForPrompt) {
     try {
       userId = typeof resolveUserId === "function"
         ? cleanStudioRenderMemoryText(resolveUserId(req), 120)
@@ -329,25 +337,41 @@ async function buildStudioRenderPromptMemoryContext({
   const promptMemory = creativeMemory
     ? prioritizeStudioRenderCreativeMemory(creativeMemory, query)
     : null;
-  const memoryApplied = promptMemory
+  const memoryForPrompt = hasMemoryBlock ? null : promptMemory;
+  const memoryApplied = memoryForPrompt
     ? buildStudioRenderMemoryAppliedMeta(promptMemory, query)
     : null;
-  if (!promptMemory && !sessionContext && !screenplayTask) {
-    return { systemPrompt, memoryApplied: null };
+  const acceptedCausalFacts = Array.isArray(promptMemory?.acceptedCausalFacts)
+    ? promptMemory.acceptedCausalFacts.slice(0, 8)
+    : [];
+  if (!memoryForPrompt && !sessionContext && !screenplayTask) {
+    return { systemPrompt, memoryApplied: null, acceptedCausalFacts };
   }
   try {
     return {
       systemPrompt: buildModelPrompt({
         persona: systemPrompt,
-        creativeMemory: promptMemory,
+        creativeMemory: memoryForPrompt,
         sessionContext,
         screenplayTask,
       }),
       memoryApplied,
+      acceptedCausalFacts,
     };
   } catch (_error) {
-    return { systemPrompt, memoryApplied: null };
+    return { systemPrompt, memoryApplied: null, acceptedCausalFacts };
   }
+}
+
+function studioRenderQualityBody(body = {}, memoryContext = null) {
+  const acceptedCausalFacts = Array.isArray(memoryContext?.acceptedCausalFacts)
+    ? memoryContext.acceptedCausalFacts
+    : [];
+  if (!acceptedCausalFacts.length) return body;
+  return {
+    ...(body && typeof body === "object" ? body : {}),
+    screenplay_accepted_causal_facts: acceptedCausalFacts,
+  };
 }
 
 function normalizeStudioRenderScreenplayTarget(body = {}) {
@@ -477,7 +501,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         const qualityResult = await enforceStudioScreenplayQuality({
           reply,
           transcript,
-          body: req.body,
+          body: studioRenderQualityBody(req.body, memoryContext),
           systemPrompt: memoryContext.systemPrompt,
           renderRepair: renderStudioRealtimeText,
         });
@@ -634,7 +658,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
         const qualityResult = await enforceStudioScreenplayQuality({
           reply,
           transcript,
-          body: req.body,
+          body: studioRenderQualityBody(req.body, memoryContext),
           systemPrompt: memoryContext.systemPrompt,
           renderRepair: renderStudioRealtimeText,
         });
