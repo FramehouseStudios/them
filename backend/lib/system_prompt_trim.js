@@ -372,16 +372,20 @@ function compactWriterBlockBody(body, bodyLimit) {
 function compactTaggedBlock(block, maxChars) {
   const clean = String(block || "").trim();
   const limit = Math.max(120, Math.floor(Number(maxChars || 0)));
-  if (!clean || clean.length <= limit) return clean;
+  if (!clean) return clean;
 
   const tagMatch = clean.match(/^<([a-z0-9_:-]+)\b[^>]*>/i);
   if (!tagMatch) {
+    if (clean.length <= limit) return clean;
     const head = clean.slice(0, Math.max(40, Math.floor(limit * 0.55))).trimEnd();
     const tail = clean.slice(Math.max(0, clean.length - Math.max(40, limit - head.length - 6))).trimStart();
     return `${head}\n...\n${tail}`.slice(0, limit).trim();
   }
 
   const tag = tagMatch[1];
+  const normalizedTag = tag.toLowerCase();
+  // A fitted screenplay task always needs its invariant mode contract.
+  if (clean.length <= limit && normalizedTag !== "screenplay_task") return clean;
   const closeTag = `</${tag}>`;
   const openTag = tagMatch[0];
   const body = clean
@@ -390,7 +394,6 @@ function compactTaggedBlock(block, maxChars) {
   const marker = "\n...\n";
   const bodyLimit = Math.max(40, limit - openTag.length - closeTag.length - marker.length - 2);
   const semanticBodyLimit = Math.max(40, limit - openTag.length - closeTag.length - 2);
-  const normalizedTag = tag.toLowerCase();
   const semanticCompactors = {
     clementine_core: compactClementineCoreBody,
     clementine_safety_contract: compactSafetyContractBody,

@@ -346,3 +346,68 @@ test("[system-prompt-trim] semantically preserves a feature page assignment unde
   assert.ok(out.includes("Continue the next ten pages of Act Two from the courtroom."));
   assert.ok(!/^craft_contract:.*\.\.\.$/m.test(out));
 });
+
+test("[system-prompt-trim] adds the Scene Doctor mode contract when its small task block fits", () => {
+  const writerRequest = "Scene doctor this confrontation and tell me why it is not working.";
+  const prompt = [
+    "CLEMENTINE PERSONA " + "cinematic collaborator. ".repeat(220),
+    [
+      "<clementine_core>",
+      "identity: CLEMENTINE is a truthful feature-film writing companion.",
+      "detail: " + "core behavior. ".repeat(180),
+      "</clementine_core>",
+    ].join("\n"),
+    [
+      "<creative_memory>",
+      "project-continuity:",
+      "current_beat: The ferry horn drowns out Mara's accusation.",
+      "detail: " + "remembered story. ".repeat(180),
+      "</creative_memory>",
+    ].join("\n"),
+    [
+      "<session>",
+      "project: quality-doctor",
+      "phase: notes",
+      "act: Act II",
+      "draft_excerpt:",
+      "EXT. FERRY TERMINAL - MORNING",
+      "MARA and ELI argue by the gate.",
+      "detail: " + "session continuity. ".repeat(180),
+      "</session>",
+    ].join("\n"),
+    [
+      "<feature_film_map>",
+      "current_position: p69 / 110",
+      "current_sequence: Act II - Bad Guys Close In",
+      "structural_obligation_due_now: Force Mara to change tactics.",
+      "detail: " + "feature guidance. ".repeat(180),
+      "</feature_film_map>",
+    ].join("\n"),
+    [
+      "<screenplay_task>",
+      "intent: scene_doctor",
+      "label: Scene Doctor",
+      "role: Clementine is an elite cinematic writing partner, not a generic chatbot.",
+      "mode_guidance: Diagnose with surgical brevity and prescribe the highest-leverage fix.",
+      "output: Give one concrete page-level move.",
+      "quality: Be specific, film-literate, and directly useful on the page.",
+      "</screenplay_task>",
+    ].join("\n"),
+    "DIRECTOR NOTES " + "runtime behavior. ".repeat(220),
+    writerRequest,
+  ].join("\n\n");
+
+  const out = fitSystemPromptForTurnLatency(prompt, {
+    routingLane: "creative",
+    chatModelPlan: { tier: "rich" },
+    fastMaxChars: 3_800,
+    richMaxChars: 6_200,
+  });
+
+  assert.ok(prompt.length > 6_200);
+  assert.ok(out.length <= 6_200);
+  assert.ok(out.includes("<screenplay_task>"));
+  assert.ok(out.includes("intent: scene_doctor"));
+  assert.ok(out.includes("mode_contract: diagnose with surgical brevity"));
+  assert.ok(out.includes(writerRequest));
+});
