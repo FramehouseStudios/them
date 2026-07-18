@@ -1245,6 +1245,22 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
           acceptedAt: 1_800,
         },
       ],
+      acceptedCausalFacts: [
+        {
+          kind: "revelation",
+          fact: "MARA: I forged the affidavit.",
+          sourceSceneHeading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+          sourceAct: "Act II",
+          ageInScenes: 9,
+        },
+        {
+          kind: "irreversible_consequence",
+          fact: "Mara burns the only copy of the affidavit.",
+          sourceSceneHeading: "INT. ARCHIVE - NIGHT",
+          sourceAct: "Act II",
+          ageInScenes: 8,
+        },
+      ],
       dueStoryThread: {
         kind: "payoff",
         setup: "The red locket hidden in the courthouse clock.",
@@ -1314,6 +1330,22 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
     age_in_scenes: 17,
     accepted_scene_count: 42,
   });
+  assert.deepEqual(trace.accepted_causal_facts, [
+    {
+      kind: "revelation",
+      fact: "MARA: I forged the affidavit.",
+      source_scene_heading: "INT. COURTHOUSE CLOCK TOWER - NIGHT",
+      source_act: "Act II",
+      age_in_scenes: 9,
+    },
+    {
+      kind: "irreversible_consequence",
+      fact: "Mara burns the only copy of the affidavit.",
+      source_scene_heading: "INT. ARCHIVE - NIGHT",
+      source_act: "Act II",
+      age_in_scenes: 8,
+    },
+  ]);
   assert.equal(trace.correction_count, 3);
   assert.deepEqual(trace.corrected_terms, ["mother", "cassette"]);
   assert.deepEqual(trace.correction_replacements, ["mother -> Eli's sister", "cassette -> VHS tape"]);
@@ -1519,6 +1551,13 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
         acceptedAt: 2_600,
       },
     ],
+    acceptedCausalFacts: [{
+      kind: "irreversible_consequence",
+      fact: "Mara burns the only copy of the sealed affidavit.",
+      sourceSceneHeading: "INT. ARCHIVE - NIGHT",
+      sourceAct: "Act II",
+      ageInScenes: 8,
+    }],
     dueStoryThread: {
       kind: "payoff",
       setup: "The red locket hidden in the courthouse clock.",
@@ -1578,6 +1617,13 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
     age_in_scenes: 17,
     accepted_scene_count: 42,
   });
+  assert.deepEqual(snapshot.accepted_causal_facts, [{
+    kind: "irreversible_consequence",
+    fact: "Mara burns the only copy of the sealed affidavit.",
+    source_scene_heading: "INT. ARCHIVE - NIGHT",
+    source_act: "Act II",
+    age_in_scenes: 8,
+  }]);
   assert.ok(snapshot.opening_line.includes("Rain Docket"));
   assert.ok(snapshot.opening_line.includes("Act II / Act II - Bad Guys Close In"));
   assert.ok(snapshot.opening_line.includes("Judge Vale sees the locket in Mara's hand."));
@@ -1585,6 +1631,8 @@ test("[persistent-screenplay-memory] cold session restores from durable project 
   assert.ok(snapshot.opening_line.includes("still open after 17 accepted scenes"));
   assert.ok(snapshot.opening_line.includes("Its promised payoff is Mara uses the locket to expose who altered the verdict."));
   assert.ok(snapshot.opening_line.includes("Next move: Mara enters the hearing before Vale can seal the room."));
+  assert.ok(snapshot.opening_line.includes("One accepted consequence stays binding: Mara burns the only copy of the sealed affidavit."));
+  assert.ok(snapshot.opening_line.indexOf("Next move:") < snapshot.opening_line.indexOf("One accepted consequence stays binding:"));
   assert.doesNotMatch(JSON.stringify(snapshot), /Night Train|uncouples/);
 });
 

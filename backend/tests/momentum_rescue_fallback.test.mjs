@@ -131,3 +131,37 @@ test("[momentum-rescue-fallback] spends the oldest accepted-scene promise during
   assert.match(reply, /Mara uses the locket to expose who altered the verdict/);
   assert.match(reply, /Mara puts the red locket hidden in the courthouse clock where Judge Vale can see it/);
 });
+
+test("[momentum-rescue-fallback] preserves accepted causal canon when the provider fails", () => {
+  const reply = buildMomentumRescueFallbackReply({
+    transcript: "I'm blocked after Mara destroyed the proof.",
+    studioMeta: {
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Reversal fallout",
+      screenplayCurrentBeat: "Mara walks into the hearing with no physical evidence.",
+      screenplayCharacterFocus: ["Mara", "Judge Vale"],
+      screenplayAcceptedCausalFacts: [
+        {
+          kind: "irreversible_consequence",
+          fact: "Mara burns the only copy of the affidavit.",
+          sourceAct: "Act II",
+          sourceSceneHeading: "INT. ARCHIVE - NIGHT",
+          ageInScenes: 8,
+        },
+        {
+          kind: "revelation",
+          fact: "MARA: I forged the affidavit.",
+          sourceAct: "Act II",
+          ageInScenes: 9,
+        },
+      ],
+    },
+  });
+
+  assert.match(reply, /Binding accepted irreversible consequence: Mara burns the only copy of the affidavit\. Continue its consequence; do not reset it\./);
+  assert.match(reply, /Binding accepted revelation: MARA: I forged the affidavit\. Continue its consequence; do not reset it\./);
+  assert.match(reply, /Grounded in: accepted_causal_fact: Mara burns the only copy of the affidavit/);
+  assert.match(reply, /Do not undo it/);
+  assert.doesNotMatch(reply, /finds (?:another|the) copy of the affidavit/i);
+});

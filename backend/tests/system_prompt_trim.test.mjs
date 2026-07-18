@@ -46,6 +46,9 @@ test("[system-prompt-trim] preserves session and screenplay task when trimming l
     "accepted-scene-causality:",
     "  directive: authoritative accepted Studio scenes, newest first.",
     "  - ACCEPTED_SCENE [Act II · INT. ARCHIVE - NIGHT]: happened=Mara hides the VHS tape | changed=Eli pockets her key | still_open=The sister's voicemail",
+    "accepted-causal-state:",
+    "  - BINDING_FACT [irreversible_consequence · Act II / INT. ARCHIVE - NIGHT · 8 accepted scenes ago]: Mara burns the only public affidavit.",
+    "  contradiction_guard: never undo an irreversible consequence offscreen.",
     "due-story-thread:",
     "  oldest_due_story_thread: The sister's voicemail hidden behind the vent.",
     "  promised_payoff: The voicemail becomes public testimony.",
@@ -99,6 +102,8 @@ test("[system-prompt-trim] preserves session and screenplay task when trimming l
   assert.ok(out.includes("current_beat: Mara finds the sealed affidavit."));
   assert.ok(out.includes("ACCEPTED_SCENE [Act II"));
   assert.ok(out.includes("Eli pockets her key"));
+  assert.ok(out.includes("BINDING_FACT [irreversible_consequence"));
+  assert.ok(out.includes("Mara burns the only public affidavit"));
   assert.ok(out.includes("oldest_due_story_thread: The sister's voicemail hidden behind the vent."));
   assert.ok(out.includes("JUNE"));
   assert.ok(out.includes("<session>"));
@@ -182,6 +187,7 @@ test("[system-prompt-trim] keeps ranked rescue authority inside the live rich-tu
     "current_beat: Mara puts the affidavit on the record.",
     "accepted_page_anchor: Mara puts the affidavit on the record.",
     "correction_contract: public affidavit, not sealed affidavit.",
+    "binding_causal_fact: irreversible_consequence: Mara burns the only public affidavit.",
     "ranked_rescue_moves:",
     `  rank_1: engine=reversal_pressure; score=91; evidence=accepted_page: Mara puts the affidavit on the record. | remembered_next_turn: The judge turns it against Mara; move=Use the accepted affidavit beat as an apparent win, then make the judge turn it into public cost so Mara must risk Eli's trust.; success_check=The gain becomes a cost and Mara changes tactic.`,
     "  rank_2: engine=relationship_pressure; score=82; evidence=Eli distrusts Mara; move=Make exposure cost the bond.; success_check=Trust changes.",
@@ -210,7 +216,8 @@ test("[system-prompt-trim] keeps ranked rescue authority inside the live rich-tu
   assert.ok(out.includes("</writer_block_memory>"));
   assert.ok(out.includes("rank_1: engine=reversal_pressure"));
   assert.ok(out.includes("evidence=accepted_page: Mara puts the affidavit"));
-  assert.ok(out.includes("rule: execute rank_1 unless a writer correction conflicts."));
+  assert.ok(out.includes("binding_causal_fact: irreversible_consequence"));
+  assert.ok(out.includes("rule: execute rank_1 unless a writer correction conflicts; never reset accepted causal facts."));
 });
 
 test("[system-prompt-trim] semantically preserves a feature page assignment under the live rich budget", () => {

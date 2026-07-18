@@ -116,6 +116,21 @@ function dueStoryThreadMetaValue(studioMeta) {
   return out.setup || out.promisedPayoff ? out : null;
 }
 
+function acceptedCausalFactsMetaValue(studioMeta) {
+  const value = studioMeta?.screenplayAcceptedCausalFacts ??
+    studioMeta?.screenplay_accepted_causal_facts ??
+    studioMeta?.acceptedCausalFacts ??
+    studioMeta?.accepted_causal_facts;
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 8).map((item) => ({
+    kind: normalizeSnippet(item?.kind ?? item?.type, 48),
+    fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+    sourceSceneHeading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
+    sourceAct: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
+    ageInScenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
+  })).filter((item) => item.kind && item.fact);
+}
+
 function actRescueLine(act = "") {
   const lower = normalizeSnippet(act, 80).toLowerCase();
   if (/\bact\s*(?:iii|3|three)\b|\bthird act\b|\bfinal\b|\bclimax\b/.test(lower)) {
@@ -237,6 +252,10 @@ function buildMomentumRescueFallbackReply({
     220
   );
   const dueStoryThread = dueStoryThreadMetaValue(meta);
+  const causalFacts = acceptedCausalFactsMetaValue(meta);
+  const primaryCausalFact = causalFacts[0] || null;
+  const relationshipCausalFact = causalFacts.find((item) => item.kind === "relationship_change") || null;
+  const irreversibleCausalFact = causalFacts.find((item) => item.kind === "irreversible_consequence") || null;
   const correctedTerms = listMetaValue(meta, ["screenplayCorrectedTerms", "screenplay_corrected_terms", "correctedTerms", "corrected_terms"], 4, 120);
   const correctionReplacements = listMetaValue(meta, ["screenplayCorrectionReplacements", "screenplay_correction_replacements", "correctionReplacements", "correction_replacements"], 4, 160);
   const correctionSummary = correctionReplacements.length || correctedTerms.length
@@ -255,9 +274,10 @@ function buildMomentumRescueFallbackReply({
     "the room going still"
   );
   const strongestTurn = dueStoryThread?.promisedPayoff || dueStoryThread?.setup ||
-    nextTurns[0] || nextMoves[0] || nextScenePlan || sceneObjective ||
+    primaryCausalFact?.fact || nextTurns[0] || nextMoves[0] || nextScenePlan || sceneObjective ||
     "the protagonist chooses between the thing they want and the truth they are avoiding";
-  const cost = characterArcTurns[0] || characterArc || protagonistNeed || actPressure || featureObligation || threads[0] ||
+  const cost = irreversibleCausalFact?.fact || relationshipCausalFact?.fact ||
+    characterArcTurns[0] || characterArc || protagonistNeed || actPressure || featureObligation || threads[0] ||
     "the choice changes the relationship and makes the next scene unavoidable";
   const problemSource = currentBeat || lastOutcome || sceneObjective || normalizeSnippet(transcript, 180) ||
     "the scene has feeling, but not enough visible consequence yet";
@@ -288,6 +308,7 @@ function buildMomentumRescueFallbackReply({
     imageMotifs: motifs,
     acceptedPages,
     storyMoments,
+    causalFacts,
     dueStoryThread,
   });
   const rankedMoveLines = buildRankedFallbackMoveLines(rankedRescueMoves);
@@ -325,6 +346,7 @@ function buildMomentumRescueFallbackReply({
     unresolvedStoryThreads: threads,
     actThreePayoffPath,
     imageMotifs: motifs,
+    causalFacts,
     dueStoryThread,
   });
   const storyMoveLine = storyMoveLines.length
@@ -340,6 +362,9 @@ function buildMomentumRescueFallbackReply({
     `The story already has pressure in this: ${sentenceFragment(problemSource)}.`,
     actPressure ? `Use that pressure instead of opening a new lane: ${sentenceFragment(actPressure)}.` : "",
     acceptedPages[0] ? `Accepted page anchor: ${sentenceFragment(acceptedPages[0], 240)}. Treat it as committed continuity.` : "",
+    ...causalFacts.slice(0, 3).map((item) => (
+      `Binding accepted ${item.kind.replace(/_/g, " ")}: ${sentenceFragment(item.fact, 220)}. Continue its consequence; do not reset it.`
+    )),
     dueStoryThread?.setup
       ? `Oldest due story thread: ${sentenceFragment(dueStoryThread.setup, 220)}${dueStoryThread.ageInScenes ? `, still open after ${dueStoryThread.ageInScenes} accepted scenes` : ""}.`
       : "",

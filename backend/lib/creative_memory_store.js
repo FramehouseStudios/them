@@ -179,7 +179,18 @@ const ACCEPTED_SCENE_LIST_FIELDS = Object.freeze([
   ["unresolvedSetups", "unresolved_setups", 6, 200],
   ["actThreePayoffPath", "act_three_payoff_path", 4, 200],
   ["continuityNotes", "continuity_notes", 5, 200],
+  ["decisions", "decisions", 4, 220],
+  ["revelations", "revelations", 4, 220],
+  ["relationshipChanges", "relationship_changes", 4, 220],
+  ["irreversibleConsequences", "irreversible_consequences", 4, 220],
 ]);
+const ACCEPTED_CAUSAL_FACT_FIELDS = Object.freeze([
+  ["decision", "decisions"],
+  ["revelation", "revelations"],
+  ["relationship_change", "relationshipChanges"],
+  ["irreversible_consequence", "irreversibleConsequences"],
+]);
+const ACCEPTED_CAUSAL_FACT_PROMPT_MAX = 8;
 const EPISODIC_SEMANTIC_EXPANSIONS = Object.freeze([
   {
     concept: "recorded_evidence",
@@ -994,6 +1005,74 @@ function acceptedPageExcerpt(text = "") {
   return cleanText(lines.slice(0, 4).join(" "), 420);
 }
 
+const ACCEPTED_PAGE_CAUSAL_PATTERNS = Object.freeze({
+  decisions: Object.freeze([
+    /\b(?:chooses?|decides?|refuses?|commits?|agrees?|accepts?|rejects?|quits?|surrenders?|votes?|confesses?|admits?)\b/i,
+    /\b(?:hands? (?:over|back)|turns? (?:himself|herself|themself|themselves) in|walks? away for good)\b/i,
+    /\bI\s+(?:choose|decide|refuse|will|won't|accept|reject|quit|confess|admit)\b/i,
+  ]),
+  revelations: Object.freeze([
+    /\b(?:reveals?|confesses?|admits?|the truth is|turns out|comes clean|was behind it)\b/i,
+    /\bI\s+(?:lied|stole|forged|betrayed|killed|hid|covered it up)\b/i,
+  ]),
+  relationshipChanges: Object.freeze([
+    /\b(?:forgives?|betrays?|abandons?|disowns?|embraces?|kisses?|breaks? up|ends? (?:the relationship|the marriage|the engagement))\b/i,
+    /\b(?:chooses?|picks?)\s+.{2,80}\s+over\s+.{2,80}\b/i,
+    /\b(?:trusts?|protects?)\s+.{2,80}\s+(?:instead of|over)\s+.{2,80}\b/i,
+  ]),
+  irreversibleConsequences: Object.freeze([
+    /\b(?:dies?|died|is dead|was killed|is killed|was arrested|is arrested|burn(?:s|ed)?|destroy(?:s|ed)?|shred(?:s|ded)?|broadcasts?|broadcast|publish(?:es|ed)?|shoots?|shot|stabs?|stabbed)\b/i,
+    /\b(?:sets?|set) .{0,60} on fire|\bhand(?:s|ed)? (?:the )?(?:evidence|proof|recording|weapon) over|\bturn(?:s|ed)? (?:himself|herself|themself|themselves) in\b/i,
+    /\bsign(?:s|ed)? (?:the )?(?:divorce|confession|deed|contract|plea)|\bwalk(?:s|ed)? away for good|\b(?:leave(?:s|d)?|left) forever\b/i,
+  ]),
+});
+
+function acceptedPageCausalEvidenceLines(text = "") {
+  const out = [];
+  let speaker = "";
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    const raw = String(rawLine || "").trim();
+    if (!raw) {
+      speaker = "";
+      continue;
+    }
+    if (/^(?:INT\.|EXT\.|INT\/EXT\.|INT\.\/EXT\.|CUT TO:|FADE (?:IN|OUT)|SMASH CUT:|DISSOLVE TO:)/i.test(raw)) {
+      speaker = "";
+      continue;
+    }
+    if (/^[A-Z][A-Z0-9 .'-]{1,48}(?:\s*\([^\n]{1,24}\))?$/.test(raw) && !/[.!?]$/.test(raw)) {
+      speaker = cleanText(raw.replace(/\s*\([^\n]{1,24}\)$/, ""), 72);
+      continue;
+    }
+    if (/^\([^\n]{1,80}\)$/.test(raw)) continue;
+    const line = cleanText(raw, 220);
+    if (!line || line.length < 4) continue;
+    out.push({
+      text: line,
+      evidence: cleanText(speaker ? `${speaker}: ${line}` : line, 220),
+    });
+  }
+  return out;
+}
+
+function extractAcceptedPageCausalFacts(text = "") {
+  const out = {
+    decisions: [],
+    revelations: [],
+    relationshipChanges: [],
+    irreversibleConsequences: [],
+  };
+  for (const line of acceptedPageCausalEvidenceLines(text)) {
+    for (const [field, patterns] of Object.entries(ACCEPTED_PAGE_CAUSAL_PATTERNS)) {
+      if (!patterns.some((pattern) => pattern.test(line.text))) continue;
+      if (out[field].some((item) => item.toLowerCase() === line.evidence.toLowerCase())) continue;
+      out[field].push(line.evidence);
+      if (out[field].length > 4) out[field].length = 4;
+    }
+  }
+  return out;
+}
+
 function buildAcceptedSceneContinuity({
   pageText = "",
   projectId = "",
@@ -1016,6 +1095,7 @@ function buildAcceptedSceneContinuity({
   const writeId = cleanText(sceneContext.writeId ?? sceneContext.write_id, 80);
   const sceneHeading = firstScreenplaySceneHeading(rawPage);
   const excerpt = acceptedPageExcerpt(rawPage);
+  const causalFacts = extractAcceptedPageCausalFacts(rawPage);
   const identity = anchorSceneId || writeId || pageHash;
   return sanitizeAcceptedSceneContinuity({
     id: `accepted_scene_${stableHash(`${cleanText(projectId, 96)}|${identity}`)}`,
@@ -1038,6 +1118,36 @@ function buildAcceptedSceneContinuity({
     unresolvedSetups: continuity.unresolvedSetups,
     actThreePayoffPath: continuity.actThreePayoffPath,
     continuityNotes: continuity.continuityNotes,
+    decisions: normalizeStringList(
+      [...normalizeStringList(continuity.decisions, 4, 220), ...causalFacts.decisions],
+      4,
+      220
+    ),
+    revelations: normalizeStringList(
+      [...normalizeStringList(continuity.revelations, 4, 220), ...causalFacts.revelations],
+      4,
+      220
+    ),
+    relationshipChanges: normalizeStringList(
+      [
+        ...normalizeStringList(continuity.relationshipChanges ?? continuity.relationship_changes, 4, 220),
+        ...causalFacts.relationshipChanges,
+      ],
+      4,
+      220
+    ),
+    irreversibleConsequences: normalizeStringList(
+      [
+        ...normalizeStringList(
+          continuity.irreversibleConsequences ?? continuity.irreversible_consequences,
+          4,
+          220
+        ),
+        ...causalFacts.irreversibleConsequences,
+      ],
+      4,
+      220
+    ),
     excerpt,
     pageCount: continuity.pageCount,
     acceptedAt: nowMs(),
@@ -1280,6 +1390,10 @@ function scoreAcceptedSceneForQuery(scene, query = "", activeAct = "", recencyIn
     ...(scene.unresolvedSetups || []),
     ...(scene.actThreePayoffPath || []),
     ...(scene.continuityNotes || []),
+    ...(scene.decisions || []),
+    ...(scene.revelations || []),
+    ...(scene.relationshipChanges || []),
+    ...(scene.irreversibleConsequences || []),
   ].join(" ").toLowerCase();
   let score = Math.max(0, 4 - Math.max(0, Number(recencyIndex || 0)));
   const sceneAct = normalizeActLabel(scene.act);
@@ -1454,6 +1568,95 @@ function selectDueStoryThreadForPrompt(project = null) {
   return Object.fromEntries(
     Object.entries(out).filter(([, value]) => typeof value === "number" || Boolean(value))
   );
+}
+
+function acceptedCausalFactScore(record = {}, query = "", currentAct = "") {
+  const kind = cleanText(record.kind, 48);
+  const age = Math.max(0, Math.round(Number(record.ageInScenes || 0)));
+  const fact = cleanText(record.fact, 220).toLowerCase();
+  const queryTokens = new Set(tokenizeMemoryText(query).map(normalizeSemanticTerm).filter(Boolean));
+  const factTokens = new Set(tokenizeMemoryText(fact).map(normalizeSemanticTerm).filter(Boolean));
+  let queryHits = 0;
+  for (const token of queryTokens) {
+    if (factTokens.has(token)) queryHits += 1;
+  }
+  let score = 0;
+  if (kind === "irreversible_consequence") score = 64 + Math.min(24, age);
+  else if (kind === "relationship_change") score = 54 + Math.max(0, 22 - age * 2);
+  else if (kind === "revelation") score = 52 + Math.max(0, 16 - age);
+  else score = 48 + Math.max(0, 16 - age);
+  score += queryHits * 12;
+  const sourceAct = normalizeActLabel(record.sourceAct);
+  const activeAct = normalizeActLabel(currentAct);
+  if (activeAct && sourceAct === activeAct) score += 5;
+  else if (activeAct && sourceAct) score += 8;
+  return score;
+}
+
+function selectAcceptedCausalFactsForPrompt(project = null, {
+  query = "",
+  maxItems = ACCEPTED_CAUSAL_FACT_PROMPT_MAX,
+} = {}) {
+  if (!project || typeof project !== "object" || Array.isArray(project)) return [];
+  const scenes = (Array.isArray(project.acceptedScenes) ? project.acceptedScenes : [])
+    .map(sanitizeAcceptedSceneContinuity)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.acceptedAt || b.updatedAt || 0) - Number(a.acceptedAt || a.updatedAt || 0));
+  if (!scenes.length) return [];
+  const records = [];
+  const seen = new Set();
+  scenes.forEach((scene, ageInScenes) => {
+    for (const [kind, field] of ACCEPTED_CAUSAL_FACT_FIELDS) {
+      for (const fact of normalizeStringList(scene[field], 4, 220)) {
+        const key = `${kind}:${fact.toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const record = {
+          kind,
+          fact,
+          sourceSceneHeading: cleanText(scene.sceneHeading || scene.sceneLabel, 140),
+          sourceAct: normalizeActLabel(scene.act) || cleanText(scene.act, 80),
+          ageInScenes,
+        };
+        records.push({
+          ...record,
+          score: acceptedCausalFactScore(record, query, project.act),
+        });
+      }
+    }
+  });
+  if (!records.length) return [];
+  const ranked = [...records].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.ageInScenes - b.ageInScenes;
+  });
+  const requestedLimit = Number(maxItems);
+  const limit = Math.max(
+    1,
+    Math.min(
+      ACCEPTED_CAUSAL_FACT_PROMPT_MAX,
+      Number.isFinite(requestedLimit) ? Math.round(requestedLimit) : ACCEPTED_CAUSAL_FACT_PROMPT_MAX
+    )
+  );
+  const selected = [];
+  const selectedKeys = new Set();
+  for (const [kind] of ACCEPTED_CAUSAL_FACT_FIELDS) {
+    const entry = ranked.find((item) => item.kind === kind);
+    if (!entry) continue;
+    selected.push(entry);
+    selectedKeys.add(`${entry.kind}:${entry.fact.toLowerCase()}`);
+  }
+  for (const entry of ranked) {
+    if (selected.length >= limit) break;
+    const key = `${entry.kind}:${entry.fact.toLowerCase()}`;
+    if (selectedKeys.has(key)) continue;
+    selected.push(entry);
+    selectedKeys.add(key);
+  }
+  return selected
+    .sort((a, b) => b.score - a.score || a.ageInScenes - b.ageInScenes)
+    .slice(0, limit)
+    .map(({ score: _score, ...record }) => record);
 }
 
 function selectEpisodicMemoriesForPrompt(items = [], {
@@ -2502,6 +2705,7 @@ function createCreativeMemoryStore({
     const projectContinuity = selectProjectContinuity(rec.projects, { projectId, projectTitle });
     if (projectContinuity) {
       const dueStoryThread = selectDueStoryThreadForPrompt(projectContinuity);
+      const acceptedCausalFacts = selectAcceptedCausalFactsForPrompt(projectContinuity, { query });
       const acceptedScenes = selectAcceptedScenesForPrompt(projectContinuity.acceptedScenes, {
         query,
         currentAct: projectContinuity.act,
@@ -2512,6 +2716,7 @@ function createCreativeMemoryStore({
       delete promptProjectContinuity.acceptedScenes;
       out.projectContinuity = promptProjectContinuity;
       if (acceptedScenes.length) out.acceptedScenes = acceptedScenes;
+      if (acceptedCausalFacts.length) out.acceptedCausalFacts = acceptedCausalFacts;
       if (dueStoryThread) out.dueStoryThread = dueStoryThread;
     }
     if (rec.style && Object.keys(rec.style).length) {

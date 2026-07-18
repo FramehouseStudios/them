@@ -345,6 +345,22 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
           "page_count": 47,
           "target_pages": 105,
           "memory_excerpt": "The sealed affidavit becomes dangerous.",
+          "accepted_causal_facts": [
+            {
+              "kind": "irreversible_consequence",
+              "fact": "Mara burns the only copy of the affidavit.",
+              "source_scene_heading": "INT. ARCHIVE - NIGHT",
+              "source_act": "Act II",
+              "age_in_scenes": 8
+            },
+            {
+              "kind": "relationship_change",
+              "fact": "ELI: I choose the case over us.",
+              "source_scene_heading": "INT. COURTHOUSE STEPS - DAY",
+              "source_act": "Act II",
+              "age_in_scenes": 3
+            }
+          ],
           "due_story_thread": {
             "kind": "payoff",
             "setup": "The red locket hidden in the courthouse clock.",
@@ -388,6 +404,11 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(snapshot.imageMotifs, ["charcoal dust", "courthouse fluorescents"])
         XCTAssertEqual(snapshot.pageCount, 47)
         XCTAssertEqual(snapshot.targetPages, 105)
+        XCTAssertEqual(snapshot.acceptedCausalFacts.count, 2)
+        XCTAssertEqual(snapshot.acceptedCausalFacts[0].kind, "irreversible_consequence")
+        XCTAssertEqual(snapshot.acceptedCausalFacts[0].fact, "Mara burns the only copy of the affidavit.")
+        XCTAssertEqual(snapshot.acceptedCausalFacts[0].sourceSceneHeading, "INT. ARCHIVE - NIGHT")
+        XCTAssertEqual(snapshot.acceptedCausalFacts[0].ageInScenes, 8)
         XCTAssertEqual(snapshot.dueStoryThread?.kind, "payoff")
         XCTAssertEqual(snapshot.dueStoryThread?.setup, "The red locket hidden in the courthouse clock.")
         XCTAssertEqual(snapshot.dueStoryThread?.promisedPayoff, "Mara uses the locket to expose who altered the verdict.")
@@ -396,7 +417,7 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertEqual(snapshot.dueStoryThread?.acceptedSceneCount, 42)
         XCTAssertEqual(
             ScreenplayLiveDraftBridge.restoredContinuityNextMove(snapshot),
-            "Move into a private corridor confrontation, while turning the red locket hidden in the courthouse clock into its promised payoff: Mara uses the locket to expose who altered the verdict"
+            "Move into a private corridor confrontation, while turning the red locket hidden in the courthouse clock into its promised payoff: Mara uses the locket to expose who altered the verdict; carry forward the accepted irreversible consequence: Mara burns the only copy of the affidavit, without resetting it"
         )
     }
 }

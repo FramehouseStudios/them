@@ -219,6 +219,7 @@ function compactSessionBody(body, bodyLimit) {
 function compactCreativeMemoryBody(body, bodyLimit) {
   const lines = bodyLines(body);
   const dueStoryThread = firstLineStartingWith(lines, "oldest_due_story_thread:");
+  const bindingCausalFact = linesContaining(lines, ["binding_fact", "binding_causal_fact"], 1)[0];
   const correctionLines = linesContaining(lines, [
     "correction:",
     "authoritative_corrections:",
@@ -231,6 +232,7 @@ function compactCreativeMemoryBody(body, bodyLimit) {
     { value: firstLineStartingWith(lines, "current_beat:"), maxChars: 170 },
     { value: firstLineStartingWith(lines, "first_turn_to_spend:"), maxChars: 180 },
     { value: firstLineStartingWith(lines, "next_scene_plan:"), maxChars: 180 },
+    { value: bindingCausalFact, maxChars: 190 },
     { value: dueStoryThread, maxChars: 180 },
     { value: dueStoryThread ? "" : summarizeBulletSection(lines, "unresolved_setups:", 2), maxChars: 170 },
     { value: linesContaining(lines, "accepted_scene", 1)[0], maxChars: 125 },
@@ -327,7 +329,7 @@ function compactWriterBlockBody(body, bodyLimit) {
   const rankMatch = rankLine.match(
     /^rank_1:\s*engine=([^;]+);\s*score=([^;]+);\s*evidence=([\s\S]*?);\s*move=([\s\S]*?);\s*success_check=([\s\S]*)$/i
   );
-  const rule = "rule: execute rank_1 unless a writer correction conflicts.";
+  const rule = "rule: execute rank_1 unless a writer correction conflicts; never reset accepted causal facts.";
   let compactRank = rankLine;
   if (rankMatch) {
     const ruleBudget = limit >= 120 ? rule.length + 1 : 0;
@@ -351,6 +353,7 @@ function compactWriterBlockBody(body, bodyLimit) {
   if (selected.join("\n").length + rule.length + 1 <= limit) selected.push(rule);
   const optionalPrefixes = [
     "correction_contract:",
+    "binding_causal_fact:",
     "accepted_page_anchor:",
     "current_beat:",
     "position:",
@@ -432,14 +435,34 @@ function buildProtectedSection(blocks, budget) {
   const totalBudget = Math.max(0, Math.floor(Number(budget || 0)));
   if (totalBudget < 160) return "";
   const parts = [];
+  const blockWeight = (tag) => {
+    switch (String(tag || "").toLowerCase()) {
+      case "creative_memory": return 2.5;
+      case "writer_block_memory": return 2.4;
+      case "feature_film_map": return 2;
+      case "session": return 1.6;
+      case "screenplay_task": return 1.3;
+      default: return 1;
+    }
+  };
   for (let i = 0; i < blocks.length; i += 1) {
     const entry = blocks[i];
     const used = parts.join("\n\n").length;
     const separatorBudget = parts.length ? 2 : 0;
     const remaining = totalBudget - used - separatorBudget;
     if (remaining < 120) break;
-    const slotsLeft = blocks.length - i;
-    const perBlockBudget = Math.max(120, Math.floor(remaining / slotsLeft) - 2);
+    const remainingWeights = blocks
+      .slice(i)
+      .reduce((sum, item) => sum + blockWeight(item?.tag), 0);
+    const weightedShare = remainingWeights > 0
+      ? remaining * (blockWeight(entry?.tag) / remainingWeights)
+      : remaining;
+    const futureBlockCount = blocks.length - i - 1;
+    const maxCurrentBudget = Math.max(120, remaining - futureBlockCount * 122);
+    const perBlockBudget = Math.max(
+      120,
+      Math.min(maxCurrentBudget, Math.floor(weightedShare) - 2)
+    );
     const compacted = compactTaggedBlock(entry.block, Math.min(remaining, perBlockBudget));
     if (!compacted) continue;
     const projected = used + separatorBudget + compacted.length;

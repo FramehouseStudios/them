@@ -473,6 +473,14 @@ try {
     },
   }, null, 2));
   console.log("studio-cross-platform-restore-contract-smoke: ok");
+} catch (error) {
+  if (server) {
+    const backendStdout = server.stdout.join("").trim();
+    const backendStderr = server.stderr.join("").trim();
+    if (backendStdout) console.error(`cross-platform restore backend stdout:\n${backendStdout}`);
+    if (backendStderr) console.error(`cross-platform restore backend stderr:\n${backendStderr}`);
+  }
+  throw error;
 } finally {
   for (const [key, value] of Object.entries(originalStringValues)) {
     writeDefaultString(key, value);

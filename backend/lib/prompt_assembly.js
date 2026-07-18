@@ -693,6 +693,7 @@ function buildMomentumRescueMoveOptionLines({
   endingImage = "",
   acceptedPages = [],
   storyMoments = [],
+  causalFacts = [],
   dueStoryThread = null,
 } = {}) {
   const ranked = rankStoryRescueMovesForContext({
@@ -721,6 +722,7 @@ function buildMomentumRescueMoveOptionLines({
     endingImage,
     acceptedPages,
     storyMoments,
+    causalFacts,
     dueStoryThread,
   });
   return [
@@ -979,6 +981,56 @@ function serializeDueStoryThread(value) {
   return `due-story-thread:\n${lines.join("\n")}`;
 }
 
+function normalizeAcceptedCausalFacts(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const kind = trimContextLine(item.kind ?? item.type, 48).toLowerCase().replace(/\s+/g, "_");
+    const fact = trimContextLine(item.fact ?? item.value ?? item.text, 220);
+    if (!kind || !fact) continue;
+    const key = `${kind}:${fact.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      kind,
+      fact,
+      sourceSceneHeading: trimContextLine(item.sourceSceneHeading ?? item.source_scene_heading, 140),
+      sourceAct: trimContextLine(item.sourceAct ?? item.source_act, 80),
+      ageInScenes: Math.max(0, Math.round(Number(item.ageInScenes ?? item.age_in_scenes ?? 0))),
+    });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+function serializeAcceptedCausalFacts(value, currentAct = "") {
+  const facts = normalizeAcceptedCausalFacts(value);
+  if (!facts.length) return "";
+  const lines = [
+    "  authority: exact causal evidence from accepted Studio pages; these events are binding canon unless the writer explicitly corrects them.",
+  ];
+  for (const fact of facts) {
+    const source = [
+      fact.sourceAct,
+      fact.sourceSceneHeading,
+      fact.ageInScenes > 0 ? `${fact.ageInScenes} accepted scenes ago` : "latest accepted scene",
+    ].filter(Boolean).join(" · ");
+    lines.push(`  - BINDING_FACT [${fact.kind}${source ? ` · ${source}` : ""}]: ${fact.fact}`);
+  }
+  const act = trimContextLine(currentAct, 80).toLowerCase();
+  if (/\b(?:iii|3|three)\b/.test(act)) {
+    lines.push("  act_handoff: Act III must pay the consequences of these decisions and revelations through changed behavior; do not reset Act I/II state for convenience.");
+  } else if (/\b(?:ii|2|two)\b/.test(act)) {
+    lines.push("  act_handoff: Act II must inherit these earlier choices, revelations, and relationship changes, then compound their cost instead of replaying them.");
+  } else {
+    lines.push("  act_handoff: every new scene must inherit these changed conditions and make the next choice causally narrower.");
+  }
+  lines.push("  contradiction_guard: never make a character unknow a revelation, undo an irreversible consequence, or restore an earlier relationship state offscreen; any reversal needs a new dramatized cause.");
+  return `accepted-causal-state:\n${lines.join("\n")}`;
+}
+
 function serializeCharacters(characters, { preserveOrder = false } = {}) {
   if (!isNonEmptyArray(characters)) return "";
   const ordered = preserveOrder
@@ -1138,6 +1190,10 @@ function buildMemoryBlock(creativeMemory) {
     serializeStyle(creativeMemory.style),
     serializeProjectContinuity(creativeMemory.projectContinuity),
     serializeAcceptedSceneCausality(creativeMemory.acceptedScenes),
+    serializeAcceptedCausalFacts(
+      creativeMemory.acceptedCausalFacts,
+      creativeMemory.projectContinuity?.act
+    ),
     serializeDueStoryThread(creativeMemory.dueStoryThread),
     serializeCharacters(creativeMemory.characters, { preserveOrder: preserveCharacterOrder }),
     serializeStoryBibleRecall(creativeMemory),
@@ -1425,6 +1481,7 @@ function buildWriterBlockCreativeRecall(creativeMemory) {
   return {
     acceptedPages,
     storyMoments,
+    causalFacts: normalizeAcceptedCausalFacts(creativeMemory?.acceptedCausalFacts),
     dueStoryThread: normalizeDueStoryThread(creativeMemory?.dueStoryThread),
   };
 }
@@ -1531,6 +1588,10 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     140
   );
   const creativeRecall = buildWriterBlockCreativeRecall(creativeMemory);
+  const causalFacts = creativeRecall.causalFacts;
+  const primaryCausalFact = causalFacts[0] || null;
+  const relationshipCausalFact = causalFacts.find((item) => item.kind === "relationship_change") || null;
+  const irreversibleCausalFact = causalFacts.find((item) => item.kind === "irreversible_consequence") || null;
   const dueStoryThread = creativeRecall.dueStoryThread;
   const dueSetup = dueStoryThread?.setup || "";
   const duePayoff = dueStoryThread?.promisedPayoff || "";
@@ -1575,6 +1636,9 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
   push("act_three_payoff_seed", actThreePayoffPath[0]);
   push("image_to_transform", imageMotifs[0]);
   push("accepted_page_anchor", creativeRecall.acceptedPages[0]);
+  for (const fact of causalFacts.slice(0, 3)) {
+    push("binding_causal_fact", `${fact.kind}: ${fact.fact}`);
+  }
   push("retrieved_story_memory", creativeRecall.storyMoments[0]);
   push("correction_contract", correctionContract?.summary);
   push("feature_memory_brief", featureMemoryBrief);
@@ -1582,13 +1646,22 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
   const asClause = (value, fallback = "") =>
     (trimContextLine(value, 320) || fallback).replace(/[.!?]+$/g, "").trim();
   const mainCharacter = characterFocus[0] || trimContextLine((characterArcState || characterArcTurns[0]).split(":")[0], 80) || "the protagonist";
-  const primaryPressure = asClause(dueSetup || duePayoff || nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan || featureObligation || currentBeat);
+  const primaryPressure = asClause(
+    dueSetup ||
+      duePayoff ||
+      primaryCausalFact?.fact ||
+      nextThreeTurns[0] ||
+      nextSceneMoves[0] ||
+      nextScenePlan ||
+      featureObligation ||
+      currentBeat
+  );
   const oppositionPressure = asClause(
     antagonisticForce || unresolvedStoryThreads[0] || rankedUnresolvedSetups[0] || actPressureState,
     "a force that can say no"
   );
   const arcPressure = asClause(
-    characterArcTurns[0] || characterArcState || protagonistNeed || protagonistWant,
+    relationshipCausalFact?.fact || characterArcTurns[0] || characterArcState || protagonistNeed || protagonistWant,
     "the old tactic"
   );
   const exitImage = asClause(duePayoff || imageMotifs[0] || actThreePayoffPath[0], "a changed exit image");
@@ -1601,6 +1674,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
 
   const engineStack = [];
   if (dueSetup || duePayoff) engineStack.push("oldest_due_story_thread");
+  if (primaryCausalFact) engineStack.push("accepted_causal_consequence");
   if (nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan) engineStack.push("remembered_next_turn");
   if (rankedUnresolvedSetups[0]) engineStack.push("open_setup");
   if (characterArcState || characterArcTurns[0]) engineStack.push("character_arc_pressure");
@@ -1613,11 +1687,22 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
   if (engineStack.length) engineLines.push(`  pressure_stack: ${engineStack.join(" -> ")}`);
   const because = asClause(currentBeat || lastSceneOutcome || featureObligation, "the current beat stalls");
   const must = asClause(
-    dueSetup || duePayoff || nextThreeTurns[0] || nextSceneMoves[0] || nextScenePlan || rankedUnresolvedSetups[0],
+    dueSetup ||
+      duePayoff ||
+      primaryCausalFact?.fact ||
+      nextThreeTurns[0] ||
+      nextSceneMoves[0] ||
+      nextScenePlan ||
+      rankedUnresolvedSetups[0],
     "a visible choice"
   );
   const cost = asClause(
-    unresolvedStoryThreads[0] || rankedUnresolvedSetups[0] || actPressureState || characterArcState,
+    irreversibleCausalFact?.fact ||
+      relationshipCausalFact?.fact ||
+      unresolvedStoryThreads[0] ||
+      rankedUnresolvedSetups[0] ||
+      actPressureState ||
+      characterArcState,
     "a real consequence"
   );
   const exit = asClause(duePayoff || imageMotifs[0] || actThreePayoffPath[0], "a changed exit image");
@@ -1648,6 +1733,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     endingImage,
     acceptedPages: creativeRecall.acceptedPages,
     storyMoments: creativeRecall.storyMoments,
+    causalFacts,
     dueStoryThread,
   });
 
@@ -1661,6 +1747,7 @@ function buildWriterBlockMemoryBlock(sessionContext, screenplayTask, creativeMem
     ...moveOptionLines,
     "response_contract:",
     "  - If oldest_due_story_thread exists, spend or pressure it first; otherwise start from the next turn, open setup, character arc pressure, act obligation, or payoff seed.",
+    "  - Treat binding_causal_fact as accepted canon: continue its consequence and never reset knowledge, relationship state, or irreversible outcomes offscreen.",
     "  - Lead with rank_1; use its evidence and success check as Clementine's decisive answer before alternatives.",
     "  - Convert it into one decisive playable next beat with objective, obstacle, tactic shift, cost, and exit image.",
     "  - If alternatives help, give at most two short forks after the strongest move.",

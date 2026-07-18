@@ -104,3 +104,59 @@ test("[story-rescue-move-library] an old accepted setup outranks generic Act II 
   assert.match(ranked[0].move, /red locket inside the courthouse clock/i);
   assert.match(ranked[0].move, /expose the forged verdict/i);
 });
+
+test("[story-rescue-move-library] accepted revelations and relationship changes become present-tense pressure", () => {
+  const revelationMoves = rankStoryRescueMovesForContext({
+    transcript: "I know the reveal already happened, but I don't know what comes next.",
+    act: "Act II",
+    currentBeat: "Mara enters the hearing.",
+    characters: ["Mara", "Eli"],
+    causalFacts: [{
+      kind: "revelation",
+      fact: "MARA: I forged the affidavit.",
+      sourceAct: "Act II",
+      sourceSceneHeading: "INT. ARCHIVE - NIGHT",
+      ageInScenes: 4,
+    }],
+  });
+  assert.equal(revelationMoves[0].key, "information_pressure");
+  assert.ok(revelationMoves[0].evidence.some((item) => (
+    item === "accepted_causal_fact: MARA: I forged the affidavit."
+  )));
+  assert.match(revelationMoves[0].move, /Do not reveal it again/);
+  assert.match(revelationMoves[0].move, /force Mara to act before ready/);
+
+  const relationshipMoves = rankStoryRescueMovesForContext({
+    transcript: "The relationship thread feels stalled.",
+    act: "Act II",
+    protagonistWant: "expose the judge",
+    characters: ["Mara", "Eli"],
+    causalFacts: [{
+      kind: "relationship_change",
+      fact: "ELI: I choose the case over us.",
+      sourceAct: "Act II",
+      ageInScenes: 2,
+    }],
+  });
+  assert.equal(relationshipMoves[0].key, "relationship_pressure");
+  assert.match(relationshipMoves[0].move, /bond's current state/);
+  assert.match(relationshipMoves[0].move, /choose the case over us/);
+});
+
+test("[story-rescue-move-library] irreversible accepted consequences cannot be undone for a reversal", () => {
+  const ranked = rankStoryRescueMovesForContext({
+    transcript: "I need a stronger reversal after the evidence is gone.",
+    act: "Act II",
+    currentBeat: "Mara reaches for her old legal tactic.",
+    characters: ["Mara", "Judge Vale"],
+    causalFacts: [{
+      kind: "irreversible_consequence",
+      fact: "Mara burns the only copy of the affidavit.",
+      sourceAct: "Act II",
+      ageInScenes: 12,
+    }],
+  });
+  assert.equal(ranked[0].key, "reversal_pressure");
+  assert.ok(ranked[0].evidence.includes("accepted_causal_fact: Mara burns the only copy of the affidavit."));
+  assert.match(ranked[0].move, /Do not undo it/);
+});

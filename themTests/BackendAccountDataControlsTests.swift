@@ -439,6 +439,31 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
+    func testBackendDefaultBaseURLPolicyPinsExplicitUITestBackendAcrossInitializationOrder() {
+        XCTAssertEqual(
+            BackendDefaultBaseURLPolicy.uiTestOverrideBaseURL(
+                isDebug: true,
+                launchArguments: ["them", "--ui-testing"],
+                environment: ["THEM_UITEST_BACKEND_BASE_URL": " http://localhost:31338 "]
+            )?.absoluteString,
+            "http://127.0.0.1:31338"
+        )
+        XCTAssertNil(
+            BackendDefaultBaseURLPolicy.uiTestOverrideBaseURL(
+                isDebug: true,
+                launchArguments: ["them"],
+                environment: ["THEM_UITEST_BACKEND_BASE_URL": "http://127.0.0.1:31338"]
+            )
+        )
+        XCTAssertNil(
+            BackendDefaultBaseURLPolicy.uiTestOverrideBaseURL(
+                isDebug: false,
+                launchArguments: ["them", "--ui-testing"],
+                environment: ["THEM_UITEST_BACKEND_BASE_URL": "http://127.0.0.1:31338"]
+            )
+        )
+    }
+
     func testBackendDefaultBaseURLPolicyUsesHostedAPIForReleaseBuilds() {
         XCTAssertEqual(
             BackendDefaultBaseURLPolicy.primaryBaseURL(isMacOS: true, isDebug: false).absoluteString,

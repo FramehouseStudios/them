@@ -1092,6 +1092,35 @@ nonisolated struct BackendDueStoryThread: Decodable, Hashable {
     }
 }
 
+nonisolated struct BackendAcceptedCausalFact: Decodable, Hashable {
+    let kind: String
+    let fact: String
+    let sourceSceneHeading: String
+    let sourceAct: String
+    let ageInScenes: Int
+
+    var isMeaningful: Bool {
+        !fact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case fact
+        case sourceSceneHeading
+        case sourceAct
+        case ageInScenes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        fact = try container.decodeIfPresent(String.self, forKey: .fact) ?? ""
+        sourceSceneHeading = try container.decodeIfPresent(String.self, forKey: .sourceSceneHeading) ?? ""
+        sourceAct = try container.decodeIfPresent(String.self, forKey: .sourceAct) ?? ""
+        ageInScenes = try container.decodeIfPresent(Int.self, forKey: .ageInScenes) ?? 0
+    }
+}
+
 nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
     let hasContinuity: Bool
     let source: String
@@ -1130,6 +1159,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
     let memoryExcerpt: String
     let isCorrection: Bool
     let updatedAt: TimeInterval
+    let acceptedCausalFacts: [BackendAcceptedCausalFact]
     let dueStoryThread: BackendDueStoryThread?
 
     var isMeaningful: Bool {
@@ -1167,6 +1197,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
             !characterArcTurns.isEmpty ||
             !imageMotifs.isEmpty ||
             !continuityNotes.isEmpty ||
+            acceptedCausalFacts.contains(where: \.isMeaningful) ||
             dueStoryThread?.isMeaningful == true ||
             pageCount > 0 ||
             targetPages > 0)
@@ -1210,6 +1241,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
         case memoryExcerpt
         case isCorrection
         case updatedAt
+        case acceptedCausalFacts
         case dueStoryThread
     }
 
@@ -1252,6 +1284,7 @@ nonisolated struct BackendSessionContinuitySnapshot: Decodable, Hashable {
         memoryExcerpt = try container.decodeIfPresent(String.self, forKey: .memoryExcerpt) ?? ""
         isCorrection = try container.decodeIfPresent(Bool.self, forKey: .isCorrection) ?? false
         updatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
+        acceptedCausalFacts = try container.decodeIfPresent([BackendAcceptedCausalFact].self, forKey: .acceptedCausalFacts) ?? []
         dueStoryThread = try container.decodeIfPresent(BackendDueStoryThread.self, forKey: .dueStoryThread)
     }
 }
@@ -3079,6 +3112,9 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func baseURL() -> URL {
+        if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
+            return uiTestURL
+        }
         let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
         if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
             return canonicalizeLoopbackURL(url)
@@ -6943,6 +6979,9 @@ actor BackendMemoryAPI {
     private func baseURL() -> URL {
         if let baseURLOverride {
             return baseURLOverride
+        }
+        if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
+            return uiTestURL
         }
         let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
         if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {

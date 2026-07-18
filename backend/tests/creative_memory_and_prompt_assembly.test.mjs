@@ -344,6 +344,22 @@ test("buildModelPrompt emits durable active-feature continuity before story reca
         actThreePayoffPath: ["The tape and voicemail become public testimony"],
         nextScenePlan: "Eli enters the archive while the judge moves the witness.",
       }],
+      acceptedCausalFacts: [
+        {
+          kind: "revelation",
+          fact: "MARA: I forged the public affidavit.",
+          sourceAct: "Act II",
+          sourceSceneHeading: "INT. ARCHIVE - NIGHT",
+          ageInScenes: 3,
+        },
+        {
+          kind: "irreversible_consequence",
+          fact: "Mara burns the only sealed copy.",
+          sourceAct: "Act II",
+          sourceSceneHeading: "INT. ARCHIVE - NIGHT",
+          ageInScenes: 3,
+        },
+      ],
       dueStoryThread: {
         kind: "payoff",
         setup: "The sister's voicemail",
@@ -378,6 +394,12 @@ test("buildModelPrompt emits durable active-feature continuity before story reca
   assert.ok(out.includes("happened=Mara hides the MiniDV tape behind the vent grille."));
   assert.ok(out.includes("changed=Eli catches her lie and pockets the archive key."));
   assert.ok(out.includes("still_open=The MiniDV tape behind the vent / The sister's voicemail"));
+  assert.ok(out.includes("accepted-causal-state:"));
+  assert.ok(out.includes("BINDING_FACT [revelation · Act II · INT. ARCHIVE - NIGHT · 3 accepted scenes ago]: MARA: I forged the public affidavit."));
+  assert.ok(out.includes("BINDING_FACT [irreversible_consequence · Act II · INT. ARCHIVE - NIGHT · 3 accepted scenes ago]: Mara burns the only sealed copy."));
+  assert.ok(out.includes("contradiction_guard: never make a character unknow a revelation"));
+  assert.ok(out.indexOf("accepted-scene-causality:") < out.indexOf("accepted-causal-state:"));
+  assert.ok(out.indexOf("accepted-causal-state:") < out.indexOf("due-story-thread:"));
   assert.ok(out.includes("promised_payoff=The tape and voicemail become public testimony"));
   assert.ok(out.includes("next_pressure=Eli enters the archive while the judge moves the witness."));
   assert.ok(out.includes("due-story-thread:"));
@@ -1417,6 +1439,13 @@ test("[screenplay-task] writer block rescue spends the oldest accepted-scene pro
         outcome: "The locket survives the search.",
         nextScenePlan: "Mara carries the locket into the hearing.",
       }],
+      acceptedCausalFacts: [{
+        kind: "irreversible_consequence",
+        fact: "Mara burns the only sealed affidavit.",
+        sourceAct: "Act II",
+        sourceSceneHeading: "INT. RECORDS ROOM - NIGHT",
+        ageInScenes: 8,
+      }],
       dueStoryThread: {
         kind: "payoff",
         setup: "The red locket hidden in the courthouse clock.",
@@ -1436,6 +1465,8 @@ test("[screenplay-task] writer block rescue spends the oldest accepted-scene pro
   assert.ok(out.includes("due_thread_age_in_accepted_scenes: 17"));
   assert.ok(out.includes("open_setup_to_pressure: The red locket hidden in the courthouse clock."));
   assert.ok(out.includes("accepted_page_anchor: The locket survives the search."));
+  assert.ok(out.includes("binding_causal_fact: irreversible_consequence: Mara burns the only sealed affidavit."));
+  assert.ok(out.includes("Treat binding_causal_fact as accepted canon"));
   assert.ok(out.includes("primary_engine: oldest_due_story_thread"));
   assert.ok(out.includes("rank_1: engine=payoff_pressure"));
   assert.ok(out.includes("evidence=due_story_thread: The red locket hidden in the courthouse clock."));

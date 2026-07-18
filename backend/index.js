@@ -3627,10 +3627,32 @@ function buildCreativeMemoryPromptTrace(memory = null, {
       next_scene_plan: normalizeSnippet(scene?.nextScenePlan ?? scene?.next_scene_plan, 240),
       excerpt: normalizeSnippet(scene?.excerpt ?? scene?.page_excerpt, 420),
       characters: normalizeScreenplayStringList(scene?.characterNames ?? scene?.character_names, 8, 72),
+      decisions: normalizeScreenplayStringList(scene?.decisions, 4, 220),
+      revelations: normalizeScreenplayStringList(scene?.revelations, 4, 220),
+      relationship_changes: normalizeScreenplayStringList(
+        scene?.relationshipChanges ?? scene?.relationship_changes,
+        4,
+        220
+      ),
+      irreversible_consequences: normalizeScreenplayStringList(
+        scene?.irreversibleConsequences ?? scene?.irreversible_consequences,
+        4,
+        220
+      ),
       accepted_at: Math.max(0, Number(scene?.acceptedAt ?? scene?.accepted_at ?? 0) || 0),
     })).map((scene) => Object.fromEntries(
       Object.entries(scene).filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value))
     )).filter((scene) => scene.scene_heading || scene.summary || scene.outcome || scene.excerpt)
+    : [];
+  const acceptedCausalFacts = Array.isArray(memory?.acceptedCausalFacts)
+    ? memory.acceptedCausalFacts.slice(0, 8).map((item) => Object.fromEntries(Object.entries({
+      kind: normalizeSnippet(item?.kind ?? item?.type, 48),
+      fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+      source_scene_heading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
+      source_act: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value))))
+      .filter((item) => item.kind && item.fact)
     : [];
   const rawDueStoryThread = memory?.dueStoryThread ?? memory?.due_story_thread;
   const dueStoryThread = rawDueStoryThread && typeof rawDueStoryThread === "object" && !Array.isArray(rawDueStoryThread)
@@ -3665,6 +3687,7 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     characters.length ||
     episodic.length ||
     acceptedScenes.length ||
+    acceptedCausalFacts.length ||
     dueStoryThread ||
     screenplayProjectTrace ||
     (memory?.style && Object.keys(memory.style).length) ||
@@ -3682,6 +3705,7 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     episodic,
     accepted_scene_count: acceptedScenes.length,
     accepted_scenes: acceptedScenes,
+    accepted_causal_facts: acceptedCausalFacts,
     due_story_thread: dueStoryThread,
     episodic_retrieval: episodicSelection ? {
       strategy: normalizeSnippet(episodicSelection.strategy, 48),
@@ -3869,6 +3893,12 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   const dueAge = Math.max(0, Math.round(Number(
     rawDueStoryThread?.ageInScenes ?? rawDueStoryThread?.age_in_scenes ?? 0
   )));
+  const causalFact = Array.isArray(snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)
+    ? sentenceFragment(
+      (snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)[0]?.fact,
+      180
+    )
+    : "";
   const parts = ["Welcome back."];
   if (project || position) {
     parts.push(`We were in ${[project, position].filter(Boolean).join(" - ")}.`);
@@ -3880,6 +3910,9 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   }
   if (nextMove) {
     parts.push(`Next move: ${nextMove}.`);
+  }
+  if (causalFact && !lastState.toLowerCase().includes(causalFact.toLowerCase())) {
+    parts.push(`One accepted consequence stays binding: ${causalFact}.`);
   }
   if (snapshot.isCorrection) {
     parts.push("I'll honor your latest correction first.");
@@ -3925,6 +3958,16 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       accepted_scene_count: Math.max(0, Math.round(Number(rawDueStoryThread.acceptedSceneCount ?? rawDueStoryThread.accepted_scene_count ?? 0))),
     }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
     : null;
+  const acceptedCausalFacts = Array.isArray(creativeMemory?.acceptedCausalFacts)
+    ? creativeMemory.acceptedCausalFacts.slice(0, 8).map((item) => Object.fromEntries(Object.entries({
+      kind: normalizeSnippet(item?.kind ?? item?.type, 48),
+      fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+      source_scene_heading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
+      source_act: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
+      age_in_scenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value))))
+      .filter((item) => item.kind && item.fact)
+    : [];
   const project = legacyProject || durableProject;
   const episodes = Array.isArray(creativeMemory?.episodicMemories)
     ? creativeMemory.episodicMemories
@@ -3941,7 +3984,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
         );
       }) || null
     : episodes[0] || null;
-  if (!project && !episode && !acceptedScene && !dueStoryThread) {
+  if (!project && !episode && !acceptedScene && !dueStoryThread && !acceptedCausalFacts.length) {
     return {
       has_continuity: false,
       source: "none",
@@ -3984,6 +4027,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       memory_excerpt: "",
       is_correction: false,
       updated_at: 0,
+      accepted_causal_facts: [],
       due_story_thread: null,
     };
   }
@@ -4089,6 +4133,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       Number(episode?.updatedAt || episode?.lastReferencedAt || 0),
       Number(acceptedScene?.acceptedAt || acceptedScene?.updatedAt || 0)
     ),
+    accepted_causal_facts: acceptedCausalFacts,
     due_story_thread: dueStoryThread,
   };
   return {
@@ -4109,6 +4154,7 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       characterFocus: snapshot.character_focus,
       memoryExcerpt: snapshot.memory_excerpt,
       isCorrection: snapshot.is_correction,
+      acceptedCausalFacts: snapshot.accepted_causal_facts,
       dueStoryThread: snapshot.due_story_thread,
     }),
   };

@@ -560,6 +560,15 @@ function createTalkHandler(deps) {
         ageInScenes: Math.max(0, Math.round(Number(creativeMemoryTrace.due_story_thread.age_in_scenes || 0))),
       }
       : null;
+    const tracedAcceptedCausalFacts = Array.isArray(creativeMemoryTrace?.accepted_causal_facts)
+      ? creativeMemoryTrace.accepted_causal_facts.slice(0, 8).map((item) => ({
+        kind: normalizeSnippet(item?.kind ?? item?.type, 48),
+        fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+        sourceSceneHeading: normalizeSnippet(item?.source_scene_heading ?? item?.sourceSceneHeading, 140),
+        sourceAct: normalizeSnippet(item?.source_act ?? item?.sourceAct, 80),
+        ageInScenes: Math.max(0, Math.round(Number(item?.age_in_scenes ?? item?.ageInScenes ?? 0))),
+      })).filter((item) => item.kind && item.fact)
+      : [];
     const baseWithCreativeRecall = {
       ...base,
       screenplayAcceptedPageContinuity: mergeTalkMomentumRepairContextList(
@@ -577,11 +586,15 @@ function createTalkHandler(deps) {
       ...(tracedDueStoryThread?.setup || tracedDueStoryThread?.promisedPayoff
         ? { screenplayDueStoryThread: tracedDueStoryThread }
         : {}),
+      ...(tracedAcceptedCausalFacts.length
+        ? { screenplayAcceptedCausalFacts: tracedAcceptedCausalFacts }
+        : {}),
     };
     const memoryProject = selectTalkMomentumMemoryProject(memory, base);
     if (!memoryProject) {
       return acceptedPageContinuity.length ||
         retrievedStoryMoments.length ||
+        tracedAcceptedCausalFacts.length ||
         tracedDueStoryThread?.setup ||
         tracedDueStoryThread?.promisedPayoff
         ? baseWithCreativeRecall
@@ -764,6 +777,19 @@ function createTalkHandler(deps) {
       4,
       220
     );
+    const rawAcceptedCausalFacts = studioMeta?.screenplayAcceptedCausalFacts ||
+      studioMeta?.screenplay_accepted_causal_facts ||
+      studioMeta?.acceptedCausalFacts ||
+      studioMeta?.accepted_causal_facts;
+    const screenplayAcceptedCausalFacts = Array.isArray(rawAcceptedCausalFacts)
+      ? rawAcceptedCausalFacts.slice(0, 8).map((item) => ({
+        kind: normalizeSnippet(item?.kind ?? item?.type, 48),
+        fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+        sourceSceneHeading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
+        sourceAct: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
+        ageInScenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
+      })).filter((item) => item.kind && item.fact)
+      : [];
     const rawDueStoryThread = studioMeta?.screenplayDueStoryThread ||
       studioMeta?.screenplay_due_story_thread ||
       studioMeta?.dueStoryThread ||
@@ -795,6 +821,7 @@ function createTalkHandler(deps) {
       unresolvedStoryThreads: screenplayUnresolvedStoryThreads,
       actThreePayoffPath: screenplayActThreePayoffPath,
       imageMotifs: screenplayImageMotifs,
+      causalFacts: screenplayAcceptedCausalFacts,
       dueStoryThread: screenplayDueStoryThread,
     });
     const rankedRescueMoves = rankStoryRescueMovesForContext({
@@ -823,6 +850,7 @@ function createTalkHandler(deps) {
       imageMotifs: screenplayImageMotifs,
       acceptedPages: screenplayAcceptedPageContinuity,
       storyMoments: screenplayRetrievedStoryMoments,
+      causalFacts: screenplayAcceptedCausalFacts,
       dueStoryThread: screenplayDueStoryThread,
     });
     const contextLines = [
@@ -838,6 +866,9 @@ function createTalkHandler(deps) {
       screenplayDueStoryThread?.promisedPayoff ? `DUE_STORY_PAYOFF: ${screenplayDueStoryThread.promisedPayoff}` : "",
       screenplayDueStoryThread?.sourceSceneHeading ? `DUE_STORY_SOURCE: ${screenplayDueStoryThread.sourceSceneHeading}` : "",
       screenplayDueStoryThread?.ageInScenes ? `DUE_STORY_AGE: ${screenplayDueStoryThread.ageInScenes} accepted scenes` : "",
+      ...screenplayAcceptedCausalFacts.slice(0, 3).map((item) => (
+        `BINDING_CAUSAL_FACT: ${item.kind} | ${item.fact}`
+      )),
       ...screenplayAcceptedPageContinuity.map((item) => `ACCEPTED_PAGE_CONTINUITY: ${item}`),
       ...screenplayRetrievedStoryMoments.map((item) => `AUTHORITATIVE_STORY_MEMORY: ${item}`),
       ...rankedRescueMoves.map((item) => `RANKED_RESCUE_MOVE: ${formatRankedStoryRescueMoveLine(item)}`),
@@ -859,6 +890,7 @@ function createTalkHandler(deps) {
           "A passing answer must include a pressure engine, a decisive next beat, emotional cost, and a tiny playable micro-beat in clean screenplay/Fountain shape.",
           "When RANKED_RESCUE_MOVE is supplied, execute rank_1 unless it conflicts with a writer correction; preserve its named evidence and satisfy its success check.",
           "When DUE_STORY_THREAD is supplied, pressure or pay that accepted-page obligation before inventing a replacement thread.",
+          "When BINDING_CAUSAL_FACT is supplied, continue its consequence. Never make a character unknow a revelation, restore an earlier relationship state, or undo an irreversible event offscreen.",
           "Use the STORY_MOVE_LIBRARY lines when supplied; pick the one engine that best solves the failed gate and dramatize it as action, tactical dialogue, cost, and exit image.",
           "Use act-aware story intelligence: Act I commits, Act II reverses/traps/costs, Act III pays off setup through changed behavior.",
           "If the user is only brainstorming, still give one playable beat they can write today, then at most two short alternate forks.",

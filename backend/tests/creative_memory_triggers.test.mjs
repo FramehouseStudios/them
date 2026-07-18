@@ -724,6 +724,68 @@ MARA pulls the emergency brake.`;
   assert.match(JSON.stringify(memory.projectContinuity.unresolvedSetups), /MiniDV tape/);
 });
 
+test("accepted Studio pages extract exact correction-safe decisions, revelations, relationship changes, and consequences", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const page = `INT. COURTHOUSE STEPS - DAY
+
+MARA
+I admit I forged the affidavit.
+
+Mara burns the only copy before the cameras arrive.
+
+ELI
+I choose the case over us.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-accepted-causal-facts",
+    transcript: "Commit the courthouse steps scene.",
+    reply: page,
+    acceptedPageText: page,
+    acceptedSceneContext: { anchorSceneId: "scene-courthouse-steps" },
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    projectContinuity: {
+      act: "Act II",
+      sceneSummary: "Mara confesses before destroying the evidence, and Eli chooses the case.",
+    },
+    source: "talk_screenplay_output",
+  });
+
+  let ledger = await store.getCreativeMemoryLedger({ userId: "u-accepted-causal-facts" });
+  let scene = ledger.projects[0].acceptedScenes[0];
+  assert.ok(scene.revelations.includes("MARA: I admit I forged the affidavit."));
+  assert.ok(scene.irreversibleConsequences.includes("Mara burns the only copy before the cameras arrive."));
+  assert.ok(scene.decisions.includes("ELI: I choose the case over us."));
+  assert.ok(scene.relationshipChanges.includes("ELI: I choose the case over us."));
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-accepted-causal-facts",
+    projectId: "rain-docket",
+    query: "Continue after Mara's confession, the burned affidavit, and Eli choosing the case.",
+  });
+  assert.ok(memory.acceptedCausalFacts.some((item) => (
+    item.kind === "revelation" && item.fact === "MARA: I admit I forged the affidavit."
+  )));
+  assert.ok(memory.acceptedCausalFacts.some((item) => (
+    item.kind === "irreversible_consequence" &&
+    item.fact === "Mara burns the only copy before the cameras arrive." &&
+    item.sourceSceneHeading === "INT. COURTHOUSE STEPS - DAY" &&
+    item.sourceAct === "Act II"
+  )));
+
+  await store.recordProjectContinuity({
+    userId: "u-accepted-causal-facts",
+    continuity: {
+      projectId: "rain-docket",
+      correctedTerms: ["affidavit"],
+      correctionReplacements: ["affidavit -> deposition"],
+    },
+  });
+  ledger = await store.getCreativeMemoryLedger({ userId: "u-accepted-causal-facts" });
+  scene = ledger.projects[0].acceptedScenes[0];
+  assert.doesNotMatch(JSON.stringify(scene), /affidavit/i);
+  assert.match(JSON.stringify(scene), /deposition/i);
+});
+
 test("accepted scene history spans a full feature and retrieves an early setup near the ending", async () => {
   const persistence = freshPersistence();
   const store = createCreativeMemoryStore({ persistence });
@@ -748,6 +810,9 @@ test("accepted scene history spans a full feature and retrieves an early setup n
             ? "Nora hides the red locket inside the courthouse clock."
             : `Nora crosses story threshold ${index}.`,
           unresolvedSetups: index === 4 ? ["The red locket inside the courthouse clock"] : [],
+          irreversibleConsequences: index === 4
+            ? ["Nora burns the only copy of the original verdict"]
+            : [],
           acceptedAt: index + 1,
         }],
       },
@@ -776,6 +841,12 @@ test("accepted scene history spans a full feature and retrieves an early setup n
     ageInScenes: 95,
     acceptedSceneCount: 96,
   });
+  assert.ok(memory.acceptedCausalFacts.some((item) => (
+    item.kind === "irreversible_consequence" &&
+    item.fact === "Nora burns the only copy of the original verdict" &&
+    item.sourceSceneHeading === "INT. LOCATION 4 - NIGHT" &&
+    item.ageInScenes === 95
+  )));
 });
 
 test("due story threads require accepted-scene provenance and never pair unrelated payoffs", async () => {

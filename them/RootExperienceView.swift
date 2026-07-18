@@ -9573,6 +9573,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if !restoredFirstMove.isEmpty {
             notes.append("First restored-response target: if the user asks to continue or speaks hands-free, start from this page move before inventing a new lane: \(restoredFirstMove)")
         }
+        for causalFact in snapshot.acceptedCausalFacts.filter(\.isMeaningful).prefix(2) {
+            let kind = causalFact.kind.replacingOccurrences(of: "_", with: " ")
+            notes.append("Accepted causal canon (\(kind)): \(causalFact.fact). Continue its consequence; never undo, replay, or erase it offscreen.")
+        }
         if let due = snapshot.dueStoryThread, due.isMeaningful {
             let sentenceBoundary = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!?"))
             let setup = due.setup.trimmingCharacters(in: sentenceBoundary)
@@ -9621,7 +9625,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     private func sessionContinuityFingerprint(_ snapshot: BackendSessionContinuitySnapshot) -> String {
-        [
+        let causalFingerprint = snapshot.acceptedCausalFacts
+            .filter(\.isMeaningful)
+            .prefix(4)
+            .map { "\($0.kind):\($0.fact):\($0.ageInScenes)" }
+            .joined(separator: "/")
+        return [
             snapshot.projectId,
             snapshot.projectTitle,
             snapshot.act,
@@ -9637,6 +9646,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             snapshot.dueStoryThread?.setup ?? "",
             snapshot.dueStoryThread?.promisedPayoff ?? "",
             String(snapshot.dueStoryThread?.ageInScenes ?? 0),
+            causalFingerprint,
             String(Int(snapshot.updatedAt))
         ]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
@@ -9682,6 +9692,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             .first { !$0.isEmpty } ?? ""
         let dueThread = snapshot.dueStoryThread?.setup.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let dueAge = snapshot.dueStoryThread?.ageInScenes ?? 0
+        let causalFact = snapshot.acceptedCausalFacts
+            .first(where: \.isMeaningful)?
+            .fact
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         var parts: [String] = []
         if !position.isEmpty { parts.append(position) }
@@ -9689,6 +9703,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if !dueThread.isEmpty {
             parts.append("Oldest open thread: \(dueThread)\(dueAge > 0 ? " (\(dueAge) accepted scenes)" : "")")
         }
+        if !causalFact.isEmpty { parts.append("Binding consequence: \(causalFact)") }
         if !nextMove.isEmpty { parts.append("Next: \(nextMove)") }
         return parts.isEmpty ? "Clementine restored your latest writing context." : parts.joined(separator: " ")
     }

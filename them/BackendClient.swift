@@ -73,6 +73,42 @@ nonisolated enum BackendDefaultBaseURLPolicy {
         #endif
     }
 
+    static func uiTestOverrideBaseURL(
+        isDebug: Bool,
+        launchArguments: [String],
+        environment: [String: String]
+    ) -> URL? {
+        guard isDebug, launchArguments.contains("--ui-testing") else { return nil }
+        let raw = (environment["THEM_UITEST_BACKEND_BASE_URL"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isUsableConfigValue(raw),
+              let url = URL(string: raw),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else {
+            return nil
+        }
+        guard isLoopbackBackendURL(url),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.host = "127.0.0.1"
+        return components.url ?? url
+    }
+
+    static var currentUITestOverrideBaseURL: URL? {
+        #if DEBUG
+        return uiTestOverrideBaseURL(
+            isDebug: true,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment
+        )
+        #else
+        return nil
+        #endif
+    }
+
     static func shouldUseStoredBaseURL(
         _ url: URL,
         isMacOS: Bool,
@@ -5500,6 +5536,9 @@ final class BackendClient {
         return "\(prefix)...\(suffix) len=\(token.count)"
     }
     private static func resolveURL(fromEnv envName: String, infoPlistKey: String, fallback: URL) -> URL {
+        if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
+            return uiTestURL
+        }
         let envValue = (ProcessInfo.processInfo.environment[envName] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if isUsableConfigValue(envValue), let url = URL(string: envValue), isUsableBackendURL(url) {

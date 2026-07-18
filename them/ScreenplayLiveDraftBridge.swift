@@ -3980,6 +3980,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 snapshot.memoryExcerpt
             ]
         )
+        let bindingCausalFact = Self.restoredContinuityCausalFact(snapshot)
         let summary: String
         if !nextMove.isEmpty {
             summary = "Restored continuity for \(projectLabel). Next page target: \(nextMove)"
@@ -3991,7 +3992,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
         let detailParts = [
             position.isEmpty ? "" : "Act-aware target: \(position)",
-            rememberedThread.isEmpty ? "" : "Last live thread: \(rememberedThread)"
+            rememberedThread.isEmpty ? "" : "Last live thread: \(rememberedThread)",
+            bindingCausalFact.isEmpty
+                ? ""
+                : "Binding accepted consequence: \(bindingCausalFact)"
         ]
             .filter { !$0.isEmpty }
         let presenceDetail = detailParts.isEmpty
@@ -4059,30 +4063,62 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             ],
             fallback: ""
         )
-        guard let due = snapshot.dueStoryThread, due.isMeaningful else { return immediateMove }
-        let setup = restoredContinuityClause(due.setup, limit: 180)
-        let setupPhrase = restoredContinuityMidSentencePhrase(setup)
-        let payoff = restoredContinuityClause(due.promisedPayoff, limit: 180)
-        let dueMove: String
-        if due.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "payoff",
-           !setup.isEmpty,
-           !payoff.isEmpty {
-            dueMove = "turning \(setupPhrase) into its promised payoff: \(payoff)"
-        } else if !setup.isEmpty, !payoff.isEmpty {
-            dueMove = "pressuring \(setupPhrase) toward this payoff: \(payoff)"
-        } else if !setup.isEmpty {
-            dueMove = "pressuring \(setupPhrase)"
-        } else {
-            dueMove = "delivering this promised payoff: \(payoff)"
+        var move = immediateMove
+        if let due = snapshot.dueStoryThread, due.isMeaningful {
+            let setup = restoredContinuityClause(due.setup, limit: 180)
+            let setupPhrase = restoredContinuityMidSentencePhrase(setup)
+            let payoff = restoredContinuityClause(due.promisedPayoff, limit: 180)
+            let dueMove: String
+            if due.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "payoff",
+               !setup.isEmpty,
+               !payoff.isEmpty {
+                dueMove = "turning \(setupPhrase) into its promised payoff: \(payoff)"
+            } else if !setup.isEmpty, !payoff.isEmpty {
+                dueMove = "pressuring \(setupPhrase) toward this payoff: \(payoff)"
+            } else if !setup.isEmpty {
+                dueMove = "pressuring \(setupPhrase)"
+            } else {
+                dueMove = "delivering this promised payoff: \(payoff)"
+            }
+            let lowerMove = move.lowercased()
+            if move.isEmpty {
+                move = dueMove
+            } else if (!setup.isEmpty && lowerMove.contains(setup.lowercased())) ||
+                (!payoff.isEmpty && lowerMove.contains(payoff.lowercased())) {
+                move = immediateMove
+            } else {
+                move = "\(restoredContinuityClause(move, limit: 220)), while \(dueMove)"
+            }
         }
-        guard !immediateMove.isEmpty else { return restoredContinuityText(dueMove, limit: 260) }
-        let lowerMove = immediateMove.lowercased()
-        if (!setup.isEmpty && lowerMove.contains(setup.lowercased())) ||
-            (!payoff.isEmpty && lowerMove.contains(payoff.lowercased())) {
-            return immediateMove
+        let causalFact = restoredContinuityCausalFact(snapshot)
+        guard !causalFact.isEmpty else { return restoredContinuityText(move, limit: 320) }
+        if move.lowercased().contains(causalFact.lowercased()) {
+            return restoredContinuityText(move, limit: 320)
         }
-        let immediateClause = restoredContinuityClause(immediateMove, limit: 220)
-        return restoredContinuityText("\(immediateClause), while \(dueMove)", limit: 260)
+        let causalKind = restoredContinuityCausalKind(
+            snapshot.acceptedCausalFacts.first(where: \.isMeaningful)?.kind ?? ""
+        )
+        let causalMove = "carry forward the accepted \(causalKind): \(causalFact), without resetting it"
+        guard !move.isEmpty else { return restoredContinuityText(causalMove, limit: 420) }
+        return restoredContinuityText("\(restoredContinuityClause(move, limit: 300)); \(causalMove)", limit: 420)
+    }
+
+    private static func restoredContinuityCausalFact(_ snapshot: BackendSessionContinuitySnapshot) -> String {
+        for item in snapshot.acceptedCausalFacts where item.isMeaningful {
+            let fact = restoredContinuityClause(item.fact, limit: 200)
+            if !fact.isEmpty { return fact }
+        }
+        return ""
+    }
+
+    private static func restoredContinuityCausalKind(_ value: String) -> String {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "relationship_change": return "relationship change"
+        case "irreversible_consequence": return "irreversible consequence"
+        case "revelation": return "revelation"
+        case "decision": return "decision"
+        default: return "story consequence"
+        }
     }
 
     private static func firstRestoredContinuityValue(

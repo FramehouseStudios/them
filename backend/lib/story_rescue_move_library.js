@@ -168,6 +168,7 @@ function selectStoryMoveLibraryLinesForContext({
   unresolvedStoryThreads = [],
   actThreePayoffPath = [],
   imageMotifs = [],
+  causalFacts = [],
   dueStoryThread = null,
 } = {}) {
   const due = normalizeDueStoryThread(dueStoryThread);
@@ -185,6 +186,7 @@ function selectStoryMoveLibraryLinesForContext({
     ...normalizeList(unresolvedStoryThreads, 6, 180),
     ...normalizeList(actThreePayoffPath, 5, 180),
     ...normalizeList(imageMotifs, 5, 140),
+    ...normalizeAcceptedCausalFacts(causalFacts).map((item) => item.fact),
     due?.setup,
     due?.promisedPayoff,
     due?.sourceSceneSummary,
@@ -239,6 +241,30 @@ function normalizeDueStoryThread(value = null) {
   return out.setup || out.promisedPayoff ? out : null;
 }
 
+function normalizeAcceptedCausalFacts(value = []) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const kind = normalizeSnippet(item.kind ?? item.type, 48).toLowerCase().replace(/\s+/g, "_");
+    const fact = normalizeSnippet(item.fact ?? item.value ?? item.text, 220);
+    if (!kind || !fact) continue;
+    const key = `${kind}:${fact.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      kind,
+      fact,
+      sourceSceneHeading: normalizeSnippet(item.sourceSceneHeading ?? item.source_scene_heading, 140),
+      sourceAct: normalizeSnippet(item.sourceAct ?? item.source_act, 80),
+      ageInScenes: Math.max(0, Math.round(Number(item.ageInScenes ?? item.age_in_scenes ?? 0))),
+    });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 function normalizeStoryRescueContext(context = {}) {
   const acceptedPages = normalizeList(
     context.acceptedPages ?? context.acceptedPageContinuity ?? context.accepted_page_continuity,
@@ -280,6 +306,9 @@ function normalizeStoryRescueContext(context = {}) {
   const actPressureState = normalizeSnippet(context.actPressureState ?? context.act_pressure_state, 220);
   const transcript = normalizeSnippet(context.transcript, 600);
   const dueStoryThread = normalizeDueStoryThread(context.dueStoryThread ?? context.due_story_thread);
+  const causalFacts = normalizeAcceptedCausalFacts(
+    context.causalFacts ?? context.acceptedCausalFacts ?? context.accepted_causal_facts
+  );
   return {
     transcript,
     intent: normalizeSnippet(context.intent || "momentum_rescue", 64),
@@ -310,8 +339,27 @@ function normalizeStoryRescueContext(context = {}) {
     imageMotifs,
     characterArcTurns,
     characters,
+    causalFacts,
     dueStoryThread,
   };
+}
+
+function causalFactForStoryMove(key, context) {
+  const facts = Array.isArray(context?.causalFacts) ? context.causalFacts : [];
+  const preferredKinds = key === "information_pressure"
+    ? ["revelation", "irreversible_consequence", "decision", "relationship_change"]
+    : key === "relationship_pressure"
+      ? ["relationship_change", "decision", "revelation", "irreversible_consequence"]
+      : key === "choice_pressure"
+        ? ["decision", "irreversible_consequence", "relationship_change", "revelation"]
+        : key === "reversal_pressure"
+          ? ["irreversible_consequence", "decision", "revelation", "relationship_change"]
+          : ["irreversible_consequence", "decision", "relationship_change", "revelation"];
+  for (const kind of preferredKinds) {
+    const match = facts.find((item) => item.kind === kind);
+    if (match) return match;
+  }
+  return facts[0] || null;
 }
 
 function storyMoveEvidence(key, context) {
@@ -330,6 +378,7 @@ function storyMoveEvidence(key, context) {
   const thread = context.unresolvedStoryThreads[0] || context.antagonisticForce;
   const characterPressure = context.characterArcTurns[0] || context.characterArcState || context.protagonistNeed;
   const image = context.imageMotifs[0] || context.endingImage;
+  const causalFact = causalFactForStoryMove(key, context);
 
   if (
     dueThread &&
@@ -337,6 +386,7 @@ function storyMoveEvidence(key, context) {
   ) {
     add("due_story_thread", dueThread.setup || dueThread.promisedPayoff);
   }
+  add("accepted_causal_fact", causalFact?.fact);
   add("accepted_page", context.acceptedPages[0]);
   if (["objective_pressure", "choice_pressure", "reversal_pressure"].includes(key)) {
     add("remembered_next_turn", nextTurn);
@@ -381,6 +431,7 @@ function storyMoveScore(key, context, selectedKeys) {
   const hasImage = Boolean(context.imageMotifs[0] || context.endingImage);
   const hasAcceptedPage = Boolean(context.acceptedPages[0]);
   const hasDueStoryThread = Boolean(context.dueStoryThread?.setup || context.dueStoryThread?.promisedPayoff);
+  const causalFact = causalFactForStoryMove(key, context);
 
   if (hasNextTurn && key === "objective_pressure") score += 12;
   if (hasNextTurn && key === "choice_pressure") score += 8;
@@ -400,12 +451,19 @@ function storyMoveScore(key, context, selectedKeys) {
     score += 8;
   }
   if (hasDueStoryThread && key === "payoff_pressure") {
-    score += 48 + Math.min(12, Math.floor(Number(context.dueStoryThread.ageInScenes || 0) / 4));
+    score += 72 + Math.min(12, Math.floor(Number(context.dueStoryThread.ageInScenes || 0) / 4));
   }
   if (hasDueStoryThread && key === "information_pressure") score += 10;
   if (hasDueStoryThread && key === "reversal_pressure") score += 6;
+  if (causalFact?.kind === "revelation" && key === "information_pressure") score += 40;
+  if (causalFact?.kind === "revelation" && key === "reversal_pressure") score += 12;
+  if (causalFact?.kind === "relationship_change" && key === "relationship_pressure") score += 30;
+  if (causalFact?.kind === "decision" && key === "choice_pressure") score += 22;
+  if (causalFact?.kind === "decision" && key === "reversal_pressure") score += 16;
+  if (causalFact?.kind === "irreversible_consequence" && key === "reversal_pressure") score += 26;
+  if (causalFact?.kind === "irreversible_consequence" && key === "obstacle_pressure") score += 14;
   score += Math.min(6, storyMoveEvidence(key, context).length * 2);
-  return Math.max(1, Math.min(100, score));
+  return Math.max(1, score);
 }
 
 function buildGroundedStoryMove(key, context) {
@@ -450,28 +508,32 @@ function buildGroundedStoryMove(key, context) {
     dueThread?.sourceSceneOutcome || dueThread?.sourceSceneSummary || dueThread?.sourceSceneHeading,
     acceptedAnchor
   );
+  const causalRecord = causalFactForStoryMove(key, context);
+  const causalFact = storyClause(causalRecord?.fact);
 
   switch (key) {
     case "objective_pressure":
-      return `Have ${protagonist} pursue this now: ${want}. Let this pressure block the attempt: ${opposition}. Failure activates this cost: ${cost}.`;
+      return `${causalFact ? `Continue from this accepted change: ${causalFact}. ` : ""}Have ${protagonist} pursue this now: ${want}. Let this pressure block the attempt: ${opposition}. Failure activates this cost: ${cost}.`;
     case "obstacle_pressure":
-      return `Turn this into active opposition: ${opposition}. Put it between ${protagonist} and ${want}, forcing a tactic shift before the beat exits on ${image}.`;
+      return `${causalFact ? `Make this accepted consequence active opposition: ${causalFact}. ` : ""}Put ${opposition} between ${protagonist} and ${want}, forcing a tactic shift before the beat exits on ${image}.`;
     case "reversal_pressure":
-      return `Treat this beat as apparent progress: ${sourceBeat}. Then use this established continuity against it: ${dueSource}. The gain becomes this cost: ${cost}, forcing ${protagonist} to change tactic.`;
+      return `Treat this beat as apparent progress: ${sourceBeat}. Then use this established continuity against it: ${causalFact || dueSource}. Do not undo it; turn its consequence into this cost: ${cost}, forcing ${protagonist} to change tactic.`;
     case "information_pressure":
-      return `Move this established fact into the wrong hands or a public space: ${dueSource}. Make the reveal force ${protagonist} to act before ready.`;
+      return `The accepted pages already established this fact: ${causalFact || dueSource}. Do not reveal it again; move its consequence into the wrong hands or a public space and force ${protagonist} to act before ready.`;
     case "relationship_pressure":
-      return `Make ${protagonist}'s move toward ${want} damage or redefine this bond: ${storyClause(context.unresolvedStoryThreads[0] || cost)}. The plot advances only through that emotional price.`;
+      return `${causalFact ? `Treat this as the bond's current state: ${causalFact}. ` : ""}Make ${protagonist}'s move toward ${want} damage or redefine that bond further. The plot advances only through that emotional price.`;
     case "deadline_pressure":
       return `Turn this obligation into a now-or-never condition: ${obligation}. Waiting makes this cost land before ${protagonist} is ready: ${cost}.`;
     case "choice_pressure":
-      return `Force ${protagonist} to choose between ${want} and ${need}; close the safe door so the next scene becomes inevitable.`;
+      return causalFact
+        ? `Because this accepted change cannot be reset - ${causalFact} - force ${protagonist} to choose between ${want} and ${need}; close the safe door so the next scene becomes inevitable.`
+        : `Force ${protagonist} to choose between ${want} and ${need}; close the safe door so the next scene becomes inevitable.`;
     case "payoff_pressure":
       return `Spend this setup now: ${setup}. Inside this obligation: ${obligation}. Make ${protagonist}'s changed behavior, not explanation, deliver the promised payoff: ${promisedPayoff}. Land it through ${image}.`;
     case "image_pressure":
       return `Transform ${image} through one visible action by ${protagonist}; let the changed image put this character pressure on screen: ${cost}.`;
     default:
-      return `Use ${sourceBeat} to force ${protagonist} into a visible choice with opposition, cost, and a changed exit image.`;
+      return `Use ${causalFact || sourceBeat} to force ${protagonist} into a visible choice with opposition, cost, and a changed exit image.`;
   }
 }
 
@@ -485,6 +547,7 @@ function rankStoryRescueMovesForContext(input = {}, { limit = 3 } = {}) {
     unresolvedStoryThreads: context.unresolvedStoryThreads,
     actThreePayoffPath: context.actThreePayoffPath,
     imageMotifs: context.imageMotifs,
+    causalFacts: context.causalFacts,
     dueStoryThread: context.dueStoryThread,
   });
   const selectedKeys = selectedLines
