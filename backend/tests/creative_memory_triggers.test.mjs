@@ -846,6 +846,95 @@ I choose the case over us.`;
   assert.equal(memory.episodicMemories.some((item) => /burns the only copy/i.test(item.excerpt)), false);
 });
 
+test("ambiguous canon corrections preserve near-tied accepted facts while recording the correction", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const page = `EXT. EAST FERRY DOCK - NIGHT
+
+Mara watches two separate ferries pull away.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-ambiguous-canon-retcon",
+    transcript: "Commit the east ferry dock scene.",
+    reply: page,
+    acceptedPageText: page,
+    acceptedSceneContext: { anchorSceneId: "scene-east-ferry-dock" },
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    projectContinuity: {
+      act: "Act II",
+      irreversibleConsequences: [
+        "Mara abandons Eli at the east ferry dock.",
+        "Mara abandons June at the east ferry dock.",
+      ],
+    },
+    source: "talk_screenplay_output",
+  });
+
+  const correction = await store.recordTriggersFromTalkTurn({
+    userId: "u-ambiguous-canon-retcon",
+    transcript: "Actually, Mara never abandons anyone at the east ferry dock. She goes back for both of them.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    source: "talk_turn",
+  });
+  assert.equal(correction.acceptedCanonFactsRetired, 0);
+  assert.equal(correction.acceptedCanonFactsAmbiguous, 2);
+  assert.equal(correction.corrections, 1);
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "u-ambiguous-canon-retcon",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    query: "What happened at the east ferry dock?",
+  });
+  assert.ok(memory.acceptedCausalFacts.some((item) => /abandons Eli/i.test(item.fact)));
+  assert.ok(memory.acceptedCausalFacts.some((item) => /abandons June/i.test(item.fact)));
+  assert.ok(memory.episodicMemories.some((item) => (
+    item.tags.includes("correction") && /goes back for both/i.test(item.excerpt)
+  )));
+});
+
+test("duplicate accepted canon facts across categories retire as one unambiguous correction", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const page = `INT. ARCHIVE - NIGHT
+
+Mara holds the affidavit over a match.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-duplicate-canon-retcon",
+    transcript: "Commit the archive scene.",
+    reply: page,
+    acceptedPageText: page,
+    acceptedSceneContext: { anchorSceneId: "scene-archive" },
+    projectId: "paper-trail",
+    projectTitle: "Paper Trail",
+    projectContinuity: {
+      act: "Act II",
+      decisions: ["Mara burns the affidavit."],
+      irreversibleConsequences: ["Mara burns the affidavit."],
+    },
+    source: "talk_screenplay_output",
+  });
+
+  const correction = await store.recordTriggersFromTalkTurn({
+    userId: "u-duplicate-canon-retcon",
+    transcript: "Actually, Mara never burns the affidavit. The affidavit survives.",
+    projectId: "paper-trail",
+    projectTitle: "Paper Trail",
+    source: "talk_turn",
+  });
+  assert.equal(correction.acceptedCanonFactsRetired, 1);
+  assert.equal(correction.acceptedCanonFactsAmbiguous, 0);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-duplicate-canon-retcon",
+    projectId: "paper-trail",
+    projectTitle: "Paper Trail",
+    query: "Continue after the archive scene.",
+  });
+  assert.equal((memory.acceptedCausalFacts || []).some((item) => /burns the affidavit/i.test(item.fact)), false);
+});
+
 test("accepted scene history spans a full feature and retrieves an early setup near the ending", async () => {
   const persistence = freshPersistence();
   const store = createCreativeMemoryStore({ persistence });

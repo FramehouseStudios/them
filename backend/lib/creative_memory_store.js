@@ -197,6 +197,7 @@ const ACCEPTED_CAUSAL_FACT_FIELDS = Object.freeze([
   ["irreversible_consequence", "irreversibleConsequences"],
 ]);
 const ACCEPTED_CAUSAL_FACT_PROMPT_MAX = 8;
+const ACCEPTED_CANON_CORRECTION_AMBIGUITY_MARGIN = 100;
 const ACCEPTED_CANON_ACTION_TERMS = new Set([
   "abandon", "admit", "arrest", "betray", "broadcast", "burn", "choose", "confess",
   "chose", "decide", "destroy", "die", "died", "forg", "forgive", "forge", "kill", "leave",
@@ -2245,6 +2246,10 @@ function acceptedCanonCorrectionMatchScore(fact = "", correctionText = "") {
   return (shared.length * 100) + (actionHits * 250) + Math.round(coverage * 10);
 }
 
+function acceptedCanonFactKey(fact = "") {
+  return cleanText(fact, 220).toLowerCase();
+}
+
 function collectAcceptedCanonCorrectionSignal({
   text = "",
   project = null,
@@ -2252,7 +2257,7 @@ function collectAcceptedCanonCorrectionSignal({
 } = {}) {
   const base = mergeCorrectionSignals(correction);
   if (!isCorrectionTurnText(text) || !project) {
-    return { correction: base, matchedFacts: [] };
+    return { correction: base, matchedFacts: [], ambiguousFacts: [] };
   }
   const ranked = selectAcceptedCausalFactsForPrompt(project, {
     query: text,
@@ -2264,14 +2269,30 @@ function collectAcceptedCanonCorrectionSignal({
     }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.item.ageInScenes - b.item.ageInScenes);
-  const matchedFact = ranked[0]?.item?.fact || "";
-  if (!matchedFact) return { correction: base, matchedFacts: [] };
+  const uniqueRanked = [];
+  const seenFacts = new Set();
+  for (const entry of ranked) {
+    const key = acceptedCanonFactKey(entry.item.fact);
+    if (!key || seenFacts.has(key)) continue;
+    seenFacts.add(key);
+    uniqueRanked.push(entry);
+  }
+  const top = uniqueRanked[0];
+  if (!top?.item?.fact) return { correction: base, matchedFacts: [], ambiguousFacts: [] };
+  const ambiguousFacts = uniqueRanked
+    .filter((entry) => top.score - entry.score <= ACCEPTED_CANON_CORRECTION_AMBIGUITY_MARGIN)
+    .map((entry) => entry.item.fact);
+  if (ambiguousFacts.length > 1) {
+    return { correction: base, matchedFacts: [], ambiguousFacts };
+  }
+  const matchedFact = top.item.fact;
   return {
     correction: mergeCorrectionSignals({
       correctedTerms: [matchedFact],
       correctionNote: `Retired accepted canon: ${matchedFact}`,
     }, base),
     matchedFacts: [matchedFact],
+    ambiguousFacts: [],
   };
 }
 
@@ -3481,6 +3502,7 @@ function createCreativeMemoryStore({
       structuredCharacterBibles: 0,
       acceptedScenesRecorded: 0,
       acceptedCanonFactsRetired: 0,
+      acceptedCanonFactsAmbiguous: 0,
       acceptedPagesPromoted: 0,
       acceptedPagesRecorded: 0,
       lexicalPhrases: 0,
@@ -3503,6 +3525,7 @@ function createCreativeMemoryStore({
       ? collectEpisodicCorrectionSignal({ text: userText })
       : null;
     let matchedAcceptedCanonFacts = 0;
+    let ambiguousAcceptedCanonFacts = 0;
     if (isCorrectionTurn && (resolvedProjectId || resolvedProjectTitle)) {
       const currentRecord = await readUser(userId).catch(() => null);
       const currentProject = selectProjectContinuity(currentRecord?.projects, {
@@ -3516,7 +3539,9 @@ function createCreativeMemoryStore({
       });
       projectCorrection = matched.correction;
       matchedAcceptedCanonFacts = matched.matchedFacts.length;
+      ambiguousAcceptedCanonFacts = matched.ambiguousFacts.length;
     }
+    summary.acceptedCanonFactsAmbiguous = ambiguousAcceptedCanonFacts;
     const continuityForWrite = projectCorrection
       ? {
         ...continuitySource,
