@@ -317,6 +317,8 @@ nonisolated struct BackendCanonCorrectionReceipt: Decodable, Hashable {
     let projectTitle: String?
     let correctionText: String
     let matchedFacts: [String]
+    let replacementFacts: [String]?
+    let replacementFactIds: [String]?
     let correctionMemoryId: String?
     let createdAt: TimeInterval
     let undoneAt: TimeInterval?
@@ -1144,6 +1146,10 @@ nonisolated struct BackendDueStoryThread: Decodable, Hashable {
 nonisolated struct BackendAcceptedCausalFact: Decodable, Hashable {
     let kind: String
     let fact: String
+    let authority: String
+    let sourceCorrectionId: String
+    let replacesFacts: [String]
+    let createdAt: TimeInterval
     let sourceSceneHeading: String
     let sourceAct: String
     let ageInScenes: Int
@@ -1155,6 +1161,10 @@ nonisolated struct BackendAcceptedCausalFact: Decodable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case kind
         case fact
+        case authority
+        case sourceCorrectionId
+        case replacesFacts
+        case createdAt
         case sourceSceneHeading
         case sourceAct
         case ageInScenes
@@ -1164,6 +1174,10 @@ nonisolated struct BackendAcceptedCausalFact: Decodable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
         fact = try container.decodeIfPresent(String.self, forKey: .fact) ?? ""
+        authority = try container.decodeIfPresent(String.self, forKey: .authority) ?? ""
+        sourceCorrectionId = try container.decodeIfPresent(String.self, forKey: .sourceCorrectionId) ?? ""
+        replacesFacts = try container.decodeIfPresent([String].self, forKey: .replacesFacts) ?? []
+        createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
         sourceSceneHeading = try container.decodeIfPresent(String.self, forKey: .sourceSceneHeading) ?? ""
         sourceAct = try container.decodeIfPresent(String.self, forKey: .sourceAct) ?? ""
         ageInScenes = try container.decodeIfPresent(Int.self, forKey: .ageInScenes) ?? 0

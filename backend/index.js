@@ -3653,10 +3653,25 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     ? memory.acceptedCausalFacts.slice(0, 8).map((item) => Object.fromEntries(Object.entries({
       kind: normalizeSnippet(item?.kind ?? item?.type, 48),
       fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+      authority: normalizeSnippet(item?.authority ?? item?.source, 48),
+      source_correction_id: normalizeSnippet(
+        item?.sourceCorrectionId ?? item?.source_correction_id,
+        96
+      ),
+      replaces_facts: normalizeScreenplayStringList(
+        item?.replacesFacts ?? item?.replaces_facts,
+        8,
+        220
+      ),
+      created_at: Math.max(0, Number(item?.createdAt ?? item?.created_at ?? 0)),
       source_scene_heading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
       source_act: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
       age_in_scenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
-    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value))))
+    }).filter(([, value]) => Array.isArray(value)
+      ? value.length > 0
+      : typeof value === "number"
+        ? value > 0
+        : Boolean(value))))
       .filter((item) => item.kind && item.fact)
     : [];
   const rawDueStoryThread = memory?.dueStoryThread ?? memory?.due_story_thread;
@@ -3898,12 +3913,13 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
   const dueAge = Math.max(0, Math.round(Number(
     rawDueStoryThread?.ageInScenes ?? rawDueStoryThread?.age_in_scenes ?? 0
   )));
-  const causalFact = Array.isArray(snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)
-    ? sentenceFragment(
-      (snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)[0]?.fact,
-      180
-    )
-    : "";
+  const causalRecord = Array.isArray(snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)
+    ? (snapshot.acceptedCausalFacts ?? snapshot.accepted_causal_facts)[0] || null
+    : null;
+  const causalFact = sentenceFragment(causalRecord?.fact, 180);
+  const causalFactIsWriterCorrection = String(
+    causalRecord?.authority || causalRecord?.kind || ""
+  ).trim().toLowerCase() === "writer_correction";
   const parts = ["Welcome back."];
   if (project || position) {
     parts.push(`We were in ${[project, position].filter(Boolean).join(" - ")}.`);
@@ -3917,7 +3933,9 @@ function buildSessionContinuityOpeningLine(snapshot = {}) {
     parts.push(`Next move: ${nextMove}.`);
   }
   if (causalFact && !lastState.toLowerCase().includes(causalFact.toLowerCase())) {
-    parts.push(`One accepted consequence stays binding: ${causalFact}.`);
+    parts.push(causalFactIsWriterCorrection
+      ? `Your latest canon correction stays authoritative: ${causalFact}.`
+      : `One accepted consequence stays binding: ${causalFact}.`);
   }
   if (snapshot.isCorrection) {
     parts.push("I'll honor your latest correction first.");
@@ -3967,10 +3985,25 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
     ? creativeMemory.acceptedCausalFacts.slice(0, 8).map((item) => Object.fromEntries(Object.entries({
       kind: normalizeSnippet(item?.kind ?? item?.type, 48),
       fact: normalizeSnippet(item?.fact ?? item?.value ?? item?.text, 220),
+      authority: normalizeSnippet(item?.authority ?? item?.source, 48),
+      source_correction_id: normalizeSnippet(
+        item?.sourceCorrectionId ?? item?.source_correction_id,
+        96
+      ),
+      replaces_facts: normalizeScreenplayStringList(
+        item?.replacesFacts ?? item?.replaces_facts,
+        8,
+        220
+      ),
+      created_at: Math.max(0, Number(item?.createdAt ?? item?.created_at ?? 0)),
       source_scene_heading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
       source_act: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
       age_in_scenes: Math.max(0, Math.round(Number(item?.ageInScenes ?? item?.age_in_scenes ?? 0))),
-    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value))))
+    }).filter(([, value]) => Array.isArray(value)
+      ? value.length > 0
+      : typeof value === "number"
+        ? value > 0
+        : Boolean(value))))
       .filter((item) => item.kind && item.fact)
     : [];
   const project = legacyProject || durableProject;
@@ -29823,6 +29856,16 @@ function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.no
       8,
       220
     );
+    const replacementFacts = normalizeCharacterBibleCardList(
+      receipt?.replacementFacts ?? receipt?.replacement_facts,
+      8,
+      220
+    );
+    const replacementFactIds = normalizeCharacterBibleCardList(
+      receipt?.replacementFactIds ?? receipt?.replacement_fact_ids,
+      8,
+      96
+    );
     const correctionMemoryId = normalizeSnippet(
       receipt?.correctionMemoryId ?? receipt?.correction_memory_id,
       80
@@ -29858,9 +29901,10 @@ function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.no
       editable: false,
       snippets: [
         matchedFacts.length ? `Changed canon: ${matchedFacts.join(" / ")}` : "",
+        replacementFacts.length ? `Authoritative now: ${replacementFacts.join(" / ")}` : "",
         correctionText ? `Writer correction: ${correctionText}` : "",
       ].filter(Boolean),
-      referenceHint: matchedFacts[0] || correctionText,
+      referenceHint: replacementFacts[0] || matchedFacts[0] || correctionText,
       source: status === "undone" ? "canon_correction_undone" : "canon_correction",
       project_id: projectId,
       project_title: projectTitle,
@@ -29873,6 +29917,8 @@ function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.no
         project_title: projectTitle,
         correction_text: correctionText,
         matched_facts: matchedFacts,
+        replacement_facts: replacementFacts,
+        replacement_fact_ids: replacementFactIds,
         correction_memory_id: correctionMemoryId,
         created_at: createdAt,
         undone_at: undoneAt || null,

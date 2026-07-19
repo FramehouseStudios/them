@@ -14,6 +14,8 @@
 //      writer-authored character canon.
 //   5. accepted-page — generated page continuity becomes authoritative
 //      only after Studio reports that exact page as committed.
+//   6. replacement-canon — an explicit writer correction replaces accepted
+//      page truth and survives a cold store restore with provenance.
 //
 // This is a deterministic, fast eval — no LLM call. It guards the
 // PROMPT-CONSTRUCTION path. LLM-output evals (does the model use the
@@ -260,11 +262,68 @@ async function caseAcceptedPagePromotion() {
   );
 }
 
+async function caseReplacementCanonRestore() {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const page = "INT. ARCHIVE - NIGHT\n\nMara burns the only affidavit before the cameras arrive.";
+  await store.recordTriggersFromTalkTurn({
+    userId: "replacement-canon-user",
+    transcript: "Commit the archive scene.",
+    reply: page,
+    acceptedPageText: page,
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_screenplay_output",
+  });
+  const correction = await store.recordTriggersFromTalkTurn({
+    userId: "replacement-canon-user",
+    transcript: "Actually, Mara never burns the affidavit. It survives in Eli's ferry locker.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_turn",
+  });
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "replacement-canon-user",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Where is the surviving affidavit?",
+  });
+  const writerFact = memory?.acceptedCausalFacts?.find((item) => (
+    item.authority === "writer_correction"
+  ));
+  const prompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: memory,
+    userInput: "Continue the screenplay.",
+  });
+  check(
+    "replacement-canon: correction records one durable authoritative fact",
+    correction.writerCanonFactsRecorded === 1 && Boolean(writerFact),
+    `correction: ${JSON.stringify(correction)}\nmemory: ${JSON.stringify(memory)}`,
+  );
+  check(
+    "replacement-canon: cold restore preserves replacement provenance",
+    writerFact?.sourceCorrectionId === correction.canonCorrectionReceiptId &&
+      writerFact?.replacesFacts?.[0] === "Mara burns the only affidavit before the cameras arrive.",
+    `writer fact: ${JSON.stringify(writerFact)}`,
+  );
+  check(
+    "replacement-canon: prompt prioritizes writer truth and omits retired page fact",
+    prompt.includes("AUTHORITATIVE_WRITER_CANON") &&
+      prompt.includes("It survives in Eli's ferry locker") &&
+      !prompt.includes("BINDING_FACT [irreversible_consequence") &&
+      prompt.includes("Writer corrections outrank older page evidence"),
+    `prompt:\n${prompt}`,
+  );
+}
+
 await caseColdUser();
 await caseSeededUser();
 await caseSemanticLegacyBackfill();
 await caseWriterCanonAuthority();
 await caseAcceptedPagePromotion();
+await caseReplacementCanonRestore();
 
 if (!allOK) {
   console.error("creative memory eval: FAILED");

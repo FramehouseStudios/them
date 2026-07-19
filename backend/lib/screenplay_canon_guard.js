@@ -32,7 +32,13 @@ function cleanInline(value = "", maxChars = 240) {
 
 function normalizeFactKind(value = "") {
   const clean = cleanInline(value, 48).toLowerCase().replace(/[\s-]+/g, "_");
-  if (["decision", "revelation", "relationship_change", "irreversible_consequence"].includes(clean)) {
+  if ([
+    "decision",
+    "revelation",
+    "relationship_change",
+    "irreversible_consequence",
+    "writer_correction",
+  ].includes(clean)) {
     return clean;
   }
   return "";

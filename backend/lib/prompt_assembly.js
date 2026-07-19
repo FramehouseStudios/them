@@ -996,6 +996,17 @@ function normalizeAcceptedCausalFacts(value = []) {
     out.push({
       kind,
       fact,
+      authority: trimContextLine(item.authority ?? item.source, 48).toLowerCase(),
+      sourceCorrectionId: trimContextLine(
+        item.sourceCorrectionId ?? item.source_correction_id,
+        96
+      ),
+      replacesFacts: sanitizeContextList(
+        item.replacesFacts ?? item.replaces_facts,
+        8,
+        220
+      ),
+      createdAt: Math.max(0, Number(item.createdAt ?? item.created_at ?? 0)),
       sourceSceneHeading: trimContextLine(item.sourceSceneHeading ?? item.source_scene_heading, 140),
       sourceAct: trimContextLine(item.sourceAct ?? item.source_act, 80),
       ageInScenes: Math.max(0, Math.round(Number(item.ageInScenes ?? item.age_in_scenes ?? 0))),
@@ -1008,16 +1019,31 @@ function normalizeAcceptedCausalFacts(value = []) {
 function serializeAcceptedCausalFacts(value, currentAct = "") {
   const facts = normalizeAcceptedCausalFacts(value);
   if (!facts.length) return "";
+  const hasWriterCanon = facts.some((fact) => (
+    fact.authority === "writer_correction" || fact.kind === "writer_correction"
+  ));
   const lines = [
-    "  authority: exact causal evidence from accepted Studio pages; these events are binding canon unless the writer explicitly corrects them.",
+    hasWriterCanon
+      ? "  authority: binding story state from accepted Studio pages plus explicit writer corrections. Writer corrections outrank older page evidence and all inferred memory."
+      : "  authority: exact causal evidence from accepted Studio pages; these events are binding canon unless the writer explicitly corrects them.",
   ];
   for (const fact of facts) {
+    if (fact.authority === "writer_correction" || fact.kind === "writer_correction") {
+      const replaces = fact.replacesFacts.length
+        ? ` Replaces: ${fact.replacesFacts.join(" / ")}`
+        : "";
+      lines.push(`  - AUTHORITATIVE_WRITER_CANON [explicit writer correction]: ${fact.fact}${replaces}`);
+      continue;
+    }
     const source = [
       fact.sourceAct,
       fact.sourceSceneHeading,
       fact.ageInScenes > 0 ? `${fact.ageInScenes} accepted scenes ago` : "latest accepted scene",
     ].filter(Boolean).join(" · ");
     lines.push(`  - BINDING_FACT [${fact.kind}${source ? ` · ${source}` : ""}]: ${fact.fact}`);
+  }
+  if (hasWriterCanon) {
+    lines.push("  correction_precedence: state the replacement as true without hedging, never revive what it replaced, and ask for clarification rather than inventing details the writer did not supply.");
   }
   const act = trimContextLine(currentAct, 80).toLowerCase();
   if (/\b(?:iii|3|three)\b/.test(act)) {

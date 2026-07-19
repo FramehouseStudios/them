@@ -21,6 +21,20 @@ test("[screenplay-canon-guard] normalizes only supported accepted causal facts",
   }]);
 });
 
+test("[screenplay-canon-guard] preserves explicit writer replacement canon for live checks", () => {
+  assert.deepEqual(normalizeAcceptedCausalFacts([{
+    kind: "writer_correction",
+    fact: "Mara never burns the affidavit. It survives in Eli's ferry locker.",
+    authority: "writer_correction",
+  }]), [{
+    kind: "writer_correction",
+    fact: "Mara never burns the affidavit. It survives in Eli's ferry locker.",
+    sourceSceneHeading: "",
+    sourceAct: "",
+    ageInScenes: 0,
+  }]);
+});
+
 test("[screenplay-canon-guard] catches a repeated first-time revelation but ignores unrelated uncertainty", () => {
   const fact = [{
     kind: "revelation",

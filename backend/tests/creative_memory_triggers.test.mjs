@@ -856,6 +856,7 @@ I choose the case over us.`;
     source: "talk_turn",
   });
   assert.equal(correction.acceptedCanonFactsRetired, 1);
+  assert.equal(correction.writerCanonFactsRecorded, 1);
   assert.equal(correction.corrections, 1);
   assert.match(correction.canonCorrectionReceiptId, /^canon_correction_/);
 
@@ -866,6 +867,15 @@ I choose the case over us.`;
   assert.doesNotMatch(JSON.stringify(project.acceptedScenes), /burns the only copy/i);
   assert.match(JSON.stringify(project.acceptedScenes), /I admit I forged the affidavit/);
   assert.match(JSON.stringify(project.acceptedScenes), /I choose the case over us/);
+  assert.equal(project.writerCanonFacts.length, 1);
+  assert.equal(
+    project.writerCanonFacts[0].fact,
+    "Mara never burns the affidavit. The affidavit survives, and Mara hides it in Eli's ferry locker."
+  );
+  assert.deepEqual(project.writerCanonFacts[0].replacesFacts, [
+    "Mara burns the only copy before the cameras arrive.",
+  ]);
+  assert.equal(project.writerCanonFacts[0].receiptId, correction.canonCorrectionReceiptId);
 
   const memory = await restored.getCreativeMemoryForPrompt({
     userId: "u-durable-canon-retcon",
@@ -874,6 +884,12 @@ I choose the case over us.`;
     query: "Continue after Mara hides the surviving affidavit in Eli's ferry locker.",
   });
   assert.equal(memory.acceptedCausalFacts.some((item) => /burns the only copy/i.test(item.fact)), false);
+  const writerCanon = memory.acceptedCausalFacts.find((item) => item.authority === "writer_correction");
+  assert.ok(writerCanon);
+  assert.match(writerCanon.fact, /affidavit survives/i);
+  assert.deepEqual(writerCanon.replacesFacts, [
+    "Mara burns the only copy before the cameras arrive.",
+  ]);
   assert.equal(memory.projectContinuity.sceneSummary, undefined);
   assert.ok(memory.acceptedCausalFacts.some((item) => /I admit I forged the affidavit/i.test(item.fact)));
   assert.ok(memory.episodicMemories.some((item) => (
@@ -886,6 +902,8 @@ I choose the case over us.`;
   assert.deepEqual(ledger.canonCorrectionReceipts[0].matchedFacts, [
     "Mara burns the only copy before the cameras arrive.",
   ]);
+  assert.deepEqual(ledger.canonCorrectionReceipts[0].replacementFacts, [writerCanon.fact]);
+  assert.deepEqual(ledger.canonCorrectionReceipts[0].replacementFactIds, [project.writerCanonFacts[0].id]);
 
   await restored.recordProjectContinuity({
     userId: "u-durable-canon-retcon",
@@ -905,6 +923,7 @@ I choose the case over us.`;
   const afterUndoLedger = await restored.getCreativeMemoryLedger({ userId: "u-durable-canon-retcon" });
   const afterUndoProject = afterUndoLedger.projects.find((item) => item.projectId === "rain-docket");
   assert.match(JSON.stringify(afterUndoProject.acceptedScenes), /burns the only copy/i);
+  assert.deepEqual(afterUndoProject.writerCanonFacts || [], []);
   assert.equal(
     afterUndoProject.nextScenePlan,
     "Mara takes the surviving affidavit to the ferry terminal."
@@ -919,6 +938,10 @@ I choose the case over us.`;
     query: "Continue after Mara burns the only copy.",
   });
   assert.ok(afterUndoMemory.acceptedCausalFacts.some((item) => /burns the only copy/i.test(item.fact)));
+  assert.equal(
+    afterUndoMemory.acceptedCausalFacts.some((item) => item.authority === "writer_correction"),
+    false
+  );
   assert.equal(afterUndoMemory.episodicMemories.some((item) => item.tags.includes("correction")), false);
   assert.ok(afterUndoMemory.episodicMemories.some((item) => /burns the only copy/i.test(item.excerpt)));
 
@@ -984,6 +1007,92 @@ I choose the case over us.`;
     receiptId: first.canonCorrectionReceiptId,
   });
   assert.equal(oldest.status, "undone");
+});
+
+test("a later writer correction replaces prior writer canon without reviving retired page truth", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const page = `INT. RECORDS ROOM - NIGHT
+
+Mara burns the only affidavit before the cameras arrive.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-writer-canon-chain",
+    transcript: "Commit the records room scene.",
+    reply: page,
+    acceptedPageText: page,
+    acceptedSceneContext: { anchorSceneId: "scene-records-room-chain" },
+    projectId: "rain-docket-chain",
+    projectTitle: "Rain Docket Chain",
+    source: "talk_screenplay_output",
+  });
+
+  const first = await store.recordTriggersFromTalkTurn({
+    userId: "u-writer-canon-chain",
+    transcript: "Actually, Mara never burns the only affidavit. She hides it in Eli's ferry locker.",
+    projectId: "rain-docket-chain",
+    projectTitle: "Rain Docket Chain",
+    source: "talk_turn",
+  });
+  const second = await store.recordTriggersFromTalkTurn({
+    userId: "u-writer-canon-chain",
+    transcript: "Actually, Mara never hides the affidavit in Eli's ferry locker. She gives it to June at the east dock.",
+    projectId: "rain-docket-chain",
+    projectTitle: "Rain Docket Chain",
+    source: "talk_turn",
+  });
+  assert.equal(first.writerCanonFactsRecorded, 1);
+  assert.equal(second.writerCanonFactsRecorded, 1);
+  assert.equal(second.acceptedCanonFactsRetired, 1);
+
+  let memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-writer-canon-chain",
+    projectId: "rain-docket-chain",
+    projectTitle: "Rain Docket Chain",
+    query: "Who has the affidavit now?",
+  });
+  let writerFacts = memory.acceptedCausalFacts.filter((item) => item.authority === "writer_correction");
+  assert.equal(writerFacts.length, 1);
+  assert.match(writerFacts[0].fact, /gives it to June/i);
+  assert.deepEqual(writerFacts[0].replacesFacts, [
+    "Mara never burns the only affidavit. She hides it in Eli's ferry locker.",
+  ]);
+  assert.equal(
+    memory.acceptedCausalFacts.some((item) => item.fact === writerFacts[0].replacesFacts[0]),
+    false
+  );
+  assert.equal(
+    memory.acceptedCausalFacts.some((item) => /burns the only affidavit before/i.test(item.fact)),
+    false
+  );
+
+  const undoneSecond = await store.undoCanonCorrection({
+    userId: "u-writer-canon-chain",
+    receiptId: second.canonCorrectionReceiptId,
+  });
+  assert.equal(undoneSecond.status, "undone");
+  memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-writer-canon-chain",
+    projectId: "rain-docket-chain",
+    projectTitle: "Rain Docket Chain",
+    query: "Where is the affidavit?",
+  });
+  writerFacts = memory.acceptedCausalFacts.filter((item) => item.authority === "writer_correction");
+  assert.equal(writerFacts.length, 1);
+  assert.match(writerFacts[0].fact, /Eli's ferry locker/i);
+
+  const undoneFirst = await store.undoCanonCorrection({
+    userId: "u-writer-canon-chain",
+    receiptId: first.canonCorrectionReceiptId,
+  });
+  assert.equal(undoneFirst.status, "undone");
+  memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-writer-canon-chain",
+    projectId: "rain-docket-chain",
+    projectTitle: "Rain Docket Chain",
+    query: "What happened to the affidavit?",
+  });
+  assert.ok(memory.acceptedCausalFacts.some((item) => /burns the only affidavit before/i.test(item.fact)));
+  assert.equal(memory.acceptedCausalFacts.some((item) => item.authority === "writer_correction"), false);
 });
 
 test("ambiguous canon corrections preserve near-tied accepted facts while recording the correction", async () => {
@@ -1075,6 +1184,9 @@ Mara watches two separate ferries pull away.`;
     "Mara abandons June at the east ferry dock.",
   ]);
   assert.deepEqual(resolved.receipt.matchedFacts, resolved.ambiguity.selectedFacts);
+  assert.deepEqual(resolved.receipt.replacementFacts, [
+    "Mara never abandons anyone at the east ferry dock. She goes back for both of them.",
+  ]);
   assert.match(resolved.receipt.id, /^canon_correction_/);
 
   const resolvedMemory = await restored.getCreativeMemoryForPrompt({
@@ -1086,6 +1198,10 @@ Mara watches two separate ferries pull away.`;
   const resolvedFacts = resolvedMemory.acceptedCausalFacts || [];
   assert.equal(resolvedFacts.some((item) => /abandons Eli/i.test(item.fact)), false);
   assert.equal(resolvedFacts.some((item) => /abandons June/i.test(item.fact)), false);
+  const resolvedWriterCanon = resolvedFacts.filter((item) => item.authority === "writer_correction");
+  assert.equal(resolvedWriterCanon.length, 1);
+  assert.equal(resolvedWriterCanon[0].fact, resolved.receipt.replacementFacts[0]);
+  assert.deepEqual(resolvedWriterCanon[0].replacesFacts, resolved.ambiguity.selectedFacts);
 
   const idempotentResolution = await restored.resolveCanonCorrectionAmbiguity({
     userId: "u-ambiguous-canon-retcon",
@@ -1098,6 +1214,16 @@ Mara watches two separate ferries pull away.`;
   assert.equal(idempotentResolution.ok, true);
   assert.equal(idempotentResolution.status, "already_resolved");
   assert.equal(idempotentResolution.receipt.id, resolved.receipt.id);
+  const idempotentMemory = await restored.getCreativeMemoryForPrompt({
+    userId: "u-ambiguous-canon-retcon",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    query: "Does Mara go back for Eli and June?",
+  });
+  assert.equal(
+    idempotentMemory.acceptedCausalFacts.filter((item) => item.authority === "writer_correction").length,
+    1
+  );
 
   ledger = await restored.getCreativeMemoryLedger({ userId: "u-ambiguous-canon-retcon" });
   assert.equal(ledger.canonCorrectionAmbiguities[0].status, "resolved");
@@ -1122,6 +1248,10 @@ Mara watches two separate ferries pull away.`;
   });
   assert.ok(afterUndoMemory.acceptedCausalFacts.some((item) => /abandons Eli/i.test(item.fact)));
   assert.ok(afterUndoMemory.acceptedCausalFacts.some((item) => /abandons June/i.test(item.fact)));
+  assert.equal(
+    afterUndoMemory.acceptedCausalFacts.some((item) => item.authority === "writer_correction"),
+    false
+  );
   ledger = await restored.getCreativeMemoryLedger({ userId: "u-ambiguous-canon-retcon" });
   assert.equal(ledger.canonCorrectionAmbiguities[0].status, "pending");
 
@@ -1176,7 +1306,13 @@ Mara holds the affidavit over a match.`;
     projectTitle: "Paper Trail",
     query: "Continue after the archive scene.",
   });
-  assert.equal((memory.acceptedCausalFacts || []).some((item) => /burns the affidavit/i.test(item.fact)), false);
+  assert.equal(
+    (memory.acceptedCausalFacts || []).some((item) => item.fact === "Mara burns the affidavit."),
+    false
+  );
+  assert.ok((memory.acceptedCausalFacts || []).some((item) => (
+    item.authority === "writer_correction" && /affidavit survives/i.test(item.fact)
+  )));
 });
 
 test("accepted scene history spans a full feature and retrieves an early setup near the ending", async () => {

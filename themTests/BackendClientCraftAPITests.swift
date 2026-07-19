@@ -147,6 +147,8 @@ final class BackendClientCraftAPITests: XCTestCase {
             "project_title": "Rain Docket",
             "correction_text": "Actually, Mara never burns the affidavit. It survives.",
             "matched_facts": ["Mara burns the only copy."],
+            "replacement_facts": ["Mara never burns the affidavit. It survives."],
+            "replacement_fact_ids": ["writer_canon_123"],
             "correction_memory_id": "episode_correction",
             "created_at": 1800000000000,
             "undone_at": null
@@ -163,7 +165,34 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertTrue(receipt.canUndo)
         XCTAssertEqual(receipt.projectTitle, "Rain Docket")
         XCTAssertEqual(receipt.matchedFacts, ["Mara burns the only copy."])
+        XCTAssertEqual(receipt.replacementFacts, ["Mara never burns the affidavit. It survives."])
+        XCTAssertEqual(receipt.replacementFactIds, ["writer_canon_123"])
         XCTAssertEqual(receipt.correctionMemoryId, "episode_correction")
+    }
+
+    func testWriterCanonCausalFactDecodesCorrectionProvenance() throws {
+        let data = Data(#"""
+        {
+          "kind": "writer_correction",
+          "fact": "Mara never burns the affidavit. It survives in Eli's ferry locker.",
+          "authority": "writer_correction",
+          "source_correction_id": "canon_correction_123",
+          "replaces_facts": ["Mara burns the only copy of the affidavit."],
+          "created_at": 1800000000000,
+          "age_in_scenes": 0
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let fact = try decoder.decode(BackendAcceptedCausalFact.self, from: data)
+
+        XCTAssertTrue(fact.isMeaningful)
+        XCTAssertEqual(fact.kind, "writer_correction")
+        XCTAssertEqual(fact.authority, "writer_correction")
+        XCTAssertEqual(fact.sourceCorrectionId, "canon_correction_123")
+        XCTAssertEqual(fact.replacesFacts, ["Mara burns the only copy of the affidavit."])
+        XCTAssertEqual(fact.createdAt, 1800000000000)
     }
 
     func testCharacterBibleMemoryDecodesAndBuildsCorrectionPayload() throws {

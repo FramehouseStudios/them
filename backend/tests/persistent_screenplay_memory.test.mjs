@@ -430,6 +430,8 @@ test("[persistent-screenplay-memory] canon correction receipts replace duplicate
         projectTitle: "Rain Docket",
         correctionText: "Actually, Mara never burns the affidavit. It survives.",
         matchedFacts: ["Mara burns the only copy before the cameras arrive."],
+        replacementFacts: ["Mara never burns the affidavit. It survives."],
+        replacementFactIds: ["writer_canon_123"],
         correctionMemoryId: "episode_correction",
         createdAt: 1_800_000_000_000,
       }],
@@ -454,6 +456,11 @@ test("[persistent-screenplay-memory] canon correction receipts replace duplicate
   assert.deepEqual(receipt.correction_receipt.matched_facts, [
     "Mara burns the only copy before the cameras arrive.",
   ]);
+  assert.deepEqual(receipt.correction_receipt.replacement_facts, [
+    "Mara never burns the affidavit. It survives.",
+  ]);
+  assert.deepEqual(receipt.correction_receipt.replacement_fact_ids, ["writer_canon_123"]);
+  assert.ok(receipt.snippets.some((item) => /Authoritative now:/i.test(item)));
   assert.match(receipt.summary, /never burns the affidavit/i);
   assert.equal(cards.some((card) => card.source === "episodic_correction"), false);
 });
@@ -1742,6 +1749,40 @@ test("[persistent-screenplay-memory] session continuity honors correction-only c
   assert.equal(snapshot.is_correction, true);
   assert.ok(snapshot.opening_line.includes("I'll honor your latest correction first."));
   assert.ok(snapshot.memory_excerpt.includes("coded weather station"));
+});
+
+test("[persistent-screenplay-memory] session continuity restores writer replacement canon with provenance", () => {
+  const snapshot = buildSessionContinuitySnapshot(createEmptyEmotionMemory(), {
+    projectContinuity: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      act: "Act II",
+      correctedTerms: ["Mara burns the only copy of the affidavit."],
+      updatedAt: 1_800,
+    },
+    acceptedCausalFacts: [{
+      kind: "writer_correction",
+      fact: "Mara never burns the affidavit. It survives in Eli's ferry locker.",
+      authority: "writer_correction",
+      sourceCorrectionId: "canon_correction_123",
+      replacesFacts: ["Mara burns the only copy of the affidavit."],
+      createdAt: 1_800,
+    }],
+  });
+
+  assert.equal(snapshot.has_continuity, true);
+  assert.deepEqual(snapshot.accepted_causal_facts, [{
+    kind: "writer_correction",
+    fact: "Mara never burns the affidavit. It survives in Eli's ferry locker.",
+    authority: "writer_correction",
+    source_correction_id: "canon_correction_123",
+    replaces_facts: ["Mara burns the only copy of the affidavit."],
+    created_at: 1_800,
+  }]);
+  assert.ok(snapshot.opening_line.includes(
+    "Your latest canon correction stays authoritative: Mara never burns the affidavit. It survives in Eli's ferry locker."
+  ));
+  assert.ok(snapshot.opening_line.includes("I'll honor your latest correction first."));
 });
 
 test("[persistent-screenplay-memory] session continuity marks project corrections authoritative", () => {

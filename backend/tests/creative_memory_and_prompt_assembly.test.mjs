@@ -414,6 +414,37 @@ test("buildModelPrompt emits durable active-feature continuity before story reca
   assert.ok(out.indexOf("due-story-thread:") < out.indexOf("story-bible-recall:"));
 });
 
+test("buildModelPrompt gives explicit writer replacement canon precedence over page evidence", () => {
+  const out = buildModelPrompt({
+    persona: "Persona",
+    creativeMemory: {
+      projectContinuity: {
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        act: "Act II",
+      },
+      acceptedCausalFacts: [{
+        kind: "writer_correction",
+        fact: "Mara never burns the affidavit. It survives in Eli's ferry locker.",
+        authority: "writer_correction",
+        sourceCorrectionId: "canon_correction_123",
+        replacesFacts: ["Mara burns the only copy of the affidavit."],
+        createdAt: 1_800_000_000_000,
+      }],
+    },
+    userInput: "Continue the screenplay.",
+  });
+
+  assert.match(out, /Writer corrections outrank older page evidence/);
+  assert.match(
+    out,
+    /AUTHORITATIVE_WRITER_CANON \[explicit writer correction\]: Mara never burns the affidavit\. It survives in Eli's ferry locker\./
+  );
+  assert.match(out, /Replaces: Mara burns the only copy of the affidavit\./);
+  assert.match(out, /never revive what it replaced/);
+  assert.doesNotMatch(out, /BINDING_FACT \[writer_correction/);
+});
+
 test("recordToneSignal stores tone and preferredTone", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordToneSignal({

@@ -197,6 +197,10 @@ function mountMemoriesRoutes(app, deps = {}) {
       project_title: String(receipt.projectTitle || ""),
       correction_text: String(receipt.correctionText || ""),
       matched_facts: Array.isArray(receipt.matchedFacts) ? receipt.matchedFacts : [],
+      replacement_facts: Array.isArray(receipt.replacementFacts) ? receipt.replacementFacts : [],
+      replacement_fact_ids: Array.isArray(receipt.replacementFactIds)
+        ? receipt.replacementFactIds
+        : [],
       correction_memory_id: String(receipt.correctionMemoryId || ""),
       created_at: Math.max(0, Number(receipt.createdAt || 0)),
       undone_at: Math.max(0, Number(receipt.undoneAt || 0)) || null,

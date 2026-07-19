@@ -1954,6 +1954,9 @@ private struct MemoryRepairDetailSection: View {
                 if !receipt.matchedFacts.isEmpty {
                     repairLine("Changed canon", value: receipt.matchedFacts.joined(separator: " / "))
                 }
+                if let replacementFacts = receipt.replacementFacts, !replacementFacts.isEmpty {
+                    repairLine("Authoritative now", value: replacementFacts.joined(separator: " / "))
+                }
                 if !receipt.correctionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     repairLine("Writer correction", value: receipt.correctionText)
                 }
