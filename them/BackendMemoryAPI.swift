@@ -326,7 +326,7 @@ nonisolated struct BackendCanonCorrectionReceipt: Decodable, Hashable {
     }
 }
 
-nonisolated struct BackendCanonCorrectionAmbiguity: Decodable, Hashable {
+nonisolated struct BackendCanonCorrectionAmbiguity: Codable, Hashable {
     let id: String
     let status: String
     let projectId: String?
@@ -777,6 +777,7 @@ nonisolated struct BackendRealtimeTurnCommitResponse: Decodable {
     let schemaVersion: Int?
     let backendBuild: String?
     let backendBootId: String?
+    let canonClarification: BackendCanonCorrectionAmbiguity?
 }
 
 nonisolated struct BackendScreenplayCharacterArcMemory: Codable, Hashable {
@@ -2477,13 +2478,19 @@ nonisolated enum BackendCredentialMigration {
         normalize: (String?) -> String = BackendCredentialMigration.normalizedNonEmpty
     ) -> String? {
         let legacy = normalize(defaults.string(forKey: defaultsKey))
+#if os(macOS)
         if !legacy.isEmpty {
             return legacy
         }
-
-#if os(macOS)
         return nil
 #else
+        if !legacy.isEmpty {
+            if writeKeychain(legacy, account) {
+                defaults.removeObject(forKey: defaultsKey)
+            }
+            return legacy
+        }
+
         let existing = normalize(readKeychain(account))
         if !existing.isEmpty {
             defaults.removeObject(forKey: defaultsKey)

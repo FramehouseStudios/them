@@ -2982,8 +2982,9 @@ function appendCraftContextToSystem(systemPrompt, { req } = {}) {
   return `${systemPrompt}\n\n${block}`;
 }
 
-// T08w-triggers: fire creative-memory write triggers from a completed
-// /talk turn. Best-effort, fire-and-forget — never blocks the response.
+// T08w-triggers: persist creative-memory writes from a completed turn.
+// Callers can overlap this promise with response work, then await its receipt
+// when they need to expose a durable canon clarification.
 // Uses trusted auth identity, final transcript, final reply/page text,
 // and project metadata so generated screenplay pages become continuity.
 function recordCreativeMemoryTriggersForRequest(req, turn = {}) {

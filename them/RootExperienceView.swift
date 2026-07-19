@@ -860,6 +860,9 @@ struct RootExperienceView: View {
     @State private var lastVisualContextError = ""
     @State private var transientTurnBannerText: String?
     @State private var transientTurnBannerTask: Task<Void, Never>?
+    @State private var pendingCanonClarification: BackendCanonCorrectionAmbiguity?
+    @State private var resolvingCanonClarificationFact: String?
+    @State private var canonClarificationError = ""
     @State private var userReplyEcho: String = ""
     @State private var assistantReplyEcho: String = ""
     @State private var replyEchoOpacity: Double = 0
@@ -1144,6 +1147,33 @@ struct RootExperienceView: View {
     private var bodyForegroundLayers: some View {
         primarySurfaceLayer
 
+        if !evolution.needsOnboardingName,
+           let pendingCanonClarification {
+            GeometryReader { proxy in
+                let viewportSize = proxy.size
+                let globalOrigin = proxy.frame(in: .global).origin
+                VStack {
+                    Spacer(minLength: 24)
+                    CanonClarificationCard(
+                        clarification: pendingCanonClarification,
+                        resolvingFact: resolvingCanonClarificationFact,
+                        errorMessage: canonClarificationError,
+                        onSelectFact: resolveCanonClarification,
+                        onDefer: deferCanonClarification
+                    )
+                    .frame(width: min(max(280, viewportSize.width - 32), 560))
+                    .padding(.bottom, 20)
+                }
+                .frame(width: viewportSize.width, height: viewportSize.height)
+                .position(
+                    x: (viewportSize.width / 2) - globalOrigin.x,
+                    y: (viewportSize.height / 2) - globalOrigin.y
+                )
+            }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(40)
+        }
+
         if evolution.needsOnboardingName {
             onboardingOverlay
                 .transition(.opacity)
@@ -1160,10 +1190,21 @@ struct RootExperienceView: View {
     }
 
     private var rootBodyView: some View {
+        #if os(iOS)
+        GeometryReader { viewport in
+            ZStack {
+                bodyBackground
+                bodyForegroundLayers
+            }
+            .frame(width: viewport.size.width, height: viewport.size.height)
+            .clipped()
+        }
+        #else
         ZStack {
             bodyBackground
             bodyForegroundLayers
         }
+        #endif
     }
 
     #if DEBUG || os(macOS)
@@ -2353,6 +2394,26 @@ struct RootExperienceView: View {
             } else if arguments.contains("--ui-open-studio") {
                 uiTestForceStudioSurface = true
                 openStudio()
+            }
+            if arguments.contains("--ui-show-canon-clarification") {
+                presentCanonClarificationIfNeeded(
+                    BackendCanonCorrectionAmbiguity(
+                        id: "canon_ambiguity_ui_fixture",
+                        status: "pending",
+                        projectId: "split-ferries",
+                        projectTitle: "Split Ferries",
+                        correctionText: "Mara goes back for both of them.",
+                        candidateFacts: [
+                            "Mara abandons Eli at the east ferry dock.",
+                            "Mara abandons June at the east ferry dock.",
+                        ],
+                        correctionMemoryId: nil,
+                        selectedFact: nil,
+                        receiptId: nil,
+                        createdAt: Date().timeIntervalSince1970 * 1_000,
+                        resolvedAt: nil
+                    )
+                )
             }
         }
     }
@@ -4190,6 +4251,65 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.22)) {
                 transientTurnBannerText = nil
+            }
+        }
+    }
+
+    @MainActor
+    private func presentCanonClarificationIfNeeded(_ clarification: BackendCanonCorrectionAmbiguity?) {
+        guard let clarification,
+              clarification.isPending,
+              clarification.candidateFacts.count >= 2 else {
+            return
+        }
+        guard pendingCanonClarification?.id != clarification.id else { return }
+        resolvingCanonClarificationFact = nil
+        canonClarificationError = ""
+        withAnimation(.easeInOut(duration: 0.22)) {
+            pendingCanonClarification = clarification
+        }
+    }
+
+    @MainActor
+    private func deferCanonClarification() {
+        guard resolvingCanonClarificationFact == nil else { return }
+        canonClarificationError = ""
+        withAnimation(.easeInOut(duration: 0.20)) {
+            pendingCanonClarification = nil
+        }
+    }
+
+    @MainActor
+    private func resolveCanonClarification(_ selectedFact: String) {
+        guard let clarification = pendingCanonClarification,
+              clarification.isPending,
+              resolvingCanonClarificationFact == nil else {
+            return
+        }
+        let cleanFact = selectedFact.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clarification.candidateFacts.contains(cleanFact) else { return }
+
+        resolvingCanonClarificationFact = cleanFact
+        canonClarificationError = ""
+        Task { @MainActor in
+            do {
+                let result = try await BackendMemoryAPI.shared.resolveCanonCorrection(
+                    ambiguityID: clarification.id,
+                    selectedFact: cleanFact
+                )
+                guard result.payload.ok else {
+                    canonClarificationError = result.payload.message ?? "Clementine could not update canon yet."
+                    resolvingCanonClarificationFact = nil
+                    return
+                }
+                withAnimation(.easeInOut(duration: 0.20)) {
+                    pendingCanonClarification = nil
+                }
+                resolvingCanonClarificationFact = nil
+                showStudioCommandNotice("Canon updated. Clementine will use your correction from here forward.")
+            } catch {
+                resolvingCanonClarificationFact = nil
+                canonClarificationError = error.localizedDescription
             }
         }
     }
@@ -6445,6 +6565,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                     output: metadata.screenplayOutput
                                 )
                             }
+                            presentCanonClarificationIfNeeded(
+                                metadata.creativeMemoryTrace.canonClarification
+                            )
 #if DEBUG || os(macOS)
                             debugTimingSource = metadata.timingSource?
                                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? debugTimingSource
@@ -6695,6 +6818,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             lastKnowledgeConfidenceClass = result.knowledgeTrace.confidenceClass
             lastKnowledgeContradictionRisk = min(max(result.knowledgeTrace.contradictionRisk, 0), 1)
             updateTransientTurnBanner(from: result)
+            presentCanonClarificationIfNeeded(result.creativeMemoryTrace.canonClarification)
             if preparedPrompt.useScreenplayMode {
                 screenplayDraftBridge.updateScreenplayQualityStatus(
                     quality: result.screenplayQuality,
@@ -11340,6 +11464,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     : "rt-\(fingerprint)",
                 studioMetadata: studioMetadata
             )
+            presentCanonClarificationIfNeeded(result.payload.canonClarification)
             lastRealtimeCommittedTurnID = result.payload.turnId ?? result.payload.lastTurnId ?? result.sync.lastTurnId
             lastRealtimeCommitAt = now
             lastRealtimeCommitError = ""

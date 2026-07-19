@@ -41,6 +41,7 @@ import {
   createTalkFailureError,
 } from "./talk_failure_diagnostics.js";
 import { buildMomentumRescueFallbackReply } from "./momentum_rescue_fallback.js";
+import { buildCanonClarificationPayload } from "./canon_clarification.js";
 import {
   buildTalkScreenplayExecutionBriefLines,
   isNextSceneExecutionBriefRepairReason,
@@ -428,6 +429,15 @@ function createTalkHandler(deps) {
       if (traceJson.length <= 5000) {
         res.setHeader("x-creative-memory-trace", encodeURIComponent(traceJson));
       }
+    }
+  }
+
+  function applyCanonClarificationHeader(res, memoryWriteSummary = null) {
+    const clarification = buildCanonClarificationPayload(memoryWriteSummary);
+    if (!clarification) return;
+    const payload = JSON.stringify(clarification);
+    if (payload.length <= 3000) {
+      res.setHeader("x-canon-clarification", encodeURIComponent(payload));
     }
   }
 
@@ -1361,18 +1371,23 @@ function createTalkHandler(deps) {
       ? normalizeTalkScreenplayText(screenplayOutput?.text || "")
       : "";
     const memoryReply = screenplayText || reply;
-    if (!String(transcript || "").trim() && !String(memoryReply || "").trim()) return;
-    void recordCreativeMemoryTriggersForRequest(req, {
-      transcript,
-      reply: memoryReply,
-      studioMeta,
-      screenplayOutput,
-      sessionStartedAt,
-      sessionDurationMs,
-      source: source || (screenplayText ? "talk_screenplay_output" : "talk_turn"),
-    }).catch((err) => {
-      console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
-    });
+    if (!String(transcript || "").trim() && !String(memoryReply || "").trim()) {
+      return Promise.resolve(null);
+    }
+    return Promise.resolve()
+      .then(() => recordCreativeMemoryTriggersForRequest(req, {
+        transcript,
+        reply: memoryReply,
+        studioMeta,
+        screenplayOutput,
+        sessionStartedAt,
+        sessionDurationMs,
+        source: source || (screenplayText ? "talk_screenplay_output" : "talk_turn"),
+      }))
+      .catch((err) => {
+        console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
+        return null;
+      });
   };
 
   const uploadedFile = req.file ||
@@ -2879,7 +2894,7 @@ function createTalkHandler(deps) {
         authoritative_page_text_available: hasAuthoritativeScreenplayText,
         sync_ready: hasAuthoritativeScreenplayText,
       };
-      commitCreativeMemoryAfterTurn({
+      const creativeMemoryWritePromise = commitCreativeMemoryAfterTurn({
         transcript,
         reply,
         studioMeta,
@@ -2989,7 +3004,9 @@ function createTalkHandler(deps) {
       if (talkScreenplayOutput?.target) {
         res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
       }
+      const creativeMemoryWriteSummary = await creativeMemoryWritePromise;
       applyCreativeMemoryTraceHeaders(res, req.creativeMemoryTrace);
+      applyCanonClarificationHeader(res, creativeMemoryWriteSummary);
       applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
       if (talkScreenplayOutput) {
         const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
@@ -4358,7 +4375,7 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
       talkScreenplayOutput,
       talkAudioDurationMs
     );
-    commitCreativeMemoryAfterTurn({
+    const creativeMemoryWritePromise = commitCreativeMemoryAfterTurn({
       transcript,
       reply,
       studioMeta,
@@ -4657,7 +4674,9 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
     if (talkScreenplayOutput?.target) {
       res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
     }
+    const creativeMemoryWriteSummary = await creativeMemoryWritePromise;
     applyCreativeMemoryTraceHeaders(res, req.creativeMemoryTrace);
+    applyCanonClarificationHeader(res, creativeMemoryWriteSummary);
     applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
     applyTalkScreenplayRepairHeaders(res, talkScreenplayRepairTrace);
     if (talkScreenplayOutput) {

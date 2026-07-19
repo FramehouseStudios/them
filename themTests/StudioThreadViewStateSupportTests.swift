@@ -729,6 +729,7 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(BackendTalkCreativeMemoryTrace.empty.characterCount, 0)
         XCTAssertEqual(BackendTalkCreativeMemoryTrace.empty.episodicCount, 0)
         XCTAssertEqual(BackendTalkCreativeMemoryTrace.empty.correctionCount, 0)
+        XCTAssertNil(BackendTalkCreativeMemoryTrace.empty.canonClarification)
 
         let trace = BackendTalkCreativeMemoryTrace(
             applied: true,
@@ -774,6 +775,36 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(trace.episodic.first?.summary, "Correction for Mara")
         XCTAssertEqual(trace.episodic.first?.characters, ["Mara"])
         XCTAssertTrue(trace.styleApplied)
+    }
+
+    func testCreativeMemoryTraceAttachesPendingCanonClarification() throws {
+        let data = Data(#"""
+        {
+          "id": "canon_ambiguity_talk_1",
+          "status": "pending",
+          "project_id": "split-ferries",
+          "project_title": "Split Ferries",
+          "correction_text": "Mara goes back for both of them.",
+          "candidate_facts": [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock."
+          ],
+          "correction_memory_id": null,
+          "selected_fact": null,
+          "receipt_id": null,
+          "created_at": 1800000000000,
+          "resolved_at": null
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let clarification = try decoder.decode(BackendCanonCorrectionAmbiguity.self, from: data)
+
+        let trace = BackendTalkCreativeMemoryTrace.empty.attachingCanonClarification(clarification)
+
+        XCTAssertEqual(trace.canonClarification?.id, "canon_ambiguity_talk_1")
+        XCTAssertEqual(trace.canonClarification?.projectTitle, "Split Ferries")
+        XCTAssertEqual(trace.canonClarification?.candidateFacts.count, 2)
     }
 
     func testTalkCreativeMemoryTraceBecomesAppliedStudioMemory() {

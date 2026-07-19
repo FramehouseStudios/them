@@ -4067,6 +4067,7 @@ function createCreativeMemoryStore({
       acceptedCanonFactsAmbiguous: 0,
       canonCorrectionReceiptId: "",
       canonCorrectionAmbiguityId: "",
+      canonCorrectionAmbiguity: null,
       acceptedPagesPromoted: 0,
       acceptedPagesRecorded: 0,
       lexicalPhrases: 0,
@@ -4417,7 +4418,10 @@ function createCreativeMemoryStore({
           candidateFacts: ambiguousAcceptedCanonFacts,
           correctionMemoryId,
         });
-        if (ambiguity?.ok) summary.canonCorrectionAmbiguityId = ambiguity.ambiguity?.id || "";
+        if (ambiguity?.ok) {
+          summary.canonCorrectionAmbiguityId = ambiguity.ambiguity?.id || "";
+          summary.canonCorrectionAmbiguity = ambiguity.ambiguity || null;
+        }
       } catch (_e) { /* never block the response on ambiguity receipt writes */ }
     }
 

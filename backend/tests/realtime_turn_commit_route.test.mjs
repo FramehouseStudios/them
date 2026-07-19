@@ -423,6 +423,68 @@ test("[turn-commit] queues durable project memory with accepted page text and st
   });
 });
 
+test("[turn-commit] returns a canon clarification only after its durable memory write resolves", async () => {
+  let releaseMemoryWrite;
+  const deps = defaultDeps({
+    recordCreativeMemoryTriggersForRequest: async (_req, args) => {
+      deps._calls.recordCreativeMemoryTriggersForRequest.push(args);
+      await new Promise((resolve) => {
+        releaseMemoryWrite = resolve;
+      });
+      return {
+        canonCorrectionAmbiguity: {
+          id: "canon_ambiguity_realtime_1",
+          status: "pending",
+          projectId: "split-ferries",
+          projectTitle: "Split Ferries",
+          correctionText: "Mara goes back for both of them.",
+          candidateFacts: [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock.",
+          ],
+          createdAt: 1_725_000_000_000,
+        },
+      };
+    },
+  });
+
+  await withTestServer(deps, async (baseURL) => {
+    let settled = false;
+    const responsePromise = postJson(baseURL, {
+      transcript: "Actually, Mara goes back for both of them.",
+      reply: "I remember the correction.",
+    }).then((response) => {
+      settled = true;
+      return response;
+    });
+
+    while (typeof releaseMemoryWrite !== "function") {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(settled, false, "response must wait for the durable ambiguity receipt");
+
+    releaseMemoryWrite();
+    const response = await responsePromise;
+    assert.equal(response.status, 201);
+    assert.deepEqual(response.body.canon_clarification, {
+      id: "canon_ambiguity_realtime_1",
+      status: "pending",
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      correction_text: "Mara goes back for both of them.",
+      candidate_facts: [
+        "Mara abandons Eli at the east ferry dock.",
+        "Mara abandons June at the east ferry dock.",
+      ],
+      selected_fact: null,
+      receipt_id: null,
+      created_at: 1_725_000_000_000,
+      resolved_at: null,
+    });
+  });
+});
+
 // ---------- #238 invariant inheritance ----------
 
 test("[turn-commit] does NOT mutate module-level state (no setter dep accepted)", () => {

@@ -41,6 +41,7 @@
 // inside the dep functions.
 
 import express from "express";
+import { buildCanonClarificationPayload } from "./canon_clarification.js";
 
 const TURN_COMMIT_BODY_LIMIT = "256kb";
 
@@ -109,7 +110,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
     throw new Error("mountRealtimeTurnCommitRoute: DEEP_TURN_SCORE_THRESHOLD must be a number");
   }
 
-  app.post("/realtime/turn_commit", express.json({ limit: TURN_COMMIT_BODY_LIMIT }), (req, res) => {
+  app.post("/realtime/turn_commit", express.json({ limit: TURN_COMMIT_BODY_LIMIT }), async (req, res) => {
     const rid = req.requestId || createRequestId();
     const nowTs = Date.now();
     const transcript = normalizeSnippet(
@@ -195,7 +196,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       });
 
     const persisted = persistWritableMemoryContext(context, nextMemory, nowTs);
-    void Promise.resolve()
+    const creativeMemoryWritePromise = Promise.resolve()
       .then(() => recordCreativeMemoryTriggersForRequest(req, {
         transcript,
         reply: acceptedPageText || reply,
@@ -207,6 +208,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
         console.error(
           `[${rid}] realtime_turn_commit creative_memory_failed error=${String(error?.message || error || "unknown")}`,
         );
+        return null;
       });
     const readMeta = buildReadStateMeta(req, persisted, requesterIp);
     if (readMeta.lastTurnId) {
@@ -240,6 +242,9 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       `[${rid}] realtime_turn_commit turn=${readMeta.lastTurnId || "none"} session=${readMeta.sessionId || "unknown"} chars_u=${transcript.length} chars_a=${reply.length}`,
     );
 
+    const creativeMemoryWriteSummary = await creativeMemoryWritePromise;
+    const canonClarification = buildCanonClarificationPayload(creativeMemoryWriteSummary);
+
     return res.status(201).json({
       ok: true,
       action: "realtime_turn_commit",
@@ -256,6 +261,7 @@ function mountRealtimeTurnCommitRoute(app, deps = {}) {
       schema_version: readMeta.schemaVersion,
       backend_build: readMeta.backendBuild,
       backend_boot_id: readMeta.backendBootId,
+      canon_clarification: canonClarification,
     });
   });
 }

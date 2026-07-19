@@ -34,6 +34,7 @@ const ALLOWED_MODULE_BINDINGS = new Set([
   "randomUUID",
   "REQUIRED_DEPS",
   "applyTalkFailureHeaders",
+  "buildCanonClarificationPayload",
   "buildTalkFailureBody",
   "buildTalkFailureDiagnostics",
   "buildMomentumRescueFallbackReply",

@@ -986,6 +986,13 @@ Mara watches two separate ferries pull away.`;
   assert.equal(correction.acceptedCanonFactsAmbiguous, 2);
   assert.equal(correction.corrections, 1);
   assert.match(correction.canonCorrectionAmbiguityId, /^canon_ambiguity_/);
+  assert.equal(correction.canonCorrectionAmbiguity.id, correction.canonCorrectionAmbiguityId);
+  assert.equal(correction.canonCorrectionAmbiguity.status, "pending");
+  assert.equal(correction.canonCorrectionAmbiguity.projectId, "split-ferries");
+  assert.deepEqual(correction.canonCorrectionAmbiguity.candidateFacts, [
+    "Mara abandons Eli at the east ferry dock.",
+    "Mara abandons June at the east ferry dock.",
+  ]);
 
   const restored = createCreativeMemoryStore({ persistence });
   let ledger = await restored.getCreativeMemoryLedger({ userId: "u-ambiguous-canon-retcon" });

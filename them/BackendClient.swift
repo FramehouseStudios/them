@@ -919,6 +919,7 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
     let styleApplied: Bool
     let toneApplied: Bool
     let habitsApplied: Bool
+    let canonClarification: BackendCanonCorrectionAmbiguity?
 
     enum CodingKeys: String, CodingKey {
         case applied
@@ -936,6 +937,7 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
         case styleApplied = "style_applied"
         case toneApplied = "tone_applied"
         case habitsApplied = "habits_applied"
+        case canonClarification = "canon_clarification"
     }
 
     init(
@@ -953,7 +955,8 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
         screenplayProjectMemory: BackendTalkScreenplayProjectMemoryTrace? = nil,
         styleApplied: Bool = false,
         toneApplied: Bool = false,
-        habitsApplied: Bool = false
+        habitsApplied: Bool = false,
+        canonClarification: BackendCanonCorrectionAmbiguity? = nil
     ) {
         self.applied = applied
         let cleanProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -976,6 +979,9 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
         self.styleApplied = styleApplied
         self.toneApplied = toneApplied
         self.habitsApplied = habitsApplied
+        self.canonClarification = canonClarification?.isPending == true && (canonClarification?.candidateFacts.count ?? 0) >= 2
+            ? canonClarification
+            : nil
     }
 
     init(from decoder: Decoder) throws {
@@ -995,7 +1001,29 @@ struct BackendTalkCreativeMemoryTrace: Codable, Equatable {
             screenplayProjectMemory: try container.decodeIfPresent(BackendTalkScreenplayProjectMemoryTrace.self, forKey: .screenplayProjectMemory),
             styleApplied: try container.decodeIfPresent(Bool.self, forKey: .styleApplied) ?? false,
             toneApplied: try container.decodeIfPresent(Bool.self, forKey: .toneApplied) ?? false,
-            habitsApplied: try container.decodeIfPresent(Bool.self, forKey: .habitsApplied) ?? false
+            habitsApplied: try container.decodeIfPresent(Bool.self, forKey: .habitsApplied) ?? false,
+            canonClarification: try container.decodeIfPresent(BackendCanonCorrectionAmbiguity.self, forKey: .canonClarification)
+        )
+    }
+
+    func attachingCanonClarification(_ clarification: BackendCanonCorrectionAmbiguity?) -> Self {
+        Self(
+            applied: applied,
+            projectId: projectId,
+            projectTitle: projectTitle,
+            queryChars: queryChars,
+            characterCount: characterCount,
+            characters: characters,
+            episodicCount: episodicCount,
+            episodic: episodic,
+            correctionCount: correctionCount,
+            correctedTerms: correctedTerms,
+            correctionReplacements: correctionReplacements,
+            screenplayProjectMemory: screenplayProjectMemory,
+            styleApplied: styleApplied,
+            toneApplied: toneApplied,
+            habitsApplied: habitsApplied,
+            canonClarification: clarification
         )
     }
 
@@ -5870,10 +5898,11 @@ final class BackendClient {
     }
 
     private func parseCreativeMemoryTrace(from response: HTTPURLResponse?) -> BackendTalkCreativeMemoryTrace {
+        let canonClarification = parseCanonClarification(from: response)
         if let raw = parseOptionalHeaderString(response, field: "x-creative-memory-trace"),
            let data = raw.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(BackendTalkCreativeMemoryTrace.self, from: data) {
-            return decoded
+            return decoded.attachingCanonClarification(canonClarification)
         }
         let characterCount = parseHeaderInt(
             response,
@@ -5900,8 +5929,19 @@ final class BackendClient {
             applied: parseHeaderBool(response, field: "x-creative-memory-applied", default: false),
             characterCount: characterCount,
             episodicCount: episodicCount,
-            correctionCount: correctionCount
+            correctionCount: correctionCount,
+            canonClarification: canonClarification
         )
+    }
+
+    private func parseCanonClarification(from response: HTTPURLResponse?) -> BackendCanonCorrectionAmbiguity? {
+        guard let raw = parseOptionalHeaderString(response, field: "x-canon-clarification"),
+              let data = raw.data(using: .utf8) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try? decoder.decode(BackendCanonCorrectionAmbiguity.self, from: data)
     }
 
     private func parseScreenplayCues(from response: HTTPURLResponse?) -> [BackendTalkScreenplayCue] {

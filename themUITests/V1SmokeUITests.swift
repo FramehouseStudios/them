@@ -79,6 +79,20 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "deterministic stub path", in: app).waitForExistence(timeout: 5))
     }
 
+    func test_canon_clarification_is_visible_in_companion_and_studio() {
+        let companion = launchApp(showCanonClarification: true)
+        XCTAssertTrue(companion.otherElements["canon.clarification.card"].waitForExistence(timeout: 8))
+        XCTAssertTrue(staticText(containing: "Mara goes back for both", in: companion).exists)
+        XCTAssertEqual(companion.buttons.matching(identifier: "canon.clarification.fact").count, 2)
+        companion.buttons["canon.clarification.later"].tap()
+        XCTAssertFalse(companion.otherElements["canon.clarification.card"].waitForExistence(timeout: 1))
+        companion.terminate()
+
+        let studio = launchApp(openStudio: true, showCanonClarification: true)
+        XCTAssertTrue(studio.otherElements["canon.clarification.card"].waitForExistence(timeout: 8))
+        XCTAssertTrue(staticText(containing: "Which existing story fact", in: studio).exists)
+    }
+
     @MainActor
     func test_backend_project_restore_loads_seeded_screenplay_session() async throws {
         let baseURL = URL(string: "http://127.0.0.1:31337")!
@@ -160,6 +174,7 @@ final class V1SmokeUITests: XCTestCase {
         realtimeStub: Bool = false,
         routePage: Bool = false,
         routeVoicePin: Bool = false,
+        showCanonClarification: Bool = false,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         restoreProjectID: String? = nil,
@@ -205,6 +220,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if routeVoicePin {
             arguments.append("--ui-route-voice-pin")
+        }
+        if showCanonClarification {
+            arguments.append("--ui-show-canon-clarification")
         }
         if let autoSubmitPagePrompt {
             arguments.append(contentsOf: ["--ui-auto-submit-page-prompt", autoSubmitPagePrompt])

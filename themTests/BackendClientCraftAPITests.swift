@@ -3,6 +3,42 @@ import ScreenplayStudio
 @testable import them
 
 final class BackendClientCraftAPITests: XCTestCase {
+    func testRealtimeTurnCommitDecodesDurableCanonClarification() throws {
+        let data = Data(#"""
+        {
+          "ok": true,
+          "action": "realtime_turn_commit",
+          "status": "committed",
+          "canon_clarification": {
+            "id": "canon_ambiguity_realtime_1",
+            "status": "pending",
+            "project_id": "split-ferries",
+            "project_title": "Split Ferries",
+            "correction_text": "Mara goes back for both of them.",
+            "candidate_facts": [
+              "Mara abandons Eli at the east ferry dock.",
+              "Mara abandons June at the east ferry dock."
+            ],
+            "correction_memory_id": "episode_ambiguous",
+            "selected_fact": null,
+            "receipt_id": null,
+            "created_at": 1800000000000,
+            "resolved_at": null
+          }
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let response = try decoder.decode(BackendRealtimeTurnCommitResponse.self, from: data)
+        let clarification = try XCTUnwrap(response.canonClarification)
+
+        XCTAssertTrue(clarification.isPending)
+        XCTAssertEqual(clarification.projectId, "split-ferries")
+        XCTAssertEqual(clarification.projectTitle, "Split Ferries")
+        XCTAssertEqual(clarification.candidateFacts.count, 2)
+    }
+
     func testCanonCorrectionAmbiguityDecodesForSharedMemoriesUI() throws {
         let data = Data(#"""
         {
