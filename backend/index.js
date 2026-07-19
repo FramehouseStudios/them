@@ -29802,13 +29802,96 @@ function stableMemoryCardHash(value = "") {
   return (hash >>> 0).toString(36);
 }
 
-function buildEpisodicMemoryCards(creativeMemory = null, nowTs = Date.now()) {
+function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.now()) {
+  const receipts = Array.isArray(creativeMemory?.canonCorrectionReceipts)
+    ? creativeMemory.canonCorrectionReceipts
+    : [];
+  return receipts.map((receipt, index) => {
+    const id = normalizeSnippet(receipt?.id, 96);
+    const status = String(receipt?.status || "active").trim().toLowerCase() === "undone"
+      ? "undone"
+      : "active";
+    const projectId = normalizeSnippet(receipt?.projectId ?? receipt?.project_id, 96);
+    const projectTitle = normalizeSnippet(receipt?.projectTitle ?? receipt?.project_title, 160);
+    const correctionText = normalizeSnippet(
+      receipt?.correctionText ?? receipt?.correction_text,
+      600
+    );
+    const matchedFacts = normalizeCharacterBibleCardList(
+      receipt?.matchedFacts ?? receipt?.matched_facts,
+      8,
+      220
+    );
+    const correctionMemoryId = normalizeSnippet(
+      receipt?.correctionMemoryId ?? receipt?.correction_memory_id,
+      80
+    );
+    const createdAt = Math.max(0, Number(receipt?.createdAt ?? receipt?.created_at ?? 0));
+    const undoneAt = Math.max(0, Number(receipt?.undoneAt ?? receipt?.undone_at ?? 0));
+    const subject = projectTitle || projectId || "Screenplay";
+    const cardId = normalizeMemoryCardId(id || `canon-correction-${index + 1}`);
+    return {
+      id: `correction-${cardId || index + 1}`,
+      key: `correction:${id || cardId}`,
+      title: normalizeSnippet(`${subject} Canon Correction`, 84),
+      summary: correctionText || `Accepted canon changed: ${matchedFacts[0] || "screenplay fact"}`,
+      reason: status === "undone"
+        ? "This correction was undone and is preserved as an audit receipt."
+        : "Authoritative writer correction applied to accepted screenplay canon.",
+      emotionalTone: "",
+      salience: status === "undone" ? 0.36 : 0.92,
+      confidence: status === "undone" ? 0.72 : 0.96,
+      rememberedAt: undoneAt || createdAt || nowTs,
+      lastUsedAt: undoneAt || createdAt || 0,
+      qualityScore: status === "undone" ? 0.68 : 0.92,
+      qualityHitCount: 0,
+      qualityCorrectionCount: 1,
+      qualityLastFeedbackAt: undoneAt || createdAt || 0,
+      stalenessDays: computeThemeStalenessDays(
+        { lastMentionedAt: undoneAt || createdAt || nowTs },
+        nowTs
+      ),
+      stalenessBand: classifyThemeStalenessBand(
+        computeThemeStalenessDays({ lastMentionedAt: undoneAt || createdAt || nowTs }, nowTs)
+      ),
+      editable: false,
+      snippets: [
+        matchedFacts.length ? `Changed canon: ${matchedFacts.join(" / ")}` : "",
+        correctionText ? `Writer correction: ${correctionText}` : "",
+      ].filter(Boolean),
+      referenceHint: matchedFacts[0] || correctionText,
+      source: status === "undone" ? "canon_correction_undone" : "canon_correction",
+      project_id: projectId,
+      project_title: projectTitle,
+      tags: ["screenplay", "correction", status],
+      is_correction_memory: true,
+      correction_receipt: {
+        id: id || cardId,
+        status,
+        project_id: projectId,
+        project_title: projectTitle,
+        correction_text: correctionText,
+        matched_facts: matchedFacts,
+        correction_memory_id: correctionMemoryId,
+        created_at: createdAt,
+        undone_at: undoneAt || null,
+      },
+    };
+  }).filter((card) => card.correction_receipt.id && card.correction_receipt.matched_facts.length);
+}
+
+function buildEpisodicMemoryCards(
+  creativeMemory = null,
+  nowTs = Date.now(),
+  excludedMemoryIds = new Set()
+) {
   const episodes = Array.isArray(creativeMemory?.episodicMemories)
     ? creativeMemory.episodicMemories
     : [];
   const cards = [];
   for (const episode of episodes) {
     const memoryId = normalizeSnippet(episode?.id, 80);
+    if (memoryId && excludedMemoryIds.has(memoryId)) continue;
     const summary = normalizeSnippet(episode?.summary, 280);
     const excerpt = normalizeSnippet(episode?.excerpt, 420);
     const tags = normalizeCharacterBibleCardList(episode?.tags, 8, 48)
@@ -29950,7 +30033,14 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
     Math.max(0, Number(memory?.lastConversationAt || 0)) > memoriesClearedAt;
   const cards = [];
   cards.push(...buildCharacterBibleMemoryCards(creativeMemory, nowTs));
-  cards.push(...buildEpisodicMemoryCards(creativeMemory, nowTs));
+  const correctionReceipts = buildCanonCorrectionReceiptCards(creativeMemory, nowTs);
+  const receiptMemoryIds = new Set(
+    correctionReceipts
+      .map((card) => String(card?.correction_receipt?.correction_memory_id || "").trim())
+      .filter(Boolean)
+  );
+  cards.push(...correctionReceipts);
+  cards.push(...buildEpisodicMemoryCards(creativeMemory, nowTs, receiptMemoryIds));
 
   const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,

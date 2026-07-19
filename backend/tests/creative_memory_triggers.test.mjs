@@ -822,6 +822,7 @@ I choose the case over us.`;
   });
   assert.equal(correction.acceptedCanonFactsRetired, 1);
   assert.equal(correction.corrections, 1);
+  assert.match(correction.canonCorrectionReceiptId, /^canon_correction_/);
 
   const restored = createCreativeMemoryStore({ persistence });
   const ledger = await restored.getCreativeMemoryLedger({ userId: "u-durable-canon-retcon" });
@@ -844,6 +845,110 @@ I choose the case over us.`;
     item.tags.includes("correction") && /ferry locker/i.test(item.excerpt)
   )));
   assert.equal(memory.episodicMemories.some((item) => /burns the only copy/i.test(item.excerpt)), false);
+
+  assert.equal(ledger.canonCorrectionReceipts[0].id, correction.canonCorrectionReceiptId);
+  assert.equal(ledger.canonCorrectionReceipts[0].status, "active");
+  assert.deepEqual(ledger.canonCorrectionReceipts[0].matchedFacts, [
+    "Mara burns the only copy before the cameras arrive.",
+  ]);
+
+  await restored.recordProjectContinuity({
+    userId: "u-durable-canon-retcon",
+    continuity: {
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      nextScenePlan: "Mara takes the surviving affidavit to the ferry terminal.",
+    },
+  });
+  const undone = await restored.undoCanonCorrection({
+    userId: "u-durable-canon-retcon",
+    receiptId: correction.canonCorrectionReceiptId,
+  });
+  assert.equal(undone.ok, true);
+  assert.equal(undone.status, "undone");
+
+  const afterUndoLedger = await restored.getCreativeMemoryLedger({ userId: "u-durable-canon-retcon" });
+  const afterUndoProject = afterUndoLedger.projects.find((item) => item.projectId === "rain-docket");
+  assert.match(JSON.stringify(afterUndoProject.acceptedScenes), /burns the only copy/i);
+  assert.equal(
+    afterUndoProject.nextScenePlan,
+    "Mara takes the surviving affidavit to the ferry terminal."
+  );
+  assert.equal(afterUndoLedger.canonCorrectionReceipts[0].status, "undone");
+  assert.ok(afterUndoLedger.canonCorrectionReceipts[0].undoneAt > 0);
+
+  const afterUndoMemory = await restored.getCreativeMemoryForPrompt({
+    userId: "u-durable-canon-retcon",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    query: "Continue after Mara burns the only copy.",
+  });
+  assert.ok(afterUndoMemory.acceptedCausalFacts.some((item) => /burns the only copy/i.test(item.fact)));
+  assert.equal(afterUndoMemory.episodicMemories.some((item) => item.tags.includes("correction")), false);
+  assert.ok(afterUndoMemory.episodicMemories.some((item) => /burns the only copy/i.test(item.excerpt)));
+
+  const repeatedUndo = await restored.undoCanonCorrection({
+    userId: "u-durable-canon-retcon",
+    receiptId: correction.canonCorrectionReceiptId,
+  });
+  assert.equal(repeatedUndo.ok, true);
+  assert.equal(repeatedUndo.status, "already_undone");
+});
+
+test("stacked canon corrections must be undone newest-first within a project", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const page = `INT. RECORDS ROOM - NIGHT
+
+Mara burns the only copy before the cameras arrive.
+
+ELI
+I choose the case over us.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-stacked-canon-retcons",
+    transcript: "Commit the records room scene.",
+    reply: page,
+    acceptedPageText: page,
+    acceptedSceneContext: { anchorSceneId: "scene-records-room" },
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_screenplay_output",
+  });
+
+  const first = await store.recordTriggersFromTalkTurn({
+    userId: "u-stacked-canon-retcons",
+    transcript: "Actually, Mara never burns the only copy. She hides it in the ferry locker.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_turn",
+  });
+  const second = await store.recordTriggersFromTalkTurn({
+    userId: "u-stacked-canon-retcons",
+    transcript: "Actually, Eli never chooses the case over us. He chooses Mara instead.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_turn",
+  });
+  assert.match(first.canonCorrectionReceiptId, /^canon_correction_/);
+  assert.match(second.canonCorrectionReceiptId, /^canon_correction_/);
+
+  const outOfOrder = await store.undoCanonCorrection({
+    userId: "u-stacked-canon-retcons",
+    receiptId: first.canonCorrectionReceiptId,
+  });
+  assert.equal(outOfOrder.ok, false);
+  assert.equal(outOfOrder.status, "newer_correction_exists");
+
+  const newest = await store.undoCanonCorrection({
+    userId: "u-stacked-canon-retcons",
+    receiptId: second.canonCorrectionReceiptId,
+  });
+  assert.equal(newest.status, "undone");
+  const oldest = await store.undoCanonCorrection({
+    userId: "u-stacked-canon-retcons",
+    receiptId: first.canonCorrectionReceiptId,
+  });
+  assert.equal(oldest.status, "undone");
 });
 
 test("ambiguous canon corrections preserve near-tied accepted facts while recording the correction", async () => {

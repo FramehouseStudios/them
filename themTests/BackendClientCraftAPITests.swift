@@ -3,6 +3,50 @@ import ScreenplayStudio
 @testable import them
 
 final class BackendClientCraftAPITests: XCTestCase {
+    func testCanonCorrectionReceiptDecodesForSharedMemoriesUI() throws {
+        let data = Data(#"""
+        {
+          "id": "correction-canon_correction_123",
+          "key": "correction:canon_correction_123",
+          "title": "Rain Docket Canon Correction",
+          "summary": "Actually, Mara never burns the affidavit. It survives.",
+          "reason": "Authoritative writer correction applied to accepted screenplay canon.",
+          "emotional_tone": "",
+          "salience": 0.92,
+          "confidence": 0.96,
+          "remembered_at": 1800000000000,
+          "last_used_at": 1800000000000,
+          "editable": false,
+          "snippets": ["Changed canon: Mara burns the only copy."],
+          "reference_hint": "Mara burns the only copy.",
+          "source": "canon_correction",
+          "is_correction_memory": true,
+          "correction_receipt": {
+            "id": "canon_correction_123",
+            "status": "active",
+            "project_id": "rain-docket",
+            "project_title": "Rain Docket",
+            "correction_text": "Actually, Mara never burns the affidavit. It survives.",
+            "matched_facts": ["Mara burns the only copy."],
+            "correction_memory_id": "episode_correction",
+            "created_at": 1800000000000,
+            "undone_at": null
+          }
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let card = try decoder.decode(BackendMemoryCard.self, from: data)
+        let receipt = try XCTUnwrap(card.correctionReceipt)
+
+        XCTAssertEqual(card.source, "canon_correction")
+        XCTAssertTrue(receipt.canUndo)
+        XCTAssertEqual(receipt.projectTitle, "Rain Docket")
+        XCTAssertEqual(receipt.matchedFacts, ["Mara burns the only copy."])
+        XCTAssertEqual(receipt.correctionMemoryId, "episode_correction")
+    }
+
     func testCharacterBibleMemoryDecodesAndBuildsCorrectionPayload() throws {
         let data = Data(#"""
         {

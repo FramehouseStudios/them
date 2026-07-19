@@ -417,6 +417,47 @@ test("[persistent-screenplay-memory] buildMemoryCards exposes episodic correctio
   assert.match(superseded.reason, /no longer used in prompts/);
 });
 
+test("[persistent-screenplay-memory] canon correction receipts replace duplicate correction episodes", () => {
+  const cards = buildMemoryCards(
+    createEmptyEmotionMemory(),
+    [],
+    12,
+    {
+      canonCorrectionReceipts: [{
+        id: "canon_correction_123",
+        status: "active",
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        correctionText: "Actually, Mara never burns the affidavit. It survives.",
+        matchedFacts: ["Mara burns the only copy before the cameras arrive."],
+        correctionMemoryId: "episode_correction",
+        createdAt: 1_800_000_000_000,
+      }],
+      episodicMemories: [{
+        id: "episode_correction",
+        summary: "Correction for Rain Docket",
+        excerpt: "Actually, Mara never burns the affidavit. It survives.",
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        tags: ["screenplay", "correction"],
+        createdAt: 1_800_000_000_000,
+        updatedAt: 1_800_000_000_000,
+      }],
+    },
+  );
+
+  const receipt = cards.find((card) => card.source === "canon_correction");
+  assert.ok(receipt);
+  assert.equal(receipt.key, "correction:canon_correction_123");
+  assert.equal(receipt.correction_receipt.status, "active");
+  assert.equal(receipt.correction_receipt.project_title, "Rain Docket");
+  assert.deepEqual(receipt.correction_receipt.matched_facts, [
+    "Mara burns the only copy before the cameras arrive.",
+  ]);
+  assert.match(receipt.summary, /never burns the affidavit/i);
+  assert.equal(cards.some((card) => card.source === "episodic_correction"), false);
+});
+
 test("[persistent-screenplay-memory] distills durable context from sparse draft excerpts", () => {
   const draftExcerpt = [
     "INT. ROOFTOP - NIGHT",

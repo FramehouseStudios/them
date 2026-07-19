@@ -36,6 +36,7 @@ struct MemoryItem: Identifiable, Hashable {
     var supersededByMemoryID: String
     var supersededReason: String
     var supersededTerms: [String]
+    var correctionReceipt: BackendCanonCorrectionReceipt?
     var referenceCount: Int
     var storySpine: BackendStorySpineMemory?
 }
@@ -313,6 +314,17 @@ final class MemoriesViewModel: ObservableObject {
         }
     }
 
+    func undoCanonCorrection(receiptID: String) async throws {
+        _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+        let result = try await BackendMemoryAPI.shared.undoCanonCorrection(receiptID: receiptID)
+        lastSync = result.sync
+        if !result.sync.stateVersion.isEmpty {
+            latestSeenStateVersion = result.sync.stateVersion
+        }
+        selection = nil
+        await load(force: true, sinceVersion: nil)
+    }
+
     func markMemoryQuality(
         itemID: String,
         key: String,
@@ -487,6 +499,7 @@ final class MemoriesViewModel: ObservableObject {
             supersededByMemoryID: (card.supersededByMemoryId ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             supersededReason: (card.supersededReason ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             supersededTerms: cleanList(card.supersededTerms ?? []),
+            correctionReceipt: card.correctionReceipt,
             referenceCount: max(0, card.referenceCount ?? 0),
             storySpine: card.storySpine
         )
@@ -539,6 +552,7 @@ final class MemoriesViewModel: ObservableObject {
             supersededByMemoryID: "",
             supersededReason: "",
             supersededTerms: [],
+            correctionReceipt: nil,
             referenceCount: 0,
             storySpine: nil
         )
@@ -726,6 +740,9 @@ struct MemoriesScreen: View {
                                 itemID: target.id,
                                 key: target.key
                             )
+                        },
+                        onUndoCorrection: { receipt in
+                            try await vm.undoCanonCorrection(receiptID: receipt.id)
                         },
                         onQualitySignal: { target, signal in
                             try await vm.markMemoryQuality(
@@ -1465,6 +1482,7 @@ struct MemoryDetailView: View {
     let onReturnHome: () -> Void
     let onSave: (MemoryItem) async throws -> MemoryItem
     let onForget: (MemoryItem) async throws -> Void
+    let onUndoCorrection: (BackendCanonCorrectionReceipt) async throws -> Void
     let onQualitySignal: (MemoryItem, String) async throws -> MemoryItem
     let onPromote: (MemoryItem) async throws -> MemoryItem
 
@@ -1473,6 +1491,7 @@ struct MemoryDetailView: View {
     @State private var showingEdit = false
     @State private var isSaving = false
     @State private var isForgetting = false
+    @State private var isUndoingCorrection = false
     @State private var isSendingQuality = false
     @State private var isPromoting = false
     @State private var errorText = ""
@@ -1482,12 +1501,14 @@ struct MemoryDetailView: View {
         onReturnHome: @escaping () -> Void = {},
         onSave: @escaping (MemoryItem) async throws -> MemoryItem,
         onForget: @escaping (MemoryItem) async throws -> Void,
+        onUndoCorrection: @escaping (BackendCanonCorrectionReceipt) async throws -> Void,
         onQualitySignal: @escaping (MemoryItem, String) async throws -> MemoryItem,
         onPromote: @escaping (MemoryItem) async throws -> MemoryItem
     ) {
         self.onReturnHome = onReturnHome
         self.onSave = onSave
         self.onForget = onForget
+        self.onUndoCorrection = onUndoCorrection
         self.onQualitySignal = onQualitySignal
         self.onPromote = onPromote
         _currentItem = State(initialValue: item)
@@ -1519,7 +1540,13 @@ struct MemoryDetailView: View {
                         .lineSpacing(8)
 
                     if currentItem.hasRepairState {
-                        MemoryRepairDetailSection(item: currentItem)
+                        MemoryRepairDetailSection(
+                            item: currentItem,
+                            isUndoing: isUndoingCorrection,
+                            onUndo: {
+                                Task { await undoCurrentCorrection() }
+                            }
+                        )
                     }
 
                     if let characterBible = currentItem.characterBible {
@@ -1539,7 +1566,9 @@ struct MemoryDetailView: View {
 
                     memoryLedgerSection
 
-                    qualityActionsSection
+                    if currentItem.correctionReceipt == nil {
+                        qualityActionsSection
+                    }
 
                     Divider()
                         .overlay(Color.white.opacity(0.22))
@@ -1570,23 +1599,34 @@ struct MemoryDetailView: View {
                 Button("Return Home") {
                     onReturnHome()
                 }
-                .disabled(isSaving || isForgetting || isSendingQuality || isPromoting)
+                .disabled(isBusy)
+
+                if currentItem.correctionReceipt?.canUndo == true {
+                    Button {
+                        Task { await undoCurrentCorrection() }
+                    } label: {
+                        Label("Undo Correction", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(isBusy)
+                }
 
                 if currentItem.editable {
                     Button("Correct") {
                         showingEdit = true
                     }
-                    .disabled(isSaving || isForgetting || isSendingQuality || isPromoting)
+                    .disabled(isBusy)
                 } else if canPromoteCurrentItem {
                     Button("Promote") {
                         Task { await promoteCurrentItem() }
                     }
-                    .disabled(isSaving || isForgetting || isSendingQuality || isPromoting)
+                    .disabled(isBusy)
                 }
-                Button("Forget", role: .destructive) {
-                    Task { await forgetCurrentItem() }
+                if currentItem.correctionReceipt == nil {
+                    Button("Forget", role: .destructive) {
+                        Task { await forgetCurrentItem() }
+                    }
+                    .disabled(isBusy)
                 }
-                .disabled(isSaving || isForgetting || isSendingQuality || isPromoting)
             }
         }
         .sheet(isPresented: $showingEdit) {
@@ -1600,6 +1640,10 @@ struct MemoryDetailView: View {
             .presentationDetents([.medium, .large])
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private var isBusy: Bool {
+        isSaving || isForgetting || isUndoingCorrection || isSendingQuality || isPromoting
     }
 
     private var memoryLedgerSection: some View {
@@ -1681,7 +1725,7 @@ struct MemoryDetailView: View {
                         .padding(.vertical, 8)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!currentItem.editable || isSaving || isForgetting || isSendingQuality || isPromoting)
+                .disabled(!currentItem.editable || isBusy)
 
                 Button {
                     showingEdit = true
@@ -1692,7 +1736,7 @@ struct MemoryDetailView: View {
                         .padding(.vertical, 8)
                 }
                 .buttonStyle(.bordered)
-                .disabled(!currentItem.editable || isSaving || isForgetting || isSendingQuality || isPromoting)
+                .disabled(!currentItem.editable || isBusy)
             }
             Text(currentItem.editable
                 ? "Correcting a memory updates what Clementine uses next time."
@@ -1757,6 +1801,23 @@ struct MemoryDetailView: View {
     }
 
     @MainActor
+    private func undoCurrentCorrection() async {
+        guard let receipt = currentItem.correctionReceipt, receipt.canUndo else {
+            errorText = "This correction has already been undone."
+            return
+        }
+        isUndoingCorrection = true
+        defer { isUndoingCorrection = false }
+        do {
+            try await onUndoCorrection(receipt)
+            errorText = ""
+            dismiss()
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    @MainActor
     private func sendQualitySignal(_ signal: String) async {
         isSendingQuality = true
         defer { isSendingQuality = false }
@@ -1794,6 +1855,8 @@ struct MemoryDetailView: View {
 
 private struct MemoryRepairDetailSection: View {
     let item: MemoryItem
+    let isUndoing: Bool
+    let onUndo: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1809,6 +1872,29 @@ private struct MemoryRepairDetailSection: View {
                 .font(.system(size: 13, weight: .regular, design: .default))
                 .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
+
+            if let receipt = item.correctionReceipt {
+                repairLine("Status", value: receipt.canUndo ? "Applied" : "Undone")
+                if !receipt.matchedFacts.isEmpty {
+                    repairLine("Changed canon", value: receipt.matchedFacts.joined(separator: " / "))
+                }
+                if !receipt.correctionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    repairLine("Writer correction", value: receipt.correctionText)
+                }
+                repairLine("Receipt", value: receipt.id)
+
+                if receipt.canUndo {
+                    Button(action: onUndo) {
+                        Label(
+                            isUndoing ? "Undoing Correction" : "Undo Correction",
+                            systemImage: "arrow.uturn.backward"
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isUndoing)
+                    .accessibilityHint("Restores the accepted canon that this correction replaced.")
+                }
+            }
 
             if !item.supersededReason.isEmpty {
                 repairLine("Reason", value: item.supersededReason)

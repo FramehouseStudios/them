@@ -576,6 +576,90 @@ test("[memories] POST /memories/character-bible/update: repairs active Story Spi
   });
 });
 
+// ============== POST /memories/corrections/undo ==============
+
+test("[memories] POST /memories/corrections/undo restores one authenticated correction receipt", async () => {
+  const calls = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      undoCanonCorrection: async (args) => {
+        calls.push(args);
+        return {
+          ok: true,
+          status: "undone",
+          receipt: {
+            id: args.receiptId,
+            status: "undone",
+            projectId: "rain-docket",
+            projectTitle: "Rain Docket",
+            correctionText: "Actually, Mara never burns the affidavit.",
+            matchedFacts: ["Mara burns the affidavit."],
+            correctionMemoryId: "episode-correction",
+            createdAt: 1715620920000,
+            undoneAt: 1715620980000,
+          },
+        };
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/corrections/undo", {
+      receipt_id: "canon_correction_123",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.action, "undo_correction");
+    assert.equal(r.body.status, "undone");
+    assert.equal(r.body.correction_receipt.id, "canon_correction_123");
+    assert.deepEqual(r.body.correction_receipt.matched_facts, ["Mara burns the affidavit."]);
+  });
+  assert.equal(deps._calls.resolveWritableMemoryContext, 1);
+  assert.equal(deps._calls.persistWritableMemoryContext, 1);
+  assert.deepEqual(calls, [{
+    userId: "user_memories_test",
+    receiptId: "canon_correction_123",
+  }]);
+});
+
+test("[memories] POST /memories/corrections/undo refuses out-of-order project undo", async () => {
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      undoCanonCorrection: async () => ({ ok: false, status: "newer_correction_exists" }),
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/corrections/undo", {
+      receipt_id: "canon_correction_older",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "newer_correction_exists");
+    assert.match(r.body.message, /newer correction/i);
+  });
+  assert.equal(deps._calls.resolveWritableMemoryContext, 1);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
+test("[memories] POST /memories/corrections/undo requires authenticated user", async () => {
+  let called = false;
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      undoCanonCorrection: async () => {
+        called = true;
+        return { ok: true, status: "undone" };
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/corrections/undo", {
+      receipt_id: "canon_correction_123",
+    });
+    assert.equal(r.status, 401);
+  }, { authenticated: false });
+  assert.equal(called, false);
+  assert.equal(deps._calls.resolveWritableMemoryContext, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
 // ============== POST /memories/forget ==============
 
 test("[memories] POST /memories/forget: returns forgotten_id + theme_key", async () => {

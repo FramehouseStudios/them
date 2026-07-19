@@ -14,7 +14,7 @@
 // docs/schemas/memories-list.md, memories-mutate.md,
 // memories-export.md (all already on main).
 //
-// Routes extracted (6 total):
+// Routes extracted (8 total):
 //
 //   GET  /memories            — list view + delta-no-change
 //                               short-circuit + If-None-Match etag.
@@ -23,6 +23,10 @@
 //                               history_threads, tasks, themes,
 //                               assembled into export_json string).
 //   POST /memories/update     — mutate a memory card.
+//   POST /memories/character-bible/update
+//                             — repair durable character canon.
+//   POST /memories/corrections/undo
+//                             — undo an accepted-canon correction.
 //   POST /memories/forget     — delete a memory card.
 //   POST /memories/promote    — promote a card to a theme.
 //   POST /memories/feedback   — record human feedback on a theme.
@@ -714,6 +718,94 @@ function mountMemoriesRoutes(app, deps = {}) {
       memory_updated_at: readMeta.memoryUpdatedAt || null,
       backend_boot_id: readMeta.backendBootId,
       memory_quality: memoryQuality,
+      schema_version: readMeta.schemaVersion,
+      backend_build: readMeta.backendBuild,
+    });
+  });
+
+  // ============== POST /memories/corrections/undo ==============
+  app.post("/memories/corrections/undo", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_correction_undo");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    const receiptId = String(req.body?.receipt_id ?? req.body?.receiptId ?? "").trim().slice(0, 96);
+    if (!receiptId) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "undo_correction",
+        status: "correction_receipt_id_required",
+        message: "A correction receipt id is required.",
+      });
+    }
+    if (!creativeMemoryStore || typeof creativeMemoryStore.undoCanonCorrection !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "undo_correction",
+        status: "creative_memory_unavailable",
+        message: "Durable creative memory is not available.",
+      });
+    }
+
+    let mutation;
+    try {
+      mutation = await creativeMemoryStore.undoCanonCorrection({ userId, receiptId });
+    } catch (error) {
+      logger.log(`[${rid}] memories_correction_undo error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "undo_correction",
+        status: "correction_undo_failed",
+        message: "The correction could not be undone.",
+      });
+    }
+
+    const status = String(mutation?.status || "correction_undo_failed");
+    const statusCode = mutation?.ok
+      ? 200
+      : status === "correction_receipt_not_found" || status === "memory_not_found"
+        ? 404
+        : status === "newer_correction_exists"
+          ? 409
+          : 400;
+    const nowTs = Date.now();
+    const context = resolveWritableMemoryContext(req, nowTs);
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const persisted = mutation?.ok && status === "undone"
+      ? persistWritableMemoryContext(context, memory, nowTs)
+      : memory;
+    const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
+    const receipt = mutation?.receipt || null;
+    res.setHeader("Cache-Control", "no-store");
+    applyReadStateHeaders(res, readMeta);
+    logger.log(`[${rid}] memories_correction_undo status=${status} receipt=${receiptId}`);
+    return res.status(statusCode).json({
+      ok: Boolean(mutation?.ok),
+      action: "undo_correction",
+      status,
+      message: status === "newer_correction_exists"
+        ? "Undo the newer correction for this project first."
+        : null,
+      correction_receipt: receipt ? {
+        id: String(receipt.id || ""),
+        status: String(receipt.status || ""),
+        project_id: String(receipt.projectId || ""),
+        project_title: String(receipt.projectTitle || ""),
+        correction_text: String(receipt.correctionText || ""),
+        matched_facts: Array.isArray(receipt.matchedFacts) ? receipt.matchedFacts : [],
+        correction_memory_id: String(receipt.correctionMemoryId || ""),
+        created_at: Math.max(0, Number(receipt.createdAt || 0)),
+        undone_at: Math.max(0, Number(receipt.undoneAt || 0)) || null,
+      } : null,
+      session_id: readMeta.sessionId,
+      state_version: readMeta.stateVersion,
+      last_turn_id: readMeta.lastTurnId || null,
+      last_updated_at: readMeta.lastUpdatedAt || null,
+      history_updated_at: readMeta.historyUpdatedAt || null,
+      memory_updated_at: readMeta.memoryUpdatedAt || null,
+      backend_boot_id: readMeta.backendBootId,
       schema_version: readMeta.schemaVersion,
       backend_build: readMeta.backendBuild,
     });

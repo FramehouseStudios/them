@@ -16,7 +16,7 @@
 // Cross-process safety comes from the adapter's underlying store
 // (Postgres in production; single-process discipline in JSON mode).
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { createPersistence } from "./persistence_adapter.js";
 import {
@@ -37,6 +37,7 @@ const PROJECT_CONTINUITY_MAX = 24;
 const ACCEPTED_SCENES_MAX = 96;
 const ACCEPTED_SCENE_PROMPT_MAX = 3;
 const EPISODIC_MEMORIES_MAX = 64;
+const CANON_CORRECTION_RECEIPTS_MAX = 12;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const EPISODIC_SEMANTIC_FINGERPRINT_MAX = 96;
 const EPISODIC_EMBEDDING_DIMENSIONS_MAX = 3_072;
@@ -328,6 +329,7 @@ function makeEmptyMemory(userId) {
     projects: [],
     characters: [],
     episodicMemories: [],
+    canonCorrectionReceipts: [],
     tone: {},
     habits: {},
   };
@@ -584,6 +586,134 @@ function selectProjectContinuity(projects = [], { projectId = "", projectTitle =
   );
   return scoped
     .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))[0] || null;
+}
+
+function correctionValuesEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function cloneCorrectionValue(value) {
+  return value === undefined ? undefined : clone(value);
+}
+
+function correctionEntityKey(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const id = cleanText(value.id, 128).toLowerCase();
+  if (id) return `id:${id}`;
+  const projectId = cleanText(value.projectId ?? value.project_id, 96).toLowerCase();
+  if (projectId) return `project:${projectId}`;
+  const projectTitle = cleanText(value.projectTitle ?? value.project_title, 160).toLowerCase();
+  if (projectTitle) return `project-title:${projectTitle}`;
+  const name = cleanText(value.name ?? value.character, 80).toLowerCase();
+  if (name) return `name:${name}`;
+  return "";
+}
+
+function undoCorrectionArray(current = [], before = [], after = []) {
+  const currentItems = Array.isArray(current) ? clone(current) : [];
+  const beforeItems = Array.isArray(before) ? before : [];
+  const afterItems = Array.isArray(after) ? after : [];
+  const allObjects = [...currentItems, ...beforeItems, ...afterItems]
+    .every((item) => item && typeof item === "object" && !Array.isArray(item));
+  const allKeyed = allObjects && [...beforeItems, ...afterItems]
+    .every((item) => Boolean(correctionEntityKey(item)));
+
+  if (allKeyed) {
+    const beforeByKey = new Map(beforeItems.map((item) => [correctionEntityKey(item), item]));
+    const afterByKey = new Map(afterItems.map((item) => [correctionEntityKey(item), item]));
+    const keys = new Set([...beforeByKey.keys(), ...afterByKey.keys()]);
+    const output = currentItems;
+    for (const key of keys) {
+      const beforeItem = beforeByKey.get(key);
+      const afterItem = afterByKey.get(key);
+      if (correctionValuesEqual(beforeItem, afterItem)) continue;
+      const currentIndex = output.findIndex((item) => correctionEntityKey(item) === key);
+      const currentItem = currentIndex >= 0 ? output[currentIndex] : undefined;
+      const restored = undoCorrectionValue(currentItem, beforeItem, afterItem);
+      if (restored === undefined || (
+        restored && typeof restored === "object" && !Array.isArray(restored) && !Object.keys(restored).length
+      )) {
+        if (currentIndex >= 0) output.splice(currentIndex, 1);
+      } else if (currentIndex >= 0) {
+        output[currentIndex] = restored;
+      } else {
+        output.push(restored);
+      }
+    }
+    return output;
+  }
+
+  const beforeKeys = new Set(beforeItems.map((item) => JSON.stringify(item)));
+  const afterKeys = new Set(afterItems.map((item) => JSON.stringify(item)));
+  const addedByCorrection = new Set([...afterKeys].filter((key) => !beforeKeys.has(key)));
+  const removedByCorrection = beforeItems.filter((item) => !afterKeys.has(JSON.stringify(item)));
+  const output = currentItems.filter((item) => !addedByCorrection.has(JSON.stringify(item)));
+  const outputKeys = new Set(output.map((item) => JSON.stringify(item)));
+  for (const item of removedByCorrection) {
+    const key = JSON.stringify(item);
+    if (outputKeys.has(key)) continue;
+    output.push(clone(item));
+    outputKeys.add(key);
+  }
+  return output;
+}
+
+function undoCorrectionValue(current, before, after) {
+  if (correctionValuesEqual(before, after)) return cloneCorrectionValue(current);
+  if (correctionValuesEqual(current, after)) return cloneCorrectionValue(before);
+  if (Array.isArray(before) || Array.isArray(after)) {
+    return undoCorrectionArray(current, before, after);
+  }
+  const beforeObject = before && typeof before === "object" && !Array.isArray(before);
+  const afterObject = after && typeof after === "object" && !Array.isArray(after);
+  if (!beforeObject && !afterObject) return cloneCorrectionValue(current);
+  if (current === undefined && after !== undefined) return undefined;
+
+  const currentObject = current && typeof current === "object" && !Array.isArray(current)
+    ? clone(current)
+    : {};
+  const beforeValue = beforeObject ? before : {};
+  const afterValue = afterObject ? after : {};
+  const keys = new Set([...Object.keys(beforeValue), ...Object.keys(afterValue)]);
+  for (const key of keys) {
+    if (correctionValuesEqual(beforeValue[key], afterValue[key])) continue;
+    const restored = undoCorrectionValue(currentObject[key], beforeValue[key], afterValue[key]);
+    if (restored === undefined) delete currentObject[key];
+    else currentObject[key] = restored;
+  }
+  return currentObject;
+}
+
+function sanitizeCanonCorrectionReceipt(value = null, { includeSnapshots = false } = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = cleanText(value.id, 96);
+  const matchedFacts = normalizeStringList(value.matchedFacts ?? value.matched_facts, 8, 220);
+  if (!id || !matchedFacts.length) return null;
+  const rawStatus = cleanText(value.status, 24).toLowerCase();
+  const status = rawStatus === "undone" ? "undone" : "active";
+  const out = {
+    id,
+    status,
+    projectId: cleanText(value.projectId ?? value.project_id, 96),
+    projectTitle: cleanText(value.projectTitle ?? value.project_title, 160),
+    correctionText: cleanText(value.correctionText ?? value.correction_text, 600),
+    matchedFacts,
+    correctionMemoryId: cleanText(value.correctionMemoryId ?? value.correction_memory_id, 80),
+    createdAt: Math.max(0, Number(value.createdAt ?? value.created_at ?? 0)),
+    undoneAt: Math.max(0, Number(value.undoneAt ?? value.undone_at ?? 0)),
+  };
+  if (includeSnapshots) {
+    const beforeState = value.beforeState && typeof value.beforeState === "object"
+      ? clone(value.beforeState)
+      : null;
+    const afterState = value.afterState && typeof value.afterState === "object"
+      ? clone(value.afterState)
+      : null;
+    if (!beforeState || !afterState) return null;
+    out.beforeState = beforeState;
+    out.afterState = afterState;
+  }
+  return out;
 }
 
 function normalizeCharacterBibleFact(value = "", maxChars = 220) {
@@ -1853,6 +1983,14 @@ function sanitizeCreativeMemoryLedgerRecord(rec = null, {
       return item;
     });
   if (episodicMemories.length) out.episodicMemories = episodicMemories;
+  const canonCorrectionReceipts = (Array.isArray(rec.canonCorrectionReceipts)
+    ? rec.canonCorrectionReceipts
+    : [])
+    .map((item) => sanitizeCanonCorrectionReceipt(item))
+    .filter(Boolean)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    .slice(0, CANON_CORRECTION_RECEIPTS_MAX);
+  if (canonCorrectionReceipts.length) out.canonCorrectionReceipts = canonCorrectionReceipts;
   if (rec.tone && typeof rec.tone === "object" && !Array.isArray(rec.tone)) {
     out.tone = clone(rec.tone);
   }
@@ -1860,6 +1998,44 @@ function sanitizeCreativeMemoryLedgerRecord(rec = null, {
     out.habits = clone(rec.habits);
   }
   return out;
+}
+
+function correctionStateSnapshot(rec = null, { projectId = "", projectTitle = "" } = {}) {
+  const record = rec && typeof rec === "object" ? rec : {};
+  const project = selectProjectContinuity(record.projects, { projectId, projectTitle });
+  const episodicMemories = scopeRecordsToProject(
+    (Array.isArray(record.episodicMemories) ? record.episodicMemories : [])
+      .map(sanitizeEpisodicMemoryItem)
+      .filter(Boolean),
+    { projectId, projectTitle }
+  ).map((memory) => {
+    const item = clone(memory);
+    delete item.embedding;
+    delete item.semanticFingerprint;
+    return item;
+  });
+  return {
+    projects: project ? [clone(project)] : [],
+    characters: Array.isArray(record.characters) ? clone(record.characters) : [],
+    episodicMemories,
+  };
+}
+
+function restoreCorrectionState(rec = {}, receipt = null) {
+  const cleanReceipt = sanitizeCanonCorrectionReceipt(receipt, { includeSnapshots: true });
+  if (!cleanReceipt) return rec;
+  const before = cleanReceipt.beforeState;
+  const after = cleanReceipt.afterState;
+  rec.projects = undoCorrectionArray(rec.projects, before.projects, after.projects);
+  rec.characters = undoCorrectionArray(rec.characters, before.characters, after.characters);
+  rec.episodicMemories = undoCorrectionArray(
+    rec.episodicMemories,
+    before.episodicMemories,
+    after.episodicMemories
+  ).filter((memory) => (
+    cleanText(memory?.id, 80) !== cleanReceipt.correctionMemoryId
+  ));
+  return rec;
 }
 
 function touchReferencedEpisodicMemories(memories = [], memoryIds = [], atMs = nowMs()) {
@@ -2581,6 +2757,97 @@ function createCreativeMemoryStore({
     });
   }
 
+  async function recordCanonCorrectionReceipt({
+    userId,
+    projectId = "",
+    projectTitle = "",
+    correctionText = "",
+    matchedFacts = [],
+    correctionMemoryId = "",
+    beforeState = null,
+  } = {}) {
+    const cleanUserId = cleanText(userId, 128);
+    const cleanFacts = normalizeStringList(matchedFacts, 8, 220);
+    if (!cleanUserId || !cleanFacts.length || !beforeState) {
+      return { ok: false, status: "invalid_correction_receipt" };
+    }
+    return withUserLock(cleanUserId, async () => {
+      const current = await readUser(cleanUserId);
+      if (!current) return { ok: false, status: "memory_not_found" };
+      const createdAt = nowMs();
+      const receipt = sanitizeCanonCorrectionReceipt({
+        id: `canon_correction_${randomUUID()}`,
+        status: "active",
+        projectId,
+        projectTitle,
+        correctionText,
+        matchedFacts: cleanFacts,
+        correctionMemoryId,
+        createdAt,
+        beforeState,
+        afterState: correctionStateSnapshot(current, { projectId, projectTitle }),
+      }, { includeSnapshots: true });
+      if (!receipt) return { ok: false, status: "invalid_correction_receipt" };
+      const receipts = (Array.isArray(current.canonCorrectionReceipts)
+        ? current.canonCorrectionReceipts
+        : [])
+        .map((item) => sanitizeCanonCorrectionReceipt(item, { includeSnapshots: true }))
+        .filter(Boolean);
+      current.canonCorrectionReceipts = [receipt, ...receipts]
+        .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+        .slice(0, CANON_CORRECTION_RECEIPTS_MAX);
+      current.updatedAt = createdAt;
+      await writeUser(cleanUserId, current);
+      return {
+        ok: true,
+        status: "recorded",
+        receipt: sanitizeCanonCorrectionReceipt(receipt),
+      };
+    });
+  }
+
+  async function undoCanonCorrection({ userId, receiptId = "" } = {}) {
+    const cleanUserId = cleanText(userId, 128);
+    const cleanReceiptId = cleanText(receiptId, 96);
+    if (!cleanUserId) return { ok: false, status: "user_id_required" };
+    if (!cleanReceiptId) return { ok: false, status: "correction_receipt_id_required" };
+    return withUserLock(cleanUserId, async () => {
+      const current = await readUser(cleanUserId);
+      if (!current) return { ok: false, status: "memory_not_found" };
+      const receipts = (Array.isArray(current.canonCorrectionReceipts)
+        ? current.canonCorrectionReceipts
+        : [])
+        .map((item) => sanitizeCanonCorrectionReceipt(item, { includeSnapshots: true }))
+        .filter(Boolean);
+      const index = receipts.findIndex((item) => item.id === cleanReceiptId);
+      if (index < 0) return { ok: false, status: "correction_receipt_not_found" };
+      const receipt = receipts[index];
+      if (receipt.status === "undone") {
+        return { ok: true, status: "already_undone", receipt: sanitizeCanonCorrectionReceipt(receipt) };
+      }
+      const projectKey = cleanText(receipt.projectId || receipt.projectTitle, 160).toLowerCase();
+      const newerActiveReceipt = receipts.slice(0, index).some((item) => (
+        item.status === "active" &&
+        cleanText(item.projectId || item.projectTitle, 160).toLowerCase() === projectKey
+      ));
+      if (newerActiveReceipt) {
+        return { ok: false, status: "newer_correction_exists" };
+      }
+
+      restoreCorrectionState(current, receipt);
+      const undoneAt = nowMs();
+      receipts[index] = { ...receipt, status: "undone", undoneAt };
+      current.canonCorrectionReceipts = receipts;
+      current.updatedAt = undoneAt;
+      await writeUser(cleanUserId, current);
+      return {
+        ok: true,
+        status: "undone",
+        receipt: sanitizeCanonCorrectionReceipt(receipts[index]),
+      };
+    });
+  }
+
   async function promoteAcceptedGeneratedPageMemory({
     userId,
     projectId = "",
@@ -3093,6 +3360,7 @@ function createCreativeMemoryStore({
     const embedding = await buildEmbeddingForMemory(item);
     if (embedding) item.embedding = embedding;
     let action = "recorded";
+    let resolvedMemoryId = item.id;
     await updateUser(userId, (rec) => {
       const memories = Array.isArray(rec.episodicMemories)
         ? rec.episodicMemories.map(sanitizeEpisodicMemoryItem).filter(Boolean)
@@ -3118,6 +3386,7 @@ function createCreativeMemoryStore({
       if (duplicateIdx >= 0) {
         action = "updated";
         const existing = memories[duplicateIdx];
+        resolvedMemoryId = existing.id;
         const mergedCharacters = normalizeStringList(
           [...(existing.characterNames || []), ...(item.characterNames || [])],
           8,
@@ -3178,7 +3447,7 @@ function createCreativeMemoryStore({
       rec.episodicMemories = sortEpisodicMemoriesForStorage(memories).slice(0, EPISODIC_MEMORIES_MAX);
       return rec;
     });
-    return { ok: true, action, memoryId: item.id };
+    return { ok: true, action, memoryId: resolvedMemoryId };
   }
 
   // T-trait-library: reader for one or all character trait records.
@@ -3503,6 +3772,7 @@ function createCreativeMemoryStore({
       acceptedScenesRecorded: 0,
       acceptedCanonFactsRetired: 0,
       acceptedCanonFactsAmbiguous: 0,
+      canonCorrectionReceiptId: "",
       acceptedPagesPromoted: 0,
       acceptedPagesRecorded: 0,
       lexicalPhrases: 0,
@@ -3524,8 +3794,10 @@ function createCreativeMemoryStore({
     let projectCorrection = isCorrectionTurn
       ? collectEpisodicCorrectionSignal({ text: userText })
       : null;
-    let matchedAcceptedCanonFacts = 0;
+    let matchedAcceptedCanonFacts = [];
     let ambiguousAcceptedCanonFacts = 0;
+    let canonCorrectionBeforeState = null;
+    let correctionMemoryId = "";
     if (isCorrectionTurn && (resolvedProjectId || resolvedProjectTitle)) {
       const currentRecord = await readUser(userId).catch(() => null);
       const currentProject = selectProjectContinuity(currentRecord?.projects, {
@@ -3538,8 +3810,14 @@ function createCreativeMemoryStore({
         correction: projectCorrection,
       });
       projectCorrection = matched.correction;
-      matchedAcceptedCanonFacts = matched.matchedFacts.length;
+      matchedAcceptedCanonFacts = matched.matchedFacts;
       ambiguousAcceptedCanonFacts = matched.ambiguousFacts.length;
+      if (currentRecord && matchedAcceptedCanonFacts.length) {
+        canonCorrectionBeforeState = correctionStateSnapshot(currentRecord, {
+          projectId: resolvedProjectId,
+          projectTitle: resolvedProjectTitle,
+        });
+      }
     }
     summary.acceptedCanonFactsAmbiguous = ambiguousAcceptedCanonFacts;
     const continuityForWrite = projectCorrection
@@ -3586,7 +3864,7 @@ function createCreativeMemoryStore({
         });
         summary.projectContinuityRecorded = Boolean(receipt?.ok);
         summary.acceptedScenesRecorded = receipt?.ok && acceptedScene ? 1 : 0;
-        summary.acceptedCanonFactsRetired = receipt?.ok ? matchedAcceptedCanonFacts : 0;
+        summary.acceptedCanonFactsRetired = receipt?.ok ? matchedAcceptedCanonFacts.length : 0;
       } catch (_e) { /* never block the response on memory writes */ }
     }
 
@@ -3779,6 +4057,7 @@ function createCreativeMemoryStore({
           correction: correctionSignal,
         });
         if (receipt?.ok) summary.episodicMemories += 1;
+        if (receipt?.ok && isCorrectionTurn) correctionMemoryId = cleanText(receipt.memoryId, 80);
         if (receipt?.ok && acceptedOutput) summary.acceptedPagesRecorded += 1;
         if (receipt?.ok && isCorrectionTurn) summary.corrections += 1;
       } catch (_e) { /* never block the response on memory writes */ }
@@ -3819,6 +4098,21 @@ function createCreativeMemoryStore({
       summary.blockSignalUpdated = true;
     } catch (_e) { /* */ }
 
+    if (canonCorrectionBeforeState && summary.acceptedCanonFactsRetired > 0) {
+      try {
+        const receipt = await recordCanonCorrectionReceipt({
+          userId,
+          projectId: resolvedProjectId,
+          projectTitle: resolvedProjectTitle,
+          correctionText: userText,
+          matchedFacts: matchedAcceptedCanonFacts,
+          correctionMemoryId,
+          beforeState: canonCorrectionBeforeState,
+        });
+        if (receipt?.ok) summary.canonCorrectionReceiptId = receipt.receipt?.id || "";
+      } catch (_e) { /* never block the response on correction receipt writes */ }
+    }
+
     return summary;
   }
 
@@ -3842,6 +4136,7 @@ function createCreativeMemoryStore({
     hasMemoryForUser,
     clearUserMemory,
     forgetMemoryCard,
+    undoCanonCorrection,
     recordProjectContinuity,
     recordEpisodicMemory,
     recordCharacterMention,

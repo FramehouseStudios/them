@@ -310,6 +310,22 @@ nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
     }
 }
 
+nonisolated struct BackendCanonCorrectionReceipt: Decodable, Hashable {
+    let id: String
+    let status: String
+    let projectId: String?
+    let projectTitle: String?
+    let correctionText: String
+    let matchedFacts: [String]
+    let correctionMemoryId: String?
+    let createdAt: TimeInterval
+    let undoneAt: TimeInterval?
+
+    var canUndo: Bool {
+        status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "active"
+    }
+}
+
 nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let id: String
     let key: String
@@ -343,6 +359,7 @@ nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let supersededByMemoryId: String?
     let supersededReason: String?
     let supersededTerms: [String]?
+    let correctionReceipt: BackendCanonCorrectionReceipt?
     let referenceCount: Int?
     let storySpine: BackendStorySpineMemory?
 }
@@ -1039,6 +1056,7 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let themeKey: String?
     let storySpineRepaired: Bool?
     let storySpineRepairCount: Int?
+    let correctionReceipt: BackendCanonCorrectionReceipt?
     let sessionId: String?
     let stateVersion: String?
     let lastTurnId: String?
@@ -5561,6 +5579,15 @@ actor BackendMemoryAPI {
         var payload: [String: Any] = ["card_id": id]
         if let key, !key.isEmpty { payload["key"] = key }
         return try await runMemoryMutation(path: "/memories/forget", payload: payload)
+    }
+
+    func undoCanonCorrection(
+        receiptID: String
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        try await runMemoryMutation(
+            path: "/memories/corrections/undo",
+            payload: ["receipt_id": receiptID]
+        )
     }
 
     func promoteMemoryCard(
