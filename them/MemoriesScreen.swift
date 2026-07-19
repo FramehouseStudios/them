@@ -1957,6 +1957,9 @@ private struct MemoryRepairDetailSection: View {
                 if let replacementFacts = receipt.replacementFacts, !replacementFacts.isEmpty {
                     repairLine("Authoritative now", value: replacementFacts.joined(separator: " / "))
                 }
+                if let structuredUpdates = receipt.structuredUpdates, !structuredUpdates.isEmpty {
+                    repairLine("Story bible updated", value: structuredUpdates.joined(separator: " / "))
+                }
                 if !receipt.correctionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     repairLine("Writer correction", value: receipt.correctionText)
                 }
@@ -2123,6 +2126,13 @@ private struct CharacterBibleDetailSection: View {
                 characterBibleList("Canon", items: bible.canon)
             }
 
+            if !authoritativeFields.isEmpty {
+                characterBibleList(
+                    "Writer-authoritative fields",
+                    items: authoritativeFields.map { "\(fieldLabel($0.field)): \($0.value)" }
+                )
+            }
+
             if !bible.corrections.isEmpty || !bible.correctionReplacements.isEmpty {
                 characterBibleList("Corrections", items: bible.corrections + bible.correctionReplacements)
             }
@@ -2136,6 +2146,23 @@ private struct CharacterBibleDetailSection: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.white.opacity(0.15), lineWidth: 1)
         )
+    }
+
+    private var authoritativeFields: [BackendAuthoritativeCharacterField] {
+        (bible.authoritativeFields ?? []).filter {
+            !$0.field.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private func fieldLabel(_ field: String) -> String {
+        switch field.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "falseBelief": return "False belief"
+        case "relationshipPressure": return "Relationship pressure"
+        case "currentTactic": return "Current tactic"
+        case "nextEmotionalTurn": return "Next emotional turn"
+        default: return field.capitalized
+        }
     }
 
     @ViewBuilder

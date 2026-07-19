@@ -334,6 +334,51 @@ test("recordTriggersFromTalkTurn persists structured feature continuity for cold
   assert.equal(memory.projectContinuity.targetPages, 108);
 });
 
+test("explicit Story Spine corrections stay authoritative without an accepted-page match", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  await store.recordProjectContinuity({
+    userId: "u-explicit-story-spine-authority",
+    continuity: {
+      projectId: "red-key",
+      projectTitle: "Red Key",
+      unresolvedSetups: ["The blue key under the floorboard"],
+    },
+  });
+  const correction = await store.recordTriggersFromTalkTurn({
+    userId: "u-explicit-story-spine-authority",
+    transcript: "Actually, the unresolved setup is the red key inside Mara's locket, not the blue key under the floorboard.",
+    projectId: "red-key",
+    projectTitle: "Red Key",
+    source: "talk_turn",
+  });
+  assert.equal(correction.acceptedCanonFactsRetired, 0);
+  assert.equal(correction.writerCanonFactsRecorded, 0);
+  let ledger = await store.getCreativeMemoryLedger({ userId: "u-explicit-story-spine-authority" });
+  let project = ledger.projects.find((item) => item.projectId === "red-key");
+  assert.equal(project.unresolvedSetups[0], "the red key inside Mara's locket");
+  assert.equal(project.authoritativeFields[0].field, "unresolvedSetups");
+
+  await store.recordProjectContinuity({
+    userId: "u-explicit-story-spine-authority",
+    continuity: {
+      projectId: "red-key",
+      projectTitle: "Red Key",
+      unresolvedSetups: ["The blue key under the floorboard"],
+    },
+  });
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "u-explicit-story-spine-authority",
+    projectId: "red-key",
+    projectTitle: "Red Key",
+    query: "Continue from the unresolved setup.",
+  });
+  assert.equal(memory.projectContinuity.unresolvedSetups[0], "the red key inside Mara's locket");
+  assert.equal(memory.projectContinuity.authoritativeFields[0].field, "unresolvedSetups");
+  assert.match(memory.projectContinuity.authoritativeFields[0].sourceCorrectionId, /^writer_correction_/);
+});
+
 test("recordTriggersFromTalkTurn stores and repairs act-level character arc state", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordTriggersFromTalkTurn({
@@ -388,6 +433,47 @@ test("recordTriggersFromTalkTurn stores and repairs act-level character arc stat
   assert.equal(mara.bible.arc.need, "stop hiding behind observation");
   assert.ok(!JSON.stringify(mara.bible.arc).includes("perfect proof can keep everyone safe"));
   assert.ok(mara.bible.correctionReplacements.includes("perfect proof can keep everyone safe -> truth will get Eli killed"));
+});
+
+test("a writer's Memories edit supersedes automatic Character Bible authority", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-character-manual-authority",
+    transcript: "Actually, Mara's wound is that her father vanished during the flood, not that he abandoned her.",
+    projectId: "flood-record",
+    projectTitle: "Flood Record",
+    source: "talk_turn",
+  });
+  await store.recordCharacterMention({
+    userId: "u-character-manual-authority",
+    characterName: "Mara",
+    source: "memory_character_bible_edit",
+    metadata: { projectId: "flood-record", projectTitle: "Flood Record" },
+    characterBible: {
+      arc: { wound: "she chose to leave her father behind" },
+      corrections: ["Writer corrected Mara's wound in Memories."],
+    },
+  });
+  await store.recordCharacterMention({
+    userId: "u-character-manual-authority",
+    characterName: "Mara",
+    source: "realtime_turn_commit",
+    metadata: { projectId: "flood-record", projectTitle: "Flood Record" },
+    characterBible: { arc: { wound: "her father vanished during the flood" } },
+  });
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "u-character-manual-authority",
+    projectId: "flood-record",
+    projectTitle: "Flood Record",
+    query: "What is Mara's wound?",
+  });
+  const mara = memory.characters.find((item) => item.name === "Mara");
+  assert.equal(mara.bible.arc.wound, "she chose to leave her father behind");
+  const authority = mara.bible.authoritativeFields.find((item) => item.field === "wound");
+  assert.match(authority.sourceCorrectionId, /^memory_edit_/);
 });
 
 test("realtime commits durably restore project-scoped character arcs without reviving corrected beliefs", async () => {
@@ -953,6 +1039,147 @@ I choose the case over us.`;
   assert.equal(repeatedUndo.status, "already_undone");
 });
 
+test("writer replacement canon promotes explicit Character Bible and Story Spine fields", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  await store.recordCharacterMention({
+    userId: "u-structured-writer-canon",
+    characterName: "Mara",
+    metadata: { projectId: "blue-key", projectTitle: "Blue Key" },
+    characterBible: {
+      arc: { falseBelief: "perfect proof can save everyone" },
+      canon: ["Mara believes perfect proof can save everyone."],
+    },
+  });
+  const page = `INT. ARCHIVE - NIGHT
+
+Mara destroys the blue key before leaving.`;
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-structured-writer-canon",
+    transcript: "Commit the archive scene.",
+    reply: page,
+    acceptedPageText: page,
+    acceptedSceneContext: { anchorSceneId: "scene-archive" },
+    projectId: "blue-key",
+    projectTitle: "Blue Key",
+    projectContinuity: {
+      unresolvedSetups: ["The destroyed blue key"],
+      actThreePayoffPath: ["Mara finds another way into the archive"],
+    },
+    source: "talk_screenplay_output",
+  });
+
+  const correction = await store.recordTriggersFromTalkTurn({
+    userId: "u-structured-writer-canon",
+    transcript: "Actually, Mara never destroys the blue key. Mara's false belief is that truth will get Eli killed, not that perfect proof can save everyone. The unresolved setup is the blue key in Eli's locker. The Act III payoff is Mara uses the blue key to open the sealed archive.",
+    projectId: "blue-key",
+    projectTitle: "Blue Key",
+    source: "talk_turn",
+  });
+  assert.equal(correction.acceptedCanonFactsRetired, 1);
+  assert.equal(correction.writerCanonFactsRecorded, 1);
+
+  let ledger = await store.getCreativeMemoryLedger({ userId: "u-structured-writer-canon" });
+  let project = ledger.projects.find((item) => item.projectId === "blue-key");
+  let mara = ledger.characters.find((item) => (
+    item.name === "Mara" && item.metadata?.projectId === "blue-key"
+  ));
+  assert.equal(mara.bible.arc.falseBelief, "truth will get Eli killed");
+  assert.equal(mara.bible.authoritativeFields[0].field, "falseBelief");
+  assert.equal(
+    mara.bible.authoritativeFields[0].sourceCorrectionId,
+    correction.canonCorrectionReceiptId
+  );
+  assert.deepEqual(project.unresolvedSetups, ["the blue key in Eli's locker"]);
+  assert.deepEqual(project.actThreePayoffPath, ["Mara uses the blue key to open the sealed archive"]);
+  assert.ok(project.authoritativeFields.some((item) => item.field === "unresolvedSetups"));
+  assert.ok(project.authoritativeFields.some((item) => item.field === "actThreePayoffPath"));
+  assert.ok(project.writerCanonFacts[0].structuredTargets.some((item) => (
+    item.scope === "character" && item.field === "falseBelief"
+  )));
+  assert.ok(ledger.canonCorrectionReceipts[0].structuredUpdates.includes(
+    "Mara.falseBelief: truth will get Eli killed"
+  ));
+
+  await store.recordCharacterMention({
+    userId: "u-structured-writer-canon",
+    characterName: "Mara",
+    metadata: { projectId: "blue-key", projectTitle: "Blue Key" },
+    characterBible: { arc: { falseBelief: "perfect proof can save everyone" } },
+  });
+  await store.recordProjectContinuity({
+    userId: "u-structured-writer-canon",
+    continuity: {
+      projectId: "blue-key",
+      projectTitle: "Blue Key",
+      unresolvedSetups: ["The destroyed blue key"],
+      actThreePayoffPath: ["Mara finds another way into the archive"],
+    },
+  });
+  ledger = await store.getCreativeMemoryLedger({ userId: "u-structured-writer-canon" });
+  project = ledger.projects.find((item) => item.projectId === "blue-key");
+  mara = ledger.characters.find((item) => (
+    item.name === "Mara" && item.metadata?.projectId === "blue-key"
+  ));
+  assert.equal(mara.bible.arc.falseBelief, "truth will get Eli killed");
+  assert.deepEqual(project.unresolvedSetups, ["the blue key in Eli's locker"]);
+  assert.deepEqual(project.actThreePayoffPath, ["Mara uses the blue key to open the sealed archive"]);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-structured-writer-canon",
+    projectId: "blue-key",
+    projectTitle: "Blue Key",
+    query: "Continue toward the archive payoff.",
+  });
+  assert.equal(memory.characters[0].bible.arc.falseBelief, "truth will get Eli killed");
+  assert.equal(memory.projectContinuity.unresolvedSetups[0], "the blue key in Eli's locker");
+  assert.ok(memory.acceptedCausalFacts[0].structuredUpdates.includes(
+    "unresolvedSetups: the blue key in Eli's locker"
+  ));
+
+  const undone = await store.undoCanonCorrection({
+    userId: "u-structured-writer-canon",
+    receiptId: correction.canonCorrectionReceiptId,
+  });
+  assert.equal(undone.status, "undone");
+  ledger = await store.getCreativeMemoryLedger({ userId: "u-structured-writer-canon" });
+  project = ledger.projects.find((item) => item.projectId === "blue-key");
+  mara = ledger.characters.find((item) => (
+    item.name === "Mara" && item.metadata?.projectId === "blue-key"
+  ));
+  assert.equal(mara.bible.arc.falseBelief, "perfect proof can save everyone");
+  assert.equal(mara.bible.authoritativeFields?.length || 0, 0);
+  assert.deepEqual(project.unresolvedSetups, ["The destroyed blue key"]);
+  assert.deepEqual(project.actThreePayoffPath, ["Mara finds another way into the archive"]);
+});
+
+test("writer corrections upgrade legacy unscoped character bibles without duplicates", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  await store.recordCharacterMention({
+    userId: "u-legacy-character-upgrade",
+    characterName: "Mara",
+    characterBible: {
+      arc: { falseBelief: "perfect proof can save everyone" },
+    },
+  });
+
+  await store.recordTriggersFromTalkTurn({
+    userId: "u-legacy-character-upgrade",
+    transcript: "Actually, Mara's false belief is that truth will get Eli killed, not that perfect proof can save everyone.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    source: "talk_turn",
+  });
+
+  const ledger = await store.getCreativeMemoryLedger({ userId: "u-legacy-character-upgrade" });
+  const maraRecords = ledger.characters.filter((item) => item.name === "Mara");
+  assert.equal(maraRecords.length, 1);
+  assert.equal(maraRecords[0].metadata.projectId, "rain-docket");
+  assert.equal(maraRecords[0].metadata.projectTitle, "Rain Docket");
+  assert.equal(maraRecords[0].bible.arc.falseBelief, "truth will get Eli killed");
+  assert.equal(maraRecords[0].bible.authoritativeFields[0].source, "writer_correction");
+});
+
 test("stacked canon corrections must be undone newest-first within a project", async () => {
   const persistence = freshPersistence();
   const store = createCreativeMemoryStore({ persistence });
@@ -1121,7 +1348,7 @@ Mara watches two separate ferries pull away.`;
 
   const correction = await store.recordTriggersFromTalkTurn({
     userId: "u-ambiguous-canon-retcon",
-    transcript: "Actually, Mara never abandons anyone at the east ferry dock. She goes back for both of them.",
+    transcript: "Actually, Mara never abandons anyone at the east ferry dock. She goes back for both of them. The unresolved setup is Mara promised to return for Eli and June.",
     projectId: "split-ferries",
     projectTitle: "Split Ferries",
     source: "talk_turn",
@@ -1164,6 +1391,7 @@ Mara watches two separate ferries pull away.`;
   });
   assert.ok(memory.acceptedCausalFacts.some((item) => /abandons Eli/i.test(item.fact)));
   assert.ok(memory.acceptedCausalFacts.some((item) => /abandons June/i.test(item.fact)));
+  assert.equal(memory.projectContinuity.unresolvedSetups, undefined);
   assert.ok(memory.episodicMemories.some((item) => (
     item.tags.includes("correction") && /goes back for both/i.test(item.excerpt)
   )));
@@ -1185,7 +1413,10 @@ Mara watches two separate ferries pull away.`;
   ]);
   assert.deepEqual(resolved.receipt.matchedFacts, resolved.ambiguity.selectedFacts);
   assert.deepEqual(resolved.receipt.replacementFacts, [
-    "Mara never abandons anyone at the east ferry dock. She goes back for both of them.",
+    "Mara never abandons anyone at the east ferry dock. She goes back for both of them. The unresolved setup is Mara promised to return for Eli and June.",
+  ]);
+  assert.deepEqual(resolved.receipt.structuredUpdates, [
+    "unresolvedSetups: Mara promised to return for Eli and June",
   ]);
   assert.match(resolved.receipt.id, /^canon_correction_/);
 
@@ -1202,6 +1433,10 @@ Mara watches two separate ferries pull away.`;
   assert.equal(resolvedWriterCanon.length, 1);
   assert.equal(resolvedWriterCanon[0].fact, resolved.receipt.replacementFacts[0]);
   assert.deepEqual(resolvedWriterCanon[0].replacesFacts, resolved.ambiguity.selectedFacts);
+  assert.equal(
+    resolvedMemory.projectContinuity.unresolvedSetups[0],
+    "Mara promised to return for Eli and June"
+  );
 
   const idempotentResolution = await restored.resolveCanonCorrectionAmbiguity({
     userId: "u-ambiguous-canon-retcon",
@@ -1246,6 +1481,7 @@ Mara watches two separate ferries pull away.`;
     projectTitle: "Split Ferries",
     query: "What happened at the east ferry dock?",
   });
+  assert.equal(afterUndoMemory.projectContinuity.unresolvedSetups, undefined);
   assert.ok(afterUndoMemory.acceptedCausalFacts.some((item) => /abandons Eli/i.test(item.fact)));
   assert.ok(afterUndoMemory.acceptedCausalFacts.some((item) => /abandons June/i.test(item.fact)));
   assert.equal(

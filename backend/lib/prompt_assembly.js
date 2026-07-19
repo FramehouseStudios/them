@@ -1006,6 +1006,11 @@ function normalizeAcceptedCausalFacts(value = []) {
         8,
         220
       ),
+      structuredUpdates: sanitizeContextList(
+        item.structuredUpdates ?? item.structured_updates,
+        8,
+        220
+      ),
       createdAt: Math.max(0, Number(item.createdAt ?? item.created_at ?? 0)),
       sourceSceneHeading: trimContextLine(item.sourceSceneHeading ?? item.source_scene_heading, 140),
       sourceAct: trimContextLine(item.sourceAct ?? item.source_act, 80),
@@ -1032,7 +1037,10 @@ function serializeAcceptedCausalFacts(value, currentAct = "") {
       const replaces = fact.replacesFacts.length
         ? ` Replaces: ${fact.replacesFacts.join(" / ")}`
         : "";
-      lines.push(`  - AUTHORITATIVE_WRITER_CANON [explicit writer correction]: ${fact.fact}${replaces}`);
+      const structured = fact.structuredUpdates.length
+        ? ` Structured fields: ${fact.structuredUpdates.join(" / ")}`
+        : "";
+      lines.push(`  - AUTHORITATIVE_WRITER_CANON [explicit writer correction]: ${fact.fact}${replaces}${structured}`);
       continue;
     }
     const source = [
@@ -1082,6 +1090,16 @@ function serializeCharacters(characters, { preserveOrder = false } = {}) {
       const correctedTerms = sanitizeContextList(c.bible.correctionReplacements, 3, 120)
         .concat(sanitizeContextList(c.bible.correctedTerms, 3, 80))
         .slice(0, 4);
+      const authoritativeFields = (Array.isArray(c.bible.authoritativeFields)
+        ? c.bible.authoritativeFields
+        : [])
+        .map((item) => {
+          const field = trimContextLine(item?.field, 48);
+          const value = trimContextLine(item?.value, 120);
+          return field && value ? `${field}=${value}` : "";
+        })
+        .filter(Boolean)
+        .slice(0, 4);
       const arc = c.bible.arc && typeof c.bible.arc === "object" ? c.bible.arc : null;
       const arcParts = arc
         ? [
@@ -1099,6 +1117,7 @@ function serializeCharacters(characters, { preserveOrder = false } = {}) {
       if (arcParts.length) bibleParts.push(`arc: ${arcParts.join("; ")}`);
       if (corrections.length) bibleParts.push(`corrections: ${corrections.join(" / ")}`);
       if (correctedTerms.length) bibleParts.push(`corrected_terms: ${correctedTerms.join(" / ")}`);
+      if (authoritativeFields.length) bibleParts.push(`authoritative_fields: ${authoritativeFields.join(" / ")}`);
       if (bibleParts.length) lines.push(`      bible: ${bibleParts.join("; ")}`);
     }
   }
@@ -1128,6 +1147,16 @@ function serializeStoryBibleRecall(creativeMemory) {
     const correctedTerms = sanitizeContextList(bible.correctionReplacements, 3, 120)
       .concat(sanitizeContextList(bible.correctedTerms, 3, 80))
       .slice(0, 4);
+    const authoritativeFields = (Array.isArray(bible.authoritativeFields)
+      ? bible.authoritativeFields
+      : [])
+      .map((item) => {
+        const field = trimContextLine(item?.field, 48);
+        const value = trimContextLine(item?.value, 120);
+        return field && value ? `${field}=${value}` : "";
+      })
+      .filter(Boolean)
+      .slice(0, 4);
     const parts = [
       trimContextLine(arc.want, 120) ? `want=${trimContextLine(arc.want, 120)}` : "",
       trimContextLine(arc.need, 120) ? `need=${trimContextLine(arc.need, 120)}` : "",
@@ -1138,6 +1167,7 @@ function serializeStoryBibleRecall(creativeMemory) {
       canon.length ? `canon=${canon.join(" / ")}` : "",
       corrections.length ? `corrections=${corrections.join(" / ")}` : "",
       correctedTerms.length ? `corrected_terms=${correctedTerms.join(" / ")}` : "",
+      authoritativeFields.length ? `authoritative_fields=${authoritativeFields.join(" / ")}` : "",
     ].filter(Boolean);
     if (name && parts.length) lines.push(`  - ${name}: ${parts.join("; ")}`);
   }

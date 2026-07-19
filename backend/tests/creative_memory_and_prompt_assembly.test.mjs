@@ -429,6 +429,7 @@ test("buildModelPrompt gives explicit writer replacement canon precedence over p
         authority: "writer_correction",
         sourceCorrectionId: "canon_correction_123",
         replacesFacts: ["Mara burns the only copy of the affidavit."],
+        structuredUpdates: ["unresolvedSetups: the affidavit survives in Eli's ferry locker"],
         createdAt: 1_800_000_000_000,
       }],
     },
@@ -441,6 +442,7 @@ test("buildModelPrompt gives explicit writer replacement canon precedence over p
     /AUTHORITATIVE_WRITER_CANON \[explicit writer correction\]: Mara never burns the affidavit\. It survives in Eli's ferry locker\./
   );
   assert.match(out, /Replaces: Mara burns the only copy of the affidavit\./);
+  assert.match(out, /Structured fields: unresolvedSetups: the affidavit survives in Eli's ferry locker/);
   assert.match(out, /never revive what it replaced/);
   assert.doesNotMatch(out, /BINDING_FACT \[writer_correction/);
 });
@@ -993,6 +995,11 @@ test("buildModelPrompt emits character bible canon and corrections", () => {
             corrections: ["Authoritative correction for Mara: Mara is Eli's sister, not his mother."],
             correctedTerms: ["mother"],
             correctionReplacements: ["mother -> Eli's sister"],
+            authoritativeFields: [{
+              field: "falseBelief",
+              value: "truth will get Eli killed",
+              sourceCorrectionId: "canon_correction_123",
+            }],
           },
         },
       ],
@@ -1012,11 +1019,13 @@ test("buildModelPrompt emits character bible canon and corrections", () => {
   assert.ok(out.includes("next_emotional_turn=public courage"));
   assert.ok(out.includes("corrections: Authoritative correction for Mara"));
   assert.ok(out.includes("corrected_terms: mother -> Eli's sister"));
+  assert.ok(out.includes("authoritative_fields: falseBelief=truth will get Eli killed"));
   assert.ok(out.includes("story-bible-recall:"));
   assert.ok(out.includes("durable character/story bible for this feature"));
   assert.ok(out.includes("Mara: want=expose the forged testimony"));
   assert.ok(out.includes("false_belief=truth will get Eli killed"));
   assert.ok(out.includes("corrected_terms=mother -> Eli's sister"));
+  assert.ok(out.includes("authoritative_fields=falseBelief=truth will get Eli killed"));
 });
 
 test("buildModelPrompt orders blocks: persona → memory → session → user", () => {

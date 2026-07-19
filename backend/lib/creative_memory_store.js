@@ -32,6 +32,7 @@ const CHARACTER_PROMPT_MAX = 16;
 const CHARACTER_BIBLE_CANON_MAX = 12;
 const CHARACTER_BIBLE_CORRECTIONS_MAX = 8;
 const CHARACTER_BIBLE_TERMS_MAX = 12;
+const CHARACTER_BIBLE_AUTHORITATIVE_FIELDS_MAX = 8;
 const CHARACTER_ARC_FIELD_MAX_CHARS = 180;
 const PROJECT_CONTINUITY_MAX = 24;
 const PROJECT_CORRECTED_TERMS_MAX = 64;
@@ -42,6 +43,8 @@ const CANON_CORRECTION_RECEIPTS_MAX = 12;
 const CANON_CORRECTION_AMBIGUITIES_MAX = 12;
 const WRITER_CANON_FACTS_MAX = 32;
 const WRITER_CANON_FACT_MAX_CHARS = 220;
+const WRITER_CANON_TARGETS_MAX = 16;
+const PROJECT_AUTHORITATIVE_FIELDS_MAX = 12;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const EPISODIC_SEMANTIC_FINGERPRINT_MAX = 96;
 const EPISODIC_EMBEDDING_DIMENSIONS_MAX = 3_072;
@@ -114,7 +117,7 @@ const EPISODIC_CHARACTER_NAME_BLOCKLIST = new Set([
 ]);
 const STORY_MEMORY_KEYWORDS = /\b(?:act\s*(?:i|ii|iii|1|2|3|one|two|three)|all[- ]is[- ]lost|antagonist|arc|beat|beats|character|climax|continue|ending|ending image|feature|film|final image|finale|first act|inciting incident|logline|midpoint|motif|movie|payoff|premise|protagonist|rewrite|scene|screenplay|script|sequence|setup|theme|third act|tone|voice|want|wound)\b/i;
 const EXPLICIT_MEMORY_KEYWORDS = /\b(?:remember|keep in mind|do not forget|don't forget|note that|important|actually,\s*no|correction|for this movie|for this film|for this screenplay|in this movie|in this film|in this script|in my movie|in my film|in my screenplay|in my script)\b/i;
-const CORRECTION_KEYWORDS = /\b(?:actually,\s*no|correction|scratch that|not that|instead|retcon|change it to|make it so)\b/i;
+const CORRECTION_KEYWORDS = /(?:\bactually\s*,(?:\s*no\b)?|\b(?:correction|scratch that|not that|instead|retcon|change it to|make it so)\b)/i;
 const CORRECTION_TAG = "correction";
 const SUPERSEDED_TAG = "superseded";
 const ACCEPTED_PAGE_TAG = "accepted-pages";
@@ -128,6 +131,18 @@ const CHARACTER_ARC_FIELDS = Object.freeze([
   "relationshipPressure",
   "currentTactic",
   "nextEmotionalTurn",
+]);
+const WRITER_CANON_PROJECT_SCALAR_TARGETS = new Set([
+  "protagonistWant",
+  "protagonistNeed",
+  "centralQuestion",
+  "themeArgument",
+  "endingImage",
+]);
+const WRITER_CANON_PROJECT_LIST_TARGETS = new Set([
+  "unresolvedSetups",
+  "unresolvedStoryThreads",
+  "actThreePayoffPath",
 ]);
 const PROJECT_CONTINUITY_SCALAR_FIELDS = Object.freeze([
   ["act", 80],
@@ -518,6 +533,218 @@ function normalizeWriterCanonAssertion(value = "") {
   return meaningfulTerms.length >= 2 ? fact : "";
 }
 
+function normalizeWriterCanonTargetField(value = "") {
+  const clean = cleanText(value, 64).replace(/[\s-]+/g, "_").toLowerCase();
+  const aliases = {
+    act: "act",
+    want: "want",
+    need: "need",
+    wound: "wound",
+    false_belief: "falseBelief",
+    falsebelief: "falseBelief",
+    relationship_pressure: "relationshipPressure",
+    relationshippressure: "relationshipPressure",
+    current_tactic: "currentTactic",
+    currenttactic: "currentTactic",
+    next_emotional_turn: "nextEmotionalTurn",
+    nextemotionalturn: "nextEmotionalTurn",
+    protagonist_want: "protagonistWant",
+    protagonistwant: "protagonistWant",
+    protagonist_need: "protagonistNeed",
+    protagonistneed: "protagonistNeed",
+    central_question: "centralQuestion",
+    centralquestion: "centralQuestion",
+    theme_argument: "themeArgument",
+    themeargument: "themeArgument",
+    ending_image: "endingImage",
+    endingimage: "endingImage",
+    unresolved_setups: "unresolvedSetups",
+    unresolvedsetups: "unresolvedSetups",
+    unresolved_story_threads: "unresolvedStoryThreads",
+    unresolvedstorythreads: "unresolvedStoryThreads",
+    act_three_payoff_path: "actThreePayoffPath",
+    actthreepayoffpath: "actThreePayoffPath",
+  };
+  return aliases[clean] || "";
+}
+
+function sanitizeWriterCanonTarget(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const scope = cleanText(value.scope, 24).toLowerCase();
+  const field = normalizeWriterCanonTargetField(value.field);
+  const maxChars = field === "act" ? 80 : 220;
+  const targetValue = cleanText(value.value ?? value.fact ?? value.text, maxChars);
+  if (!targetValue || !field) return null;
+  if (scope === "character") {
+    const character = normalizeCharacterName(
+      value.character ?? value.characterName ?? value.character_name
+    );
+    if (!character || !CHARACTER_ARC_FIELDS.includes(field)) return null;
+    return { scope, character, field, value: targetValue };
+  }
+  if (
+    scope === "project" &&
+    (WRITER_CANON_PROJECT_SCALAR_TARGETS.has(field) || WRITER_CANON_PROJECT_LIST_TARGETS.has(field))
+  ) {
+    return { scope, field, value: targetValue };
+  }
+  return null;
+}
+
+function mergeWriterCanonTargets(...sources) {
+  const out = [];
+  const seen = new Set();
+  for (const source of sources) {
+    for (const value of Array.isArray(source) ? source : []) {
+      const target = sanitizeWriterCanonTarget(value);
+      if (!target) continue;
+      const key = [
+        target.scope,
+        target.character || "",
+        target.field,
+        target.value.toLowerCase(),
+      ].join(":");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(target);
+      if (out.length >= WRITER_CANON_TARGETS_MAX) return out;
+    }
+  }
+  return out;
+}
+
+function writerCanonStructuredUpdateLabels(targets = []) {
+  return mergeWriterCanonTargets(targets).map((target) => (
+    `${target.scope === "character" ? `${target.character}.` : ""}${target.field}: ${target.value}`
+  ));
+}
+
+function applyWriterCanonTargetsToProject(project = null, targets = []) {
+  if (!project || typeof project !== "object" || Array.isArray(project)) return project;
+  const cleanTargets = mergeWriterCanonTargets(targets)
+    .filter((target) => target.scope === "project");
+  if (!cleanTargets.length) return project;
+  const out = { ...project };
+  const appliedScalarFields = new Set();
+  const appliedListFields = new Set();
+  for (const target of cleanTargets) {
+    if (WRITER_CANON_PROJECT_SCALAR_TARGETS.has(target.field)) {
+      if (!appliedScalarFields.has(target.field)) {
+        out[target.field] = target.value;
+        appliedScalarFields.add(target.field);
+      }
+      continue;
+    }
+    if (!WRITER_CANON_PROJECT_LIST_TARGETS.has(target.field)) continue;
+    if (appliedListFields.has(target.field)) continue;
+    const definition = PROJECT_CONTINUITY_LIST_FIELDS.find(([field]) => field === target.field);
+    if (!definition) continue;
+    const [, maxItems, maxChars] = definition;
+    out[target.field] = normalizeStringList([target.value], maxItems, maxChars);
+    appliedListFields.add(target.field);
+  }
+  const notes = cleanTargets.map((target) => (
+    `Authoritative writer correction [${target.field}]: ${target.value}`
+  ));
+  out.continuityNotes = normalizeStringList(
+    [...notes, ...(Array.isArray(out.continuityNotes) ? out.continuityNotes : [])],
+    8,
+    200
+  );
+  return out;
+}
+
+function sanitizeAuthoritativeProjectField(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const field = normalizeWriterCanonTargetField(value.field);
+  if (
+    !WRITER_CANON_PROJECT_SCALAR_TARGETS.has(field) &&
+    !WRITER_CANON_PROJECT_LIST_TARGETS.has(field)
+  ) return null;
+  const fieldValue = cleanText(value.value ?? value.fact ?? value.text, 220);
+  if (!fieldValue) return null;
+  const sourceCorrectionId = cleanText(
+    value.sourceCorrectionId ?? value.source_correction_id ?? value.receiptId ?? value.receipt_id,
+    96
+  );
+  const correctionText = cleanText(value.correctionText ?? value.correction_text, 600);
+  const replacesFacts = normalizeStringList(
+    value.replacesFacts ?? value.replaces_facts,
+    8,
+    220
+  );
+  const rawCreatedAt = Number(value.createdAt ?? value.created_at ?? nowMs());
+  const createdAt = Number.isFinite(rawCreatedAt) && rawCreatedAt > 0 ? rawCreatedAt : nowMs();
+  const id = cleanText(value.id, 96) || `project_field_${stableHash([
+    field,
+    fieldValue.toLowerCase(),
+    sourceCorrectionId,
+  ].join("|"))}`;
+  return {
+    id,
+    field,
+    value: fieldValue,
+    source: WRITER_CANON_AUTHORITY,
+    sourceCorrectionId,
+    correctionText,
+    replacesFacts,
+    createdAt,
+  };
+}
+
+function mergeAuthoritativeProjectFields(incoming = [], existing = []) {
+  const newest = (Array.isArray(incoming) ? incoming : [])
+    .map(sanitizeAuthoritativeProjectField)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+  const retiredScalarFields = new Set(
+    newest
+      .filter((item) => WRITER_CANON_PROJECT_SCALAR_TARGETS.has(item.field))
+      .map((item) => item.field)
+  );
+  const older = (Array.isArray(existing) ? existing : [])
+    .map(sanitizeAuthoritativeProjectField)
+    .filter((item) => item && !retiredScalarFields.has(item.field))
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+  const out = [];
+  const seen = new Set();
+  for (const item of [...newest, ...older]) {
+    const key = WRITER_CANON_PROJECT_SCALAR_TARGETS.has(item.field)
+      ? item.field
+      : `${item.field}:${item.value.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= PROJECT_AUTHORITATIVE_FIELDS_MAX) break;
+  }
+  return out;
+}
+
+function buildAuthoritativeProjectFields({
+  targets = [],
+  sourceCorrectionId = "",
+  correctionText = "",
+  replacesFacts = [],
+  createdAt = nowMs(),
+} = {}) {
+  return mergeWriterCanonTargets(targets)
+    .filter((target) => target.scope === "project")
+    .map((target) => sanitizeAuthoritativeProjectField({
+      id: `project_field_${stableHash([
+        target.field,
+        target.value.toLowerCase(),
+        sourceCorrectionId,
+      ].join("|"))}`,
+      field: target.field,
+      value: target.value,
+      sourceCorrectionId,
+      correctionText,
+      replacesFacts,
+      createdAt,
+    }))
+    .filter(Boolean);
+}
+
 function sanitizeWriterCanonFact(value = null) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const correctionText = cleanText(value.correctionText ?? value.correction_text, 600);
@@ -534,6 +761,9 @@ function sanitizeWriterCanonFact(value = null) {
     ? rawCreatedAt
     : nowMs();
   const rawUpdatedAt = Number(value.updatedAt ?? value.updated_at ?? createdAt);
+  const structuredTargets = mergeWriterCanonTargets(
+    value.structuredTargets ?? value.structured_targets
+  );
   const id = cleanText(value.id, 96) || `writer_canon_${stableHash([
     fact.toLowerCase(),
     [...replacesFacts].map(acceptedCanonFactKey).sort().join("|"),
@@ -545,6 +775,7 @@ function sanitizeWriterCanonFact(value = null) {
     replacesFacts,
     source: WRITER_CANON_AUTHORITY,
     receiptId,
+    structuredTargets,
     createdAt,
     updatedAt: Number.isFinite(rawUpdatedAt)
       ? Math.max(createdAt, rawUpdatedAt)
@@ -558,6 +789,7 @@ function buildWriterCanonFact({
   correctionText = "",
   replacesFacts = [],
   receiptId = "",
+  structuredTargets = [],
   createdAt = nowMs(),
 } = {}) {
   const fact = normalizeWriterCanonAssertion(correctionText);
@@ -574,6 +806,7 @@ function buildWriterCanonFact({
     correctionText,
     replacesFacts: cleanReplaced,
     receiptId,
+    structuredTargets,
     createdAt,
     updatedAt: createdAt,
   });
@@ -637,6 +870,11 @@ function sanitizeProjectContinuity(value = {}) {
     if (!Number.isFinite(value) || value <= 0) continue;
     out[field] = Math.min(maxValue, Math.round(value));
   }
+  const authoritativeFields = mergeAuthoritativeProjectFields(
+    source.authoritativeFields ?? source.authoritative_fields,
+    []
+  );
+  if (authoritativeFields.length) out.authoritativeFields = authoritativeFields;
   const correction = {
     correctedTerms: out.correctedTerms || [],
     correctionReplacements: out.correctionReplacements || [],
@@ -660,6 +898,17 @@ function sanitizeProjectContinuity(value = {}) {
   if (Array.isArray(writerCanonFacts)) {
     out.writerCanonFacts = mergeWriterCanonFacts(writerCanonFacts, [], correction);
   }
+  const authoritativeTargets = (out.authoritativeFields || []).map((item) => ({
+    scope: "project",
+    field: item.field,
+    value: item.value,
+  }));
+  const writerTargets = (out.writerCanonFacts || [])
+    .flatMap((item) => item.structuredTargets || []);
+  Object.assign(
+    out,
+    applyWriterCanonTargetsToProject(out, [...authoritativeTargets, ...writerTargets])
+  );
   const acceptedScenes = value.acceptedScenes ?? value.accepted_scenes;
   if (Array.isArray(acceptedScenes)) {
     out.acceptedScenes = mergeAcceptedSceneContinuity(acceptedScenes, [], correction);
@@ -832,6 +1081,11 @@ function sanitizeCanonCorrectionReceipt(value = null, { includeSnapshots = false
       value.replacementFactIds ?? value.replacement_fact_ids,
       8,
       96
+    ),
+    structuredUpdates: normalizeStringList(
+      value.structuredUpdates ?? value.structured_updates,
+      WRITER_CANON_TARGETS_MAX,
+      260
     ),
     correctionMemoryId: cleanText(value.correctionMemoryId ?? value.correction_memory_id, 80),
     createdAt: Math.max(0, Number(value.createdAt ?? value.created_at ?? 0)),
@@ -1032,11 +1286,214 @@ function mergeCharacterArcState(existingArc = null, incomingArc = null, correcti
   return Object.keys(out).length > 1 ? out : null;
 }
 
+function sanitizeAuthoritativeCharacterField(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const field = normalizeWriterCanonTargetField(value.field);
+  if (!CHARACTER_ARC_FIELDS.includes(field)) return null;
+  const maxChars = field === "act" ? 80 : CHARACTER_ARC_FIELD_MAX_CHARS;
+  const fieldValue = cleanText(value.value ?? value.fact ?? value.text, maxChars);
+  if (!fieldValue) return null;
+  const sourceCorrectionId = cleanText(
+    value.sourceCorrectionId ?? value.source_correction_id ?? value.receiptId ?? value.receipt_id,
+    96
+  );
+  const correctionText = cleanText(value.correctionText ?? value.correction_text, 600);
+  const replacesFacts = normalizeStringList(
+    value.replacesFacts ?? value.replaces_facts,
+    8,
+    220
+  );
+  const rawCreatedAt = Number(value.createdAt ?? value.created_at ?? nowMs());
+  const createdAt = Number.isFinite(rawCreatedAt) && rawCreatedAt > 0 ? rawCreatedAt : nowMs();
+  const id = cleanText(value.id, 96) || `character_field_${stableHash([
+    field,
+    fieldValue.toLowerCase(),
+    sourceCorrectionId,
+  ].join("|"))}`;
+  return {
+    id,
+    field,
+    value: fieldValue,
+    source: WRITER_CANON_AUTHORITY,
+    sourceCorrectionId,
+    correctionText,
+    replacesFacts,
+    createdAt,
+  };
+}
+
+function mergeAuthoritativeCharacterFields(incoming = [], existing = []) {
+  const newest = (Array.isArray(incoming) ? incoming : [])
+    .map(sanitizeAuthoritativeCharacterField)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+  const retiredFields = new Set(newest.map((item) => item.field));
+  const older = (Array.isArray(existing) ? existing : [])
+    .map(sanitizeAuthoritativeCharacterField)
+    .filter((item) => item && !retiredFields.has(item.field))
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+  const out = [];
+  const seenFields = new Set();
+  for (const item of [...newest, ...older]) {
+    if (seenFields.has(item.field)) continue;
+    seenFields.add(item.field);
+    out.push(item);
+    if (out.length >= CHARACTER_BIBLE_AUTHORITATIVE_FIELDS_MAX) break;
+  }
+  return out;
+}
+
+function applyAuthoritativeCharacterFields(arc = null, fields = []) {
+  const current = sanitizeCharacterArcState(arc) || { schemaVersion: 1 };
+  for (const item of mergeAuthoritativeCharacterFields(fields, [])) {
+    current[item.field] = item.value;
+  }
+  return sanitizeCharacterArcState(current);
+}
+
+function buildAuthoritativeCharacterFields({
+  character = "",
+  targets = [],
+  sourceCorrectionId = "",
+  correctionText = "",
+  replacesFacts = [],
+  createdAt = nowMs(),
+} = {}) {
+  const cleanCharacter = normalizeCharacterName(character);
+  if (!cleanCharacter) return [];
+  return mergeWriterCanonTargets(targets)
+    .filter((target) => (
+      target.scope === "character" &&
+      target.character.toLowerCase() === cleanCharacter.toLowerCase()
+    ))
+    .map((target) => sanitizeAuthoritativeCharacterField({
+      id: `character_field_${stableHash([
+        cleanCharacter.toLowerCase(),
+        target.field,
+        target.value.toLowerCase(),
+        sourceCorrectionId,
+      ].join("|"))}`,
+      field: target.field,
+      value: target.value,
+      sourceCorrectionId,
+      correctionText,
+      replacesFacts,
+      createdAt,
+    }))
+    .filter(Boolean);
+}
+
+function applyWriterCanonCharacterTargetsToRecords(characters = [], {
+  targets = [],
+  projectId = "",
+  projectTitle = "",
+  sourceCorrectionId = "",
+  correctionText = "",
+  replacesFacts = [],
+  createdAt = nowMs(),
+} = {}) {
+  const out = Array.isArray(characters) ? clone(characters) : [];
+  const names = mergeWriterCanonTargets(targets)
+    .filter((target) => target.scope === "character")
+    .map((target) => target.character);
+  for (const character of normalizeStringList(names, 8, 48)) {
+    const authoritativeFields = buildAuthoritativeCharacterFields({
+      character,
+      targets,
+      sourceCorrectionId,
+      correctionText,
+      replacesFacts,
+      createdAt,
+    });
+    if (!authoritativeFields.length) continue;
+    const correction = extractCharacterMemoryCorrection(correctionText, character);
+    const replacementFact = normalizeWriterCanonAssertion(correctionText);
+    const incomingBible = sanitizeCharacterBibleDelta({
+      canon: replacementFact && textMentionsName(replacementFact, character)
+        ? [replacementFact]
+        : [],
+      corrections: [
+        `Authoritative writer correction for ${character}: ${replacementFact || cleanText(correctionText, 220)}`,
+      ],
+      authoritativeFields,
+      correctedTerms: collectCharacterBibleItems(
+        [...(correction?.correctedTerms || []), ...replacesFacts],
+        CHARACTER_BIBLE_TERMS_MAX,
+        120
+      ),
+      correctionReplacements: correction?.correctionReplacements || [],
+      updatedAt: createdAt,
+    });
+    if (!incomingBible) continue;
+    const targetIdentity = projectIdentity({ projectId, projectTitle });
+    let index = out.findIndex((item) => {
+      if (normalizeCharacterName(item?.name).toLowerCase() !== character.toLowerCase()) return false;
+      const identity = projectIdentity(item, "metadata");
+      if (targetIdentity.projectId) return identity.projectId === targetIdentity.projectId;
+      if (targetIdentity.projectTitle) return identity.projectTitle === targetIdentity.projectTitle;
+      return !identity.projectId && !identity.projectTitle;
+    });
+    if (index < 0 && (targetIdentity.projectId || targetIdentity.projectTitle)) {
+      index = out.findIndex((item) => {
+        if (normalizeCharacterName(item?.name).toLowerCase() !== character.toLowerCase()) return false;
+        const identity = projectIdentity(item, "metadata");
+        return !identity.projectId && !identity.projectTitle;
+      });
+    }
+    if (index < 0) {
+      out.push({
+        name: character,
+        voice: "",
+        first_seen: createdAt,
+        last_referenced: createdAt,
+        tags: ["screenplay", "character-bible"],
+        source: "writer_correction",
+        metadata: {
+          ...(cleanText(projectId, 96) ? { projectId: cleanText(projectId, 96) } : {}),
+          ...(cleanText(projectTitle, 160) ? { projectTitle: cleanText(projectTitle, 160) } : {}),
+        },
+        bible: incomingBible,
+      });
+      continue;
+    }
+    const mergedBible = mergeCharacterBible(out[index].bible, incomingBible);
+    out[index] = {
+      ...out[index],
+      last_referenced: createdAt,
+      source: "writer_correction",
+      tags: normalizeStringList(
+        [...(Array.isArray(out[index].tags) ? out[index].tags : []), "screenplay", "character-bible"],
+        12,
+        48
+      ),
+      metadata: {
+        ...(out[index].metadata || {}),
+        ...(cleanText(projectId, 96) ? { projectId: cleanText(projectId, 96) } : {}),
+        ...(cleanText(projectTitle, 160) ? { projectTitle: cleanText(projectTitle, 160) } : {}),
+      },
+      bible: mergedBible,
+      ...(out[index].traits
+        ? { traits: repairCharacterTraitsForCorrection(out[index].traits, mergedBible) }
+        : {}),
+    };
+  }
+  return out
+    .sort((a, b) => Number(b.last_referenced || 0) - Number(a.last_referenced || 0))
+    .slice(0, CHARACTERS_MAX);
+}
+
 function sanitizeCharacterBibleDelta(value = null) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const canon = collectCharacterBibleItems(value.canon ?? value.facts, CHARACTER_BIBLE_CANON_MAX, 220);
   const corrections = collectCharacterBibleItems(value.corrections, CHARACTER_BIBLE_CORRECTIONS_MAX, 260);
-  const arc = sanitizeCharacterArcState(value.arc ?? value.characterArc ?? value.character_arc);
+  const authoritativeFields = mergeAuthoritativeCharacterFields(
+    value.authoritativeFields ?? value.authoritative_fields,
+    []
+  );
+  const arc = applyAuthoritativeCharacterFields(
+    value.arc ?? value.characterArc ?? value.character_arc,
+    authoritativeFields
+  );
   const correctedTerms = collectCharacterBibleItems(value.correctedTerms, CHARACTER_BIBLE_TERMS_MAX, 120)
     .map((term) => normalizeCharacterCorrectionTerm(term, 120))
     .filter(Boolean);
@@ -1045,12 +1502,20 @@ function sanitizeCharacterBibleDelta(value = null) {
     CHARACTER_BIBLE_TERMS_MAX,
     180
   ).filter((item) => parseCharacterBibleReplacement(item));
-  if (!canon.length && !corrections.length && !arc && !correctedTerms.length && !correctionReplacements.length) return null;
+  if (
+    !canon.length &&
+    !corrections.length &&
+    !arc &&
+    !correctedTerms.length &&
+    !correctionReplacements.length &&
+    !authoritativeFields.length
+  ) return null;
   return {
     schemaVersion: 1,
     canon,
     corrections,
     ...(arc ? { arc } : {}),
+    authoritativeFields,
     correctedTerms,
     correctionReplacements,
     updatedAt: Math.max(0, Number(value.updatedAt || nowMs())),
@@ -1104,6 +1569,7 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
     corrections: [],
     correctedTerms: [],
     correctionReplacements: [],
+    authoritativeFields: [],
     updatedAt: 0,
   };
   const incoming = sanitizeCharacterBibleDelta(incomingBible);
@@ -1128,7 +1594,14 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
   const incomingCanon = hasCorrection
     ? filterCharacterBibleItems(incoming.canon, correction, CHARACTER_BIBLE_CANON_MAX, 220)
     : incoming.canon;
-  const arc = mergeCharacterArcState(existing.arc, incoming.arc, hasCorrection ? correction : null);
+  const authoritativeFields = mergeAuthoritativeCharacterFields(
+    incoming.authoritativeFields,
+    existing.authoritativeFields
+  );
+  const arc = applyAuthoritativeCharacterFields(
+    mergeCharacterArcState(existing.arc, incoming.arc, hasCorrection ? correction : null),
+    authoritativeFields
+  );
   const existingCorrections = filterCharacterBibleItems(
     existing.corrections,
     { correctedTerms: [], correctionReplacements: correction.correctionReplacements },
@@ -1147,6 +1620,7 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
       260
     ),
     ...(arc ? { arc } : {}),
+    authoritativeFields,
     correctedTerms: correction.correctedTerms,
     correctionReplacements: correction.correctionReplacements,
     updatedAt: Math.max(Number(existing.updatedAt || 0), Number(incoming.updatedAt || 0), nowMs()),
@@ -1934,6 +2408,8 @@ function selectAcceptedCausalFactsForPrompt(project = null, {
       authority: WRITER_CANON_AUTHORITY,
       sourceCorrectionId: item.receiptId || item.id,
       replacesFacts: item.replacesFacts,
+      structuredTargets: item.structuredTargets,
+      structuredUpdates: writerCanonStructuredUpdateLabels(item.structuredTargets),
       createdAt: item.createdAt,
       ageInScenes: index,
     };
@@ -2848,6 +3324,102 @@ function extractCharacterArcState({ text = "", characterName = "", correction = 
     : sanitized;
 }
 
+function normalizeAuthoritativeStoryTargetValue(value = "", maxChars = 220) {
+  let clean = cleanText(value, maxChars)
+    .replace(/^[\s:;,.\-]+/, "")
+    .trim();
+  const contrast = clean.match(/^not\s+(.{1,140}?)\s+(?:but|instead)\s+(.{2,220})$/i);
+  if (contrast?.[2]) clean = contrast[2];
+  clean = clean
+    .replace(/\s*,?\s+(?:not|never)\s+(?:that\s+)?[^,;.!?]+$/i, "")
+    .replace(/\s+(?:rather\s+than|instead\s+of)\s+[^,;.!?]+$/i, "")
+    .replace(/^(?:that|to)\s+/i, "")
+    .replace(/[.,;:]+$/g, "")
+    .trim();
+  return cleanText(clean, maxChars);
+}
+
+function extractWriterCanonTargetCharacterNames(text = "", knownCharacterNames = []) {
+  const source = String(text || "");
+  const names = normalizeStringList(knownCharacterNames, 16, 48)
+    .map(normalizeCharacterName)
+    .filter((name) => name && textMentionsName(source, name));
+  const labeledCharacterPattern = /\b([A-Z][A-Za-z0-9.'-]{1,31})(?:'s)?\s+(?:want|wants|need|needs|wound|is\s+wounded|false\s+belief|misbelief|lie|believes|relationship\s+pressure|current\s+tactic|tactic|next\s+emotional\s+turn|emotional\s+turn|goal)\b/g;
+  for (const match of source.matchAll(labeledCharacterPattern)) {
+    const name = normalizeCharacterName(String(match[1] || "").replace(/'s$/i, ""));
+    if (name) names.push(name);
+  }
+  return normalizeStringList(names, 8, 48).map(normalizeCharacterName).filter(Boolean);
+}
+
+function firstWriterCanonProjectTarget(source = "", patterns = [], maxChars = 220) {
+  for (const pattern of patterns) {
+    const match = String(source || "").match(pattern);
+    if (!match?.[1]) continue;
+    const value = normalizeAuthoritativeStoryTargetValue(match[1], maxChars);
+    if (value) return value;
+  }
+  return "";
+}
+
+export function extractWriterCanonStructuredTargets({
+  correctionText = "",
+  knownCharacterNames = [],
+} = {}) {
+  const source = cleanText(correctionText, 1_200);
+  if (!source || !isCorrectionTurnText(source)) return [];
+  const targets = [];
+  const characterNames = extractWriterCanonTargetCharacterNames(source, knownCharacterNames);
+  for (const character of characterNames) {
+    const correction = extractCharacterMemoryCorrection(source, character);
+    const arc = extractCharacterArcState({ text: source, characterName: character, correction });
+    if (!arc) continue;
+    for (const field of CHARACTER_ARC_FIELDS) {
+      if (field === "act") continue;
+      const value = normalizeAuthoritativeStoryTargetValue(
+        arc[field],
+        field === "act" ? 80 : CHARACTER_ARC_FIELD_MAX_CHARS
+      );
+      if (value) targets.push({ scope: "character", character, field, value });
+    }
+  }
+
+  const projectDefinitions = [
+    ["protagonistWant", [
+      /\b(?:the\s+)?protagonist(?:'s)?\s+(?:want|external\s+goal)\s+(?:is|is\s+to|should\s+be|=)\s+([^.!?;\n]{2,220})/i,
+      /\b(?:the\s+)?protagonist\s+wants\s+to\s+([^.!?;\n]{2,220})/i,
+    ]],
+    ["protagonistNeed", [
+      /\b(?:the\s+)?protagonist(?:'s)?\s+(?:need|inner\s+need)\s+(?:is|is\s+to|should\s+be|=)\s+([^.!?;\n]{2,220})/i,
+      /\b(?:the\s+)?protagonist\s+needs\s+to\s+([^.!?;\n]{2,220})/i,
+    ]],
+    ["centralQuestion", [
+      /\b(?:the\s+)?central\s+question\s+(?:is|is\s+whether|should\s+be|=)\s+([^.!?;\n]{2,240})/i,
+    ]],
+    ["themeArgument", [
+      /\b(?:the\s+)?theme(?:\s+argument)?\s+(?:is|is\s+that|should\s+be|=)\s+([^.!?;\n]{2,220})/i,
+    ]],
+    ["endingImage", [
+      /\b(?:the\s+)?(?:ending|final)\s+image\s+(?:is|is\s+that|should\s+be|=)\s+([^.!?;\n]{2,200})/i,
+    ]],
+    ["unresolvedSetups", [
+      /\b(?:the\s+)?(?:unresolved\s+)?setup(?:\s+to\s+(?:preserve|pay\s+off))?\s+(?:is|is\s+that|remains|should\s+be|=)\s+([^.!?;\n]{2,220})/i,
+      /\bkeep\s+([^.!?;\n]{2,200}?)\s+as\s+(?:an?\s+)?unresolved\s+setup\b/i,
+    ]],
+    ["unresolvedStoryThreads", [
+      /\b(?:the\s+)?(?:unresolved\s+)?(?:story\s+)?thread\s+(?:is|is\s+that|remains|should\s+be|=)\s+([^.!?;\n]{2,220})/i,
+    ]],
+    ["actThreePayoffPath", [
+      /\b(?:the\s+)?(?:act\s*(?:iii|3|three)\s+)?payoff(?:\s+path)?\s+(?:is|is\s+that|should\s+be|=)\s+([^.!?;\n]{2,220})/i,
+    ]],
+  ];
+  for (const [field, patterns] of projectDefinitions) {
+    const value = firstWriterCanonProjectTarget(source, patterns);
+    if (value) targets.push({ scope: "project", field, value });
+  }
+  return mergeWriterCanonTargets(targets);
+}
+
 function extractCharacterBibleDelta({ text = "", characterName = "", isCorrectionTurn = false } = {}) {
   const cleanName = normalizeCharacterName(characterName);
   if (!cleanName) return null;
@@ -2984,6 +3556,7 @@ function createCreativeMemoryStore({
     matchedFacts = [],
     replacementFacts = [],
     replacementFactIds = [],
+    structuredUpdates = [],
     correctionMemoryId = "",
     beforeState = null,
     afterState = null,
@@ -3000,6 +3573,7 @@ function createCreativeMemoryStore({
       matchedFacts: cleanFacts,
       replacementFacts,
       replacementFactIds,
+      structuredUpdates,
       correctionMemoryId,
       createdAt,
       beforeState,
@@ -3026,6 +3600,7 @@ function createCreativeMemoryStore({
     matchedFacts = [],
     replacementFacts = [],
     replacementFactIds = [],
+    structuredUpdates = [],
     correctionMemoryId = "",
     beforeState = null,
   } = {}) {
@@ -3046,6 +3621,7 @@ function createCreativeMemoryStore({
         matchedFacts: cleanFacts,
         replacementFacts,
         replacementFactIds,
+        structuredUpdates,
         correctionMemoryId,
         createdAt,
         beforeState,
@@ -3190,12 +3766,34 @@ function createCreativeMemoryStore({
       });
       const resolvedAt = nowMs();
       const receiptId = `canon_correction_${randomUUID()}`;
+      const projectCharacterNames = scopeRecordsToProject(
+        Array.isArray(current.characters) ? current.characters : [],
+        {
+          projectId: ambiguity.projectId,
+          projectTitle: ambiguity.projectTitle,
+          metadataKey: "metadata",
+        }
+      )
+        .map((character) => normalizeCharacterName(character?.name))
+        .filter(Boolean);
+      const structuredTargets = extractWriterCanonStructuredTargets({
+        correctionText: ambiguity.correctionText,
+        knownCharacterNames: projectCharacterNames,
+      });
       const replacementFact = buildWriterCanonFact({
         projectId: ambiguity.projectId,
         projectTitle: ambiguity.projectTitle,
         correctionText: ambiguity.correctionText,
         replacesFacts: selected,
         receiptId,
+        structuredTargets,
+        createdAt: resolvedAt,
+      });
+      const authoritativeProjectFields = buildAuthoritativeProjectFields({
+        targets: structuredTargets,
+        sourceCorrectionId: receiptId,
+        correctionText: ambiguity.correctionText,
+        replacesFacts: selected,
         createdAt: resolvedAt,
       });
       const correctedTerms = normalizeStringList(
@@ -3206,6 +3804,10 @@ function createCreativeMemoryStore({
       const correctedProject = sanitizeProjectContinuity({
         ...project,
         correctedTerms,
+        authoritativeFields: mergeAuthoritativeProjectFields(
+          authoritativeProjectFields,
+          project.authoritativeFields
+        ),
         writerCanonFacts: replacementFact
           ? [replacementFact, ...(project.writerCanonFacts || [])]
           : project.writerCanonFacts,
@@ -3230,6 +3832,15 @@ function createCreativeMemoryStore({
       current.projects = projects
         .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
         .slice(0, PROJECT_CONTINUITY_MAX);
+      current.characters = applyWriterCanonCharacterTargetsToRecords(current.characters, {
+        targets: structuredTargets,
+        projectId: ambiguity.projectId,
+        projectTitle: ambiguity.projectTitle,
+        sourceCorrectionId: receiptId,
+        correctionText: ambiguity.correctionText,
+        replacesFacts: selected,
+        createdAt: resolvedAt,
+      });
 
       const selectedFactKey = [...selected]
         .map(acceptedCanonFactKey)
@@ -3293,6 +3904,7 @@ function createCreativeMemoryStore({
         matchedFacts: selected,
         replacementFacts: replacementFact ? [replacementFact.fact] : [],
         replacementFactIds: replacementFact ? [replacementFact.id] : [],
+        structuredUpdates: writerCanonStructuredUpdateLabels(structuredTargets),
         correctionMemoryId: resolutionMemory.id,
         beforeState,
         afterState,
@@ -3690,6 +4302,12 @@ function createCreativeMemoryStore({
             }
           );
         }
+        if (Object.prototype.hasOwnProperty.call(incoming, "authoritativeFields")) {
+          next.authoritativeFields = mergeAuthoritativeProjectFields(
+            incoming.authoritativeFields,
+            existing.authoritativeFields
+          );
+        }
         if (Object.prototype.hasOwnProperty.call(incoming, "writerCanonFacts")) {
           next.writerCanonFacts = mergeWriterCanonFacts(
             incoming.writerCanonFacts,
@@ -3752,7 +4370,35 @@ function createCreativeMemoryStore({
     const cleanTraits = traits && typeof traits === "object" && !Array.isArray(traits)
       ? traits
       : null;
-    const cleanCharacterBible = sanitizeCharacterBibleDelta(characterBible);
+    let cleanCharacterBible = sanitizeCharacterBibleDelta(characterBible);
+    if (cleanSource === "memory_character_bible_edit" && cleanCharacterBible?.arc) {
+      const editedAt = nowMs();
+      const correctionText = cleanText(
+        cleanCharacterBible.corrections?.[0] || `Writer edited ${name}'s Character Bible in Memories.`,
+        600
+      );
+      const authoritativeFields = CHARACTER_ARC_FIELDS
+        .map((field) => sanitizeAuthoritativeCharacterField({
+          id: `character_field_${stableHash([
+            name.toLowerCase(),
+            field,
+            cleanText(cleanCharacterBible.arc?.[field], CHARACTER_ARC_FIELD_MAX_CHARS).toLowerCase(),
+            editedAt,
+          ].join("|"))}`,
+          field,
+          value: cleanCharacterBible.arc?.[field],
+          sourceCorrectionId: `memory_edit_${editedAt}`,
+          correctionText,
+          replacesFacts: cleanCharacterBible.correctedTerms,
+          createdAt: editedAt,
+        }))
+        .filter(Boolean);
+      cleanCharacterBible = sanitizeCharacterBibleDelta({
+        ...cleanCharacterBible,
+        authoritativeFields,
+        updatedAt: editedAt,
+      });
+    }
     let resolvedAction = "recorded";
     await updateUser(userId, (rec) => {
       const characters = Array.isArray(rec.characters) ? rec.characters : [];
@@ -4317,9 +4963,44 @@ function createCreativeMemoryStore({
     let canonCorrectionBeforeState = null;
     let pendingWriterCanonFact = null;
     let pendingCanonCorrectionReceiptId = "";
+    let writerCanonStructuredTargets = isCorrectionTurn
+      ? extractWriterCanonStructuredTargets({ correctionText: userText })
+      : [];
+    const structuredCorrectionAt = nowMs();
+    let structuredCorrectionId = writerCanonStructuredTargets.length
+      ? `writer_correction_${stableHash([
+        resolvedProjectId.toLowerCase(),
+        resolvedProjectTitle.toLowerCase(),
+        cleanText(userText, 600).toLowerCase(),
+      ].join("|"))}`
+      : "";
     let correctionMemoryId = "";
     if (isCorrectionTurn && (resolvedProjectId || resolvedProjectTitle)) {
       const currentRecord = await readUser(userId).catch(() => null);
+      const projectCharacterNames = scopeRecordsToProject(
+        Array.isArray(currentRecord?.characters) ? currentRecord.characters : [],
+        {
+          projectId: resolvedProjectId,
+          projectTitle: resolvedProjectTitle,
+          metadataKey: "metadata",
+        }
+      )
+        .map((character) => normalizeCharacterName(character?.name))
+        .filter(Boolean);
+      writerCanonStructuredTargets = mergeWriterCanonTargets(
+        extractWriterCanonStructuredTargets({
+          correctionText: userText,
+          knownCharacterNames: projectCharacterNames,
+        }),
+        writerCanonStructuredTargets
+      );
+      if (writerCanonStructuredTargets.length && !structuredCorrectionId) {
+        structuredCorrectionId = `writer_correction_${stableHash([
+          resolvedProjectId.toLowerCase(),
+          resolvedProjectTitle.toLowerCase(),
+          cleanText(userText, 600).toLowerCase(),
+        ].join("|"))}`;
+      }
       const currentProject = selectProjectContinuity(currentRecord?.projects, {
         projectId: resolvedProjectId,
         projectTitle: resolvedProjectTitle,
@@ -4338,17 +5019,35 @@ function createCreativeMemoryStore({
           projectTitle: resolvedProjectTitle,
         });
         pendingCanonCorrectionReceiptId = `canon_correction_${randomUUID()}`;
+        structuredCorrectionId = pendingCanonCorrectionReceiptId;
         pendingWriterCanonFact = buildWriterCanonFact({
           projectId: resolvedProjectId,
           projectTitle: resolvedProjectTitle,
           correctionText: userText,
           replacesFacts: matchedAcceptedCanonFacts,
           receiptId: pendingCanonCorrectionReceiptId,
+          structuredTargets: writerCanonStructuredTargets,
+          createdAt: structuredCorrectionAt,
         });
       }
     }
     summary.acceptedCanonFactsAmbiguous = ambiguousAcceptedCanonFacts.length;
-    const continuityForWrite = projectCorrection
+    const deferAmbiguousCorrection = ambiguousAcceptedCanonFacts.length > 1;
+    const structuredReplacesFacts = matchedAcceptedCanonFacts.length
+      ? matchedAcceptedCanonFacts
+      : normalizeStringList(projectCorrection?.correctedTerms, 8, 220);
+    const authoritativeProjectFields = deferAmbiguousCorrection
+      ? []
+      : buildAuthoritativeProjectFields({
+        targets: writerCanonStructuredTargets,
+        sourceCorrectionId: structuredCorrectionId,
+        correctionText: userText,
+        replacesFacts: structuredReplacesFacts,
+        createdAt: structuredCorrectionAt,
+      });
+    const continuityForWrite = deferAmbiguousCorrection
+      ? {}
+      : projectCorrection
       ? {
         ...continuitySource,
         correctedTerms: normalizeStringList(
@@ -4373,6 +5072,9 @@ function createCreativeMemoryStore({
           8,
           160
         ),
+        ...(authoritativeProjectFields.length
+          ? { authoritativeFields: authoritativeProjectFields }
+          : {}),
         ...(pendingWriterCanonFact ? { writerCanonFacts: [pendingWriterCanonFact] } : {}),
       }
       : continuitySource;
@@ -4454,6 +5156,9 @@ function createCreativeMemoryStore({
         .map((character) => normalizeCharacterName(character?.name))
         .filter(Boolean));
     const turnCharacterNames = [];
+    const structuredTargetCharacterNames = writerCanonStructuredTargets
+      .filter((target) => target.scope === "character")
+      .map((target) => target.character);
     const rememberCharacterName = async (rawName) => {
       const name = normalizeCharacterName(rawName);
       if (!name) return false;
@@ -4467,11 +5172,37 @@ function createCreativeMemoryStore({
         const traits = traitLines.length || traitHint
           ? extractTraits({ characterName: name, lines: traitLines, hint: traitHint })
           : null;
-        const characterBible = extractCharacterBibleDelta({
-          text: userText,
-          characterName: name,
-          isCorrectionTurn,
-        });
+        let characterBible = deferAmbiguousCorrection
+          ? null
+          : extractCharacterBibleDelta({
+            text: userText,
+            characterName: name,
+            isCorrectionTurn,
+          });
+        const authoritativeFields = deferAmbiguousCorrection
+          ? []
+          : buildAuthoritativeCharacterFields({
+            character: name,
+            targets: writerCanonStructuredTargets,
+            sourceCorrectionId: structuredCorrectionId,
+            correctionText: userText,
+            replacesFacts: structuredReplacesFacts,
+            createdAt: structuredCorrectionAt,
+          });
+        if (authoritativeFields.length) {
+          characterBible = {
+            ...(characterBible || {}),
+            authoritativeFields,
+            corrections: collectCharacterBibleItems(
+              [
+                `Authoritative writer correction for ${name}: ${normalizeWriterCanonAssertion(userText) || cleanText(userText, 220)}`,
+                ...(characterBible?.corrections || []),
+              ],
+              CHARACTER_BIBLE_CORRECTIONS_MAX,
+              260
+            ),
+          };
+        }
         await recordCharacterMention({
           userId,
           characterName: name,
@@ -4491,6 +5222,10 @@ function createCreativeMemoryStore({
       return true;
     };
 
+    for (const targetName of structuredTargetCharacterNames) {
+      if (turnCharacterNames.length >= 8) break;
+      await rememberCharacterName(targetName);
+    }
     for (const declaredName of extractDeclaredCharacterNames(userText)) {
       if (turnCharacterNames.length >= 8) break;
       await rememberCharacterName(declaredName);
@@ -4643,6 +5378,7 @@ function createCreativeMemoryStore({
           matchedFacts: matchedAcceptedCanonFacts,
           replacementFacts: pendingWriterCanonFact ? [pendingWriterCanonFact.fact] : [],
           replacementFactIds: pendingWriterCanonFact ? [pendingWriterCanonFact.id] : [],
+          structuredUpdates: writerCanonStructuredUpdateLabels(writerCanonStructuredTargets),
           correctionMemoryId,
           beforeState: canonCorrectionBeforeState,
         });

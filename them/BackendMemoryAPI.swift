@@ -258,12 +258,24 @@ nonisolated struct BackendCharacterBibleArcMemory: Codable, Hashable {
     }
 }
 
+nonisolated struct BackendAuthoritativeCharacterField: Codable, Hashable {
+    let id: String?
+    let field: String
+    let value: String
+    let source: String?
+    let sourceCorrectionId: String?
+    let correctionText: String?
+    let replacesFacts: [String]?
+    let createdAt: TimeInterval?
+}
+
 nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
     var character: String
     var canon: [String]
     var corrections: [String]
     var correctedTerms: [String]
     var correctionReplacements: [String]
+    var authoritativeFields: [BackendAuthoritativeCharacterField]? = nil
     var arc: BackendCharacterBibleArcMemory?
     var voice: String?
     var tags: [String]?
@@ -274,6 +286,7 @@ nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
          !corrections.isEmpty ||
          !correctedTerms.isEmpty ||
          !correctionReplacements.isEmpty ||
+         !(authoritativeFields ?? []).isEmpty ||
          arc?.isMeaningful == true)
     }
 
@@ -319,6 +332,7 @@ nonisolated struct BackendCanonCorrectionReceipt: Decodable, Hashable {
     let matchedFacts: [String]
     let replacementFacts: [String]?
     let replacementFactIds: [String]?
+    let structuredUpdates: [String]?
     let correctionMemoryId: String?
     let createdAt: TimeInterval
     let undoneAt: TimeInterval?
@@ -1149,6 +1163,7 @@ nonisolated struct BackendAcceptedCausalFact: Decodable, Hashable {
     let authority: String
     let sourceCorrectionId: String
     let replacesFacts: [String]
+    let structuredUpdates: [String]
     let createdAt: TimeInterval
     let sourceSceneHeading: String
     let sourceAct: String
@@ -1164,6 +1179,7 @@ nonisolated struct BackendAcceptedCausalFact: Decodable, Hashable {
         case authority
         case sourceCorrectionId
         case replacesFacts
+        case structuredUpdates
         case createdAt
         case sourceSceneHeading
         case sourceAct
@@ -1177,6 +1193,7 @@ nonisolated struct BackendAcceptedCausalFact: Decodable, Hashable {
         authority = try container.decodeIfPresent(String.self, forKey: .authority) ?? ""
         sourceCorrectionId = try container.decodeIfPresent(String.self, forKey: .sourceCorrectionId) ?? ""
         replacesFacts = try container.decodeIfPresent([String].self, forKey: .replacesFacts) ?? []
+        structuredUpdates = try container.decodeIfPresent([String].self, forKey: .structuredUpdates) ?? []
         createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
         sourceSceneHeading = try container.decodeIfPresent(String.self, forKey: .sourceSceneHeading) ?? ""
         sourceAct = try container.decodeIfPresent(String.self, forKey: .sourceAct) ?? ""

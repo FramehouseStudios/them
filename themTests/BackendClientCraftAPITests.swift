@@ -149,6 +149,7 @@ final class BackendClientCraftAPITests: XCTestCase {
             "matched_facts": ["Mara burns the only copy."],
             "replacement_facts": ["Mara never burns the affidavit. It survives."],
             "replacement_fact_ids": ["writer_canon_123"],
+            "structured_updates": ["Mara.falseBelief: truth will get Eli killed"],
             "correction_memory_id": "episode_correction",
             "created_at": 1800000000000,
             "undone_at": null
@@ -167,6 +168,7 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(receipt.matchedFacts, ["Mara burns the only copy."])
         XCTAssertEqual(receipt.replacementFacts, ["Mara never burns the affidavit. It survives."])
         XCTAssertEqual(receipt.replacementFactIds, ["writer_canon_123"])
+        XCTAssertEqual(receipt.structuredUpdates, ["Mara.falseBelief: truth will get Eli killed"])
         XCTAssertEqual(receipt.correctionMemoryId, "episode_correction")
     }
 
@@ -178,6 +180,7 @@ final class BackendClientCraftAPITests: XCTestCase {
           "authority": "writer_correction",
           "source_correction_id": "canon_correction_123",
           "replaces_facts": ["Mara burns the only copy of the affidavit."],
+          "structured_updates": ["unresolvedSetups: the affidavit survives in Eli's ferry locker"],
           "created_at": 1800000000000,
           "age_in_scenes": 0
         }
@@ -192,6 +195,7 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(fact.authority, "writer_correction")
         XCTAssertEqual(fact.sourceCorrectionId, "canon_correction_123")
         XCTAssertEqual(fact.replacesFacts, ["Mara burns the only copy of the affidavit."])
+        XCTAssertEqual(fact.structuredUpdates, ["unresolvedSetups: the affidavit survives in Eli's ferry locker"])
         XCTAssertEqual(fact.createdAt, 1800000000000)
     }
 
@@ -224,6 +228,16 @@ final class BackendClientCraftAPITests: XCTestCase {
             "corrections": ["Authoritative correction for Mara: sister, not mother."],
             "corrected_terms": ["mother"],
             "correction_replacements": ["mother -> Eli's sister"],
+            "authoritative_fields": [{
+              "id": "character_field_1",
+              "field": "falseBelief",
+              "value": "truth will get Eli killed",
+              "source": "writer_correction",
+              "source_correction_id": "canon_correction_1",
+              "correction_text": "Actually, Mara's false belief is that truth will get Eli killed.",
+              "replaces_facts": ["Mara believes perfect proof keeps everyone safe."],
+              "created_at": 1800000000000
+            }],
             "arc": {
               "act": "Act II",
               "want": "expose the forged testimony",
@@ -249,6 +263,8 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(bible.character, "Mara")
         XCTAssertEqual(bible.arc?.falseBelief, "truth will get Eli killed")
         XCTAssertEqual(bible.arc?.nextEmotionalTurn, "public courage")
+        XCTAssertEqual(bible.authoritativeFields?.first?.field, "falseBelief")
+        XCTAssertEqual(bible.authoritativeFields?.first?.sourceCorrectionId, "canon_correction_1")
 
         let payload = bible.payload
         XCTAssertEqual(payload["character"] as? String, "Mara")

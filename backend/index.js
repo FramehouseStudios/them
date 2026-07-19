@@ -63,7 +63,10 @@ import {
   runOutboxWorkerTick,
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
-import { createCreativeMemoryStore } from "./lib/creative_memory_store.js";
+import {
+  createCreativeMemoryStore,
+  extractWriterCanonStructuredTargets,
+} from "./lib/creative_memory_store.js";
 import { mountMemoryCharacterMentionRoute } from "./lib/memory_character_mention_route.js";
 import { mountCharacterTraitRoute } from "./lib/character_trait_route.js";
 import { mountArchetypeRoute } from "./lib/archetype_route.js";
@@ -3663,6 +3666,11 @@ function buildCreativeMemoryPromptTrace(memory = null, {
         8,
         220
       ),
+      structured_updates: normalizeScreenplayStringList(
+        item?.structuredUpdates ?? item?.structured_updates,
+        8,
+        220
+      ),
       created_at: Math.max(0, Number(item?.createdAt ?? item?.created_at ?? 0)),
       source_scene_heading: normalizeSnippet(item?.sourceSceneHeading ?? item?.source_scene_heading, 140),
       source_act: normalizeSnippet(item?.sourceAct ?? item?.source_act, 80),
@@ -3992,6 +4000,11 @@ function buildSessionContinuitySnapshot(memory = null, creativeMemory = null) {
       ),
       replaces_facts: normalizeScreenplayStringList(
         item?.replacesFacts ?? item?.replaces_facts,
+        8,
+        220
+      ),
+      structured_updates: normalizeScreenplayStringList(
+        item?.structuredUpdates ?? item?.structured_updates,
         8,
         220
       ),
@@ -16490,7 +16503,7 @@ function advanceScreenplayRunwayAfterAcceptedWrite({
   );
 }
 
-const SCREENPLAY_MEMORY_CORRECTION_PATTERN = /\b(?:actually,?\s*no|correction|scratch that|not that|retcon|change it to|make it so|instead)\b/i;
+const SCREENPLAY_MEMORY_CORRECTION_PATTERN = /\b(?:actually(?:,?\s*no)?|correction|scratch that|not that|retcon|change it to|make it so|instead)\b/i;
 
 function normalizeScreenplayCorrectionTerm(value = "", maxChars = 120) {
   return normalizeSnippet(value, maxChars)
@@ -16526,6 +16539,14 @@ function collectScreenplayCorrectionItems(items = []) {
 
 function extractScreenplayReplacementTermBeforeNot(text = "", notIndex = -1) {
   const beforeNot = String(text || "").slice(0, Math.max(0, notIndex));
+  const latestClause = beforeNot.split(/[.!?;]/).at(-1)?.trim() || "";
+  const explicitValue = latestClause.match(
+    /\b(?:is|should\s+be|=)\s+(?:a|an|the)?\s*([^,]{2,140}?)\s*,?$/i
+  );
+  if (explicitValue?.[1]) {
+    const candidate = normalizeScreenplayCorrectionTerm(explicitValue[1], 120);
+    if (candidate) return candidate;
+  }
   const articlePattern = /\b(?:a|an|the)\s+([A-Za-z0-9][A-Za-z0-9'-]*(?:\s+[A-Za-z0-9][A-Za-z0-9'-]*){0,3})/gi;
   const matches = [...beforeNot.matchAll(articlePattern)];
   for (const match of matches.reverse()) {
@@ -16544,7 +16565,7 @@ function extractScreenplayMemoryCorrection(transcript = "") {
   const raw = normalizeSnippet(transcript, 1_200);
   if (!raw || !SCREENPLAY_MEMORY_CORRECTION_PATTERN.test(raw)) return null;
   let correctedFact = raw
-    .replace(/^\s*(?:actually,?\s*no,?|no,?|correction:?|scratch that,?|retcon:?|not that,?)\s*/i, "")
+    .replace(/^\s*(?:actually(?:,?\s*no)?,?|no,?|correction:?|scratch that,?|retcon:?|not that,?)\s*/i, "")
     .trim();
   if (!correctedFact) correctedFact = raw;
 
@@ -17209,6 +17230,17 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
     targetPages: studio.screenplayTargetPages,
   });
   const correction = extractScreenplayMemoryCorrection(transcript);
+  const correctionStructuredTargets = correction?.correctedFact
+    ? extractWriterCanonStructuredTargets({
+      correctionText: transcript,
+      knownCharacterNames: studio.screenplayCharacterFocus,
+    })
+    : [];
+  const projectCorrectionTargets = correctionStructuredTargets
+    .filter((target) => target.scope === "project");
+  const correctionTargetValue = (field) => (
+    projectCorrectionTargets.find((target) => target.field === field)?.value || ""
+  );
   const characterArcContinuity = buildScreenplayCharacterArcMemoryContinuity(
     collectScreenplayCharacterArcMemories(studio)
   );
@@ -17385,6 +17417,18 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       correction
     )
     : [];
+  const explicitCorrectionSetups = projectCorrectionTargets
+    .filter((target) => target.field === "unresolvedSetups")
+    .map((target) => target.value);
+  const explicitCorrectionThreads = projectCorrectionTargets
+    .filter((target) => target.field === "unresolvedStoryThreads")
+    .map((target) => target.value);
+  const explicitCorrectionPayoffs = projectCorrectionTargets
+    .filter((target) => target.field === "actThreePayoffPath")
+    .map((target) => target.value);
+  const structuredCorrectionNotes = projectCorrectionTargets.map((target) => (
+    `Authoritative writer correction [${target.field}]: ${target.value}`
+  ));
   const correctionRecord = correction?.correctedFact
     ? {
       projectId: studio.screenplayProjectId,
@@ -17395,6 +17439,11 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       sceneObjective: "",
       sceneSummary: correction.correctedFact,
       currentBeat: correction.correctedFact,
+      themeArgument: correctionTargetValue("themeArgument"),
+      centralQuestion: correctionTargetValue("centralQuestion"),
+      protagonistWant: correctionTargetValue("protagonistWant"),
+      protagonistNeed: correctionTargetValue("protagonistNeed"),
+      endingImage: correctionTargetValue("endingImage"),
       featureSequence: studio.screenplayFeatureSequence || position.featureSequence,
       featureObligation: studio.screenplayFeatureObligation || position.featureObligation,
       actPressureState: correction.correctedFact,
@@ -17403,11 +17452,21 @@ function buildScreenplayProjectMemoryRecordFromStudioMeta(
       nextScenePlan: `Honor the user's correction before continuing: ${correction.correctedFact}`,
       nextSceneMoves: [`Honor correction: ${correction.correctedFact}`],
       nextThreeTurns: [`Honor correction: ${correction.correctedFact}`],
-      unresolvedSetups: correctionSetups,
-      unresolvedStoryThreads: correction.correctedFact ? [`Correction to honor: ${correction.correctedFact}`] : [],
+      actThreePayoffPath: explicitCorrectionPayoffs,
+      unresolvedSetups: explicitCorrectionSetups.length
+        ? explicitCorrectionSetups
+        : correctionSetups,
+      unresolvedStoryThreads: explicitCorrectionThreads.length
+        ? explicitCorrectionThreads
+        : (correction.correctedFact ? [`Correction to honor: ${correction.correctedFact}`] : []),
       characterArcTurns: correction.correctedFact ? [`Correction to honor: ${correction.correctedFact}`] : [],
       imageMotifs: correctionMotifs,
-      continuityNotes: [`Authoritative user correction: ${correction.correctionNote || correction.correctedFact}`],
+      continuityNotes: mergeScreenplayProjectMemoryList(
+        [`Authoritative user correction: ${correction.correctionNote || correction.correctedFact}`],
+        structuredCorrectionNotes,
+        8,
+        220
+      ),
       correctedTerms: correction.correctedTerms,
       correctionReplacements: correction.correctionReplacements,
       emotionalContinuity: correction.correctedFact,
@@ -17558,7 +17617,12 @@ function mergeScreenplayProjectMemoryRecords(existingRecord, incomingRecord, now
   }
 
   for (const [field, maxItems, maxChars] of SCREENPLAY_PROJECT_MEMORY_LIST_FIELDS) {
-    let existingItems = isCorrectionMerge
+    const authoritativeFieldCorrection = (incoming.continuityNotes || []).some((note) => (
+      note.includes(`Authoritative writer correction [${field}]`)
+    ));
+    let existingItems = authoritativeFieldCorrection
+      ? []
+      : isCorrectionMerge
       && !["correctedTerms", "correctionReplacements"].includes(field)
       ? filterScreenplayCorrectionList(existing[field], correction)
       : existing[field];
@@ -17703,16 +17767,6 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
         correctionContract,
         corrections.trim(),
         item.act ? `act:${item.act}` : "",
-        item.sceneLabel ? `scene:${item.sceneLabel}` : "",
-        item.currentBeat ? `current_beat:${item.currentBeat}` : "",
-        characters.trim(),
-        setups.trim(),
-        storyThreads.trim(),
-        nextTurns.trim(),
-        actProgress.trim(),
-        payoffPath.trim(),
-        arcTurns.trim(),
-        motifs.trim(),
         item.logline ? `logline:${item.logline}` : "",
         item.themeArgument ? `theme:${item.themeArgument}` : "",
         item.centralQuestion ? `central_question:${item.centralQuestion}` : "",
@@ -17720,6 +17774,16 @@ function formatScreenplayProjectMemoryForPrompt(memory, maxItems = SCREENPLAY_PR
         item.protagonistNeed ? `need:${item.protagonistNeed}` : "",
         item.antagonisticForce ? `opposition:${item.antagonisticForce}` : "",
         item.endingImage ? `ending_image:${item.endingImage}` : "",
+        payoffPath.trim(),
+        setups.trim(),
+        storyThreads.trim(),
+        item.sceneLabel ? `scene:${item.sceneLabel}` : "",
+        item.currentBeat ? `current_beat:${item.currentBeat}` : "",
+        characters.trim(),
+        nextTurns.trim(),
+        actProgress.trim(),
+        arcTurns.trim(),
+        motifs.trim(),
         item.sceneObjective ? `objective:${item.sceneObjective}` : "",
         item.sceneSummary ? `scene_summary:${item.sceneSummary}` : "",
         item.emotionalContinuity ? `emotional_continuity:${item.emotionalContinuity}` : "",
@@ -29759,13 +29823,43 @@ function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now(
     const corrections = normalizeCharacterBibleCardList(bible?.corrections, 4, 260);
     const correctedTerms = normalizeCharacterBibleCardList(bible?.correctedTerms, 5, 120);
     const correctionReplacements = normalizeCharacterBibleCardList(bible?.correctionReplacements, 5, 180);
+    const authoritativeFields = (Array.isArray(bible?.authoritativeFields)
+      ? bible.authoritativeFields
+      : [])
+      .map((item) => {
+        const field = normalizeSnippet(item?.field, 48);
+        const value = normalizeSnippet(item?.value, 180);
+        if (!field || !value) return null;
+        return {
+          id: normalizeSnippet(item?.id, 96),
+          field,
+          value,
+          source: normalizeSnippet(item?.source, 48),
+          source_correction_id: normalizeSnippet(
+            item?.sourceCorrectionId ?? item?.source_correction_id,
+            96
+          ),
+          correction_text: normalizeSnippet(
+            item?.correctionText ?? item?.correction_text,
+            600
+          ),
+          replaces_facts: normalizeCharacterBibleCardList(
+            item?.replacesFacts ?? item?.replaces_facts,
+            8,
+            220
+          ),
+          created_at: Math.max(0, Number(item?.createdAt ?? item?.created_at ?? 0)),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 8);
     const arc = normalizeCharacterBibleCardArc(bible?.arc);
     const voice = normalizeSnippet(character?.voice, 140);
     const tags = normalizeCharacterBibleCardList(character?.tags, 8, 48);
     const traitKeywords = normalizeCharacterBibleCardList(traits?.keywords, 5, 80);
     const hasArc = Object.keys(arc).length > 0;
     const hasSignal = canon.length || corrections.length || correctedTerms.length ||
-      correctionReplacements.length || hasArc || voice || traitKeywords.length;
+      correctionReplacements.length || authoritativeFields.length || hasArc || voice || traitKeywords.length;
     if (!hasSignal) continue;
 
     const summaryParts = [
@@ -29808,7 +29902,12 @@ function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now(
         )
       ),
       editable: true,
-      snippets: [...corrections, ...canon, ...traitKeywords.map((item) => `Trait: ${item}`)].slice(0, 4),
+      snippets: [
+        ...authoritativeFields.map((item) => `Authoritative ${item.field}: ${item.value}`),
+        ...corrections,
+        ...canon,
+        ...traitKeywords.map((item) => `Trait: ${item}`),
+      ].slice(0, 4),
       referenceHint: normalizeSnippet(arc.next_emotional_turn || arc.current_tactic || canon[0] || "", 140),
       source: "character_bible",
       character_bible: {
@@ -29817,6 +29916,7 @@ function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now(
         corrections,
         corrected_terms: correctedTerms,
         correction_replacements: correctionReplacements,
+        authoritative_fields: authoritativeFields,
         arc,
         voice,
         tags,
@@ -29866,6 +29966,11 @@ function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.no
       8,
       96
     );
+    const structuredUpdates = normalizeCharacterBibleCardList(
+      receipt?.structuredUpdates ?? receipt?.structured_updates,
+      16,
+      260
+    );
     const correctionMemoryId = normalizeSnippet(
       receipt?.correctionMemoryId ?? receipt?.correction_memory_id,
       80
@@ -29902,6 +30007,7 @@ function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.no
       snippets: [
         matchedFacts.length ? `Changed canon: ${matchedFacts.join(" / ")}` : "",
         replacementFacts.length ? `Authoritative now: ${replacementFacts.join(" / ")}` : "",
+        structuredUpdates.length ? `Updated story bible: ${structuredUpdates.join(" / ")}` : "",
         correctionText ? `Writer correction: ${correctionText}` : "",
       ].filter(Boolean),
       referenceHint: replacementFacts[0] || matchedFacts[0] || correctionText,
@@ -29919,6 +30025,7 @@ function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.no
         matched_facts: matchedFacts,
         replacement_facts: replacementFacts,
         replacement_fact_ids: replacementFactIds,
+        structured_updates: structuredUpdates,
         correction_memory_id: correctionMemoryId,
         created_at: createdAt,
         undone_at: undoneAt || null,

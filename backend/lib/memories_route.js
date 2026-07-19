@@ -201,6 +201,9 @@ function mountMemoriesRoutes(app, deps = {}) {
       replacement_fact_ids: Array.isArray(receipt.replacementFactIds)
         ? receipt.replacementFactIds
         : [],
+      structured_updates: Array.isArray(receipt.structuredUpdates)
+        ? receipt.structuredUpdates
+        : [],
       correction_memory_id: String(receipt.correctionMemoryId || ""),
       created_at: Math.max(0, Number(receipt.createdAt || 0)),
       undone_at: Math.max(0, Number(receipt.undoneAt || 0)) || null,

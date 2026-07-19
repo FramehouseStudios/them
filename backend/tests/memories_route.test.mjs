@@ -596,6 +596,7 @@ test("[memories] POST /memories/corrections/undo restores one authenticated corr
             matchedFacts: ["Mara burns the affidavit."],
             replacementFacts: ["Mara never burns the affidavit."],
             replacementFactIds: ["writer_canon_123"],
+            structuredUpdates: ["unresolvedSetups: the affidavit survives"],
             correctionMemoryId: "episode-correction",
             createdAt: 1715620920000,
             undoneAt: 1715620980000,
@@ -616,6 +617,9 @@ test("[memories] POST /memories/corrections/undo restores one authenticated corr
     assert.deepEqual(r.body.correction_receipt.matched_facts, ["Mara burns the affidavit."]);
     assert.deepEqual(r.body.correction_receipt.replacement_facts, ["Mara never burns the affidavit."]);
     assert.deepEqual(r.body.correction_receipt.replacement_fact_ids, ["writer_canon_123"]);
+    assert.deepEqual(r.body.correction_receipt.structured_updates, [
+      "unresolvedSetups: the affidavit survives",
+    ]);
   });
   assert.equal(deps._calls.resolveWritableMemoryContext, 1);
   assert.equal(deps._calls.persistWritableMemoryContext, 1);
@@ -701,6 +705,7 @@ test("[memories] POST /memories/corrections/resolve applies an authenticated wri
             matchedFacts: args.selectedFacts,
             replacementFacts: ["Mara never abandons anyone at the ferry dock."],
             replacementFactIds: ["writer_canon_resolved"],
+            structuredUpdates: ["Mara.falseBelief: abandonment is inevitable"],
             correctionMemoryId: "episode-resolution",
             createdAt: 1715620980000,
           },
@@ -730,6 +735,9 @@ test("[memories] POST /memories/corrections/resolve applies an authenticated wri
       "Mara never abandons anyone at the ferry dock.",
     ]);
     assert.deepEqual(r.body.correction_receipt.replacement_fact_ids, ["writer_canon_resolved"]);
+    assert.deepEqual(r.body.correction_receipt.structured_updates, [
+      "Mara.falseBelief: abandonment is inevitable",
+    ]);
   });
   assert.deepEqual(calls, [{
     userId: "user_memories_test",

@@ -2,7 +2,7 @@
 //
 // Eval skeleton for the creative memory tier (T08).
 //
-// Five regression cases:
+// Seven regression cases:
 //   1. memory-absent — cold user; the assembled prompt must NOT
 //      include a creative_memory block.
 //   2. memory-present — seeded user; the prompt must include a
@@ -16,6 +16,8 @@
 //      only after Studio reports that exact page as committed.
 //   6. replacement-canon — an explicit writer correction replaces accepted
 //      page truth and survives a cold store restore with provenance.
+//   7. structured-canon — explicit Character Bible and Story Spine corrections
+//      survive stale client sync and a cold store restore.
 //
 // This is a deterministic, fast eval — no LLM call. It guards the
 // PROMPT-CONSTRUCTION path. LLM-output evals (does the model use the
@@ -318,12 +320,110 @@ async function caseReplacementCanonRestore() {
   );
 }
 
+async function caseStructuredCanonRestore() {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  await store.recordCharacterMention({
+    userId: "structured-canon-user",
+    characterName: "Mara",
+    metadata: { projectId: "blue-key", projectTitle: "Blue Key" },
+    characterBible: { arc: { falseBelief: "perfect proof can save everyone" } },
+  });
+  await store.recordProjectContinuity({
+    userId: "structured-canon-user",
+    continuity: {
+      projectId: "blue-key",
+      projectTitle: "Blue Key",
+      unresolvedSetups: ["The destroyed blue key"],
+      actThreePayoffPath: ["Mara finds another way into the archive"],
+    },
+  });
+  const page = "INT. ARCHIVE - NIGHT\n\nMara destroys the blue key before leaving.";
+  await store.recordTriggersFromTalkTurn({
+    userId: "structured-canon-user",
+    transcript: "Commit the archive scene.",
+    reply: page,
+    acceptedPageText: page,
+    acceptedSceneContext: { anchorSceneId: "scene-archive" },
+    projectId: "blue-key",
+    projectTitle: "Blue Key",
+    source: "talk_screenplay_output",
+  });
+
+  const correction = await store.recordTriggersFromTalkTurn({
+    userId: "structured-canon-user",
+    transcript: "Actually, Mara never destroys the blue key. Mara's false belief is that truth will get Eli killed, not that perfect proof can save everyone. The unresolved setup is the blue key in Eli's locker. The Act III payoff is Mara uses the blue key to open the sealed archive.",
+    projectId: "blue-key",
+    projectTitle: "Blue Key",
+    source: "talk_turn",
+  });
+
+  await store.recordCharacterMention({
+    userId: "structured-canon-user",
+    characterName: "Mara",
+    metadata: { projectId: "blue-key", projectTitle: "Blue Key" },
+    characterBible: { arc: { falseBelief: "perfect proof can save everyone" } },
+  });
+  await store.recordProjectContinuity({
+    userId: "structured-canon-user",
+    continuity: {
+      projectId: "blue-key",
+      projectTitle: "Blue Key",
+      unresolvedSetups: ["The destroyed blue key"],
+      actThreePayoffPath: ["Mara finds another way into the archive"],
+    },
+  });
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "structured-canon-user",
+    projectId: "blue-key",
+    projectTitle: "Blue Key",
+    query: "Continue Mara toward the blue-key payoff.",
+  });
+  const mara = memory?.characters?.find((character) => character.name === "Mara");
+  const project = memory?.projectContinuity;
+  const structuredUpdates = memory?.acceptedCausalFacts?.flatMap((item) => (
+    Array.isArray(item.structuredUpdates) ? item.structuredUpdates : []
+  )) || [];
+  const prompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: memory,
+    userInput: "Continue Mara's screenplay.",
+  });
+
+  check(
+    "structured-canon: correction promotes Character Bible authority with provenance",
+    correction.corrections === 1 &&
+      mara?.bible?.arc?.falseBelief === "truth will get Eli killed" &&
+      mara?.bible?.authoritativeFields?.[0]?.sourceCorrectionId,
+    `correction: ${JSON.stringify(correction)}\ncharacter: ${JSON.stringify(mara)}`,
+  );
+  check(
+    "structured-canon: stale client sync cannot revive replaced story fields",
+    JSON.stringify(project?.unresolvedSetups) === JSON.stringify(["the blue key in Eli's locker"]) &&
+      JSON.stringify(project?.actThreePayoffPath) === JSON.stringify([
+        "Mara uses the blue key to open the sealed archive",
+      ]),
+    `project: ${JSON.stringify(project)}`,
+  );
+  check(
+    "structured-canon: cold prompt restores explicit writer fields",
+    structuredUpdates.includes("Mara.falseBelief: truth will get Eli killed") &&
+      prompt.includes("authoritative_fields:") &&
+      prompt.includes("the blue key in Eli's locker") &&
+      prompt.includes("Mara uses the blue key to open the sealed archive"),
+    `updates: ${JSON.stringify(structuredUpdates)}\nprompt:\n${prompt}`,
+  );
+}
+
 await caseColdUser();
 await caseSeededUser();
 await caseSemanticLegacyBackfill();
 await caseWriterCanonAuthority();
 await caseAcceptedPagePromotion();
 await caseReplacementCanonRestore();
+await caseStructuredCanonRestore();
 
 if (!allOK) {
   console.error("creative memory eval: FAILED");

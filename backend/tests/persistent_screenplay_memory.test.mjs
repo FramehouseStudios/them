@@ -324,6 +324,16 @@ test("[persistent-screenplay-memory] buildMemoryCards exposes structured charact
             corrections: ["Authoritative correction for Mara: sister, not mother."],
             correctedTerms: ["mother"],
             correctionReplacements: ["mother -> Eli's sister"],
+            authoritativeFields: [{
+              id: "character_field_1",
+              field: "falseBelief",
+              value: "truth will get Eli killed",
+              source: "writer_correction",
+              sourceCorrectionId: "canon_correction_123",
+              correctionText: "Actually, Mara's false belief is that truth will get Eli killed.",
+              replacesFacts: ["Mara believes perfect proof can save everyone."],
+              createdAt: 1_800_000_000_000,
+            }],
             arc: {
               act: "Act II",
               want: "expose the forged testimony",
@@ -353,6 +363,12 @@ test("[persistent-screenplay-memory] buildMemoryCards exposes structured charact
   assert.equal(card.character_bible.arc.false_belief, "truth will get Eli killed");
   assert.equal(card.character_bible.arc.next_emotional_turn, "public courage");
   assert.deepEqual(card.character_bible.correction_replacements, ["mother -> Eli's sister"]);
+  assert.equal(card.character_bible.authoritative_fields[0].field, "falseBelief");
+  assert.equal(
+    card.character_bible.authoritative_fields[0].source_correction_id,
+    "canon_correction_123"
+  );
+  assert.ok(card.snippets.some((item) => /Authoritative falseBelief:/i.test(item)));
   assert.match(card.summary, /Want: expose the forged testimony/);
 });
 
@@ -432,6 +448,7 @@ test("[persistent-screenplay-memory] canon correction receipts replace duplicate
         matchedFacts: ["Mara burns the only copy before the cameras arrive."],
         replacementFacts: ["Mara never burns the affidavit. It survives."],
         replacementFactIds: ["writer_canon_123"],
+        structuredUpdates: ["unresolvedSetups: the surviving affidavit"],
         correctionMemoryId: "episode_correction",
         createdAt: 1_800_000_000_000,
       }],
@@ -460,6 +477,10 @@ test("[persistent-screenplay-memory] canon correction receipts replace duplicate
     "Mara never burns the affidavit. It survives.",
   ]);
   assert.deepEqual(receipt.correction_receipt.replacement_fact_ids, ["writer_canon_123"]);
+  assert.deepEqual(receipt.correction_receipt.structured_updates, [
+    "unresolvedSetups: the surviving affidavit",
+  ]);
+  assert.ok(receipt.snippets.some((item) => /Updated story bible:/i.test(item)));
   assert.ok(receipt.snippets.some((item) => /Authoritative now:/i.test(item)));
   assert.match(receipt.summary, /never burns the affidavit/i);
   assert.equal(cards.some((card) => card.source === "episodic_correction"), false);
@@ -875,6 +896,66 @@ test("[persistent-screenplay-memory] correction turns repair stale project conti
 
   assert.deepEqual(memory.screenplayProjectMemory[0].correctionReplacements, ["cassette -> VHS tape"]);
   assert.doesNotMatch(buildMemoryAddendum(memory), /VHS tape -> VHS tape/);
+});
+
+test("[persistent-screenplay-memory] explicit corrections promote authoritative Story Spine fields", () => {
+  const firstTs = 1_800_000_600_000;
+  const secondTs = firstTs + 2_000;
+  let memory = createEmptyEmotionMemory();
+
+  memory = withMockedNow(firstTs, () => updateSessionAfterReply(
+    memory,
+    "Keep the blue-key setup alive for Act III.",
+    "The blue key remains under the archive floorboard.",
+    false,
+    {
+      screenplayProjectId: "blue-key",
+      screenplayProjectTitle: "Blue Key",
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act II",
+      screenplayThemeArgument: "Safety matters more than truth.",
+      screenplayEndingImage: "Mara seals the archive forever.",
+      screenplayUnresolvedSetups: ["The blue key under the archive floorboard"],
+      screenplayUnresolvedStoryThreads: ["Whether Eli knows about the blue key"],
+      screenplayActThreePayoffPath: ["Mara finds another way into the archive"],
+    }
+  ));
+
+  memory = withMockedNow(secondTs, () => updateSessionAfterReply(
+    memory,
+    [
+      "Actually, the unresolved setup is the red key inside Mara's locket, not the blue key under the archive floorboard.",
+      "The unresolved story thread is whether Eli knows Mara stole the red key.",
+      "The Act III payoff is Mara uses the red key to open the sealed archive.",
+      "The theme argument is truth without courage becomes another kind of lie.",
+      "The ending image is Mara hands Eli the opened archive box.",
+    ].join(" "),
+    "Understood. The red key and its archive payoff are now canon.",
+    false,
+    {
+      screenplayProjectId: "blue-key",
+      screenplayProjectTitle: "Blue Key",
+      screenplayTarget: "voice_pin",
+      screenplayAct: "Act II",
+    }
+  ));
+
+  const repaired = memory.screenplayProjectMemory[0];
+  assert.equal(repaired.themeArgument, "truth without courage becomes another kind of lie");
+  assert.equal(repaired.endingImage, "Mara hands Eli the opened archive box");
+  assert.equal(repaired.unresolvedSetups[0], "the red key inside Mara's locket");
+  assert.equal(repaired.unresolvedStoryThreads[0], "whether Eli knows Mara stole the red key");
+  assert.equal(repaired.actThreePayoffPath[0], "Mara uses the red key to open the sealed archive");
+  assert.ok(repaired.continuityNotes.some((note) => (
+    /Authoritative writer correction \[actThreePayoffPath\]/.test(note)
+  )));
+
+  const prompt = buildMemoryAddendum(memory);
+  assert.match(prompt, /theme:truth without courage becomes another kind of lie/);
+  assert.match(prompt, /ending_image:Mara hands Eli the opened archive box/);
+  assert.match(prompt, /open_setups:the red key inside Mara's locket/);
+  assert.match(prompt, /story_threads:whether Eli knows Mara stole the red key/);
+  assert.match(prompt, /act3_payoff_path:Mara uses the red key to open the sealed archive/);
 });
 
 test("[persistent-screenplay-memory] character arc memory becomes durable Story Spine recall", () => {
