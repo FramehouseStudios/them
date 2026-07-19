@@ -478,6 +478,7 @@ test("[turn-commit] returns a canon clarification only after its durable memory 
         "Mara abandons June at the east ferry dock.",
       ],
       selected_fact: null,
+      selected_facts: [],
       receipt_id: null,
       created_at: 1_725_000_000_000,
       resolved_at: null,

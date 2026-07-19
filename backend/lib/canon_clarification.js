@@ -29,6 +29,7 @@ function buildCanonClarificationPayload(memoryWriteSummary = null) {
     candidate_facts: candidateFacts,
     ...(correctionMemoryId ? { correction_memory_id: correctionMemoryId } : {}),
     selected_fact: null,
+    selected_facts: [],
     receipt_id: null,
     created_at: createdAt,
     resolved_at: null,

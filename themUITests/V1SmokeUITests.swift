@@ -84,13 +84,19 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(companion.otherElements["canon.clarification.card"].waitForExistence(timeout: 8))
         XCTAssertTrue(staticText(containing: "Mara goes back for both", in: companion).exists)
         XCTAssertEqual(companion.buttons.matching(identifier: "canon.clarification.fact").count, 2)
+        let apply = companion.buttons["canon.clarification.apply"]
+        XCTAssertTrue(apply.exists)
+        XCTAssertFalse(apply.isEnabled)
+        companion.buttons["canon.clarification.select-all"].tap()
+        XCTAssertTrue(apply.isEnabled)
+        XCTAssertTrue(staticText(containing: "2 selected", in: companion).exists)
         companion.buttons["canon.clarification.later"].tap()
         XCTAssertFalse(companion.otherElements["canon.clarification.card"].waitForExistence(timeout: 1))
         companion.terminate()
 
         let studio = launchApp(openStudio: true, showCanonClarification: true)
         XCTAssertTrue(studio.otherElements["canon.clarification.card"].waitForExistence(timeout: 8))
-        XCTAssertTrue(staticText(containing: "Which existing story fact", in: studio).exists)
+        XCTAssertTrue(staticText(containing: "Which existing story facts", in: studio).exists)
     }
 
     @MainActor

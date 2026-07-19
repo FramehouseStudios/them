@@ -330,11 +330,11 @@ final class MemoriesViewModel: ObservableObject {
         await load(force: true, sinceVersion: nil)
     }
 
-    func resolveCanonCorrection(ambiguityID: String, selectedFact: String) async throws {
+    func resolveCanonCorrection(ambiguityID: String, selectedFacts: [String]) async throws {
         _ = try? await BackendMemoryAPI.shared.bootstrapSession()
         let result = try await BackendMemoryAPI.shared.resolveCanonCorrection(
             ambiguityID: ambiguityID,
-            selectedFact: selectedFact
+            selectedFacts: selectedFacts
         )
         lastSync = result.sync
         if !result.sync.stateVersion.isEmpty {
@@ -765,10 +765,10 @@ struct MemoriesScreen: View {
                         onUndoCorrection: { receipt in
                             try await vm.undoCanonCorrection(receiptID: receipt.id)
                         },
-                        onResolveCorrection: { ambiguity, selectedFact in
+                        onResolveCorrection: { ambiguity, selectedFacts in
                             try await vm.resolveCanonCorrection(
                                 ambiguityID: ambiguity.id,
-                                selectedFact: selectedFact
+                                selectedFacts: selectedFacts
                             )
                         },
                         onQualitySignal: { target, signal in
@@ -1510,7 +1510,7 @@ struct MemoryDetailView: View {
     let onSave: (MemoryItem) async throws -> MemoryItem
     let onForget: (MemoryItem) async throws -> Void
     let onUndoCorrection: (BackendCanonCorrectionReceipt) async throws -> Void
-    let onResolveCorrection: (BackendCanonCorrectionAmbiguity, String) async throws -> Void
+    let onResolveCorrection: (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void
     let onQualitySignal: (MemoryItem, String) async throws -> MemoryItem
     let onPromote: (MemoryItem) async throws -> MemoryItem
 
@@ -1531,7 +1531,7 @@ struct MemoryDetailView: View {
         onSave: @escaping (MemoryItem) async throws -> MemoryItem,
         onForget: @escaping (MemoryItem) async throws -> Void,
         onUndoCorrection: @escaping (BackendCanonCorrectionReceipt) async throws -> Void,
-        onResolveCorrection: @escaping (BackendCanonCorrectionAmbiguity, String) async throws -> Void,
+        onResolveCorrection: @escaping (BackendCanonCorrectionAmbiguity, [String]) async throws -> Void,
         onQualitySignal: @escaping (MemoryItem, String) async throws -> MemoryItem,
         onPromote: @escaping (MemoryItem) async throws -> MemoryItem
     ) {
@@ -1578,8 +1578,8 @@ struct MemoryDetailView: View {
                             onUndo: {
                                 Task { await undoCurrentCorrection() }
                             },
-                            onResolve: { selectedFact in
-                                Task { await resolveCurrentCorrection(selectedFact: selectedFact) }
+                            onResolve: { selectedFacts in
+                                Task { await resolveCurrentCorrection(selectedFacts: selectedFacts) }
                             }
                         )
                     }
@@ -1853,15 +1853,22 @@ struct MemoryDetailView: View {
     }
 
     @MainActor
-    private func resolveCurrentCorrection(selectedFact: String) async {
+    private func resolveCurrentCorrection(selectedFacts: [String]) async {
         guard let ambiguity = currentItem.correctionAmbiguity, ambiguity.isPending else {
             errorText = "This correction choice is no longer pending."
+            return
+        }
+        let cleanFacts = selectedFacts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && ambiguity.candidateFacts.contains($0) }
+        guard !cleanFacts.isEmpty else {
+            errorText = "Choose at least one accepted canon fact."
             return
         }
         isResolvingCorrection = true
         defer { isResolvingCorrection = false }
         do {
-            try await onResolveCorrection(ambiguity, selectedFact)
+            try await onResolveCorrection(ambiguity, cleanFacts)
             errorText = ""
             dismiss()
         } catch {
@@ -1910,7 +1917,22 @@ private struct MemoryRepairDetailSection: View {
     let isUndoing: Bool
     let isResolving: Bool
     let onUndo: () -> Void
-    let onResolve: (String) -> Void
+    let onResolve: ([String]) -> Void
+
+    @State private var selectedFacts: Set<String> = []
+
+    private var pendingCandidates: [String] {
+        guard let ambiguity = item.correctionAmbiguity, ambiguity.isPending else { return [] }
+        return ambiguity.candidateFacts
+    }
+
+    private var orderedSelection: [String] {
+        pendingCandidates.filter(selectedFacts.contains)
+    }
+
+    private var allCandidatesSelected: Bool {
+        !pendingCandidates.isEmpty && orderedSelection.count == pendingCandidates.count
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1952,16 +1974,43 @@ private struct MemoryRepairDetailSection: View {
 
             if let ambiguity = item.correctionAmbiguity, ambiguity.isPending {
                 repairLine("Writer correction", value: ambiguity.correctionText)
-                Text("Which accepted fact did you mean?")
+                Text("Which accepted facts should this correction replace?")
                     .font(.system(size: 12, weight: .semibold, design: .default))
                     .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.72))
 
+                HStack(spacing: 12) {
+                    Button {
+                        if allCandidatesSelected {
+                            selectedFacts.removeAll()
+                        } else {
+                            selectedFacts = Set(pendingCandidates)
+                        }
+                    } label: {
+                        Label(
+                            allCandidatesSelected ? "Clear" : "Select All",
+                            systemImage: allCandidatesSelected ? "xmark.square" : "square"
+                        )
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(isResolving)
+
+                    Spacer(minLength: 8)
+
+                    Text("\(orderedSelection.count) selected")
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.62))
+                }
+
                 ForEach(ambiguity.candidateFacts, id: \.self) { fact in
                     Button {
-                        onResolve(fact)
+                        if selectedFacts.contains(fact) {
+                            selectedFacts.remove(fact)
+                        } else {
+                            selectedFacts.insert(fact)
+                        }
                     } label: {
                         HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "checkmark.circle")
+                            Image(systemName: selectedFacts.contains(fact) ? "checkmark.square.fill" : "square")
                                 .font(.system(size: 14, weight: .semibold, design: .default))
                                 .padding(.top, 1)
                             Text(fact)
@@ -1973,13 +2022,27 @@ private struct MemoryRepairDetailSection: View {
                     }
                     .buttonStyle(.borderless)
                     .disabled(isResolving)
-                    .accessibilityHint("Applies the writer correction to this accepted screenplay fact only.")
+                    .accessibilityValue(selectedFacts.contains(fact) ? "Selected" : "Not selected")
+                    .accessibilityHint("Includes or excludes this accepted screenplay fact from the correction.")
                 }
 
-                if isResolving {
-                    ProgressView("Applying correction")
-                        .font(.system(size: 12, weight: .regular, design: .default))
+                Button {
+                    onResolve(orderedSelection)
+                } label: {
+                    if isResolving {
+                        ProgressView("Applying correction")
+                    } else {
+                        Label(
+                            orderedSelection.count == pendingCandidates.count && orderedSelection.count > 1
+                                ? "Apply to All \(orderedSelection.count) Facts"
+                                : "Apply to \(orderedSelection.count) \(orderedSelection.count == 1 ? "Fact" : "Facts")",
+                            systemImage: "checkmark.seal.fill"
+                        )
+                    }
                 }
+                .buttonStyle(.borderedProminent)
+                .disabled(orderedSelection.isEmpty || isResolving)
+                .accessibilityIdentifier("memories.canon-clarification.apply")
             }
 
             if !item.supersededReason.isEmpty {

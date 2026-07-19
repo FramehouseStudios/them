@@ -34,6 +34,7 @@ const CHARACTER_BIBLE_CORRECTIONS_MAX = 8;
 const CHARACTER_BIBLE_TERMS_MAX = 12;
 const CHARACTER_ARC_FIELD_MAX_CHARS = 180;
 const PROJECT_CONTINUITY_MAX = 24;
+const PROJECT_CORRECTED_TERMS_MAX = 64;
 const ACCEPTED_SCENES_MAX = 96;
 const ACCEPTED_SCENE_PROMPT_MAX = 3;
 const EPISODIC_MEMORIES_MAX = 64;
@@ -157,7 +158,7 @@ const PROJECT_CONTINUITY_LIST_FIELDS = Object.freeze([
   ["characterArcTurns", 6, 180],
   ["imageMotifs", 6, 140],
   ["continuityNotes", 8, 200],
-  ["correctedTerms", 8, 120],
+  ["correctedTerms", PROJECT_CORRECTED_TERMS_MAX, 120],
   ["correctionReplacements", 8, 160],
 ]);
 const PROJECT_CONTINUITY_INTEGER_FIELDS = Object.freeze([
@@ -729,7 +730,12 @@ function sanitizeCanonCorrectionAmbiguity(value = null) {
   if (!id || candidateFacts.length < 2) return null;
   const rawStatus = cleanText(value.status, 24).toLowerCase();
   const status = rawStatus === "resolved" ? "resolved" : "pending";
-  const selectedFact = cleanText(value.selectedFact ?? value.selected_fact, 220);
+  const legacySelectedFact = cleanText(value.selectedFact ?? value.selected_fact, 220);
+  const selectedFacts = normalizeStringList(
+    value.selectedFacts ?? value.selected_facts ?? (legacySelectedFact ? [legacySelectedFact] : []),
+    8,
+    220
+  );
   const receiptId = cleanText(value.receiptId ?? value.receipt_id, 96);
   return {
     id,
@@ -739,7 +745,8 @@ function sanitizeCanonCorrectionAmbiguity(value = null) {
     correctionText: cleanText(value.correctionText ?? value.correction_text, 600),
     candidateFacts,
     correctionMemoryId: cleanText(value.correctionMemoryId ?? value.correction_memory_id, 80),
-    selectedFact: status === "resolved" ? selectedFact : "",
+    selectedFact: status === "resolved" ? (selectedFacts[0] || legacySelectedFact) : "",
+    selectedFacts: status === "resolved" ? selectedFacts : [],
     receiptId: status === "resolved" ? receiptId : "",
     createdAt: Math.max(0, Number(value.createdAt ?? value.created_at ?? 0)),
     resolvedAt: status === "resolved"
@@ -795,7 +802,7 @@ function mergeCorrectionReplacements(incoming = [], existing = [], maxItems = 8,
 function textContainsCharacterCorrectionTerm(value = "", terms = []) {
   const text = cleanText(value, 1_000).toLowerCase();
   if (!text) return false;
-  return collectCharacterBibleItems(terms, CHARACTER_BIBLE_TERMS_MAX, 120).some((term) => {
+  return collectCharacterBibleItems(terms, PROJECT_CORRECTED_TERMS_MAX, 120).some((term) => {
     const lower = term.toLowerCase();
     return lower && text.includes(lower);
   });
@@ -2944,14 +2951,19 @@ function createCreativeMemoryStore({
   async function resolveCanonCorrectionAmbiguity({
     userId,
     ambiguityId = "",
+    selectedFacts = [],
     selectedFact = "",
   } = {}) {
     const cleanUserId = cleanText(userId, 128);
     const cleanAmbiguityId = cleanText(ambiguityId, 96);
-    const cleanSelectedFact = cleanText(selectedFact, 220);
+    const requestedFacts = normalizeStringList(
+      Array.isArray(selectedFacts) && selectedFacts.length ? selectedFacts : [selectedFact],
+      8,
+      220
+    );
     if (!cleanUserId) return { ok: false, status: "user_id_required" };
     if (!cleanAmbiguityId) return { ok: false, status: "correction_ambiguity_id_required" };
-    if (!cleanSelectedFact) return { ok: false, status: "selected_fact_required" };
+    if (!requestedFacts.length) return { ok: false, status: "selected_facts_required" };
 
     return withUserLock(cleanUserId, async () => {
       const current = await readUser(cleanUserId);
@@ -2964,17 +2976,28 @@ function createCreativeMemoryStore({
       const ambiguityIndex = ambiguities.findIndex((item) => item.id === cleanAmbiguityId);
       if (ambiguityIndex < 0) return { ok: false, status: "correction_ambiguity_not_found" };
       const ambiguity = ambiguities[ambiguityIndex];
-      const selected = ambiguity.candidateFacts.find((fact) => (
-        acceptedCanonFactKey(fact) === acceptedCanonFactKey(cleanSelectedFact)
-      ));
-      if (!selected) return { ok: false, status: "selected_fact_not_candidate" };
+      const selected = requestedFacts.map((requested) => ambiguity.candidateFacts.find((fact) => (
+        acceptedCanonFactKey(fact) === acceptedCanonFactKey(requested)
+      )) || "");
+      if (selected.some((fact) => !fact)) {
+        return { ok: false, status: "selected_fact_not_candidate" };
+      }
       if (ambiguity.status === "resolved") {
         const receipt = (Array.isArray(current.canonCorrectionReceipts)
           ? current.canonCorrectionReceipts
           : [])
           .map((item) => sanitizeCanonCorrectionReceipt(item))
           .find((item) => item.id === ambiguity.receiptId) || null;
-        if (acceptedCanonFactKey(ambiguity.selectedFact) === acceptedCanonFactKey(selected)) {
+        const resolvedKeys = new Set(
+          (ambiguity.selectedFacts?.length ? ambiguity.selectedFacts : [ambiguity.selectedFact])
+            .map(acceptedCanonFactKey)
+            .filter(Boolean)
+        );
+        const selectedKeys = new Set(selected.map(acceptedCanonFactKey).filter(Boolean));
+        if (
+          resolvedKeys.size === selectedKeys.size &&
+          [...resolvedKeys].every((key) => selectedKeys.has(key))
+        ) {
           return { ok: true, status: "already_resolved", ambiguity, receipt };
         }
         return { ok: false, status: "correction_ambiguity_already_resolved" };
@@ -2988,11 +3011,11 @@ function createCreativeMemoryStore({
         projectTitle: ambiguity.projectTitle,
       });
       if (!project) return { ok: false, status: "correction_project_not_found" };
-      const selectedAcceptedFact = selectAcceptedCausalFactsForPrompt(project, {
-        query: selected,
+      const selectedAcceptedFacts = selected.map((fact) => selectAcceptedCausalFactsForPrompt(project, {
+        query: fact,
         maxItems: ACCEPTED_CAUSAL_FACT_PROMPT_MAX,
-      }).find((item) => acceptedCanonFactKey(item.fact) === acceptedCanonFactKey(selected));
-      if (!selectedAcceptedFact) {
+      }).find((item) => acceptedCanonFactKey(item.fact) === acceptedCanonFactKey(fact)) || null);
+      if (selectedAcceptedFacts.some((fact) => !fact)) {
         return { ok: false, status: "accepted_canon_fact_not_found" };
       }
 
@@ -3001,8 +3024,8 @@ function createCreativeMemoryStore({
         projectTitle: ambiguity.projectTitle,
       });
       const correctedTerms = normalizeStringList(
-        [selected, ...(project.correctedTerms || [])],
-        8,
+        [...selected, ...(project.correctedTerms || [])],
+        PROJECT_CORRECTED_TERMS_MAX,
         120
       );
       const correctedProject = sanitizeProjectContinuity({
@@ -3012,10 +3035,10 @@ function createCreativeMemoryStore({
         updatedAt: nowMs(),
       });
       if (!correctedProject) return { ok: false, status: "correction_project_not_found" };
-      const stillAccepted = selectAcceptedCausalFactsForPrompt(correctedProject, {
-        query: selected,
+      const stillAccepted = selected.some((fact) => selectAcceptedCausalFactsForPrompt(correctedProject, {
+        query: fact,
         maxItems: ACCEPTED_CAUSAL_FACT_PROMPT_MAX,
-      }).some((item) => acceptedCanonFactKey(item.fact) === acceptedCanonFactKey(selected));
+      }).some((item) => acceptedCanonFactKey(item.fact) === acceptedCanonFactKey(fact)));
       if (stillAccepted) return { ok: false, status: "accepted_canon_fact_not_retired" };
 
       const projectTarget = projectIdentity(project);
@@ -3031,10 +3054,15 @@ function createCreativeMemoryStore({
         .slice(0, PROJECT_CONTINUITY_MAX);
 
       const resolvedAt = nowMs();
+      const selectedFactKey = [...selected]
+        .map(acceptedCanonFactKey)
+        .filter(Boolean)
+        .sort()
+        .join("|");
       const resolutionMemory = sanitizeEpisodicMemoryItem({
-        id: `episode_${stableHash(`canon-resolution|${ambiguity.id}|${selected}`)}`,
+        id: `episode_${stableHash(`canon-resolution|${ambiguity.id}|${selectedFactKey}`)}`,
         summary: `Resolved canon correction for ${ambiguity.projectTitle || ambiguity.projectId || "screenplay"}`,
-        text: `${ambiguity.correctionText}\nSelected accepted canon: ${selected}`,
+        text: `${ambiguity.correctionText}\nRetired accepted canon:\n- ${selected.join("\n- ")}`,
         tags: ["screenplay", "project", CORRECTION_TAG, "canon-resolution"],
         projectId: ambiguity.projectId,
         projectTitle: ambiguity.projectTitle,
@@ -3054,8 +3082,8 @@ function createCreativeMemoryStore({
         {
           correctionMemory: resolutionMemory,
           correction: {
-            correctedTerms: [selected],
-            correctionNote: `Writer selected accepted canon to retire: ${selected}`,
+            correctedTerms: selected,
+            correctionNote: `Writer selected accepted canon to retire: ${selected.join(" / ")}`,
           },
           atMs: resolvedAt,
         }
@@ -3067,7 +3095,8 @@ function createCreativeMemoryStore({
       ambiguities[ambiguityIndex] = sanitizeCanonCorrectionAmbiguity({
         ...ambiguity,
         status: "resolved",
-        selectedFact: selected,
+        selectedFact: selected[0],
+        selectedFacts: selected,
         receiptId,
         resolvedAt,
       });
@@ -3081,7 +3110,7 @@ function createCreativeMemoryStore({
         projectId: ambiguity.projectId,
         projectTitle: ambiguity.projectTitle,
         correctionText: ambiguity.correctionText,
-        matchedFacts: [selected],
+        matchedFacts: selected,
         correctionMemoryId: resolutionMemory.id,
         beforeState,
         afterState,
@@ -3458,7 +3487,7 @@ function createCreativeMemoryStore({
             if (field === "correctedTerms") {
               next[field] = normalizeStringList(
                 [...incoming[field], ...(existing[field] || [])],
-                8,
+                PROJECT_CORRECTED_TERMS_MAX,
                 120
               );
             } else if (field === "correctionReplacements") {
@@ -4120,14 +4149,18 @@ function createCreativeMemoryStore({
         ...continuitySource,
         correctedTerms: normalizeStringList(
           [
-            ...normalizeStringList(projectCorrection.correctedTerms, 8, 120),
+            ...normalizeStringList(
+              projectCorrection.correctedTerms,
+              PROJECT_CORRECTED_TERMS_MAX,
+              120
+            ),
             ...normalizeStringList(
               continuitySource.correctedTerms ?? continuitySource.corrected_terms,
-              8,
+              PROJECT_CORRECTED_TERMS_MAX,
               120
             ),
           ],
-          8,
+          PROJECT_CORRECTED_TERMS_MAX,
           120
         ),
         correctionReplacements: mergeCorrectionReplacements(

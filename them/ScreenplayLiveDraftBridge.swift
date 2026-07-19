@@ -1334,6 +1334,41 @@ struct ScreenplayStudioAppliedMemoryState: Codable, Equatable {
         cleanList(values)
     }
 
+    func applyingCanonCorrection(
+        correctionText: String,
+        retiredFacts: [String],
+        projectIdOverride: String? = nil,
+        projectTitleOverride: String? = nil,
+        source: String = "canon_correction_resolution",
+        updatedAt: Date = Date()
+    ) -> ScreenplayStudioAppliedMemoryState {
+        let cleanCorrection = correctionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: cleanSource.isEmpty ? self.source : cleanSource,
+            projectId: projectIdOverride ?? projectId,
+            projectTitle: projectTitleOverride ?? projectTitle,
+            act: act,
+            featureSequence: featureSequence,
+            currentBeat: currentBeat,
+            nextScenePlan: nextScenePlan,
+            nextThreeTurns: nextThreeTurns,
+            actThreePayoffPath: actThreePayoffPath,
+            unresolvedSetups: unresolvedSetups,
+            unresolvedStoryThreads: unresolvedStoryThreads,
+            characterArcTurns: characterArcTurns,
+            imageMotifs: imageMotifs,
+            characters: characters,
+            correctedTerms: Self.cleanList(retiredFacts + correctedTerms),
+            correctionReplacements: correctionReplacements,
+            characterBibleApplied: characterBibleApplied,
+            correctionAppliedToPrompt: true,
+            lastSavedCorrection: cleanCorrection.isEmpty ? lastSavedCorrection : cleanCorrection,
+            updatedAt: updatedAt
+        )
+    }
+
     private static func conversationalDirectReplacement(from text: String) -> String? {
         let patterns = [
             #"(?i)^(?:correction|retcon)?\s*[:\-]?\s*(?:change|replace|swap)\s+(.+?)\s+(?:to|with|into)\s+(.+)$"#,
@@ -8060,6 +8095,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         guard state.hasContent else { return }
         latestAppliedMemory = state
+    }
+
+    func noteResolvedCanonCorrection(
+        correctionText: String,
+        retiredFacts: [String],
+        projectId: String? = nil,
+        projectTitle: String? = nil
+    ) {
+        latestAppliedMemory = latestAppliedMemory.applyingCanonCorrection(
+            correctionText: correctionText,
+            retiredFacts: retiredFacts,
+            projectIdOverride: projectId,
+            projectTitleOverride: projectTitle
+        )
     }
 
     @discardableResult

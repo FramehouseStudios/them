@@ -21,6 +21,7 @@ final class BackendClientCraftAPITests: XCTestCase {
             ],
             "correction_memory_id": "episode_ambiguous",
             "selected_fact": null,
+            "selected_facts": [],
             "receipt_id": null,
             "created_at": 1800000000000,
             "resolved_at": null
@@ -37,6 +38,7 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(clarification.projectId, "split-ferries")
         XCTAssertEqual(clarification.projectTitle, "Split Ferries")
         XCTAssertEqual(clarification.candidateFacts.count, 2)
+        XCTAssertTrue(clarification.resolvedFacts.isEmpty)
     }
 
     func testCanonCorrectionAmbiguityDecodesForSharedMemoriesUI() throws {
@@ -69,6 +71,7 @@ final class BackendClientCraftAPITests: XCTestCase {
             ],
             "correction_memory_id": "episode_ambiguous",
             "selected_fact": "",
+            "selected_facts": [],
             "receipt_id": "",
             "created_at": 1800000000000,
             "resolved_at": null
@@ -86,6 +89,37 @@ final class BackendClientCraftAPITests: XCTestCase {
         XCTAssertEqual(ambiguity.projectTitle, "Split Ferries")
         XCTAssertEqual(ambiguity.candidateFacts.count, 2)
         XCTAssertEqual(ambiguity.correctionMemoryId, "episode_ambiguous")
+    }
+
+    func testCanonCorrectionAmbiguityDecodesMultipleResolvedFacts() throws {
+        let data = Data(#"""
+        {
+          "id": "canon_ambiguity_resolved",
+          "status": "resolved",
+          "project_id": "split-ferries",
+          "project_title": "Split Ferries",
+          "correction_text": "Mara goes back for both of them.",
+          "candidate_facts": [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock."
+          ],
+          "selected_fact": "Mara abandons Eli at the east ferry dock.",
+          "selected_facts": [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock."
+          ],
+          "receipt_id": "canon_correction_resolved",
+          "created_at": 1800000000000,
+          "resolved_at": 1800000001000
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let ambiguity = try decoder.decode(BackendCanonCorrectionAmbiguity.self, from: data)
+
+        XCTAssertFalse(ambiguity.isPending)
+        XCTAssertEqual(ambiguity.resolvedFacts, ambiguity.candidateFacts)
     }
 
     func testCanonCorrectionReceiptDecodesForSharedMemoriesUI() throws {

@@ -341,6 +341,60 @@ final class BackendAccountDataControlsTests: XCTestCase {
         })
         XCTAssertEqual(commentWrite.bodyObject?["text"] as? String, "Tighten the reveal.")
     }
+
+    func testResolveCanonCorrectionSendsAllSelectedFactsAtomically() async throws {
+        let recorder = AccountDataControlsRequestRecorder()
+        AccountDataControlsURLProtocolStub.handler = { request in
+            recorder.record(request)
+            switch request.url?.path {
+            case "/session":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-canon", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories/corrections/resolve":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "ok": true, "action": "resolve_correction", "status": "resolved" }"#.utf8)
+                )
+            default:
+                return AccountDataControlsHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountDataControlsURLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let api = BackendMemoryAPI(
+            session: session,
+            baseURL: URL(string: "https://account-data-controls.test")!
+        )
+        let selectedFacts = [
+            "Mara hid the letter beneath the floorboards.",
+            "Jonah believes Mara burned the letter.",
+        ]
+
+        let result = try await api.resolveCanonCorrection(
+            ambiguityID: "ambiguity-1",
+            selectedFacts: selectedFacts
+        )
+
+        XCTAssertTrue(result.payload.ok)
+        XCTAssertEqual(result.payload.status, "resolved")
+        let request = try XCTUnwrap(
+            recorder.requests.first { $0.path == "/memories/corrections/resolve" }
+        )
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.bodyObject?["ambiguity_id"] as? String, "ambiguity-1")
+        XCTAssertEqual(request.bodyObject?["selected_facts"] as? [String], selectedFacts)
+        XCTAssertNil(request.bodyObject?["selected_fact"])
+    }
 }
 
 final class BackendCredentialMigrationTests: XCTestCase {

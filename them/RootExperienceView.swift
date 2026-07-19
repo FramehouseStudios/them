@@ -861,7 +861,7 @@ struct RootExperienceView: View {
     @State private var transientTurnBannerText: String?
     @State private var transientTurnBannerTask: Task<Void, Never>?
     @State private var pendingCanonClarification: BackendCanonCorrectionAmbiguity?
-    @State private var resolvingCanonClarificationFact: String?
+    @State private var isResolvingCanonClarification = false
     @State private var canonClarificationError = ""
     @State private var userReplyEcho: String = ""
     @State private var assistantReplyEcho: String = ""
@@ -1147,33 +1147,6 @@ struct RootExperienceView: View {
     private var bodyForegroundLayers: some View {
         primarySurfaceLayer
 
-        if !evolution.needsOnboardingName,
-           let pendingCanonClarification {
-            GeometryReader { proxy in
-                let viewportSize = proxy.size
-                let globalOrigin = proxy.frame(in: .global).origin
-                VStack {
-                    Spacer(minLength: 24)
-                    CanonClarificationCard(
-                        clarification: pendingCanonClarification,
-                        resolvingFact: resolvingCanonClarificationFact,
-                        errorMessage: canonClarificationError,
-                        onSelectFact: resolveCanonClarification,
-                        onDefer: deferCanonClarification
-                    )
-                    .frame(width: min(max(280, viewportSize.width - 32), 560))
-                    .padding(.bottom, 20)
-                }
-                .frame(width: viewportSize.width, height: viewportSize.height)
-                .position(
-                    x: (viewportSize.width / 2) - globalOrigin.x,
-                    y: (viewportSize.height / 2) - globalOrigin.y
-                )
-            }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .zIndex(40)
-        }
-
         if evolution.needsOnboardingName {
             onboardingOverlay
                 .transition(.opacity)
@@ -1189,20 +1162,52 @@ struct RootExperienceView: View {
         }
     }
 
+    @ViewBuilder
+    private func canonClarificationLayer(viewportSize: CGSize) -> some View {
+        if !evolution.needsOnboardingName,
+           let pendingCanonClarification {
+            #if os(macOS)
+            let overlayAlignment: Alignment = .top
+            #else
+            let overlayAlignment: Alignment = .bottom
+            #endif
+            CanonClarificationCard(
+                clarification: pendingCanonClarification,
+                isResolving: isResolvingCanonClarification,
+                errorMessage: canonClarificationError,
+                onResolve: resolveCanonClarification,
+                onDefer: deferCanonClarification
+            )
+            .frame(width: max(0, min(560, viewportSize.width - 32)))
+            .padding(.vertical, 20)
+            .frame(
+                width: viewportSize.width,
+                height: viewportSize.height,
+                alignment: overlayAlignment
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(40)
+        }
+    }
+
     private var rootBodyView: some View {
         #if os(iOS)
         GeometryReader { viewport in
             ZStack {
                 bodyBackground
                 bodyForegroundLayers
+                canonClarificationLayer(viewportSize: viewport.size)
             }
             .frame(width: viewport.size.width, height: viewport.size.height)
             .clipped()
         }
         #else
-        ZStack {
-            bodyBackground
-            bodyForegroundLayers
+        GeometryReader { viewport in
+            ZStack {
+                bodyBackground
+                bodyForegroundLayers
+                canonClarificationLayer(viewportSize: viewport.size)
+            }
         }
         #endif
     }
@@ -2409,6 +2414,7 @@ struct RootExperienceView: View {
                         ],
                         correctionMemoryId: nil,
                         selectedFact: nil,
+                        selectedFacts: nil,
                         receiptId: nil,
                         createdAt: Date().timeIntervalSince1970 * 1_000,
                         resolvedAt: nil
@@ -4263,7 +4269,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             return
         }
         guard pendingCanonClarification?.id != clarification.id else { return }
-        resolvingCanonClarificationFact = nil
+        isResolvingCanonClarification = false
         canonClarificationError = ""
         withAnimation(.easeInOut(duration: 0.22)) {
             pendingCanonClarification = clarification
@@ -4272,7 +4278,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
 
     @MainActor
     private func deferCanonClarification() {
-        guard resolvingCanonClarificationFact == nil else { return }
+        guard !isResolvingCanonClarification else { return }
         canonClarificationError = ""
         withAnimation(.easeInOut(duration: 0.20)) {
             pendingCanonClarification = nil
@@ -4280,35 +4286,52 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
     }
 
     @MainActor
-    private func resolveCanonClarification(_ selectedFact: String) {
+    private func resolveCanonClarification(_ selectedFacts: [String]) {
         guard let clarification = pendingCanonClarification,
               clarification.isPending,
-              resolvingCanonClarificationFact == nil else {
+              !isResolvingCanonClarification else {
             return
         }
-        let cleanFact = selectedFact.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard clarification.candidateFacts.contains(cleanFact) else { return }
+        var seen = Set<String>()
+        let cleanFacts = selectedFacts.compactMap { value -> String? in
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty, clarification.candidateFacts.contains(clean) else { return nil }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { return nil }
+            return clean
+        }
+        guard !cleanFacts.isEmpty, cleanFacts.count == selectedFacts.count else { return }
 
-        resolvingCanonClarificationFact = cleanFact
+        isResolvingCanonClarification = true
         canonClarificationError = ""
         Task { @MainActor in
             do {
                 let result = try await BackendMemoryAPI.shared.resolveCanonCorrection(
                     ambiguityID: clarification.id,
-                    selectedFact: cleanFact
+                    selectedFacts: cleanFacts
                 )
                 guard result.payload.ok else {
                     canonClarificationError = result.payload.message ?? "Clementine could not update canon yet."
-                    resolvingCanonClarificationFact = nil
+                    isResolvingCanonClarification = false
                     return
                 }
+                let retiredFacts = result.payload.correctionReceipt?.matchedFacts ?? cleanFacts
+                screenplayDraftBridge.noteResolvedCanonCorrection(
+                    correctionText: clarification.correctionText,
+                    retiredFacts: retiredFacts,
+                    projectId: clarification.projectId,
+                    projectTitle: clarification.projectTitle
+                )
                 withAnimation(.easeInOut(duration: 0.20)) {
                     pendingCanonClarification = nil
                 }
-                resolvingCanonClarificationFact = nil
-                showStudioCommandNotice("Canon updated. Clementine will use your correction from here forward.")
+                isResolvingCanonClarification = false
+                let count = retiredFacts.count
+                showStudioCommandNotice(
+                    "Canon updated across \(count) \(count == 1 ? "fact" : "facts"). Clementine will use your correction from here forward."
+                )
             } catch {
-                resolvingCanonClarificationFact = nil
+                isResolvingCanonClarification = false
                 canonClarificationError = error.localizedDescription
             }
         }

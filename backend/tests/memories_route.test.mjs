@@ -682,7 +682,8 @@ test("[memories] POST /memories/corrections/resolve applies an authenticated wri
               "Mara abandons June at the east ferry dock.",
             ],
             correctionMemoryId: "episode-ambiguous",
-            selectedFact: args.selectedFact,
+            selectedFact: args.selectedFacts[0],
+            selectedFacts: args.selectedFacts,
             receiptId: "canon_correction_resolved",
             createdAt: 1715620920000,
             resolvedAt: 1715620980000,
@@ -693,7 +694,7 @@ test("[memories] POST /memories/corrections/resolve applies an authenticated wri
             projectId: "split-ferries",
             projectTitle: "Split Ferries",
             correctionText: "Actually, Mara never abandons anyone at the ferry dock.",
-            matchedFacts: [args.selectedFact],
+            matchedFacts: args.selectedFacts,
             correctionMemoryId: "episode-resolution",
             createdAt: 1715620980000,
           },
@@ -704,22 +705,57 @@ test("[memories] POST /memories/corrections/resolve applies an authenticated wri
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/memories/corrections/resolve", {
       ambiguity_id: "canon_ambiguity_123",
-      selected_fact: "Mara abandons Eli at the east ferry dock.",
+      selected_facts: [
+        "Mara abandons Eli at the east ferry dock.",
+        "Mara abandons June at the east ferry dock.",
+      ],
     });
     assert.equal(r.status, 200);
     assert.equal(r.body.ok, true);
     assert.equal(r.body.action, "resolve_correction");
     assert.equal(r.body.correction_ambiguity.status, "resolved");
     assert.equal(r.body.correction_ambiguity.selected_fact, "Mara abandons Eli at the east ferry dock.");
+    assert.deepEqual(r.body.correction_ambiguity.selected_facts, [
+      "Mara abandons Eli at the east ferry dock.",
+      "Mara abandons June at the east ferry dock.",
+    ]);
     assert.equal(r.body.correction_receipt.id, "canon_correction_resolved");
   });
   assert.deepEqual(calls, [{
     userId: "user_memories_test",
     ambiguityId: "canon_ambiguity_123",
-    selectedFact: "Mara abandons Eli at the east ferry dock.",
+    selectedFacts: [
+      "Mara abandons Eli at the east ferry dock.",
+      "Mara abandons June at the east ferry dock.",
+    ],
   }]);
   assert.equal(deps._calls.resolveWritableMemoryContext, 1);
   assert.equal(deps._calls.persistWritableMemoryContext, 1);
+});
+
+test("[memories] POST /memories/corrections/resolve preserves the legacy singular request", async () => {
+  const calls = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      resolveCanonCorrectionAmbiguity: async (args) => {
+        calls.push(args);
+        return { ok: true, status: "already_resolved" };
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/corrections/resolve", {
+      ambiguity_id: "canon_ambiguity_legacy",
+      selected_fact: "Mara abandons Eli at the east ferry dock.",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.status, "already_resolved");
+  });
+  assert.deepEqual(calls, [{
+    userId: "user_memories_test",
+    ambiguityId: "canon_ambiguity_legacy",
+    selectedFacts: ["Mara abandons Eli at the east ferry dock."],
+  }]);
 });
 
 test("[memories] POST /memories/corrections/resolve rejects a stale accepted fact without syncing", async () => {

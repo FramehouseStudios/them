@@ -498,7 +498,7 @@ test("[persistent-screenplay-memory] ambiguous canon corrections become an expli
     "Mara abandons Eli at the east ferry dock.",
     "Mara abandons June at the east ferry dock.",
   ]);
-  assert.match(ambiguity.reason, /preserved both/i);
+  assert.match(ambiguity.reason, /preserved all/i);
   assert.equal(cards.some((card) => card.source === "episodic_correction"), false);
 });
 

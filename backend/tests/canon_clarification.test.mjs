@@ -32,6 +32,7 @@ test("canon clarification payload exposes only a durable pending ambiguity", () 
     ],
     correction_memory_id: "episode-9",
     selected_fact: null,
+    selected_facts: [],
     receipt_id: null,
     created_at: 1_725_000_000_000,
     resolved_at: null,

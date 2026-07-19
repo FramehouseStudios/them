@@ -335,12 +335,22 @@ nonisolated struct BackendCanonCorrectionAmbiguity: Codable, Hashable {
     let candidateFacts: [String]
     let correctionMemoryId: String?
     let selectedFact: String?
+    let selectedFacts: [String]?
     let receiptId: String?
     let createdAt: TimeInterval
     let resolvedAt: TimeInterval?
 
     var isPending: Bool {
         status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "pending"
+    }
+
+    var resolvedFacts: [String] {
+        let facts = (selectedFacts ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !facts.isEmpty { return facts }
+        let legacy = selectedFact?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return legacy.isEmpty ? [] : [legacy]
     }
 }
 
@@ -5611,7 +5621,7 @@ actor BackendMemoryAPI {
     func undoCanonCorrection(
         receiptID: String
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
-        try await runMemoryMutation(
+        return try await runMemoryMutation(
             path: "/memories/corrections/undo",
             payload: ["receipt_id": receiptID]
         )
@@ -5619,14 +5629,38 @@ actor BackendMemoryAPI {
 
     func resolveCanonCorrection(
         ambiguityID: String,
-        selectedFact: String
+        selectedFacts: [String]
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
-        try await runMemoryMutation(
+        var seen = Set<String>()
+        let cleanFacts = selectedFacts.compactMap { value -> String? in
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty else { return nil }
+            let key = clean.lowercased()
+            guard seen.insert(key).inserted else { return nil }
+            return String(clean.prefix(220))
+        }
+        guard !cleanFacts.isEmpty else {
+            throw BackendMemoryAPIError.server(
+                status: 400,
+                message: "Choose at least one accepted canon fact."
+            )
+        }
+        return try await runMemoryMutation(
             path: "/memories/corrections/resolve",
             payload: [
                 "ambiguity_id": ambiguityID,
-                "selected_fact": selectedFact,
+                "selected_facts": cleanFacts,
             ]
+        )
+    }
+
+    func resolveCanonCorrection(
+        ambiguityID: String,
+        selectedFact: String
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        try await resolveCanonCorrection(
+            ambiguityID: ambiguityID,
+            selectedFacts: [selectedFact]
         )
     }
 

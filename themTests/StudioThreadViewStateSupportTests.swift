@@ -791,6 +791,7 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
           ],
           "correction_memory_id": null,
           "selected_fact": null,
+          "selected_facts": [],
           "receipt_id": null,
           "created_at": 1800000000000,
           "resolved_at": null
@@ -805,6 +806,46 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         XCTAssertEqual(trace.canonClarification?.id, "canon_ambiguity_talk_1")
         XCTAssertEqual(trace.canonClarification?.projectTitle, "Split Ferries")
         XCTAssertEqual(trace.canonClarification?.candidateFacts.count, 2)
+    }
+
+    func testResolvedCanonCorrectionRefreshesAppliedStudioMemoryWithoutLosingRunway() {
+        let initial = ScreenplayStudioAppliedMemoryState(
+            id: UUID(),
+            source: "talk_response",
+            projectId: "split-ferries",
+            projectTitle: "Split Ferries",
+            act: "Act II",
+            nextScenePlan: "Mara races back to the east ferry dock.",
+            characters: ["Mara"],
+            correctedTerms: ["Mara leaves Eli behind."],
+            correctionReplacements: [],
+            characterBibleApplied: true,
+            correctionAppliedToPrompt: false,
+            lastSavedCorrection: "",
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+
+        let resolved = initial.applyingCanonCorrection(
+            correctionText: "Mara goes back for both of them.",
+            retiredFacts: [
+                "Mara abandons Eli at the east ferry dock.",
+                "Mara abandons June at the east ferry dock.",
+            ],
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+
+        XCTAssertEqual(resolved.projectId, "split-ferries")
+        XCTAssertEqual(resolved.act, "Act II")
+        XCTAssertEqual(resolved.nextScenePlan, "Mara races back to the east ferry dock.")
+        XCTAssertEqual(resolved.correctedTerms, [
+            "Mara abandons Eli at the east ferry dock.",
+            "Mara abandons June at the east ferry dock.",
+            "Mara leaves Eli behind.",
+        ])
+        XCTAssertTrue(resolved.correctionAppliedToPrompt)
+        XCTAssertEqual(resolved.lastSavedCorrection, "Mara goes back for both of them.")
+        XCTAssertEqual(resolved.source, "canon_correction_resolution")
+        XCTAssertEqual(resolved.updatedAt, Date(timeIntervalSince1970: 20))
     }
 
     func testTalkCreativeMemoryTraceBecomesAppliedStudioMemory() {

@@ -29911,8 +29911,8 @@ function buildCanonCorrectionAmbiguityCards(creativeMemory = null, nowTs = Date.
       id: `correction-choice-${cardId || index + 1}`,
       key: `correction-ambiguity:${id || cardId}`,
       title: normalizeSnippet(`${subject} Needs Clarification`, 84),
-      summary: correctionText || "Choose which accepted screenplay fact this correction replaces.",
-      reason: "Two accepted canon facts matched. Clementine preserved both until the writer chooses.",
+      summary: correctionText || "Choose every accepted screenplay fact this correction replaces.",
+      reason: "Several accepted canon facts matched. Clementine preserved all of them until the writer chooses.",
       emotionalTone: "",
       salience: 0.98,
       confidence: 0.52,
@@ -29942,6 +29942,7 @@ function buildCanonCorrectionAmbiguityCards(creativeMemory = null, nowTs = Date.
         correction_text: correctionText,
         candidate_facts: candidateFacts,
         correction_memory_id: correctionMemoryId,
+        selected_facts: [],
         created_at: createdAt,
       },
     };

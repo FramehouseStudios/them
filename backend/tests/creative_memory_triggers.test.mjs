@@ -786,6 +786,41 @@ I choose the case over us.`;
   assert.match(JSON.stringify(scene), /deposition/i);
 });
 
+test("project correction history cannot revive older retired canon after a later batch", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const olderTerms = Array.from(
+    { length: 8 },
+    (_, index) => `Mara destroys archive copy ${index + 1}`
+  );
+  const newerTerms = Array.from(
+    { length: 8 },
+    (_, index) => `Eli hides witness ledger ${index + 1}`
+  );
+  await store.recordProjectContinuity({
+    userId: "u-long-correction-ledger",
+    continuity: {
+      projectId: "long-correction-ledger",
+      projectTitle: "The Archive",
+      correctedTerms: olderTerms,
+    },
+  });
+  await store.recordProjectContinuity({
+    userId: "u-long-correction-ledger",
+    continuity: {
+      projectId: "long-correction-ledger",
+      projectTitle: "The Archive",
+      correctedTerms: newerTerms,
+      currentBeat: "Mara destroys archive copy 8 before the hearing.",
+    },
+  });
+
+  const ledger = await store.getCreativeMemoryLedger({ userId: "u-long-correction-ledger" });
+  const project = ledger.projects[0];
+  assert.equal(project.correctedTerms.length, 16);
+  assert.ok(project.correctedTerms.includes("Mara destroys archive copy 8"));
+  assert.equal(Object.hasOwn(project, "currentBeat"), false);
+});
+
 test("an explicit writer retcon durably retires the matched accepted causal fact", async () => {
   const persistence = freshPersistence();
   const store = createCreativeMemoryStore({ persistence });
@@ -1005,7 +1040,10 @@ Mara watches two separate ferries pull away.`;
   const rejectedSelection = await restored.resolveCanonCorrectionAmbiguity({
     userId: "u-ambiguous-canon-retcon",
     ambiguityId: correction.canonCorrectionAmbiguityId,
-    selectedFact: "Mara abandons a third person at the west ferry dock.",
+    selectedFacts: [
+      "Mara abandons Eli at the east ferry dock.",
+      "Mara abandons a third person at the west ferry dock.",
+    ],
   });
   assert.equal(rejectedSelection.ok, false);
   assert.equal(rejectedSelection.status, "selected_fact_not_candidate");
@@ -1024,11 +1062,19 @@ Mara watches two separate ferries pull away.`;
   const resolved = await restored.resolveCanonCorrectionAmbiguity({
     userId: "u-ambiguous-canon-retcon",
     ambiguityId: correction.canonCorrectionAmbiguityId,
-    selectedFact: "Mara abandons Eli at the east ferry dock.",
+    selectedFacts: [
+      "Mara abandons Eli at the east ferry dock.",
+      "Mara abandons June at the east ferry dock.",
+    ],
   });
   assert.equal(resolved.ok, true);
   assert.equal(resolved.status, "resolved");
   assert.equal(resolved.ambiguity.selectedFact, "Mara abandons Eli at the east ferry dock.");
+  assert.deepEqual(resolved.ambiguity.selectedFacts, [
+    "Mara abandons Eli at the east ferry dock.",
+    "Mara abandons June at the east ferry dock.",
+  ]);
+  assert.deepEqual(resolved.receipt.matchedFacts, resolved.ambiguity.selectedFacts);
   assert.match(resolved.receipt.id, /^canon_correction_/);
 
   const resolvedMemory = await restored.getCreativeMemoryForPrompt({
@@ -1037,13 +1083,29 @@ Mara watches two separate ferries pull away.`;
     projectTitle: "Split Ferries",
     query: "What happened at the east ferry dock?",
   });
-  assert.equal(resolvedMemory.acceptedCausalFacts.some((item) => /abandons Eli/i.test(item.fact)), false);
-  assert.ok(resolvedMemory.acceptedCausalFacts.some((item) => /abandons June/i.test(item.fact)));
+  const resolvedFacts = resolvedMemory.acceptedCausalFacts || [];
+  assert.equal(resolvedFacts.some((item) => /abandons Eli/i.test(item.fact)), false);
+  assert.equal(resolvedFacts.some((item) => /abandons June/i.test(item.fact)), false);
+
+  const idempotentResolution = await restored.resolveCanonCorrectionAmbiguity({
+    userId: "u-ambiguous-canon-retcon",
+    ambiguityId: correction.canonCorrectionAmbiguityId,
+    selectedFacts: [
+      "Mara abandons June at the east ferry dock.",
+      "Mara abandons Eli at the east ferry dock.",
+    ],
+  });
+  assert.equal(idempotentResolution.ok, true);
+  assert.equal(idempotentResolution.status, "already_resolved");
+  assert.equal(idempotentResolution.receipt.id, resolved.receipt.id);
 
   ledger = await restored.getCreativeMemoryLedger({ userId: "u-ambiguous-canon-retcon" });
   assert.equal(ledger.canonCorrectionAmbiguities[0].status, "resolved");
   assert.equal(ledger.canonCorrectionAmbiguities[0].receiptId, resolved.receipt.id);
-  assert.equal(ledger.canonCorrectionReceipts[0].matchedFacts[0], "Mara abandons Eli at the east ferry dock.");
+  assert.deepEqual(ledger.canonCorrectionReceipts[0].matchedFacts, [
+    "Mara abandons Eli at the east ferry dock.",
+    "Mara abandons June at the east ferry dock.",
+  ]);
   assert.equal(Object.hasOwn(ledger.canonCorrectionReceipts[0], "beforeState"), false);
   assert.equal(Object.hasOwn(ledger.canonCorrectionReceipts[0], "afterState"), false);
 
@@ -1062,6 +1124,19 @@ Mara watches two separate ferries pull away.`;
   assert.ok(afterUndoMemory.acceptedCausalFacts.some((item) => /abandons June/i.test(item.fact)));
   ledger = await restored.getCreativeMemoryLedger({ userId: "u-ambiguous-canon-retcon" });
   assert.equal(ledger.canonCorrectionAmbiguities[0].status, "pending");
+
+  const legacySingularResolution = await restored.resolveCanonCorrectionAmbiguity({
+    userId: "u-ambiguous-canon-retcon",
+    ambiguityId: correction.canonCorrectionAmbiguityId,
+    selectedFact: "Mara abandons Eli at the east ferry dock.",
+  });
+  assert.equal(legacySingularResolution.ok, true);
+  assert.deepEqual(legacySingularResolution.ambiguity.selectedFacts, [
+    "Mara abandons Eli at the east ferry dock.",
+  ]);
+  assert.deepEqual(legacySingularResolution.receipt.matchedFacts, [
+    "Mara abandons Eli at the east ferry dock.",
+  ]);
 });
 
 test("duplicate accepted canon facts across categories retire as one unambiguous correction", async () => {

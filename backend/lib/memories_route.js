@@ -214,6 +214,11 @@ function mountMemoriesRoutes(app, deps = {}) {
       candidate_facts: Array.isArray(ambiguity.candidateFacts) ? ambiguity.candidateFacts : [],
       correction_memory_id: String(ambiguity.correctionMemoryId || ""),
       selected_fact: String(ambiguity.selectedFact || ""),
+      selected_facts: Array.isArray(ambiguity.selectedFacts)
+        ? ambiguity.selectedFacts
+        : ambiguity.selectedFact
+          ? [ambiguity.selectedFact]
+          : [],
       receipt_id: String(ambiguity.receiptId || ""),
       created_at: Math.max(0, Number(ambiguity.createdAt || 0)),
       resolved_at: Math.max(0, Number(ambiguity.resolvedAt || 0)) || null,
@@ -841,8 +846,16 @@ function mountMemoriesRoutes(app, deps = {}) {
     if (!userId) return;
     const rid = req.requestId || createRequestId();
     const ambiguityId = String(req.body?.ambiguity_id ?? req.body?.ambiguityId ?? "").trim().slice(0, 96);
-    const selectedFact = normalizeSnippet(req.body?.selected_fact ?? req.body?.selectedFact ?? "", 220);
-    if (!ambiguityId || !selectedFact) {
+    const legacySelectedFact = normalizeSnippet(
+      req.body?.selected_fact ?? req.body?.selectedFact ?? "",
+      220
+    );
+    const selectedFacts = normalizeStringListPayload(
+      req.body?.selected_facts ?? req.body?.selectedFacts ?? (legacySelectedFact ? [legacySelectedFact] : []),
+      8,
+      220
+    );
+    if (!ambiguityId || !selectedFacts.length) {
       res.setHeader("Cache-Control", "no-store");
       return res.status(400).json({
         ok: false,
@@ -850,7 +863,7 @@ function mountMemoriesRoutes(app, deps = {}) {
         status: !ambiguityId ? "correction_ambiguity_id_required" : "selected_fact_required",
         message: !ambiguityId
           ? "A correction ambiguity id is required."
-          : "Choose one of the accepted canon facts.",
+          : "Choose at least one accepted canon fact.",
       });
     }
     if (!creativeMemoryStore || typeof creativeMemoryStore.resolveCanonCorrectionAmbiguity !== "function") {
@@ -868,7 +881,7 @@ function mountMemoriesRoutes(app, deps = {}) {
       mutation = await creativeMemoryStore.resolveCanonCorrectionAmbiguity({
         userId,
         ambiguityId,
-        selectedFact,
+        selectedFacts,
       });
     } catch (error) {
       logger.log(`[${rid}] memories_correction_resolve error=${error?.message || error}`);
