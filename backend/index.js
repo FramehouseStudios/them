@@ -29880,6 +29880,73 @@ function buildCanonCorrectionReceiptCards(creativeMemory = null, nowTs = Date.no
   }).filter((card) => card.correction_receipt.id && card.correction_receipt.matched_facts.length);
 }
 
+function buildCanonCorrectionAmbiguityCards(creativeMemory = null, nowTs = Date.now()) {
+  const ambiguities = Array.isArray(creativeMemory?.canonCorrectionAmbiguities)
+    ? creativeMemory.canonCorrectionAmbiguities
+    : [];
+  return ambiguities.map((ambiguity, index) => {
+    const id = normalizeSnippet(ambiguity?.id, 96);
+    const status = String(ambiguity?.status || "pending").trim().toLowerCase();
+    if (status !== "pending") return null;
+    const projectId = normalizeSnippet(ambiguity?.projectId ?? ambiguity?.project_id, 96);
+    const projectTitle = normalizeSnippet(ambiguity?.projectTitle ?? ambiguity?.project_title, 160);
+    const correctionText = normalizeSnippet(
+      ambiguity?.correctionText ?? ambiguity?.correction_text,
+      600
+    );
+    const candidateFacts = normalizeCharacterBibleCardList(
+      ambiguity?.candidateFacts ?? ambiguity?.candidate_facts,
+      8,
+      220
+    );
+    const correctionMemoryId = normalizeSnippet(
+      ambiguity?.correctionMemoryId ?? ambiguity?.correction_memory_id,
+      80
+    );
+    const createdAt = Math.max(0, Number(ambiguity?.createdAt ?? ambiguity?.created_at ?? 0));
+    const subject = projectTitle || projectId || "Screenplay";
+    const cardId = normalizeMemoryCardId(id || `canon-ambiguity-${index + 1}`);
+    return {
+      id: `correction-choice-${cardId || index + 1}`,
+      key: `correction-ambiguity:${id || cardId}`,
+      title: normalizeSnippet(`${subject} Needs Clarification`, 84),
+      summary: correctionText || "Choose which accepted screenplay fact this correction replaces.",
+      reason: "Two accepted canon facts matched. Clementine preserved both until the writer chooses.",
+      emotionalTone: "",
+      salience: 0.98,
+      confidence: 0.52,
+      rememberedAt: createdAt || nowTs,
+      lastUsedAt: createdAt || 0,
+      qualityScore: 0.74,
+      qualityHitCount: 0,
+      qualityCorrectionCount: 1,
+      qualityLastFeedbackAt: createdAt || 0,
+      stalenessDays: computeThemeStalenessDays({ lastMentionedAt: createdAt || nowTs }, nowTs),
+      stalenessBand: classifyThemeStalenessBand(
+        computeThemeStalenessDays({ lastMentionedAt: createdAt || nowTs }, nowTs)
+      ),
+      editable: false,
+      snippets: candidateFacts.map((fact) => `Possible canon: ${fact}`),
+      referenceHint: candidateFacts[0] || correctionText,
+      source: "canon_correction_ambiguous",
+      project_id: projectId,
+      project_title: projectTitle,
+      tags: ["screenplay", "correction", "needs-clarification"],
+      is_correction_memory: true,
+      correction_ambiguity: {
+        id: id || cardId,
+        status: "pending",
+        project_id: projectId,
+        project_title: projectTitle,
+        correction_text: correctionText,
+        candidate_facts: candidateFacts,
+        correction_memory_id: correctionMemoryId,
+        created_at: createdAt,
+      },
+    };
+  }).filter((card) => card?.correction_ambiguity?.id && card.correction_ambiguity.candidate_facts.length > 1);
+}
+
 function buildEpisodicMemoryCards(
   creativeMemory = null,
   nowTs = Date.now(),
@@ -30033,14 +30100,23 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
     Math.max(0, Number(memory?.lastConversationAt || 0)) > memoriesClearedAt;
   const cards = [];
   cards.push(...buildCharacterBibleMemoryCards(creativeMemory, nowTs));
+  const correctionAmbiguities = buildCanonCorrectionAmbiguityCards(creativeMemory, nowTs);
   const correctionReceipts = buildCanonCorrectionReceiptCards(creativeMemory, nowTs);
-  const receiptMemoryIds = new Set(
-    correctionReceipts
-      .map((card) => String(card?.correction_receipt?.correction_memory_id || "").trim())
+  const controlledCorrectionMemoryIds = new Set(
+    [
+      ...(Array.isArray(creativeMemory?.canonCorrectionAmbiguities)
+        ? creativeMemory.canonCorrectionAmbiguities
+        : []),
+      ...(Array.isArray(creativeMemory?.canonCorrectionReceipts)
+        ? creativeMemory.canonCorrectionReceipts
+        : []),
+    ]
+      .map((item) => String(item?.correctionMemoryId ?? item?.correction_memory_id ?? "").trim())
       .filter(Boolean)
   );
+  cards.push(...correctionAmbiguities);
   cards.push(...correctionReceipts);
-  cards.push(...buildEpisodicMemoryCards(creativeMemory, nowTs, receiptMemoryIds));
+  cards.push(...buildEpisodicMemoryCards(creativeMemory, nowTs, controlledCorrectionMemoryIds));
 
   const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,

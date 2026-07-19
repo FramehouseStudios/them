@@ -458,6 +458,50 @@ test("[persistent-screenplay-memory] canon correction receipts replace duplicate
   assert.equal(cards.some((card) => card.source === "episodic_correction"), false);
 });
 
+test("[persistent-screenplay-memory] ambiguous canon corrections become an explicit writer choice", () => {
+  const cards = buildMemoryCards(
+    createEmptyEmotionMemory(),
+    [],
+    12,
+    {
+      canonCorrectionAmbiguities: [{
+        id: "canon_ambiguity_123",
+        status: "pending",
+        projectId: "split-ferries",
+        projectTitle: "Split Ferries",
+        correctionText: "Actually, Mara never abandons anyone at the ferry dock.",
+        candidateFacts: [
+          "Mara abandons Eli at the east ferry dock.",
+          "Mara abandons June at the east ferry dock.",
+        ],
+        correctionMemoryId: "episode_ambiguous",
+        createdAt: 1_800_000_000_000,
+      }],
+      episodicMemories: [{
+        id: "episode_ambiguous",
+        summary: "Correction for Split Ferries",
+        excerpt: "Actually, Mara never abandons anyone at the ferry dock.",
+        projectId: "split-ferries",
+        projectTitle: "Split Ferries",
+        tags: ["screenplay", "correction"],
+        createdAt: 1_800_000_000_000,
+        updatedAt: 1_800_000_000_000,
+      }],
+    },
+  );
+
+  const ambiguity = cards.find((card) => card.source === "canon_correction_ambiguous");
+  assert.ok(ambiguity);
+  assert.equal(ambiguity.correction_ambiguity.id, "canon_ambiguity_123");
+  assert.equal(ambiguity.correction_ambiguity.status, "pending");
+  assert.deepEqual(ambiguity.correction_ambiguity.candidate_facts, [
+    "Mara abandons Eli at the east ferry dock.",
+    "Mara abandons June at the east ferry dock.",
+  ]);
+  assert.match(ambiguity.reason, /preserved both/i);
+  assert.equal(cards.some((card) => card.source === "episodic_correction"), false);
+});
+
 test("[persistent-screenplay-memory] distills durable context from sparse draft excerpts", () => {
   const draftExcerpt = [
     "INT. ROOFTOP - NIGHT",

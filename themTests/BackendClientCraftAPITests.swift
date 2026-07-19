@@ -3,6 +3,55 @@ import ScreenplayStudio
 @testable import them
 
 final class BackendClientCraftAPITests: XCTestCase {
+    func testCanonCorrectionAmbiguityDecodesForSharedMemoriesUI() throws {
+        let data = Data(#"""
+        {
+          "id": "correction-choice-canon_ambiguity_123",
+          "key": "correction-ambiguity:canon_ambiguity_123",
+          "title": "Split Ferries Needs Clarification",
+          "summary": "Actually, Mara never abandons anyone at the ferry dock.",
+          "reason": "Two accepted canon facts matched.",
+          "emotional_tone": "",
+          "salience": 0.98,
+          "confidence": 0.52,
+          "remembered_at": 1800000000000,
+          "last_used_at": 1800000000000,
+          "editable": false,
+          "snippets": ["Possible canon: Mara abandons Eli at the east ferry dock."],
+          "reference_hint": "Mara abandons Eli at the east ferry dock.",
+          "source": "canon_correction_ambiguous",
+          "is_correction_memory": true,
+          "correction_ambiguity": {
+            "id": "canon_ambiguity_123",
+            "status": "pending",
+            "project_id": "split-ferries",
+            "project_title": "Split Ferries",
+            "correction_text": "Actually, Mara never abandons anyone at the ferry dock.",
+            "candidate_facts": [
+              "Mara abandons Eli at the east ferry dock.",
+              "Mara abandons June at the east ferry dock."
+            ],
+            "correction_memory_id": "episode_ambiguous",
+            "selected_fact": "",
+            "receipt_id": "",
+            "created_at": 1800000000000,
+            "resolved_at": null
+          }
+        }
+        """#.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let card = try decoder.decode(BackendMemoryCard.self, from: data)
+        let ambiguity = try XCTUnwrap(card.correctionAmbiguity)
+
+        XCTAssertEqual(card.source, "canon_correction_ambiguous")
+        XCTAssertTrue(ambiguity.isPending)
+        XCTAssertEqual(ambiguity.projectTitle, "Split Ferries")
+        XCTAssertEqual(ambiguity.candidateFacts.count, 2)
+        XCTAssertEqual(ambiguity.correctionMemoryId, "episode_ambiguous")
+    }
+
     func testCanonCorrectionReceiptDecodesForSharedMemoriesUI() throws {
         let data = Data(#"""
         {

@@ -38,6 +38,7 @@ const ACCEPTED_SCENES_MAX = 96;
 const ACCEPTED_SCENE_PROMPT_MAX = 3;
 const EPISODIC_MEMORIES_MAX = 64;
 const CANON_CORRECTION_RECEIPTS_MAX = 12;
+const CANON_CORRECTION_AMBIGUITIES_MAX = 12;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const EPISODIC_SEMANTIC_FINGERPRINT_MAX = 96;
 const EPISODIC_EMBEDDING_DIMENSIONS_MAX = 3_072;
@@ -330,6 +331,7 @@ function makeEmptyMemory(userId) {
     characters: [],
     episodicMemories: [],
     canonCorrectionReceipts: [],
+    canonCorrectionAmbiguities: [],
     tone: {},
     habits: {},
   };
@@ -714,6 +716,36 @@ function sanitizeCanonCorrectionReceipt(value = null, { includeSnapshots = false
     out.afterState = afterState;
   }
   return out;
+}
+
+function sanitizeCanonCorrectionAmbiguity(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = cleanText(value.id, 96);
+  const candidateFacts = normalizeStringList(
+    value.candidateFacts ?? value.candidate_facts,
+    8,
+    220
+  );
+  if (!id || candidateFacts.length < 2) return null;
+  const rawStatus = cleanText(value.status, 24).toLowerCase();
+  const status = rawStatus === "resolved" ? "resolved" : "pending";
+  const selectedFact = cleanText(value.selectedFact ?? value.selected_fact, 220);
+  const receiptId = cleanText(value.receiptId ?? value.receipt_id, 96);
+  return {
+    id,
+    status,
+    projectId: cleanText(value.projectId ?? value.project_id, 96),
+    projectTitle: cleanText(value.projectTitle ?? value.project_title, 160),
+    correctionText: cleanText(value.correctionText ?? value.correction_text, 600),
+    candidateFacts,
+    correctionMemoryId: cleanText(value.correctionMemoryId ?? value.correction_memory_id, 80),
+    selectedFact: status === "resolved" ? selectedFact : "",
+    receiptId: status === "resolved" ? receiptId : "",
+    createdAt: Math.max(0, Number(value.createdAt ?? value.created_at ?? 0)),
+    resolvedAt: status === "resolved"
+      ? Math.max(0, Number(value.resolvedAt ?? value.resolved_at ?? 0))
+      : 0,
+  };
 }
 
 function normalizeCharacterBibleFact(value = "", maxChars = 220) {
@@ -1991,6 +2023,14 @@ function sanitizeCreativeMemoryLedgerRecord(rec = null, {
     .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
     .slice(0, CANON_CORRECTION_RECEIPTS_MAX);
   if (canonCorrectionReceipts.length) out.canonCorrectionReceipts = canonCorrectionReceipts;
+  const canonCorrectionAmbiguities = (Array.isArray(rec.canonCorrectionAmbiguities)
+    ? rec.canonCorrectionAmbiguities
+    : [])
+    .map(sanitizeCanonCorrectionAmbiguity)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    .slice(0, CANON_CORRECTION_AMBIGUITIES_MAX);
+  if (canonCorrectionAmbiguities.length) out.canonCorrectionAmbiguities = canonCorrectionAmbiguities;
   if (rec.tone && typeof rec.tone === "object" && !Array.isArray(rec.tone)) {
     out.tone = clone(rec.tone);
   }
@@ -2018,6 +2058,18 @@ function correctionStateSnapshot(rec = null, { projectId = "", projectTitle = ""
     projects: project ? [clone(project)] : [],
     characters: Array.isArray(record.characters) ? clone(record.characters) : [],
     episodicMemories,
+    canonCorrectionAmbiguities: (Array.isArray(record.canonCorrectionAmbiguities)
+      ? record.canonCorrectionAmbiguities
+      : [])
+      .map(sanitizeCanonCorrectionAmbiguity)
+      .filter((item) => {
+        const identity = projectIdentity(item);
+        const targetId = cleanText(projectId, 96).toLowerCase();
+        const targetTitle = cleanText(projectTitle, 160).toLowerCase();
+        if (targetId && identity.projectId) return identity.projectId === targetId;
+        if (targetTitle && identity.projectTitle) return identity.projectTitle === targetTitle;
+        return !targetId && !targetTitle;
+      }),
   };
 }
 
@@ -2035,6 +2087,11 @@ function restoreCorrectionState(rec = {}, receipt = null) {
   ).filter((memory) => (
     cleanText(memory?.id, 80) !== cleanReceipt.correctionMemoryId
   ));
+  rec.canonCorrectionAmbiguities = undoCorrectionArray(
+    rec.canonCorrectionAmbiguities,
+    before.canonCorrectionAmbiguities,
+    after.canonCorrectionAmbiguities
+  );
   return rec;
 }
 
@@ -2757,6 +2814,43 @@ function createCreativeMemoryStore({
     });
   }
 
+  function appendCanonCorrectionReceipt(current, {
+    receiptId = "",
+    projectId = "",
+    projectTitle = "",
+    correctionText = "",
+    matchedFacts = [],
+    correctionMemoryId = "",
+    beforeState = null,
+    afterState = null,
+    createdAt = nowMs(),
+  } = {}) {
+    const cleanFacts = normalizeStringList(matchedFacts, 8, 220);
+    if (!current || !cleanFacts.length || !beforeState) return null;
+    const receipt = sanitizeCanonCorrectionReceipt({
+      id: cleanText(receiptId, 96) || `canon_correction_${randomUUID()}`,
+      status: "active",
+      projectId,
+      projectTitle,
+      correctionText,
+      matchedFacts: cleanFacts,
+      correctionMemoryId,
+      createdAt,
+      beforeState,
+      afterState: afterState || correctionStateSnapshot(current, { projectId, projectTitle }),
+    }, { includeSnapshots: true });
+    if (!receipt) return null;
+    const receipts = (Array.isArray(current.canonCorrectionReceipts)
+      ? current.canonCorrectionReceipts
+      : [])
+      .map((item) => sanitizeCanonCorrectionReceipt(item, { includeSnapshots: true }))
+      .filter(Boolean);
+    current.canonCorrectionReceipts = [receipt, ...receipts]
+      .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+      .slice(0, CANON_CORRECTION_RECEIPTS_MAX);
+    return receipt;
+  }
+
   async function recordCanonCorrectionReceipt({
     userId,
     projectId = "",
@@ -2775,9 +2869,7 @@ function createCreativeMemoryStore({
       const current = await readUser(cleanUserId);
       if (!current) return { ok: false, status: "memory_not_found" };
       const createdAt = nowMs();
-      const receipt = sanitizeCanonCorrectionReceipt({
-        id: `canon_correction_${randomUUID()}`,
-        status: "active",
+      const receipt = appendCanonCorrectionReceipt(current, {
         projectId,
         projectTitle,
         correctionText,
@@ -2785,22 +2877,223 @@ function createCreativeMemoryStore({
         correctionMemoryId,
         createdAt,
         beforeState,
-        afterState: correctionStateSnapshot(current, { projectId, projectTitle }),
-      }, { includeSnapshots: true });
+      });
       if (!receipt) return { ok: false, status: "invalid_correction_receipt" };
-      const receipts = (Array.isArray(current.canonCorrectionReceipts)
-        ? current.canonCorrectionReceipts
-        : [])
-        .map((item) => sanitizeCanonCorrectionReceipt(item, { includeSnapshots: true }))
-        .filter(Boolean);
-      current.canonCorrectionReceipts = [receipt, ...receipts]
-        .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
-        .slice(0, CANON_CORRECTION_RECEIPTS_MAX);
       current.updatedAt = createdAt;
       await writeUser(cleanUserId, current);
       return {
         ok: true,
         status: "recorded",
+        receipt: sanitizeCanonCorrectionReceipt(receipt),
+      };
+    });
+  }
+
+  async function recordCanonCorrectionAmbiguity({
+    userId,
+    projectId = "",
+    projectTitle = "",
+    correctionText = "",
+    candidateFacts = [],
+    correctionMemoryId = "",
+  } = {}) {
+    const cleanUserId = cleanText(userId, 128);
+    const cleanCandidates = normalizeStringList(candidateFacts, 8, 220);
+    if (!cleanUserId || cleanCandidates.length < 2) {
+      return { ok: false, status: "invalid_correction_ambiguity" };
+    }
+    return withUserLock(cleanUserId, async () => {
+      const current = await readUser(cleanUserId);
+      if (!current) return { ok: false, status: "memory_not_found" };
+      const ambiguities = (Array.isArray(current.canonCorrectionAmbiguities)
+        ? current.canonCorrectionAmbiguities
+        : [])
+        .map(sanitizeCanonCorrectionAmbiguity)
+        .filter(Boolean);
+      const projectKey = cleanText(projectId || projectTitle, 160).toLowerCase();
+      const candidateKey = [...cleanCandidates].map(acceptedCanonFactKey).sort().join("|");
+      const existingIndex = ambiguities.findIndex((item) => (
+        item.status === "pending" &&
+        cleanText(item.projectId || item.projectTitle, 160).toLowerCase() === projectKey &&
+        [...item.candidateFacts].map(acceptedCanonFactKey).sort().join("|") === candidateKey
+      ));
+      const createdAt = nowMs();
+      const ambiguity = sanitizeCanonCorrectionAmbiguity({
+        id: existingIndex >= 0
+          ? ambiguities[existingIndex].id
+          : `canon_ambiguity_${randomUUID()}`,
+        status: "pending",
+        projectId,
+        projectTitle,
+        correctionText,
+        candidateFacts: cleanCandidates,
+        correctionMemoryId,
+        createdAt: existingIndex >= 0 ? ambiguities[existingIndex].createdAt : createdAt,
+      });
+      if (!ambiguity) return { ok: false, status: "invalid_correction_ambiguity" };
+      if (existingIndex >= 0) ambiguities.splice(existingIndex, 1);
+      current.canonCorrectionAmbiguities = [ambiguity, ...ambiguities]
+        .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+        .slice(0, CANON_CORRECTION_AMBIGUITIES_MAX);
+      current.updatedAt = createdAt;
+      await writeUser(cleanUserId, current);
+      return { ok: true, status: existingIndex >= 0 ? "updated" : "recorded", ambiguity };
+    });
+  }
+
+  async function resolveCanonCorrectionAmbiguity({
+    userId,
+    ambiguityId = "",
+    selectedFact = "",
+  } = {}) {
+    const cleanUserId = cleanText(userId, 128);
+    const cleanAmbiguityId = cleanText(ambiguityId, 96);
+    const cleanSelectedFact = cleanText(selectedFact, 220);
+    if (!cleanUserId) return { ok: false, status: "user_id_required" };
+    if (!cleanAmbiguityId) return { ok: false, status: "correction_ambiguity_id_required" };
+    if (!cleanSelectedFact) return { ok: false, status: "selected_fact_required" };
+
+    return withUserLock(cleanUserId, async () => {
+      const current = await readUser(cleanUserId);
+      if (!current) return { ok: false, status: "memory_not_found" };
+      const ambiguities = (Array.isArray(current.canonCorrectionAmbiguities)
+        ? current.canonCorrectionAmbiguities
+        : [])
+        .map(sanitizeCanonCorrectionAmbiguity)
+        .filter(Boolean);
+      const ambiguityIndex = ambiguities.findIndex((item) => item.id === cleanAmbiguityId);
+      if (ambiguityIndex < 0) return { ok: false, status: "correction_ambiguity_not_found" };
+      const ambiguity = ambiguities[ambiguityIndex];
+      const selected = ambiguity.candidateFacts.find((fact) => (
+        acceptedCanonFactKey(fact) === acceptedCanonFactKey(cleanSelectedFact)
+      ));
+      if (!selected) return { ok: false, status: "selected_fact_not_candidate" };
+      if (ambiguity.status === "resolved") {
+        const receipt = (Array.isArray(current.canonCorrectionReceipts)
+          ? current.canonCorrectionReceipts
+          : [])
+          .map((item) => sanitizeCanonCorrectionReceipt(item))
+          .find((item) => item.id === ambiguity.receiptId) || null;
+        if (acceptedCanonFactKey(ambiguity.selectedFact) === acceptedCanonFactKey(selected)) {
+          return { ok: true, status: "already_resolved", ambiguity, receipt };
+        }
+        return { ok: false, status: "correction_ambiguity_already_resolved" };
+      }
+
+      const projects = (Array.isArray(current.projects) ? current.projects : [])
+        .map(sanitizeProjectContinuity)
+        .filter(Boolean);
+      const project = selectProjectContinuity(projects, {
+        projectId: ambiguity.projectId,
+        projectTitle: ambiguity.projectTitle,
+      });
+      if (!project) return { ok: false, status: "correction_project_not_found" };
+      const selectedAcceptedFact = selectAcceptedCausalFactsForPrompt(project, {
+        query: selected,
+        maxItems: ACCEPTED_CAUSAL_FACT_PROMPT_MAX,
+      }).find((item) => acceptedCanonFactKey(item.fact) === acceptedCanonFactKey(selected));
+      if (!selectedAcceptedFact) {
+        return { ok: false, status: "accepted_canon_fact_not_found" };
+      }
+
+      const beforeState = correctionStateSnapshot(current, {
+        projectId: ambiguity.projectId,
+        projectTitle: ambiguity.projectTitle,
+      });
+      const correctedTerms = normalizeStringList(
+        [selected, ...(project.correctedTerms || [])],
+        8,
+        120
+      );
+      const correctedProject = sanitizeProjectContinuity({
+        ...project,
+        correctedTerms,
+        acceptedScenes: project.acceptedScenes || [],
+        updatedAt: nowMs(),
+      });
+      if (!correctedProject) return { ok: false, status: "correction_project_not_found" };
+      const stillAccepted = selectAcceptedCausalFactsForPrompt(correctedProject, {
+        query: selected,
+        maxItems: ACCEPTED_CAUSAL_FACT_PROMPT_MAX,
+      }).some((item) => acceptedCanonFactKey(item.fact) === acceptedCanonFactKey(selected));
+      if (stillAccepted) return { ok: false, status: "accepted_canon_fact_not_retired" };
+
+      const projectTarget = projectIdentity(project);
+      const projectIndex = projects.findIndex((item) => {
+        const identity = projectIdentity(item);
+        if (projectTarget.projectId) return identity.projectId === projectTarget.projectId;
+        return identity.projectTitle === projectTarget.projectTitle;
+      });
+      if (projectIndex < 0) return { ok: false, status: "correction_project_not_found" };
+      projects[projectIndex] = correctedProject;
+      current.projects = projects
+        .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+        .slice(0, PROJECT_CONTINUITY_MAX);
+
+      const resolvedAt = nowMs();
+      const resolutionMemory = sanitizeEpisodicMemoryItem({
+        id: `episode_${stableHash(`canon-resolution|${ambiguity.id}|${selected}`)}`,
+        summary: `Resolved canon correction for ${ambiguity.projectTitle || ambiguity.projectId || "screenplay"}`,
+        text: `${ambiguity.correctionText}\nSelected accepted canon: ${selected}`,
+        tags: ["screenplay", "project", CORRECTION_TAG, "canon-resolution"],
+        projectId: ambiguity.projectId,
+        projectTitle: ambiguity.projectTitle,
+        source: "memory_canon_correction_resolution",
+        createdAt: resolvedAt,
+        updatedAt: resolvedAt,
+        lastReferencedAt: resolvedAt,
+        referenceCount: 1,
+      });
+      if (!resolutionMemory) return { ok: false, status: "correction_resolution_memory_failed" };
+      const memories = (Array.isArray(current.episodicMemories) ? current.episodicMemories : [])
+        .map(sanitizeEpisodicMemoryItem)
+        .filter(Boolean)
+        .filter((item) => item.id !== resolutionMemory.id);
+      const repaired = supersedeEpisodicMemoriesForCorrection(
+        [...memories, resolutionMemory],
+        {
+          correctionMemory: resolutionMemory,
+          correction: {
+            correctedTerms: [selected],
+            correctionNote: `Writer selected accepted canon to retire: ${selected}`,
+          },
+          atMs: resolvedAt,
+        }
+      );
+      current.episodicMemories = sortEpisodicMemoriesForStorage(repaired.memories)
+        .slice(0, EPISODIC_MEMORIES_MAX);
+
+      const receiptId = `canon_correction_${randomUUID()}`;
+      ambiguities[ambiguityIndex] = sanitizeCanonCorrectionAmbiguity({
+        ...ambiguity,
+        status: "resolved",
+        selectedFact: selected,
+        receiptId,
+        resolvedAt,
+      });
+      current.canonCorrectionAmbiguities = ambiguities;
+      const afterState = correctionStateSnapshot(current, {
+        projectId: ambiguity.projectId,
+        projectTitle: ambiguity.projectTitle,
+      });
+      const receipt = appendCanonCorrectionReceipt(current, {
+        receiptId,
+        projectId: ambiguity.projectId,
+        projectTitle: ambiguity.projectTitle,
+        correctionText: ambiguity.correctionText,
+        matchedFacts: [selected],
+        correctionMemoryId: resolutionMemory.id,
+        beforeState,
+        afterState,
+        createdAt: resolvedAt,
+      });
+      if (!receipt) return { ok: false, status: "correction_receipt_failed" };
+      current.updatedAt = resolvedAt;
+      await writeUser(cleanUserId, current);
+      return {
+        ok: true,
+        status: "resolved",
+        ambiguity: sanitizeCanonCorrectionAmbiguity(ambiguities[ambiguityIndex]),
         receipt: sanitizeCanonCorrectionReceipt(receipt),
       };
     });
@@ -3773,6 +4066,7 @@ function createCreativeMemoryStore({
       acceptedCanonFactsRetired: 0,
       acceptedCanonFactsAmbiguous: 0,
       canonCorrectionReceiptId: "",
+      canonCorrectionAmbiguityId: "",
       acceptedPagesPromoted: 0,
       acceptedPagesRecorded: 0,
       lexicalPhrases: 0,
@@ -3795,7 +4089,7 @@ function createCreativeMemoryStore({
       ? collectEpisodicCorrectionSignal({ text: userText })
       : null;
     let matchedAcceptedCanonFacts = [];
-    let ambiguousAcceptedCanonFacts = 0;
+    let ambiguousAcceptedCanonFacts = [];
     let canonCorrectionBeforeState = null;
     let correctionMemoryId = "";
     if (isCorrectionTurn && (resolvedProjectId || resolvedProjectTitle)) {
@@ -3811,7 +4105,7 @@ function createCreativeMemoryStore({
       });
       projectCorrection = matched.correction;
       matchedAcceptedCanonFacts = matched.matchedFacts;
-      ambiguousAcceptedCanonFacts = matched.ambiguousFacts.length;
+      ambiguousAcceptedCanonFacts = matched.ambiguousFacts;
       if (currentRecord && matchedAcceptedCanonFacts.length) {
         canonCorrectionBeforeState = correctionStateSnapshot(currentRecord, {
           projectId: resolvedProjectId,
@@ -3819,7 +4113,7 @@ function createCreativeMemoryStore({
         });
       }
     }
-    summary.acceptedCanonFactsAmbiguous = ambiguousAcceptedCanonFacts;
+    summary.acceptedCanonFactsAmbiguous = ambiguousAcceptedCanonFacts.length;
     const continuityForWrite = projectCorrection
       ? {
         ...continuitySource,
@@ -4113,6 +4407,20 @@ function createCreativeMemoryStore({
       } catch (_e) { /* never block the response on correction receipt writes */ }
     }
 
+    if (ambiguousAcceptedCanonFacts.length > 1) {
+      try {
+        const ambiguity = await recordCanonCorrectionAmbiguity({
+          userId,
+          projectId: resolvedProjectId,
+          projectTitle: resolvedProjectTitle,
+          correctionText: userText,
+          candidateFacts: ambiguousAcceptedCanonFacts,
+          correctionMemoryId,
+        });
+        if (ambiguity?.ok) summary.canonCorrectionAmbiguityId = ambiguity.ambiguity?.id || "";
+      } catch (_e) { /* never block the response on ambiguity receipt writes */ }
+    }
+
     return summary;
   }
 
@@ -4137,6 +4445,7 @@ function createCreativeMemoryStore({
     clearUserMemory,
     forgetMemoryCard,
     undoCanonCorrection,
+    resolveCanonCorrectionAmbiguity,
     recordProjectContinuity,
     recordEpisodicMemory,
     recordCharacterMention,

@@ -14,7 +14,7 @@
 // docs/schemas/memories-list.md, memories-mutate.md,
 // memories-export.md (all already on main).
 //
-// Routes extracted (8 total):
+// Routes extracted (9 total):
 //
 //   GET  /memories            — list view + delta-no-change
 //                               short-circuit + If-None-Match etag.
@@ -27,6 +27,8 @@
 //                             — repair durable character canon.
 //   POST /memories/corrections/undo
 //                             — undo an accepted-canon correction.
+//   POST /memories/corrections/resolve
+//                             — resolve an ambiguous canon correction.
 //   POST /memories/forget     — delete a memory card.
 //   POST /memories/promote    — promote a card to a theme.
 //   POST /memories/feedback   — record human feedback on a theme.
@@ -184,6 +186,38 @@ function mountMemoriesRoutes(app, deps = {}) {
       if (out.length >= maxItems) break;
     }
     return out;
+  }
+
+  function canonCorrectionReceiptPayload(receipt = null) {
+    if (!receipt || typeof receipt !== "object") return null;
+    return {
+      id: String(receipt.id || ""),
+      status: String(receipt.status || ""),
+      project_id: String(receipt.projectId || ""),
+      project_title: String(receipt.projectTitle || ""),
+      correction_text: String(receipt.correctionText || ""),
+      matched_facts: Array.isArray(receipt.matchedFacts) ? receipt.matchedFacts : [],
+      correction_memory_id: String(receipt.correctionMemoryId || ""),
+      created_at: Math.max(0, Number(receipt.createdAt || 0)),
+      undone_at: Math.max(0, Number(receipt.undoneAt || 0)) || null,
+    };
+  }
+
+  function canonCorrectionAmbiguityPayload(ambiguity = null) {
+    if (!ambiguity || typeof ambiguity !== "object") return null;
+    return {
+      id: String(ambiguity.id || ""),
+      status: String(ambiguity.status || ""),
+      project_id: String(ambiguity.projectId || ""),
+      project_title: String(ambiguity.projectTitle || ""),
+      correction_text: String(ambiguity.correctionText || ""),
+      candidate_facts: Array.isArray(ambiguity.candidateFacts) ? ambiguity.candidateFacts : [],
+      correction_memory_id: String(ambiguity.correctionMemoryId || ""),
+      selected_fact: String(ambiguity.selectedFact || ""),
+      receipt_id: String(ambiguity.receiptId || ""),
+      created_at: Math.max(0, Number(ambiguity.createdAt || 0)),
+      resolved_at: Math.max(0, Number(ambiguity.resolvedAt || 0)) || null,
+    };
   }
 
   function normalizeArcPatch(value = {}) {
@@ -788,17 +822,96 @@ function mountMemoriesRoutes(app, deps = {}) {
       message: status === "newer_correction_exists"
         ? "Undo the newer correction for this project first."
         : null,
-      correction_receipt: receipt ? {
-        id: String(receipt.id || ""),
-        status: String(receipt.status || ""),
-        project_id: String(receipt.projectId || ""),
-        project_title: String(receipt.projectTitle || ""),
-        correction_text: String(receipt.correctionText || ""),
-        matched_facts: Array.isArray(receipt.matchedFacts) ? receipt.matchedFacts : [],
-        correction_memory_id: String(receipt.correctionMemoryId || ""),
-        created_at: Math.max(0, Number(receipt.createdAt || 0)),
-        undone_at: Math.max(0, Number(receipt.undoneAt || 0)) || null,
-      } : null,
+      correction_receipt: canonCorrectionReceiptPayload(receipt),
+      session_id: readMeta.sessionId,
+      state_version: readMeta.stateVersion,
+      last_turn_id: readMeta.lastTurnId || null,
+      last_updated_at: readMeta.lastUpdatedAt || null,
+      history_updated_at: readMeta.historyUpdatedAt || null,
+      memory_updated_at: readMeta.memoryUpdatedAt || null,
+      backend_boot_id: readMeta.backendBootId,
+      schema_version: readMeta.schemaVersion,
+      backend_build: readMeta.backendBuild,
+    });
+  });
+
+  // ============== POST /memories/corrections/resolve ==============
+  app.post("/memories/corrections/resolve", express.json({ limit: MEMORIES_MUTATION_BODY_LIMIT }), async (req, res) => {
+    const userId = requireMemoryUser(req, res, "memories_correction_resolve");
+    if (!userId) return;
+    const rid = req.requestId || createRequestId();
+    const ambiguityId = String(req.body?.ambiguity_id ?? req.body?.ambiguityId ?? "").trim().slice(0, 96);
+    const selectedFact = normalizeSnippet(req.body?.selected_fact ?? req.body?.selectedFact ?? "", 220);
+    if (!ambiguityId || !selectedFact) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(400).json({
+        ok: false,
+        action: "resolve_correction",
+        status: !ambiguityId ? "correction_ambiguity_id_required" : "selected_fact_required",
+        message: !ambiguityId
+          ? "A correction ambiguity id is required."
+          : "Choose one of the accepted canon facts.",
+      });
+    }
+    if (!creativeMemoryStore || typeof creativeMemoryStore.resolveCanonCorrectionAmbiguity !== "function") {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        ok: false,
+        action: "resolve_correction",
+        status: "creative_memory_unavailable",
+        message: "Durable creative memory is not available.",
+      });
+    }
+
+    let mutation;
+    try {
+      mutation = await creativeMemoryStore.resolveCanonCorrectionAmbiguity({
+        userId,
+        ambiguityId,
+        selectedFact,
+      });
+    } catch (error) {
+      logger.log(`[${rid}] memories_correction_resolve error=${error?.message || error}`);
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(500).json({
+        ok: false,
+        action: "resolve_correction",
+        status: "correction_resolution_failed",
+        message: "The correction choice could not be applied.",
+      });
+    }
+
+    const status = String(mutation?.status || "correction_resolution_failed");
+    const statusCode = mutation?.ok
+      ? 200
+      : status === "correction_ambiguity_not_found" || status === "memory_not_found"
+        ? 404
+        : [
+          "correction_ambiguity_already_resolved",
+          "correction_project_not_found",
+          "accepted_canon_fact_not_found",
+        ].includes(status)
+          ? 409
+          : 400;
+    const nowTs = Date.now();
+    const context = resolveWritableMemoryContext(req, nowTs);
+    const memory = sanitizePersistedSessionMemory(context.memory);
+    const persisted = mutation?.ok && status === "resolved"
+      ? persistWritableMemoryContext(context, memory, nowTs)
+      : memory;
+    const readMeta = buildReadStateMeta(req, persisted, context.requesterIp);
+    res.setHeader("Cache-Control", "no-store");
+    applyReadStateHeaders(res, readMeta);
+    logger.log(`[${rid}] memories_correction_resolve status=${status} ambiguity=${ambiguityId}`);
+    return res.status(statusCode).json({
+      ok: Boolean(mutation?.ok),
+      action: "resolve_correction",
+      status,
+      message: statusCode === 409
+        ? "This correction choice is stale. Refresh Memories and try again."
+        : null,
+      correction_ambiguity: canonCorrectionAmbiguityPayload(mutation?.ambiguity),
+      correction_receipt: canonCorrectionReceiptPayload(mutation?.receipt),
       session_id: readMeta.sessionId,
       state_version: readMeta.stateVersion,
       last_turn_id: readMeta.lastTurnId || null,

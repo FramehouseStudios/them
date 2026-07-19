@@ -660,6 +660,112 @@ test("[memories] POST /memories/corrections/undo requires authenticated user", a
   assert.equal(deps._calls.persistWritableMemoryContext, 0);
 });
 
+// ============== POST /memories/corrections/resolve ==============
+
+test("[memories] POST /memories/corrections/resolve applies an authenticated writer choice", async () => {
+  const calls = [];
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      resolveCanonCorrectionAmbiguity: async (args) => {
+        calls.push(args);
+        return {
+          ok: true,
+          status: "resolved",
+          ambiguity: {
+            id: args.ambiguityId,
+            status: "resolved",
+            projectId: "split-ferries",
+            projectTitle: "Split Ferries",
+            correctionText: "Actually, Mara never abandons anyone at the ferry dock.",
+            candidateFacts: [
+              "Mara abandons Eli at the east ferry dock.",
+              "Mara abandons June at the east ferry dock.",
+            ],
+            correctionMemoryId: "episode-ambiguous",
+            selectedFact: args.selectedFact,
+            receiptId: "canon_correction_resolved",
+            createdAt: 1715620920000,
+            resolvedAt: 1715620980000,
+          },
+          receipt: {
+            id: "canon_correction_resolved",
+            status: "active",
+            projectId: "split-ferries",
+            projectTitle: "Split Ferries",
+            correctionText: "Actually, Mara never abandons anyone at the ferry dock.",
+            matchedFacts: [args.selectedFact],
+            correctionMemoryId: "episode-resolution",
+            createdAt: 1715620980000,
+          },
+        };
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/corrections/resolve", {
+      ambiguity_id: "canon_ambiguity_123",
+      selected_fact: "Mara abandons Eli at the east ferry dock.",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.action, "resolve_correction");
+    assert.equal(r.body.correction_ambiguity.status, "resolved");
+    assert.equal(r.body.correction_ambiguity.selected_fact, "Mara abandons Eli at the east ferry dock.");
+    assert.equal(r.body.correction_receipt.id, "canon_correction_resolved");
+  });
+  assert.deepEqual(calls, [{
+    userId: "user_memories_test",
+    ambiguityId: "canon_ambiguity_123",
+    selectedFact: "Mara abandons Eli at the east ferry dock.",
+  }]);
+  assert.equal(deps._calls.resolveWritableMemoryContext, 1);
+  assert.equal(deps._calls.persistWritableMemoryContext, 1);
+});
+
+test("[memories] POST /memories/corrections/resolve rejects a stale accepted fact without syncing", async () => {
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      resolveCanonCorrectionAmbiguity: async () => ({
+        ok: false,
+        status: "accepted_canon_fact_not_found",
+      }),
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/corrections/resolve", {
+      ambiguity_id: "canon_ambiguity_stale",
+      selected_fact: "Mara abandons Eli at the east ferry dock.",
+    });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.status, "accepted_canon_fact_not_found");
+    assert.match(r.body.message, /stale/i);
+  });
+  assert.equal(deps._calls.resolveWritableMemoryContext, 1);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
+test("[memories] POST /memories/corrections/resolve requires authenticated user", async () => {
+  let called = false;
+  const deps = defaultDeps({
+    creativeMemoryStore: {
+      resolveCanonCorrectionAmbiguity: async () => {
+        called = true;
+        return { ok: true, status: "resolved" };
+      },
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/memories/corrections/resolve", {
+      ambiguity_id: "canon_ambiguity_123",
+      selected_fact: "Mara abandons Eli at the east ferry dock.",
+    });
+    assert.equal(r.status, 401);
+  }, { authenticated: false });
+  assert.equal(called, false);
+  assert.equal(deps._calls.resolveWritableMemoryContext, 0);
+  assert.equal(deps._calls.persistWritableMemoryContext, 0);
+});
+
 // ============== POST /memories/forget ==============
 
 test("[memories] POST /memories/forget: returns forgotten_id + theme_key", async () => {
@@ -786,7 +892,7 @@ test("[memories] POST /memories/feedback: 400 when signal is invalid", async () 
 
 // ============== persistence side-effect invariants ==============
 
-test("[memories] all 4 mutation routes call persistWritableMemoryContext exactly once", async () => {
+test("[memories] all 4 legacy card mutation routes persist writable context exactly once", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {
     await postJson(baseURL, "/memories/update", { card_id: "c", title: "t" });

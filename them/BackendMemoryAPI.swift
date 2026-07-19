@@ -326,6 +326,24 @@ nonisolated struct BackendCanonCorrectionReceipt: Decodable, Hashable {
     }
 }
 
+nonisolated struct BackendCanonCorrectionAmbiguity: Decodable, Hashable {
+    let id: String
+    let status: String
+    let projectId: String?
+    let projectTitle: String?
+    let correctionText: String
+    let candidateFacts: [String]
+    let correctionMemoryId: String?
+    let selectedFact: String?
+    let receiptId: String?
+    let createdAt: TimeInterval
+    let resolvedAt: TimeInterval?
+
+    var isPending: Bool {
+        status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "pending"
+    }
+}
+
 nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let id: String
     let key: String
@@ -360,6 +378,7 @@ nonisolated struct BackendMemoryCard: Decodable, Hashable, Identifiable {
     let supersededReason: String?
     let supersededTerms: [String]?
     let correctionReceipt: BackendCanonCorrectionReceipt?
+    let correctionAmbiguity: BackendCanonCorrectionAmbiguity?
     let referenceCount: Int?
     let storySpine: BackendStorySpineMemory?
 }
@@ -1057,6 +1076,7 @@ nonisolated struct BackendMemoryMutationResponse: Decodable {
     let storySpineRepaired: Bool?
     let storySpineRepairCount: Int?
     let correctionReceipt: BackendCanonCorrectionReceipt?
+    let correctionAmbiguity: BackendCanonCorrectionAmbiguity?
     let sessionId: String?
     let stateVersion: String?
     let lastTurnId: String?
@@ -5587,6 +5607,19 @@ actor BackendMemoryAPI {
         try await runMemoryMutation(
             path: "/memories/corrections/undo",
             payload: ["receipt_id": receiptID]
+        )
+    }
+
+    func resolveCanonCorrection(
+        ambiguityID: String,
+        selectedFact: String
+    ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        try await runMemoryMutation(
+            path: "/memories/corrections/resolve",
+            payload: [
+                "ambiguity_id": ambiguityID,
+                "selected_fact": selectedFact,
+            ]
         )
     }
 

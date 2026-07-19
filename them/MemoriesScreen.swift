@@ -37,6 +37,7 @@ struct MemoryItem: Identifiable, Hashable {
     var supersededReason: String
     var supersededTerms: [String]
     var correctionReceipt: BackendCanonCorrectionReceipt?
+    var correctionAmbiguity: BackendCanonCorrectionAmbiguity?
     var referenceCount: Int
     var storySpine: BackendStorySpineMemory?
 }
@@ -51,6 +52,10 @@ private extension MemoryItem {
 
     var hasRepairState: Bool {
         isSuperseded || isCorrectionMemory || hasCorrectionBible
+    }
+
+    var hasCanonCorrectionControl: Bool {
+        correctionReceipt != nil || correctionAmbiguity != nil
     }
 
     var repairBadgeText: String {
@@ -325,6 +330,20 @@ final class MemoriesViewModel: ObservableObject {
         await load(force: true, sinceVersion: nil)
     }
 
+    func resolveCanonCorrection(ambiguityID: String, selectedFact: String) async throws {
+        _ = try? await BackendMemoryAPI.shared.bootstrapSession()
+        let result = try await BackendMemoryAPI.shared.resolveCanonCorrection(
+            ambiguityID: ambiguityID,
+            selectedFact: selectedFact
+        )
+        lastSync = result.sync
+        if !result.sync.stateVersion.isEmpty {
+            latestSeenStateVersion = result.sync.stateVersion
+        }
+        selection = nil
+        await load(force: true, sinceVersion: nil)
+    }
+
     func markMemoryQuality(
         itemID: String,
         key: String,
@@ -500,6 +519,7 @@ final class MemoriesViewModel: ObservableObject {
             supersededReason: (card.supersededReason ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             supersededTerms: cleanList(card.supersededTerms ?? []),
             correctionReceipt: card.correctionReceipt,
+            correctionAmbiguity: card.correctionAmbiguity,
             referenceCount: max(0, card.referenceCount ?? 0),
             storySpine: card.storySpine
         )
@@ -553,6 +573,7 @@ final class MemoriesViewModel: ObservableObject {
             supersededReason: "",
             supersededTerms: [],
             correctionReceipt: nil,
+            correctionAmbiguity: nil,
             referenceCount: 0,
             storySpine: nil
         )
@@ -743,6 +764,12 @@ struct MemoriesScreen: View {
                         },
                         onUndoCorrection: { receipt in
                             try await vm.undoCanonCorrection(receiptID: receipt.id)
+                        },
+                        onResolveCorrection: { ambiguity, selectedFact in
+                            try await vm.resolveCanonCorrection(
+                                ambiguityID: ambiguity.id,
+                                selectedFact: selectedFact
+                            )
                         },
                         onQualitySignal: { target, signal in
                             try await vm.markMemoryQuality(
@@ -1483,6 +1510,7 @@ struct MemoryDetailView: View {
     let onSave: (MemoryItem) async throws -> MemoryItem
     let onForget: (MemoryItem) async throws -> Void
     let onUndoCorrection: (BackendCanonCorrectionReceipt) async throws -> Void
+    let onResolveCorrection: (BackendCanonCorrectionAmbiguity, String) async throws -> Void
     let onQualitySignal: (MemoryItem, String) async throws -> MemoryItem
     let onPromote: (MemoryItem) async throws -> MemoryItem
 
@@ -1492,6 +1520,7 @@ struct MemoryDetailView: View {
     @State private var isSaving = false
     @State private var isForgetting = false
     @State private var isUndoingCorrection = false
+    @State private var isResolvingCorrection = false
     @State private var isSendingQuality = false
     @State private var isPromoting = false
     @State private var errorText = ""
@@ -1502,6 +1531,7 @@ struct MemoryDetailView: View {
         onSave: @escaping (MemoryItem) async throws -> MemoryItem,
         onForget: @escaping (MemoryItem) async throws -> Void,
         onUndoCorrection: @escaping (BackendCanonCorrectionReceipt) async throws -> Void,
+        onResolveCorrection: @escaping (BackendCanonCorrectionAmbiguity, String) async throws -> Void,
         onQualitySignal: @escaping (MemoryItem, String) async throws -> MemoryItem,
         onPromote: @escaping (MemoryItem) async throws -> MemoryItem
     ) {
@@ -1509,6 +1539,7 @@ struct MemoryDetailView: View {
         self.onSave = onSave
         self.onForget = onForget
         self.onUndoCorrection = onUndoCorrection
+        self.onResolveCorrection = onResolveCorrection
         self.onQualitySignal = onQualitySignal
         self.onPromote = onPromote
         _currentItem = State(initialValue: item)
@@ -1543,8 +1574,12 @@ struct MemoryDetailView: View {
                         MemoryRepairDetailSection(
                             item: currentItem,
                             isUndoing: isUndoingCorrection,
+                            isResolving: isResolvingCorrection,
                             onUndo: {
                                 Task { await undoCurrentCorrection() }
+                            },
+                            onResolve: { selectedFact in
+                                Task { await resolveCurrentCorrection(selectedFact: selectedFact) }
                             }
                         )
                     }
@@ -1566,7 +1601,7 @@ struct MemoryDetailView: View {
 
                     memoryLedgerSection
 
-                    if currentItem.correctionReceipt == nil {
+                    if !currentItem.hasCanonCorrectionControl {
                         qualityActionsSection
                     }
 
@@ -1621,7 +1656,7 @@ struct MemoryDetailView: View {
                     }
                     .disabled(isBusy)
                 }
-                if currentItem.correctionReceipt == nil {
+                if !currentItem.hasCanonCorrectionControl {
                     Button("Forget", role: .destructive) {
                         Task { await forgetCurrentItem() }
                     }
@@ -1643,7 +1678,7 @@ struct MemoryDetailView: View {
     }
 
     private var isBusy: Bool {
-        isSaving || isForgetting || isUndoingCorrection || isSendingQuality || isPromoting
+        isSaving || isForgetting || isUndoingCorrection || isResolvingCorrection || isSendingQuality || isPromoting
     }
 
     private var memoryLedgerSection: some View {
@@ -1818,6 +1853,23 @@ struct MemoryDetailView: View {
     }
 
     @MainActor
+    private func resolveCurrentCorrection(selectedFact: String) async {
+        guard let ambiguity = currentItem.correctionAmbiguity, ambiguity.isPending else {
+            errorText = "This correction choice is no longer pending."
+            return
+        }
+        isResolvingCorrection = true
+        defer { isResolvingCorrection = false }
+        do {
+            try await onResolveCorrection(ambiguity, selectedFact)
+            errorText = ""
+            dismiss()
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    @MainActor
     private func sendQualitySignal(_ signal: String) async {
         isSendingQuality = true
         defer { isSendingQuality = false }
@@ -1856,7 +1908,9 @@ struct MemoryDetailView: View {
 private struct MemoryRepairDetailSection: View {
     let item: MemoryItem
     let isUndoing: Bool
+    let isResolving: Bool
     let onUndo: () -> Void
+    let onResolve: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1893,6 +1947,38 @@ private struct MemoryRepairDetailSection: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(isUndoing)
                     .accessibilityHint("Restores the accepted canon that this correction replaced.")
+                }
+            }
+
+            if let ambiguity = item.correctionAmbiguity, ambiguity.isPending {
+                repairLine("Writer correction", value: ambiguity.correctionText)
+                Text("Which accepted fact did you mean?")
+                    .font(.system(size: 12, weight: .semibold, design: .default))
+                    .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.72))
+
+                ForEach(ambiguity.candidateFacts, id: \.self) { fact in
+                    Button {
+                        onResolve(fact)
+                    } label: {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle")
+                                .font(.system(size: 14, weight: .semibold, design: .default))
+                                .padding(.top, 1)
+                            Text(fact)
+                                .font(.system(size: 13, weight: .regular, design: .default))
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(isResolving)
+                    .accessibilityHint("Applies the writer correction to this accepted screenplay fact only.")
+                }
+
+                if isResolving {
+                    ProgressView("Applying correction")
+                        .font(.system(size: 12, weight: .regular, design: .default))
                 }
             }
 
