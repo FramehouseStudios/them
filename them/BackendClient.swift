@@ -3402,15 +3402,18 @@ final class BackendClient {
                         await onTrace(eventTrace)
                     }
                 case "delta":
-                    let delta = (payload?.delta ?? "").trimmingCharacters(in: .newlines)
+                    let delta = payload?.delta ?? ""
                     guard !delta.isEmpty else { return }
-                    accumulated += delta
+                    accumulated = StudioResponseStreamingPolicy.appending(
+                        delta: delta,
+                        to: accumulated
+                    )
                     if let onPartial {
                         let now = Date()
                         let characterDelta = accumulated.count - lastPartialCallbackCharacterCount
                         if lastPartialCallbackCharacterCount == 0 ||
-                            characterDelta >= 96 ||
-                            now.timeIntervalSince(lastPartialCallbackAt) >= 0.25 {
+                            characterDelta >= StudioResponseStreamingPolicy.partialCharacterDelta ||
+                            now.timeIntervalSince(lastPartialCallbackAt) >= StudioResponseStreamingPolicy.partialMaximumInterval {
                             lastPartialCallbackAt = now
                             lastPartialCallbackCharacterCount = accumulated.count
                             await onPartial(accumulated)

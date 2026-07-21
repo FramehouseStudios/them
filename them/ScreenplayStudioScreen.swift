@@ -5424,6 +5424,7 @@ struct ScreenplayStudioScreen: View {
     var debugVoicePartialStabilityWindowSeconds: Double
     var isSubmittingPrompt: Bool
     @Binding var typedReplyAudioEnabled: Bool
+    var streamingAssistantReply: String
     var onSubmitPrompt: @MainActor (String, PromptRoutingMode, String) async -> String?
     var shouldRoutePromptToPage: (String, PromptRoutingMode) -> Bool
 
@@ -5440,6 +5441,7 @@ struct ScreenplayStudioScreen: View {
         debugVoicePartialStabilityWindowSeconds: Double,
         isSubmittingPrompt: Bool,
         typedReplyAudioEnabled: Binding<Bool>,
+        streamingAssistantReply: String,
         onSubmitPrompt: @escaping @MainActor (String, PromptRoutingMode, String) async -> String?,
         shouldRoutePromptToPage: @escaping (String, PromptRoutingMode) -> Bool
     ) {
@@ -5455,6 +5457,7 @@ struct ScreenplayStudioScreen: View {
         self.debugVoicePartialStabilityWindowSeconds = debugVoicePartialStabilityWindowSeconds
         self.isSubmittingPrompt = isSubmittingPrompt
         self._typedReplyAudioEnabled = typedReplyAudioEnabled
+        self.streamingAssistantReply = streamingAssistantReply
         self.onSubmitPrompt = onSubmitPrompt
         self.shouldRoutePromptToPage = shouldRoutePromptToPage
     }
@@ -8703,11 +8706,21 @@ private var directionOneScriptEditor: some View {
     }
 
     private var studioPerceivedVoicePinPendingCard: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        let liveReply = streamingAssistantReply.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(perceivedSpeedState.statusText)
+                if liveReply.isEmpty {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: typedReplyAudioEnabled ? "waveform" : "text.cursor")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.herStudioActiveFill.opacity(0.82))
+                }
+                Text(liveReply.isEmpty
+                    ? perceivedSpeedState.statusText
+                    : (typedReplyAudioEnabled ? "Speaking while writing..." : "Writing..."))
                     .font(.system(size: 12, weight: .semibold, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.78))
                 Spacer(minLength: 0)
@@ -8723,18 +8736,30 @@ private var directionOneScriptEditor: some View {
                 .foregroundStyle(Color.herText.opacity(0.58))
                 .lineLimit(2)
 
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(perceivedSpeedState.skeletonLines, id: \.self) { line in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color.herText.opacity(0.20))
-                            .frame(width: 4, height: 4)
-                        Text(line)
-                            .font(.system(size: 10, weight: .medium, design: .default))
-                            .foregroundStyle(Color.herText.opacity(0.42))
-                            .lineLimit(1)
+            if liveReply.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(perceivedSpeedState.skeletonLines, id: \.self) { line in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.herText.opacity(0.20))
+                                .frame(width: 4, height: 4)
+                            Text(line)
+                                .font(.system(size: 10, weight: .medium, design: .default))
+                                .foregroundStyle(Color.herText.opacity(0.42))
+                                .lineLimit(1)
+                        }
                     }
                 }
+            } else {
+                Text(liveReply)
+                    .font(.system(size: 12, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.86))
+                    .lineLimit(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 9)
+                    .background(Color.black.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
         .padding(12)

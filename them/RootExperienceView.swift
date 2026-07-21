@@ -748,6 +748,7 @@ struct RootExperienceView: View {
     @StateObject private var orbAudio = OrbAudioDriver()
     @StateObject private var speculativeTalk = SpeculativeTalkEngine()
     @State private var promptSpeaker = PersonalityPromptSpeaker()
+    @State private var typedReplySpeaker = StreamingSpeechPlayer()
     @State private var uiReflection = BackendTalkUIReflection.default
     @State private var localStateVersion = ""
     @State private var sessionContinuitySnapshot: BackendSessionContinuitySnapshot?
@@ -911,8 +912,9 @@ struct RootExperienceView: View {
         isStudioSurfaceActive: Bool
     ) -> Bool {
         _ = shouldWriteToPage
-        _ = isStudioSurfaceActive
-        return false
+        return StudioResponseStreamingPolicy.shouldStream(
+            isStudioSurfaceActive: isStudioSurfaceActive
+        )
     }
 
     private func shouldUseStreamingStudioPageWriteTransport(
@@ -927,7 +929,7 @@ struct RootExperienceView: View {
     #if DEBUG || os(macOS)
     private static let studioPageWriteTransportRoutingChecked: Bool = {
         precondition(
-            !shouldUseStreamingStudioPageWriteTransport(
+            shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: true,
                 isStudioSurfaceActive: true
             )
@@ -939,7 +941,7 @@ struct RootExperienceView: View {
             )
         )
         precondition(
-            !shouldUseStreamingStudioPageWriteTransport(
+            shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: false,
                 isStudioSurfaceActive: true
             )
@@ -1310,6 +1312,11 @@ struct RootExperienceView: View {
                 .onChange(of: isStudioSurfaceActive) { _, newValue in
                     DispatchQueue.main.async {
                         handleStudioSurfaceActiveChange(newValue)
+                    }
+                }
+                .onChange(of: studioTypedReplyAudioEnabled) { _, isEnabled in
+                    if !isEnabled {
+                        typedReplySpeaker.cancel()
                     }
                 }
                 .onChange(of: voiceTransportModeRaw) { _, newValue in
@@ -2433,6 +2440,7 @@ struct RootExperienceView: View {
         voice.stopAssistantPlayback = {
             orbAudio.stop()
             promptSpeaker.stop()
+            typedReplySpeaker.cancel()
             voice.markAssistantPlaybackEnded()
             inFlightTalkTask?.cancel()
             inFlightTalkTask = nil
@@ -2646,6 +2654,7 @@ struct RootExperienceView: View {
         realtimeTransport.disconnect()
         orbAudio.stop()
         promptSpeaker.stop()
+        typedReplySpeaker.cancel()
         stopBackendHealthMonitoring()
     }
 
@@ -3513,6 +3522,7 @@ struct RootExperienceView: View {
             debugVoicePartialStabilityWindowSeconds: voice.debugPartialStabilityWindowSeconds,
             isSubmittingPrompt: isTurnSubmitting,
             typedReplyAudioEnabled: $studioTypedReplyAudioEnabled,
+            streamingAssistantReply: realtimeStudioRenderedReply,
             onSubmitPrompt: { prompt, routingMode, requestID in
 #if DEBUG || os(macOS)
                 setStudioDebugPreferenceString("root_closure_started", forKey: "studio_debug_root_submit_stage")
@@ -4430,6 +4440,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
                 return (true, feedback.isError ? feedback.confirmation : nil)
             }
             promptSpeaker.stop()
+            typedReplySpeaker.cancel()
             promptSpeaker.speak(spokenText, style: feedback.spokenStyle)
             let resumeDelay = max(0.95, promptSpeaker.estimatedDuration(for: spokenText, style: feedback.spokenStyle) + 0.35)
             DispatchQueue.main.asyncAfter(deadline: .now() + resumeDelay) {
@@ -5643,6 +5654,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         voice.teardown()
         orbAudio.stop()
         promptSpeaker.stop()
+        typedReplySpeaker.cancel()
     }
 
     private func openMicrophoneSettings() {
@@ -7539,6 +7551,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let shouldStreamStudioPageWrite = shouldUseStreamingStudioPageWriteTransport(
                 shouldWriteToPage: shouldWriteToPage
             )
+            let shouldSpeakTypedReply = studioTypedReplyAudioEnabled
+            if shouldSpeakTypedReply {
+                orbAudio.stop()
+                promptSpeaker.stop()
+                voice.stopRecording()
+                typedReplySpeaker.begin()
+            } else {
+                typedReplySpeaker.cancel()
+            }
             let studioRenderTimeoutSeconds = shouldWriteToPage ? 75.0 : 30.0
             if shouldStreamStudioPageWrite {
                 realtimeStudioRenderUserMessage = cleanPrompt
@@ -7556,6 +7577,18 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                     await MainActor.run {
                                         guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
                                         self.realtimeStudioRenderedReply = partial
+                                        if shouldSpeakTypedReply && self.studioTypedReplyAudioEnabled {
+                                            self.typedReplySpeaker.consume(cumulativeText: partial)
+                                        } else if !self.studioTypedReplyAudioEnabled {
+                                            self.typedReplySpeaker.cancel()
+                                        }
+                                        if shouldWriteToPage,
+                                           self.shouldApplyRealtimeStudioDraftPreview(partial) {
+                                            self.applyRealtimeStudioDraftPreview(
+                                                userMessage: cleanPrompt,
+                                                assistantMessage: partial
+                                            )
+                                        }
                                     }
                                 },
                                 onTrace: { trace in
@@ -7580,6 +7613,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     } catch {
                         guard shouldFallbackToNonStreamingStudioRender(for: error) else { throw error }
                         restoreRealtimeStudioDraftPreview()
+                        if shouldSpeakTypedReply {
+                            typedReplySpeaker.begin()
+                        }
                         HerLog.talk.info("STUDIO render stream unconfirmed -> fallback to one-shot render")
                         return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
                             let result = try await backend.renderRealtimeStudioResult(
@@ -7604,6 +7640,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 } catch {
                     restoreRealtimeStudioDraftPreview()
                     guard shouldRetryTalkOnce(for: error) else { throw error }
+                    if shouldSpeakTypedReply {
+                        typedReplySpeaker.begin()
+                    }
                     HerLog.talk.info("transient STUDIO render failure, retrying once")
                     try await Task.sleep(nanoseconds: 250_000_000)
                     renderedReply = try await requestRender()
@@ -7646,6 +7685,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             realtimeStudioRenderedReply = ""
             resetRealtimeStudioDraftPreviewThrottle()
             guard !cleanReply.isEmpty else {
+                typedReplySpeaker.cancel()
                 if shouldWriteToPage {
                     restoreRealtimeStudioDraftPreview()
                 }
@@ -7680,7 +7720,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 promptSource: .typed,
                 promptTargetOverride: shouldWriteToPage ? .page : .voicePin
             )
-            playTypedStudioReplyIfNeeded(replyText: cleanReply, insertedText: insertedScreenplayText)
+            finishTypedStudioReplySpeechIfNeeded(
+                replyText: cleanReply,
+                shouldSpeak: shouldSpeakTypedReply
+            )
             recordStudioConversationMemoryIfNeeded(
                 user: cleanPrompt,
                 assistant: cleanReply,
@@ -7740,6 +7783,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
             return nil
         } catch BackendError.continueListening {
+            typedReplySpeaker.cancel()
             backendConnectionState = .up
             backendFailureCount = 0
 #if DEBUG || os(macOS)
@@ -7747,6 +7791,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
             return "Try giving io.them a little more detail."
         } catch {
+            typedReplySpeaker.cancel()
             realtimeStudioRenderUserMessage = ""
             realtimeStudioRenderedReply = ""
             if shouldWriteToPage,
@@ -7779,17 +7824,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
-    private func playTypedStudioReplyIfNeeded(replyText: String, insertedText: String?) {
-        guard studioTypedReplyAudioEnabled else { return }
-        let cleanInsertedText = (insertedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard cleanInsertedText.isEmpty else { return }
+    private func finishTypedStudioReplySpeechIfNeeded(
+        replyText: String,
+        shouldSpeak: Bool
+    ) {
+        guard shouldSpeak, studioTypedReplyAudioEnabled else {
+            typedReplySpeaker.cancel()
+            return
+        }
         let cleanReply = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanReply.isEmpty else { return }
-
-        orbAudio.stop()
-        promptSpeaker.stop()
-        voice.stopRecording()
-        promptSpeaker.speak(cleanReply)
+        guard !cleanReply.isEmpty else {
+            typedReplySpeaker.cancel()
+            return
+        }
+        typedReplySpeaker.finish(finalText: cleanReply)
     }
 
     private func shouldRetryTalkOnce(for error: Error) -> Bool {
@@ -9107,8 +9155,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let now = Date()
         let characterDelta = cleanReply.count - lastRealtimeStudioPreviewCharacterCount
         guard lastRealtimeStudioPreviewCharacterCount == 0 ||
-                characterDelta >= 96 ||
-                now.timeIntervalSince(lastRealtimeStudioPreviewAt) >= 0.35 else {
+                characterDelta >= StudioResponseStreamingPolicy.pagePreviewCharacterDelta ||
+                now.timeIntervalSince(lastRealtimeStudioPreviewAt) >= StudioResponseStreamingPolicy.pagePreviewMaximumInterval else {
             return false
         }
         lastRealtimeStudioPreviewAt = now
@@ -11019,6 +11067,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         voice.teardown()
         orbAudio.stop()
         promptSpeaker.stop()
+        typedReplySpeaker.cancel()
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
         realtimePendingUserTranscript = ""
@@ -11789,6 +11838,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         speculativeTalk.cancel()
         orbAudio.stop()
         promptSpeaker.stop()
+        typedReplySpeaker.cancel()
         voice.markRequestFailed()
         if voiceTransportMode == .realtimePreview {
             voice.stopRecording()
