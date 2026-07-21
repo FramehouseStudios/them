@@ -2650,6 +2650,7 @@ nonisolated enum BackendAuthClient {
     }
 
     static func signUp(email: String, password: String) async throws -> BackendAuthSessionState {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/signup")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2662,6 +2663,7 @@ nonisolated enum BackendAuthClient {
     }
 
     static func login(email: String, password: String) async throws -> BackendAuthSessionState {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/login")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2681,6 +2683,7 @@ nonisolated enum BackendAuthClient {
         givenName: String? = nil,
         familyName: String? = nil
     ) async throws -> BackendAuthSessionState {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/apple")
         var body: [String: Any] = [
             "identity_token": identityToken.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2720,6 +2723,7 @@ nonisolated enum BackendAuthClient {
         guard !refreshTokenValue.isEmpty else {
             throw BackendMemoryAPIError.server(status: 401, message: "refresh_token_required")
         }
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/refresh")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "refresh_token": refreshTokenValue,
@@ -2757,6 +2761,7 @@ nonisolated enum BackendAuthClient {
     }
 
     static func requestPasswordReset(email: String) async throws -> BackendAuthEnvelope {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/request_password_reset")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2765,6 +2770,7 @@ nonisolated enum BackendAuthClient {
     }
 
     static func resetPassword(token: String, newPassword: String) async throws -> BackendAuthSessionState {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/reset_password")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "token": token.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2779,6 +2785,7 @@ nonisolated enum BackendAuthClient {
     }
 
     static func requestEmailVerification(email: String? = nil) async throws -> BackendAuthEnvelope {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/request_email_verification")
         var body: [String: Any] = [:]
         let normalizedEmail = (email ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2802,6 +2809,7 @@ nonisolated enum BackendAuthClient {
     }
 
     static func verifyEmail(token: String) async throws -> BackendAuthSessionState {
+        try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/verify_email")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "token": token.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2856,6 +2864,10 @@ nonisolated enum BackendAuthClient {
         return request
     }
 
+    private static func prepareVerifiedBackendForAuth() async throws {
+        _ = try await BackendMemoryAPI.shared.fetchHealth()
+    }
+
     private static func applyStandardHeaders(
         to request: inout URLRequest,
         includeContentType: Bool = false,
@@ -2908,6 +2920,15 @@ nonisolated enum BackendAuthClient {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
+        }
+        guard BackendAPIResponseValidator.hasMatchingOrigin(
+            requestURL: request.url,
+            responseURL: http.url
+        ), BackendAPIResponseValidator.isJSONResponse(http, data: data) else {
+            throw BackendMemoryAPIError.server(
+                status: 502,
+                message: "Backend service unavailable. Please try again."
+            )
         }
         guard (200...299).contains(http.statusCode) else {
             throw BackendMemoryAPIError.server(status: http.statusCode, message: decodeErrorMessage(from: data))
@@ -3720,6 +3741,7 @@ actor BackendMemoryAPI {
     }()
     private let session: URLSession
     private let baseURLOverride: URL?
+    private var healthyBaseURL: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
     private var sessionBootstrapTask: (id: Int, task: Task<SessionBootstrapHTTPResult, Error>)?
@@ -3942,11 +3964,24 @@ actor BackendMemoryAPI {
     }
 
     func fetchHealth() async throws -> BackendHealthStatus {
-        do {
-            return try await fetchHealth(path: "/bridge")
-        } catch {
-            return try await fetchHealth(path: "/health")
+        var lastError: Error = BackendMemoryAPIError.invalidResponse
+        for candidate in healthBaseURLCandidates() {
+            do {
+                let status = try await fetchHealth(path: "/bridge", baseURL: candidate)
+                adoptHealthyBaseURL(candidate)
+                return status
+            } catch {
+                lastError = error
+            }
+            do {
+                let status = try await fetchHealth(path: "/health", baseURL: candidate)
+                adoptHealthyBaseURL(candidate)
+                return status
+            } catch {
+                lastError = error
+            }
         }
+        throw lastError
     }
 
     func fetchOpsRoutesManifest() async throws -> BackendOpsRouteManifestResponse {
@@ -4007,8 +4042,8 @@ actor BackendMemoryAPI {
         return try JSONDecoder().decode(BackendTalkErrorsResponse.self, from: data)
     }
 
-    private func fetchHealth(path: String) async throws -> BackendHealthStatus {
-        let request = try makeRequest(path: path)
+    private func fetchHealth(path: String, baseURL: URL) async throws -> BackendHealthStatus {
+        let request = try makeRequest(path: path, baseURL: baseURL)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
@@ -4018,6 +4053,21 @@ actor BackendMemoryAPI {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let payload = try? decoder.decode(HealthPayload.self, from: data)
+        guard (200...299).contains(http.statusCode) else {
+            throw BackendMemoryAPIError.server(
+                status: http.statusCode,
+                message: decodeErrorMessage(from: data)
+            )
+        }
+        guard BackendAPIResponseValidator.hasMatchingOrigin(
+            requestURL: request.url,
+            responseURL: http.url
+        ), BackendAPIResponseValidator.isJSONResponse(http, data: data), payload?.ok == true else {
+            throw BackendMemoryAPIError.server(
+                status: 502,
+                message: "Backend service unavailable. Please try again."
+            )
+        }
         let headerSync = syncFromHeaders(http, fallbackStatus: (200...299).contains(http.statusCode) ? "up" : "down")
         let payloadSync = syncFromHealthPayload(payload, ok: (200...299).contains(http.statusCode))
         let incomingSync = mergeSyncStates(base: payloadSync, incoming: headerSync)
@@ -4032,7 +4082,7 @@ actor BackendMemoryAPI {
         let healthStatus = payload?.status?.trimmingCharacters(in: .whitespacesAndNewlines)
         let turnReliability = buildTurnReliabilitySnapshot(from: payload)
         return BackendHealthStatus(
-            ok: (200...299).contains(http.statusCode),
+            ok: payload?.ok == true,
             status: healthStatus?.isEmpty == false ? healthStatus! : latest.status,
             raw: raw,
             sessionId: latest.sessionId,
@@ -6010,6 +6060,9 @@ actor BackendMemoryAPI {
         path: String,
         payload: [String: Any]
     ) async throws -> BackendReadResult<BackendMemoryMutationResponse> {
+        if baseURLOverride == nil, healthyBaseURL == nil {
+            _ = try? await fetchHealth()
+        }
         _ = try? await bootstrapSession(force: false)
         var request = try makeWriteRequest(path: path)
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
@@ -6021,9 +6074,26 @@ actor BackendMemoryAPI {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
+        guard BackendAPIResponseValidator.hasMatchingOrigin(
+            requestURL: request.url,
+            responseURL: http.url
+        ), BackendAPIResponseValidator.isJSONResponse(http, data: data) else {
+            throw BackendMemoryAPIError.server(
+                status: 502,
+                message: "Backend service unavailable. Please try again."
+            )
+        }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendMemoryMutationResponse.self, from: data)
+        let parsed: BackendMemoryMutationResponse
+        do {
+            parsed = try decoder.decode(BackendMemoryMutationResponse.self, from: data)
+        } catch {
+            throw BackendMemoryAPIError.server(
+                status: 502,
+                message: "Backend returned an incompatible API response. Please try again."
+            )
+        }
         let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
         let bodySync = syncFromMemoryMutationPayload(parsed)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
@@ -6353,7 +6423,11 @@ actor BackendMemoryAPI {
     }
 
     private func makeRequest(path: String) throws -> URLRequest {
-        guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
+        try makeRequest(path: path, baseURL: baseURL())
+    }
+
+    private func makeRequest(path: String, baseURL: URL) throws -> URLRequest {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw BackendMemoryAPIError.invalidBaseURL
         }
         components.path = path
@@ -7112,6 +7186,9 @@ actor BackendMemoryAPI {
         if let baseURLOverride {
             return baseURLOverride
         }
+        if let healthyBaseURL {
+            return healthyBaseURL
+        }
         if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
             return uiTestURL
         }
@@ -7145,6 +7222,32 @@ actor BackendMemoryAPI {
             UserDefaults.standard.synchronize()
         }
         return BackendDefaultBaseURLPolicy.currentPrimaryBaseURL
+    }
+
+    private func healthBaseURLCandidates() -> [URL] {
+        if let baseURLOverride {
+            return [baseURLOverride]
+        }
+        var candidates = [baseURL()]
+        let storedRaw = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
+        if isUsableConfigValue(storedRaw),
+           let stored = URL(string: storedRaw),
+           isUsableBackendURL(stored) {
+            candidates.append(canonicalizeLoopbackURL(stored))
+        }
+        candidates.append(BackendDefaultBaseURLPolicy.currentFallbackBaseURL)
+
+        var seen = Set<String>()
+        return candidates.filter { candidate in
+            seen.insert(candidate.absoluteString.lowercased()).inserted
+        }
+    }
+
+    private func adoptHealthyBaseURL(_ url: URL) {
+        let resolved = canonicalizeLoopbackURL(url)
+        healthyBaseURL = resolved
+        UserDefaults.standard.set(resolved.absoluteString, forKey: DefaultsKey.baseURL)
+        UserDefaults.standard.synchronize()
     }
 
     private func canonicalizeLoopbackURL(_ url: URL) -> URL {

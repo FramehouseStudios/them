@@ -85,4 +85,38 @@ final class ThemWorkspaceNavigationCommandTests: XCTestCase {
             ThemWorkspaceSurfaceRestorePolicy.homeRawValue
         )
     }
+
+    func testWorkspaceAuthenticationRequiresLiveAccountBeforeStudio() {
+        XCTAssertTrue(
+            ThemWorkspaceAuthenticationPolicy.requiresAccount(
+                isAuthenticated: false,
+                accessTokenExpired: false,
+                isRunningUITests: false
+            )
+        )
+        XCTAssertTrue(
+            ThemWorkspaceAuthenticationPolicy.requiresAccount(
+                isAuthenticated: true,
+                accessTokenExpired: true,
+                isRunningUITests: false
+            )
+        )
+        XCTAssertFalse(
+            ThemWorkspaceAuthenticationPolicy.requiresAccount(
+                isAuthenticated: true,
+                accessTokenExpired: false,
+                isRunningUITests: false
+            )
+        )
+    }
+
+    func testWorkspaceAuthenticationKeepsDeterministicUITestStudioPath() {
+        XCTAssertFalse(
+            ThemWorkspaceAuthenticationPolicy.requiresAccount(
+                isAuthenticated: false,
+                accessTokenExpired: false,
+                isRunningUITests: true
+            )
+        )
+    }
 }

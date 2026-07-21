@@ -727,6 +727,8 @@ struct RootExperienceView: View {
     @State private var showingCompanionControls = false
     @State private var showingDataControls = false
     @State private var showingTrustCenter = false
+    @State private var showingProfileAccount = false
+    @State private var resumeStudioAfterAccountSignIn = false
     @State private var inFlightTalkTask: Task<Void, Never>?
     @State private var didBumpSessionThisLaunch = false
     @FocusState private var onboardingNameFocused: Bool
@@ -2796,6 +2798,9 @@ struct RootExperienceView: View {
                     )
                     .frame(minWidth: 900, minHeight: 680)
                 }
+                .sheet(isPresented: $showingProfileAccount) {
+                    ProfileAccountScreen(onSessionChanged: handleAccountSessionChanged)
+                }
         )
     }
 
@@ -2903,7 +2908,8 @@ struct RootExperienceView: View {
                 showingCompanionControls ||
                 showingRecap ||
                 showingDataControls ||
-                showingTrustCenter {
+                showingTrustCenter ||
+                showingProfileAccount {
                 return event
             }
 
@@ -3318,6 +3324,23 @@ struct RootExperienceView: View {
                     .accessibilityIdentifier("home.open-studio")
 
                     Button {
+                        openAccount()
+                    } label: {
+                        Label(
+                            BackendAuthClient.currentAuthSessionState().isAuthenticated ? "Account" : "Sign In",
+                            systemImage: "person.crop.circle"
+                        )
+                            .font(.system(size: 12, weight: .regular, design: .default))
+                            .foregroundColor(.herText.opacity(0.95))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.28))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home.open-account")
+
+                    Button {
                         inFlightTalkTask?.cancel()
                         inFlightTalkTask = nil
                         voice.teardown()
@@ -3724,6 +3747,15 @@ struct RootExperienceView: View {
     }
 
     private func openStudio() {
+        let authSession = BackendAuthClient.currentAuthSessionState()
+        if ThemWorkspaceAuthenticationPolicy.requiresAccount(
+            isAuthenticated: authSession.isAuthenticated,
+            accessTokenExpired: authSession.accessExpired,
+            isRunningUITests: IOThemRuntime.isRunningUITests
+        ) {
+            openAccount(resumeStudioAfterSignIn: true)
+            return
+        }
         cancelRealtimeStudioDraftStream(restorePreview: true)
         if realtimeTransport.isLive || realtimeTransport.isBusy {
             realtimeTransport.disconnect()
@@ -3760,6 +3792,33 @@ struct RootExperienceView: View {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: true)
             }
+        }
+    }
+
+    private func openAccount(resumeStudioAfterSignIn: Bool = false) {
+        resumeStudioAfterAccountSignIn = resumeStudioAfterSignIn
+        showingProfileAccount = true
+        if resumeStudioAfterSignIn {
+            lastIssueSummary = "Sign in to open Studio and sync your screenplay projects."
+        }
+    }
+
+    @MainActor
+    private func handleAccountSessionChanged() {
+        screenplayDraftBridge.reconcileCharacterVoiceMemoryAccount()
+        let session = BackendAuthClient.currentAuthSessionState()
+        guard session.isAuthenticated, !session.accessExpired else { return }
+
+        scheduleBackendHydration()
+        Task { @MainActor in
+            await screenplayDraftBridge.hydrateBackendCompanionState(force: true)
+        }
+
+        guard resumeStudioAfterAccountSignIn else { return }
+        resumeStudioAfterAccountSignIn = false
+        showingProfileAccount = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            openStudio()
         }
     }
 

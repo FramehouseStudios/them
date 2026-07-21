@@ -57,6 +57,17 @@ enum ThemWorkspaceSurfaceRestorePolicy {
     }
 }
 
+enum ThemWorkspaceAuthenticationPolicy {
+    static func requiresAccount(
+        isAuthenticated: Bool,
+        accessTokenExpired: Bool,
+        isRunningUITests: Bool
+    ) -> Bool {
+        guard !isRunningUITests else { return false }
+        return !isAuthenticated || accessTokenExpired
+    }
+}
+
 #if os(macOS)
 struct ThemWorkspaceCommands: Commands {
     var body: some Commands {

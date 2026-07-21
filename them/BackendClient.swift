@@ -25,25 +25,16 @@ nonisolated enum BackendDefaultBaseURLPolicy {
     static let productionBaseURLRawValue = "https://api.them.io"
     static let localPrimaryDebugBaseURLRawValue = "http://127.0.0.1:3000"
     static let localFallbackDebugBaseURLRawValue = "http://localhost:3001"
-    private static let loopbackDefaultOptInEnvironmentKey = "THEM_ALLOW_LOOPBACK_BACKEND_DEFAULTS"
-    private static let localBackendDebugTokenFreshnessInterval: TimeInterval = 15 * 60
-    private static let localBackendDebugDefaultTokenKeys = [
-        "studio_debug_open_token",
-        "studio_debug_load_project_token",
-        "studio_debug_prepare_token",
-        "studio_debug_submit_token",
-        "studio_debug_voice_turn_token",
-    ]
 
-    static func primaryBaseURL(isMacOS: Bool, isDebug: Bool) -> URL {
-        if isDebug, !isMacOS {
+    static func primaryBaseURL(isMacOS _: Bool, isDebug: Bool) -> URL {
+        if isDebug {
             return URL(string: localPrimaryDebugBaseURLRawValue)!
         }
         return URL(string: productionBaseURLRawValue)!
     }
 
-    static func fallbackBaseURL(isMacOS: Bool, isDebug: Bool) -> URL {
-        if isDebug, !isMacOS {
+    static func fallbackBaseURL(isMacOS _: Bool, isDebug: Bool) -> URL {
+        if isDebug {
             return URL(string: localFallbackDebugBaseURLRawValue)!
         }
         return URL(string: productionBaseURLRawValue)!
@@ -111,27 +102,23 @@ nonisolated enum BackendDefaultBaseURLPolicy {
 
     static func shouldUseStoredBaseURL(
         _ url: URL,
-        isMacOS: Bool,
-        isDebug: Bool,
-        launchArguments: [String],
-        environment: [String: String],
-        debugTokenValues: [String],
-        now: Date
+        isMacOS _: Bool,
+        isDebug _: Bool,
+        launchArguments _: [String],
+        environment _: [String: String],
+        debugTokenValues _: [String],
+        now _: Date
     ) -> Bool {
-        guard isMacOS, isDebug, isLoopbackBackendURL(url) else {
-            return true
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else {
+            return false
         }
-        if launchArguments.contains("--ui-testing") {
-            return true
-        }
-        if normalizedBoolean(environment[loopbackDefaultOptInEnvironmentKey])
-            || isUsableConfigValue(environment["THEM_UITEST_BACKEND_BASE_URL"] ?? "") {
-            return true
-        }
-        return debugTokenValues.contains { isFreshDebugToken($0, now: now) }
+        return true
     }
 
-    static func currentShouldUseStoredBaseURL(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
+    static func currentShouldUseStoredBaseURL(_ url: URL, defaults _: UserDefaults = .standard) -> Bool {
         #if os(macOS) && DEBUG
         return shouldUseStoredBaseURL(
             url,
@@ -139,7 +126,7 @@ nonisolated enum BackendDefaultBaseURLPolicy {
             isDebug: true,
             launchArguments: ProcessInfo.processInfo.arguments,
             environment: ProcessInfo.processInfo.environment,
-            debugTokenValues: localBackendDebugTokenValues(defaults: defaults),
+            debugTokenValues: [],
             now: Date()
         )
         #elseif os(macOS)
@@ -149,7 +136,7 @@ nonisolated enum BackendDefaultBaseURLPolicy {
             isDebug: false,
             launchArguments: ProcessInfo.processInfo.arguments,
             environment: ProcessInfo.processInfo.environment,
-            debugTokenValues: localBackendDebugTokenValues(defaults: defaults),
+            debugTokenValues: [],
             now: Date()
         )
         #elseif DEBUG
@@ -159,7 +146,7 @@ nonisolated enum BackendDefaultBaseURLPolicy {
             isDebug: true,
             launchArguments: ProcessInfo.processInfo.arguments,
             environment: ProcessInfo.processInfo.environment,
-            debugTokenValues: localBackendDebugTokenValues(defaults: defaults),
+            debugTokenValues: [],
             now: Date()
         )
         #else
@@ -169,7 +156,7 @@ nonisolated enum BackendDefaultBaseURLPolicy {
             isDebug: false,
             launchArguments: ProcessInfo.processInfo.arguments,
             environment: ProcessInfo.processInfo.environment,
-            debugTokenValues: localBackendDebugTokenValues(defaults: defaults),
+            debugTokenValues: [],
             now: Date()
         )
         #endif
@@ -183,32 +170,6 @@ nonisolated enum BackendDefaultBaseURLPolicy {
             || host == "127.0.0.1"
             || host == "::1"
             || host == "[::1]"
-    }
-
-    private static func localBackendDebugTokenValues(defaults: UserDefaults) -> [String] {
-        localBackendDebugDefaultTokenKeys.compactMap { key in
-            if let string = defaults.string(forKey: key) {
-                return string
-            }
-            if let number = defaults.object(forKey: key) as? NSNumber {
-                return number.stringValue
-            }
-            return nil
-        }
-    }
-
-    private static func isFreshDebugToken(_ raw: String, now: Date) -> Bool {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let tokenMilliseconds = Double(trimmed), tokenMilliseconds > 0 else {
-            return false
-        }
-        let nowMilliseconds = now.timeIntervalSince1970 * 1000
-        return abs(nowMilliseconds - tokenMilliseconds) <= localBackendDebugTokenFreshnessInterval * 1000
-    }
-
-    private static func normalizedBoolean(_ raw: String?) -> Bool {
-        let normalized = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return ["1", "true", "yes", "on"].contains(normalized)
     }
 
     private static func isUsableConfigValue(_ raw: String) -> Bool {
@@ -2008,6 +1969,63 @@ nonisolated enum BackendErrorMessageSanitizer {
             || normalized.hasPrefix("<html")
             || normalized.contains("<head>")
             || normalized.contains("<body")
+    }
+}
+
+nonisolated enum BackendAPIResponseValidator {
+    static func hasMatchingOrigin(requestURL: URL?, responseURL: URL?) -> Bool {
+        guard let requestURL,
+              let responseURL,
+              let requestScheme = requestURL.scheme?.lowercased(),
+              let responseScheme = responseURL.scheme?.lowercased(),
+              let requestHost = requestURL.host?.lowercased(),
+              let responseHost = responseURL.host?.lowercased() else {
+            return false
+        }
+        return requestScheme == responseScheme
+            && requestHost == responseHost
+            && effectivePort(for: requestURL) == effectivePort(for: responseURL)
+    }
+
+    static func isJSONResponse(_ response: HTTPURLResponse, data: Data) -> Bool {
+        let mimeType = (response.mimeType ?? "").lowercased()
+        if mimeType == "application/json" || mimeType.hasSuffix("+json") {
+            return true
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) != nil
+    }
+
+    static func isHealthyResponse(
+        requestURL: URL?,
+        response: HTTPURLResponse,
+        data: Data
+    ) -> Bool {
+        guard hasMatchingOrigin(requestURL: requestURL, responseURL: response.url) else {
+            return false
+        }
+        guard response.statusCode == 304 || (200...299).contains(response.statusCode) else {
+            return false
+        }
+        if response.statusCode == 304 {
+            return true
+        }
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           object["ok"] as? Bool == true {
+            return true
+        }
+        let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return text == "ok"
+    }
+
+    private static func effectivePort(for url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
+        }
     }
 }
 
@@ -5503,26 +5521,12 @@ final class BackendClient {
             request.setValue("no-cache", forHTTPHeaderField: "Pragma")
 
             let (data, response) = try await urlSession.data(for: request)
-            let http = response as? HTTPURLResponse
-            let status = http?.statusCode ?? -1
-            guard status == 304 || (200...299).contains(status) else { return false }
-
-            if
-                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                let ok = obj["ok"] as? Bool
-            {
-                return ok
-            }
-
-            if let text = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased(),
-               text == "ok"
-            {
-                return true
-            }
-
-            return true
+            guard let http = response as? HTTPURLResponse else { return false }
+            return BackendAPIResponseValidator.isHealthyResponse(
+                requestURL: healthURL,
+                response: http,
+                data: data
+            )
         } catch {
             return false
         }

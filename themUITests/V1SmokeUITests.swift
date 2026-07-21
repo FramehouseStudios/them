@@ -344,7 +344,7 @@ final class V1SmokeUITests: XCTestCase {
     ) throws -> RestoreContractFixture? {
         let environmentRaw = (environment["THEM_UITEST_RESTORE_FIXTURE_JSON"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let fixturePath = (environment["THEM_UITEST_RESTORE_FIXTURE_PATH"] ?? "/tmp/them_studio_cross_platform_restore_fixture.json")
+        let fixturePath = (environment["THEM_UITEST_RESTORE_FIXTURE_PATH"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let fileRaw = fixturePath.isEmpty
             ? ""

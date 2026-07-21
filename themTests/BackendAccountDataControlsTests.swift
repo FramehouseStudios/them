@@ -357,7 +357,62 @@ final class BackendAccountDataControlsTests: XCTestCase {
                 return AccountDataControlsHTTPStub(
                     status: 200,
                     headers: ["Content-Type": "application/json"],
-                    body: Data(#"{ "ok": true, "action": "resolve_correction", "status": "resolved" }"#.utf8)
+                    body: Data(
+                        #"""
+                        {
+                          "ok": true,
+                          "action": "resolve_correction",
+                          "status": "resolved",
+                          "message": null,
+                          "correction_ambiguity": {
+                            "id": "ambiguity-1",
+                            "status": "resolved",
+                            "project_id": "split-ferries",
+                            "project_title": "Split Ferries",
+                            "correction_text": "Mara goes back for both of them.",
+                            "candidate_facts": [
+                              "Mara hid the letter beneath the floorboards.",
+                              "Jonah believes Mara burned the letter."
+                            ],
+                            "correction_memory_id": "episode-ambiguity-1",
+                            "selected_fact": "Mara hid the letter beneath the floorboards.",
+                            "selected_facts": [
+                              "Mara hid the letter beneath the floorboards.",
+                              "Jonah believes Mara burned the letter."
+                            ],
+                            "receipt_id": "canon-correction-1",
+                            "created_at": 1800000000000,
+                            "resolved_at": 1800000001000
+                          },
+                          "correction_receipt": {
+                            "id": "canon-correction-1",
+                            "status": "active",
+                            "project_id": "split-ferries",
+                            "project_title": "Split Ferries",
+                            "correction_text": "Mara goes back for both of them.",
+                            "matched_facts": [
+                              "Mara hid the letter beneath the floorboards.",
+                              "Jonah believes Mara burned the letter."
+                            ],
+                            "replacement_facts": ["Mara returns for both of them."],
+                            "replacement_fact_ids": ["writer-canon-1"],
+                            "structured_updates": ["Mara.want: save Eli and Jonah"],
+                            "correction_memory_id": "episode-correction-1",
+                            "created_at": 1800000001000,
+                            "undone_at": null
+                          },
+                          "session_id": "session-canon-1",
+                          "state_version": "state-canon-2",
+                          "last_turn_id": "turn-canon-1",
+                          "last_updated_at": 1800000001000,
+                          "history_updated_at": 1800000001000,
+                          "memory_updated_at": 1800000001000,
+                          "backend_boot_id": "boot-canon-1",
+                          "schema_version": 1,
+                          "backend_build": "test-build"
+                        }
+                        """#.utf8
+                    )
                 )
             default:
                 return AccountDataControlsHTTPStub(
@@ -387,6 +442,11 @@ final class BackendAccountDataControlsTests: XCTestCase {
 
         XCTAssertTrue(result.payload.ok)
         XCTAssertEqual(result.payload.status, "resolved")
+        XCTAssertEqual(result.payload.correctionAmbiguity?.resolvedFacts, selectedFacts)
+        XCTAssertEqual(result.payload.correctionReceipt?.matchedFacts, selectedFacts)
+        XCTAssertEqual(result.payload.correctionReceipt?.replacementFacts, ["Mara returns for both of them."])
+        XCTAssertEqual(result.payload.schemaVersion, 1)
+        XCTAssertEqual(result.payload.stateVersion, "state-canon-2")
         let request = try XCTUnwrap(
             recorder.requests.first { $0.path == "/memories/corrections/resolve" }
         )
@@ -394,6 +454,109 @@ final class BackendAccountDataControlsTests: XCTestCase {
         XCTAssertEqual(request.bodyObject?["ambiguity_id"] as? String, "ambiguity-1")
         XCTAssertEqual(request.bodyObject?["selected_facts"] as? [String], selectedFacts)
         XCTAssertNil(request.bodyObject?["selected_fact"])
+    }
+
+    func testResolveCanonCorrectionRejectsHTMLSuccessAsBackendUnavailable() async throws {
+        AccountDataControlsURLProtocolStub.handler = { request in
+            switch request.url?.path {
+            case "/session":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "client_token": "client-canon", "expires_in": 3600, "remembered_names": [] }"#.utf8)
+                )
+            case "/memories/corrections/resolve":
+                return AccountDataControlsHTTPStub(
+                    status: 200,
+                    headers: ["Content-Type": "text/html"],
+                    body: Data("<!doctype html><html><body>parked domain</body></html>".utf8)
+                )
+            default:
+                return AccountDataControlsHTTPStub(
+                    status: 404,
+                    headers: ["Content-Type": "application/json"],
+                    body: Data(#"{ "error": "not_found" }"#.utf8)
+                )
+            }
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountDataControlsURLProtocolStub.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://account-data-controls.test")!
+        )
+
+        do {
+            _ = try await api.resolveCanonCorrection(
+                ambiguityID: "ambiguity-1",
+                selectedFacts: ["Mara abandons Eli at the east ferry dock."]
+            )
+            XCTFail("Expected a non-JSON API response to be rejected")
+        } catch let error as BackendMemoryAPIError {
+            XCTAssertEqual(
+                error.errorDescription,
+                "Backend error 502: Backend service unavailable. Please try again."
+            )
+        }
+    }
+
+    @MainActor
+    func testBackendHealthRejectsHTMLSuccessPage() async throws {
+        AccountDataControlsURLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/health")
+            return AccountDataControlsHTTPStub(
+                status: 200,
+                headers: ["Content-Type": "text/html"],
+                body: Data("<!doctype html><html><body>parked domain</body></html>".utf8)
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountDataControlsURLProtocolStub.self]
+        let baseURL = URL(string: "https://account-data-controls.test")!
+        let client = BackendClient(
+            baseURL: baseURL,
+            fallbackURL: baseURL,
+            urlSession: URLSession(configuration: configuration),
+            persistBackendBaseURL: false,
+            attachUserIDHeader: false
+        )
+
+        do {
+            _ = try await client.health()
+            XCTFail("Expected an HTML page to fail the backend health check")
+        } catch let error as BackendError {
+            XCTAssertEqual(error.errorDescription, "HTTP -1: Server offline")
+        }
+    }
+
+    func testMemoryHealthRejectsForeignJSONService() async throws {
+        AccountDataControlsURLProtocolStub.handler = { request in
+            XCTAssertTrue(request.url?.path == "/bridge" || request.url?.path == "/health")
+            return AccountDataControlsHTTPStub(
+                status: 200,
+                headers: ["Content-Type": "application/json"],
+                body: Data(#"{ "success": true, "service": "Another API" }"#.utf8)
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AccountDataControlsURLProtocolStub.self]
+        let api = BackendMemoryAPI(
+            session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://account-data-controls.test")!
+        )
+
+        do {
+            _ = try await api.fetchHealth()
+            XCTFail("Expected a foreign JSON service to fail them backend health validation")
+        } catch let error as BackendMemoryAPIError {
+            XCTAssertEqual(
+                error.errorDescription,
+                "Backend error 502: Backend service unavailable. Please try again."
+            )
+        }
     }
 }
 
@@ -471,14 +634,14 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
-    func testBackendDefaultBaseURLPolicyUsesHostedAPIForMacDebugLaunches() {
+    func testBackendDefaultBaseURLPolicyKeepsLocalBackendForMacDebug() {
         XCTAssertEqual(
             BackendDefaultBaseURLPolicy.primaryBaseURL(isMacOS: true, isDebug: true).absoluteString,
-            BackendDefaultBaseURLPolicy.productionBaseURLRawValue
+            BackendDefaultBaseURLPolicy.localPrimaryDebugBaseURLRawValue
         )
         XCTAssertEqual(
             BackendDefaultBaseURLPolicy.fallbackBaseURL(isMacOS: true, isDebug: true).absoluteString,
-            BackendDefaultBaseURLPolicy.productionBaseURLRawValue
+            BackendDefaultBaseURLPolicy.localFallbackDebugBaseURLRawValue
         )
     }
 
@@ -533,11 +696,11 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
-    func testBackendDefaultBaseURLPolicyIgnoresStaleLoopbackDefaultsForMacDebugLaunches() {
+    func testBackendDefaultBaseURLPolicyAcceptsLoopbackDefaultsForMacDebug() {
         let staleLoopback = URL(string: BackendDefaultBaseURLPolicy.localPrimaryDebugBaseURLRawValue)!
         let now = Date(timeIntervalSince1970: 1_780_000_000)
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             BackendDefaultBaseURLPolicy.shouldUseStoredBaseURL(
                 staleLoopback,
                 isMacOS: true,
@@ -641,6 +804,24 @@ final class BackendCredentialMigrationTests: XCTestCase {
         XCTAssertEqual(
             BackendErrorMessageSanitizer.displayMessage(longMessage).count,
             503
+        )
+    }
+
+    func testBackendAPIResponseValidatorRejectsCrossOriginRedirects() {
+        let requestURL = URL(string: "https://api.them.io/health")!
+        let redirectedURL = URL(string: "https://introvert.com/?domain=them.io")!
+
+        XCTAssertFalse(
+            BackendAPIResponseValidator.hasMatchingOrigin(
+                requestURL: requestURL,
+                responseURL: redirectedURL
+            )
+        )
+        XCTAssertTrue(
+            BackendAPIResponseValidator.hasMatchingOrigin(
+                requestURL: requestURL,
+                responseURL: URL(string: "https://api.them.io/health?probe=1")!
+            )
         )
     }
 
