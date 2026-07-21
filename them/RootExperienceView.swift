@@ -2396,7 +2396,9 @@ struct RootExperienceView: View {
         guard !evolution.needsOnboardingName else { return }
         let arguments = ProcessInfo.processInfo.arguments
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            if arguments.contains("--ui-open-data-controls") {
+            if arguments.contains("--ui-open-memories") {
+                openMemories()
+            } else if arguments.contains("--ui-open-data-controls") {
                 showingDataControls = true
             } else if arguments.contains("--ui-open-studio") {
                 uiTestForceStudioSurface = true

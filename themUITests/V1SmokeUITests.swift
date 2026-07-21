@@ -119,6 +119,21 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_cross_platform_project_and_canon_correction_survive_restart() async throws {
+        guard let fixture = try restoreContractFixtureFromEnvironment() else {
+            throw XCTSkip("No cross-platform restore fixture was provided.")
+        }
+        guard !fixture.expectedCanonCorrectionTitle.isEmpty,
+              !fixture.expectedCanonCorrectionText.isEmpty,
+              !fixture.expectedRetiredCanonFacts.isEmpty else {
+            throw XCTSkip("The cross-platform fixture does not include a canon correction contract.")
+        }
+
+        try await assertBackendProjectRestoreLoads(fixture)
+        assertCanonCorrectionRestoresAcrossRelaunch(fixture)
+    }
+
+    @MainActor
     private func assertBackendProjectRestoreLoads(_ fixture: RestoreContractFixture) async throws {
         let app = launchApp(
             openStudio: true,
@@ -127,6 +142,7 @@ final class V1SmokeUITests: XCTestCase {
             restoreLoadToken: fixture.loadToken,
             launchEnvironment: fixture.appLaunchEnvironment
         )
+        defer { app.terminate() }
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. ROOM - NIGHT", timeout: 45))
@@ -170,9 +186,52 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(restored, "Restore snapshot never reached expected state: \(finalSnapshot)")
     }
 
+    @MainActor
+    private func assertCanonCorrectionRestoresAcrossRelaunch(_ fixture: RestoreContractFixture) {
+        for launchIndex in 1...2 {
+            let app = launchApp(
+                openMemories: true,
+                launchEnvironment: fixture.appLaunchEnvironment
+            )
+            XCTAssertTrue(
+                app.otherElements["memories.screen"].waitForExistence(timeout: 12),
+                "Memories did not open on authenticated launch \(launchIndex)."
+            )
+
+            let correctionCard = app.buttons
+                .matching(NSPredicate(
+                    format: "label CONTAINS[c] %@",
+                    fixture.expectedCanonCorrectionTitle
+                ))
+                .firstMatch
+            XCTAssertTrue(
+                correctionCard.waitForExistence(timeout: 30),
+                "Canon correction was not restored on authenticated launch \(launchIndex)."
+            )
+            if !correctionCard.isHittable {
+                app.swipeUp()
+            }
+            correctionCard.tap()
+
+            XCTAssertTrue(
+                staticText(containing: fixture.expectedCanonCorrectionText, in: app)
+                    .waitForExistence(timeout: 10),
+                "The authoritative replacement was missing on launch \(launchIndex)."
+            )
+            for retiredFact in fixture.expectedRetiredCanonFacts {
+                XCTAssertTrue(
+                    staticText(containing: retiredFact, in: app).waitForExistence(timeout: 5),
+                    "Retired canon was missing from the correction receipt on launch \(launchIndex): \(retiredFact)"
+                )
+            }
+            app.terminate()
+        }
+    }
+
     private func launchApp(
         skipOnboarding: Bool = true,
         openStudio: Bool = false,
+        openMemories: Bool = false,
         openDataControls: Bool = false,
         openCommandBar: Bool = false,
         openExportTools: Bool = false,
@@ -202,6 +261,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if openStudio {
             arguments.append("--ui-open-studio")
+        }
+        if openMemories {
+            arguments.append("--ui-open-memories")
         }
         if openDataControls {
             arguments.append("--ui-open-data-controls")
@@ -336,14 +398,30 @@ final class V1SmokeUITests: XCTestCase {
         let expectedReopenedLineageKey: String
         let expectedCollaboratorEmail: String
         let expectedCommentText: String
+        let expectedCanonCorrectionTitle: String
+        let expectedCanonCorrectionText: String
+        let expectedRetiredCanonFacts: [String]
         let appLaunchEnvironment: [String: String]
     }
 
     private func restoreContractFixtureFromEnvironment(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> RestoreContractFixture? {
-        let environmentRaw = (environment["THEM_UITEST_RESTORE_FIXTURE_JSON"] ?? "")
+        let directEnvironmentRaw = (environment["THEM_UITEST_RESTORE_FIXTURE_JSON"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let encodedEnvironmentRaw = (environment["THEM_UITEST_RESTORE_FIXTURE_BASE64URL"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var normalizedBase64 = encodedEnvironmentRaw
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let paddingCount = (4 - (normalizedBase64.count % 4)) % 4
+        normalizedBase64 += String(repeating: "=", count: paddingCount)
+        let decodedEnvironmentRaw = Data(base64Encoded: normalizedBase64)
+            .flatMap { String(data: $0, encoding: .utf8) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let environmentRaw = directEnvironmentRaw.isEmpty
+            ? decodedEnvironmentRaw
+            : directEnvironmentRaw
         let fixturePath = (environment["THEM_UITEST_RESTORE_FIXTURE_PATH"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let fileRaw = fixturePath.isEmpty
@@ -360,7 +438,6 @@ final class V1SmokeUITests: XCTestCase {
                 userInfo: [NSLocalizedDescriptionKey: "Could not decode cross-platform restore fixture JSON."]
             )
         }
-
         let baseURL = try firstNonEmptyString(payload["baseURL"], payload["base_url"], message: "Restore fixture missing baseURL.")
         let appToken = stringValue(payload["appToken"]).isEmpty ? "them-dev" : stringValue(payload["appToken"])
         let userID = try firstNonEmptyString(payload["userID"], payload["user_id"], message: "Restore fixture missing userID.")
@@ -385,6 +462,15 @@ final class V1SmokeUITests: XCTestCase {
             expectedReopenedLineageKey: try firstNonEmptyString(payload["expectedReopenedLineageKey"], payload["expected_reopened_lineage_key"], message: "Restore fixture missing expectedReopenedLineageKey."),
             expectedCollaboratorEmail: try firstNonEmptyString(payload["expectedCollaboratorEmail"], payload["expected_collaborator_email"], message: "Restore fixture missing expectedCollaboratorEmail."),
             expectedCommentText: try firstNonEmptyString(payload["expectedCommentText"], payload["expected_comment_text"], message: "Restore fixture missing expectedCommentText."),
+            expectedCanonCorrectionTitle: stringValue(
+                payload["expectedCanonCorrectionTitle"] ?? payload["expected_canon_correction_title"]
+            ),
+            expectedCanonCorrectionText: stringValue(
+                payload["expectedCanonCorrectionText"] ?? payload["expected_canon_correction_text"]
+            ),
+            expectedRetiredCanonFacts: arrayValue(
+                payload["expectedRetiredCanonFacts"] ?? payload["expected_retired_canon_facts"]
+            ),
             appLaunchEnvironment: [
                 "THEM_UITEST_BACKEND_BASE_URL": baseURL,
                 "THEM_UITEST_APP_TOKEN": appToken,
@@ -638,6 +724,9 @@ final class V1SmokeUITests: XCTestCase {
             expectedReopenedLineageKey: lineageKey,
             expectedCollaboratorEmail: collaboratorEmail,
             expectedCommentText: commentText,
+            expectedCanonCorrectionTitle: "",
+            expectedCanonCorrectionText: "",
+            expectedRetiredCanonFacts: [],
             appLaunchEnvironment: [
                 "THEM_UITEST_BACKEND_BASE_URL": baseURL.absoluteString,
                 "THEM_UITEST_APP_TOKEN": appToken,

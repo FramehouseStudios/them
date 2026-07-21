@@ -111,6 +111,11 @@
             value = "$(BACKEND_URL)"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "THEM_UITEST_RESTORE_FIXTURE_BASE64URL"
+            value = "$(THEM_UITEST_RESTORE_FIXTURE_BASE64URL)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction

@@ -571,6 +571,11 @@ export function createStudioRestoreUITestFixtureJSON(seeded, { loadToken = Date.
     expectedReopenedLineageKey: seeded?.expectedReopenedLineageKey || "",
     expectedCollaboratorEmail: seeded?.expectedCollaboratorEmail || "",
     expectedCommentText: seeded?.expectedCommentText || "",
+    expectedCanonCorrectionTitle: seeded?.expectedCanonCorrectionTitle || "",
+    expectedCanonCorrectionText: seeded?.expectedCanonCorrectionText || "",
+    expectedRetiredCanonFacts: Array.isArray(seeded?.expectedRetiredCanonFacts)
+      ? seeded.expectedRetiredCanonFacts
+      : [],
     fullThreadStateJSON: seeded?.localState?.fullThreadStateJSON || "{}",
     askHistoryJSON: seeded?.localState?.askHistoryJSON || "{}",
     acknowledgedJSON: seeded?.localState?.acknowledgedJSON || "{}",

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -13,19 +13,198 @@ import {
   createStudioRestoreUITestFixtureJSON,
   normalizeStudioRestoreKey,
   normalizeStudioRestoreText,
+  requestStudioRestoreJSON,
   seedBackendStudioRestoreFixture,
+  studioRestoreOwnerHeaders,
 } from "./studio_restore_seed_helper.mjs";
+import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
+import { createPersistence } from "../lib/persistence_adapter.js";
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
 
 const ROOT_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const APP_TOKEN = "them-dev";
 const CROSS_PLATFORM_PORT = Number(process.env.THEM_CROSS_PLATFORM_RESTORE_CONTRACT_PORT || 31338);
-const CROSS_PLATFORM_FIXTURE_PATH = String(
-  process.env.THEM_UITEST_RESTORE_FIXTURE_PATH || "/tmp/them_studio_cross_platform_restore_fixture.json"
-).trim() || "/tmp/them_studio_cross_platform_restore_fixture.json";
+const CANON_FACTS = Object.freeze([
+  "Mara abandons Eli at the east ferry dock.",
+  "Mara abandons June at the east ferry dock.",
+]);
+const CANON_CORRECTION = "Mara never abandons anyone at the east ferry dock. She goes back for both of them. The unresolved setup is Mara promised to return for Eli and June.";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function requireString(value, message) {
+  const clean = String(value || "").trim();
+  if (!clean) throw new Error(message);
+  return clean;
+}
+
+function sameTextList(actual, expected) {
+  const left = (Array.isArray(actual) ? actual : []).map(normalizeStudioRestoreText).sort();
+  const right = (Array.isArray(expected) ? expected : []).map(normalizeStudioRestoreText).sort();
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function seedPendingCanonCorrection(server, seeded) {
+  const persistence = createPersistence({
+    jsonRoot: server.env.PERSISTENCE_JSON_ROOT,
+  });
+  const store = createCreativeMemoryStore({ persistence });
+  const projectTitle = requireString(
+    seeded?.fixture?.title || seeded?.projectPayload?.project?.title,
+    "Cross-platform canon seed is missing a project title."
+  );
+  const page = `EXT. EAST FERRY DOCK - NIGHT
+
+Mara watches two separate ferries pull away.`;
+  try {
+    await store.recordTriggersFromTalkTurn({
+      userId: seeded.identity.userID,
+      transcript: "Commit the east ferry dock scene.",
+      reply: page,
+      acceptedPageText: page,
+      acceptedSceneContext: { anchorSceneId: "scene-east-ferry-dock" },
+      projectId: seeded.projectID,
+      projectTitle,
+      projectContinuity: {
+        act: "Act II",
+        irreversibleConsequences: CANON_FACTS,
+      },
+      source: "talk_screenplay_output",
+    });
+    const correction = await store.recordTriggersFromTalkTurn({
+      userId: seeded.identity.userID,
+      transcript: `Actually, ${CANON_CORRECTION}`,
+      projectId: seeded.projectID,
+      projectTitle,
+      source: "talk_turn",
+    });
+    const ambiguity = correction?.canonCorrectionAmbiguity;
+    assert(ambiguity?.status === "pending", "Canon seed did not produce a pending clarification.");
+    assert(
+      sameTextList(ambiguity?.candidateFacts, CANON_FACTS),
+      `Canon clarification candidates drifted: ${JSON.stringify(ambiguity?.candidateFacts || [])}`
+    );
+    return {
+      ambiguityID: requireString(ambiguity.id, "Canon clarification did not return an id."),
+      projectTitle,
+      correctionText: requireString(ambiguity.correctionText, "Canon clarification did not preserve the correction."),
+      candidateFacts: [...CANON_FACTS],
+    };
+  } finally {
+    await persistence.close();
+  }
+}
+
+async function resolveCanonCorrectionFromIPhone(seeded, canonSeed) {
+  const result = await requestStudioRestoreJSON({
+    baseURL: seeded.baseURL,
+    path: "/memories/corrections/resolve",
+    method: "POST",
+    headers: seeded.headers,
+    body: {
+      ambiguity_id: canonSeed.ambiguityID,
+      selected_facts: canonSeed.candidateFacts,
+    },
+  });
+  assert(
+    result.response.ok && result.payload?.ok === true,
+    `iPhone canon correction failed: ${result.status} ${JSON.stringify(result.payload)}`
+  );
+  assert(
+    ["resolved", "already_resolved"].includes(String(result.payload?.status || "")),
+    `Unexpected canon resolution status: ${result.payload?.status || "missing"}`
+  );
+  const receipt = result.payload?.correction_receipt || {};
+  assert(sameTextList(receipt.matched_facts, CANON_FACTS), "Canon receipt did not retire both selected facts.");
+  const replacementText = requireString(
+    receipt.replacement_facts?.[0],
+    "Canon receipt did not return an authoritative replacement."
+  );
+  assert(
+    /goes back for both of them/i.test(replacementText),
+    `Canon receipt lost the writer's correction: ${replacementText}`
+  );
+  return {
+    receiptID: requireString(receipt.receipt_id || receipt.id, "Canon correction did not return a receipt id."),
+    replacementText,
+    stateVersion: String(result.payload?.state_version || ""),
+  };
+}
+
+async function issueAuthenticatedClient(seeded, label) {
+  const session = await requestStudioRestoreJSON({
+    baseURL: seeded.baseURL,
+    path: "/session",
+    method: "POST",
+    headers: {
+      "X-APP-TOKEN": seeded.identity.appToken,
+      Authorization: `Bearer ${seeded.identity.accessToken}`,
+    },
+    body: {},
+  });
+  assert(
+    session.response.ok,
+    `${label} session failed: ${session.status} ${JSON.stringify(session.payload)}`
+  );
+  const expiresIn = Math.max(60, Number(session.payload?.expires_in || 0) || 0);
+  return {
+    ...seeded.identity,
+    clientToken: requireString(session.payload?.client_token, `${label} session did not return a client token.`),
+    clientTokenCachedAt: Math.floor(Date.now() / 1000),
+    clientTokenExpiry: new Date(Date.now() + expiresIn * 1000).toISOString(),
+  };
+}
+
+function seededForClient(seeded, identity, canonSeed, resolution) {
+  return {
+    ...seeded,
+    identity,
+    headers: studioRestoreOwnerHeaders(identity),
+    expectedCanonCorrectionTitle: `${canonSeed.projectTitle} Canon Correction`,
+    expectedCanonCorrectionText: resolution.replacementText,
+    expectedRetiredCanonFacts: [...canonSeed.candidateFacts],
+    canonCorrectionReceiptID: resolution.receiptID,
+  };
+}
+
+async function assertCanonCorrectionVisibleToClient(seeded, label) {
+  const memories = await requestStudioRestoreJSON({
+    baseURL: seeded.baseURL,
+    path: "/memories?limit=160",
+    method: "GET",
+    headers: seeded.headers,
+  });
+  assert(
+    memories.response.ok,
+    `${label} memory read failed: ${memories.status} ${JSON.stringify(memories.payload)}`
+  );
+  const cards = Array.isArray(memories.payload?.memories) ? memories.payload.memories : [];
+  const card = cards.find((item) => (
+    String(item?.source || "") === "canon_correction"
+    && String(item?.correction_receipt?.receipt_id || item?.correction_receipt?.id || "") === seeded.canonCorrectionReceiptID
+  ));
+  assert(card, `${label} did not receive the resolved canon correction card.`);
+  assert(
+    normalizeStudioRestoreText(card.title) === normalizeStudioRestoreText(seeded.expectedCanonCorrectionTitle),
+    `${label} received the wrong correction title: ${card.title || "missing"}`
+  );
+  assert(
+    /goes back for both of them/i.test(String(card.summary || "")),
+    `${label} received a correction card without the writer's story change.`
+  );
+  assert(
+    (card.correction_receipt?.replacement_facts || []).some((fact) => (
+      normalizeStudioRestoreText(fact) === normalizeStudioRestoreText(seeded.expectedCanonCorrectionText)
+    )),
+    `${label} received the wrong authoritative replacement facts.`
+  );
+  assert(
+    sameTextList(card.correction_receipt?.matched_facts, seeded.expectedRetiredCanonFacts),
+    `${label} did not receive both retired canon facts.`
+  );
+  return card;
 }
 
 function run(command, args, options = {}) {
@@ -371,6 +550,7 @@ async function restoreSharedProjectOnMac(seeded) {
 }
 
 function restoreSharedProjectOniPhone(seeded) {
+  const testName = "test_cross_platform_project_and_canon_correction_survive_restart";
   const backendOnlySeeded = {
     ...seeded,
     localState: {
@@ -381,18 +561,28 @@ function restoreSharedProjectOniPhone(seeded) {
   const fixtureJSON = createStudioRestoreUITestFixtureJSON(backendOnlySeeded, {
     loadToken: Date.now() % 1_000_000_000,
   });
-  writeFileSync(CROSS_PLATFORM_FIXTURE_PATH, fixtureJSON, "utf8");
-  const child = spawnSync("bash", ["scripts/run_v1_ui_smoke.sh"], {
-    cwd: ROOT_DIR,
-    encoding: "utf8",
-    maxBuffer: 128 * 1024 * 1024,
-    env: {
-      ...process.env,
-      ONLY_TESTING: "themUITests/V1SmokeUITests/test_cross_platform_backend_project_restore_loads_preseeded_screenplay_session",
-      THEM_UITEST_RESTORE_FIXTURE_JSON: fixtureJSON,
-      THEM_UITEST_RESTORE_FIXTURE_PATH: CROSS_PLATFORM_FIXTURE_PATH,
-    },
-  });
+  const fixtureBase64URL = Buffer.from(fixtureJSON, "utf8").toString("base64url");
+  const xcconfigPath = `/tmp/them_studio_cross_platform_restore_${process.pid}.xcconfig`;
+  writeFileSync(
+    xcconfigPath,
+    `THEM_UITEST_RESTORE_FIXTURE_BASE64URL = ${fixtureBase64URL}\n`,
+    { encoding: "utf8", mode: 0o600 }
+  );
+  let child;
+  try {
+    child = spawnSync("bash", ["scripts/run_v1_ui_smoke.sh"], {
+      cwd: ROOT_DIR,
+      encoding: "utf8",
+      maxBuffer: 128 * 1024 * 1024,
+      env: {
+        ...process.env,
+        ONLY_TESTING: `themUITests/V1SmokeUITests/${testName}`,
+        THEM_UITEST_RESTORE_XCCONFIG_PATH: xcconfigPath,
+      },
+    });
+  } finally {
+    if (existsSync(xcconfigPath)) unlinkSync(xcconfigPath);
+  }
   const combinedOutput = `${child.stdout || ""}\n${child.stderr || ""}`;
   if (child.status !== 0) {
     throw new Error(
@@ -402,7 +592,8 @@ function restoreSharedProjectOniPhone(seeded) {
       + `stderr:\n${child.stderr || ""}`
     );
   }
-  if (/Executed 0 tests/.test(combinedOutput) || /Test skipped/.test(combinedOutput)) {
+  const namedTestSkipped = new RegExp(`Test Case .*${testName}.* skipped`, "i").test(combinedOutput);
+  if (/Executed 0 tests/.test(combinedOutput) || namedTestSkipped) {
     throw new Error(
       "iPhone cross-platform restore UI test did not execute the restore assertion.\n"
       + `stdout:\n${child.stdout || ""}\n`
@@ -442,25 +633,65 @@ const originalIntValues = Object.fromEntries(restoreIntKeys.map((key) => [key, r
 
 let server = null;
 try {
+  const backendEnv = {
+    APP_TOKEN,
+    REQUIRE_USER_AUTH: "1",
+  };
   server = await startBackend({
     port: CROSS_PLATFORM_PORT,
-    env: {
-      APP_TOKEN,
-      REQUIRE_USER_AUTH: "1",
-    },
+    env: backendEnv,
   });
 
-  const seeded = await seedBackendStudioRestoreFixture({
+  const initialSeeded = await seedBackendStudioRestoreFixture({
     baseURL: server.baseUrl,
     appToken: APP_TOKEN,
   });
-  const backendProbe = await assertBackendSeeded(seeded);
-  const mac = await restoreSharedProjectOnMac(seeded);
-  const iphone = restoreSharedProjectOniPhone(seeded);
+  const canonSeed = await seedPendingCanonCorrection(server, initialSeeded);
+  const resolution = await resolveCanonCorrectionFromIPhone(initialSeeded, canonSeed);
+
+  const preRestartMacIdentity = await issueAuthenticatedClient(initialSeeded, "pre-restart Mac");
+  const preRestartMacSeeded = seededForClient(
+    initialSeeded,
+    preRestartMacIdentity,
+    canonSeed,
+    resolution
+  );
+  await assertCanonCorrectionVisibleToClient(preRestartMacSeeded, "pre-restart Mac");
+
+  const dataDir = server.dataDir;
+  await server.stop();
+  server = null;
+  server = await startBackend({
+    port: CROSS_PLATFORM_PORT,
+    dataDir,
+    env: backendEnv,
+  });
+
+  const restartedBaseSeed = {
+    ...initialSeeded,
+    baseURL: server.baseUrl,
+  };
+  const macIdentity = await issueAuthenticatedClient(restartedBaseSeed, "restarted Mac");
+  const macSeeded = seededForClient(restartedBaseSeed, macIdentity, canonSeed, resolution);
+  const restartedCanonCard = await assertCanonCorrectionVisibleToClient(macSeeded, "restarted Mac");
+  const backendProbe = await assertBackendSeeded(macSeeded);
+  const mac = await restoreSharedProjectOnMac(macSeeded);
+
+  const iphoneIdentity = await issueAuthenticatedClient(restartedBaseSeed, "restarted iPhone");
+  const iphoneSeeded = seededForClient(restartedBaseSeed, iphoneIdentity, canonSeed, resolution);
+  await assertCanonCorrectionVisibleToClient(iphoneSeeded, "restarted iPhone");
+  const iphone = restoreSharedProjectOniPhone(iphoneSeeded);
   console.log(JSON.stringify({
     ok: true,
-    projectID: seeded.projectID,
-    versionID: seeded.versionID,
+    projectID: macSeeded.projectID,
+    versionID: macSeeded.versionID,
+    canon: {
+      ambiguityID: canonSeed.ambiguityID,
+      receiptID: resolution.receiptID,
+      retiredFacts: canonSeed.candidateFacts.length,
+      replacement: restartedCanonCard.summary,
+      survivedBackendRestart: true,
+    },
     backend: backendProbe.metadata,
     mac: {
       appPath: mac.appPath,

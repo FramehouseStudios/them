@@ -677,6 +677,7 @@ struct MemoriesScreen: View {
                 }
             }
         }
+        .accessibilityIdentifier("memories.screen")
         .task { await vm.load() }
     }
 
