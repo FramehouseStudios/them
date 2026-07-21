@@ -2,10 +2,12 @@ import Foundation
 
 nonisolated enum IOThemRuntime {
     static var isRunningTests: Bool {
-        let environment = ProcessInfo.processInfo.environment
-        return environment["XCTestConfigurationFilePath"] != nil ||
-            environment["XCTestBundlePath"] != nil ||
-            NSClassFromString("XCTest.XCTestCase") != nil
+        isTestProcessEnvironment(ProcessInfo.processInfo.environment)
+    }
+
+    static func isTestProcessEnvironment(_ environment: [String: String]) -> Bool {
+        environment["XCTestConfigurationFilePath"] != nil ||
+            environment["XCTestBundlePath"] != nil
     }
 
     static var isRunningUITests: Bool {

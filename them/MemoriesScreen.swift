@@ -172,9 +172,7 @@ final class MemoriesViewModel: ObservableObject {
 
             if isDeltaFetch, payload.deltaNoChange == true {
                 lastSync = result.sync
-                if !result.sync.stateVersion.isEmpty {
-                    latestSeenStateVersion = result.sync.stateVersion
-                }
+                adoptMemoryStateVersion(payload.stateVersion, fallback: result.sync.stateVersion)
                 return
             }
 
@@ -219,9 +217,7 @@ final class MemoriesViewModel: ObservableObject {
             }
 
             lastSync = result.sync
-            if !result.sync.stateVersion.isEmpty {
-                latestSeenStateVersion = result.sync.stateVersion
-            }
+            adoptMemoryStateVersion(payload.stateVersion, fallback: result.sync.stateVersion)
             state = items.isEmpty ? .empty : .loaded(items)
 
             if let selected = selection, !items.contains(where: { $0.id == selected.id }) {
@@ -240,6 +236,26 @@ final class MemoriesViewModel: ObservableObject {
 
     func retry() async {
         await load(force: true, sinceVersion: nil)
+    }
+
+    private func adoptMemoryStateVersion(_ payloadStateVersion: String?, fallback: String) {
+        let payloadVersion = payloadStateVersion?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallbackVersion = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !payloadVersion.isEmpty {
+            latestSeenStateVersion = payloadVersion
+        } else if !fallbackVersion.isEmpty {
+            latestSeenStateVersion = fallbackVersion
+        }
+    }
+
+    func refreshCrossDeviceMemoriesIfNeeded() async {
+        let sinceVersion = latestSeenStateVersion
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        await load(
+            force: false,
+            sinceVersion: sinceVersion.isEmpty ? nil : sinceVersion
+        )
     }
 
     func updateMemory(
@@ -634,6 +650,10 @@ enum MemoriesTheme {
 // MARK: - Screen
 
 struct MemoriesScreen: View {
+    private static let crossDeviceRefreshTimer = Timer
+        .publish(every: 3, on: .main, in: .common)
+        .autoconnect()
+
     @StateObject private var vm = MemoriesViewModel()
     var startTalkingAction: () -> Void = {}
 
@@ -679,6 +699,10 @@ struct MemoriesScreen: View {
         }
         .accessibilityIdentifier("memories.screen")
         .task { await vm.load() }
+        .onReceive(Self.crossDeviceRefreshTimer) { _ in
+            guard !IOThemRuntime.isRunningTests else { return }
+            Task { await vm.refreshCrossDeviceMemoriesIfNeeded() }
+        }
     }
 
     private var header: some View {

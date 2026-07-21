@@ -101,6 +101,69 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertFalse(ScreenplayProjectScopedState.matches(nil, selectedProjectId: "project-a"))
     }
 
+    func testCrossDeviceStateVersionRefreshesOnlyForNewNonEmptyVersion() {
+        XCTAssertTrue(CrossDeviceStateVersionPolicy.shouldRefresh(
+            knownStateVersion: "",
+            incomingStateVersion: "screenplay-v1"
+        ))
+        XCTAssertTrue(CrossDeviceStateVersionPolicy.shouldRefresh(
+            knownStateVersion: "screenplay-v1",
+            incomingStateVersion: "screenplay-v2"
+        ))
+        XCTAssertFalse(CrossDeviceStateVersionPolicy.shouldRefresh(
+            knownStateVersion: " screenplay-v2 ",
+            incomingStateVersion: "screenplay-v2"
+        ))
+        XCTAssertFalse(CrossDeviceStateVersionPolicy.shouldRefresh(
+            knownStateVersion: "screenplay-v2",
+            incomingStateVersion: " "
+        ))
+    }
+
+    func testRemoteDraftProtectsDirtyLocalPageAndSurfacesNewerVersionConflict() {
+        let protected = ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
+            selectedProjectId: "project-a",
+            loadedProjectId: "project-a",
+            localDraft: "INT. FERRY - NIGHT\n\nMara waits.",
+            serverDraft: "INT. FERRY - NIGHT\n\nMara returns.",
+            hasUnsavedChanges: true,
+            isManualEditing: false,
+            secondsSinceManualEdit: 999,
+            allowOverwrite: false
+        )
+
+        XCTAssertTrue(protected)
+        XCTAssertTrue(ScreenplayRemoteDraftConflictPolicy.shouldSurfaceConflict(
+            localEditsProtected: protected,
+            localVersionId: "version-local",
+            serverVersionId: "version-remote",
+            localDraft: "INT. FERRY - NIGHT\n\nMara waits.",
+            serverDraft: "INT. FERRY - NIGHT\n\nMara returns."
+        ))
+    }
+
+    func testRemoteDraftDoesNotSurfaceConflictForCleanPageOrSameVersion() {
+        let protected = ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
+            selectedProjectId: "project-a",
+            loadedProjectId: "project-a",
+            localDraft: "INT. FERRY - NIGHT\n\nMara waits.",
+            serverDraft: "INT. FERRY - NIGHT\n\nMara returns.",
+            hasUnsavedChanges: false,
+            isManualEditing: false,
+            secondsSinceManualEdit: 999,
+            allowOverwrite: false
+        )
+
+        XCTAssertFalse(protected)
+        XCTAssertFalse(ScreenplayRemoteDraftConflictPolicy.shouldSurfaceConflict(
+            localEditsProtected: true,
+            localVersionId: "version-same",
+            serverVersionId: "version-same",
+            localDraft: "INT. FERRY - NIGHT\n\nMara waits.",
+            serverDraft: "INT. FERRY - NIGHT\n\nMara returns."
+        ))
+    }
+
     func testFeatureProgressionGuideMapsPageToNextScenePlan() {
         let guide = ScreenplayFeatureProgressionGuide.guide(
             actPosition: "",

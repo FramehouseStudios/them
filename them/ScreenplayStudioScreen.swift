@@ -1555,6 +1555,8 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     private var lastRevisionBaseDraft = ""
     private var loadedDraftProjectID: String = ""
     private var lastManualDraftEditAt: Date = .distantPast
+    private var lastSeenScreenplayStateVersion = ""
+    private var isCrossDeviceRefreshInFlight = false
     private let localDraftRecoveryStore = ScreenplayLocalDraftRecoveryStore()
     private let craftClient = BackendClient()
     private let projectSelectionAPI = BackendMemoryAPI()
@@ -1604,6 +1606,8 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 includeDrafts: false
             )
             didLoadScreenplayProjectsFromBackend = true
+            lastSeenScreenplayStateVersion = result.payload.stateVersion?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             projects = result.payload.screenplayProjects
             let bridgePreferredProjectID = ScreenplayLiveDraftBridge.shared.preferredProjectID
             selectedProjectID = ScreenplayProjectSelectionRestorePolicy.selectedProjectId(
@@ -3969,7 +3973,48 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         await refreshScreenplayExportFormats(reportErrors: false)
     }
 
-    private func loadSelectedProjectOutline() async {
+    func refreshCrossDeviceStateIfNeeded() async {
+        guard didLoadScreenplayProjectsFromBackend,
+              !isCrossDeviceRefreshInFlight,
+              !isLoading,
+              !isSaving,
+              !isStreamingDraftPreviewActive else {
+            return
+        }
+        isCrossDeviceRefreshInFlight = true
+        defer { isCrossDeviceRefreshInFlight = false }
+
+        do {
+            let result = try await BackendMemoryAPI.shared.fetchScreenplayProjects(
+                limit: 24,
+                includeVersions: false,
+                includeDrafts: false
+            )
+            let incomingStateVersion = result.payload.stateVersion?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let shouldRefresh = CrossDeviceStateVersionPolicy.shouldRefresh(
+                knownStateVersion: lastSeenScreenplayStateVersion,
+                incomingStateVersion: incomingStateVersion
+            )
+            if !incomingStateVersion.isEmpty {
+                lastSeenScreenplayStateVersion = incomingStateVersion
+            }
+            guard shouldRefresh else { return }
+
+            let locallySelectedProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+            projects = result.payload.screenplayProjects
+            selectedProjectID = locallySelectedProjectID
+            guard !locallySelectedProjectID.isEmpty else { return }
+            await loadSelectedProjectOutline(reportErrors: false, remoteRefresh: true)
+        } catch {
+            // Background continuity refreshes stay quiet; explicit refresh still reports errors.
+        }
+    }
+
+    private func loadSelectedProjectOutline(
+        reportErrors: Bool = true,
+        remoteRefresh: Bool = false
+    ) async {
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         clearTransientProjectStateForSelectionChange(to: id)
         guard !id.isEmpty else {
@@ -3988,6 +4033,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         do {
+            let versionBeforeRefresh = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: id)
             let shouldUseClientTokenOwner = ownerHeaders.usesDebugClientTokenOwner
             let detailResult: BackendReadResult<BackendScreenplayProjectResponse>
@@ -4014,6 +4060,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 loadedWithClientTokenOwner: detailLoadedWithClientTokenOwner,
                 clientToken: ownerHeaders.clientTokenOverride
             )
+            let detailStateVersion = detailResult.payload.stateVersion?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !detailStateVersion.isEmpty {
+                lastSeenScreenplayStateVersion = detailStateVersion
+            }
             let refreshedOwnerHeaders = projectOwnerHeaderOptions(forProjectID: id)
             let outlineResult = try? await projectSelectionAPI.fetchScreenplayOutline(
                 projectId: id,
@@ -4040,6 +4091,14 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             outline = outlineResult?.payload.outline ?? detailResult.payload.project?.outline ?? .empty
             reconcileSceneSessionState(with: outline)
             errorText = ""
+            let refreshedVersion = latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if remoteRefresh,
+               conflictState == nil,
+               !refreshedVersion.isEmpty,
+               refreshedVersion != versionBeforeRefresh {
+                autosaveStatusText = "Synced"
+                infoText = "Updated from another device."
+            }
             syncLiveDraftBridgeProjectContext()
             Task { [weak self] in
                 await self?.refreshCollaborationData()
@@ -4049,7 +4108,9 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             selectedProject = projects.first(where: { $0.id == id })
             outline = .empty
             reconcileSceneSessionState(with: outline)
-            errorText = error.localizedDescription
+            if reportErrors {
+                errorText = error.localizedDescription
+            }
             if selectedProject == nil {
                 clearFeatureSpineFields()
             }
@@ -4234,38 +4295,71 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
         }
         screenplayBindings = selectedVersion?.screenplayBindings ?? []
-        applyServerDraft(nextDraft, versionId: selectedVersion?.id ?? "")
+        applyServerDraft(
+            nextDraft,
+            versionId: selectedVersion?.id ?? "",
+            serverUpdatedAt: selectedVersion?.updatedAt ?? selectedVersion?.createdAt ?? 0,
+            serverDraftExcerpt: selectedVersion?.draftExcerpt ?? ""
+        )
     }
 
     private func applyServerDraft(
         _ draft: String,
         versionId: String,
-        allowOverwriteDirtyLocalDraft: Bool = false
+        allowOverwriteDirtyLocalDraft: Bool = false,
+        serverUpdatedAt: TimeInterval = 0,
+        serverDraftExcerpt: String = ""
     ) {
         let normalizedProjectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedLocalDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedServerDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let localFingerprint = fingerprint(for: normalizedLocalDraft)
-        let serverFingerprint = fingerprint(for: normalizedServerDraft)
-        let isSameLoadedProject = !normalizedProjectID.isEmpty && normalizedProjectID == loadedDraftProjectID
-        let localEditsNeedProtection =
-            !allowOverwriteDirtyLocalDraft &&
-            isSameLoadedProject &&
-            !normalizedLocalDraft.isEmpty &&
-            localFingerprint != serverFingerprint &&
-            (
-                hasUnsavedDraftChanges ||
-                (isManualDraftEditing && Date().timeIntervalSince(lastManualDraftEditAt) < 120)
-            )
+        let normalizedServerVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let localEditsNeedProtection = ScreenplayRemoteDraftConflictPolicy.shouldProtectLocalDraft(
+            selectedProjectId: normalizedProjectID,
+            loadedProjectId: loadedDraftProjectID,
+            localDraft: normalizedLocalDraft,
+            serverDraft: normalizedServerDraft,
+            hasUnsavedChanges: hasUnsavedDraftChanges,
+            isManualEditing: isManualDraftEditing,
+            secondsSinceManualEdit: Date().timeIntervalSince(lastManualDraftEditAt),
+            allowOverwrite: allowOverwriteDirtyLocalDraft
+        )
 
         if localEditsNeedProtection {
-            autosaveStatusText = "Unsaved changes"
-            if infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                infoText == "Loaded latest draft" ||
-                infoText == "Project ready." {
-                infoText = "Kept your manual edits on the page. Save when you're ready."
+            let remoteConflict = ScreenplayRemoteDraftConflictPolicy.shouldSurfaceConflict(
+                localEditsProtected: true,
+                localVersionId: latestVersionID,
+                serverVersionId: normalizedServerVersionID,
+                localDraft: normalizedLocalDraft,
+                serverDraft: normalizedServerDraft
+            )
+            if remoteConflict {
+                let excerpt = serverDraftExcerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+                conflictState = SaveConflictState(
+                    projectId: normalizedProjectID,
+                    baseVersionId: latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
+                    serverVersionId: normalizedServerVersionID,
+                    serverDraft: draft,
+                    serverDraftExcerpt: excerpt.isEmpty ? String(normalizedServerDraft.prefix(240)) : excerpt,
+                    serverUpdatedAt: serverUpdatedAt
+                )
+                autosaveStatusText = "Conflict detected"
+                infoText = "Another device updated this draft. Choose keep mine or load server."
+                persistRecoveryForUnconfirmedSave(
+                    projectId: normalizedProjectID,
+                    draft: fountainDraft,
+                    baseVersionId: latestVersionID,
+                    surfaceCandidate: false
+                )
+            } else {
+                autosaveStatusText = "Unsaved changes"
+                if infoText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    infoText == "Loaded latest draft" ||
+                    infoText == "Project ready." {
+                    infoText = "Kept your manual edits on the page. Save when you're ready."
+                }
+                conflictState = nil
             }
-            conflictState = nil
             evaluateLocalDraftRecovery(
                 projectId: selectedProjectID,
                 serverDraft: draft
@@ -4897,6 +4991,10 @@ extension BackendScreenplayOutline {
 }
 
 struct ScreenplayStudioScreen: View {
+    private static let crossDeviceRefreshTimer = Timer
+        .publish(every: 3, on: .main, in: .common)
+        .autoconnect()
+
     enum PromptRoutingMode: String, CaseIterable, Identifiable {
         case automatic
         case page
@@ -6274,6 +6372,10 @@ Replace is best when this file should become the script you edit. Append is safe
                     await vm.refreshCraftTwists(source: "Studio open")
                     await vm.refreshAcceptedCraftTwists(source: "Studio open")
                 }
+            }
+            .onReceive(Self.crossDeviceRefreshTimer) { _ in
+                guard !IOThemRuntime.isRunningTests else { return }
+                Task { await vm.refreshCrossDeviceStateIfNeeded() }
             }
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
                 Task {

@@ -1404,6 +1404,29 @@ nonisolated struct BackendAuthUser: Codable, Hashable {
     let updatedAt: TimeInterval?
 }
 
+nonisolated enum BackendAuthDebugSessionPolicy {
+    static func syntheticUser(
+        signedIn: Bool,
+        accessToken: String,
+        userID: String,
+        email: String
+    ) -> BackendAuthUser? {
+        let cleanToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard signedIn, !cleanToken.isEmpty, !cleanUserID.isEmpty else { return nil }
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        return BackendAuthUser(
+            userId: cleanUserID,
+            email: cleanEmail,
+            authProvider: "debug",
+            emailVerified: true,
+            emailVerifiedAt: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+    }
+}
+
 nonisolated struct BackendAuthEmailDelivery: Decodable, Hashable {
     let status: String?
     let action: String?
@@ -2939,10 +2962,24 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func storedAuthUser() -> BackendAuthUser? {
-        guard let data = UserDefaults.standard.data(forKey: DefaultsKey.authUserPayload) else {
-            return nil
+        if let data = UserDefaults.standard.data(forKey: DefaultsKey.authUserPayload),
+           let user = try? JSONDecoder().decode(BackendAuthUser.self, from: data) {
+            return user
         }
-        return try? JSONDecoder().decode(BackendAuthUser.self, from: data)
+#if DEBUG
+        let signedIn = preferenceStringValues(forKey: DefaultsKey.authSignedIn).contains { rawValue in
+            let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return ["1", "true", "yes", "on"].contains(normalized)
+        } || UserDefaults.standard.bool(forKey: DefaultsKey.authSignedIn)
+        return BackendAuthDebugSessionPolicy.syntheticUser(
+            signedIn: signedIn,
+            accessToken: accessToken() ?? "",
+            userID: preferenceString(forKey: DefaultsKey.userId),
+            email: preferenceString(forKey: DefaultsKey.authUserEmail)
+        )
+#else
+        return nil
+#endif
     }
 
     private static func persistAuthEnvelope(_ payload: BackendAuthEnvelope) {

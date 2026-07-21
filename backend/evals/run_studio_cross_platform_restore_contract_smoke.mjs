@@ -22,6 +22,9 @@ import { createPersistence } from "../lib/persistence_adapter.js";
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
 
 const ROOT_DIR = fileURLToPath(new URL("../..", import.meta.url));
+const STUDIO_APP_SESSION_HELPER = fileURLToPath(
+  new URL("./studio_app_session_helper.sh", import.meta.url)
+);
 const APP_TOKEN = "them-dev";
 const CROSS_PLATFORM_PORT = Number(process.env.THEM_CROSS_PLATFORM_RESTORE_CONTRACT_PORT || 31338);
 const CANON_FACTS = Object.freeze([
@@ -29,6 +32,7 @@ const CANON_FACTS = Object.freeze([
   "Mara abandons June at the east ferry dock.",
 ]);
 const CANON_CORRECTION = "Mara never abandons anyone at the east ferry dock. She goes back for both of them. The unresolved setup is Mara promised to return for Eli and June.";
+const LIVE_SYNC_DRAFT_MARKER = "Mara hears both ferry horns answer from the dark water.";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -207,6 +211,39 @@ async function assertCanonCorrectionVisibleToClient(seeded, label) {
   return card;
 }
 
+async function saveSharedProjectFromIPhone(seeded) {
+  const draft = `${seeded.expectedDraft.trim()}\n\nEXT. EAST FERRY DOCK - NIGHT\n\n${LIVE_SYNC_DRAFT_MARKER}`;
+  const result = await requestStudioRestoreJSON({
+    baseURL: seeded.baseURL,
+    path: `/screenplay/projects/${encodeURIComponent(seeded.projectID)}/version`,
+    method: "POST",
+    headers: seeded.headers,
+    body: {
+      draft,
+      title: seeded.fixture?.title || "Cross-platform Live Sync",
+      phase: "scene_draft",
+      source: "studio_clementine_page_write",
+      notes: "iPhone live cross-device continuity contract",
+      base_version_id: seeded.versionID,
+      conflict_strategy: "reject_if_stale",
+    },
+  });
+  assert(
+    result.response.ok && result.payload?.conflict !== true,
+    `iPhone live screenplay save failed: ${result.status} ${JSON.stringify(result.payload)}`
+  );
+  const versionID = requireString(
+    result.payload?.version_id || result.payload?.version?.id,
+    "iPhone live screenplay save did not return a version id."
+  );
+  assert(versionID !== seeded.versionID, "iPhone live screenplay save reused the stale base version id.");
+  return {
+    draft,
+    versionID,
+    stateVersion: String(result.payload?.state_version || ""),
+  };
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
@@ -278,6 +315,10 @@ function readDefaultString(key) {
 
 function readDefaultInt(key) {
   return studioDebug.readDefaultInt(key);
+}
+
+function readDefaultBool(key) {
+  return studioDebug.readDefaultBool(key);
 }
 
 function writeDefaultString(key, value) {
@@ -418,6 +459,7 @@ function writeMacRestoreDefaults(seeded) {
   writeDefaultString("client_token_expiry", seeded.identity.clientTokenExpiry);
   writeDefaultString("auth_debug_access_token", seeded.identity.accessToken);
   writeDefaultBool("auth_debug_access_token_enabled", true);
+  writeDefaultBool("auth_signed_in", true);
   writeDefaultString("studio.full.thread.state.v1", seeded.localState.fullThreadStateJSON);
   writeDefaultString("studio.ask.note.history.v2", "{}");
   writeDefaultString("studio.diff.keep-current.v1", seeded.localState.acknowledgedJSON);
@@ -481,6 +523,34 @@ async function waitForMacRestoreState(seeded, stagedRequest) {
   throw new Error(`macOS did not restore the shared Studio project.\n${JSON.stringify({ seeded, stagedRequest, state }, null, 2)}`);
 }
 
+async function waitForMacLiveSync({ seeded, versionID, appPath, originalPID }) {
+  const deadline = Date.now() + 30000;
+  let state = null;
+  while (Date.now() < deadline) {
+    state = readDebugDiffState();
+    const draftText = normalizeStudioRestoreText(`${state?.draftPreview || ""} ${state?.draftTailPreview || ""}`);
+    const currentPID = currentAppPidForPath(appPath);
+    assert(currentPID === originalPID, `macOS app relaunched during live sync: ${originalPID} -> ${currentPID || "stopped"}`);
+    if (
+      normalizeStudioRestoreKey(state?.selectedProjectID) === normalizeStudioRestoreKey(seeded.projectID)
+      && normalizeStudioRestoreKey(state?.latestVersionID) === normalizeStudioRestoreKey(versionID)
+      && draftText.includes(normalizeStudioRestoreText(LIVE_SYNC_DRAFT_MARKER))
+      && !normalizeStudioRestoreKey(state?.errorText)
+    ) {
+      return state;
+    }
+    await sleep(300);
+  }
+  state = readDebugDiffState();
+  throw new Error(`macOS did not receive the live iPhone screenplay save.\n${JSON.stringify({
+    projectID: seeded.projectID,
+    versionID,
+    originalPID,
+    currentPID: currentAppPidForPath(appPath),
+    state,
+  }, null, 2)}`);
+}
+
 async function assertBackendSeeded(seeded) {
   const probe = await fetchStudioProjectMetadata(seeded.projectID, seeded.headers, seeded.baseURL);
   assert(probe.response.ok, `Backend project probe failed: ${probe.response.status} ${JSON.stringify(probe.payload)}`);
@@ -527,6 +597,7 @@ async function restoreSharedProjectOnMac(seeded) {
   });
   await ensureStudioVisibleWithOpenHandshake({
     appPath,
+    helperPath: STUDIO_APP_SESSION_HELPER,
     debugDefaults: studioDebug.defaults,
     runOptional,
     activateApp,
@@ -619,7 +690,6 @@ const restoreKeys = [
   "client_token_base_url",
   "client_token_expiry",
   "auth_debug_access_token",
-  "auth_debug_access_token_enabled",
   "studio_debug_load_project_id",
   "studio_debug_load_project_version_id",
 ];
@@ -628,8 +698,13 @@ const restoreIntKeys = [
   "studio_debug_load_project_token",
   "studio_debug_load_project_ack_token",
 ];
+const restoreBoolKeys = [
+  "auth_debug_access_token_enabled",
+  "auth_signed_in",
+];
 const originalStringValues = Object.fromEntries(restoreKeys.map((key) => [key, readDefaultString(key)]));
 const originalIntValues = Object.fromEntries(restoreIntKeys.map((key) => [key, readDefaultInt(key)]));
+const originalBoolValues = Object.fromEntries(restoreBoolKeys.map((key) => [key, readDefaultBool(key)]));
 
 let server = null;
 try {
@@ -680,7 +755,20 @@ try {
   const iphoneIdentity = await issueAuthenticatedClient(restartedBaseSeed, "restarted iPhone");
   const iphoneSeeded = seededForClient(restartedBaseSeed, iphoneIdentity, canonSeed, resolution);
   await assertCanonCorrectionVisibleToClient(iphoneSeeded, "restarted iPhone");
-  const iphone = restoreSharedProjectOniPhone(iphoneSeeded);
+  const macPIDBeforeLiveSync = currentAppPidForPath(mac.appPath);
+  assert(macPIDBeforeLiveSync > 0, "Could not identify the running macOS app before live sync.");
+  const liveSave = await saveSharedProjectFromIPhone(iphoneSeeded);
+  const liveMacState = await waitForMacLiveSync({
+    seeded: iphoneSeeded,
+    versionID: liveSave.versionID,
+    appPath: mac.appPath,
+    originalPID: macPIDBeforeLiveSync,
+  });
+  const liveIPhoneSeeded = {
+    ...iphoneSeeded,
+    versionID: liveSave.versionID,
+  };
+  const iphone = restoreSharedProjectOniPhone(liveIPhoneSeeded);
   console.log(JSON.stringify({
     ok: true,
     projectID: macSeeded.projectID,
@@ -698,6 +786,17 @@ try {
       stagedRequest: mac.stagedRequest,
       restoredProjectID: mac.restoredState?.selectedProjectID || "",
       restoredVersionID: mac.restoredState?.latestVersionID || "",
+    },
+    liveSync: {
+      source: "iPhone",
+      destination: "macOS",
+      macPID: macPIDBeforeLiveSync,
+      versionID: liveSave.versionID,
+      stateVersion: liveSave.stateVersion,
+      receivedWithoutRelaunch: currentAppPidForPath(mac.appPath) === macPIDBeforeLiveSync,
+      draftMarkerVisible: normalizeStudioRestoreText(
+        `${liveMacState?.draftPreview || ""} ${liveMacState?.draftTailPreview || ""}`
+      ).includes(normalizeStudioRestoreText(LIVE_SYNC_DRAFT_MARKER)),
     },
     iphone: {
       outputBytes: iphone.output.length,
@@ -718,6 +817,9 @@ try {
   }
   for (const [key, value] of Object.entries(originalIntValues)) {
     writeDefaultInt(key, value);
+  }
+  for (const [key, value] of Object.entries(originalBoolValues)) {
+    writeDefaultBool(key, value);
   }
   synchronizeDefaults();
   if (server) {
