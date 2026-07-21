@@ -3525,12 +3525,16 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         isCraftLoading = true
         defer { isCraftLoading = false }
         craftErrorText = ""
+        let source = force ? "Manual check" : "Craft rail"
+        let hadExistingReport = craftReport != nil
         do {
-            try await ensureCraftFrameworksLoaded()
-            let report = try await craftClient.fetchCraftReport(
-                projectId: project.id,
-                versionId: activeCraftVersionID
-            )
+            let report = try await StudioCraftResilience.run(source: source) {
+                try await ensureCraftFrameworksLoaded()
+                return try await craftClient.fetchCraftReport(
+                    projectId: project.id,
+                    versionId: activeCraftVersionID
+                )
+            }
             craftReport = report
             if selectedCraftFrameworkID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 selectedCraftFrameworkID = report.framework.id
@@ -3541,8 +3545,15 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             craftReport = nil
             craftInfoText = "No craft report exists for this screenplay version yet."
         } catch {
-            craftReport = nil
-            craftErrorText = error.localizedDescription
+            craftErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "craft report"
+            )
+            craftInfoText = StudioCraftResilience.backgroundStatus(
+                subject: "craft report",
+                hasExistingContent: hadExistingReport
+            )
         }
     }
 
@@ -3571,7 +3582,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             await loadAcceptedCraftTwists(projectId: project.id, source: "Craft report")
             craftInfoText = report.generatedAt.map { "Craft report updated at \($0)." } ?? "Craft analysis complete."
         } catch {
-            craftErrorText = error.localizedDescription
+            craftErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: "Manual check",
+                subject: "craft analysis"
+            )
         }
     }
 
@@ -3585,7 +3600,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             let stored = try await craftClient.recordCraftTurnOverride(override)
             craftInfoText = "Override saved for \(stored.turnId). Run Analyze to rebuild craft coverage."
         } catch {
-            craftErrorText = error.localizedDescription
+            craftErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: "Manual check",
+                subject: "the craft override"
+            )
         }
     }
 
@@ -3603,10 +3622,12 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         defer { isFormatLinting = false }
         formatLintErrorText = ""
         do {
-            let report = try await craftClient.lintCraftFormat(
-                text: draft,
-                frameworkId: normalizedOrNil(selectedCraftFrameworkID)
-            )
+            let report = try await StudioCraftResilience.run(source: source) {
+                try await craftClient.lintCraftFormat(
+                    text: draft,
+                    frameworkId: normalizedOrNil(selectedCraftFrameworkID)
+                )
+            }
             guard draft == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
             formatLintReport = report
             formatLintSourceText = source
@@ -3616,7 +3637,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             formatLintSourceText = source
         } catch {
             formatLintReport = nil
-            formatLintErrorText = error.localizedDescription
+            formatLintErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "format checks"
+            )
             formatLintSourceText = source
         }
     }
@@ -3670,8 +3695,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             craftLoglineErrorText = "Draft text is required before distilling a logline."
             craftLoglineInfoText = source
         } catch {
-            craftLogline = nil
-            craftLoglineErrorText = error.localizedDescription
+            craftLoglineErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "the logline"
+            )
             craftLoglineInfoText = source
         }
     }
@@ -3692,15 +3720,26 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         isBlockSignalLoading = true
         defer { isBlockSignalLoading = false }
         do {
-            let response = try await craftClient.fetchMemoryBlockSignal()
+            let response = try await StudioCraftResilience.run(source: source) {
+                try await craftClient.fetchMemoryBlockSignal()
+            }
             blockSignal = response
             blockSignalErrorText = ""
             blockSignalInfoText = source
         } catch {
-            blockSignalErrorText = error.localizedDescription
-            blockSignalInfoText = source
+            blockSignalErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "writing momentum"
+            )
+            blockSignalInfoText = StudioCraftResilience.backgroundStatus(
+                subject: "writing momentum",
+                hasExistingContent: blockSignal != nil
+            )
         }
-        if let history = try? await craftClient.fetchMemoryBlockSignalHistory() {
+        if let history = try? await StudioCraftResilience.run(source: source, operation: {
+            try await craftClient.fetchMemoryBlockSignalHistory()
+        }) {
             blockSignalHistory = history
         }
     }
@@ -3712,18 +3751,29 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         defer { isCharacterTraitsLoading = false }
         do {
             let bridge = ScreenplayLiveDraftBridge.shared
-            let response = try await craftClient.fetchMemoryCharacterTraits(
-                projectID: bridge.preferredProjectID,
-                projectTitle: bridge.projectBinding.projectTitle
-            )
+            let response = try await StudioCraftResilience.run(source: source) {
+                try await craftClient.fetchMemoryCharacterTraits(
+                    projectID: bridge.preferredProjectID,
+                    projectTitle: bridge.projectBinding.projectTitle
+                )
+            }
             characterTraits = response
             ScreenplayLiveDraftBridge.shared.updateCharacterVoiceMemories(from: response)
-            characterArchetypes = try? await craftClient.fetchMemoryCharacterArchetypes()
+            characterArchetypes = try? await StudioCraftResilience.run(source: source, operation: {
+                try await craftClient.fetchMemoryCharacterArchetypes()
+            })
             characterTraitsErrorText = ""
             characterTraitsInfoText = source
         } catch {
-            characterTraitsErrorText = error.localizedDescription
-            characterTraitsInfoText = source
+            characterTraitsErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "character memory"
+            )
+            characterTraitsInfoText = StudioCraftResilience.backgroundStatus(
+                subject: "character memory",
+                hasExistingContent: characterTraits != nil
+            )
         }
     }
 
@@ -3735,18 +3785,27 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         defer { isCraftTwistLoading = false }
         craftTwistBeatLabel = context.beatLabel
         do {
-            let response = try await craftClient.suggestCraftTwists(
-                frameworkId: context.frameworkId,
-                currentBeatId: context.beatId,
-                sceneSummary: context.sceneSummary,
-                count: 3
-            )
+            let response = try await StudioCraftResilience.run(source: source) {
+                try await craftClient.suggestCraftTwists(
+                    frameworkId: context.frameworkId,
+                    currentBeatId: context.beatId,
+                    sceneSummary: context.sceneSummary,
+                    count: 3
+                )
+            }
             craftTwists = response
             craftTwistErrorText = ""
             craftTwistInfoText = source
         } catch {
-            craftTwistErrorText = error.localizedDescription
-            craftTwistInfoText = source
+            craftTwistErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "reversal cards"
+            )
+            craftTwistInfoText = StudioCraftResilience.backgroundStatus(
+                subject: "reversal cards",
+                hasExistingContent: craftTwists != nil
+            )
         }
     }
 
@@ -3763,14 +3822,23 @@ private final class ScreenplayStudioViewModel: ObservableObject {
 
     private func loadAcceptedCraftTwists(projectId: String, source: String) async {
         do {
-            let response = try await craftClient.fetchAcceptedCraftTwists(projectId: projectId)
+            let response = try await StudioCraftResilience.run(source: source) {
+                try await craftClient.fetchAcceptedCraftTwists(projectId: projectId)
+            }
             guard selectedProject?.id == projectId else { return }
             acceptedCraftTwists = response.entries
             acceptedCraftTwistErrorText = ""
             acceptedCraftTwistInfoText = source
         } catch {
-            acceptedCraftTwistErrorText = error.localizedDescription
-            acceptedCraftTwistInfoText = source
+            acceptedCraftTwistErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "kept reversals"
+            )
+            acceptedCraftTwistInfoText = StudioCraftResilience.backgroundStatus(
+                subject: "kept reversals",
+                hasExistingContent: !acceptedCraftTwists.isEmpty
+            )
         }
     }
 
@@ -3802,7 +3870,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             acceptedCraftTwists.append(response.entry)
             acceptedCraftTwistInfoText = "Kept \(card.label) for future draft context."
         } catch {
-            acceptedCraftTwistErrorText = "Could not keep reversal yet: \(error.localizedDescription)"
+            acceptedCraftTwistErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: "Manual check",
+                subject: "this reversal"
+            )
             acceptedCraftTwistInfoText = "Keep action stayed local."
         }
     }
@@ -3828,7 +3900,11 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             acceptedCraftTwistInfoText = "Dismissed \(card.label)."
         } catch {
             acceptedCraftTwists.removeAll { $0.twist.id == card.id }
-            acceptedCraftTwistErrorText = "Dismiss sync is pending: \(error.localizedDescription)"
+            acceptedCraftTwistErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: "Manual check",
+                subject: "this reversal"
+            )
             acceptedCraftTwistInfoText = "Dismissed locally."
         }
     }
@@ -4467,6 +4543,24 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             autosaveStatusText = "Draft empty"
             return
         }
+
+        #if DEBUG
+        if IOThemRuntime.isRunningUITests,
+           source == "studio_conflict_resolve",
+           ProcessInfo.processInfo.arguments.contains("--ui-conflict-save-success") {
+            latestVersionID = "ui-local-version"
+            lastSavedDraftFingerprint = fingerprint(for: normalized)
+            lastRevisionBaseDraft = normalized
+            hasUnsavedDraftChanges = false
+            isManualDraftEditing = false
+            lastManualDraftEditAt = .distantPast
+            loadedDraftProjectID = project.id
+            autosaveStatusText = "Autosaved"
+            infoText = "Local draft saved."
+            clearLocalDraftRecovery(projectId: project.id)
+            return
+        }
+        #endif
 
         isSaving = true
         defer { isSaving = false }
@@ -5731,6 +5825,7 @@ struct ScreenplayStudioScreen: View {
     @State private var lastAppliedStudioDebugShortcutToken: Int = 0
     @State private var lastAppliedStudioDebugInspectorInteractionToken: Int = 0
     @State private var didApplyUITestLaunchActions = false
+    @State private var didApplyUITestDraftConflictFixture = false
     @State private var trackedStudioDebugProjectLoadToken: Int = 0
     @State private var trackedStudioDebugProjectLoadRequestedProjectID = ""
     @State private var trackedStudioDebugProjectLoadRequestedVersionID = ""
@@ -5770,6 +5865,9 @@ struct ScreenplayStudioScreen: View {
             "selected_project_id": vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines),
             "selected_project_present": vm.selectedProject != nil,
             "latest_version_id": vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            "conflict_project_id": vm.conflictState?.projectId ?? "",
+            "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "",
+            "conflict_fixture_applied": didApplyUITestDraftConflictFixture,
             "loaded_draft_project_id": vm.debugLoadedDraftProjectID,
             "load_project_token": trackedStudioDebugProjectLoadToken,
             "load_project_ack_token": studioDebugLoadProjectAckToken,
@@ -6364,6 +6462,12 @@ Replace is best when this file should become the script you edit. Append is safe
     private var studioObservedView: some View {
         studioBaseLayout
             .task {
+                #if DEBUG
+                if IOThemRuntime.isRunningUITests,
+                   ProcessInfo.processInfo.arguments.contains("--ui-show-draft-conflict") {
+                    return
+                }
+                #endif
                 await vm.load()
                 _ = await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
                 _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
@@ -6381,6 +6485,12 @@ Replace is best when this file should become the script you edit. Append is safe
                 Task { await vm.refreshCrossDeviceStateIfNeeded() }
             }
             .onChange(of: liveDraftBridge.preferredProjectID) { _, newValue in
+                #if DEBUG
+                if IOThemRuntime.isRunningUITests,
+                   ProcessInfo.processInfo.arguments.contains("--ui-show-draft-conflict") {
+                    return
+                }
+                #endif
                 Task {
                     if await selectPreferredProjectIfNeeded(newValue) {
                         await restoreStudioWorkspaceAfterProjectHydration()
@@ -7320,7 +7430,31 @@ Replace is best when this file should become the script you edit. Append is safe
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+
+            if let conflict = vm.conflictState {
+                Color.black.opacity(0.12)
+                    .ignoresSafeArea()
+
+                draftConflictBanner(conflict)
+                    .frame(maxWidth: 560)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 70)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            } else if let recovery = vm.recoveryCandidate {
+                Color.black.opacity(0.08)
+                    .ignoresSafeArea()
+
+                draftRecoveryBanner(recovery)
+                    .frame(maxWidth: 560)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 70)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: vm.conflictState != nil)
+        .animation(.easeOut(duration: 0.18), value: vm.recoveryCandidate != nil)
     }
 
     private var directionOneBodyColumns: some View {
@@ -21531,16 +21665,25 @@ Current draft version:
             tint: Color.red.opacity(0.88),
             excerpt: conflict.serverDraftExcerpt
         ) {
-            NumberedChoiceActionButton(number: "1", title: "Load Server") {
+            Button {
                 vm.applyServerVersionFromConflict()
+            } label: {
+                Text("1 Load Server")
             }
-            NumberedChoiceActionButton(
-                number: "2",
-                title: "Keep Mine",
-                prominence: .prominent
-            ) {
+            .buttonStyle(.bordered)
+            .tint(Color.white.opacity(0.24))
+            .keyboardShortcut("1", modifiers: [])
+            .accessibilityIdentifier("studio.conflict.load-server")
+
+            Button {
                 Task { await vm.keepLocalDraftAfterConflict() }
+            } label: {
+                Text("2 Keep Mine")
             }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.white.opacity(0.24))
+            .keyboardShortcut("2", modifiers: [])
+            .accessibilityIdentifier("studio.conflict.keep-mine")
         }
     }
 
@@ -26890,6 +27033,7 @@ Look at the city.
         if arguments.contains("--ui-open-commandbar") {
             openStudioCommandBar()
         }
+        applyUITestDraftConflictFixtureIfNeeded()
         if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-page-prompt", in: arguments) {
             studioPromptRoutingMode = .page
             submitStudioPromptText(
@@ -26924,6 +27068,38 @@ Look at the city.
         guard arguments.indices.contains(valueIndex) else { return nil }
         return arguments[valueIndex]
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func applyUITestDraftConflictFixtureIfNeeded() {
+        guard IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains("--ui-show-draft-conflict"),
+              !didApplyUITestDraftConflictFixture,
+              vm.conflictState == nil else {
+            return
+        }
+        let selectedID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let project = vm.selectedProject ?? vm.projects.first(where: {
+            selectedID.isEmpty || $0.id == selectedID
+        }) else { return }
+        vm.selectedProject = project
+        vm.selectedProjectID = project.id
+        let serverDraft = """
+        EXT. FERRY TERMINAL - DAWN
+        MARA
+        The server copy survives.
+        """
+        vm.conflictState = ScreenplayStudioViewModel.SaveConflictState(
+            projectId: project.id,
+            baseVersionId: vm.latestVersionID,
+            serverVersionId: "ui-server-version",
+            serverDraft: serverDraft,
+            serverDraftExcerpt: "EXT. FERRY TERMINAL - DAWN",
+            serverUpdatedAt: Date().timeIntervalSince1970 * 1_000
+        )
+        vm.hasUnsavedDraftChanges = true
+        vm.autosaveStatusText = "Conflict detected"
+        vm.infoText = "Another device updated this draft. Choose keep mine or load server."
+        didApplyUITestDraftConflictFixture = true
     }
     #endif
 

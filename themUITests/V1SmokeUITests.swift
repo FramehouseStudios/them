@@ -99,6 +99,81 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Which existing story facts", in: studio).exists)
     }
 
+    func test_draft_conflict_load_server_replaces_local_page() {
+        let app = launchApp(
+            openStudio: true,
+            structuralSeed: true,
+            showDraftConflict: true
+        )
+        defer { app.terminate() }
+
+        let banner = staticText(containing: "Server draft changed", in: app)
+        XCTAssertTrue(
+            banner.waitForExistence(timeout: 10),
+            "Conflict banner missing. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5))
+
+        let loadServer = app.buttons["studio.conflict.load-server"]
+        if !loadServer.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(loadServer.waitForExistence(timeout: 3), "Load Server action was not exposed.")
+        XCTAssertTrue(loadServer.isHittable, "Load Server action was visible but not hittable.")
+        loadServer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: "EXT. FERRY TERMINAL - DAWN", timeout: 5),
+            "Load Server did not replace the local page. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            waitForDisappearance(of: banner, timeout: 5),
+            "Conflict banner remained after Load Server. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            staticText(containing: "Loaded latest server draft", in: app).waitForExistence(timeout: 5),
+            "Load Server confirmation was not presented."
+        )
+    }
+
+    func test_draft_conflict_keep_mine_preserves_local_page() {
+        let app = launchApp(
+            openStudio: true,
+            structuralSeed: true,
+            showDraftConflict: true,
+            conflictSaveSuccess: true
+        )
+        defer { app.terminate() }
+
+        let banner = staticText(containing: "Server draft changed", in: app)
+        XCTAssertTrue(
+            banner.waitForExistence(timeout: 10),
+            "Conflict banner missing. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5))
+
+        let keepMine = app.buttons["studio.conflict.keep-mine"]
+        if !keepMine.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(keepMine.waitForExistence(timeout: 3), "Keep Mine action was not exposed.")
+        XCTAssertTrue(keepMine.isHittable, "Keep Mine action was visible but not hittable.")
+        keepMine.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5),
+            "Keep Mine replaced the local page unexpectedly. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            waitForDisappearance(of: banner, timeout: 5),
+            "Conflict banner remained after Keep Mine. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            staticText(containing: "Local draft saved", in: app).waitForExistence(timeout: 5),
+            "Keep Mine confirmation was not presented."
+        )
+    }
+
     @MainActor
     func test_backend_project_restore_loads_seeded_screenplay_session() async throws {
         let baseURL = URL(string: "http://127.0.0.1:31337")!
@@ -240,6 +315,8 @@ final class V1SmokeUITests: XCTestCase {
         routePage: Bool = false,
         routeVoicePin: Bool = false,
         showCanonClarification: Bool = false,
+        showDraftConflict: Bool = false,
+        conflictSaveSuccess: Bool = false,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         restoreProjectID: String? = nil,
@@ -291,6 +368,12 @@ final class V1SmokeUITests: XCTestCase {
         }
         if showCanonClarification {
             arguments.append("--ui-show-canon-clarification")
+        }
+        if showDraftConflict {
+            arguments.append("--ui-show-draft-conflict")
+        }
+        if conflictSaveSuccess {
+            arguments.append("--ui-conflict-save-success")
         }
         if let autoSubmitPagePrompt {
             arguments.append(contentsOf: ["--ui-auto-submit-page-prompt", autoSubmitPagePrompt])
@@ -386,6 +469,20 @@ final class V1SmokeUITests: XCTestCase {
         app.staticTexts
             .matching(NSPredicate(format: "label CONTAINS[c] %@", text))
             .firstMatch
+    }
+
+    private func waitForDisappearance(
+        of element: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.exists {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return !element.exists
     }
 
     private struct RestoreContractFixture {
