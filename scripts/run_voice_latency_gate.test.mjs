@@ -45,6 +45,7 @@ test("[voice-latency-gate] runs only the focused deterministic Swift smokes", ()
   assert.ok(args.includes("-destination"));
   assert.ok(args.includes(destination));
   assert.ok(args.includes("-only-testing:themTests/ClementineLatencyTelemetryTests"));
+  assert.ok(args.includes("-only-testing:themTests/ClementineRealtimeBridgeEventTests"));
   assert.ok(args.includes("-only-testing:themTests/StudioResponseStreamingTests"));
   assert.ok(args.includes("-only-testing:themTests/VoiceNetworkConditionSmokeTests"));
   assert.ok(args.includes("CODE_SIGNING_ALLOWED=NO"));

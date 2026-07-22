@@ -281,7 +281,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         }
     }
 
-    private func handleScriptMessageBody(_ body: Any) {
+    func receiveBridgeMessage(_ body: Any) {
         let payload: [String: Any]
         if let dict = body as? [String: Any] {
             payload = dict
@@ -319,6 +319,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             activity = .idle
             startIfPossible()
         case "connecting":
+            cancelledResponseOrdinal = 0
             status = .connecting
             activity = .idle
         case "connected":
@@ -329,6 +330,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             activity = .idle
             onAssistantSpeakingChanged?(false)
         case "assistant_thinking":
+            guard responseOrdinal == 0 || responseOrdinal > cancelledResponseOrdinal else { return }
             activity = .thinking
             onAssistantSpeakingChanged?(false)
         case "assistant_speaking":
@@ -360,14 +362,18 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         case "assistant_transcript_final":
             guard !text.isEmpty else { return }
             guard responseOrdinal == 0 || responseOrdinal > cancelledResponseOrdinal else { return }
-            activity = .listening
-            onAssistantSpeakingChanged?(false)
+            if activity != .speaking {
+                activity = .listening
+                onAssistantSpeakingChanged?(false)
+            }
             onAssistantTranscriptFinal?(text)
         case "assistant_text_final":
             guard !text.isEmpty else { return }
             guard responseOrdinal == 0 || responseOrdinal > cancelledResponseOrdinal else { return }
-            activity = .listening
-            onAssistantSpeakingChanged?(false)
+            if activity != .speaking {
+                activity = .listening
+                onAssistantSpeakingChanged?(false)
+            }
             onAssistantTextFinal?(text)
         case "error":
             status = .failed(message.isEmpty ? "Unknown Realtime bridge error." : message)
@@ -382,7 +388,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
 extension ClementineRealtimeWebViewBridge: WKScriptMessageHandler {
     nonisolated func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         Task { @MainActor in
-            self.handleScriptMessageBody(message.body)
+            self.receiveBridgeMessage(message.body)
         }
     }
 }
