@@ -19575,6 +19575,16 @@ function buildRealtimeSessionConfig({
     instructions: cleanInstructions,
     output_modalities: ["audio"],
     audio: {
+      input: {
+        turn_detection: {
+          type: "server_vad",
+          threshold: 0.45,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 360,
+          create_response: true,
+          interrupt_response: true,
+        },
+      },
       output: {
         voice: realtimeVoice,
       },
@@ -19582,10 +19592,8 @@ function buildRealtimeSessionConfig({
   };
 
   if (OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL) {
-    session.audio.input = {
-      transcription: {
-        model: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
-      },
+    session.audio.input.transcription = {
+      model: OPENAI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
     };
   }
 
@@ -19624,11 +19632,31 @@ function renderRealtimeBridgeHtml() {
         pc: null,
         dc: null,
         stream: null,
+        remoteStream: null,
+        audioContext: null,
+        analyser: null,
+        vadFrame: 0,
+        statsTimer: null,
+        localNoiseFloor: 0.006,
+        localLoudFrames: 0,
         assistantTranscript: '',
         assistantText: '',
         assistantSpeaking: false,
+        assistantResponseActive: false,
+        assistantItemID: '',
+        assistantAudioStartedAt: 0,
         responseOrdinal: 0,
         activeResponseOrdinal: 0,
+        turnCounter: 0,
+        turnID: '',
+        turnStartedAt: 0,
+        firstTextReported: false,
+        firstAudioReported: false,
+        interruptionStartedAt: 0,
+        interruptionTurnID: '',
+        interruptionResponseOrdinal: 0,
+        userSpeechActive: false,
+        networkClass: 'balanced',
       };
 
       function post(type, payload) {
@@ -19647,7 +19675,224 @@ function renderRealtimeBridgeHtml() {
         });
       }
 
+      function nowMilliseconds() {
+        return typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now();
+      }
+
+      function sendClientEvent(event) {
+        if (!state.dc || state.dc.readyState !== 'open') return false;
+        try {
+          state.dc.send(JSON.stringify(event));
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function currentTurnID() {
+        return state.turnID || ('realtime-pending-' + String(state.turnCounter + 1));
+      }
+
+      function beginLatencyTurn(source) {
+        state.turnCounter += 1;
+        state.turnID = 'realtime-' + String(Date.now()) + '-' + String(state.turnCounter);
+        state.turnStartedAt = nowMilliseconds();
+        state.firstTextReported = false;
+        state.firstAudioReported = false;
+        post('latency_turn_started', {
+          turnID: state.turnID,
+          source: source || 'unknown',
+          networkClass: state.networkClass,
+        });
+      }
+
+      function ensureLatencyTurn(source) {
+        if (!state.turnStartedAt || !state.turnID) {
+          beginLatencyTurn(source);
+        }
+      }
+
+      function reportFirstLatency(kind) {
+        ensureLatencyTurn('response_fallback');
+        const elapsedMs = Math.max(0, nowMilliseconds() - state.turnStartedAt);
+        if (kind === 'text') {
+          if (state.firstTextReported) return;
+          state.firstTextReported = true;
+          post('latency_first_text', {
+            turnID: state.turnID,
+            elapsedMs: elapsedMs,
+            networkClass: state.networkClass,
+          });
+          return;
+        }
+        if (state.firstAudioReported) return;
+        state.firstAudioReported = true;
+        post('latency_first_audio', {
+          turnID: state.turnID,
+          elapsedMs: elapsedMs,
+          networkClass: state.networkClass,
+        });
+      }
+
+      function resumeRemoteAudio() {
+        if (!remoteAudio) return;
+        remoteAudio.muted = false;
+        if (state.remoteStream && remoteAudio.srcObject !== state.remoteStream) {
+          remoteAudio.srcObject = state.remoteStream;
+        }
+        const playAttempt = remoteAudio.play();
+        if (playAttempt && typeof playAttempt.catch === 'function') {
+          playAttempt.catch(() => {});
+        }
+      }
+
+      function cutRemoteAudioLocally() {
+        if (!remoteAudio) return;
+        remoteAudio.muted = true;
+        try {
+          remoteAudio.pause();
+        } catch (_) {}
+      }
+
+      function acknowledgeInterruption(source) {
+        if (!state.interruptionStartedAt) return;
+        const elapsedMs = Math.max(0, nowMilliseconds() - state.interruptionStartedAt);
+        const turnID = state.interruptionTurnID || currentTurnID();
+        const responseOrdinal = Number(state.interruptionResponseOrdinal || activeResponseOrdinal() || 0);
+        state.interruptionStartedAt = 0;
+        state.interruptionTurnID = '';
+        state.interruptionResponseOrdinal = 0;
+        post('latency_barge_in_ack', {
+          turnID: turnID,
+          elapsedMs: elapsedMs,
+          source: source || 'provider',
+        });
+        post('assistant_interrupted', {
+          responseOrdinal: responseOrdinal,
+          turnID: turnID,
+        });
+      }
+
+      function startInterruption(source, force) {
+        const hasActiveAssistant = state.assistantSpeaking || state.assistantResponseActive;
+        if (!hasActiveAssistant && !force) return;
+        if (state.interruptionStartedAt) return;
+
+        const responseOrdinal = activeResponseOrdinal();
+        const turnID = currentTurnID();
+        state.interruptionStartedAt = nowMilliseconds();
+        state.interruptionTurnID = turnID;
+        state.interruptionResponseOrdinal = responseOrdinal;
+        post('user_speech_started', {
+          turnID: turnID,
+          source: source || 'unknown',
+        });
+        post('latency_barge_in_started', {
+          turnID: turnID,
+          source: source || 'unknown',
+        });
+
+        cutRemoteAudioLocally();
+        setAssistantSpeaking(false, responseOrdinal);
+        sendClientEvent({ type: 'output_audio_buffer.clear' });
+        sendClientEvent({ type: 'response.cancel' });
+        if (state.assistantItemID && state.assistantAudioStartedAt) {
+          sendClientEvent({
+            type: 'conversation.item.truncate',
+            item_id: state.assistantItemID,
+            content_index: 0,
+            audio_end_ms: Math.max(0, Math.floor(nowMilliseconds() - state.assistantAudioStartedAt)),
+          });
+        }
+      }
+
+      function setupLocalVoiceActivityDetection(stream) {
+        const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextConstructor || !stream) return;
+        try {
+          const audioContext = new AudioContextConstructor();
+          const source = audioContext.createMediaStreamSource(stream);
+          const analyser = audioContext.createAnalyser();
+          analyser.fftSize = 512;
+          analyser.smoothingTimeConstant = 0.2;
+          source.connect(analyser);
+          state.audioContext = audioContext;
+          state.analyser = analyser;
+          const samples = new Float32Array(analyser.fftSize);
+
+          const inspect = () => {
+            if (!state.analyser) return;
+            state.analyser.getFloatTimeDomainData(samples);
+            let sum = 0;
+            for (let index = 0; index < samples.length; index += 1) {
+              sum += samples[index] * samples[index];
+            }
+            const rms = Math.sqrt(sum / samples.length);
+            if (!state.assistantSpeaking && !state.assistantResponseActive) {
+              if (rms < Math.max(0.02, state.localNoiseFloor * 1.8)) {
+                state.localNoiseFloor = (state.localNoiseFloor * 0.94) + (rms * 0.06);
+              }
+              state.localLoudFrames = 0;
+            } else {
+              const threshold = Math.max(0.012, state.localNoiseFloor * 3.2);
+              state.localLoudFrames = rms >= threshold ? state.localLoudFrames + 1 : 0;
+              if (state.localLoudFrames >= 2) {
+                state.localLoudFrames = 0;
+                startInterruption('local_vad', false);
+              }
+            }
+            state.vadFrame = window.requestAnimationFrame(inspect);
+          };
+          state.vadFrame = window.requestAnimationFrame(inspect);
+        } catch (_) {}
+      }
+
+      async function sampleNetworkProfile() {
+        if (!state.pc || typeof state.pc.getStats !== 'function') return;
+        try {
+          const reports = await state.pc.getStats();
+          let roundTripSeconds = null;
+          reports.forEach((report) => {
+            if (report.type === 'candidate-pair' &&
+                report.state === 'succeeded' &&
+                typeof report.currentRoundTripTime === 'number') {
+              roundTripSeconds = report.currentRoundTripTime;
+            }
+          });
+          if (roundTripSeconds === null) return;
+          const nextClass = roundTripSeconds <= 0.12
+            ? 'fast'
+            : (roundTripSeconds <= 0.30 ? 'balanced' : 'constrained');
+          if (nextClass === state.networkClass) return;
+          state.networkClass = nextClass;
+          if (state.turnID) {
+            post('network_profile', {
+              turnID: state.turnID,
+              networkClass: nextClass,
+              roundTripMs: Math.round(roundTripSeconds * 1000),
+            });
+          }
+        } catch (_) {}
+      }
+
       function resetConnection() {
+        if (state.statsTimer) {
+          clearInterval(state.statsTimer);
+          state.statsTimer = null;
+        }
+        if (state.vadFrame) {
+          window.cancelAnimationFrame(state.vadFrame);
+          state.vadFrame = 0;
+        }
+        if (state.audioContext) {
+          try {
+            state.audioContext.close();
+          } catch (_) {}
+          state.audioContext = null;
+          state.analyser = null;
+        }
         if (state.dc) {
           try {
             state.dc.close();
@@ -19669,16 +19914,30 @@ function renderRealtimeBridgeHtml() {
         }
         stopTracks(state.stream);
         state.stream = null;
+        state.remoteStream = null;
         state.assistantTranscript = '';
         state.assistantText = '';
         state.assistantSpeaking = false;
+        state.assistantResponseActive = false;
+        state.assistantItemID = '';
+        state.assistantAudioStartedAt = 0;
         state.responseOrdinal = 0;
         state.activeResponseOrdinal = 0;
+        state.turnID = '';
+        state.turnStartedAt = 0;
+        state.firstTextReported = false;
+        state.firstAudioReported = false;
+        state.interruptionStartedAt = 0;
+        state.interruptionTurnID = '';
+        state.interruptionResponseOrdinal = 0;
+        state.userSpeechActive = false;
+        state.localLoudFrames = 0;
         if (remoteAudio) {
           try {
-            remoteAudio.pause();
+          remoteAudio.pause();
           } catch (_) {}
           remoteAudio.srcObject = null;
+          remoteAudio.muted = false;
         }
       }
 
@@ -19697,7 +19956,8 @@ function renderRealtimeBridgeHtml() {
 
       if (remoteAudio) {
         remoteAudio.addEventListener('playing', () => {
-          setAssistantSpeaking(true, activeResponseOrdinal());
+          // Provider output_audio_buffer events are the authoritative playback clock.
+          // A MediaStream can enter "playing" while it still contains silence.
         });
         remoteAudio.addEventListener('pause', () => {
           setAssistantSpeaking(false, activeResponseOrdinal());
@@ -19777,19 +20037,49 @@ function renderRealtimeBridgeHtml() {
         if (!type) return;
 
         switch (type) {
+          case 'input_audio_buffer.speech_started':
+            state.userSpeechActive = true;
+            if (state.assistantSpeaking || state.assistantResponseActive) {
+              startInterruption('server_vad', false);
+            } else {
+              post('user_speech_started', {
+                turnID: currentTurnID(),
+                source: 'server_vad',
+              });
+            }
+            break;
+          case 'input_audio_buffer.speech_stopped':
+            state.userSpeechActive = false;
+            state.localLoudFrames = 0;
+            beginLatencyTurn('server_vad_speech_stopped');
+            break;
+          case 'input_audio_buffer.committed':
+            state.userSpeechActive = false;
+            ensureLatencyTurn('input_committed');
+            break;
           case 'response.created':
+            ensureLatencyTurn('response_created');
             state.responseOrdinal += 1;
             state.activeResponseOrdinal = state.responseOrdinal;
             state.assistantTranscript = '';
             state.assistantText = '';
+            state.assistantResponseActive = true;
+            state.assistantItemID = '';
+            state.assistantAudioStartedAt = 0;
+            resumeRemoteAudio();
             setAssistantSpeaking(false, state.activeResponseOrdinal);
             post('assistant_thinking', { responseOrdinal: state.activeResponseOrdinal });
+            break;
+          case 'response.output_item.added':
+            if (event.item && event.item.role === 'assistant') {
+              state.assistantItemID = safeText(event.item.id);
+            }
             break;
           case 'response.output_text.delta': {
             const delta = typeof event.delta === 'string' ? event.delta : '';
             if (!delta) break;
             state.assistantText += delta;
-            setAssistantSpeaking(true, state.activeResponseOrdinal);
+            reportFirstLatency('text');
             break;
           }
           case 'response.output_text.done': {
@@ -19807,7 +20097,7 @@ function renderRealtimeBridgeHtml() {
             const delta = typeof event.delta === 'string' ? event.delta : '';
             if (!delta) break;
             state.assistantTranscript += delta;
-            setAssistantSpeaking(true, state.activeResponseOrdinal);
+            reportFirstLatency('text');
             break;
           }
           case 'response.output_audio_transcript.done': {
@@ -19832,6 +20122,7 @@ function renderRealtimeBridgeHtml() {
             break;
           }
           case 'response.done': {
+            state.assistantResponseActive = false;
             const text = extractTextFromResponse(event.response);
             if (text) {
               state.assistantText = '';
@@ -19840,8 +20131,25 @@ function renderRealtimeBridgeHtml() {
                 responseOrdinal: activeResponseOrdinal(),
               });
             }
+            if (event.response && event.response.status === 'cancelled') {
+              setAssistantSpeaking(false, activeResponseOrdinal());
+              acknowledgeInterruption('response_cancelled');
+            }
             break;
           }
+          case 'output_audio_buffer.started':
+            state.assistantAudioStartedAt = state.assistantAudioStartedAt || nowMilliseconds();
+            resumeRemoteAudio();
+            reportFirstLatency('audio');
+            setAssistantSpeaking(true, activeResponseOrdinal());
+            break;
+          case 'output_audio_buffer.stopped':
+            setAssistantSpeaking(false, activeResponseOrdinal());
+            break;
+          case 'output_audio_buffer.cleared':
+            setAssistantSpeaking(false, activeResponseOrdinal());
+            acknowledgeInterruption('output_audio_cleared');
+            break;
           case 'conversation.item.input_audio_transcription.delta': {
             const partial = safeText(event.delta) || safeText(event.transcript) || extractTranscriptFromItem(event.item);
             if (partial) {
@@ -19877,10 +20185,21 @@ function renderRealtimeBridgeHtml() {
           }
           case 'error': {
             setAssistantSpeaking(false, activeResponseOrdinal());
+            const code = safeText(event.error && event.error.code).toLowerCase();
             const message =
               safeText(event.error && event.error.message) ||
               safeText(event.message) ||
               'Realtime event error.';
+            const cancellationRace = state.interruptionStartedAt && (
+              code.includes('cancel') ||
+              code.includes('not_active') ||
+              code.includes('buffer') ||
+              message.toLowerCase().includes('active response')
+            );
+            if (cancellationRace) {
+              acknowledgeInterruption('provider_cancel_race');
+              break;
+            }
             post('error', { message: message });
             break;
           }
@@ -19905,11 +20224,9 @@ function renderRealtimeBridgeHtml() {
           pc.addEventListener('track', (event) => {
             const stream = event.streams && event.streams[0] ? event.streams[0] : null;
             if (!stream || !remoteAudio) return;
+            state.remoteStream = stream;
             remoteAudio.srcObject = stream;
-            const playAttempt = remoteAudio.play();
-            if (playAttempt && typeof playAttempt.catch === 'function') {
-              playAttempt.catch(() => {});
-            }
+            resumeRemoteAudio();
           });
 
           pc.addEventListener('connectionstatechange', () => {
@@ -19929,9 +20246,19 @@ function renderRealtimeBridgeHtml() {
             } catch (_) {}
           });
 
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
           state.stream = stream;
+          setupLocalVoiceActivityDetection(stream);
           stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+          state.statsTimer = setInterval(() => {
+            void sampleNetworkProfile();
+          }, 2000);
 
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
@@ -19967,19 +20294,7 @@ function renderRealtimeBridgeHtml() {
       }
 
       function interrupt() {
-        const responseOrdinal = activeResponseOrdinal();
-        if (state.dc && state.dc.readyState === 'open') {
-          try {
-            state.dc.send(JSON.stringify({ type: 'response.cancel' }));
-          } catch (_) {}
-        }
-        if (remoteAudio) {
-          try {
-            remoteAudio.pause();
-          } catch (_) {}
-        }
-        setAssistantSpeaking(false, responseOrdinal);
-        post('assistant_interrupted', { responseOrdinal: responseOrdinal });
+        startInterruption('swift_fallback', true);
       }
 
       function stop() {
@@ -33206,6 +33521,8 @@ export {
   buildSessionContinuitySnapshot,
   buildCreativeMemoryRecallQuery,
   buildCreativeMemoryPromptTrace,
+  buildRealtimeSessionConfig,
+  renderRealtimeBridgeHtml,
   buildScreenplayProjectMemoryRecordFromStudioMeta,
   evaluateTurnQualityHeuristics,
   validateAndDirectHerReply,

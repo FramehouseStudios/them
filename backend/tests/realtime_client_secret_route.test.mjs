@@ -117,6 +117,7 @@ test("[realtime-client-secret] primary_ok: 201 with canonical envelope", async (
     assert.ok(r.body.client_secret?.expires_at);
     assert.equal(r.body.session.type, "realtime");
     assert.ok(Array.isArray(r.body.session.output_modalities));
+    assert.equal(typeof r.body.session.input_transcription_model, "string");
     assert.ok(r.body.issued_at);
   });
 });

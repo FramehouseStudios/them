@@ -1339,7 +1339,8 @@ final class BackendClientCraftAPITests: XCTestCase {
                 voice: "stub-voice",
                 instructions: "Stay in screenplay mode.",
                 type: "realtime",
-                outputModalities: ["audio"]
+                outputModalities: ["audio"],
+                inputTranscriptionModel: "gpt-4o-mini-transcribe"
             ),
             clientSecret: BackendRealtimeClientSecret(
                 value: "stub_secret_abc",

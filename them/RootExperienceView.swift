@@ -48,6 +48,7 @@ private struct DebugBundleSnapshot: Codable {
     let backendHealth: DebugBundleHealthSnapshot?
     let backendRoutes: DebugBundleRoutesSnapshot?
     let backendTalkDiagnostics: DebugBundleTalkDiagnosticsSnapshot?
+    let clientLatency: DebugBundleClientLatencySnapshot
     let backendSync: DebugBundleSyncSnapshot
 }
 
@@ -92,6 +93,18 @@ private struct DebugBundleTalkDiagnosticsSnapshot: Codable {
     let errorSummary: String
     let refreshedAtISO8601: String
     let lastError: String
+}
+
+private struct DebugBundleClientLatencySnapshot: Codable {
+    let sampleCount: Int
+    let latestFirstTextMs: Double?
+    let latestFirstAudioMs: Double?
+    let latestBargeInAckMs: Double?
+    let medianFirstTextMs: Double?
+    let p95FirstTextMs: Double?
+    let medianFirstAudioMs: Double?
+    let p95FirstAudioMs: Double?
+    let samples: [ClementineLatencySample]
 }
 
 private struct DebugBundleSyncSnapshot: Codable {
@@ -740,6 +753,7 @@ struct RootExperienceView: View {
     @StateObject private var voice = HerVoiceController()
     @StateObject private var realtimeVoice = ClementineRealtimeCoordinator()
     @StateObject private var realtimeTransport = ClementineRealtimeWebViewBridge()
+    @StateObject private var clientLatency = ClementineLatencyTelemetryStore.shared
     @StateObject private var evolution = HerEvolutionStore.shared
     @StateObject private var screenplayDraftBridge = ScreenplayLiveDraftBridge.shared
 
@@ -811,6 +825,7 @@ struct RootExperienceView: View {
     @State private var realtimeStudioRenderTask: Task<String?, Never>?
     @State private var realtimeStudioRenderUserMessage = ""
     @State private var realtimeStudioRenderedReply = ""
+    @State private var activeTurnBasedLatencyTurnID = ""
     @State private var lastRealtimeStudioPreviewAt: Date = .distantPast
     @State private var lastRealtimeStudioPreviewCharacterCount: Int = 0
     @State private var studioTypedPromptRoutingMode: ScreenplayStudioScreen.PromptRoutingMode = .automatic
@@ -2438,20 +2453,70 @@ struct RootExperienceView: View {
 
     private func configureVoiceCallbacks() {
         voice.stopAssistantPlayback = {
+            let typedTurnID = typedReplySpeaker.activeTurnID
+            let turnBasedTurnID = orbAudio.isSpeaking
+                ? activeTurnBasedLatencyTurnID.trimmingCharacters(in: .whitespacesAndNewlines)
+                : ""
+            if typedReplySpeaker.isSpeaking, let typedTurnID {
+                clientLatency.beginBargeIn(turnID: typedTurnID)
+            }
+            if !turnBasedTurnID.isEmpty {
+                clientLatency.beginBargeIn(turnID: turnBasedTurnID)
+            }
             orbAudio.stop()
             promptSpeaker.stop()
             typedReplySpeaker.cancel()
+            if let typedTurnID {
+                clientLatency.recordBargeInAcknowledged(turnID: typedTurnID)
+            }
+            if !turnBasedTurnID.isEmpty {
+                clientLatency.recordBargeInAcknowledged(turnID: turnBasedTurnID)
+                activeTurnBasedLatencyTurnID = ""
+            }
             voice.markAssistantPlaybackEnded()
             inFlightTalkTask?.cancel()
             inFlightTalkTask = nil
             isThinking = false
         }
-        voice.isAssistantPlaying = { orbAudio.isSpeaking }
+        voice.isAssistantPlaying = {
+            orbAudio.isSpeaking ||
+                promptSpeaker.isSpeaking ||
+                typedReplySpeaker.isSpeaking ||
+                realtimeTransport.isAssistantSpeaking
+        }
         voice.onBargeInDetected = {
             HerLog.ui.info("barge-in detected -> interrupting assistant audio")
             isThinking = false
             speculativeTalk.cancel()
             screenplayDraftBridge.cancelStream(reason: .bargeIn)
+        }
+        typedReplySpeaker.onFirstAudioStarted = { turnID, startedAt, networkClass, targetCharacters in
+            clientLatency.recordFirstAudio(
+                turnID: turnID,
+                at: startedAt,
+                networkClass: networkClass,
+                targetCharacters: targetCharacters
+            )
+            if voice.mode == .capturingSpeech {
+                clientLatency.beginBargeIn(turnID: turnID, at: startedAt)
+                typedReplySpeaker.cancel()
+                clientLatency.recordBargeInAcknowledged(turnID: turnID)
+                screenplayDraftBridge.cancelStream(reason: .bargeIn)
+            } else if voice.mode == .armedListening {
+                voice.markAssistantPlaybackStarted()
+            }
+        }
+        typedReplySpeaker.onNetworkProfileChanged = { turnID, networkClass, targetCharacters in
+            clientLatency.recordNetworkProfile(
+                turnID: turnID,
+                networkClass: networkClass,
+                targetCharacters: targetCharacters
+            )
+        }
+        typedReplySpeaker.onPlaybackEnded = { _ in
+            if voice.mode == .assistantSpeaking {
+                voice.markAssistantPlaybackEnded()
+            }
         }
         voice.onPartialTranscript = { partial in
             livePartialTranscript = partial
@@ -2522,6 +2587,55 @@ struct RootExperienceView: View {
     }
 
     private func configureRealtimeCallbacks() {
+        realtimeTransport.onUserSpeechStarted = { _ in
+            realtimeAssistantTranscriptFallbackTask?.cancel()
+            realtimeAssistantTranscriptFallbackTask = nil
+            if isStudioSurfaceActive {
+                cancelRealtimeStudioDraftStream(restorePreview: true)
+            }
+        }
+        realtimeTransport.onLatencyEvent = { event in
+            switch event.kind {
+            case .turnStarted:
+                clientLatency.beginTurn(id: event.turnID, transport: .realtimeVoice)
+                if let networkClass = event.networkClass {
+                    clientLatency.recordNetworkProfile(
+                        turnID: event.turnID,
+                        networkClass: networkClass
+                    )
+                }
+            case .firstText:
+                if let elapsedMilliseconds = event.elapsedMilliseconds {
+                    clientLatency.recordFirstText(
+                        turnID: event.turnID,
+                        elapsedMilliseconds: elapsedMilliseconds
+                    )
+                }
+            case .firstAudio:
+                if let elapsedMilliseconds = event.elapsedMilliseconds {
+                    clientLatency.recordFirstAudio(
+                        turnID: event.turnID,
+                        elapsedMilliseconds: elapsedMilliseconds
+                    )
+                }
+            case .bargeInStarted:
+                clientLatency.beginBargeIn(turnID: event.turnID)
+            case .bargeInAcknowledged:
+                if let elapsedMilliseconds = event.elapsedMilliseconds {
+                    clientLatency.recordBargeInAcknowledged(
+                        turnID: event.turnID,
+                        elapsedMilliseconds: elapsedMilliseconds
+                    )
+                }
+            case .networkProfile:
+                if let networkClass = event.networkClass {
+                    clientLatency.recordNetworkProfile(
+                        turnID: event.turnID,
+                        networkClass: networkClass
+                    )
+                }
+            }
+        }
         realtimeTransport.onUserTranscriptPartial = { partial in
             let cleaned = partial.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return }
@@ -2641,12 +2755,17 @@ struct RootExperienceView: View {
         voice.onBargeInDetected = nil
         voice.onPartialTranscript = nil
         voice.onSpeechProgressSnapshot = nil
+        typedReplySpeaker.onFirstAudioStarted = nil
+        typedReplySpeaker.onNetworkProfileChanged = nil
+        typedReplySpeaker.onPlaybackEnded = nil
         speculativeTalk.cancel()
         cancelRealtimeStudioDraftStream(restorePreview: true)
         realtimeTransport.onUserTranscriptPartial = nil
         realtimeTransport.onUserTranscriptFinal = nil
         realtimeTransport.onAssistantTranscriptFinal = nil
         realtimeTransport.onAssistantTextFinal = nil
+        realtimeTransport.onUserSpeechStarted = nil
+        realtimeTransport.onLatencyEvent = nil
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
         inFlightTalkTask?.cancel()
@@ -2869,6 +2988,7 @@ struct RootExperienceView: View {
                     TalkDiagnosticsSheet(
                         stats: lastTalkStats,
                         errors: lastTalkErrors,
+                        latency: clientLatency.summary,
                         refreshedAt: lastTalkDiagnosticsRefreshedAt,
                         lastError: lastTalkDiagnosticsError,
                         isRefreshing: isRefreshingTalkDiagnostics,
@@ -5807,6 +5927,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var debugSyncedPlaybackSeekFromMs: Int?
         var debugSyncedPlaybackSeekToMs: Int?
         var debugSyncedPlaybackTimeAdjustment: TimeInterval = 0
+        let clientLatencyTurnID = "turn-based-\(UUID().uuidString.lowercased())"
+        let clientLatencyStartedAt = Date()
 
         func resolvedDebugSyncedPlaybackObservation(
             from observation: SegmentedPlaybackObservation?
@@ -6133,6 +6255,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 )
             }
             voice.markAssistantPlaybackEnded()
+            if activeTurnBasedLatencyTurnID == clientLatencyTurnID {
+                activeTurnBasedLatencyTurnID = ""
+            }
 #if DEBUG || os(macOS)
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
@@ -6169,7 +6294,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
             pendingStreamRemainderURL = nil
             do {
-                voice.stopRecording()
                 HerLog.audio.info("playing stream remainder path=\(remainderURL.path, privacy: .public)")
                 try orbAudio.play(url: remainderURL, onFinish: {
                     Task { @MainActor in
@@ -6270,6 +6394,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
             return
         }
+        clientLatency.beginTurn(
+            id: clientLatencyTurnID,
+            transport: .turnBasedVoice,
+            at: clientLatencyStartedAt
+        )
         _ = await applyConversationalStudioCorrectionIfNeeded(
             preparedPrompt.directorText
         )
@@ -6785,13 +6914,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 )
                             }
 #endif
-                            voice.stopRecording()
+                            voice.resumeRecordingIfNeeded()
                             do {
                                 try orbAudio.play(url: firstSegmentURL, onFinish: {
                                     Task { @MainActor in
                                         playStreamRemainderOrFinish()
                                     }
                                 })
+                                activeTurnBasedLatencyTurnID = clientLatencyTurnID
+                                clientLatency.recordFirstAudio(turnID: clientLatencyTurnID)
                                 syncedPlaybackClock.reset()
                                 beginSyncedPlaybackClockSegment(for: firstSegmentURL)
                                 if shouldUseSyncedStudioVoiceInsert {
@@ -6826,6 +6957,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     },
                     onTextReady: { rawReply in
                         Task { @MainActor in
+                            if !rawReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                clientLatency.recordFirstText(turnID: clientLatencyTurnID)
+                            }
                             guard preparedPrompt.useScreenplayMode else { return }
                             guard preparedPrompt.shouldWriteToPage else { return }
                             guard isStudioSurfaceActive else { return }
@@ -6887,6 +7021,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 result = try await requestTalk()
             }
             didReceiveTalkResponse = true
+            if !(result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                clientLatency.recordFirstText(turnID: clientLatencyTurnID)
+            }
 #if DEBUG || os(macOS)
             if let debugVoiceTurnToken {
                 appendStudioDebugVoiceDraftBreadcrumb(
@@ -7212,13 +7349,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     )
                 }
 #endif
-                voice.stopRecording()
+                voice.resumeRecordingIfNeeded()
                 HerLog.audio.info("AUDIO file path=\(result.audioURL.path, privacy: .public)")
                 try orbAudio.play(url: result.audioURL, onFinish: {
                     Task { @MainActor in
                         finishPlaybackAndResumeMic()
                     }
                 })
+                activeTurnBasedLatencyTurnID = clientLatencyTurnID
+                clientLatency.recordFirstAudio(turnID: clientLatencyTurnID)
                 syncedPlaybackClock.reset()
                 beginSyncedPlaybackClockSegment(for: result.audioURL)
                 if shouldUseSyncedStudioVoiceInsert {
@@ -7371,6 +7510,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
            realtimeTransport.isLive || realtimeTransport.isBusy {
             realtimeTransport.disconnect()
         }
+
+        let cleanRequestID = requestID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let clientLatencyTurnID = cleanRequestID.isEmpty
+            ? "studio-\(UUID().uuidString.lowercased())"
+            : cleanRequestID
+        let clientLatencyStartedAt = Date()
+        clientLatency.beginTurn(
+            id: clientLatencyTurnID,
+            transport: .studioTypedSpeech,
+            at: clientLatencyStartedAt
+        )
 
         isTurnSubmitting = true
         isThinking = true
@@ -7555,8 +7705,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if shouldSpeakTypedReply {
                 orbAudio.stop()
                 promptSpeaker.stop()
-                voice.stopRecording()
-                typedReplySpeaker.begin()
+                typedReplySpeaker.begin(
+                    turnID: clientLatencyTurnID
+                )
             } else {
                 typedReplySpeaker.cancel()
             }
@@ -7577,6 +7728,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                     await MainActor.run {
                                         guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
                                         self.realtimeStudioRenderedReply = partial
+                                        if !partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                            self.clientLatency.recordFirstText(turnID: clientLatencyTurnID)
+                                        }
                                         if shouldSpeakTypedReply && self.studioTypedReplyAudioEnabled {
                                             self.typedReplySpeaker.consume(cumulativeText: partial)
                                         } else if !self.studioTypedReplyAudioEnabled {
@@ -7614,7 +7768,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         guard shouldFallbackToNonStreamingStudioRender(for: error) else { throw error }
                         restoreRealtimeStudioDraftPreview()
                         if shouldSpeakTypedReply {
-                            typedReplySpeaker.begin()
+                            typedReplySpeaker.begin(
+                                turnID: clientLatencyTurnID
+                            )
                         }
                         HerLog.talk.info("STUDIO render stream unconfirmed -> fallback to one-shot render")
                         return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
@@ -7641,7 +7797,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     restoreRealtimeStudioDraftPreview()
                     guard shouldRetryTalkOnce(for: error) else { throw error }
                     if shouldSpeakTypedReply {
-                        typedReplySpeaker.begin()
+                        typedReplySpeaker.begin(
+                            turnID: clientLatencyTurnID
+                        )
                     }
                     HerLog.talk.info("transient STUDIO render failure, retrying once")
                     try await Task.sleep(nanoseconds: 250_000_000)
@@ -7677,6 +7835,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
             }
 
+            if !renderedReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                clientLatency.recordFirstText(turnID: clientLatencyTurnID)
+            }
             let cleanReply = sanitizedRealtimeStudioRenderReply(renderedReply)
 #if DEBUG || os(macOS)
             setStudioDebugPreferenceString("root_render_finished", forKey: "studio_debug_root_submit_stage")
@@ -10826,6 +10987,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     lastError: lastTalkDiagnosticsError
                 )
             }(),
+            clientLatency: {
+                let summary = clientLatency.summary
+                return DebugBundleClientLatencySnapshot(
+                    sampleCount: summary.sampleCount,
+                    latestFirstTextMs: summary.latestFirstTextMs,
+                    latestFirstAudioMs: summary.latestFirstAudioMs,
+                    latestBargeInAckMs: summary.latestBargeInAckMs,
+                    medianFirstTextMs: summary.medianFirstTextMs,
+                    p95FirstTextMs: summary.p95FirstTextMs,
+                    medianFirstAudioMs: summary.medianFirstAudioMs,
+                    p95FirstAudioMs: summary.p95FirstAudioMs,
+                    samples: clientLatency.samples
+                )
+            }(),
             backendSync: DebugBundleSyncSnapshot(
                 status: sync.status,
                 sessionId: sync.sessionId,
@@ -10867,7 +11042,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             "Backend route error: \(lastOpsRoutesManifestError.isEmpty ? "n/a" : lastOpsRoutesManifestError)",
             "Talk stats: \(lastTalkStats?.diagnosticsSummary ?? "n/a")",
             "Talk errors: \(lastTalkErrors?.diagnosticsSummary ?? "n/a")",
-            "Talk diagnostics error: \(lastTalkDiagnosticsError.isEmpty ? "n/a" : lastTalkDiagnosticsError)"
+            "Talk diagnostics error: \(lastTalkDiagnosticsError.isEmpty ? "n/a" : lastTalkDiagnosticsError)",
+            "Client latency: \(clientLatency.summary.diagnosticsSummary)"
         ].joined(separator: "\n")
     }
 
@@ -14634,6 +14810,10 @@ private struct DebugBundleActivityView: UIViewControllerRepresentable {
 @MainActor
 private final class PersonalityPromptSpeaker: NSObject {
     private let synthesizer = AVSpeechSynthesizer()
+
+    var isSpeaking: Bool {
+        synthesizer.isSpeaking || synthesizer.isPaused
+    }
 
     func speak(_ text: String, style: ScreenplayAuditionVoiceStyle = .natural) {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)

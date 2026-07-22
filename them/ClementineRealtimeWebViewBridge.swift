@@ -3,6 +3,62 @@ import SwiftUI
 import Combine
 import WebKit
 
+struct ClementineRealtimeLatencyEvent: Equatable {
+    enum Kind: Equatable {
+        case turnStarted
+        case firstText
+        case firstAudio
+        case bargeInStarted
+        case bargeInAcknowledged
+        case networkProfile
+    }
+
+    let kind: Kind
+    let turnID: String
+    let elapsedMilliseconds: Double?
+    let networkClass: ClementineSpeechNetworkClass?
+
+    static func parse(eventType: String, payload: [String: Any]) -> ClementineRealtimeLatencyEvent? {
+        let kind: Kind
+        switch eventType {
+        case "latency_turn_started":
+            kind = .turnStarted
+        case "latency_first_text":
+            kind = .firstText
+        case "latency_first_audio":
+            kind = .firstAudio
+        case "latency_barge_in_started":
+            kind = .bargeInStarted
+        case "latency_barge_in_ack":
+            kind = .bargeInAcknowledged
+        case "network_profile":
+            kind = .networkProfile
+        default:
+            return nil
+        }
+
+        let turnID = String(describing: payload["turnID"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !turnID.isEmpty else { return nil }
+        let elapsedMilliseconds = doubleValue(payload["elapsedMs"])
+        let networkRaw = String(describing: payload["networkClass"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ClementineRealtimeLatencyEvent(
+            kind: kind,
+            turnID: turnID,
+            elapsedMilliseconds: elapsedMilliseconds,
+            networkClass: ClementineSpeechNetworkClass(rawValue: networkRaw)
+        )
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber { return number.doubleValue }
+        guard let value else { return nil }
+        return Double(String(describing: value))
+    }
+}
+
 @MainActor
 final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     enum Status: Equatable {
@@ -42,6 +98,8 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     var onAssistantTranscriptFinal: ((String) -> Void)?
     var onAssistantTextFinal: ((String) -> Void)?
     var onAssistantSpeakingChanged: ((Bool) -> Void)?
+    var onUserSpeechStarted: ((String) -> Void)?
+    var onLatencyEvent: ((ClementineRealtimeLatencyEvent) -> Void)?
 
     private weak var webView: WKWebView?
     private var bridgeRequest: URLRequest?
@@ -149,14 +207,14 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         onAssistantTranscriptFinal = nil
         onAssistantTextFinal = nil
         onAssistantSpeakingChanged = nil
+        onUserSpeechStarted = nil
+        onLatencyEvent = nil
         status = .idle
         activity = .idle
         cancelledResponseOrdinal = 0
     }
 
     func interruptAssistant() {
-        activity = .listening
-        onAssistantSpeakingChanged?(false)
         evaluate(
             script: "window.clementineRealtime && window.clementineRealtime.interrupt && window.clementineRealtime.interrupt();"
         )
@@ -167,6 +225,22 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         shouldStartWhenReady = false
         status = .connecting
 
+        var inputAudio: [String: Any] = [
+            "turn_detection": [
+                "type": "server_vad",
+                "threshold": 0.45,
+                "prefix_padding_ms": 300,
+                "silence_duration_ms": 360,
+                "create_response": true,
+                "interrupt_response": true
+            ]
+        ]
+        let transcriptionModel = pendingBootstrap.session.inputTranscriptionModel?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !transcriptionModel.isEmpty {
+            inputAudio["transcription"] = ["model": transcriptionModel]
+        }
+
         let payload: [String: Any] = [
             "clientSecret": pendingBootstrap.clientSecret.value,
             "assistantName": pendingBootstrap.assistantName,
@@ -176,6 +250,7 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
                 "instructions": pendingBootstrap.session.instructions,
                 "output_modalities": pendingBootstrap.session.outputModalities,
                 "audio": [
+                    "input": inputAudio,
                     "output": [
                         "voice": pendingBootstrap.session.voice
                     ]
@@ -226,6 +301,13 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let responseOrdinal = Int(String(describing: payload["responseOrdinal"] ?? "")) ?? 0
 
+        if let latencyEvent = ClementineRealtimeLatencyEvent.parse(
+            eventType: eventType,
+            payload: payload
+        ) {
+            onLatencyEvent?(latencyEvent)
+        }
+
         switch eventType {
         case "bridge_ready":
             bridgeReady = true
@@ -261,6 +343,12 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             cancelledResponseOrdinal = max(cancelledResponseOrdinal, responseOrdinal)
             activity = .listening
             onAssistantSpeakingChanged?(false)
+        case "user_speech_started":
+            let turnID = String(describing: payload["turnID"] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            activity = .listening
+            onAssistantSpeakingChanged?(false)
+            onUserSpeechStarted?(turnID)
         case "user_transcript_partial":
             guard !text.isEmpty else { return }
             activity = .listening

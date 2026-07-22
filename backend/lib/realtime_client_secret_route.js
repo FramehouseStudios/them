@@ -249,6 +249,9 @@ function mountRealtimeClientSecretRoute(app, deps = {}) {
         voice: sessionVoice,
         instructions: sessionConfig.instructions || requestedPrompt,
         output_modalities: Array.isArray(sessionConfig.output_modalities) ? sessionConfig.output_modalities : ["audio"],
+        input_transcription_model: String(
+          sessionConfig.audio?.input?.transcription?.model || ""
+        ),
       },
       client_secret: {
         value: clientSecretValue,

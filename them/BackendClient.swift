@@ -1496,6 +1496,7 @@ struct BackendRealtimeSessionPayload: Decodable {
     let voice: String
     let instructions: String
     let outputModalities: [String]
+    let inputTranscriptionModel: String?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -1503,6 +1504,7 @@ struct BackendRealtimeSessionPayload: Decodable {
         case voice
         case instructions
         case outputModalities = "output_modalities"
+        case inputTranscriptionModel = "input_transcription_model"
     }
 }
 
@@ -3028,7 +3030,8 @@ final class BackendClient {
                 voice: payload.session.voice,
                 instructions: payload.session.instructions,
                 type: payload.session.type,
-                outputModalities: payload.session.outputModalities
+                outputModalities: payload.session.outputModalities,
+                inputTranscriptionModel: payload.session.inputTranscriptionModel
             ),
             clientSecret: BackendRealtimeClientSecret(
                 value: payload.clientSecret.value,

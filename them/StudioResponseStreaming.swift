@@ -17,8 +17,11 @@ enum StudioResponseStreamingPolicy {
 }
 
 struct StreamingSpeechSegmenter {
-    private static let targetChunkCharacters = 84
-    private static let forcedChunkCharacters = 112
+    static let legacyProfile = StreamingSpeechChunkProfile(
+        networkClass: .balanced,
+        targetCharacters: 84,
+        forcedCharacters: 112
+    )
 
     private(set) var pendingText = ""
     private(set) var latestSnapshot = ""
@@ -31,12 +34,20 @@ struct StreamingSpeechSegmenter {
     }
 
     mutating func ingest(cumulativeText: String, isFinal: Bool = false) -> [String] {
+        ingest(cumulativeText: cumulativeText, isFinal: isFinal, profile: Self.legacyProfile)
+    }
+
+    mutating func ingest(
+        cumulativeText: String,
+        isFinal: Bool = false,
+        profile: StreamingSpeechChunkProfile
+    ) -> [String] {
         let snapshot = Self.normalizedSnapshot(cumulativeText)
         updatePendingText(from: snapshot)
         latestSnapshot = snapshot
 
         var phrases: [String] = []
-        while let boundary = nextBoundary(isFinal: isFinal) {
+        while let boundary = nextBoundary(isFinal: isFinal, profile: profile) {
             let sourceChunk = String(pendingText[..<boundary])
             pendingText.removeSubrange(..<boundary)
             emittedSource += sourceChunk
@@ -68,7 +79,10 @@ struct StreamingSpeechSegmenter {
         pendingText = ""
     }
 
-    private func nextBoundary(isFinal: Bool) -> String.Index? {
+    private func nextBoundary(
+        isFinal: Bool,
+        profile: StreamingSpeechChunkProfile
+    ) -> String.Index? {
         guard !pendingText.isEmpty else { return nil }
 
         var wordCount = 0
@@ -84,7 +98,7 @@ struct StreamingSpeechSegmenter {
 
             if character.isWhitespace {
                 isInsideWord = false
-                if characterCount >= Self.targetChunkCharacters / 2 {
+                if characterCount >= profile.targetCharacters / 2 {
                     lastPreferredWhitespace = next
                 }
             } else if !isInsideWord {
@@ -107,7 +121,7 @@ struct StreamingSpeechSegmenter {
                characterCount >= 26 {
                 return next
             }
-            if characterCount >= Self.forcedChunkCharacters {
+            if characterCount >= profile.forcedCharacters {
                 return lastPreferredWhitespace ?? next
             }
 
@@ -139,41 +153,186 @@ struct StreamingSpeechSegmenter {
     }
 }
 
+struct StreamingSpeechChunkProfile: Equatable {
+    let networkClass: ClementineSpeechNetworkClass
+    let targetCharacters: Int
+    let forcedCharacters: Int
+
+    static let initial = StreamingSpeechChunkProfile(
+        networkClass: .balanced,
+        targetCharacters: 38,
+        forcedCharacters: 56
+    )
+    static let fast = StreamingSpeechChunkProfile(
+        networkClass: .fast,
+        targetCharacters: 68,
+        forcedCharacters: 96
+    )
+    static let balanced = StreamingSpeechChunkProfile(
+        networkClass: .balanced,
+        targetCharacters: 88,
+        forcedCharacters: 120
+    )
+    static let constrained = StreamingSpeechChunkProfile(
+        networkClass: .constrained,
+        targetCharacters: 120,
+        forcedCharacters: 168
+    )
+}
+
+struct StreamingSpeechNetworkEstimator {
+    private(set) var networkClass: ClementineSpeechNetworkClass = .balanced
+    private(set) var playbackHasStarted = false
+    private var lastObservedAt: Date?
+    private var lastCharacterCount = 0
+    private var smoothedGap: TimeInterval?
+    private var smoothedCharactersPerSecond: Double?
+    private var smoothedJitter: TimeInterval = 0
+
+    var profile: StreamingSpeechChunkProfile {
+        guard playbackHasStarted else { return .initial }
+        switch networkClass {
+        case .fast:
+            return .fast
+        case .balanced:
+            return .balanced
+        case .constrained:
+            return .constrained
+        }
+    }
+
+    mutating func reset() {
+        self = StreamingSpeechNetworkEstimator()
+    }
+
+    mutating func markPlaybackStarted() {
+        playbackHasStarted = true
+    }
+
+    mutating func observe(cumulativeText: String, at date: Date = Date()) {
+        let characterCount = cumulativeText.count
+        defer {
+            lastObservedAt = date
+            lastCharacterCount = characterCount
+        }
+        guard let lastObservedAt,
+              characterCount > lastCharacterCount else { return }
+
+        let gap = max(0.001, date.timeIntervalSince(lastObservedAt))
+        let addedCharacters = characterCount - lastCharacterCount
+        let charactersPerSecond = Double(addedCharacters) / gap
+        let priorGap = smoothedGap ?? gap
+        smoothedJitter = (smoothedJitter * 0.72) + (abs(gap - priorGap) * 0.28)
+        smoothedGap = (priorGap * 0.68) + (gap * 0.32)
+        let priorRate = smoothedCharactersPerSecond ?? charactersPerSecond
+        smoothedCharactersPerSecond = (priorRate * 0.68) + (charactersPerSecond * 0.32)
+
+        let effectiveGap = smoothedGap ?? gap
+        let effectiveRate = smoothedCharactersPerSecond ?? charactersPerSecond
+        if effectiveGap >= 0.34 || effectiveRate < 34 || smoothedJitter >= 0.18 {
+            networkClass = .constrained
+        } else if effectiveGap <= 0.15 && effectiveRate >= 75 && smoothedJitter <= 0.08 {
+            networkClass = .fast
+        } else {
+            networkClass = .balanced
+        }
+    }
+}
+
 @MainActor
-final class StreamingSpeechPlayer {
+final class StreamingSpeechPlayer: NSObject, @preconcurrency AVSpeechSynthesizerDelegate {
     private let synthesizer = AVSpeechSynthesizer()
     private var segmenter = StreamingSpeechSegmenter()
+    private var networkEstimator = StreamingSpeechNetworkEstimator()
     private var style: ScreenplayAuditionVoiceStyle = .natural
+    private var queuedUtteranceCount = 0
+    private var firstAudioWasReported = false
+    private var lastReportedProfile: StreamingSpeechChunkProfile?
+    private var utteranceTurnIDs: [ObjectIdentifier: String] = [:]
     private(set) var isAcceptingText = false
     private(set) var hasQueuedSpeech = false
+    private(set) var activeTurnID: String?
 
-    func begin(style: ScreenplayAuditionVoiceStyle = .natural) {
+    var onFirstAudioStarted: ((String, Date, ClementineSpeechNetworkClass, Int) -> Void)?
+    var onNetworkProfileChanged: ((String, ClementineSpeechNetworkClass, Int) -> Void)?
+    var onPlaybackEnded: ((String) -> Void)?
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
+
+    var isSpeaking: Bool {
+        synthesizer.isSpeaking || synthesizer.isPaused || queuedUtteranceCount > 0
+    }
+
+    func begin(
+        turnID: String = UUID().uuidString,
+        style: ScreenplayAuditionVoiceStyle = .natural
+    ) {
         if synthesizer.isSpeaking || synthesizer.isPaused {
             synthesizer.stopSpeaking(at: .immediate)
         }
         segmenter.reset()
+        networkEstimator.reset()
         self.style = style
+        activeTurnID = turnID
         isAcceptingText = true
         hasQueuedSpeech = false
+        queuedUtteranceCount = 0
+        firstAudioWasReported = false
+        lastReportedProfile = nil
+        utteranceTurnIDs.removeAll(keepingCapacity: true)
     }
 
-    func consume(cumulativeText: String) {
+    func consume(cumulativeText: String, observedAt: Date = Date()) {
         guard isAcceptingText else { return }
-        enqueue(segmenter.ingest(cumulativeText: cumulativeText))
+        networkEstimator.observe(cumulativeText: cumulativeText, at: observedAt)
+        let profile = networkEstimator.profile
+        enqueue(
+            segmenter.ingest(
+                cumulativeText: cumulativeText,
+                profile: profile
+            )
+        )
+        if let activeTurnID, profile != lastReportedProfile {
+            lastReportedProfile = profile
+            onNetworkProfileChanged?(activeTurnID, profile.networkClass, profile.targetCharacters)
+        }
     }
 
     func finish(finalText: String) {
         guard isAcceptingText else { return }
-        enqueue(segmenter.ingest(cumulativeText: finalText, isFinal: true))
+        let profile = networkEstimator.profile
+        enqueue(
+            segmenter.ingest(
+                cumulativeText: finalText,
+                isFinal: true,
+                profile: profile
+            )
+        )
         isAcceptingText = false
+        if queuedUtteranceCount == 0, let activeTurnID {
+            onPlaybackEnded?(activeTurnID)
+            self.activeTurnID = nil
+        }
     }
 
     func cancel() {
+        let cancelledTurnID = activeTurnID
         isAcceptingText = false
         hasQueuedSpeech = false
+        queuedUtteranceCount = 0
         segmenter.reset()
+        networkEstimator.reset()
+        lastReportedProfile = nil
+        activeTurnID = nil
+        utteranceTurnIDs.removeAll(keepingCapacity: true)
         if synthesizer.isSpeaking || synthesizer.isPaused {
             synthesizer.stopSpeaking(at: .immediate)
+        }
+        if let cancelledTurnID {
+            onPlaybackEnded?(cancelledTurnID)
         }
     }
 
@@ -187,8 +346,42 @@ final class StreamingSpeechPlayer {
             utterance.preUtteranceDelay = 0
             utterance.postUtteranceDelay = 0.01
             utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+            if let activeTurnID {
+                utteranceTurnIDs[ObjectIdentifier(utterance)] = activeTurnID
+            }
+            queuedUtteranceCount += 1
             synthesizer.speak(utterance)
             hasQueuedSpeech = true
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        guard let turnID = utteranceTurnIDs[ObjectIdentifier(utterance)],
+              turnID == activeTurnID else { return }
+        networkEstimator.markPlaybackStarted()
+        guard !firstAudioWasReported else { return }
+        firstAudioWasReported = true
+        let profile = networkEstimator.profile
+        onFirstAudioStarted?(turnID, Date(), profile.networkClass, profile.targetCharacters)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        complete(utterance: utterance)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        complete(utterance: utterance)
+    }
+
+    private func complete(utterance: AVSpeechUtterance) {
+        let identifier = ObjectIdentifier(utterance)
+        guard let turnID = utteranceTurnIDs.removeValue(forKey: identifier),
+              turnID == activeTurnID else { return }
+        queuedUtteranceCount = max(0, queuedUtteranceCount - 1)
+        hasQueuedSpeech = queuedUtteranceCount > 0
+        if queuedUtteranceCount == 0, !isAcceptingText {
+            activeTurnID = nil
+            onPlaybackEnded?(turnID)
         }
     }
 

@@ -97,6 +97,7 @@ struct BackendRealtimeSessionDescriptor: Decodable, Equatable {
     let instructions: String
     let type: String
     let outputModalities: [String]
+    let inputTranscriptionModel: String?
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -104,6 +105,7 @@ struct BackendRealtimeSessionDescriptor: Decodable, Equatable {
         case instructions
         case type
         case outputModalities = "output_modalities"
+        case inputTranscriptionModel = "input_transcription_model"
     }
 }
 

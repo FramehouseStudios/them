@@ -4,6 +4,7 @@ import ScreenplayStudio
 struct TalkDiagnosticsSheet: View {
     let stats: BackendTalkStatsResponse?
     let errors: BackendTalkErrorsResponse?
+    let latency: ClementineLatencySummary
     let refreshedAt: Date?
     let lastError: String
     let isRefreshing: Bool
@@ -23,6 +24,7 @@ struct TalkDiagnosticsSheet: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    latencySection
                     statsSection
                     errorsSection
                 }
@@ -31,6 +33,20 @@ struct TalkDiagnosticsSheet: View {
         }
         .padding(24)
         .background(Color.herPeachMid)
+    }
+
+    private var latencySection: some View {
+        diagnosticsCard(title: "Client Latency", summary: latency.diagnosticsSummary) {
+            metricGrid([
+                ("Latest text", ClementineLatencySummary.millisecondsText(latency.latestFirstTextMs)),
+                ("Latest audio", ClementineLatencySummary.millisecondsText(latency.latestFirstAudioMs)),
+                ("P95 text", ClementineLatencySummary.millisecondsText(latency.p95FirstTextMs)),
+                ("P95 audio", ClementineLatencySummary.millisecondsText(latency.p95FirstAudioMs)),
+                ("Barge-in ack", ClementineLatencySummary.millisecondsText(latency.latestBargeInAckMs)),
+                ("Network", latency.latestNetworkClass?.rawValue.capitalized ?? "n/a"),
+                ("Speech chunk", latency.latestSpeechTargetCharacters.map { "\($0) chars" } ?? "n/a")
+            ])
+        }
     }
 
     private var header: some View {
