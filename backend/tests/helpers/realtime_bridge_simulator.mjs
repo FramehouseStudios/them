@@ -27,12 +27,17 @@ class FakeDataChannel {
 
   close() {
     this.readyState = "closed";
+    this.emit("close");
+  }
+
+  emit(type, payload = {}) {
+    for (const listener of this.listeners.get(type) || []) {
+      listener(payload);
+    }
   }
 
   emitProviderEvent(event) {
-    for (const listener of this.listeners.get("message") || []) {
-      listener({ data: JSON.stringify(event) });
-    }
+    this.emit("message", { data: JSON.stringify(event) });
   }
 }
 
@@ -255,6 +260,22 @@ class RealtimeBridgeRuntimeSimulator {
 
   interrupt() {
     this.window.clementineRealtime.interrupt();
+  }
+
+  resumeTurn(userTranscript, turnID = "") {
+    return this.window.clementineRealtime.resumeTurn({ userTranscript, turnID });
+  }
+
+  closeDataChannel() {
+    const channel = this.currentDataChannel;
+    if (!channel) throw new Error("No simulated provider data channel is active.");
+    channel.close();
+  }
+
+  errorDataChannel() {
+    const channel = this.currentDataChannel;
+    if (!channel) throw new Error("No simulated provider data channel is active.");
+    channel.emit("error", { message: "simulated data channel failure" });
   }
 
   stop() {

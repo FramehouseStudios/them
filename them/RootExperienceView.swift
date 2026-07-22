@@ -818,6 +818,14 @@ struct RootExperienceView: View {
     @State private var realtimePreviewStandardFallbackActive = false
     @State private var realtimePendingUserTranscript = ""
     @State private var realtimeAssistantTranscriptFallbackTask: Task<Void, Never>?
+    @State private var realtimeRecoveryTask: Task<Void, Never>?
+    @State private var realtimeRecoveryGeneration = 0
+    @State private var realtimeReconnectAttempt = 0
+    @State private var realtimeRecoveryTurnID = ""
+    @State private var realtimeRecoveryTranscriptIsFinal = false
+    @State private var realtimeRecoveryNeedsTurnRepair = false
+    @State private var lastRealtimeFallbackRepairFingerprint = ""
+    @State private var lastRealtimeFallbackRepairAt: Date = .distantPast
     @State private var lastRealtimeAssistantTextAt: Date = .distantPast
     @State private var lastRealtimeHandledPairFingerprint = ""
     @State private var lastRealtimeHandledAt: Date = .distantPast
@@ -988,7 +996,10 @@ struct RootExperienceView: View {
 
     private var realtimePreviewStatusText: String {
         if realtimePreviewStandardFallbackActive {
-            return "Realtime unavailable · \(standardVoiceFallbackStatusText)"
+            return standardVoiceFallbackStatusText
+        }
+        if realtimeReconnectAttempt > 0 {
+            return "Reconnecting live voice · attempt \(realtimeReconnectAttempt) of \(ClementineRealtimeRecoveryPolicy.maximumReconnectAttempts)"
         }
         if case .failed = realtimeVoice.status {
             return realtimeVoice.statusText
@@ -1783,7 +1794,7 @@ struct RootExperienceView: View {
 
         let durationMs = 1800 + (token % 17)
         await sendUtterance(
-            studioDebugSilentTalkWavData(durationMs: durationMs),
+            silentTalkWavData(durationMs: durationMs),
             clientTranscriptOverride: cleanPrompt,
             debugVoiceTurnToken: token
         )
@@ -2325,7 +2336,7 @@ struct RootExperienceView: View {
         )
     }
 
-    private func studioDebugSilentTalkWavData(durationMs: Int, sampleRate: Int = 16_000) -> Data {
+    private func silentTalkWavData(durationMs: Int, sampleRate: Int = 16_000) -> Data {
         let safeDurationMs = max(120, min(2_000, durationMs))
         let channels: UInt16 = 1
         let bitsPerSample: UInt16 = 16
@@ -2338,28 +2349,28 @@ struct RootExperienceView: View {
 
         var data = Data()
         data.append(contentsOf: "RIFF".utf8)
-        data.append(studioDebugLittleEndianBytes(riffChunkSize))
+        data.append(littleEndianBytes(riffChunkSize))
         data.append(contentsOf: "WAVE".utf8)
         data.append(contentsOf: "fmt ".utf8)
-        data.append(studioDebugLittleEndianBytes(UInt32(16)))
-        data.append(studioDebugLittleEndianBytes(UInt16(1)))
-        data.append(studioDebugLittleEndianBytes(channels))
-        data.append(studioDebugLittleEndianBytes(UInt32(sampleRate)))
-        data.append(studioDebugLittleEndianBytes(byteRate))
-        data.append(studioDebugLittleEndianBytes(blockAlign))
-        data.append(studioDebugLittleEndianBytes(bitsPerSample))
+        data.append(littleEndianBytes(UInt32(16)))
+        data.append(littleEndianBytes(UInt16(1)))
+        data.append(littleEndianBytes(channels))
+        data.append(littleEndianBytes(UInt32(sampleRate)))
+        data.append(littleEndianBytes(byteRate))
+        data.append(littleEndianBytes(blockAlign))
+        data.append(littleEndianBytes(bitsPerSample))
         data.append(contentsOf: "data".utf8)
-        data.append(studioDebugLittleEndianBytes(UInt32(dataSize)))
+        data.append(littleEndianBytes(UInt32(dataSize)))
         data.append(Data(repeating: 0, count: dataSize))
         return data
     }
 
-    private func studioDebugLittleEndianBytes(_ value: UInt16) -> Data {
+    private func littleEndianBytes(_ value: UInt16) -> Data {
         var littleEndian = value.littleEndian
         return Data(bytes: &littleEndian, count: MemoryLayout<UInt16>.size)
     }
 
-    private func studioDebugLittleEndianBytes(_ value: UInt32) -> Data {
+    private func littleEndianBytes(_ value: UInt32) -> Data {
         var littleEndian = value.littleEndian
         return Data(bytes: &littleEndian, count: MemoryLayout<UInt32>.size)
     }
@@ -2592,9 +2603,19 @@ struct RootExperienceView: View {
     }
 
     private func configureRealtimeCallbacks() {
-        realtimeTransport.onUserSpeechStarted = { _ in
+        realtimeTransport.onConnected = {
+            handleRealtimeConnectionRestored()
+        }
+        realtimeTransport.onConnectionLost = { loss in
+            handleRealtimeConnectionLoss(loss)
+        }
+        realtimeTransport.onUserSpeechStarted = { turnID in
             realtimeAssistantTranscriptFallbackTask?.cancel()
             realtimeAssistantTranscriptFallbackTask = nil
+            realtimePendingUserTranscript = ""
+            realtimeRecoveryTurnID = turnID.trimmingCharacters(in: .whitespacesAndNewlines)
+            realtimeRecoveryTranscriptIsFinal = false
+            realtimeRecoveryNeedsTurnRepair = false
             if isStudioSurfaceActive {
                 cancelRealtimeStudioDraftStream(restorePreview: true)
             }
@@ -2686,7 +2707,7 @@ struct RootExperienceView: View {
                 shouldSpeakConfirmation: true
             )
             if localCommand.handled {
-                realtimePendingUserTranscript = ""
+                clearRealtimeRecoveryTurn()
                 return
             }
             Task { @MainActor in
@@ -2695,6 +2716,8 @@ struct RootExperienceView: View {
                 )
             }
             realtimePendingUserTranscript = preparedPrompt.directorText
+            realtimeRecoveryTranscriptIsFinal = true
+            realtimeRecoveryNeedsTurnRepair = true
             if isStudioSurfaceActive || preparedPrompt.shouldAutoOpenStudio {
                 startRealtimeStudioDraftStreamIfNeeded(for: preparedPrompt.directorText)
             }
@@ -2714,7 +2737,7 @@ struct RootExperienceView: View {
                     userMessage: currentRealtimePendingUserMessage(),
                     assistantMessage: cleaned
                 )
-                realtimePendingUserTranscript = ""
+                clearRealtimeRecoveryTurn()
                 realtimeAssistantTranscriptFallbackTask = nil
             }
         }
@@ -2729,7 +2752,7 @@ struct RootExperienceView: View {
                     userMessage: currentRealtimePendingUserMessage(),
                     assistantMessage: cleaned
                 )
-                realtimePendingUserTranscript = ""
+                clearRealtimeRecoveryTurn()
             }
         }
     }
@@ -2771,8 +2794,11 @@ struct RootExperienceView: View {
         realtimeTransport.onAssistantTextFinal = nil
         realtimeTransport.onUserSpeechStarted = nil
         realtimeTransport.onLatencyEvent = nil
+        realtimeTransport.onConnected = nil
+        realtimeTransport.onConnectionLost = nil
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
+        cancelRealtimeRecovery(clearTurn: true)
         inFlightTalkTask?.cancel()
         inFlightTalkTask = nil
         realtimeTransport.disconnect()
@@ -2783,7 +2809,13 @@ struct RootExperienceView: View {
     }
 
     private func handleScenePhaseChange(_ newPhase: ScenePhase) {
-        guard newPhase == .active else { return }
+        guard newPhase == .active else {
+            if voiceTransportMode == .realtimePreview, conversationLoopEnabled {
+                cancelRealtimeRecovery(clearTurn: false)
+                realtimeTransport.disconnect()
+            }
+            return
+        }
 #if DEBUG || os(macOS)
         processPendingStudioDebugCommandsIfNeeded()
 #endif
@@ -2792,10 +2824,27 @@ struct RootExperienceView: View {
         Task { @MainActor in
             await screenplayDraftBridge.hydrateBackendCompanionState(force: false)
         }
+        if voiceTransportMode == .realtimePreview,
+           conversationLoopEnabled,
+           !realtimePreviewStandardFallbackActive {
+            if realtimeRecoveryTranscriptIsFinal && realtimeRecoveryNeedsTurnRepair {
+                scheduleRealtimeReconnect(
+                    after: .local(
+                        cause: .peerConnectionDisconnected,
+                        message: "Realtime session resumed after the app became active."
+                    )
+                )
+            } else {
+                Task { @MainActor in
+                    await startRealtimePreviewConversationIfNeeded()
+                }
+            }
+        }
     }
 
     private func handleVoiceTransportModeChange(_ newValue: String) {
         let mode = ClementineVoiceTransportMode(rawValue: newValue) ?? .turnBased
+        cancelRealtimeRecovery(clearTurn: true)
         realtimePreviewStandardFallbackActive = false
         if mode == .realtimePreview {
             Task { @MainActor in
@@ -2810,6 +2859,7 @@ struct RootExperienceView: View {
 
     private func handleRealtimeSupplierModeChange(_ newValue: String) {
         _ = ClementineRealtimeSupplierMode.normalized(rawValue: newValue)
+        cancelRealtimeRecovery(clearTurn: true)
         realtimePreviewStandardFallbackActive = false
         realtimeVoice.clear()
         realtimeTransport.disconnect()
@@ -3895,7 +3945,7 @@ struct RootExperienceView: View {
             return
         }
         cancelRealtimeStudioDraftStream(restorePreview: true)
-        if realtimeTransport.isLive || realtimeTransport.isBusy {
+        if !conversationLoopEnabled && (realtimeTransport.isLive || realtimeTransport.isBusy) {
             realtimeTransport.disconnect()
         }
         evolution.markAsScreenwriter()
@@ -3962,7 +4012,7 @@ struct RootExperienceView: View {
 
     private func closeStudio() {
         cancelRealtimeStudioDraftStream(restorePreview: true)
-        if realtimeTransport.isLive || realtimeTransport.isBusy {
+        if !conversationLoopEnabled && (realtimeTransport.isLive || realtimeTransport.isBusy) {
             realtimeTransport.disconnect()
         }
         uiTestForceStudioSurface = false
@@ -5771,7 +5821,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         isThinking = false
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
-        realtimePendingUserTranscript = ""
+        cancelRealtimeRecovery(clearTurn: true)
         cancelRealtimeStudioDraftStream(restorePreview: true)
         realtimeTransport.disconnect()
         speculativeTalk.cancel()
@@ -10634,13 +10684,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
-    private func prewarmRealtimeIfNeeded(isScreenplayMode: Bool) async {
+    @discardableResult
+    private func prewarmRealtimeIfNeeded(
+        isScreenplayMode: Bool,
+        forceCredentialRefresh: Bool = false
+    ) async -> BackendRealtimeBootstrap? {
         guard voiceTransportMode == .realtimePreview else {
             realtimePreviewStandardFallbackActive = false
             realtimeVoice.clear()
             realtimeTransport.disconnect()
             realtimeBridgeRequest = nil
-            return
+            return nil
         }
         do {
             realtimeBridgeRequest = try await backend.realtimeBridgeRequest()
@@ -10648,16 +10702,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
             realtimeBridgeRequest = nil
         }
         let systemPrompt = await buildRealtimeBootstrapSystemPrompt(isScreenplayMode: isScreenplayMode)
-        await realtimeVoice.prepareIfNeeded(
+        let bootstrap = await realtimeVoice.prepareIfNeeded(
             backend: backend,
             systemPrompt: systemPrompt,
             userName: evolution.preferredName,
             isScreenplayMode: isScreenplayMode,
-            supplierMode: realtimeSupplierMode
+            supplierMode: realtimeSupplierMode,
+            forceRefresh: forceCredentialRefresh
         )
-        if case .ready = realtimeVoice.status {
-            realtimePreviewStandardFallbackActive = false
-        }
+        return bootstrap
     }
 
     private func buildRealtimeBootstrapSystemPrompt(isScreenplayMode: Bool) async -> String {
@@ -11252,6 +11305,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func startRealtimePreviewConversationIfNeeded() async {
         guard !realtimeTransport.isLive, !realtimeTransport.isBusy else { return }
 
+        cancelRealtimeRecovery(clearTurn: true)
         voice.stopRecording()
         voice.teardown()
         orbAudio.stop()
@@ -11261,8 +11315,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimeAssistantTranscriptFallbackTask = nil
         realtimePendingUserTranscript = ""
 
-        await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
-        guard let realtimeBridgeRequest, let bootstrap = realtimeVoice.latestBootstrap else {
+        let bootstrap = await prewarmRealtimeIfNeeded(isScreenplayMode: isStudioSurfaceActive)
+        guard let realtimeBridgeRequest, let bootstrap else {
             activateRealtimePreviewStandardFallback()
             return
         }
@@ -11275,14 +11329,203 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func activateRealtimePreviewStandardFallback() {
+        let repairTranscript = realtimeRecoveryTranscriptIsFinal
+            ? realtimePendingUserTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        cancelRealtimeRecovery(clearTurn: false)
         realtimePreviewStandardFallbackActive = true
         realtimeTransport.disconnect()
-        showStudioCommandNotice("Realtime is unavailable. Standard voice is listening.")
+        if repairTranscript.isEmpty {
+            showStudioCommandNotice("Live voice switched to standard voice.")
+        } else {
+            showStudioCommandNotice("Live voice switched to standard voice and kept your turn.")
+        }
         if voice.mode == .idle {
             voice.armOnce()
         } else {
             voice.resumeRecordingIfNeeded()
         }
+
+        guard !repairTranscript.isEmpty, inFlightTalkTask == nil else { return }
+        let fingerprint = utteranceFingerprint(Data(repairTranscript.utf8))
+        let now = Date()
+        guard fingerprint != lastRealtimeFallbackRepairFingerprint ||
+                now.timeIntervalSince(lastRealtimeFallbackRepairAt) >= 30 else {
+            clearRealtimeRecoveryTurn()
+            return
+        }
+
+        lastRealtimeFallbackRepairFingerprint = fingerprint
+        lastRealtimeFallbackRepairAt = now
+        transcript = repairTranscript
+        livePartialTranscript = ""
+        cancelRealtimeStudioDraftStream(restorePreview: true)
+        clearRealtimeRecoveryTurn()
+        inFlightTalkTask = Task { @MainActor in
+            await sendUtterance(
+                silentTalkWavData(durationMs: 180),
+                clientTranscriptOverride: repairTranscript
+            )
+        }
+    }
+
+    @MainActor
+    private func handleRealtimeConnectionLoss(_ loss: ClementineRealtimeConnectionLoss) {
+        guard voiceTransportMode == .realtimePreview,
+              conversationLoopEnabled,
+              !realtimePreviewStandardFallbackActive else { return }
+
+        realtimeAssistantTranscriptFallbackTask?.cancel()
+        realtimeAssistantTranscriptFallbackTask = nil
+        let pendingTranscript = realtimePendingUserTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !pendingTranscript.isEmpty {
+            realtimeRecoveryTranscriptIsFinal = true
+            realtimeRecoveryNeedsTurnRepair = true
+        } else if loss.hasRepairableTurn {
+            let recoveredTranscript = loss.userTranscript
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            realtimePendingUserTranscript = recoveredTranscript
+            transcript = recoveredTranscript
+            livePartialTranscript = ""
+            lastNonEmptyPartialTranscriptHint = String(recoveredTranscript.prefix(320))
+            realtimeRecoveryTranscriptIsFinal = true
+            realtimeRecoveryNeedsTurnRepair = true
+        } else {
+            let partial = loss.userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !partial.isEmpty {
+                livePartialTranscript = String(partial.prefix(320))
+                lastNonEmptyPartialTranscriptHint = String(partial.prefix(320))
+            }
+        }
+        if !loss.turnID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            realtimeRecoveryTurnID = loss.turnID.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        guard loss.recoverable else {
+            activateRealtimePreviewStandardFallback()
+            return
+        }
+        scheduleRealtimeReconnect(after: loss)
+    }
+
+    @MainActor
+    private func scheduleRealtimeReconnect(after loss: ClementineRealtimeConnectionLoss) {
+        realtimeRecoveryTask?.cancel()
+        realtimeRecoveryTask = nil
+        realtimeRecoveryGeneration += 1
+        let generation = realtimeRecoveryGeneration
+        let nextAttempt = realtimeReconnectAttempt + 1
+        guard ClementineRealtimeRecoveryPolicy.shouldReconnect(
+            after: loss,
+            attempt: nextAttempt
+        ), let delay = ClementineRealtimeRecoveryPolicy.delayNanoseconds(forAttempt: nextAttempt) else {
+            activateRealtimePreviewStandardFallback()
+            return
+        }
+
+        realtimeReconnectAttempt = nextAttempt
+        if nextAttempt == 1 {
+            showStudioCommandNotice("Reconnecting live voice…")
+        }
+        realtimeRecoveryTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return
+            }
+            guard generation == realtimeRecoveryGeneration,
+                  voiceTransportMode == .realtimePreview,
+                  conversationLoopEnabled,
+                  !realtimePreviewStandardFallbackActive else { return }
+
+            let bootstrap = await prewarmRealtimeIfNeeded(
+                isScreenplayMode: isStudioSurfaceActive,
+                forceCredentialRefresh: true
+            )
+            guard generation == realtimeRecoveryGeneration else { return }
+            guard let bootstrap, let realtimeBridgeRequest else {
+                realtimeRecoveryTask = nil
+                scheduleRealtimeReconnect(
+                    after: .local(
+                        cause: .negotiationFailed,
+                        message: "Could not refresh the Realtime session."
+                    )
+                )
+                return
+            }
+
+            realtimeTransport.connect(
+                bootstrap: bootstrap,
+                bridgeRequest: realtimeBridgeRequest
+            )
+            do {
+                try await Task.sleep(
+                    nanoseconds: ClementineRealtimeRecoveryPolicy.connectionTimeoutNanoseconds
+                )
+            } catch {
+                return
+            }
+            guard generation == realtimeRecoveryGeneration,
+                  !realtimeTransport.isLive else { return }
+            realtimeRecoveryTask = nil
+            scheduleRealtimeReconnect(
+                after: .local(
+                    cause: .connectionTimeout,
+                    message: "Realtime reconnection timed out."
+                )
+            )
+        }
+    }
+
+    @MainActor
+    private func handleRealtimeConnectionRestored() {
+        let wasRecovering = realtimeReconnectAttempt > 0
+        let repairTranscript = realtimePendingUserTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let shouldRepairTurn = wasRecovering &&
+            realtimeRecoveryTranscriptIsFinal &&
+            realtimeRecoveryNeedsTurnRepair &&
+            !repairTranscript.isEmpty
+        let repairTurnID = realtimeRecoveryTurnID
+
+        realtimeRecoveryGeneration += 1
+        realtimeRecoveryTask?.cancel()
+        realtimeRecoveryTask = nil
+        realtimeReconnectAttempt = 0
+        realtimePreviewStandardFallbackActive = false
+
+        if shouldRepairTurn {
+            realtimeRecoveryNeedsTurnRepair = false
+            realtimeTransport.repairInterruptedTurn(
+                userTranscript: repairTranscript,
+                turnID: repairTurnID
+            )
+        }
+        if wasRecovering {
+            showStudioCommandNotice(
+                shouldRepairTurn ? "Live voice restored. Continuing your thought." : "Live voice restored."
+            )
+        }
+    }
+
+    @MainActor
+    private func cancelRealtimeRecovery(clearTurn: Bool) {
+        realtimeRecoveryGeneration += 1
+        realtimeRecoveryTask?.cancel()
+        realtimeRecoveryTask = nil
+        realtimeReconnectAttempt = 0
+        if clearTurn {
+            clearRealtimeRecoveryTurn()
+        }
+    }
+
+    @MainActor
+    private func clearRealtimeRecoveryTurn() {
+        realtimePendingUserTranscript = ""
+        realtimeRecoveryTurnID = ""
+        realtimeRecoveryTranscriptIsFinal = false
+        realtimeRecoveryNeedsTurnRepair = false
     }
 
     @MainActor
@@ -11957,6 +12200,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     return "Standby"
                 }
             }
+            if realtimeReconnectAttempt > 0 {
+                return "Reconnecting…"
+            }
             switch realtimeTransport.status {
             case .idle:
                 return "Standby"
@@ -11996,6 +12242,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     return false
                 }
             }
+            if realtimeReconnectAttempt > 0 {
+                return true
+            }
             switch realtimeTransport.status {
             case .ready, .connecting, .live:
                 return true
@@ -12021,7 +12270,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         isThinking = false
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
-        realtimePendingUserTranscript = ""
+        cancelRealtimeRecovery(clearTurn: true)
         cancelRealtimeStudioDraftStream(restorePreview: true)
         realtimeTransport.disconnect()
         speculativeTalk.cancel()

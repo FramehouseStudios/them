@@ -1356,6 +1356,72 @@ final class BackendClientCraftAPITests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testRealtimeCoordinatorForceRefreshMintsANewEphemeralCredential() async throws {
+        let recorder = CraftRequestRecorder()
+        let client = makeClient(recorder: recorder) { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("POST", "/session"):
+                return .json(#"{ "client_token": "client-test-token", "expires_in": 3600 }"#)
+            case ("POST", "/realtime/client_secret"):
+                let mintCount = recorder.requests.filter { $0.path == "/realtime/client_secret" }.count
+                return .json(#"""
+                {
+                  "transport": "webrtc_ephemeral",
+                  "realtime_provider": "stub",
+                  "assistant_name": "io.them",
+                  "model": "stub-realtime-1",
+                  "voice": "stub-voice",
+                  "session": {
+                    "type": "realtime",
+                    "model": "stub-realtime-1",
+                    "voice": "stub-voice",
+                    "instructions": "Stay cinematic.",
+                    "output_modalities": ["audio", "text"]
+                  },
+                  "client_secret": {
+                    "value": "ephemeral-\#(mintCount)",
+                    "expires_at": 2000000000,
+                    "session_expires_at": 2000000000
+                  },
+                  "issued_at": 1800000000
+                }
+                """#)
+            default:
+                return .json(#"{ "error": "not_found" }"#, status: 404)
+            }
+        }
+        let coordinator = ClementineRealtimeCoordinator()
+
+        let first = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true
+        )
+        let cached = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true
+        )
+        let refreshed = await coordinator.prepareIfNeeded(
+            backend: client,
+            systemPrompt: "Stay cinematic.",
+            userName: "June",
+            isScreenplayMode: true,
+            forceRefresh: true
+        )
+
+        XCTAssertEqual(first?.clientSecret.value, "ephemeral-1")
+        XCTAssertEqual(cached?.clientSecret.value, "ephemeral-1")
+        XCTAssertEqual(refreshed?.clientSecret.value, "ephemeral-2")
+        XCTAssertEqual(
+            recorder.requests.filter { $0.path == "/realtime/client_secret" }.count,
+            2
+        )
+    }
+
     func testRealtimeDegradedErrorUsesTypedUnavailableEnvelope() async throws {
         let recorder = CraftRequestRecorder()
         let client = makeClient(recorder: recorder) { request in

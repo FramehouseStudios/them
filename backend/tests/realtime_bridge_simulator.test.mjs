@@ -93,7 +93,85 @@ test("[realtime-simulator] a disconnected bridge can start a fresh session", asy
   assert.notEqual(firstPeer, secondPeer);
   assert.equal(simulator.eventsOfType("connecting").length, 2);
   assert.equal(simulator.eventsOfType("connected").length, 2);
-  assert.ok(simulator.eventsOfType("disconnected").length >= 2);
+  assert.equal(simulator.eventsOfType("transport_lost").length, 1);
+  assert.ok(simulator.eventsOfType("disconnected").length >= 1);
   assert.equal(simulator.eventsOfType("assistant_thinking").at(-1).responseOrdinal, 1);
   assert.equal(simulator.eventsOfType("error").length, 0);
+});
+
+test("[realtime-simulator] connected waits until the event channel is writable", async () => {
+  const simulator = createSimulator();
+  await simulator.start();
+  simulator.currentDataChannel.readyState = "connecting";
+
+  simulator.setConnectionState("connected");
+  assert.equal(simulator.eventsOfType("connected").length, 0);
+
+  simulator.currentDataChannel.readyState = "open";
+  simulator.currentDataChannel.emit("open");
+  simulator.currentDataChannel.emit("open");
+
+  assert.equal(simulator.eventsOfType("connected").length, 1);
+});
+
+test("[realtime-simulator] transport loss preserves a final mid-turn transcript once", async () => {
+  const simulator = createSimulator();
+  await simulator.start();
+  simulator.setConnectionState("connected");
+  simulator.providerEvent({ type: "input_audio_buffer.speech_started" });
+  simulator.providerEvent({
+    type: "conversation.item.input_audio_transcription.delta",
+    delta: "Move Mara into ",
+  });
+  simulator.providerEvent({
+    type: "conversation.item.input_audio_transcription.delta",
+    delta: "Act Two.",
+  });
+  simulator.providerEvent({
+    type: "conversation.item.input_audio_transcription.completed",
+    transcript: "Move Mara into Act Two.",
+  });
+  simulator.providerEvent({ type: "response.created" });
+
+  simulator.setConnectionState("failed");
+
+  const losses = simulator.eventsOfType("transport_lost");
+  assert.equal(losses.length, 1);
+  assert.equal(losses[0].cause, "peer_connection_failed");
+  assert.equal(losses[0].userTranscript, "Move Mara into Act Two.");
+  assert.equal(losses[0].transcriptIsFinal, true);
+  assert.equal(losses[0].assistantResponseActive, true);
+  assert.equal(losses[0].recoverable, true);
+  assert.equal(losses[0].credentialRefreshRecommended, true);
+});
+
+test("[realtime-simulator] a fresh session can resume an interrupted text turn", async () => {
+  const simulator = createSimulator();
+  await simulator.start();
+  simulator.setConnectionState("connected");
+
+  assert.equal(simulator.resumeTurn("Move Mara into Act Two.", "recovered-turn-1"), true);
+
+  assert.deepEqual(
+    simulator.currentDataChannel.sent.map((event) => event.type),
+    ["conversation.item.create", "response.create"]
+  );
+  assert.equal(
+    simulator.currentDataChannel.sent[0].item.content[0].text,
+    "Move Mara into Act Two."
+  );
+  assert.equal(simulator.eventsOfType("turn_repair_submitted").length, 1);
+  assert.equal(simulator.eventsOfType("turn_repair_submitted")[0].turnID, "recovered-turn-1");
+});
+
+test("[realtime-simulator] intentional stop never emits a transport loss", async () => {
+  const simulator = createSimulator();
+  await simulator.start();
+  simulator.setConnectionState("connected");
+
+  simulator.stop();
+
+  assert.equal(simulator.eventsOfType("transport_lost").length, 0);
+  assert.equal(simulator.eventsOfType("disconnected").length, 1);
+  assert.equal(simulator.eventsOfType("disconnected")[0].intentional, true);
 });

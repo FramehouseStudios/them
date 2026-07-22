@@ -170,6 +170,7 @@ final class ClementineRealtimeCoordinator: ObservableObject {
 
     private var cachedBootstrap: BackendRealtimeBootstrap?
     private var cachedBootstrapSignature: String = ""
+    private var preparationGeneration = 0
 
     var statusText: String {
         switch status {
@@ -208,18 +209,23 @@ final class ClementineRealtimeCoordinator: ObservableObject {
     }
 
     func clear() {
+        preparationGeneration += 1
         cachedBootstrap = nil
         cachedBootstrapSignature = ""
         status = .idle
     }
 
+    @discardableResult
     func prepareIfNeeded(
         backend: BackendClient,
         systemPrompt: String?,
         userName: String?,
         isScreenplayMode: Bool,
-        supplierMode: ClementineRealtimeSupplierMode = .serverDefault
-    ) async {
+        supplierMode: ClementineRealtimeSupplierMode = .serverDefault,
+        forceRefresh: Bool = false
+    ) async -> BackendRealtimeBootstrap? {
+        preparationGeneration += 1
+        let generation = preparationGeneration
         let signature = bootstrapSignature(
             systemPrompt: systemPrompt,
             userName: userName,
@@ -227,11 +233,17 @@ final class ClementineRealtimeCoordinator: ObservableObject {
             supplierMode: supplierMode
         )
 
-        if let cachedBootstrap,
+        if !forceRefresh,
+           let cachedBootstrap,
            !cachedBootstrap.isExpiringSoon,
            cachedBootstrapSignature == signature {
             status = .ready(cachedBootstrap)
-            return
+            return cachedBootstrap
+        }
+
+        if forceRefresh {
+            cachedBootstrap = nil
+            cachedBootstrapSignature = ""
         }
 
         status = .preparing
@@ -242,11 +254,15 @@ final class ClementineRealtimeCoordinator: ObservableObject {
                 isScreenplayMode: isScreenplayMode,
                 realtimeProvider: supplierMode.providerParameter
             )
+            guard generation == preparationGeneration else { return nil }
             cachedBootstrap = bootstrap
             cachedBootstrapSignature = signature
             status = .ready(bootstrap)
+            return bootstrap
         } catch {
+            guard generation == preparationGeneration else { return nil }
             status = .failed(error.localizedDescription)
+            return nil
         }
     }
 

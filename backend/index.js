@@ -19686,6 +19686,12 @@ function renderRealtimeBridgeHtml() {
         interruptionResponseOrdinal: 0,
         userSpeechActive: false,
         networkClass: 'balanced',
+        connectionGeneration: 0,
+        connectedReported: false,
+        intentionalStop: false,
+        transportLossReported: false,
+        userTranscript: '',
+        userTranscriptIsFinal: false,
       };
 
       function post(type, payload) {
@@ -19906,7 +19912,56 @@ function renderRealtimeBridgeHtml() {
         } catch (_) {}
       }
 
-      function resetConnection() {
+      function transportSnapshot() {
+        return {
+          connectionGeneration: state.connectionGeneration,
+          turnID: state.turnID,
+          userTranscript: safeText(state.userTranscript),
+          transcriptIsFinal: Boolean(state.userTranscriptIsFinal),
+          userSpeechActive: Boolean(state.userSpeechActive),
+          assistantResponseActive: Boolean(
+            state.assistantResponseActive ||
+            state.assistantSpeaking ||
+            state.assistantTranscript ||
+            state.assistantText
+          ),
+          responseOrdinal: activeResponseOrdinal(),
+        };
+      }
+
+      function reportTransportLoss(cause, message, options) {
+        const details = options && typeof options === 'object' ? options : {};
+        const generation = Number(details.connectionGeneration || state.connectionGeneration || 0);
+        if (generation !== state.connectionGeneration) return false;
+        if (state.intentionalStop || state.transportLossReported) return false;
+        state.transportLossReported = true;
+        post('transport_lost', Object.assign(transportSnapshot(), {
+          cause: safeText(cause) || 'unknown',
+          message: safeText(message) || 'Realtime connection was interrupted.',
+          connectionState: safeText(details.connectionState),
+          recoverable: details.recoverable !== false,
+          credentialRefreshRecommended: details.credentialRefreshRecommended !== false,
+        }));
+        resetConnection({ intentional: true });
+        return true;
+      }
+
+      function reportConnectedWhenReady(connectionGeneration) {
+        if (connectionGeneration !== state.connectionGeneration) return false;
+        if (state.intentionalStop || state.connectedReported) return false;
+        if (!state.pc || safeText(state.pc.connectionState) !== 'connected') return false;
+        if (!state.dc || safeText(state.dc.readyState) !== 'open') return false;
+        state.connectedReported = true;
+        post('connected');
+        return true;
+      }
+
+      function resetConnection(options) {
+        const details = options && typeof options === 'object' ? options : {};
+        state.connectionGeneration += 1;
+        state.connectedReported = false;
+        state.intentionalStop = details.intentional === true;
+        state.transportLossReported = false;
         if (state.statsTimer) {
           clearInterval(state.statsTimer);
           state.statsTimer = null;
@@ -19961,6 +20016,8 @@ function renderRealtimeBridgeHtml() {
         state.interruptionResponseOrdinal = 0;
         state.userSpeechActive = false;
         state.localLoudFrames = 0;
+        state.userTranscript = '';
+        state.userTranscriptIsFinal = false;
         if (remoteAudio) {
           try {
           remoteAudio.pause();
@@ -20068,6 +20125,8 @@ function renderRealtimeBridgeHtml() {
         switch (type) {
           case 'input_audio_buffer.speech_started':
             state.userSpeechActive = true;
+            state.userTranscript = '';
+            state.userTranscriptIsFinal = false;
             if (state.assistantSpeaking || state.assistantResponseActive) {
               startInterruption('server_vad', false);
             } else {
@@ -20180,15 +20239,24 @@ function renderRealtimeBridgeHtml() {
             acknowledgeInterruption('output_audio_cleared');
             break;
           case 'conversation.item.input_audio_transcription.delta': {
-            const partial = safeText(event.delta) || safeText(event.transcript) || extractTranscriptFromItem(event.item);
+            const delta = typeof event.delta === 'string' ? event.delta : '';
+            const cumulative = safeText(event.transcript) || extractTranscriptFromItem(event.item);
+            if (delta) {
+              state.userTranscript += delta;
+            } else if (cumulative) {
+              state.userTranscript = cumulative;
+            }
+            const partial = safeText(state.userTranscript);
             if (partial) {
               post('user_transcript_partial', { text: partial });
             }
             break;
           }
           case 'conversation.item.input_audio_transcription.completed': {
-            const transcript = safeText(event.transcript) || extractTranscriptFromItem(event.item);
+            const transcript = safeText(event.transcript) || extractTranscriptFromItem(event.item) || safeText(state.userTranscript);
             if (transcript) {
+              state.userTranscript = transcript;
+              state.userTranscriptIsFinal = true;
               post('user_transcript_final', { text: transcript });
             }
             break;
@@ -20229,7 +20297,16 @@ function renderRealtimeBridgeHtml() {
               acknowledgeInterruption('provider_cancel_race');
               break;
             }
-            post('error', { message: message });
+            const credentialFailure =
+              code.includes('auth') ||
+              code.includes('token') ||
+              code.includes('expired') ||
+              code.includes('unauthorized');
+            reportTransportLoss('provider_error', message, {
+              connectionGeneration: state.connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: credentialFailure,
+            });
             break;
           }
           default:
@@ -20239,11 +20316,18 @@ function renderRealtimeBridgeHtml() {
 
       async function start(config) {
         if (!config || !config.clientSecret || !config.session) {
-          post('error', { message: 'Realtime config was incomplete.' });
+          state.intentionalStop = false;
+          reportTransportLoss('invalid_configuration', 'Realtime config was incomplete.', {
+            connectionGeneration: state.connectionGeneration,
+            recoverable: false,
+            credentialRefreshRecommended: true,
+          });
           return;
         }
 
-        resetConnection();
+        resetConnection({ intentional: true });
+        state.intentionalStop = false;
+        const connectionGeneration = state.connectionGeneration;
         post('connecting');
 
         try {
@@ -20259,20 +20343,56 @@ function renderRealtimeBridgeHtml() {
           });
 
           pc.addEventListener('connectionstatechange', () => {
+            if (connectionGeneration !== state.connectionGeneration) return;
             const current = safeText(pc.connectionState);
             if (current === 'connected') {
-              post('connected');
-            } else if (current === 'failed' || current === 'disconnected' || current === 'closed') {
-              post('disconnected');
+              reportConnectedWhenReady(connectionGeneration);
+            } else if (current === 'failed' || current === 'disconnected') {
+              reportTransportLoss(
+                current === 'failed' ? 'peer_connection_failed' : 'peer_connection_disconnected',
+                current === 'failed'
+                  ? 'Realtime peer connection failed.'
+                  : 'Realtime peer connection disconnected.',
+                {
+                  connectionGeneration: connectionGeneration,
+                  connectionState: current,
+                  recoverable: true,
+                  credentialRefreshRecommended: true,
+                }
+              );
+            } else if (current === 'closed' && !state.intentionalStop) {
+              reportTransportLoss('peer_connection_disconnected', 'Realtime peer connection closed.', {
+                connectionGeneration: connectionGeneration,
+                connectionState: current,
+                recoverable: true,
+                credentialRefreshRecommended: true,
+              });
             }
           });
 
           const dc = pc.createDataChannel('oai-events');
           state.dc = dc;
+          dc.addEventListener('open', () => {
+            reportConnectedWhenReady(connectionGeneration);
+          });
           dc.addEventListener('message', (event) => {
             try {
               handleRealtimeEvent(JSON.parse(event.data));
             } catch (_) {}
+          });
+          dc.addEventListener('close', () => {
+            reportTransportLoss('data_channel_closed', 'Realtime event channel closed.', {
+              connectionGeneration: connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: true,
+            });
+          });
+          dc.addEventListener('error', () => {
+            reportTransportLoss('data_channel_error', 'Realtime event channel failed.', {
+              connectionGeneration: connectionGeneration,
+              recoverable: true,
+              credentialRefreshRecommended: true,
+            });
           });
 
           const stream = await navigator.mediaDevices.getUserMedia({
@@ -20308,7 +20428,9 @@ function renderRealtimeBridgeHtml() {
 
           const answer = await response.text();
           if (!response.ok) {
-            throw new Error(answer || 'Realtime negotiation failed.');
+            const negotiationError = new Error(answer || 'Realtime negotiation failed.');
+            negotiationError.status = Number(response.status || 0);
+            throw negotiationError;
           }
 
           await pc.setRemoteDescription({
@@ -20316,9 +20438,22 @@ function renderRealtimeBridgeHtml() {
             sdp: answer,
           });
         } catch (error) {
-          resetConnection();
+          if (connectionGeneration !== state.connectionGeneration) return;
           const message = error && error.message ? String(error.message) : 'Realtime bridge startup failed.';
-          post('error', { message: message });
+          const status = Number(error && error.status ? error.status : 0);
+          const permissionDenied =
+            (error && safeText(error.name).toLowerCase() === 'notallowederror') ||
+            message.toLowerCase().includes('permission denied');
+          reportTransportLoss(
+            permissionDenied ? 'microphone_permission_denied' : 'negotiation_failed',
+            message,
+            {
+              connectionGeneration: connectionGeneration,
+              connectionState: safeText(state.pc && state.pc.connectionState),
+              recoverable: !permissionDenied,
+              credentialRefreshRecommended: status === 401 || status === 403 || !permissionDenied,
+            }
+          );
         }
       }
 
@@ -20326,14 +20461,63 @@ function renderRealtimeBridgeHtml() {
         startInterruption('swift_fallback', true);
       }
 
+      function resumeTurn(repair) {
+        const details = repair && typeof repair === 'object' ? repair : {};
+        const userTranscript = safeText(details.userTranscript);
+        if (!userTranscript) return false;
+        if (!state.dc || state.dc.readyState !== 'open') {
+          reportTransportLoss('data_channel_closed', 'Realtime turn repair could not reach the event channel.', {
+            connectionGeneration: state.connectionGeneration,
+            recoverable: true,
+            credentialRefreshRecommended: true,
+          });
+          return false;
+        }
+
+        state.userTranscript = userTranscript;
+        state.userTranscriptIsFinal = true;
+        beginLatencyTurn('swift_turn_repair');
+        const requestedTurnID = safeText(details.turnID);
+        if (requestedTurnID) {
+          state.turnID = requestedTurnID;
+        }
+        const itemSent = sendClientEvent({
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: userTranscript }],
+          },
+        });
+        const responseSent = itemSent && sendClientEvent({ type: 'response.create' });
+        if (!responseSent) {
+          reportTransportLoss('data_channel_error', 'Realtime turn repair could not resume the response.', {
+            connectionGeneration: state.connectionGeneration,
+            recoverable: true,
+            credentialRefreshRecommended: true,
+          });
+          return false;
+        }
+        post('turn_repair_submitted', {
+          turnID: state.turnID,
+          userTranscript: userTranscript,
+        });
+        return true;
+      }
+
       function stop() {
-        resetConnection();
-        post('disconnected');
+        resetConnection({ intentional: true });
+        post('disconnected', {
+          intentional: true,
+          recoverable: false,
+          connectionGeneration: state.connectionGeneration,
+        });
       }
 
       window.clementineRealtime = {
         start: start,
         interrupt: interrupt,
+        resumeTurn: resumeTurn,
         stop: stop,
       };
 

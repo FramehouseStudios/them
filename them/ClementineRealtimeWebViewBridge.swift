@@ -100,6 +100,8 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     var onAssistantSpeakingChanged: ((Bool) -> Void)?
     var onUserSpeechStarted: ((String) -> Void)?
     var onLatencyEvent: ((ClementineRealtimeLatencyEvent) -> Void)?
+    var onConnected: (() -> Void)?
+    var onConnectionLost: ((ClementineRealtimeConnectionLoss) -> Void)?
 
     private weak var webView: WKWebView?
     private var bridgeRequest: URLRequest?
@@ -107,6 +109,8 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     private var pendingBootstrap: BackendRealtimeBootstrap?
     private var shouldStartWhenReady = false
     private var cancelledResponseOrdinal = 0
+    private var intentionalDisconnectPending = false
+    private var lastReportedLossKey = ""
 
     var isLive: Bool {
         if case .live = status {
@@ -177,11 +181,14 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         pendingBootstrap = bootstrap
         shouldStartWhenReady = true
         cancelledResponseOrdinal = 0
+        intentionalDisconnectPending = false
+        lastReportedLossKey = ""
         loadBridgeIfNeeded(request: bridgeRequest)
         startIfPossible()
     }
 
     func disconnect() {
+        intentionalDisconnectPending = true
         shouldStartWhenReady = false
         pendingBootstrap = nil
         guard bridgeReady else {
@@ -191,7 +198,10 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             onAssistantSpeakingChanged?(false)
             return
         }
-        evaluate(script: "window.clementineRealtime && window.clementineRealtime.stop && window.clementineRealtime.stop();")
+        evaluate(
+            script: "window.clementineRealtime && window.clementineRealtime.stop && window.clementineRealtime.stop();",
+            reportFailure: false
+        )
         status = .ready
         activity = .idle
         cancelledResponseOrdinal = 0
@@ -209,6 +219,8 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         onAssistantSpeakingChanged = nil
         onUserSpeechStarted = nil
         onLatencyEvent = nil
+        onConnected = nil
+        onConnectionLost = nil
         status = .idle
         activity = .idle
         cancelledResponseOrdinal = 0
@@ -217,6 +229,29 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
     func interruptAssistant() {
         evaluate(
             script: "window.clementineRealtime && window.clementineRealtime.interrupt && window.clementineRealtime.interrupt();"
+        )
+    }
+
+    func repairInterruptedTurn(userTranscript: String, turnID: String = "") {
+        let cleanTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTranscript.isEmpty else { return }
+        let payload: [String: Any] = [
+            "userTranscript": cleanTranscript,
+            "turnID": turnID.trimmingCharacters(in: .whitespacesAndNewlines),
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []),
+              let json = String(data: jsonData, encoding: .utf8) else {
+            publishConnectionLoss(
+                .local(
+                    cause: .invalidConfiguration,
+                    message: "Could not serialize the interrupted Realtime turn.",
+                    recoverable: false
+                )
+            )
+            return
+        }
+        evaluate(
+            script: "window.clementineRealtime && window.clementineRealtime.resumeTurn && window.clementineRealtime.resumeTurn(\(json));"
         )
     }
 
@@ -260,7 +295,13 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []),
               let json = String(data: jsonData, encoding: .utf8) else {
-            status = .failed("Could not serialize Realtime session config.")
+            publishConnectionLoss(
+                .local(
+                    cause: .invalidConfiguration,
+                    message: "Could not serialize Realtime session config.",
+                    recoverable: false
+                )
+            )
             return
         }
 
@@ -268,17 +309,46 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
         evaluate(script: script)
     }
 
-    private func evaluate(script: String) {
+    private func evaluate(script: String, reportFailure: Bool = true) {
         guard let webView else {
-            status = .failed("Realtime bridge is not attached.")
+            if reportFailure {
+                publishConnectionLoss(
+                    .local(
+                        cause: .javascriptEvaluationFailed,
+                        message: "Realtime bridge is not attached."
+                    )
+                )
+            }
             return
         }
         webView.evaluateJavaScript(script) { _, error in
             guard let error else { return }
             Task { @MainActor in
-                self.status = .failed(error.localizedDescription)
+                guard reportFailure else { return }
+                self.publishConnectionLoss(
+                    .local(
+                        cause: .javascriptEvaluationFailed,
+                        message: error.localizedDescription
+                    )
+                )
             }
         }
+    }
+
+    private func publishConnectionLoss(_ loss: ClementineRealtimeConnectionLoss) {
+        guard !intentionalDisconnectPending else { return }
+        let lossKey = [
+            String(loss.connectionGeneration),
+            loss.cause.rawValue,
+            loss.turnID,
+            loss.message,
+        ].joined(separator: "|")
+        guard lossKey != lastReportedLossKey else { return }
+        lastReportedLossKey = lossKey
+        status = .failed(loss.message.isEmpty ? "Realtime connection was interrupted." : loss.message)
+        activity = .idle
+        onAssistantSpeakingChanged?(false)
+        onConnectionLost?(loss)
     }
 
     func receiveBridgeMessage(_ body: Any) {
@@ -320,15 +390,37 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             startIfPossible()
         case "connecting":
             cancelledResponseOrdinal = 0
+            intentionalDisconnectPending = false
             status = .connecting
             activity = .idle
         case "connected":
+            intentionalDisconnectPending = false
+            lastReportedLossKey = ""
             status = .live
             activity = .listening
+            onConnected?()
         case "disconnected":
+            let intentionalValue = payload["intentional"]
+            let intentional = (intentionalValue as? NSNumber)?.boolValue == true
+                || String(describing: intentionalValue ?? "").lowercased() == "true"
+                || intentionalDisconnectPending
+            intentionalDisconnectPending = false
             status = bridgeReady ? .ready : .idle
             activity = .idle
             onAssistantSpeakingChanged?(false)
+            if !intentional {
+                publishConnectionLoss(
+                    ClementineRealtimeConnectionLoss.parse(
+                        payload.merging([
+                            "cause": ClementineRealtimeConnectionLoss.Cause.peerConnectionDisconnected.rawValue,
+                            "message": message.isEmpty ? "Realtime connection ended unexpectedly." : message,
+                        ]) { current, _ in current }
+                    )
+                )
+            }
+        case "transport_lost":
+            intentionalDisconnectPending = false
+            publishConnectionLoss(ClementineRealtimeConnectionLoss.parse(payload))
         case "assistant_thinking":
             guard responseOrdinal == 0 || responseOrdinal > cancelledResponseOrdinal else { return }
             activity = .thinking
@@ -376,9 +468,14 @@ final class ClementineRealtimeWebViewBridge: NSObject, ObservableObject {
             }
             onAssistantTextFinal?(text)
         case "error":
-            status = .failed(message.isEmpty ? "Unknown Realtime bridge error." : message)
-            activity = .idle
-            onAssistantSpeakingChanged?(false)
+            publishConnectionLoss(
+                ClementineRealtimeConnectionLoss.parse(
+                    payload.merging([
+                        "cause": ClementineRealtimeConnectionLoss.Cause.unknown.rawValue,
+                        "message": message.isEmpty ? "Unknown Realtime bridge error." : message,
+                    ]) { current, _ in current }
+                )
+            )
         default:
             break
         }
@@ -404,13 +501,23 @@ extension ClementineRealtimeWebViewBridge: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
-            self.status = .failed(error.localizedDescription)
+            self.publishConnectionLoss(
+                .local(
+                    cause: .bridgeNavigationFailed,
+                    message: error.localizedDescription
+                )
+            )
         }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
-            self.status = .failed(error.localizedDescription)
+            self.publishConnectionLoss(
+                .local(
+                    cause: .bridgeNavigationFailed,
+                    message: error.localizedDescription
+                )
+            )
         }
     }
 }

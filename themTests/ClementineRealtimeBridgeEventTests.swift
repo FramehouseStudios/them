@@ -145,4 +145,49 @@ final class ClementineRealtimeBridgeEventTests: XCTestCase {
         XCTAssertEqual(events[1].kind, .firstAudio)
         XCTAssertEqual(events[1].elapsedMilliseconds, 725)
     }
+
+    func testTransportLossIsStructuredAndDeduplicatedPerConnection() {
+        let bridge = ClementineRealtimeWebViewBridge()
+        var losses: [ClementineRealtimeConnectionLoss] = []
+        bridge.onConnectionLost = { losses.append($0) }
+
+        bridge.receiveBridgeMessage(["type": "bridge_ready"])
+        bridge.receiveBridgeMessage(["type": "connected"])
+        let payload: [String: Any] = [
+            "type": "transport_lost",
+            "cause": "data_channel_closed",
+            "message": "event channel closed",
+            "connectionGeneration": 4,
+            "turnID": "turn-4",
+            "userTranscript": "Finish the ferry scene.",
+            "transcriptIsFinal": true,
+            "assistantResponseActive": true,
+            "recoverable": true,
+            "credentialRefreshRecommended": true,
+        ]
+        bridge.receiveBridgeMessage(payload)
+        bridge.receiveBridgeMessage(payload)
+
+        XCTAssertEqual(losses.count, 1)
+        XCTAssertEqual(losses[0].cause, .dataChannelClosed)
+        XCTAssertTrue(losses[0].hasRepairableTurn)
+        XCTAssertEqual(bridge.status, .failed("event channel closed"))
+    }
+
+    func testIntentionalDisconnectDoesNotRequestRecovery() {
+        let bridge = ClementineRealtimeWebViewBridge()
+        var lossCount = 0
+        bridge.onConnectionLost = { _ in lossCount += 1 }
+
+        bridge.receiveBridgeMessage(["type": "bridge_ready"])
+        bridge.receiveBridgeMessage(["type": "connected"])
+        bridge.receiveBridgeMessage([
+            "type": "disconnected",
+            "intentional": true,
+            "recoverable": false,
+        ])
+
+        XCTAssertEqual(lossCount, 0)
+        XCTAssertEqual(bridge.status, .ready)
+    }
 }
