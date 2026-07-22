@@ -97,6 +97,11 @@ private struct DebugBundleTalkDiagnosticsSnapshot: Codable {
 
 private struct DebugBundleClientLatencySnapshot: Codable {
     let sampleCount: Int
+    let healthLevel: String
+    let healthSummary: String
+    let evaluatedMetricCount: Int
+    let pendingMetricCount: Int
+    let breaches: [ClementineLatencySLOBreach]
     let latestFirstTextMs: Double?
     let latestFirstAudioMs: Double?
     let latestBargeInAckMs: Double?
@@ -2989,6 +2994,7 @@ struct RootExperienceView: View {
                         stats: lastTalkStats,
                         errors: lastTalkErrors,
                         latency: clientLatency.summary,
+                        latencyHealth: clientLatency.health,
                         refreshedAt: lastTalkDiagnosticsRefreshedAt,
                         lastError: lastTalkDiagnosticsError,
                         isRefreshing: isRefreshingTalkDiagnostics,
@@ -10989,8 +10995,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }(),
             clientLatency: {
                 let summary = clientLatency.summary
+                let health = clientLatency.health
                 return DebugBundleClientLatencySnapshot(
                     sampleCount: summary.sampleCount,
+                    healthLevel: health.level.rawValue,
+                    healthSummary: health.diagnosticsSummary,
+                    evaluatedMetricCount: health.evaluatedMetricCount,
+                    pendingMetricCount: health.pendingMetricCount,
+                    breaches: health.breaches,
                     latestFirstTextMs: summary.latestFirstTextMs,
                     latestFirstAudioMs: summary.latestFirstAudioMs,
                     latestBargeInAckMs: summary.latestBargeInAckMs,
@@ -11043,7 +11055,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
             "Talk stats: \(lastTalkStats?.diagnosticsSummary ?? "n/a")",
             "Talk errors: \(lastTalkErrors?.diagnosticsSummary ?? "n/a")",
             "Talk diagnostics error: \(lastTalkDiagnosticsError.isEmpty ? "n/a" : lastTalkDiagnosticsError)",
-            "Client latency: \(clientLatency.summary.diagnosticsSummary)"
+            "Client latency: \(clientLatency.summary.diagnosticsSummary)",
+            "Client latency SLO: \(clientLatency.health.diagnosticsSummary)"
         ].joined(separator: "\n")
     }
 

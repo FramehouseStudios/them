@@ -61,6 +61,13 @@ fi
 
 node "${ROOT}/scripts/release_config_status.mjs" --release-env-file="${RELEASE_ENV_FILE}"
 
+RUN_VOICE_LATENCY_GATE="${RUN_VOICE_LATENCY_GATE:-1}"
+if [[ "${RUN_VOICE_LATENCY_GATE}" == "1" ]]; then
+  "${ROOT}/scripts/run_voice_latency_gate.sh"
+else
+  echo "[release-preflight] Skipping voice latency gate (RUN_VOICE_LATENCY_GATE=${RUN_VOICE_LATENCY_GATE})."
+fi
+
 RUN_LIVE_BACKEND_CHECK="${RUN_LIVE_BACKEND_CHECK:-1}"
 if [[ "${RUN_LIVE_BACKEND_CHECK}" == "1" ]]; then
   APP_TOKEN="${APP_TOKEN:-${APP_TOKEN_RELEASE:-}}" \

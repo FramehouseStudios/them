@@ -5,6 +5,7 @@ struct TalkDiagnosticsSheet: View {
     let stats: BackendTalkStatsResponse?
     let errors: BackendTalkErrorsResponse?
     let latency: ClementineLatencySummary
+    let latencyHealth: ClementineLatencyHealth
     let refreshedAt: Date?
     let lastError: String
     let isRefreshing: Bool
@@ -36,8 +37,10 @@ struct TalkDiagnosticsSheet: View {
     }
 
     private var latencySection: some View {
-        diagnosticsCard(title: "Client Latency", summary: latency.diagnosticsSummary) {
+        diagnosticsCard(title: "Client Latency", summary: latencyHealth.diagnosticsSummary) {
             metricGrid([
+                ("SLO", latencyHealth.level.displayName),
+                ("Checks", "\(latencyHealth.evaluatedMetricCount)/\(latencyHealth.evaluatedMetricCount + latencyHealth.pendingMetricCount)"),
                 ("Latest text", ClementineLatencySummary.millisecondsText(latency.latestFirstTextMs)),
                 ("Latest audio", ClementineLatencySummary.millisecondsText(latency.latestFirstAudioMs)),
                 ("P95 text", ClementineLatencySummary.millisecondsText(latency.p95FirstTextMs)),
@@ -46,6 +49,17 @@ struct TalkDiagnosticsSheet: View {
                 ("Network", latency.latestNetworkClass?.rawValue.capitalized ?? "n/a"),
                 ("Speech chunk", latency.latestSpeechTargetCharacters.map { "\($0) chars" } ?? "n/a")
             ])
+            if !latencyHealth.breaches.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(latencyHealth.breaches) { breach in
+                        Text(breach.diagnosticsLine)
+                            .font(IOThemTypography.UI.monoCaption)
+                            .foregroundStyle(breach.isCritical ? Color.red.opacity(0.82) : Color.herText.opacity(0.76))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 2)
+            }
         }
     }
 
@@ -120,7 +134,7 @@ struct TalkDiagnosticsSheet: View {
     }
 
     private var footer: some View {
-        Text("Safe-public backend snapshots only: aggregate counts, rates, and error classes. No prompts, transcripts, user IDs, or replies are shown here.")
+        Text("Safe-public backend aggregates and local timing measurements only. No prompts, transcripts, user IDs, or replies are shown here.")
             .font(IOThemTypography.UI.label)
             .foregroundStyle(Color.herText.opacity(0.56))
             .fixedSize(horizontal: false, vertical: true)

@@ -9,6 +9,7 @@ import { test } from "node:test";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_release_preflight.sh");
+const scriptSource = fs.readFileSync(script, "utf8");
 
 function run(env = {}) {
   return spawnSync(script, {
@@ -39,4 +40,10 @@ test("[run-release-preflight] rejects placeholder local release config before pr
   assert.match(r.stderr, /missing real private value\(s\): DEVELOPMENT_TEAM_ID APP_TOKEN_RELEASE/);
   assert.doesNotMatch(r.stderr, /BACKEND_URL/);
   assert.doesNotMatch(r.stdout, /App Store Preflight/);
+});
+
+test("[run-release-preflight] enables the deterministic voice latency gate by default", () => {
+  assert.match(scriptSource, /RUN_VOICE_LATENCY_GATE="\$\{RUN_VOICE_LATENCY_GATE:-1\}"/);
+  assert.match(scriptSource, /scripts\/run_voice_latency_gate\.sh/);
+  assert.match(scriptSource, /Skipping voice latency gate/);
 });

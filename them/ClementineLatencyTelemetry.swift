@@ -62,6 +62,206 @@ struct ClementineLatencySummary: Equatable {
     }
 }
 
+enum ClementineLatencyHealthLevel: String, Codable, Equatable {
+    case collecting
+    case healthy
+    case warning
+    case critical
+
+    var displayName: String {
+        switch self {
+        case .collecting:
+            return "Collecting"
+        case .healthy:
+            return "Healthy"
+        case .warning:
+            return "Warning"
+        case .critical:
+            return "Critical"
+        }
+    }
+}
+
+enum ClementineLatencyMetric: String, Codable, CaseIterable {
+    case firstText = "first_text"
+    case firstAudio = "first_audio"
+    case bargeInAcknowledged = "barge_in_ack"
+
+    var displayName: String {
+        switch self {
+        case .firstText:
+            return "first text"
+        case .firstAudio:
+            return "first audio"
+        case .bargeInAcknowledged:
+            return "barge-in ack"
+        }
+    }
+}
+
+struct ClementineLatencySLOBudget: Equatable {
+    let firstTextP95Ms: Double
+    let firstAudioP95Ms: Double
+    let bargeInAckP95Ms: Double
+
+    func milliseconds(for metric: ClementineLatencyMetric) -> Double {
+        switch metric {
+        case .firstText:
+            return firstTextP95Ms
+        case .firstAudio:
+            return firstAudioP95Ms
+        case .bargeInAcknowledged:
+            return bargeInAckP95Ms
+        }
+    }
+}
+
+struct ClementineLatencySLOBreach: Codable, Equatable, Identifiable {
+    var id: String { "\(transport.rawValue):\(metric.rawValue)" }
+
+    let transport: ClementineLatencyTransport
+    let metric: ClementineLatencyMetric
+    let observedP95Ms: Double
+    let budgetP95Ms: Double
+    let isCritical: Bool
+
+    var diagnosticsLine: String {
+        let observed = Int(observedP95Ms.rounded())
+        let budget = Int(budgetP95Ms.rounded())
+        return "\(transport.displayName) \(metric.displayName): \(observed) ms / \(budget) ms"
+    }
+}
+
+struct ClementineLatencyHealth: Equatable {
+    let level: ClementineLatencyHealthLevel
+    let evaluatedMetricCount: Int
+    let pendingMetricCount: Int
+    let minimumSamplesPerMetric: Int
+    let breaches: [ClementineLatencySLOBreach]
+
+    var diagnosticsSummary: String {
+        switch level {
+        case .collecting:
+            return "Collecting \(minimumSamplesPerMetric) samples per latency check"
+        case .healthy:
+            return "Within voice latency targets · \(evaluatedMetricCount) checks"
+        case .warning:
+            return "Latency warning · \(breaches.count) target\(breaches.count == 1 ? "" : "s") exceeded"
+        case .critical:
+            return "Latency regression · \(breaches.count) target\(breaches.count == 1 ? "" : "s") exceeded"
+        }
+    }
+}
+
+enum ClementineLatencySLOEvaluator {
+    static let minimumSamplesPerMetric = 5
+    static let criticalMultiplier = 1.5
+    static let budgets: [ClementineLatencyTransport: ClementineLatencySLOBudget] = [
+        .realtimeVoice: ClementineLatencySLOBudget(
+            firstTextP95Ms: 1_500,
+            firstAudioP95Ms: 2_200,
+            bargeInAckP95Ms: 250
+        ),
+        .studioTypedSpeech: ClementineLatencySLOBudget(
+            firstTextP95Ms: 1_200,
+            firstAudioP95Ms: 2_200,
+            bargeInAckP95Ms: 150
+        ),
+        .turnBasedVoice: ClementineLatencySLOBudget(
+            firstTextP95Ms: 7_000,
+            firstAudioP95Ms: 10_000,
+            bargeInAckP95Ms: 200
+        )
+    ]
+
+    static func evaluate(
+        samples: [ClementineLatencySample],
+        minimumSamples: Int = minimumSamplesPerMetric
+    ) -> ClementineLatencyHealth {
+        let requiredSamples = max(1, minimumSamples)
+        var evaluatedMetricCount = 0
+        var pendingMetricCount = 0
+        var breaches: [ClementineLatencySLOBreach] = []
+
+        for transport in ClementineLatencyTransport.allCases {
+            guard let budget = budgets[transport] else { continue }
+            let transportSamples = samples.filter { $0.transport == transport }
+            for metric in ClementineLatencyMetric.allCases {
+                let values = transportSamples.compactMap { value(for: metric, in: $0) }
+                guard values.count >= requiredSamples,
+                      let observedP95Ms = clementineLatencyPercentile(values, fraction: 0.95) else {
+                    pendingMetricCount += 1
+                    continue
+                }
+
+                evaluatedMetricCount += 1
+                let budgetP95Ms = budget.milliseconds(for: metric)
+                guard observedP95Ms > budgetP95Ms else { continue }
+                breaches.append(
+                    ClementineLatencySLOBreach(
+                        transport: transport,
+                        metric: metric,
+                        observedP95Ms: observedP95Ms,
+                        budgetP95Ms: budgetP95Ms,
+                        isCritical: observedP95Ms > budgetP95Ms * criticalMultiplier
+                    )
+                )
+            }
+        }
+
+        let level: ClementineLatencyHealthLevel
+        if evaluatedMetricCount == 0 {
+            level = .collecting
+        } else if breaches.contains(where: { $0.isCritical }) {
+            level = .critical
+        } else if !breaches.isEmpty {
+            level = .warning
+        } else {
+            level = .healthy
+        }
+
+        return ClementineLatencyHealth(
+            level: level,
+            evaluatedMetricCount: evaluatedMetricCount,
+            pendingMetricCount: pendingMetricCount,
+            minimumSamplesPerMetric: requiredSamples,
+            breaches: breaches.sorted {
+                if $0.isCritical != $1.isCritical { return $0.isCritical && !$1.isCritical }
+                let leftRatio = $0.observedP95Ms / $0.budgetP95Ms
+                let rightRatio = $1.observedP95Ms / $1.budgetP95Ms
+                return leftRatio > rightRatio
+            }
+        )
+    }
+
+    private static func value(
+        for metric: ClementineLatencyMetric,
+        in sample: ClementineLatencySample
+    ) -> Double? {
+        switch metric {
+        case .firstText:
+            return sample.firstTextMs
+        case .firstAudio:
+            return sample.firstAudioMs
+        case .bargeInAcknowledged:
+            return sample.bargeInAckMs
+        }
+    }
+}
+
+extension ClementineLatencyTransport {
+    var displayName: String {
+        switch self {
+        case .realtimeVoice:
+            return "Realtime voice"
+        case .studioTypedSpeech:
+            return "Studio speech"
+        case .turnBasedVoice:
+            return "Turn-based voice"
+        }
+    }
+}
+
 @MainActor
 final class ClementineLatencyTelemetryStore: ObservableObject {
     static let shared = ClementineLatencyTelemetryStore()
@@ -100,13 +300,17 @@ final class ClementineLatencyTelemetryStore: ObservableObject {
             latestFirstTextMs: samples.reversed().compactMap(\.firstTextMs).first,
             latestFirstAudioMs: samples.reversed().compactMap(\.firstAudioMs).first,
             latestBargeInAckMs: samples.reversed().compactMap(\.bargeInAckMs).first,
-            medianFirstTextMs: Self.percentile(textValues, fraction: 0.50),
-            p95FirstTextMs: Self.percentile(textValues, fraction: 0.95),
-            medianFirstAudioMs: Self.percentile(audioValues, fraction: 0.50),
-            p95FirstAudioMs: Self.percentile(audioValues, fraction: 0.95),
+            medianFirstTextMs: clementineLatencyPercentile(textValues, fraction: 0.50),
+            p95FirstTextMs: clementineLatencyPercentile(textValues, fraction: 0.95),
+            medianFirstAudioMs: clementineLatencyPercentile(audioValues, fraction: 0.50),
+            p95FirstAudioMs: clementineLatencyPercentile(audioValues, fraction: 0.95),
             latestNetworkClass: latest.speechNetworkClass,
             latestSpeechTargetCharacters: latest.speechTargetCharacters
         )
+    }
+
+    var health: ClementineLatencyHealth {
+        ClementineLatencySLOEvaluator.evaluate(samples: samples)
     }
 
     func beginTurn(
@@ -234,16 +438,16 @@ final class ClementineLatencyTelemetryStore: ObservableObject {
         guard let data = try? JSONEncoder().encode(samples) else { return }
         defaults.set(data, forKey: storageKey)
     }
+}
 
-    private static func percentile(_ values: [Double], fraction: Double) -> Double? {
-        guard !values.isEmpty else { return nil }
-        let sorted = values.sorted()
-        let clamped = min(max(fraction, 0), 1)
-        let position = clamped * Double(sorted.count - 1)
-        let lower = Int(position.rounded(.down))
-        let upper = Int(position.rounded(.up))
-        guard lower != upper else { return sorted[lower] }
-        let weight = position - Double(lower)
-        return sorted[lower] + ((sorted[upper] - sorted[lower]) * weight)
-    }
+private func clementineLatencyPercentile(_ values: [Double], fraction: Double) -> Double? {
+    guard !values.isEmpty else { return nil }
+    let sorted = values.sorted()
+    let clamped = min(max(fraction, 0), 1)
+    let position = clamped * Double(sorted.count - 1)
+    let lower = Int(position.rounded(.down))
+    let upper = Int(position.rounded(.up))
+    guard lower != upper else { return sorted[lower] }
+    let weight = position - Double(lower)
+    return sorted[lower] + ((sorted[upper] - sorted[lower]) * weight)
 }
