@@ -111,6 +111,29 @@ test("a pending learning question turns the writer's next short answer into cont
   assert.equal(resolution.learningContext.authority, "writer_clarification");
 });
 
+test("a central dramatic question remains a valid structured learning answer", () => {
+  const pending = createPendingScreenplayLearningQuestion({
+    active: true,
+    shouldAsk: true,
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    targetField: "project.central_question",
+    targetLabel: "the feature's central dramatic question",
+    anchor: "Rain Docket",
+    question: "What dramatic question should the feature keep tightening?",
+  }, { askedAtTurn: 12, now: 1000 });
+  const resolution = resolvePendingScreenplayLearningAnswer({
+    pending,
+    transcript: "Can Mara expose the truth without becoming her father?",
+    projectId: "rain-docket",
+    currentTurn: 13,
+  });
+
+  assert.equal(resolution.status, "answered");
+  assert.equal(resolution.learningContext.targetField, "project.central_question");
+  assert.equal(resolution.learningContext.authority, "writer_clarification");
+});
+
 test("an answered learning question is applied before Clementine asks another one", () => {
   const plan = buildScreenplayQuestionPlan({
     transcript: "Freedom.",

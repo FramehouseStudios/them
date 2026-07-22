@@ -385,9 +385,11 @@ export function resolvePendingScreenplayLearningAnswer({
   if (!answer) return { status: "empty", shouldClear: false, learningContext: null };
   const words = answer.split(/\s+/).filter(Boolean);
   const looksLikeQuestion = /\?\s*$/.test(answer) && !/[.!]\s+/.test(answer);
+  const targetField = clean(pending.targetField, 64);
+  const acceptsQuestionValue = targetField.toLowerCase() === "project.central_question";
   if (
     NON_ANSWER_SIGNAL.test(answer) ||
-    looksLikeQuestion ||
+    (looksLikeQuestion && !acceptsQuestionValue) ||
     words.length > 140 ||
     DIRECT_PAGE_REQUEST.test(answer)
   ) {
@@ -400,7 +402,7 @@ export function resolvePendingScreenplayLearningAnswer({
       questionId: clean(pending.id, 120),
       projectId: clean(pending.projectId || projectId, 96),
       projectTitle: clean(pending.projectTitle || projectTitle, 160),
-      targetField: clean(pending.targetField, 64),
+      targetField,
       targetLabel: clean(pending.targetLabel, 120),
       anchor: clean(pending.anchor, 180),
       question: clean(pending.question, 260),

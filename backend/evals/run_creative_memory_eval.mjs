@@ -2,7 +2,7 @@
 //
 // Eval skeleton for the creative memory tier (T08).
 //
-// Seven regression cases:
+// Eight regression cases:
 //   1. memory-absent — cold user; the assembled prompt must NOT
 //      include a creative_memory block.
 //   2. memory-present — seeded user; the prompt must include a
@@ -18,6 +18,8 @@
 //      page truth and survives a cold store restore with provenance.
 //   7. structured-canon — explicit Character Bible and Story Spine corrections
 //      survive stale client sync and a cold store restore.
+//   8. confirmed-learning — direct answers to planned screenplay questions
+//      populate structured memory and enter a cold-session model prompt.
 //
 // This is a deterministic, fast eval — no LLM call. It guards the
 // PROMPT-CONSTRUCTION path. LLM-output evals (does the model use the
@@ -417,6 +419,70 @@ async function caseStructuredCanonRestore() {
   );
 }
 
+async function caseConfirmedLearningPromotion() {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const characterResult = await store.recordTriggersFromTalkTurn({
+    userId: "confirmed-learning-user",
+    transcript: "Freedom.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    learningContext: {
+      questionId: "screenplay-learning-8-character.want",
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      targetField: "character.want",
+      targetLabel: "Mara's dramatic want",
+      anchor: "Mara",
+      question: "What does Mara want badly enough to keep choosing danger instead of safety?",
+      authority: "writer_clarification",
+    },
+  });
+  const projectResult = await store.recordTriggersFromTalkTurn({
+    userId: "confirmed-learning-user",
+    transcript: "Can Mara save Eli without controlling him?",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    learningContext: {
+      questionId: "screenplay-learning-9-project.central_question",
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      targetField: "project.central_question",
+      targetLabel: "the feature's central dramatic question",
+      anchor: "Split Ferries",
+      question: "What dramatic question should every sequence tighten?",
+      authority: "writer_clarification",
+    },
+  });
+
+  const restored = createCreativeMemoryStore({ persistence });
+  const memory = await restored.getCreativeMemoryForPrompt({
+    userId: "confirmed-learning-user",
+    projectId: "split-ferries",
+    query: "Continue Mara's feature using what she wants and the central question.",
+  });
+  const prompt = buildModelPrompt({
+    persona: "You are the companion.",
+    creativeMemory: memory,
+    userInput: "Continue Mara's feature.",
+  });
+
+  check(
+    "confirmed-learning: planned answers promote into both structured domains",
+    characterResult.learningAnswersPromoted === 1 &&
+      projectResult.learningAnswersPromoted === 1 &&
+      memory?.characters?.[0]?.bible?.arc?.want === "Freedom" &&
+      memory?.projectContinuity?.centralQuestion === "Can Mara save Eli without controlling him?",
+    `character: ${JSON.stringify(characterResult)}\nproject: ${JSON.stringify(projectResult)}\nmemory: ${JSON.stringify(memory)}`,
+  );
+  check(
+    "confirmed-learning: cold model prompt receives Character Bible and Story Spine recall",
+    prompt.includes("want=Freedom") &&
+      prompt.includes("central_question: Can Mara save Eli without controlling him?"),
+    `prompt:\n${prompt}`,
+  );
+}
+
 await caseColdUser();
 await caseSeededUser();
 await caseSemanticLegacyBackfill();
@@ -424,6 +490,7 @@ await caseWriterCanonAuthority();
 await caseAcceptedPagePromotion();
 await caseReplacementCanonRestore();
 await caseStructuredCanonRestore();
+await caseConfirmedLearningPromotion();
 
 if (!allOK) {
   console.error("creative memory eval: FAILED");

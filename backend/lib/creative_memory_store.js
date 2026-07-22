@@ -135,6 +135,7 @@ const CHARACTER_ARC_FIELDS = Object.freeze([
 const WRITER_CANON_PROJECT_SCALAR_TARGETS = new Set([
   "protagonistWant",
   "protagonistNeed",
+  "antagonisticForce",
   "centralQuestion",
   "themeArgument",
   "endingImage",
@@ -218,6 +219,27 @@ const ACCEPTED_CAUSAL_FACT_FIELDS = Object.freeze([
 ]);
 const ACCEPTED_CAUSAL_FACT_PROMPT_MAX = 8;
 const WRITER_CANON_AUTHORITY = "writer_correction";
+const SCREENPLAY_LEARNING_CHARACTER_FIELDS = Object.freeze({
+  "character.want": "want",
+  "character.need": "need",
+  "character.wound": "wound",
+  "character.false_belief": "falseBelief",
+  "character.relationship_pressure": "relationshipPressure",
+  "character.current_tactic": "currentTactic",
+  "character.next_emotional_turn": "nextEmotionalTurn",
+});
+const SCREENPLAY_LEARNING_PROJECT_FIELDS = Object.freeze({
+  "project.protagonist_want": { field: "protagonistWant", kind: "scalar" },
+  "project.protagonist_need": { field: "protagonistNeed", kind: "scalar" },
+  "project.antagonistic_force": { field: "antagonisticForce", kind: "scalar" },
+  "project.central_question": { field: "centralQuestion", kind: "scalar" },
+  "project.theme_argument": { field: "themeArgument", kind: "scalar" },
+  "project.ending_image": { field: "endingImage", kind: "scalar" },
+  "scene.objective": { field: "sceneObjective", kind: "scalar" },
+  "story.next_irreversible_choice": { field: "nextScenePlan", kind: "scalar" },
+  "story_thread.payoff_choice": { field: "nextSceneMoves", kind: "list" },
+  "story_thread.next_setup": { field: "unresolvedSetups", kind: "list" },
+});
 const ACCEPTED_CANON_CORRECTION_AMBIGUITY_MARGIN = 100;
 const ACCEPTED_CANON_ACTION_TERMS = new Set([
   "abandon", "admit", "arrest", "betray", "broadcast", "burn", "choose", "confess",
@@ -2866,7 +2888,7 @@ function sanitizeScreenplayLearningContext(value, {
   };
 }
 
-function isScreenplayLearningAnswerCandidate(text) {
+function isScreenplayLearningAnswerCandidate(text, { targetField = "" } = {}) {
   const answer = cleanText(text, 2_000);
   if (!answer) return false;
   if (/^(?:i\s+don'?t\s+know|not\s+sure|no\s+idea|skip|pass|decide\s+later|you\s+decide)[.!\s]*$/i.test(answer)) {
@@ -2875,7 +2897,8 @@ function isScreenplayLearningAnswerCandidate(text) {
   if (/^(?:please\s+)?(?:write|draft|continue|finish|complete|rewrite|revise|generate)\b/i.test(answer)) {
     return false;
   }
-  if (/\?\s*$/.test(answer) && !/[.!]\s+/.test(answer)) return false;
+  const acceptsQuestionValue = cleanText(targetField, 64).toLowerCase() === "project.central_question";
+  if (!acceptsQuestionValue && /\?\s*$/.test(answer) && !/[.!]\s+/.test(answer)) return false;
   return tokenizeMemoryText(answer).length <= 140;
 }
 
@@ -2883,6 +2906,65 @@ function buildScreenplayLearningSummary({ learningContext, transcript = "" } = {
   const label = cleanText(learningContext?.targetLabel, 120) || "the story choice";
   const answer = cleanText(transcript, 260);
   return cleanText(`Writer clarified ${label}: ${answer}`, 420);
+}
+
+function buildConfirmedScreenplayLearningPromotion({ learningContext, transcript = "" } = {}) {
+  if (!learningContext || typeof learningContext !== "object" || Array.isArray(learningContext)) return null;
+  const authority = cleanText(learningContext.authority, 64).toLowerCase();
+  const questionId = cleanText(learningContext.questionId ?? learningContext.question_id, 120);
+  const targetField = cleanText(learningContext.targetField ?? learningContext.target_field, 64).toLowerCase();
+  if (authority !== "writer_clarification" || !questionId || !targetField) return null;
+
+  const rawAnswer = cleanText(transcript, 600);
+  if (!rawAnswer || /^(?:yes|yeah|yep|correct|exactly|confirmed|lock\s+(?:it|that)\s+in)[.!\s]*$/i.test(rawAnswer)) {
+    return null;
+  }
+  const answer = normalizeAuthoritativeStoryTargetValue(
+    rawAnswer.replace(/^(?:yes|yeah|yep|exactly|definitely|absolutely|confirmed)\s*[,;:\-]\s*/i, ""),
+    targetField === "project.central_question" ? 240 : 220
+  );
+  if (!answer) return null;
+
+  const characterField = SCREENPLAY_LEARNING_CHARACTER_FIELDS[targetField];
+  if (characterField) {
+    const character = normalizeCharacterName(learningContext.anchor);
+    if (!character) return null;
+    return {
+      scope: "character",
+      targetField,
+      field: characterField,
+      value: answer,
+      character,
+      projectId: cleanText(learningContext.projectId ?? learningContext.project_id, 96),
+      projectTitle: cleanText(learningContext.projectTitle ?? learningContext.project_title, 160),
+      questionId,
+    };
+  }
+
+  const projectTarget = SCREENPLAY_LEARNING_PROJECT_FIELDS[targetField];
+  const projectId = cleanText(learningContext.projectId ?? learningContext.project_id, 96);
+  const projectTitle = cleanText(learningContext.projectTitle ?? learningContext.project_title, 160);
+  if (!projectTarget || (!projectId && !projectTitle)) return null;
+  return {
+    scope: "project",
+    targetField,
+    field: projectTarget.field,
+    kind: projectTarget.kind,
+    value: answer,
+    projectId,
+    projectTitle,
+    questionId,
+  };
+}
+
+function screenplayLearningFieldLabel(field = "") {
+  return cleanText(
+    String(field || "")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[._]+/g, " ")
+      .toLowerCase(),
+    80
+  );
 }
 
 function traitsHaveSignal(traits) {
@@ -3447,6 +3529,10 @@ export function extractWriterCanonStructuredTargets({
     ["protagonistNeed", [
       /\b(?:the\s+)?protagonist(?:'s)?\s+(?:need|inner\s+need)\s+(?:is|is\s+to|should\s+be|=)\s+([^.!?;\n]{2,220})/i,
       /\b(?:the\s+)?protagonist\s+needs\s+to\s+([^.!?;\n]{2,220})/i,
+    ]],
+    ["antagonisticForce", [
+      /\b(?:the\s+)?antagonistic\s+force\s+(?:is|is\s+that|should\s+be|=)\s+([^.!?;\n]{2,220})/i,
+      /\b(?:the\s+)?(?:antagonist|opposition)\s+(?:is|comes\s+from|should\s+be|=)\s+([^.!?;\n]{2,220})/i,
     ]],
     ["centralQuestion", [
       /\b(?:the\s+)?central\s+question\s+(?:is|is\s+whether|should\s+be|=)\s+([^.!?;\n]{2,240})/i,
@@ -4944,6 +5030,123 @@ function createCreativeMemoryStore({
     }
   }
 
+  async function promoteConfirmedScreenplayLearningAnswer({ userId, promotion } = {}) {
+    if (!userId || !promotion) return { ok: false, applied: false };
+    const metadata = {
+      ...(promotion.projectId ? { projectId: promotion.projectId } : {}),
+      ...(promotion.projectTitle ? { projectTitle: promotion.projectTitle } : {}),
+      learningQuestionId: promotion.questionId,
+      learningTargetField: promotion.targetField,
+    };
+
+    if (promotion.scope === "character") {
+      const before = await readUser(userId);
+      const existingCharacter = scopeRecordsToProject(before?.characters, {
+        projectId: promotion.projectId,
+        projectTitle: promotion.projectTitle,
+        metadataKey: "metadata",
+      }).find((item) => (
+        normalizeCharacterName(item?.name).toLowerCase() === promotion.character.toLowerCase()
+      ));
+      const authoritativeField = (existingCharacter?.bible?.authoritativeFields || [])
+        .find((item) => item?.field === promotion.field);
+      if (authoritativeField) {
+        const effectiveValue = cleanText(
+          readArcField(existingCharacter?.bible?.arc, promotion.field),
+          CHARACTER_ARC_FIELD_MAX_CHARS
+        );
+        const applied = effectiveValue.toLowerCase() === promotion.value.toLowerCase();
+        return { ok: true, applied, protectedByCorrection: !applied };
+      }
+
+      const receipt = await recordCharacterMention({
+        userId,
+        characterName: promotion.character,
+        source: "screenplay_learning_confirmation",
+        tags: ["screenplay", "character-bible", "writer-clarification", "question-answer"],
+        metadata,
+        characterBible: {
+          canon: [
+            `${promotion.character}'s ${screenplayLearningFieldLabel(promotion.field)}: ${promotion.value}`,
+          ],
+          arc: { [promotion.field]: promotion.value },
+          updatedAt: nowMs(),
+        },
+      });
+      const current = await readUser(userId);
+      const character = scopeRecordsToProject(current?.characters, {
+        projectId: promotion.projectId,
+        projectTitle: promotion.projectTitle,
+        metadataKey: "metadata",
+      }).find((item) => (
+        normalizeCharacterName(item?.name).toLowerCase() === promotion.character.toLowerCase()
+      ));
+      const effectiveValue = cleanText(
+        readArcField(character?.bible?.arc, promotion.field),
+        CHARACTER_ARC_FIELD_MAX_CHARS
+      );
+      const applied = effectiveValue.toLowerCase() === promotion.value.toLowerCase();
+      const protectedByCorrection = !applied && (character?.bible?.authoritativeFields || [])
+        .some((item) => item?.field === promotion.field);
+      return { ok: Boolean(receipt?.ok), applied, protectedByCorrection };
+    }
+
+    const before = await readUser(userId);
+    const existingProject = selectProjectContinuity(before?.projects, {
+      projectId: promotion.projectId,
+      projectTitle: promotion.projectTitle,
+    });
+    const authoritativeField = (existingProject?.authoritativeFields || [])
+      .find((item) => item?.field === promotion.field);
+    if (authoritativeField) {
+      const applied = promotion.kind === "list"
+        ? (existingProject?.[promotion.field] || []).some((item) => (
+          cleanText(item, 220).toLowerCase() === promotion.value.toLowerCase()
+        ))
+        : cleanText(existingProject?.[promotion.field], 240).toLowerCase() === promotion.value.toLowerCase();
+      return { ok: true, applied, protectedByCorrection: !applied };
+    }
+    const note = cleanText(
+      `Writer clarified ${screenplayLearningFieldLabel(promotion.field)}: ${promotion.value}`,
+      200
+    );
+    const continuity = {
+      projectId: promotion.projectId,
+      projectTitle: promotion.projectTitle,
+      continuityNotes: normalizeStringList(
+        [note, ...(existingProject?.continuityNotes || [])],
+        8,
+        200
+      ),
+    };
+    if (promotion.kind === "list") {
+      const definition = PROJECT_CONTINUITY_LIST_FIELDS.find(([field]) => field === promotion.field);
+      if (!definition) return { ok: false, applied: false };
+      const [, maxItems, maxChars] = definition;
+      continuity[promotion.field] = normalizeStringList(
+        [promotion.value, ...(existingProject?.[promotion.field] || [])],
+        maxItems,
+        maxChars
+      );
+    } else {
+      continuity[promotion.field] = promotion.value;
+    }
+    const receipt = await recordProjectContinuity({ userId, continuity });
+    const after = await readUser(userId);
+    const project = selectProjectContinuity(after?.projects, {
+      projectId: promotion.projectId,
+      projectTitle: promotion.projectTitle,
+    });
+    const applied = promotion.kind === "list"
+      ? (project?.[promotion.field] || []).some((item) => (
+        cleanText(item, 220).toLowerCase() === promotion.value.toLowerCase()
+      ))
+      : cleanText(project?.[promotion.field], 240).toLowerCase() === promotion.value.toLowerCase();
+    const protectedByCorrection = !applied && (project?.authoritativeFields || [])
+      .some((item) => item?.field === promotion.field);
+    return { ok: Boolean(receipt?.ok), applied, protectedByCorrection };
+  }
+
   // T08w-triggers: extract signals from a /talk turn and fire the
   // appropriate write triggers. Pure-ish: deterministic given inputs;
   // only side effect is the writes through the existing trigger
@@ -4996,6 +5199,8 @@ function createCreativeMemoryStore({
       acceptedPagesPromoted: 0,
       acceptedPagesRecorded: 0,
       learningAnswersRecorded: 0,
+      learningAnswersPromoted: 0,
+      learningAnswersCorrectionProtected: 0,
       lexicalPhrases: 0,
       projectContinuityRecorded: false,
       sessionRecorded: false,
@@ -5017,8 +5222,17 @@ function createCreativeMemoryStore({
       projectTitle: resolvedProjectTitle,
     });
     const isLearningAnswer = Boolean(
-      cleanLearningContext && isScreenplayLearningAnswerCandidate(userText)
+      cleanLearningContext && isScreenplayLearningAnswerCandidate(userText, {
+        targetField: cleanLearningContext.targetField,
+      })
     );
+    const learningPromotion = isLearningAnswer
+      ? buildConfirmedScreenplayLearningPromotion({
+        learningContext: cleanLearningContext,
+        transcript: userText,
+      })
+      : null;
+    let learningPromotionProtected = false;
     let projectCorrection = isCorrectionTurn
       ? collectEpisodicCorrectionSignal({ text: userText })
       : null;
@@ -5343,19 +5557,42 @@ function createCreativeMemoryStore({
       turnCharacterNames.push(cleanLearningContext.anchor);
     }
 
+    if (learningPromotion) {
+      try {
+        const promotionReceipt = await promoteConfirmedScreenplayLearningAnswer({
+          userId,
+          promotion: learningPromotion,
+        });
+        if (promotionReceipt?.applied) {
+          summary.learningAnswersPromoted += 1;
+          if (learningPromotion.scope === "character") {
+            summary.structuredCharacterBibles += 1;
+          } else {
+            summary.projectContinuityRecorded = true;
+          }
+        } else if (promotionReceipt?.protectedByCorrection) {
+          summary.learningAnswersCorrectionProtected += 1;
+          learningPromotionProtected = true;
+        }
+      } catch (_e) { /* never block the response on structured learning promotion */ }
+    }
+
     const sceneHeading = firstScreenplaySceneHeading(storyMemoryText);
     const moment = firstMemoryMoment(userText) ||
       (isGeneratedScreenplayOutput ? firstMemoryMoment(assistantText) : "");
-    if (isLearningAnswer || isStoryMemoryCandidate({
-      transcript: userText,
-      reply: isGeneratedScreenplayOutput ? assistantText : "",
-      projectId: cleanProjectId,
-      projectTitle: cleanProjectTitle,
-      sceneHeading,
-      characterNames: turnCharacterNames,
-      source: cleanSource,
-      moment,
-    })) {
+    if (
+      (isLearningAnswer && !learningPromotionProtected) ||
+      (!isLearningAnswer && isStoryMemoryCandidate({
+        transcript: userText,
+        reply: isGeneratedScreenplayOutput ? assistantText : "",
+        projectId: cleanProjectId,
+        projectTitle: cleanProjectTitle,
+        sceneHeading,
+        characterNames: turnCharacterNames,
+        source: cleanSource,
+        moment,
+      }))
+    ) {
       const memorySummary = isLearningAnswer
         ? buildScreenplayLearningSummary({
           learningContext: cleanLearningContext,

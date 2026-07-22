@@ -124,7 +124,8 @@ test("recordTriggersFromTalkTurn stores spoken named-character story memory for 
 });
 
 test("recordTriggersFromTalkTurn learns a short answer to Clementine's planned story question", async () => {
-  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
   const summary = await store.recordTriggersFromTalkTurn({
     userId: "u-trig-learning-answer",
     transcript: "Freedom.",
@@ -144,18 +145,176 @@ test("recordTriggersFromTalkTurn learns a short answer to Clementine's planned s
   });
 
   assert.equal(summary.learningAnswersRecorded, 1);
+  assert.equal(summary.learningAnswersPromoted, 1);
   assert.equal(summary.episodicMemories, 1);
 
-  const memory = await store.getCreativeMemoryForPrompt({
+  const restartedStore = createCreativeMemoryStore({ persistence });
+  const memory = await restartedStore.getCreativeMemoryForPrompt({
     userId: "u-trig-learning-answer",
     projectId: "split-ferries",
     query: "What does Mara want?",
   });
+  const mara = memory.characters.find((item) => item.name === "Mara");
+  assert.equal(mara.bible.arc.want, "Freedom");
+  assert.ok(mara.bible.canon.some((item) => /Mara's want: Freedom/i.test(item)));
   assert.equal(memory.episodicMemories.length, 1);
   assert.match(memory.episodicMemories[0].summary, /Writer clarified Mara's dramatic want: Freedom/);
   assert.ok(memory.episodicMemories[0].tags.includes("writer-clarification"));
   assert.ok(memory.episodicMemories[0].tags.includes("question-answer"));
   assert.equal(memory.episodicMemories[0].tags.includes("correction"), false);
+});
+
+test("confirmed story questions populate Story Spine fields across store restarts", async () => {
+  const persistence = freshPersistence();
+  const store = createCreativeMemoryStore({ persistence });
+  const centralQuestion = "Can Mara expose the truth without becoming her father?";
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-learning-story-spine",
+    transcript: centralQuestion,
+    reply: "Good. That question can tighten every sequence toward the climax.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    learningContext: {
+      questionId: "screenplay-learning-12-project.central_question",
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      targetField: "project.central_question",
+      targetLabel: "the feature's central dramatic question",
+      anchor: "Rain Docket",
+      question: "What single dramatic question should the feature keep tightening?",
+      authority: "writer_clarification",
+    },
+  });
+
+  assert.equal(summary.learningAnswersRecorded, 1);
+  assert.equal(summary.learningAnswersPromoted, 1);
+  const restartedStore = createCreativeMemoryStore({ persistence });
+  const memory = await restartedStore.getCreativeMemoryForPrompt({
+    userId: "u-trig-learning-story-spine",
+    projectId: "rain-docket",
+    query: "What question drives the whole feature?",
+  });
+  assert.equal(memory.projectContinuity.centralQuestion, centralQuestion);
+  assert.ok(memory.projectContinuity.continuityNotes.some((item) => (
+    /Writer clarified central question/.test(item)
+  )));
+});
+
+test("authoritative corrections block stale clarification replay across sessions", async () => {
+  const persistence = freshPersistence();
+  const userId = "u-trig-learning-correction-safe";
+  const learningContext = {
+    questionId: "screenplay-learning-3-character.false_belief",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    targetField: "character.false_belief",
+    targetLabel: "Mara's false belief",
+    anchor: "Mara",
+    question: "What false belief is Mara still using to survive?",
+    authority: "writer_clarification",
+  };
+  let store = createCreativeMemoryStore({ persistence });
+  await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "Perfect proof can keep everyone safe.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    learningContext,
+  });
+  await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "Actually, Mara's false belief is that truth will get Eli killed, not that perfect proof can keep everyone safe.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+
+  const beforeReplayMemory = await store.getCreativeMemoryForPrompt({
+    userId,
+    projectId: "rain-docket",
+    query: "What does Mara falsely believe?",
+  });
+  const beforeReplayMara = beforeReplayMemory.characters.find((item) => item.name === "Mara");
+
+  store = createCreativeMemoryStore({ persistence });
+  const replay = await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "Perfect proof can keep everyone safe.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    learningContext,
+  });
+  assert.equal(replay.learningAnswersPromoted, 0);
+  assert.equal(replay.learningAnswersCorrectionProtected, 1);
+  assert.equal(replay.learningAnswersRecorded, 0);
+
+  const restartedStore = createCreativeMemoryStore({ persistence });
+  const memory = await restartedStore.getCreativeMemoryForPrompt({
+    userId,
+    projectId: "rain-docket",
+    query: "What does Mara falsely believe?",
+  });
+  const mara = memory.characters.find((item) => item.name === "Mara");
+  assert.equal(mara.bible.arc.falseBelief, "truth will get Eli killed");
+  assert.equal(mara.source, beforeReplayMara.source);
+  assert.equal(mara.updatedAt, beforeReplayMara.updatedAt);
+  assert.equal(
+    mara.bible.authoritativeFields.find((item) => item.field === "falseBelief")?.source,
+    "writer_correction"
+  );
+  assert.ok(!JSON.stringify(memory).includes("Writer clarified Mara's false belief: Perfect proof"));
+});
+
+test("Story Spine corrections block stale clarification replay across sessions", async () => {
+  const persistence = freshPersistence();
+  const userId = "u-trig-learning-story-spine-correction-safe";
+  const learningContext = {
+    questionId: "screenplay-learning-6-project.central_question",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    targetField: "project.central_question",
+    targetLabel: "the feature's central dramatic question",
+    anchor: "Rain Docket",
+    question: "What dramatic question should every sequence tighten?",
+    authority: "writer_clarification",
+  };
+  let store = createCreativeMemoryStore({ persistence });
+  await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "Whether Mara can save the ferry without losing Eli.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    learningContext,
+  });
+  await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "Actually, the central question is whether Mara can expose the truth without becoming her father, not whether Mara can save the ferry without losing Eli.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+  });
+
+  store = createCreativeMemoryStore({ persistence });
+  const replay = await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "Whether Mara can save the ferry without losing Eli.",
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    learningContext,
+  });
+  assert.equal(replay.learningAnswersPromoted, 0);
+  assert.equal(replay.learningAnswersCorrectionProtected, 1);
+  assert.equal(replay.learningAnswersRecorded, 0);
+
+  const restartedStore = createCreativeMemoryStore({ persistence });
+  const memory = await restartedStore.getCreativeMemoryForPrompt({
+    userId,
+    projectId: "rain-docket",
+    query: "What is the central dramatic question?",
+  });
+  assert.equal(
+    memory.projectContinuity.centralQuestion,
+    "whether Mara can expose the truth without becoming her father"
+  );
+  assert.ok(!JSON.stringify(memory).includes("Writer clarified the feature's central dramatic question: Whether Mara can save"));
 });
 
 test("getCreativeMemoryForPrompt semantically recalls episodic story memory without exact wording", async () => {

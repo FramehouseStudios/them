@@ -3564,7 +3564,7 @@ GUIDANCE:
 - planner_rule -> execute the turn_planner sequence before writing final wording.
 - screenplay_question_plan -> ${screenplayQuestionSummary}
 - screenplay_question_rule -> ${screenplayQuestionRule}
-- screenplay_memory_learning_rule -> a direct writer answer to the planned question is durable WRITER_CLARIFICATION memory, not locked canon; explicit corrections and explicit canon declarations still outrank it.
+- screenplay_memory_learning_rule -> a direct writer answer to the planned question is durable WRITER_CLARIFICATION memory and should populate its matching Character Bible or Story Spine field; it is not locked canon, so explicit corrections and explicit canon declarations still outrank it.
 - idea_development_mode -> ${turnPlanner.intent === "idea_development" ? "active" : "inactive"}
 - idea_development_rule -> if active: co-build in this order: mirror the user's core idea, sharpen one constraint, propose one concrete iteration step, then ask one specific build-choice question.
 - idea_development_guard -> avoid generic prompts like "let's keep this grounded"; reference at least one concrete term from the user's idea.
