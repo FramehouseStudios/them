@@ -51,6 +51,12 @@ import {
   rankStoryRescueMovesForContext,
   selectStoryMoveLibraryLinesForContext,
 } from "./story_rescue_move_library.js";
+import {
+  buildScreenplayQuestionPlan,
+  createPendingScreenplayLearningQuestion,
+  enforceScreenplayQuestionPlan,
+  resolvePendingScreenplayLearningAnswer,
+} from "./screenplay_question_planner.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts"]);
 
@@ -1353,6 +1359,8 @@ function createTalkHandler(deps) {
   };
   let thinkingDelayMs = pickThinkingDurationMs();
   const thinkingStartedAt = Date.now();
+  let screenplayLearningAnswerContext = null;
+  let screenplayQuestionPlan = null;
 
   const t0 = Date.now();
   let sttMs = 0, chatMs = 0, ttsMs = 0;
@@ -1383,6 +1391,7 @@ function createTalkHandler(deps) {
         sessionStartedAt,
         sessionDurationMs,
         source: source || (screenplayText ? "talk_screenplay_output" : "talk_turn"),
+        learningContext: screenplayLearningAnswerContext,
       }))
       .catch((err) => {
         console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
@@ -2283,6 +2292,26 @@ function createTalkHandler(deps) {
     const ipCheckInCooldownActive = hasRecentCheckInForIp(requesterIp);
     const shouldAskCheckInThisTurn = sessionNeedsCheckIn && !ipCheckInCooldownActive;
     const turnsInSession = Math.max(0, Number(sessionMemory?.turns || 0));
+    if (sessionMemory) {
+      const pendingLearningResolution = resolvePendingScreenplayLearningAnswer({
+        pending: sessionMemory.pendingScreenplayLearningQuestion,
+        transcript,
+        projectId: studioMeta?.screenplayProjectId,
+        projectTitle:
+          req.body?.screenplayProjectTitle ??
+          req.body?.screenplay_project_title ??
+          req.body?.projectTitle ??
+          req.body?.project_title ??
+          req.body?.pack ??
+          "",
+        currentTurn: turnsInSession,
+      });
+      screenplayLearningAnswerContext = pendingLearningResolution.learningContext;
+      if (pendingLearningResolution.shouldClear) {
+        delete sessionMemory.pendingScreenplayLearningQuestion;
+      }
+      if (activeSession) activeSession.memory = sessionMemory;
+    }
     const growthProgress = Math.max(0, Math.min(1, Number(sessionMemory?.growthProgress || 0)));
     const growthLevel = Math.max(1, Number(sessionMemory?.growthLevel || 1));
     const growthGuidance = growthGuidanceLine(growthLevel);
@@ -3119,6 +3148,14 @@ function createTalkHandler(deps) {
       screenplayTaskHint: transcript,
       memory: sessionMemory,
     });
+    screenplayQuestionPlan = buildScreenplayQuestionPlan({
+      transcript,
+      creativeMemoryTrace: req.creativeMemoryTrace,
+      studioMeta,
+      turnPlanner,
+      answeredLearningContext: screenplayLearningAnswerContext,
+    });
+    turnPlanner.screenplayQuestionPlan = screenplayQuestionPlan;
     // T21: when this is a screenplay page-write turn, append a compact
     // craft-context block describing the active framework (and, when
     // available, the user's coverage state). Cheap and additive: the
@@ -3493,6 +3530,16 @@ EVOLVING SELF-AWARENESS:
       `avg_quality:${Number(memoryGuardrailsNow.avgQuality || 0).toFixed(2)} ` +
       `low_usefulness:${memoryGuardrailsNow.lowUsefulnessCount}/${memoryGuardrailsNow.totalThemes}`;
     const userPrimaryName = normalizeUserPersonName(sessionMemory?.userPrimaryName);
+    const screenplayQuestionSummary = screenplayQuestionPlan?.active
+      ? `mode=${screenplayQuestionPlan.mode} ask=${screenplayQuestionPlan.shouldAsk ? "1" : "0"} target=${screenplayQuestionPlan.targetField || "none"} reason=${screenplayQuestionPlan.reason || "none"}`
+      : "inactive";
+    const screenplayQuestionRule = screenplayQuestionPlan?.shouldAsk
+      ? `First execute this turn's useful story work. Then end with exactly one question using question_text=${JSON.stringify(screenplayQuestionPlan.question)}. Do not substitute a generic question or ask anything else.`
+      : screenplayQuestionPlan?.mode === "answer_now"
+        ? "Deliver the requested pages or rewrite now. Do not block the work with a clarifying question."
+        : screenplayQuestionPlan?.mode === "apply_learning"
+          ? screenplayQuestionPlan.objective
+        : "Do not invent a screenplay-learning question this turn.";
     let directorAddendum = "";
     try {
       directorAddendum = `
@@ -3515,6 +3562,9 @@ GUIDANCE:
 - routing_rule -> high_distress_safety > knowledge > therapeutic_depth > social_spark > vulnerability_quiet > creative > philosophical > normal_rotation.
 - turn_planner -> intent=${turnPlanner.intent} emotion=${turnPlanner.emotionToMatch} question_policy=${turnPlanner.questionPolicy} next=${turnPlanner.nextBestMove} depth=${turnPlanner.plannerDepth.toFixed(2)} rel_depth=${turnPlanner.relationshipDepth.toFixed(1)}
 - planner_rule -> execute the turn_planner sequence before writing final wording.
+- screenplay_question_plan -> ${screenplayQuestionSummary}
+- screenplay_question_rule -> ${screenplayQuestionRule}
+- screenplay_memory_learning_rule -> a direct writer answer to the planned question is durable WRITER_CLARIFICATION memory, not locked canon; explicit corrections and explicit canon declarations still outrank it.
 - idea_development_mode -> ${turnPlanner.intent === "idea_development" ? "active" : "inactive"}
 - idea_development_rule -> if active: co-build in this order: mirror the user's core idea, sharpen one constraint, propose one concrete iteration step, then ask one specific build-choice question.
 - idea_development_guard -> avoid generic prompts like "let's keep this grounded"; reference at least one concrete term from the user's idea.
@@ -4101,6 +4151,20 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         });
       }
     }
+    if (!isScreenplayPageWriteTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
+      const plannedQuestionReply = enforceScreenplayQuestionPlan(reply, screenplayQuestionPlan);
+      if (plannedQuestionReply && plannedQuestionReply !== reply) {
+        reply = plannedQuestionReply;
+        replyRepaired = true;
+        heuristicTurnQuality = evaluateTurnQualityHeuristics({
+          transcript,
+          reply,
+          flags,
+          routingLane,
+          turnIntent: String(turnPlanner.intent || "unknown"),
+        });
+      }
+    }
     const usedBoundaryEdgeLine = hasBoundaryEdgeStatement(reply);
     logger.log(`\n[${reqId}] assistant reply:\n${reply}\n`);
     const didUseCheckInOpener = startsWithDayFeelingCheckIn(reply);
@@ -4359,6 +4423,25 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           rawReply = reply;
           replyRepaired = true;
           talkScreenplayRepairTrace.outcome = "fallback_momentum_rescue";
+        }
+      }
+    }
+    if (!isScreenplayPageWriteTurn && !localActionReply && screenplayQuestionPlan?.shouldAsk) {
+      const finalPlannedQuestionReply = enforceScreenplayQuestionPlan(reply, screenplayQuestionPlan);
+      if (finalPlannedQuestionReply && finalPlannedQuestionReply !== reply) {
+        reply = finalPlannedQuestionReply;
+        rawReply = reply;
+        replyRepaired = true;
+      }
+      if (sessionMemory) {
+        const pendingQuestion = createPendingScreenplayLearningQuestion(
+          screenplayQuestionPlan,
+          { askedAtTurn: turnsInSession }
+        );
+        if (pendingQuestion) {
+          sessionMemory.pendingScreenplayLearningQuestion = pendingQuestion;
+          if (activeSession) activeSession.memory = sessionMemory;
+          persistTalkMemory(sessionMemory, Date.now());
         }
       }
     }

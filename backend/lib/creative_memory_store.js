@@ -2830,6 +2830,61 @@ function buildEpisodicSummary({
   );
 }
 
+function sanitizeScreenplayLearningContext(value, {
+  projectId = "",
+  projectTitle = "",
+} = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const targetField = cleanText(value.targetField ?? value.target_field, 64);
+  const targetLabel = cleanText(value.targetLabel ?? value.target_label, 120);
+  const question = cleanText(value.question, 260);
+  if (!targetField || !targetLabel || !question) return null;
+  const contextProjectId = cleanText(value.projectId ?? value.project_id, 96);
+  const contextProjectTitle = cleanText(value.projectTitle ?? value.project_title, 160);
+  const cleanProjectId = cleanText(projectId, 96);
+  const cleanProjectTitle = cleanText(projectTitle, 160);
+  if (
+    contextProjectId &&
+    cleanProjectId &&
+    contextProjectId.toLowerCase() !== cleanProjectId.toLowerCase()
+  ) return null;
+  if (
+    !contextProjectId &&
+    contextProjectTitle &&
+    cleanProjectTitle &&
+    contextProjectTitle.toLowerCase() !== cleanProjectTitle.toLowerCase()
+  ) return null;
+  return {
+    questionId: cleanText(value.questionId ?? value.question_id, 120),
+    projectId: contextProjectId || cleanProjectId,
+    projectTitle: contextProjectTitle || cleanProjectTitle,
+    targetField,
+    targetLabel,
+    anchor: cleanText(value.anchor, 180),
+    question,
+    authority: "writer_clarification",
+  };
+}
+
+function isScreenplayLearningAnswerCandidate(text) {
+  const answer = cleanText(text, 2_000);
+  if (!answer) return false;
+  if (/^(?:i\s+don'?t\s+know|not\s+sure|no\s+idea|skip|pass|decide\s+later|you\s+decide)[.!\s]*$/i.test(answer)) {
+    return false;
+  }
+  if (/^(?:please\s+)?(?:write|draft|continue|finish|complete|rewrite|revise|generate)\b/i.test(answer)) {
+    return false;
+  }
+  if (/\?\s*$/.test(answer) && !/[.!]\s+/.test(answer)) return false;
+  return tokenizeMemoryText(answer).length <= 140;
+}
+
+function buildScreenplayLearningSummary({ learningContext, transcript = "" } = {}) {
+  const label = cleanText(learningContext?.targetLabel, 120) || "the story choice";
+  const answer = cleanText(transcript, 260);
+  return cleanText(`Writer clarified ${label}: ${answer}`, 420);
+}
+
 function traitsHaveSignal(traits) {
   if (!traits || typeof traits !== "object") return false;
   if (Array.isArray(traits.vocabulary) && traits.vocabulary.length) return true;
@@ -4906,6 +4961,7 @@ function createCreativeMemoryStore({
     acceptedSceneContext = null,
     acceptedPageText = "",
     source = "talk_turn",
+    learningContext = null,
   } = {}) {
     if (!userId) return { skipped: true, reason: "no userId" };
     const cleanProjectId = cleanText(projectId, 96);
@@ -4939,6 +4995,7 @@ function createCreativeMemoryStore({
       canonCorrectionAmbiguity: null,
       acceptedPagesPromoted: 0,
       acceptedPagesRecorded: 0,
+      learningAnswersRecorded: 0,
       lexicalPhrases: 0,
       projectContinuityRecorded: false,
       sessionRecorded: false,
@@ -4954,6 +5011,13 @@ function createCreativeMemoryStore({
     const resolvedProjectTitle = cleanProjectTitle || cleanText(
       continuitySource.projectTitle ?? continuitySource.project_title,
       160
+    );
+    const cleanLearningContext = sanitizeScreenplayLearningContext(learningContext, {
+      projectId: resolvedProjectId,
+      projectTitle: resolvedProjectTitle,
+    });
+    const isLearningAnswer = Boolean(
+      cleanLearningContext && isScreenplayLearningAnswerCandidate(userText)
     );
     let projectCorrection = isCorrectionTurn
       ? collectEpisodicCorrectionSignal({ text: userText })
@@ -5269,10 +5333,20 @@ function createCreativeMemoryStore({
       }
     }
 
+    if (
+      isLearningAnswer &&
+      cleanLearningContext.targetField.startsWith("character.") &&
+      cleanLearningContext.anchor &&
+      turnCharacterNames.length < 8 &&
+      !turnCharacterNames.some((item) => item.toLowerCase() === cleanLearningContext.anchor.toLowerCase())
+    ) {
+      turnCharacterNames.push(cleanLearningContext.anchor);
+    }
+
     const sceneHeading = firstScreenplaySceneHeading(storyMemoryText);
     const moment = firstMemoryMoment(userText) ||
       (isGeneratedScreenplayOutput ? firstMemoryMoment(assistantText) : "");
-    if (isStoryMemoryCandidate({
+    if (isLearningAnswer || isStoryMemoryCandidate({
       transcript: userText,
       reply: isGeneratedScreenplayOutput ? assistantText : "",
       projectId: cleanProjectId,
@@ -5282,14 +5356,19 @@ function createCreativeMemoryStore({
       source: cleanSource,
       moment,
     })) {
-      const memorySummary = buildEpisodicSummary({
-        characterNames: turnCharacterNames,
-        sceneHeading,
-        moment,
-        projectTitle: cleanProjectTitle,
-        transcript: userText,
-        isCorrection: isCorrectionTurn,
-      });
+      const memorySummary = isLearningAnswer
+        ? buildScreenplayLearningSummary({
+          learningContext: cleanLearningContext,
+          transcript: userText,
+        })
+        : buildEpisodicSummary({
+          characterNames: turnCharacterNames,
+          sceneHeading,
+          moment,
+          projectTitle: cleanProjectTitle,
+          transcript: userText,
+          isCorrection: isCorrectionTurn,
+        });
       try {
         const correctionSignal = isCorrectionTurn
           ? mergeCorrectionSignals(
@@ -5306,6 +5385,15 @@ function createCreativeMemoryStore({
           projectId: cleanProjectId,
           projectTitle: cleanProjectTitle,
         });
+        if (isLearningAnswer) {
+          tags.push("writer-clarification", "question-answer");
+          const targetTag = cleanLearningContext.targetField
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 48);
+          if (targetTag) tags.push(targetTag);
+        }
         const acceptedOutput = Boolean(
           cleanAcceptedPageText &&
           screenplayPageMemoryHash(assistantText) === screenplayPageMemoryHash(cleanAcceptedPageText)
@@ -5326,6 +5414,7 @@ function createCreativeMemoryStore({
           correction: correctionSignal,
         });
         if (receipt?.ok) summary.episodicMemories += 1;
+        if (receipt?.ok && isLearningAnswer) summary.learningAnswersRecorded += 1;
         if (receipt?.ok && isCorrectionTurn) correctionMemoryId = cleanText(receipt.memoryId, 80);
         if (receipt?.ok && acceptedOutput) summary.acceptedPagesRecorded += 1;
         if (receipt?.ok && isCorrectionTurn) summary.corrections += 1;

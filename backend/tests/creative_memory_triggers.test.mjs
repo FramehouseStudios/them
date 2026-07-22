@@ -123,6 +123,41 @@ test("recordTriggersFromTalkTurn stores spoken named-character story memory for 
   assert.match(memory.episodicMemories[0].excerpt, /cassette/);
 });
 
+test("recordTriggersFromTalkTurn learns a short answer to Clementine's planned story question", async () => {
+  const store = createCreativeMemoryStore({ persistence: freshPersistence() });
+  const summary = await store.recordTriggersFromTalkTurn({
+    userId: "u-trig-learning-answer",
+    transcript: "Freedom.",
+    reply: "Then every rescue attempt should threaten to become another cage.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    learningContext: {
+      questionId: "screenplay-learning-8-character.want",
+      projectId: "split-ferries",
+      projectTitle: "Split Ferries",
+      targetField: "character.want",
+      targetLabel: "Mara's dramatic want",
+      anchor: "Mara",
+      question: "What does Mara want badly enough to keep choosing danger instead of safety?",
+      authority: "writer_clarification",
+    },
+  });
+
+  assert.equal(summary.learningAnswersRecorded, 1);
+  assert.equal(summary.episodicMemories, 1);
+
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId: "u-trig-learning-answer",
+    projectId: "split-ferries",
+    query: "What does Mara want?",
+  });
+  assert.equal(memory.episodicMemories.length, 1);
+  assert.match(memory.episodicMemories[0].summary, /Writer clarified Mara's dramatic want: Freedom/);
+  assert.ok(memory.episodicMemories[0].tags.includes("writer-clarification"));
+  assert.ok(memory.episodicMemories[0].tags.includes("question-answer"));
+  assert.equal(memory.episodicMemories[0].tags.includes("correction"), false);
+});
+
 test("getCreativeMemoryForPrompt semantically recalls episodic story memory without exact wording", async () => {
   const store = createCreativeMemoryStore({ persistence: freshPersistence() });
   await store.recordTriggersFromTalkTurn({

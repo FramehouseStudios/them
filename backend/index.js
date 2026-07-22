@@ -3128,6 +3128,7 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
     acceptedSceneContext,
     acceptedPageText,
     source,
+    learningContext: turn?.learningContext,
   });
 }
 
@@ -3547,8 +3548,17 @@ function buildScreenplayProjectMemoryPromptTrace(project = null) {
     applied: true,
     project_id: normalizeSnippet(project.projectId, 96),
     project_title: normalizeSnippet(project.projectTitle, 160),
+    logline: normalizeSnippet(project.logline, 260),
+    theme_argument: normalizeSnippet(project.themeArgument, 220),
+    central_question: normalizeSnippet(project.centralQuestion, 220),
+    protagonist_want: normalizeSnippet(project.protagonistWant, 220),
+    protagonist_need: normalizeSnippet(project.protagonistNeed, 220),
+    antagonistic_force: normalizeSnippet(project.antagonisticForce, 220),
+    ending_image: normalizeSnippet(project.endingImage, 220),
     act: normalizeSnippet(project.act, 80),
     feature_sequence: normalizeSnippet(project.featureSequence, 180),
+    feature_obligation: normalizeSnippet(project.featureObligation, 220),
+    scene_objective: normalizeSnippet(project.sceneObjective, 220),
     current_beat: normalizeSnippet(project.currentBeat, 180),
     act_progress: screenplayActProgressToApi(project.actProgress),
     next_scene_plan: normalizeSnippet(project.nextScenePlan, 220),
@@ -3581,9 +3591,25 @@ function buildCreativeMemoryPromptTrace(memory = null, {
   const characters = Array.isArray(memory?.characters)
     ? memory.characters.slice(0, 8).map((character) => {
       const bible = character?.bible && typeof character.bible === "object" ? character.bible : null;
+      const arc = bible?.arc && typeof bible.arc === "object" ? bible.arc : null;
       return {
         name: normalizeSnippet(character?.name, 80),
         has_bible: Boolean(bible),
+        arc: arc ? Object.fromEntries(Object.entries({
+          want: normalizeSnippet(arc.want, 180),
+          need: normalizeSnippet(arc.need, 180),
+          wound: normalizeSnippet(arc.wound, 180),
+          false_belief: normalizeSnippet(arc.falseBelief ?? arc.false_belief, 180),
+          relationship_pressure: normalizeSnippet(
+            arc.relationshipPressure ?? arc.relationship_pressure,
+            180
+          ),
+          current_tactic: normalizeSnippet(arc.currentTactic ?? arc.current_tactic, 180),
+          next_emotional_turn: normalizeSnippet(
+            arc.nextEmotionalTurn ?? arc.next_emotional_turn,
+            180
+          ),
+        }).filter(([, value]) => Boolean(value))) : null,
         has_corrections: Boolean(
           (Array.isArray(bible?.corrections) && bible.corrections.length) ||
           (Array.isArray(bible?.correctedTerms) && bible.correctedTerms.length) ||
@@ -3600,11 +3626,14 @@ function buildCreativeMemoryPromptTrace(memory = null, {
       const source = normalizeSnippet(episode?.source, 64);
       const correction = tags.some((tag) => tag.toLowerCase() === "correction");
       const userNote = tags.some((tag) => tag.toLowerCase() === "user-note");
+      const writerClarification = tags.some((tag) => tag.toLowerCase() === "writer-clarification");
       const acceptedPage = tags.some((tag) => tag.toLowerCase() === "accepted-pages");
       const authority = correction
         ? "user_correction"
         : userNote
           ? "user_note"
+          : writerClarification
+            ? "writer_clarification"
           : acceptedPage
             ? "accepted_page"
             : source === "talk_screenplay_output"

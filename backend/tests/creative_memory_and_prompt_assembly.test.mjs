@@ -951,6 +951,11 @@ test("buildModelPrompt distinguishes writer canon from generated draft continuit
           tags: ["screenplay", "user-note"],
         },
         {
+          summary: "Writer clarified Mara's dramatic want: Freedom.",
+          source: "talk_turn",
+          tags: ["screenplay", "writer-clarification", "question-answer"],
+        },
+        {
           summary: "They discussed moving the midpoint into the hearing.",
           source: "talk_turn",
           tags: ["screenplay"],
@@ -963,7 +968,9 @@ test("buildModelPrompt distinguishes writer canon from generated draft continuit
   assert.ok(out.includes("DRAFT_PAGE: Mara finds the affidavit"));
   assert.ok(out.includes("ACCEPTED_PAGE: Mara uses the affidavit"));
   assert.ok(out.includes("USER_NOTE: The ending image"));
+  assert.ok(out.includes("WRITER_CLARIFICATION: Writer clarified Mara's dramatic want"));
   assert.ok(out.includes("CONVERSATION_CONTEXT: They discussed"));
+  assert.ok(out.includes("WRITER_CLARIFICATION is a direct answer"));
   assert.ok(out.includes("CONVERSATION_CONTEXT is a recall clue, not canon"));
   assert.ok(out.includes("ACCEPTED_PAGE was committed into Studio"));
   assert.ok(out.includes("Current project continuity and user corrections win every conflict"));
