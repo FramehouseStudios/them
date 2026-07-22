@@ -174,6 +174,62 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
+    func test_studio_compact_drawers_fit_phone_and_remain_mutually_exclusive() {
+        let app = launchApp(openStudio: true, structuralSeed: true)
+        defer { app.terminate() }
+
+        let studio = app.otherElements["studio.surface"]
+        XCTAssertTrue(
+            studio.waitForExistence(timeout: 10),
+            "Studio surface did not open. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertLessThanOrEqual(
+            studio.frame.maxX,
+            app.frame.maxX + 1,
+            "Studio extended past the phone viewport: studio=\(studio.frame), app=\(app.frame)"
+        )
+        let compactDone = app.buttons["studio.compact.done"]
+        XCTAssertTrue(compactDone.waitForExistence(timeout: 5), "Compact close control was not exposed.")
+        let leftToggle = app.buttons["studio.sidebar.left.toggle"]
+        XCTAssertTrue(
+            waitForHittability(of: compactDone, timeout: 3),
+            "Compact close control was compressed or obstructed: control=\(compactDone.frame), left=\(leftToggle.frame), app=\(app.frame)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            compactDone.frame.minY,
+            54,
+            "Compact header remained underneath the phone status region: control=\(compactDone.frame)"
+        )
+
+        let leftDrawer = element(identifier: "studio.sidebar.left.drawer", in: app)
+        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertFalse(leftDrawer.exists, "Project drawer should begin closed on compact layouts.")
+        XCTAssertFalse(rightDrawer.exists, "Inspector drawer should begin closed on compact layouts.")
+
+        XCTAssertTrue(leftToggle.waitForExistence(timeout: 5))
+        XCTAssertTrue(leftToggle.isHittable)
+        leftToggle.tap()
+        XCTAssertTrue(leftDrawer.waitForExistence(timeout: 5), "Project drawer did not open.")
+        XCTAssertFalse(rightDrawer.exists, "Inspector remained open behind the project drawer.")
+
+        let rightToggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(rightToggle.waitForExistence(timeout: 5))
+        XCTAssertTrue(rightToggle.isHittable)
+        rightToggle.tap()
+        XCTAssertTrue(rightDrawer.waitForExistence(timeout: 5), "Inspector drawer did not open.")
+        XCTAssertTrue(
+            waitForDisappearance(of: leftDrawer, timeout: 5),
+            "Project drawer remained open behind the inspector."
+        )
+
+        rightToggle.tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: rightDrawer, timeout: 5),
+            "Inspector drawer did not close."
+        )
+        XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5))
+    }
+
     @MainActor
     func test_backend_project_restore_loads_seeded_screenplay_session() async throws {
         let baseURL = URL(string: "http://127.0.0.1:31337")!
@@ -471,6 +527,12 @@ final class V1SmokeUITests: XCTestCase {
             .firstMatch
     }
 
+    private func element(identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: identifier)
+            .firstMatch
+    }
+
     private func waitForDisappearance(
         of element: XCUIElement,
         timeout: TimeInterval
@@ -483,6 +545,20 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return !element.exists
+    }
+
+    private func waitForHittability(
+        of element: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists, element.isHittable {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return element.exists && element.isHittable
     }
 
     private struct RestoreContractFixture {

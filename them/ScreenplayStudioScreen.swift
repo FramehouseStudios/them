@@ -1520,13 +1520,19 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isStreamingDraftPreviewActive: Bool = false
     @Published var isManualDraftEditing: Bool = false
     @Published var paginationPages: [BackendScreenplayPaginationPage] = []
+    @Published var isPaginationRefreshing: Bool = false
+    @Published var paginationErrorText: String = ""
     @Published var linesPerPage: Int = 55
     @Published var revisionColor: String = "blue"
     @Published var revisionSummary: BackendScreenplayRevisionSummary?
     @Published var revisionRanges: [BackendScreenplayRevisionRange] = []
+    @Published var isRevisionRefreshing: Bool = false
+    @Published var revisionErrorText: String = ""
 
     @Published var collaborators: [BackendScreenplayCollaborator] = []
     @Published var approvedEmails: [String] = []
+    @Published var isCollaborationRefreshing: Bool = false
+    @Published var collaborationErrorText: String = ""
     @Published var collaboratorEmail: String = ""
     @Published var collaboratorNote: String = ""
     @Published var collaboratorInvitedBy: String = ""
@@ -2927,11 +2933,24 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             .joined(separator: " ")
     }
 
-    func refreshCollaborationData() async {
+    func refreshCollaborationData(source: String = "Background") async {
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return }
-        await loadCollaborators(projectId: id)
-        await loadComments(projectId: id)
+        guard !isCollaborationRefreshing else { return }
+
+        isCollaborationRefreshing = true
+        defer { isCollaborationRefreshing = false }
+        collaborationErrorText = ""
+        do {
+            try await loadCollaborators(projectId: id)
+            try await loadComments(projectId: id)
+        } catch {
+            collaborationErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "collaboration"
+            )
+        }
     }
 
     func approveCollaborator() async {
@@ -3364,6 +3383,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         }
         clearLocalDraftRecovery(projectId: conflict.projectId)
         conflictState = nil
+        errorText = ""
         infoText = "Loaded latest server draft."
     }
 
@@ -3374,6 +3394,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         conflictState = nil
+        errorText = ""
         await saveCurrentDraft(
             source: "studio_conflict_resolve",
             notes: "Conflict resolved: keep local",
@@ -3471,14 +3492,18 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         scheduleProgrammaticDraftAutosaveIfNeeded(source: "studio_import")
     }
 
-    func refreshDraftInsights() async {
-        await recomputePagination(for: fountainDraft)
-        await recomputeRevision(for: fountainDraft)
-        await refreshFormatLint(source: "Draft")
+    func refreshDraftInsights(source: String = "Draft") async {
+        await recomputePagination(for: fountainDraft, source: source)
+        await recomputeRevision(for: fountainDraft, source: source)
+        await refreshFormatLint(source: source)
     }
 
-    func refreshRevisionColor() async {
-        await recomputeRevision(for: fountainDraft)
+    func refreshPagination(source: String = "Draft") async {
+        await recomputePagination(for: fountainDraft, source: source)
+    }
+
+    func refreshRevisionColor(source: String = "Revision color") async {
+        await recomputeRevision(for: fountainDraft, source: source)
     }
 
     func resetCraftReportForProjectChange(clearFrameworks: Bool = false) {
@@ -4491,8 +4516,8 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             }
         }
 
-        await recomputePagination(for: draft)
-        await recomputeRevision(for: draft)
+        await recomputePagination(for: draft, source: "Draft")
+        await recomputeRevision(for: draft, source: "Draft")
         Task { await self.refreshFormatLint(source: "Draft") }
 
         if isStreamingDraftPreviewActive {
@@ -4556,6 +4581,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             lastManualDraftEditAt = .distantPast
             loadedDraftProjectID = project.id
             autosaveStatusText = "Autosaved"
+            errorText = ""
             infoText = "Local draft saved."
             clearLocalDraftRecovery(projectId: project.id)
             return
@@ -4671,7 +4697,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 baseVersionId: latestVersionID,
                 dirty: false
             )
-            await recomputeRevision(for: fountainDraft)
+            await recomputeRevision(for: fountainDraft, source: source)
             if !errorText.isEmpty {
                 errorText = ""
             }
@@ -4691,97 +4717,105 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func recomputePagination(for draft: String) async {
+    private func recomputePagination(for draft: String, source: String) async {
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             paginationPages = []
+            paginationErrorText = ""
             return
         }
+
+        isPaginationRefreshing = true
+        defer { isPaginationRefreshing = false }
         do {
-            let result = try await BackendMemoryAPI.shared.paginateScreenplayDraft(
-                draft: draft,
-                title: selectedProject?.title ?? "",
-                phase: selectedProject?.lastPhase ?? "scene_draft",
-                linesPerPage: linesPerPage
-            )
-            paginationPages = result.payload.pages
-        } catch {
-            if paginationPages.isEmpty {
-                errorText = error.localizedDescription
+            let result = try await StudioCraftResilience.run(source: source) {
+                try await BackendMemoryAPI.shared.paginateScreenplayDraft(
+                    draft: draft,
+                    title: selectedProject?.title ?? "",
+                    phase: selectedProject?.lastPhase ?? "scene_draft",
+                    linesPerPage: linesPerPage
+                )
             }
+            guard normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            paginationPages = result.payload.pages
+            paginationErrorText = ""
+        } catch {
+            paginationErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "page layout"
+            )
         }
     }
 
-    private func recomputeRevision(for draft: String) async {
+    private func recomputeRevision(for draft: String, source: String) async {
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             revisionSummary = nil
             revisionRanges = []
+            revisionErrorText = ""
             return
         }
+
+        isRevisionRefreshing = true
+        defer { isRevisionRefreshing = false }
         do {
-            let result = try await BackendMemoryAPI.shared.fetchScreenplayRevisionColors(
-                baseDraft: lastRevisionBaseDraft,
-                draft: draft,
-                revisionColor: revisionColor
-            )
+            let result = try await StudioCraftResilience.run(source: source) {
+                try await BackendMemoryAPI.shared.fetchScreenplayRevisionColors(
+                    baseDraft: lastRevisionBaseDraft,
+                    draft: draft,
+                    revisionColor: revisionColor
+                )
+            }
+            guard normalized == fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
             revisionSummary = result.payload.summary
             revisionRanges = result.payload.ranges
+            revisionErrorText = ""
         } catch {
-            if revisionRanges.isEmpty {
-                errorText = error.localizedDescription
-            }
+            revisionErrorText = StudioCraftResilience.presentedError(
+                error,
+                source: source,
+                subject: "revision colors"
+            )
         }
     }
 
-    private func loadCollaborators(projectId: String) async {
+    private func loadCollaborators(projectId: String) async throws {
+        let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
+        let result: BackendReadResult<BackendScreenplayCollaboratorsResponse>
         do {
-            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
-            let result: BackendReadResult<BackendScreenplayCollaboratorsResponse>
-            do {
-                result = try await projectSelectionAPI.fetchScreenplayCollaborators(
-                    projectId: projectId,
-                    includeUserIdentity: ownerHeaders.includeUserIdentity,
-                    includeAuthToken: ownerHeaders.includeAuthToken,
-                    clientTokenOverride: ownerHeaders.clientTokenOverride
-                )
-            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
-                result = try await projectSelectionAPI.fetchScreenplayCollaborators(projectId: projectId)
-            }
-            applyCollaboratorsPayload(result.payload)
-        } catch {
-            if errorText.isEmpty {
-                errorText = error.localizedDescription
-            }
+            result = try await projectSelectionAPI.fetchScreenplayCollaborators(
+                projectId: projectId,
+                includeUserIdentity: ownerHeaders.includeUserIdentity,
+                includeAuthToken: ownerHeaders.includeAuthToken,
+                clientTokenOverride: ownerHeaders.clientTokenOverride
+            )
+        } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+            result = try await projectSelectionAPI.fetchScreenplayCollaborators(projectId: projectId)
         }
+        applyCollaboratorsPayload(result.payload)
     }
 
-    private func loadComments(projectId: String) async {
+    private func loadComments(projectId: String) async throws {
+        let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
+        let result: BackendReadResult<BackendScreenplayCommentsResponse>
         do {
-            let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
-            let result: BackendReadResult<BackendScreenplayCommentsResponse>
-            do {
-                result = try await projectSelectionAPI.fetchScreenplayComments(
-                    projectId: projectId,
-                    limit: 160,
-                    actorEmail: resolvedCommentActorEmail(),
-                    includeUserIdentity: ownerHeaders.includeUserIdentity,
-                    includeAuthToken: ownerHeaders.includeAuthToken,
-                    clientTokenOverride: ownerHeaders.clientTokenOverride
-                )
-            } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
-                result = try await projectSelectionAPI.fetchScreenplayComments(
-                    projectId: projectId,
-                    limit: 160,
-                    actorEmail: resolvedCommentActorEmail()
-                )
-            }
-            applyCommentsPayload(result.payload)
-        } catch {
-            if errorText.isEmpty {
-                errorText = error.localizedDescription
-            }
+            result = try await projectSelectionAPI.fetchScreenplayComments(
+                projectId: projectId,
+                limit: 160,
+                actorEmail: resolvedCommentActorEmail(),
+                includeUserIdentity: ownerHeaders.includeUserIdentity,
+                includeAuthToken: ownerHeaders.includeAuthToken,
+                clientTokenOverride: ownerHeaders.clientTokenOverride
+            )
+        } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+            result = try await projectSelectionAPI.fetchScreenplayComments(
+                projectId: projectId,
+                limit: 160,
+                actorEmail: resolvedCommentActorEmail()
+            )
         }
+        applyCommentsPayload(result.payload)
     }
 
     private func projectOwnerHeaderOptions(
@@ -5568,6 +5602,7 @@ struct ScreenplayStudioScreen: View {
     @State private var navigatorDropIsTargeted: Bool = false
     @State private var directionOneLeftRailTab: DirectionOneLeftRailTab?
     @State private var isDirectionOneSidebarVisible = true
+    @State private var isDirectionOneCompactLayout = false
     @State private var directionOneWorkspaceMode: DirectionOneWorkspaceMode = .draft
     @State private var directionOneRightPanelTab: DirectionOneRightPanelTab = .them
     @State private var isDirectionOneRightRailExpanded = true
@@ -5652,6 +5687,7 @@ struct ScreenplayStudioScreen: View {
     @State private var pendingStudioTurnEvents: [BackendTurnCommittedEvent] = []
     @State private var backendThreadViewStatePersistTask: Task<Void, Never>?
     @State private var backendAskNoteHistoryPersistTask: Task<Void, Never>?
+    @State private var studioBackgroundSyncNoticeText = ""
     @State private var isRestoringFullThreadBrowseState = false
     @State private var isAwaitingInitialFullThreadRestore = true
     @State private var studioDebugSessionID = UUID().uuidString
@@ -7411,73 +7447,151 @@ Replace is best when this file should become the script you edit. Append is safe
     }
 
     private var directionOneStudioLayout: some View {
-        ZStack {
-            LinearGradient(
-                gradient: Gradient(colors: [.herPeachTop, .herPeachMid, .herPeachBottom]),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .saturation(0.40)
-            .brightness(0.07)
-            .overlay(Color.black.opacity(0.03))
-            .ignoresSafeArea()
+        GeometryReader { geometry in
+            let usesDrawers = StudioResponsiveLayout.usesDrawers(containerWidth: geometry.size.width)
+            let compactTopInset: CGFloat = {
+                #if os(iOS)
+                usesDrawers
+                    ? StudioResponsiveLayout.compactTopInset(
+                        safeAreaInset: geometry.safeAreaInsets.top,
+                        isPhone: UIDevice.current.userInterfaceIdiom == .phone
+                    )
+                    : 0
+                #else
+                0
+                #endif
+            }()
 
-            VStack(spacing: 0) {
-                directionOneHeader
-                directionOneBodyColumns
-                if directionOneTransientStatusIsVisible {
-                    directionOneTransientStatusBar
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [.herPeachTop, .herPeachMid, .herPeachBottom]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .saturation(0.40)
+                .brightness(0.07)
+                .overlay(Color.black.opacity(0.03))
+                .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    directionOneHeader(usesDrawers: usesDrawers)
+                        .frame(height: usesDrawers ? 46 : nil)
+                        .zIndex(2)
+                    directionOneBodyColumns(
+                        usesDrawers: usesDrawers,
+                        availableWidth: geometry.size.width
+                    )
+                    if directionOneTransientStatusIsVisible {
+                        directionOneTransientStatusBar
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .padding(.top, compactTopInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+                if let conflict = vm.conflictState {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+
+                    draftConflictBanner(conflict)
+                        .frame(maxWidth: 560)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 70 + compactTopInset)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else if let recovery = vm.recoveryCandidate {
+                    Color.black.opacity(0.08)
+                        .ignoresSafeArea()
+
+                    draftRecoveryBanner(recovery)
+                        .frame(maxWidth: 560)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 70 + compactTopInset)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-
-            if let conflict = vm.conflictState {
-                Color.black.opacity(0.12)
-                    .ignoresSafeArea()
-
-                draftConflictBanner(conflict)
-                    .frame(maxWidth: 560)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 70)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            } else if let recovery = vm.recoveryCandidate {
-                Color.black.opacity(0.08)
-                    .ignoresSafeArea()
-
-                draftRecoveryBanner(recovery)
-                    .frame(maxWidth: 560)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 70)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+            .animation(.easeOut(duration: 0.18), value: vm.conflictState != nil)
+            .animation(.easeOut(duration: 0.18), value: vm.recoveryCandidate != nil)
+            .onAppear {
+                configureDirectionOneResponsiveLayout(usesDrawers: usesDrawers)
+            }
+            .onChange(of: usesDrawers) { _, nextUsesDrawers in
+                configureDirectionOneResponsiveLayout(usesDrawers: nextUsesDrawers)
+            }
+            .onChange(of: isDirectionOneSidebarVisible) { _, isVisible in
+                guard isDirectionOneCompactLayout, isVisible else { return }
+                isDirectionOneRightRailExpanded = false
+            }
+            .onChange(of: isDirectionOneRightRailExpanded) { _, isVisible in
+                guard isDirectionOneCompactLayout, isVisible else { return }
+                isDirectionOneSidebarVisible = false
             }
         }
-        .animation(.easeOut(duration: 0.18), value: vm.conflictState != nil)
-        .animation(.easeOut(duration: 0.18), value: vm.recoveryCandidate != nil)
     }
 
-    private var directionOneBodyColumns: some View {
-        HStack(spacing: 0) {
-            if isDirectionOneSidebarVisible {
-                directionOneSidebarColumn
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            }
+    @ViewBuilder
+    private func directionOneBodyColumns(
+        usesDrawers: Bool,
+        availableWidth: CGFloat
+    ) -> some View {
+        if usesDrawers {
+            ZStack {
+                directionOneScriptEditor
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            directionOneScriptEditor
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if isDirectionOneCompactLayout,
+                   isDirectionOneSidebarVisible || isDirectionOneRightRailExpanded {
+                    Color.black.opacity(0.10)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            closeDirectionOneCompactDrawers()
+                        }
+                        .accessibilityIdentifier("studio.compact.drawer.backdrop")
+                }
 
-            if isDirectionOneRightRailExpanded {
-                directionOneInspectorColumn
+                if isDirectionOneCompactLayout, isDirectionOneRightRailExpanded {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        directionOneInspectorColumn(
+                            width: StudioResponsiveLayout.inspectorDrawerWidth(
+                                containerWidth: availableWidth
+                            )
+                        )
+                    }
                     .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if isDirectionOneCompactLayout, isDirectionOneSidebarVisible {
+                    HStack(spacing: 0) {
+                        directionOneSidebarColumn(
+                            width: StudioResponsiveLayout.sidebarDrawerWidth(
+                                containerWidth: availableWidth
+                            )
+                        )
+                        Spacer(minLength: 0)
+                    }
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+            }
+            .clipped()
+        } else {
+            HStack(spacing: 0) {
+                if isDirectionOneSidebarVisible {
+                    directionOneSidebarColumn(width: 208)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+
+                directionOneScriptEditor
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if isDirectionOneRightRailExpanded {
+                    directionOneInspectorColumn(width: 248)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.spring(response: 0.34, dampingFraction: 0.90), value: isDirectionOneSidebarVisible)
-        .animation(.spring(response: 0.34, dampingFraction: 0.90), value: isDirectionOneRightRailExpanded)
     }
 
-    private var directionOneSidebarColumn: some View {
+    private func directionOneSidebarColumn(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             sidebarModeTabs
                 .padding(.horizontal, 12)
@@ -7496,16 +7610,18 @@ Replace is best when this file should become the script you edit. Append is safe
             .padding(.horizontal, 10)
             .padding(.vertical, 12)
         }
-        .frame(width: 208)
+        .frame(width: width)
         .background(directionOneColumnSurface)
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(directionOneChromeStroke.opacity(0.22))
                 .frame(width: 1)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.sidebar.left.drawer")
     }
 
-    private var directionOneInspectorColumn: some View {
+    private func directionOneInspectorColumn(width: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -7552,13 +7668,15 @@ Replace is best when this file should become the script you edit. Append is safe
                 inspectorAutoScrollTask = nil
             }
         }
-        .frame(width: 248)
+        .frame(width: width)
         .background(directionOneColumnSurface)
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(directionOneChromeStroke.opacity(0.22))
                 .frame(width: 1)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.sidebar.right.drawer")
     }
 
     private var directionOneAssistantIdentityCard: some View {
@@ -8456,7 +8574,16 @@ private var directionOneColumnSurface: some View {
         }
     }
 
-private var directionOneHeader: some View {
+@ViewBuilder
+private func directionOneHeader(usesDrawers: Bool) -> some View {
+    if usesDrawers {
+        directionOneCompactHeader
+    } else {
+        directionOneExpandedHeader
+    }
+}
+
+private var directionOneExpandedHeader: some View {
     HStack(spacing: 12) {
         directionOneHeaderLeftToggle
         directionOneHeaderProjectBlock
@@ -8471,6 +8598,39 @@ private var directionOneHeader: some View {
         directionOneHeaderDoneButton
     }
     .padding(.horizontal, 14)
+    .padding(.vertical, 9)
+    .background(directionOneChromeTopBar)
+    .overlay(alignment: .bottom) {
+        Rectangle()
+            .fill(directionOneChromeStroke.opacity(0.55))
+            .frame(height: 1)
+    }
+}
+
+private var directionOneCompactHeader: some View {
+    HStack(spacing: 8) {
+        directionOneHeaderLeftToggle
+            .fixedSize()
+            .layoutPriority(2)
+
+        directionOneHeaderProjectBlock
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .clipped()
+
+        directionOneCompactTalkButton
+            .fixedSize()
+            .layoutPriority(2)
+        directionOneHeaderRightToggle
+            .fixedSize()
+            .layoutPriority(2)
+        directionOneHeaderSettingsButton
+            .fixedSize()
+            .layoutPriority(2)
+        directionOneCompactDoneButton
+            .fixedSize()
+            .layoutPriority(2)
+    }
+    .padding(.horizontal, 10)
     .padding(.vertical, 9)
     .background(directionOneChromeTopBar)
     .overlay(alignment: .bottom) {
@@ -8498,6 +8658,8 @@ private var directionOneHeaderLeftToggle: some View {
             )
     }
     .buttonStyle(.plain)
+    .accessibilityLabel(isDirectionOneSidebarVisible ? "Close project drawer" : "Open project drawer")
+    .accessibilityIdentifier("studio.sidebar.left.toggle")
 }
 
 private var directionOneHeaderProjectBlock: some View {
@@ -8611,9 +8773,7 @@ private var directionOneHeaderDraftButton: some View {
 
 private var directionOneHeaderRightToggle: some View {
     Button {
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-            isDirectionOneRightRailExpanded.toggle()
-        }
+        toggleDirectionOneRightRailVisibility()
     } label: {
         Image(systemName: "sidebar.right")
             .font(.system(size: 13, weight: .regular))
@@ -8629,6 +8789,8 @@ private var directionOneHeaderRightToggle: some View {
             )
     }
     .buttonStyle(.plain)
+    .accessibilityLabel(isDirectionOneRightRailExpanded ? "Close Studio inspector" : "Open Studio inspector")
+    .accessibilityIdentifier("studio.sidebar.right.toggle")
 }
 
 private var directionOneHeaderSettingsButton: some View {
@@ -8671,6 +8833,66 @@ private var directionOneHeaderDoneButton: some View {
             .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
     )
     .buttonStyle(.plain)
+}
+
+private var directionOneCompactTalkButton: some View {
+    Button {
+        if talkIsActive {
+            onStopTalk()
+        } else if canTalk {
+            onArmTalk()
+        }
+    } label: {
+        Image(systemName: talkIsActive ? "stop.fill" : "waveform")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(
+                talkIsActive
+                    ? Color.red.opacity(0.86)
+                    : (canTalk ? directionOneChromeText.opacity(0.90) : directionOneChromeSecondaryText)
+            )
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(talkIsActive ? Color.red.opacity(0.10) : directionOneChromePanelSoft)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(
+                        talkIsActive
+                            ? Color.red.opacity(0.22)
+                            : directionOneChromeStroke.opacity(0.55),
+                        lineWidth: 1
+                    )
+            )
+    }
+    .buttonStyle(.plain)
+    .disabled(!canTalk && !talkIsActive)
+    .accessibilityLabel(talkIsActive ? "Stop talking" : "Start talking")
+    .accessibilityIdentifier("studio.compact.talk")
+    .help(talkIsActive ? "Stop talking" : "Start talking")
+}
+
+private var directionOneCompactDoneButton: some View {
+    Button {
+        onDone()
+    } label: {
+        Image(systemName: "xmark")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(directionOneChromeText.opacity(0.90))
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(directionOneChromePanelSoft)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(directionOneChromeStroke.opacity(0.55), lineWidth: 1)
+            )
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Close Studio")
+    .accessibilityIdentifier("studio.compact.done")
+    .help("Close Studio")
 }
 
 private var directionOneTalkButton: some View {
@@ -8744,7 +8966,7 @@ private var directionOneScriptEditor: some View {
 }
     private func directionOnePageEditor(_ size: CGSize) -> some View {
         let verticalBreathingRoom = min(max(size.height * 0.07, 52), 86)
-        let pageWidth = min(560, max(size.width * 0.56, 500))
+        let pageWidth = StudioResponsiveLayout.pageWidth(editorWidth: size.width)
         let pageMinHeight = max(size.height - (verticalBreathingRoom * 1.5), 660)
         let pageMaxHeight = max(size.height - 34, 940)
 
@@ -11350,6 +11572,25 @@ private var directionOneThemPanel: some View {
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.66))
 
+                if !studioBackgroundSyncNoticeText.isEmpty {
+                    HStack(spacing: 8) {
+                        Label(studioBackgroundSyncNoticeText, systemImage: "icloud.slash")
+                            .font(.system(size: 11, weight: .medium, design: .default))
+                            .foregroundStyle(Color.orange.opacity(0.82))
+                            .lineLimit(2)
+                        Spacer(minLength: 0)
+                        Button {
+                            retryStudioBackgroundPersistence()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Retry Studio sync")
+                        .help("Retry Studio sync")
+                    }
+                    .accessibilityIdentifier("studio.background-sync.notice")
+                }
+
                 Divider()
                     .overlay(Color.herShellStroke.opacity(0.18))
 
@@ -13566,6 +13807,22 @@ private var projectsSidebarContent: some View {
                     .font(.system(size: 12, weight: .regular, design: .default))
                     .foregroundStyle(Color.herText.opacity(0.76))
                 Spacer()
+                if vm.isPaginationRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Button {
+                    Task { await vm.refreshPagination(source: "Manual retry") }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(
+                    vm.isPaginationRefreshing ||
+                    vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
+                .accessibilityLabel("Refresh pagination")
+                .help("Refresh pagination")
             }
 
             paginationStrip
@@ -13586,6 +13843,28 @@ private var projectsSidebarContent: some View {
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 320)
                 Spacer()
+                if vm.isRevisionRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Button {
+                    Task { await vm.refreshRevisionColor(source: "Manual retry") }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(
+                    vm.isRevisionRefreshing ||
+                    vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
+                .accessibilityLabel("Refresh revision colors")
+                .help("Refresh revision colors")
+            }
+
+            if !vm.revisionErrorText.isEmpty {
+                Text(vm.revisionErrorText)
+                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .foregroundStyle(Color.red.opacity(0.82))
             }
 
             revisionSummaryView
@@ -14105,6 +14384,7 @@ private var projectsSidebarContent: some View {
     private var commentsInspectorContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             inspectorSubsectionLabel("Script Comments")
+            collaborationRefreshStatus
 
             HStack(spacing: 8) {
                 TextField("Author email", text: $vm.commentAuthorEmail)
@@ -14170,9 +14450,10 @@ private var projectsSidebarContent: some View {
                 .buttonStyle(.borderedProminent)
 
                 Button("Reload Comments") {
-                    Task { await vm.refreshCollaborationData() }
+                    Task { await vm.refreshCollaborationData(source: "Manual retry") }
                 }
                 .buttonStyle(.bordered)
+                .disabled(vm.isCollaborationRefreshing)
 
                 Button("Clear Composer") {
                     vm.clearCommentComposer()
@@ -14209,6 +14490,7 @@ private var projectsSidebarContent: some View {
     private var collaboratorsInspectorContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             inspectorSubsectionLabel("Collaborators")
+            collaborationRefreshStatus
 
             HStack(spacing: 8) {
                 TextField("Collaborator email", text: $vm.collaboratorEmail)
@@ -14226,9 +14508,10 @@ private var projectsSidebarContent: some View {
                 .buttonStyle(.borderedProminent)
 
                 Button("Reload") {
-                    Task { await vm.refreshCollaborationData() }
+                    Task { await vm.refreshCollaborationData(source: "Manual retry") }
                 }
                 .buttonStyle(.bordered)
+                .disabled(vm.isCollaborationRefreshing)
 
                 Spacer()
                 Text("Approved \(vm.approvedEmails.count)")
@@ -14247,6 +14530,23 @@ private var projectsSidebarContent: some View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var collaborationRefreshStatus: some View {
+        if vm.isCollaborationRefreshing {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Refreshing collaboration…")
+                    .font(.system(size: 11, weight: .regular, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.62))
+            }
+        } else if !vm.collaborationErrorText.isEmpty {
+            Text(vm.collaborationErrorText)
+                .font(.system(size: 11, weight: .medium, design: .default))
+                .foregroundStyle(Color.red.opacity(0.82))
         }
     }
 
@@ -21139,16 +21439,23 @@ Current draft version:
 
     private var screenplayPageEmptyPlaceholderOverlay: some View {
         GeometryReader { proxy in
+            let editorWidth = max(
+                0,
+                proxy.size.width - (ScreenplayStackMetrics.pageSurfaceHorizontalPadding * 2)
+            )
+            let editorTextInset = ScreenplayStackMetrics.editorTextInsetHorizontal(
+                forEditorWidth: editorWidth
+            )
             let metricsContainerWidth = max(
-                proxy.size.width - (ScreenplayStackMetrics.pageSurfaceHorizontalPadding * 2),
-                420
+                120,
+                editorWidth - (editorTextInset * 2)
             )
             let metrics = ScreenplayStackMetrics.editor(containerWidth: metricsContainerWidth)
             let editableWidth = max(
-                proxy.size.width - ((ScreenplayStackMetrics.pageSurfaceHorizontalPadding + ScreenplayStackMetrics.editorTextInsetHorizontal) * 2),
-                220
+                metricsContainerWidth,
+                120
             )
-            let dialogueWidth = max(editableWidth - metrics.dialogueLeading - metrics.dialogueTrailing, 120)
+            let dialogueWidth = max(editableWidth - metrics.dialogueLeading - metrics.dialogueTrailing, 48)
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
@@ -21209,12 +21516,12 @@ Current draft version:
             .padding(
                 .leading,
                 ScreenplayStackMetrics.pageSurfaceHorizontalPadding
-                + ScreenplayStackMetrics.editorTextInsetHorizontal
+                + editorTextInset
             )
             .padding(
                 .trailing,
                 ScreenplayStackMetrics.pageSurfaceHorizontalPadding
-                + ScreenplayStackMetrics.editorTextInsetHorizontal
+                + editorTextInset
             )
             .padding(.bottom, ScreenplayPageChrome.contentBottomPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -23278,11 +23585,16 @@ Return revised screenplay lines only.
                 if let nextProject = result.payload.project {
                     await MainActor.run {
                         vm.applyProjectMetadataUpdate(nextProject)
+                        studioBackgroundSyncNoticeText = ""
+                    }
+                } else {
+                    await MainActor.run {
+                        studioBackgroundSyncNoticeText = ""
                     }
                 }
             } catch {
                 await MainActor.run {
-                    vm.errorText = error.localizedDescription
+                    studioBackgroundSyncNoticeText = "Saved on this device. Studio sync will retry when the connection returns."
                 }
             }
         }
@@ -24393,14 +24705,26 @@ Return revised screenplay lines only.
                 if let nextProject = result.payload.project {
                     await MainActor.run {
                         vm.applyProjectMetadataUpdate(nextProject)
+                        studioBackgroundSyncNoticeText = ""
+                    }
+                } else {
+                    await MainActor.run {
+                        studioBackgroundSyncNoticeText = ""
                     }
                 }
             } catch {
                 await MainActor.run {
-                    vm.errorText = error.localizedDescription
+                    studioBackgroundSyncNoticeText = "Saved on this device. Studio sync will retry when the connection returns."
                 }
             }
         }
+    }
+
+    private func retryStudioBackgroundPersistence() {
+        studioBackgroundSyncNoticeText = ""
+        let key = activeStudioAskNoteHistoryKey
+        persistFullThreadBrowseState(for: key)
+        persistStudioAskNoteHistory(studioAskNoteHistory, for: key)
     }
 
     private func persistStudioAskNoteHistory(_ entries: [StudioAskNoteExchange], for key: String) {
@@ -24914,11 +25238,41 @@ Return revised screenplay lines only.
 
     private func toggleDirectionOneSidebarVisibility() {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-            isDirectionOneSidebarVisible.toggle()
+            let nextIsVisible = !isDirectionOneSidebarVisible
+            isDirectionOneSidebarVisible = nextIsVisible
+            if isDirectionOneCompactLayout, nextIsVisible {
+                isDirectionOneRightRailExpanded = false
+            }
         }
         vm.infoText = isDirectionOneSidebarVisible
             ? "Sidebar shown."
             : "Sidebar hidden."
+    }
+
+    private func toggleDirectionOneRightRailVisibility() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            let nextIsVisible = !isDirectionOneRightRailExpanded
+            isDirectionOneRightRailExpanded = nextIsVisible
+            if isDirectionOneCompactLayout, nextIsVisible {
+                isDirectionOneSidebarVisible = false
+            }
+        }
+    }
+
+    private func closeDirectionOneCompactDrawers() {
+        guard isDirectionOneCompactLayout else { return }
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+            isDirectionOneSidebarVisible = false
+            isDirectionOneRightRailExpanded = false
+        }
+    }
+
+    private func configureDirectionOneResponsiveLayout(usesDrawers: Bool) {
+        let enteredCompactLayout = usesDrawers && !isDirectionOneCompactLayout
+        isDirectionOneCompactLayout = usesDrawers
+        guard enteredCompactLayout else { return }
+        isDirectionOneSidebarVisible = false
+        isDirectionOneRightRailExpanded = false
     }
 
     private func revealStudioSavedTab() {
@@ -27953,11 +28307,10 @@ Look at the city.
             case .refreshCollaboration:
                 directionOneRightPanelTab = .draft
                 selectedInspectorSection = .comments
-                vm.errorText = ""
-                await vm.refreshCollaborationData()
-                if !vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                await vm.refreshCollaborationData(source: "Manual retry")
+                if !vm.collaborationErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     status = "error"
-                    errorText = vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    errorText = vm.collaborationErrorText.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             case .approveCollaborator:
                 directionOneRightPanelTab = .draft
@@ -29378,6 +29731,11 @@ Look at the city.
 
     private var paginationStrip: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if !vm.paginationErrorText.isEmpty {
+                Text(vm.paginationErrorText)
+                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .foregroundStyle(Color.red.opacity(0.82))
+            }
             if vm.paginationPages.isEmpty {
                 Text("Pagination updates after draft text is present.")
                     .font(.system(size: 12, weight: .regular, design: .default))

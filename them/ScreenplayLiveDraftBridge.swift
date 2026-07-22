@@ -2190,12 +2190,37 @@ struct ScreenplayStackMetrics {
     static let pageSurfaceHorizontalPadding: CGFloat = 30
 
     static func paperGuidePositions(in pageWidth: CGFloat) -> (left: CGFloat, right: CGFloat) {
-        let inset = pageSurfaceHorizontalPadding + editorTextInsetHorizontal
+        let editorWidth = max(0, pageWidth - (pageSurfaceHorizontalPadding * 2))
+        let inset = pageSurfaceHorizontalPadding + editorTextInsetHorizontal(forEditorWidth: editorWidth)
         return (left: inset, right: max(inset, pageWidth - inset))
     }
 
     static func editor(containerWidth: CGFloat) -> ScreenplayStackMetrics {
-        calibrated(forPrintableWidth: min(max(containerWidth, 420), 520))
+        let printableWidth = min(max(containerWidth, 120), 520)
+        guard printableWidth < 420 else {
+            return calibrated(forPrintableWidth: printableWidth)
+        }
+
+        let desktopReference = calibrated(forPrintableWidth: 420)
+        let scale = printableWidth / 420
+        return ScreenplayStackMetrics(
+            printableWidth: printableWidth,
+            dialogueLeading: max(22, desktopReference.dialogueLeading * scale),
+            dialogueTrailing: max(18, desktopReference.dialogueTrailing * scale),
+            characterLeading: max(38, desktopReference.characterLeading * scale),
+            characterTrailing: max(22, desktopReference.characterTrailing * scale),
+            parentheticalLeading: max(30, desktopReference.parentheticalLeading * scale),
+            parentheticalTrailing: max(24, desktopReference.parentheticalTrailing * scale),
+            transitionTrailing: min(max(printableWidth * 0.035, 6), 18),
+            sceneHeadingSpacingAfter: min(max(printableWidth * 0.010, 3), 6),
+            actionCueSpacingAfter: min(max(printableWidth * 0.014, 4), 8),
+            transitionSpacingBefore: min(max(printableWidth * 0.012, 4), 8)
+        )
+    }
+
+    static func editorTextInsetHorizontal(forEditorWidth editorWidth: CGFloat) -> CGFloat {
+        guard editorWidth > 0 else { return editorTextInsetHorizontal }
+        return min(editorTextInsetHorizontal, max(16, (editorWidth - 140) * 0.20))
     }
 
     static let guideSample = calibrated(forPrintableWidth: 520)
@@ -2245,7 +2270,7 @@ private func screenplayParagraphStyle(
     style.lineHeightMultiple = 1.0
     style.tabStops = []
 
-    let metrics = ScreenplayStackMetrics.editor(containerWidth: max(containerWidth, 420))
+    let metrics = ScreenplayStackMetrics.editor(containerWidth: containerWidth)
 
     switch element {
     case .sceneHeading:
@@ -8883,7 +8908,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 
         private func refreshTypingAttributesOnly() {
             guard let textView else { return }
-            let containerWidth = max(textView.textContainer?.size.width ?? 560, 420)
+            let containerWidth = textView.textContainer?.size.width ?? 560
             let context = currentLineContext(in: textView)
             let paragraphStyle = screenplayParagraphStyle(
                 for: parent.activeScreenplayElement,
@@ -8902,7 +8927,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
             guard let textView, let textStorage = textView.textStorage else { return }
             let fullText = textView.string
             synchronizeParagraphElementsWithCurrentText(in: textView)
-            let containerWidth = max(textView.textContainer?.size.width ?? 560, 420)
+            let containerWidth = textView.textContainer?.size.width ?? 560
             applyScreenplayParagraphAttributes(
                 to: textStorage,
                 fullText: fullText,
@@ -10166,6 +10191,16 @@ private final class HollywoodScreenplayUITextView: UITextView {
     var draftProvider: () -> String = { "" }
     var onElementShortcut: ((ScreenplayEditorElement) -> Void)?
     var onCycleElement: ((Bool) -> Void)?
+    var onLayoutWidthChange: ((CGFloat) -> Void)?
+    private var lastReportedLayoutWidth: CGFloat = 0
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let width = bounds.width
+        guard width > 0, abs(width - lastReportedLayoutWidth) > 0.5 else { return }
+        lastReportedLayoutWidth = width
+        onLayoutWidthChange?(width)
+    }
 
     override var keyCommands: [UIKeyCommand]? {
         let elements: [(String, ScreenplayEditorElement)] = [
@@ -10325,6 +10360,9 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         textView.onCycleElement = { backward in
             context.coordinator.cycleActiveElement(backward: backward)
         }
+        textView.onLayoutWidthChange = { [weak coordinator = context.coordinator] width in
+            coordinator?.updateEditorLayout(width: width)
+        }
         context.coordinator.textView = textView
         context.coordinator.primeParagraphElements(
             for: textView.text ?? "",
@@ -10358,6 +10396,9 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
         uiView.onCycleElement = { backward in
             context.coordinator.cycleActiveElement(backward: backward)
+        }
+        uiView.onLayoutWidthChange = { [weak coordinator = context.coordinator] width in
+            coordinator?.updateEditorLayout(width: width)
         }
 
         if context.coordinator.lastKnownActiveElement != activeScreenplayElement {
@@ -10450,6 +10491,22 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+        }
+
+        func updateEditorLayout(width: CGFloat) {
+            guard let textView else { return }
+            let horizontalInset = ScreenplayStackMetrics.editorTextInsetHorizontal(
+                forEditorWidth: width
+            )
+            if abs(textView.textContainerInset.left - horizontalInset) > 0.5 ||
+                abs(textView.textContainerInset.right - horizontalInset) > 0.5 {
+                var insets = textView.textContainerInset
+                insets.left = horizontalInset
+                insets.right = horizontalInset
+                textView.textContainerInset = insets
+            }
+            refreshScreenplayPresentationAndTyping()
+            refreshAnchoredTextRectSnapshot()
         }
 
         func primeParagraphElements(for text: String, attributedText: NSAttributedString? = nil) {
@@ -10798,7 +10855,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 for: parent.activeScreenplayElement,
                 previousElement: context.previousElement,
                 nextElement: nil,
-                containerWidth: max(textView.textContainer.size.width, 420)
+                containerWidth: textView.textContainer.size.width
             )
             textView.typingAttributes = [
                 .font: hollywoodScreenplayEditorUIFont(),
@@ -10814,7 +10871,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 to: textView.textStorage,
                 fullText: textView.text ?? "",
                 elements: paragraphElements,
-                containerWidth: max(textView.textContainer.size.width, 420),
+                containerWidth: textView.textContainer.size.width,
                 font: hollywoodScreenplayEditorUIFont(),
                 foregroundColor: UIColor.black
             )
