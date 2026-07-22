@@ -22,6 +22,11 @@ nonisolated enum UITestLaunchConfiguration {
             defaults.set("stub", forKey: "clementine_realtime_supplier_mode")
         }
 
+        if arguments.contains("--ui-realtime-network-fault") {
+            defaults.set("realtime_preview", forKey: "clementine_voice_transport_mode")
+            defaults.set("stub", forKey: "clementine_realtime_supplier_mode")
+        }
+
         if arguments.contains("--ui-route-page") {
             defaults.set("page", forKey: "studio.prompt.routing.mode")
         } else if arguments.contains("--ui-route-voice-pin") {

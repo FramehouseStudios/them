@@ -168,6 +168,10 @@ jobs:
         continue-on-error: true
         run: scripts/run_v1_ui_smoke.sh
 
+      - name: Run iPhone and macOS voice network-fault smokes (soft gate)
+        continue-on-error: true
+        run: scripts/run_voice_network_fault_smokes.sh
+
       - name: Workflow inputs summary
         if: always()
         run: |
@@ -190,6 +194,7 @@ jobs:
             echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
             echo "- iOS V1 UI smoke: soft gate (themUITests)"
+            echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
             echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 

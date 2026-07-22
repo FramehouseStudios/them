@@ -41,6 +41,7 @@ test("[realtime-bridge] runtime reports first output latency and provider-confir
     "local_vad",
     "transport_lost",
     "connectionGeneration",
+    "assistantSpeaking",
     "credentialRefreshRecommended",
     "resumeTurn",
     "turn_repair_submitted",

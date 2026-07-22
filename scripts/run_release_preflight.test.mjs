@@ -47,3 +47,9 @@ test("[run-release-preflight] enables the deterministic voice latency gate by de
   assert.match(scriptSource, /scripts\/run_voice_latency_gate\.sh/);
   assert.match(scriptSource, /Skipping voice latency gate/);
 });
+
+test("[run-release-preflight] enables cross-platform voice network-fault smokes by default", () => {
+  assert.match(scriptSource, /RUN_VOICE_NETWORK_FAULT_GATE="\$\{RUN_VOICE_NETWORK_FAULT_GATE:-1\}"/);
+  assert.match(scriptSource, /scripts\/run_voice_network_fault_smokes\.sh/);
+  assert.match(scriptSource, /Skipping voice network-fault gate/);
+});

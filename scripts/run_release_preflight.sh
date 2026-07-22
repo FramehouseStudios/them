@@ -68,6 +68,13 @@ else
   echo "[release-preflight] Skipping voice latency gate (RUN_VOICE_LATENCY_GATE=${RUN_VOICE_LATENCY_GATE})."
 fi
 
+RUN_VOICE_NETWORK_FAULT_GATE="${RUN_VOICE_NETWORK_FAULT_GATE:-1}"
+if [[ "${RUN_VOICE_NETWORK_FAULT_GATE}" == "1" ]]; then
+  "${ROOT}/scripts/run_voice_network_fault_smokes.sh"
+else
+  echo "[release-preflight] Skipping voice network-fault gate (RUN_VOICE_NETWORK_FAULT_GATE=${RUN_VOICE_NETWORK_FAULT_GATE})."
+fi
+
 RUN_LIVE_BACKEND_CHECK="${RUN_LIVE_BACKEND_CHECK:-1}"
 if [[ "${RUN_LIVE_BACKEND_CHECK}" == "1" ]]; then
   APP_TOKEN="${APP_TOKEN:-${APP_TOKEN_RELEASE:-}}" \

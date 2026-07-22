@@ -29,6 +29,7 @@ final class ClementineRealtimeRecoveryTests: XCTestCase {
             "transcriptIsFinal": true,
             "userSpeechActive": false,
             "assistantResponseActive": true,
+            "assistantSpeaking": false,
             "recoverable": true,
             "credentialRefreshRecommended": true,
         ])
@@ -39,6 +40,7 @@ final class ClementineRealtimeRecoveryTests: XCTestCase {
         XCTAssertEqual(loss.userTranscript, "Move Mara into Act Two.")
         XCTAssertTrue(loss.hasRepairableTurn)
         XCTAssertTrue(loss.assistantResponseActive)
+        XCTAssertEqual(loss.faultStage, .thinking)
         XCTAssertTrue(loss.credentialRefreshRecommended)
         XCTAssertTrue(ClementineRealtimeRecoveryPolicy.shouldReconnect(after: loss, attempt: 3))
         XCTAssertFalse(ClementineRealtimeRecoveryPolicy.shouldReconnect(after: loss, attempt: 4))
@@ -56,5 +58,40 @@ final class ClementineRealtimeRecoveryTests: XCTestCase {
         XCTAssertFalse(loss.recoverable)
         XCTAssertFalse(loss.hasRepairableTurn)
         XCTAssertFalse(ClementineRealtimeRecoveryPolicy.shouldReconnect(after: loss, attempt: 1))
+    }
+
+    func testFaultStagesRouteIncompleteSpeechToFallbackAndFinalTurnsToRepair() {
+        let expectations: [(ClementineRealtimeFaultStage, Bool, Bool)] = [
+            (.speech, true, false),
+            (.transcription, true, false),
+            (.thinking, false, true),
+            (.playback, false, true),
+        ]
+
+        for (stage, expectsFallback, expectsRepair) in expectations {
+            let loss = ClementineRealtimeConnectionLoss.simulatedFault(stage: stage)
+            XCTAssertEqual(loss.faultStage, stage)
+            XCTAssertEqual(loss.requiresStandardVoiceFallback, expectsFallback)
+            XCTAssertEqual(loss.hasRepairableTurn, expectsRepair)
+        }
+    }
+
+    func testOutcomeGateAcceptsExactlyOneRepairOrFallbackPerTurn() {
+        var gate = ClementineRealtimeRecoveryOutcomeGate()
+        gate.begin(turnID: "turn-7", transcript: "Finish the ferry scene.")
+
+        XCTAssertTrue(gate.accept(.repairedResponse))
+        XCTAssertFalse(gate.accept(.repairedResponse))
+        XCTAssertFalse(gate.accept(.standardVoiceFallback))
+        XCTAssertEqual(gate.outcome, .repairedResponse)
+        XCTAssertEqual(gate.acceptedCount, 1)
+        XCTAssertEqual(gate.suppressedCount, 2)
+
+        gate.begin(turnID: "turn-8", transcript: "A different turn.")
+        XCTAssertTrue(gate.accept(.standardVoiceFallback))
+        XCTAssertFalse(gate.accept(.standardVoiceFallback))
+        XCTAssertEqual(gate.outcome, .standardVoiceFallback)
+        XCTAssertEqual(gate.acceptedCount, 1)
+        XCTAssertEqual(gate.suppressedCount, 1)
     }
 }

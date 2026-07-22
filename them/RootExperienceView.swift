@@ -824,6 +824,9 @@ struct RootExperienceView: View {
     @State private var realtimeRecoveryTurnID = ""
     @State private var realtimeRecoveryTranscriptIsFinal = false
     @State private var realtimeRecoveryNeedsTurnRepair = false
+    @State private var realtimeRecoveryTurnWasInterrupted = false
+    @State private var realtimeRecoveryOutcomeGate = ClementineRealtimeRecoveryOutcomeGate()
+    @State private var lastRealtimeRepairDispatchKey = ""
     @State private var lastRealtimeFallbackRepairFingerprint = ""
     @State private var lastRealtimeFallbackRepairAt: Date = .distantPast
     @State private var lastRealtimeAssistantTextAt: Date = .distantPast
@@ -884,6 +887,10 @@ struct RootExperienceView: View {
     @State private var lastHandledStudioDebugLoadProjectToken: Int = 0
     @State private var lastHandledStudioDebugLoadProjectRequestToken: Int = 0
     @State private var lastHandledStudioDebugVoiceTurnToken: Int = 0
+#if DEBUG
+    @State private var uiTestRealtimeNetworkFaultStage: ClementineRealtimeFaultStage?
+    @State private var uiTestRealtimeNetworkFaultResult = ""
+#endif
 #endif
     @State private var lastVisualContextEnvelope: ClementineVisualContextEnvelope?
     @State private var lastVisualContextFingerprint = ""
@@ -1195,6 +1202,21 @@ struct RootExperienceView: View {
             )
             .zIndex(-1)
         }
+
+#if DEBUG
+        if !uiTestRealtimeNetworkFaultResult.isEmpty {
+            Text(uiTestRealtimeNetworkFaultResult)
+                .font(.system(size: 8, weight: .regular, design: .monospaced))
+                .foregroundColor(.herText.opacity(0.85))
+                .lineLimit(4)
+                .padding(8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("realtime.network-fault.result")
+                .accessibilityLabel(uiTestRealtimeNetworkFaultResult)
+                .zIndex(100)
+        }
+#endif
     }
 
     @ViewBuilder
@@ -2463,7 +2485,33 @@ struct RootExperienceView: View {
                     )
                 )
             }
+            runUITestRealtimeNetworkFaultSmokeIfNeeded(arguments: arguments)
         }
+    }
+
+    private func runUITestRealtimeNetworkFaultSmokeIfNeeded(arguments: [String]) {
+        guard let flagIndex = arguments.firstIndex(of: "--ui-realtime-network-fault") else { return }
+        let valueIndex = arguments.index(after: flagIndex)
+        guard arguments.indices.contains(valueIndex),
+              let stage = ClementineRealtimeFaultStage(rawValue: arguments[valueIndex]) else {
+            uiTestRealtimeNetworkFaultResult = "complete=false error=invalid_fault_stage"
+            return
+        }
+
+        uiTestRealtimeNetworkFaultStage = stage
+        uiTestRealtimeNetworkFaultResult = "stage=\(stage.rawValue) complete=false status=injecting"
+        conversationLoopEnabled = true
+        realtimePreviewStandardFallbackActive = false
+        resetRealtimeRecoveryOutcome(
+            turnID: "network-fault-\(stage.rawValue)",
+            transcript: "Move Mara into Act Two before Eli reaches the ferry."
+        )
+        handleRealtimeConnectionLoss(
+            .simulatedFault(
+                stage: stage,
+                turnID: "network-fault-\(stage.rawValue)"
+            )
+        )
     }
     #endif
 
@@ -2616,6 +2664,7 @@ struct RootExperienceView: View {
             realtimeRecoveryTurnID = turnID.trimmingCharacters(in: .whitespacesAndNewlines)
             realtimeRecoveryTranscriptIsFinal = false
             realtimeRecoveryNeedsTurnRepair = false
+            resetRealtimeRecoveryOutcome(turnID: realtimeRecoveryTurnID)
             if isStudioSurfaceActive {
                 cancelRealtimeStudioDraftStream(restorePreview: true)
             }
@@ -2733,6 +2782,10 @@ struct RootExperienceView: View {
             realtimeAssistantTranscriptFallbackTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 450_000_000)
                 guard !Task.isCancelled else { return }
+                guard acceptRealtimeRecoveryResponseIfNeeded() else {
+                    realtimeAssistantTranscriptFallbackTask = nil
+                    return
+                }
                 await handleCompletedRealtimeTurn(
                     userMessage: currentRealtimePendingUserMessage(),
                     assistantMessage: cleaned
@@ -2748,6 +2801,7 @@ struct RootExperienceView: View {
             realtimeAssistantTranscriptFallbackTask?.cancel()
             realtimeAssistantTranscriptFallbackTask = nil
             Task { @MainActor in
+                guard acceptRealtimeRecoveryResponseIfNeeded() else { return }
                 await handleCompletedRealtimeTurn(
                     userMessage: currentRealtimePendingUserMessage(),
                     assistantMessage: cleaned
@@ -11329,9 +11383,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func activateRealtimePreviewStandardFallback() {
-        let repairTranscript = realtimeRecoveryTranscriptIsFinal
+        guard !realtimePreviewStandardFallbackActive else { return }
+        let outcomeAlreadyResolved = realtimeRecoveryTurnWasInterrupted &&
+            realtimeRecoveryOutcomeGate.isResolved
+        let repairTranscript = realtimeRecoveryTranscriptIsFinal && !outcomeAlreadyResolved
             ? realtimePendingUserTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             : ""
+        if realtimeRecoveryTurnWasInterrupted,
+           !realtimeRecoveryOutcomeGate.isResolved {
+            guard realtimeRecoveryOutcomeGate.accept(.standardVoiceFallback) else { return }
+        }
         cancelRealtimeRecovery(clearTurn: false)
         realtimePreviewStandardFallbackActive = true
         realtimeTransport.disconnect()
@@ -11340,6 +11401,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
         } else {
             showStudioCommandNotice("Live voice switched to standard voice and kept your turn.")
         }
+#if DEBUG
+        if uiTestRealtimeNetworkFaultStage != nil {
+            publishUITestRealtimeNetworkFaultResult()
+            clearRealtimeRecoveryTurn()
+            return
+        }
+#endif
         if voice.mode == .idle {
             voice.armOnce()
         } else {
@@ -11375,6 +11443,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
               conversationLoopEnabled,
               !realtimePreviewStandardFallbackActive else { return }
 
+        realtimeRecoveryTurnWasInterrupted = true
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
         let pendingTranscript = realtimePendingUserTranscript
@@ -11400,6 +11469,25 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
         if !loss.turnID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             realtimeRecoveryTurnID = loss.turnID.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        realtimeRecoveryOutcomeGate.begin(
+            turnID: realtimeRecoveryTurnID,
+            transcript: realtimePendingUserTranscript.isEmpty
+                ? loss.userTranscript
+                : realtimePendingUserTranscript
+        )
+
+        if loss.requiresStandardVoiceFallback {
+            activateRealtimePreviewStandardFallback()
+            return
+        }
+        if realtimeRecoveryOutcomeGate.outcome == .repairedResponse {
+            realtimeRecoveryNeedsTurnRepair = false
+        } else if realtimeRecoveryNeedsTurnRepair,
+                  !lastRealtimeRepairDispatchKey.isEmpty,
+                  lastRealtimeRepairDispatchKey == realtimeRecoveryOutcomeGate.turnKey {
+            activateRealtimePreviewStandardFallback()
+            return
         }
 
         guard loss.recoverable else {
@@ -11428,6 +11516,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
         if nextAttempt == 1 {
             showStudioCommandNotice("Reconnecting live voice…")
         }
+#if DEBUG
+        if uiTestRealtimeNetworkFaultStage != nil {
+            realtimeRecoveryTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 40_000_000)
+                guard !Task.isCancelled,
+                      generation == realtimeRecoveryGeneration else { return }
+                handleRealtimeConnectionRestored()
+            }
+            return
+        }
+#endif
         realtimeRecoveryTask = Task { @MainActor in
             do {
                 try await Task.sleep(nanoseconds: delay)
@@ -11486,6 +11585,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let shouldRepairTurn = wasRecovering &&
             realtimeRecoveryTranscriptIsFinal &&
             realtimeRecoveryNeedsTurnRepair &&
+            !realtimeRecoveryOutcomeGate.isResolved &&
             !repairTranscript.isEmpty
         let repairTurnID = realtimeRecoveryTurnID
 
@@ -11497,6 +11597,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         if shouldRepairTurn {
             realtimeRecoveryNeedsTurnRepair = false
+            lastRealtimeRepairDispatchKey = realtimeRecoveryOutcomeGate.turnKey
+#if DEBUG
+            if uiTestRealtimeNetworkFaultStage != nil {
+                _ = realtimeRecoveryOutcomeGate.accept(.repairedResponse)
+                _ = realtimeRecoveryOutcomeGate.accept(.repairedResponse)
+                publishUITestRealtimeNetworkFaultResult()
+                clearRealtimeRecoveryTurn()
+                return
+            }
+#endif
             realtimeTransport.repairInterruptedTurn(
                 userTranscript: repairTranscript,
                 turnID: repairTurnID
@@ -11517,6 +11627,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimeReconnectAttempt = 0
         if clearTurn {
             clearRealtimeRecoveryTurn()
+            realtimeRecoveryTurnWasInterrupted = false
+            realtimeRecoveryOutcomeGate.reset()
+            lastRealtimeRepairDispatchKey = ""
         }
     }
 
@@ -11527,6 +11640,47 @@ Write this approved story direction directly into screenplay pages now. Maintain
         realtimeRecoveryTranscriptIsFinal = false
         realtimeRecoveryNeedsTurnRepair = false
     }
+
+    @MainActor
+    private func resetRealtimeRecoveryOutcome(turnID: String, transcript: String = "") {
+        realtimeRecoveryTurnWasInterrupted = false
+        realtimeRecoveryOutcomeGate.reset()
+        realtimeRecoveryOutcomeGate.begin(turnID: turnID, transcript: transcript)
+        lastRealtimeRepairDispatchKey = ""
+    }
+
+    @MainActor
+    private func acceptRealtimeRecoveryResponseIfNeeded() -> Bool {
+        guard realtimeRecoveryTurnWasInterrupted else { return true }
+        return realtimeRecoveryOutcomeGate.accept(.repairedResponse)
+    }
+
+#if DEBUG
+    @MainActor
+    private func publishUITestRealtimeNetworkFaultResult() {
+        guard let stage = uiTestRealtimeNetworkFaultStage else { return }
+        let expectedOutcome: ClementineRealtimeRecoveryOutcome = stage == .speech || stage == .transcription
+            ? .standardVoiceFallback
+            : .repairedResponse
+        let responseCount = realtimeRecoveryOutcomeGate.outcome == .repairedResponse ? 1 : 0
+        let fallbackCount = realtimeRecoveryOutcomeGate.outcome == .standardVoiceFallback ? 1 : 0
+        let outcomeValue = realtimeRecoveryOutcomeGate.outcome?.rawValue ?? "none"
+        let duplicateExpectationMet = expectedOutcome != .repairedResponse ||
+            realtimeRecoveryOutcomeGate.suppressedCount == 1
+        let complete = realtimeRecoveryOutcomeGate.outcome == expectedOutcome &&
+            realtimeRecoveryOutcomeGate.acceptedCount == 1 &&
+            responseCount + fallbackCount == 1 &&
+            duplicateExpectationMet
+        uiTestRealtimeNetworkFaultResult = [
+            "stage=\(stage.rawValue)",
+            "outcome=\(outcomeValue)",
+            "response_count=\(responseCount)",
+            "fallback_count=\(fallbackCount)",
+            "duplicate_suppressed=\(realtimeRecoveryOutcomeGate.suppressedCount)",
+            "complete=\(complete)",
+        ].joined(separator: " ")
+    }
+#endif
 
     @MainActor
     private struct StudioDialogueAnchorMetadata {

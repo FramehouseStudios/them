@@ -1,5 +1,58 @@
 import Foundation
 
+enum ClementineRealtimeFaultStage: String, CaseIterable, Equatable {
+    case speech
+    case transcription
+    case thinking
+    case playback
+}
+
+enum ClementineRealtimeRecoveryOutcome: String, Equatable {
+    case repairedResponse = "repaired_response"
+    case standardVoiceFallback = "standard_voice_fallback"
+}
+
+struct ClementineRealtimeRecoveryOutcomeGate: Equatable {
+    private(set) var turnKey = ""
+    private(set) var outcome: ClementineRealtimeRecoveryOutcome?
+    private(set) var acceptedCount = 0
+    private(set) var suppressedCount = 0
+
+    var isResolved: Bool { outcome != nil }
+
+    mutating func begin(turnID: String, transcript: String = "") {
+        let cleanTurnID = turnID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTranscript = transcript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let nextKey = cleanTurnID.isEmpty ? cleanTranscript : cleanTurnID
+        guard !nextKey.isEmpty else { return }
+        guard turnKey != nextKey else { return }
+        turnKey = nextKey
+        outcome = nil
+        acceptedCount = 0
+        suppressedCount = 0
+    }
+
+    @discardableResult
+    mutating func accept(_ candidate: ClementineRealtimeRecoveryOutcome) -> Bool {
+        guard outcome == nil else {
+            suppressedCount += 1
+            return false
+        }
+        outcome = candidate
+        acceptedCount = 1
+        return true
+    }
+
+    mutating func reset() {
+        turnKey = ""
+        outcome = nil
+        acceptedCount = 0
+        suppressedCount = 0
+    }
+}
+
 struct ClementineRealtimeConnectionLoss: Equatable {
     enum Cause: String, Equatable {
         case peerConnectionFailed = "peer_connection_failed"
@@ -24,11 +77,23 @@ struct ClementineRealtimeConnectionLoss: Equatable {
     let transcriptIsFinal: Bool
     let userSpeechActive: Bool
     let assistantResponseActive: Bool
+    let assistantSpeaking: Bool
     let recoverable: Bool
     let credentialRefreshRecommended: Bool
 
     var hasRepairableTurn: Bool {
         transcriptIsFinal && !userTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var faultStage: ClementineRealtimeFaultStage {
+        if userSpeechActive { return .speech }
+        if assistantSpeaking { return .playback }
+        if assistantResponseActive || transcriptIsFinal { return .thinking }
+        return .transcription
+    }
+
+    var requiresStandardVoiceFallback: Bool {
+        faultStage == .speech || faultStage == .transcription
     }
 
     static func parse(_ payload: [String: Any]) -> ClementineRealtimeConnectionLoss {
@@ -42,6 +107,7 @@ struct ClementineRealtimeConnectionLoss: Equatable {
             transcriptIsFinal: boolValue(payload["transcriptIsFinal"]),
             userSpeechActive: boolValue(payload["userSpeechActive"]),
             assistantResponseActive: boolValue(payload["assistantResponseActive"]),
+            assistantSpeaking: boolValue(payload["assistantSpeaking"]),
             recoverable: boolValue(payload["recoverable"], defaultValue: true),
             credentialRefreshRecommended: boolValue(
                 payload["credentialRefreshRecommended"],
@@ -65,8 +131,30 @@ struct ClementineRealtimeConnectionLoss: Equatable {
             transcriptIsFinal: false,
             userSpeechActive: false,
             assistantResponseActive: false,
+            assistantSpeaking: false,
             recoverable: recoverable,
             credentialRefreshRecommended: credentialRefreshRecommended
+        )
+    }
+
+    static func simulatedFault(
+        stage: ClementineRealtimeFaultStage,
+        turnID: String = "network-fault-smoke-turn",
+        transcript: String = "Move Mara into Act Two before Eli reaches the ferry."
+    ) -> ClementineRealtimeConnectionLoss {
+        let finalTranscript = stage == .thinking || stage == .playback
+        return ClementineRealtimeConnectionLoss(
+            cause: .peerConnectionDisconnected,
+            message: "Simulated disconnect during \(stage.rawValue).",
+            connectionGeneration: 1,
+            turnID: turnID,
+            userTranscript: transcript,
+            transcriptIsFinal: finalTranscript,
+            userSpeechActive: stage == .speech,
+            assistantResponseActive: stage == .thinking || stage == .playback,
+            assistantSpeaking: stage == .playback,
+            recoverable: true,
+            credentialRefreshRecommended: true
         )
     }
 

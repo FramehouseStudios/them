@@ -19925,6 +19925,7 @@ function renderRealtimeBridgeHtml() {
             state.assistantTranscript ||
             state.assistantText
           ),
+          assistantSpeaking: Boolean(state.assistantSpeaking),
           responseOrdinal: activeResponseOrdinal(),
         };
       }

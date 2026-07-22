@@ -141,8 +141,30 @@ test("[realtime-simulator] transport loss preserves a final mid-turn transcript 
   assert.equal(losses[0].userTranscript, "Move Mara into Act Two.");
   assert.equal(losses[0].transcriptIsFinal, true);
   assert.equal(losses[0].assistantResponseActive, true);
+  assert.equal(losses[0].assistantSpeaking, false);
   assert.equal(losses[0].recoverable, true);
   assert.equal(losses[0].credentialRefreshRecommended, true);
+});
+
+test("[realtime-simulator] playback loss reports speaking state for stage-aware repair", async () => {
+  const simulator = createSimulator();
+  await simulator.start();
+  simulator.setConnectionState("connected");
+  simulator.providerEvent({ type: "input_audio_buffer.speech_stopped" });
+  simulator.providerEvent({
+    type: "conversation.item.input_audio_transcription.completed",
+    transcript: "Finish the ferry scene.",
+  });
+  simulator.providerEvent({ type: "response.created" });
+  simulator.providerEvent({ type: "output_audio_buffer.started" });
+
+  simulator.setConnectionState("disconnected");
+
+  const loss = simulator.eventsOfType("transport_lost")[0];
+  assert.equal(loss.userTranscript, "Finish the ferry scene.");
+  assert.equal(loss.transcriptIsFinal, true);
+  assert.equal(loss.assistantResponseActive, true);
+  assert.equal(loss.assistantSpeaking, true);
 });
 
 test("[realtime-simulator] a fresh session can resume an interrupted text turn", async () => {

@@ -79,6 +79,37 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "deterministic stub path", in: app).waitForExistence(timeout: 5))
     }
 
+    func test_realtime_network_faults_resolve_exactly_once() {
+        assertRealtimeNetworkFault(
+            stage: "speech",
+            outcome: "standard_voice_fallback",
+            responseCount: 0,
+            fallbackCount: 1,
+            duplicateSuppressed: 0
+        )
+        assertRealtimeNetworkFault(
+            stage: "transcription",
+            outcome: "standard_voice_fallback",
+            responseCount: 0,
+            fallbackCount: 1,
+            duplicateSuppressed: 0
+        )
+        assertRealtimeNetworkFault(
+            stage: "thinking",
+            outcome: "repaired_response",
+            responseCount: 1,
+            fallbackCount: 0,
+            duplicateSuppressed: 1
+        )
+        assertRealtimeNetworkFault(
+            stage: "playback",
+            outcome: "repaired_response",
+            responseCount: 1,
+            fallbackCount: 0,
+            duplicateSuppressed: 1
+        )
+    }
+
     func test_canon_clarification_is_visible_in_companion_and_studio() {
         let companion = launchApp(showCanonClarification: true)
         XCTAssertTrue(companion.otherElements["canon.clarification.card"].waitForExistence(timeout: 8))
@@ -373,6 +404,7 @@ final class V1SmokeUITests: XCTestCase {
         showCanonClarification: Bool = false,
         showDraftConflict: Bool = false,
         conflictSaveSuccess: Bool = false,
+        realtimeNetworkFaultStage: String? = nil,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         restoreProjectID: String? = nil,
@@ -431,6 +463,12 @@ final class V1SmokeUITests: XCTestCase {
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }
+        if let realtimeNetworkFaultStage {
+            arguments.append(contentsOf: [
+                "--ui-realtime-network-fault",
+                realtimeNetworkFaultStage,
+            ])
+        }
         if let autoSubmitPagePrompt {
             arguments.append(contentsOf: ["--ui-auto-submit-page-prompt", autoSubmitPagePrompt])
         }
@@ -456,7 +494,66 @@ final class V1SmokeUITests: XCTestCase {
             app.launchEnvironment = launchEnvironment
         }
         app.launch()
+#if os(macOS)
+        app.activate()
+        if !app.windows.firstMatch.waitForExistence(timeout: 2) {
+            let fileMenu = app.menuBars.menuBarItems["File"]
+            if fileMenu.exists {
+                fileMenu.click()
+                let newWindow = app.menuItems["New Window"]
+                if newWindow.waitForExistence(timeout: 2) {
+                    newWindow.click()
+                }
+            }
+        }
+#endif
         return app
+    }
+
+    private func assertRealtimeNetworkFault(
+        stage: String,
+        outcome: String,
+        responseCount: Int,
+        fallbackCount: Int,
+        duplicateSuppressed: Int
+    ) {
+        let app = launchApp(realtimeNetworkFaultStage: stage)
+        defer { app.terminate() }
+
+        let result = element(identifier: "realtime.network-fault.result", in: app)
+        XCTAssertTrue(
+            result.waitForExistence(timeout: 8),
+            "No network-fault receipt appeared for \(stage). Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        let deadline = Date().addingTimeInterval(8)
+        var receipt = accessibilityText(of: result)
+        while Date() < deadline, !receipt.contains("complete=true") {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            receipt = accessibilityText(of: result)
+        }
+
+        XCTAssertTrue(receipt.contains("stage=\(stage)"), "Wrong stage receipt: \(receipt)")
+        XCTAssertTrue(receipt.contains("outcome=\(outcome)"), "Wrong recovery outcome: \(receipt)")
+        XCTAssertTrue(
+            receipt.contains("response_count=\(responseCount)"),
+            "Unexpected repaired response count: \(receipt)"
+        )
+        XCTAssertTrue(
+            receipt.contains("fallback_count=\(fallbackCount)"),
+            "Unexpected standard fallback count: \(receipt)"
+        )
+        XCTAssertTrue(
+            receipt.contains("duplicate_suppressed=\(duplicateSuppressed)"),
+            "Duplicate callback handling was wrong: \(receipt)"
+        )
+        XCTAssertTrue(receipt.contains("complete=true"), "Network-fault smoke did not complete: \(receipt)")
+    }
+
+    private func accessibilityText(of element: XCUIElement) -> String {
+        let label = element.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !label.isEmpty { return label }
+        return (element.value as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     private func textInput(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
