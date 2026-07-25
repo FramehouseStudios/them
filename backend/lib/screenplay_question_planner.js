@@ -3,6 +3,27 @@ const WRITER_BLOCK_SIGNAL = /\b(?:writer'?s\s+block|writers\s+block|stuck|blocke
 const DEVELOPMENT_SIGNAL = /\b(?:brainstorm|develop|figure\s+out|work\s+out|plan|outline|structure|break\s+(?:the\s+)?story|character\s+arc|story\s+arc|act\s+(?:one|two|three|i|ii|iii|1|2|3)|theme|ending|motivation|want|need|wound|false\s+belief|misbelief)\b/i;
 const SCREENPLAY_SIGNAL = /\b(?:screenplay|script|scene|feature|film|movie|act|beat|character|protagonist|antagonist|dialogue|story)\b/i;
 const NON_ANSWER_SIGNAL = /^(?:i\s+don'?t\s+know|not\s+sure|no\s+idea|skip|pass|decide\s+later|let'?s\s+come\s+back|we\s+can\s+decide\s+later|you\s+decide)[.!\s]*$/i;
+const STORY_SPINE_FIELD_DEFINITIONS = Object.freeze([
+  ["project.protagonist_want", "protagonist_want", "protagonistWant"],
+  ["project.central_question", "central_question", "centralQuestion"],
+  ["project.antagonistic_force", "antagonistic_force", "antagonisticForce"],
+  ["project.protagonist_need", "protagonist_need", "protagonistNeed"],
+  ["project.ending_image", "ending_image", "endingImage"],
+  ["project.theme_argument", "theme_argument", "themeArgument"],
+  ["scene.objective", "scene_objective", "sceneObjective"],
+  ["story.next_irreversible_choice", "next_scene_plan", "nextScenePlan"],
+  ["story_thread.payoff_choice", "next_scene_moves", "nextSceneMoves"],
+  ["story_thread.next_setup", "unresolved_setups", "unresolvedSetups"],
+]);
+const CHARACTER_FIELD_DEFINITIONS = Object.freeze([
+  ["character.want", "want", "want"],
+  ["character.need", "need", "need"],
+  ["character.wound", "wound", "wound"],
+  ["character.false_belief", "false_belief", "falseBelief"],
+  ["character.relationship_pressure", "relationship_pressure", "relationshipPressure"],
+  ["character.current_tactic", "current_tactic", "currentTactic"],
+  ["character.next_emotional_turn", "next_emotional_turn", "nextEmotionalTurn"],
+]);
 
 function clean(value, maxChars = 220) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars).trim();
@@ -29,6 +50,170 @@ function firstValue(...values) {
     if (normalized) return normalized;
   }
   return "";
+}
+
+function hasFieldValue(value) {
+  if (Array.isArray(value)) return cleanList(value, 1, 240).length > 0;
+  return Boolean(clean(value, 240));
+}
+
+function normalizeFieldName(value) {
+  return clean(value, 80).replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function provenanceForField(rows, field) {
+  const normalizedField = normalizeFieldName(field);
+  return (Array.isArray(rows) ? rows : []).filter((row) => (
+    normalizeFieldName(row?.field) === normalizedField
+  ));
+}
+
+function buildFieldState({
+  targetField,
+  value,
+  provenance = [],
+  provenanceField,
+}) {
+  const entries = provenanceForField(provenance, provenanceField);
+  const corrected = entries.find((entry) => clean(entry?.status, 32).toLowerCase() === "corrected");
+  const learned = entries.find((entry) => (
+    clean(entry?.source, 64).toLowerCase() === "screenplay_learning_confirmation" ||
+    clean(entry?.status, 32).toLowerCase() === "current"
+  ));
+  const status = corrected
+    ? "corrected"
+    : learned
+      ? "learned"
+      : hasFieldValue(value)
+        ? "known"
+        : "unknown";
+  return {
+    targetField,
+    status,
+    valuePresent: hasFieldValue(value),
+    provenance: entries,
+  };
+}
+
+function aliasedFieldState(state, targetField, resolvedBy) {
+  if (!state || state.status === "unknown") return state;
+  return {
+    ...state,
+    targetField,
+    resolvedBy,
+  };
+}
+
+function buildStoryFieldStates(projectMemory, character) {
+  const projectProvenance = Array.isArray(projectMemory?.field_provenance)
+    ? projectMemory.field_provenance
+    : [];
+  const characterArc = character?.arc && typeof character.arc === "object"
+    ? character.arc
+    : {};
+  const characterProvenance = Array.isArray(character?.field_provenance)
+    ? character.field_provenance
+    : [];
+  const states = {};
+  for (const [targetField, valueField, provenanceField] of STORY_SPINE_FIELD_DEFINITIONS) {
+    states[targetField] = buildFieldState({
+      targetField,
+      value: projectMemory?.[valueField],
+      provenance: projectProvenance,
+      provenanceField,
+    });
+  }
+  for (const [targetField, valueField, provenanceField] of CHARACTER_FIELD_DEFINITIONS) {
+    states[targetField] = buildFieldState({
+      targetField,
+      value: characterArc?.[valueField] ?? characterArc?.[provenanceField],
+      provenance: characterProvenance,
+      provenanceField,
+    });
+  }
+
+  const projectWant = states["project.protagonist_want"];
+  const characterWant = states["character.want"];
+  if (character) {
+    if (projectWant.status === "unknown" && characterWant.status !== "unknown") {
+      states["project.protagonist_want"] = aliasedFieldState(
+        characterWant,
+        "project.protagonist_want",
+        "character.want"
+      );
+    } else if (characterWant.status === "unknown" && projectWant.status !== "unknown") {
+      states["character.want"] = aliasedFieldState(
+        projectWant,
+        "character.want",
+        "project.protagonist_want"
+      );
+    }
+
+    const projectNeed = states["project.protagonist_need"];
+    const characterNeed = states["character.need"];
+    if (projectNeed.status === "unknown" && characterNeed.status !== "unknown") {
+      states["project.protagonist_need"] = aliasedFieldState(
+        characterNeed,
+        "project.protagonist_need",
+        "character.need"
+      );
+    } else if (characterNeed.status === "unknown" && projectNeed.status !== "unknown") {
+      states["character.need"] = aliasedFieldState(
+        projectNeed,
+        "character.need",
+        "project.protagonist_need"
+      );
+    }
+  }
+  return states;
+}
+
+function summarizeFieldStates(states) {
+  const summary = {
+    unknown: [],
+    known: [],
+    learned: [],
+    corrected: [],
+  };
+  for (const [field, state] of Object.entries(states || {})) {
+    const status = Object.prototype.hasOwnProperty.call(summary, state?.status)
+      ? state.status
+      : "unknown";
+    summary[status].push(field);
+  }
+  return summary;
+}
+
+function normalizedAnchor(value) {
+  return clean(value, 240)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function provenanceResolvesAnchor(state, anchor) {
+  const normalized = normalizedAnchor(anchor);
+  if (!normalized || !state || state.status === "unknown") return false;
+  if (state.status === "corrected") return true;
+  for (const entry of state.provenance || []) {
+    const haystack = normalizedAnchor([
+      entry?.anchor,
+      entry?.question,
+      entry?.target_label,
+      entry?.targetLabel,
+    ].filter(Boolean).join(" "));
+    if (haystack && (haystack.includes(normalized) || normalized.includes(haystack))) return true;
+    const tokens = normalized.split(" ").filter((token) => token.length > 3);
+    if (tokens.length && tokens.filter((token) => haystack.includes(token)).length >= Math.min(3, tokens.length)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function fieldIsUnknown(states, targetField) {
+  return states?.[targetField]?.status === "unknown";
 }
 
 function firstNamedCharacter(characters, transcript, characterFocus = []) {
@@ -59,11 +244,10 @@ function buildGap({ field, label, anchor, question, reason }) {
   };
 }
 
-function characterGap(character) {
+function characterGap(character, fieldStates) {
   if (!character || typeof character !== "object") return null;
   const name = clean(character.name, 80) || "the protagonist";
-  const arc = character.arc && typeof character.arc === "object" ? character.arc : {};
-  if (!clean(arc.want)) {
+  if (fieldIsUnknown(fieldStates, "character.want")) {
     return buildGap({
       field: "character.want",
       label: `${name}'s dramatic want`,
@@ -72,7 +256,7 @@ function characterGap(character) {
       reason: "A durable want gives the feature a repeatable engine.",
     });
   }
-  if (!clean(arc.wound)) {
+  if (fieldIsUnknown(fieldStates, "character.wound")) {
     return buildGap({
       field: "character.wound",
       label: `${name}'s wound`,
@@ -81,7 +265,7 @@ function characterGap(character) {
       reason: "The wound turns external plot pressure into personal cost.",
     });
   }
-  if (!clean(arc.false_belief ?? arc.falseBelief)) {
+  if (fieldIsUnknown(fieldStates, "character.false_belief")) {
     return buildGap({
       field: "character.false_belief",
       label: `${name}'s false belief`,
@@ -90,7 +274,7 @@ function characterGap(character) {
       reason: "A false belief creates an act-spanning inner argument.",
     });
   }
-  if (!clean(arc.current_tactic ?? arc.currentTactic)) {
+  if (fieldIsUnknown(fieldStates, "character.current_tactic")) {
     return buildGap({
       field: "character.current_tactic",
       label: `${name}'s current tactic`,
@@ -99,7 +283,7 @@ function characterGap(character) {
       reason: "A failing tactic produces behavior, escalation, and a new choice.",
     });
   }
-  if (!clean(arc.next_emotional_turn ?? arc.nextEmotionalTurn)) {
+  if (fieldIsUnknown(fieldStates, "character.next_emotional_turn")) {
     return buildGap({
       field: "character.next_emotional_turn",
       label: `${name}'s next emotional turn`,
@@ -111,9 +295,9 @@ function characterGap(character) {
   return null;
 }
 
-function projectGap({ projectMemory, projectName, protagonistName }) {
+function projectGap({ fieldStates, projectName, protagonistName }) {
   const subject = protagonistName || "the protagonist";
-  if (!clean(projectMemory?.protagonist_want)) {
+  if (fieldIsUnknown(fieldStates, "project.protagonist_want")) {
     return buildGap({
       field: "project.protagonist_want",
       label: `${subject}'s feature want`,
@@ -122,7 +306,7 @@ function projectGap({ projectMemory, projectName, protagonistName }) {
       reason: "The feature needs one durable external pursuit before more beats are added.",
     });
   }
-  if (!clean(projectMemory?.central_question)) {
+  if (fieldIsUnknown(fieldStates, "project.central_question")) {
     return buildGap({
       field: "project.central_question",
       label: "the feature's central dramatic question",
@@ -131,7 +315,7 @@ function projectGap({ projectMemory, projectName, protagonistName }) {
       reason: "A central question lets every sequence advance the same movie.",
     });
   }
-  if (!clean(projectMemory?.antagonistic_force)) {
+  if (fieldIsUnknown(fieldStates, "project.antagonistic_force")) {
     return buildGap({
       field: "project.antagonistic_force",
       label: "the antagonistic force",
@@ -140,7 +324,7 @@ function projectGap({ projectMemory, projectName, protagonistName }) {
       reason: "Active opposition creates escalation instead of incident accumulation.",
     });
   }
-  if (!clean(projectMemory?.protagonist_need)) {
+  if (fieldIsUnknown(fieldStates, "project.protagonist_need")) {
     return buildGap({
       field: "project.protagonist_need",
       label: `${subject}'s deeper need`,
@@ -149,7 +333,7 @@ function projectGap({ projectMemory, projectName, protagonistName }) {
       reason: "The need connects the external climax to an internal transformation.",
     });
   }
-  if (!clean(projectMemory?.ending_image)) {
+  if (fieldIsUnknown(fieldStates, "project.ending_image")) {
     return buildGap({
       field: "project.ending_image",
       label: "the ending image",
@@ -158,7 +342,7 @@ function projectGap({ projectMemory, projectName, protagonistName }) {
       reason: "An ending image gives earlier acts a visible destination.",
     });
   }
-  if (!clean(projectMemory?.theme_argument)) {
+  if (fieldIsUnknown(fieldStates, "project.theme_argument")) {
     return buildGap({
       field: "project.theme_argument",
       label: "the theme argument",
@@ -296,10 +480,35 @@ export function buildScreenplayQuestionPlan({
     studioMeta?.screenplayCharacterFocus
   );
   const protagonistName = clean(character?.name, 80) || "";
-  const dueGap = writerBlocked ? dueThreadGap(trace.due_story_thread) : null;
-  const sceneObjective = firstValue(studioMeta?.screenplaySceneObjective, projectMemory.scene_objective);
+  const fieldStates = buildStoryFieldStates(projectMemory, character);
+  const fieldStateSummary = summarizeFieldStates(fieldStates);
+  const dueGapCandidate = writerBlocked ? dueThreadGap(trace.due_story_thread) : null;
+  const dueGap = dueGapCandidate && !provenanceResolvesAnchor(
+    fieldStates["story_thread.payoff_choice"],
+    dueGapCandidate.anchor
+  )
+    ? dueGapCandidate
+    : null;
+  const unresolvedSetupCandidate = writerBlocked
+    ? unresolvedSetupGap(projectMemory.unresolved_setups)
+    : null;
+  const unresolvedSetup = unresolvedSetupCandidate && !provenanceResolvesAnchor(
+    fieldStates["story_thread.next_setup"],
+    unresolvedSetupCandidate.anchor
+  )
+    ? unresolvedSetupCandidate
+    : null;
+  const projectStoryGap = projectGap({
+    fieldStates,
+    projectName,
+    protagonistName,
+  });
+  const characterStoryGap = characterGap(character, fieldStates);
+  const fallbackGap = fieldIsUnknown(fieldStates, "story.next_irreversible_choice")
+    ? fallbackChoiceGap({ protagonistName, projectName })
+    : null;
   const gap = dueGap ||
-    (writerBlocked && !sceneObjective
+    (writerBlocked && fieldIsUnknown(fieldStates, "scene.objective")
       ? buildGap({
         field: "scene.objective",
         label: "the next scene objective",
@@ -308,10 +517,26 @@ export function buildScreenplayQuestionPlan({
         reason: "A concrete scene objective converts abstract block into playable action.",
       })
       : null) ||
-    characterGap(character) ||
-    projectGap({ projectMemory, projectName, protagonistName }) ||
-    (writerBlocked ? unresolvedSetupGap(projectMemory.unresolved_setups) : null) ||
-    fallbackChoiceGap({ protagonistName, projectName });
+    unresolvedSetup ||
+    projectStoryGap ||
+    characterStoryGap ||
+    fallbackGap;
+
+  if (!gap) {
+    return {
+      active: true,
+      mode: writerBlocked ? "rescue_with_known_spine" : "develop_with_known_spine",
+      shouldAsk: false,
+      askAfterDeliverable: false,
+      projectId,
+      projectTitle,
+      objective: writerBlocked
+        ? "Use the resolved Story Spine and Character Bible to offer concrete causal moves without reopening settled facts."
+        : "Develop the requested story area from known, learned, and corrected canon without asking another setup question.",
+      reason: "Every relevant high-value field is already resolved.",
+      fieldStates: fieldStateSummary,
+    };
+  }
 
   return {
     active: true,
@@ -329,6 +554,8 @@ export function buildScreenplayQuestionPlan({
     question: gap.question,
     reason: gap.reason,
     memoryAuthority: "writer_clarification",
+    targetFieldStatus: fieldStates[gap.field]?.status || "unknown",
+    fieldStates: fieldStateSummary,
   };
 }
 
@@ -421,27 +648,32 @@ function normalizeQuestion(value) {
     .trim();
 }
 
+function stripQuestionSentences(value) {
+  const lines = String(value || "").split("\n");
+  const kept = [];
+  for (const line of lines) {
+    if (!line.includes("?")) {
+      kept.push(line);
+      continue;
+    }
+    const sentences = line.match(/[^.!?\n]+[.!?]+|[^.!?\n]+$/g) || [];
+    const statement = sentences
+      .filter((sentence) => !sentence.includes("?"))
+      .join(" ")
+      .trim();
+    if (statement) kept.push(statement);
+  }
+  return kept
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function enforceScreenplayQuestionPlan(reply, plan) {
   const text = String(reply || "").trim();
   const question = clean(plan?.question, 260);
   if (!text || !plan?.active || !plan?.shouldAsk || !question) return text;
-  if (normalizeQuestion(text).includes(normalizeQuestion(question))) return text;
-
-  if (/\?\s*$/.test(text)) {
-    const boundaryIndexes = [
-      text.lastIndexOf("\n"),
-      text.lastIndexOf(". "),
-      text.lastIndexOf("! "),
-      text.lastIndexOf("? "),
-    ];
-    const boundaryIndex = Math.max(...boundaryIndexes);
-    const prefixEnd = boundaryIndex < 0
-      ? 0
-      : text[boundaryIndex] === "\n"
-        ? boundaryIndex
-        : boundaryIndex + 1;
-    const prefix = text.slice(0, prefixEnd).trim();
-    return prefix ? `${prefix}\n\n${question}` : question;
-  }
-  return `${text}\n\n${question}`;
+  const body = stripQuestionSentences(text);
+  if (!body || normalizeQuestion(body) === normalizeQuestion(question)) return question;
+  return `${body}\n\n${question}`;
 }

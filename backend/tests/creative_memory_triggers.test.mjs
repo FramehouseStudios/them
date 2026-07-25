@@ -166,6 +166,7 @@ test("recordTriggersFromTalkTurn learns a short answer to Clementine's planned s
     mara.bible.learnedFields[0].question,
     "What does Mara want badly enough to keep choosing danger instead of safety?"
   );
+  assert.equal(mara.bible.learnedFields[0].anchor, "Mara");
   assert.deepEqual(
     buildCharacterFieldProvenance(mara.bible).map(({ field, value, status, source }) => ({
       field,
@@ -224,6 +225,7 @@ test("confirmed story questions populate Story Spine fields across store restart
   assert.equal(provenance.value, centralQuestion);
   assert.equal(provenance.status, "current");
   assert.equal(provenance.questionId, "screenplay-learning-12-project.central_question");
+  assert.equal(provenance.anchor, "Rain Docket");
   assert.ok(memory.projectContinuity.continuityNotes.some((item) => (
     /Writer clarified central question/.test(item)
   )));
@@ -296,6 +298,7 @@ test("authoritative corrections block stale clarification replay across sessions
   assert.equal(correctedField.value, "truth will get Eli killed");
   assert.equal(correctedField.learnedValue, "Perfect proof can keep everyone safe");
   assert.equal(correctedField.questionId, learningContext.questionId);
+  assert.equal(correctedField.anchor, "Mara");
   assert.match(correctedField.correctionText, /truth will get Eli killed/i);
   assert.ok(!JSON.stringify(memory).includes("Writer clarified Mara's false belief: Perfect proof"));
 });

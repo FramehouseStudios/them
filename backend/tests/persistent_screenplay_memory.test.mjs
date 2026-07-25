@@ -1441,9 +1441,62 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
           bible: {
             correctedTerms: ["mother"],
             correctionReplacements: ["mother -> Eli's sister"],
+            arc: {
+              falseBelief: "Truth will get Eli killed.",
+            },
+            learnedFields: [{
+              field: "falseBelief",
+              value: "Perfect proof can save everyone.",
+              questionId: "screenplay-learning-character-false-belief",
+              question: "What false belief is Mara using to survive?",
+              targetLabel: "Mara's false belief",
+              anchor: "Mara",
+              learnedAt: 1_700,
+              updatedAt: 1_700,
+            }],
+            authoritativeFields: [{
+              field: "falseBelief",
+              value: "Truth will get Eli killed.",
+              sourceCorrectionId: "correction-mara-belief",
+              correctionText: "Actually, Mara believes truth will get Eli killed.",
+              createdAt: 1_800,
+            }],
           },
         },
       ],
+      projectContinuity: {
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        protagonistWant: "Expose the forged verdict before Eli is sentenced.",
+        centralQuestion: "Can Mara expose the truth without sacrificing Eli?",
+        learnedFields: [{
+          field: "protagonistWant",
+          value: "Expose the forged verdict before Eli is sentenced.",
+          questionId: "screenplay-learning-project-protagonist-want",
+          question: "What does Mara want badly enough to carry the feature?",
+          targetLabel: "Mara's feature want",
+          anchor: "Mara",
+          learnedAt: 1_600,
+          updatedAt: 1_600,
+        }, {
+          field: "centralQuestion",
+          value: "Can Mara expose the truth and save everyone?",
+          questionId: "screenplay-learning-project-central-question",
+          question: "What question should every sequence tighten?",
+          targetLabel: "the feature's central dramatic question",
+          anchor: "Rain Docket",
+          learnedAt: 1_650,
+          updatedAt: 1_650,
+        }],
+        authoritativeFields: [{
+          field: "centralQuestion",
+          value: "Can Mara expose the truth without sacrificing Eli?",
+          sourceCorrectionId: "correction-central-question",
+          correctionText: "No, the choice must cost Eli.",
+          createdAt: 1_850,
+        }],
+        updatedAt: 1_850,
+      },
       episodicMemories: [
         {
           summary: "Correction for Mara: Mara hides a VHS tape, not a cassette.",
@@ -1588,6 +1641,20 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.deepEqual(trace.correction_replacements, ["mother -> Eli's sister", "cassette -> VHS tape"]);
   assert.equal(trace.characters[0].name, "Mara");
   assert.equal(trace.characters[0].has_corrections, true);
+  assert.deepEqual(trace.characters[0].field_provenance[0], {
+    field: "falseBelief",
+    value: "Truth will get Eli killed.",
+    learned_value: "Perfect proof can save everyone.",
+    source: "writer_correction",
+    status: "corrected",
+    question_id: "screenplay-learning-character-false-belief",
+    question: "What false belief is Mara using to survive?",
+    target_label: "Mara's false belief",
+    anchor: "Mara",
+    source_correction_id: "correction-mara-belief",
+    learned_at: 1_700,
+    updated_at: 1_800,
+  });
   assert.match(trace.episodic[0].summary, /Correction for Mara/);
   assert.equal(trace.episodic[0].correction, true);
   assert.equal(trace.episodic[0].authority, "user_correction");
@@ -1603,6 +1670,14 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.equal(trace.screenplay_project_memory.applied, true);
   assert.equal(trace.screenplay_project_memory.project_id, "rain-docket");
   assert.equal(trace.screenplay_project_memory.act, "Act II");
+  assert.equal(
+    trace.screenplay_project_memory.protagonist_want,
+    "Expose the forged verdict before Eli is sentenced."
+  );
+  assert.equal(
+    trace.screenplay_project_memory.central_question,
+    "Can Mara expose the truth without sacrificing Eli?"
+  );
   assert.equal(trace.screenplay_project_memory.has_corrections, true);
   assert.deepEqual(trace.screenplay_project_memory.corrected_terms, ["cassette"]);
   assert.deepEqual(trace.screenplay_project_memory.correction_replacements, ["cassette -> VHS tape"]);
@@ -1617,6 +1692,22 @@ test("[persistent-screenplay-memory] prompt trace exposes retrieved characters a
   assert.deepEqual(trace.screenplay_project_memory.character_arc_turns, [
     "Mara chooses exposure over control.",
   ]);
+  assert.deepEqual(
+    trace.screenplay_project_memory.field_provenance.map((row) => ({
+      field: row.field,
+      status: row.status,
+      anchor: row.anchor,
+    })),
+    [{
+      field: "protagonistWant",
+      status: "current",
+      anchor: "Mara",
+    }, {
+      field: "centralQuestion",
+      status: "corrected",
+      anchor: "Rain Docket",
+    }]
+  );
   assert.equal(trace.style_applied, true);
   assert.ok(trace.query_chars > 0);
 });

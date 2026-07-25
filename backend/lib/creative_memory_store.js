@@ -784,6 +784,7 @@ function sanitizeLearnedProjectField(value = null) {
   const questionId = cleanText(value.questionId ?? value.question_id, 120);
   const question = cleanText(value.question, 260);
   const targetLabel = cleanText(value.targetLabel ?? value.target_label, 120);
+  const anchor = cleanText(value.anchor, 180);
   const rawLearnedAt = Number(
     value.learnedAt ?? value.learned_at ?? value.createdAt ?? value.created_at ?? nowMs()
   );
@@ -808,6 +809,7 @@ function sanitizeLearnedProjectField(value = null) {
     questionId,
     question,
     targetLabel,
+    anchor,
     learnedAt,
     updatedAt,
   };
@@ -1492,6 +1494,7 @@ function sanitizeLearnedCharacterField(value = null) {
   const questionId = cleanText(value.questionId ?? value.question_id, 120);
   const question = cleanText(value.question, 260);
   const targetLabel = cleanText(value.targetLabel ?? value.target_label, 120);
+  const anchor = cleanText(value.anchor, 180);
   const rawLearnedAt = Number(
     value.learnedAt ?? value.learned_at ?? value.createdAt ?? value.created_at ?? nowMs()
   );
@@ -1515,6 +1518,7 @@ function sanitizeLearnedCharacterField(value = null) {
     questionId,
     question,
     targetLabel,
+    anchor,
     learnedAt,
     updatedAt,
   };
@@ -1828,6 +1832,7 @@ export function buildCharacterFieldProvenance(bible = null) {
       questionId: learned?.questionId || "",
       question: learned?.question || "",
       targetLabel: learned?.targetLabel || "",
+      anchor: learned?.anchor || "",
       sourceCorrectionId: authoritative?.sourceCorrectionId || "",
       correctionText: authoritative?.correctionText || "",
       learnedAt: Math.max(0, Number(learned?.learnedAt || 0)),
@@ -1879,6 +1884,7 @@ export function buildProjectFieldProvenance(project = null) {
       questionId: learned?.questionId || "",
       question: learned?.question || "",
       targetLabel: learned?.targetLabel || "",
+      anchor: learned?.anchor || "",
       sourceCorrectionId: authoritative?.sourceCorrectionId || "",
       correctionText: authoritative?.correctionText || "",
       learnedAt: Math.max(0, Number(learned?.learnedAt || 0)),
@@ -3182,6 +3188,7 @@ function buildConfirmedScreenplayLearningPromotion({ learningContext, transcript
       questionId,
       question: cleanText(learningContext.question, 260),
       targetLabel: cleanText(learningContext.targetLabel ?? learningContext.target_label, 120),
+      anchor: cleanText(learningContext.anchor, 180),
     };
   }
 
@@ -3200,6 +3207,7 @@ function buildConfirmedScreenplayLearningPromotion({ learningContext, transcript
     questionId,
     question: cleanText(learningContext.question, 260),
     targetLabel: cleanText(learningContext.targetLabel ?? learningContext.target_label, 120),
+    anchor: cleanText(learningContext.anchor, 180),
   };
 }
 
@@ -5342,6 +5350,7 @@ function createCreativeMemoryStore({
             questionId: promotion.questionId,
             question: promotion.question,
             targetLabel: promotion.targetLabel,
+            anchor: promotion.anchor,
             learnedAt: promotedAt,
             updatedAt: promotedAt,
           }],
@@ -5394,6 +5403,7 @@ function createCreativeMemoryStore({
         questionId: promotion.questionId,
         question: promotion.question,
         targetLabel: promotion.targetLabel,
+        anchor: promotion.anchor,
         learnedAt: promotedAt,
         updatedAt: promotedAt,
       }],

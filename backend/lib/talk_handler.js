@@ -3537,8 +3537,8 @@ EVOLVING SELF-AWARENESS:
       ? `First execute this turn's useful story work. Then end with exactly one question using question_text=${JSON.stringify(screenplayQuestionPlan.question)}. Do not substitute a generic question or ask anything else.`
       : screenplayQuestionPlan?.mode === "answer_now"
         ? "Deliver the requested pages or rewrite now. Do not block the work with a clarifying question."
-        : screenplayQuestionPlan?.mode === "apply_learning"
-          ? screenplayQuestionPlan.objective
+        : screenplayQuestionPlan?.objective
+          ? `${screenplayQuestionPlan.objective} Do not invent another screenplay-learning question this turn.`
         : "Do not invent a screenplay-learning question this turn.";
     let directorAddendum = "";
     try {

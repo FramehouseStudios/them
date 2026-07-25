@@ -3540,12 +3540,62 @@ function buildCreativeMemoryRecallQuery(req = null, {
   return normalizeSnippet(lines.join("\n"), 4_000);
 }
 
-function buildScreenplayProjectMemoryPromptTrace(project = null) {
+function buildLearnedFieldPromptTrace(rows = []) {
+  return (Array.isArray(rows) ? rows : []).slice(0, 16).map((row) => (
+    Object.fromEntries(Object.entries({
+      field: normalizeSnippet(row?.field, 64),
+      value: normalizeSnippet(row?.value, 240),
+      learned_value: normalizeSnippet(row?.learnedValue ?? row?.learned_value, 240),
+      source: normalizeSnippet(row?.source, 64),
+      status: normalizeSnippet(row?.status, 32),
+      question_id: normalizeSnippet(row?.questionId ?? row?.question_id, 120),
+      question: normalizeSnippet(row?.question, 260),
+      target_label: normalizeSnippet(row?.targetLabel ?? row?.target_label, 120),
+      anchor: normalizeSnippet(row?.anchor, 180),
+      source_correction_id: normalizeSnippet(
+        row?.sourceCorrectionId ?? row?.source_correction_id,
+        96
+      ),
+      learned_at: Math.max(0, Number(row?.learnedAt ?? row?.learned_at ?? 0)),
+      updated_at: Math.max(0, Number(row?.updatedAt ?? row?.updated_at ?? 0)),
+    }).filter(([, value]) => typeof value === "number" ? value > 0 : Boolean(value)))
+  )).filter((row) => row.field && row.value);
+}
+
+function mergeScreenplayProjectMemoryForPromptTrace(
+  screenplayProjectMemory = null,
+  projectContinuity = null
+) {
+  const session = screenplayProjectMemory && typeof screenplayProjectMemory === "object"
+    ? screenplayProjectMemory
+    : {};
+  const creative = projectContinuity && typeof projectContinuity === "object"
+    ? projectContinuity
+    : {};
+  if (!Object.keys(creative).length) return Object.keys(session).length ? session : null;
+  return {
+    ...session,
+    ...creative,
+    correctedTerms: normalizeScreenplayStringList(
+      [...(creative.correctedTerms || []), ...(session.correctedTerms || [])],
+      8,
+      120
+    ),
+    correctionReplacements: normalizeScreenplayStringList(
+      [...(creative.correctionReplacements || []), ...(session.correctionReplacements || [])],
+      8,
+      160
+    ),
+  };
+}
+
+function buildScreenplayProjectMemoryPromptTrace(project = null, fieldProvenance = []) {
   project = repairScreenplayProjectMemoryForPrompt(project);
   if (!project || typeof project !== "object") return null;
   const correctedTerms = normalizeScreenplayStringList(project.correctedTerms, 8, 120);
   const correctionReplacements = normalizeScreenplayStringList(project.correctionReplacements, 8, 160);
   const correctionContract = buildScreenplayProjectCorrectionContract(project);
+  const learnedFieldProvenance = buildLearnedFieldPromptTrace(fieldProvenance);
   const trace = {
     applied: true,
     project_id: normalizeSnippet(project.projectId, 96),
@@ -3570,10 +3620,16 @@ function buildScreenplayProjectMemoryPromptTrace(project = null) {
     unresolved_story_threads: normalizeScreenplayStringList(project.unresolvedStoryThreads, 5, 200),
     character_arc_turns: normalizeScreenplayStringList(project.characterArcTurns, 5, 180),
     image_motifs: normalizeScreenplayStringList(project.imageMotifs, 5, 120),
-    has_corrections: Boolean(correctedTerms.length || correctionReplacements.length || correctionContract),
+    has_corrections: Boolean(
+      correctedTerms.length ||
+      correctionReplacements.length ||
+      correctionContract ||
+      learnedFieldProvenance.some((row) => row.status === "corrected")
+    ),
     corrected_terms: correctedTerms,
     correction_replacements: correctionReplacements,
     correction_contract: correctionContract,
+    field_provenance: learnedFieldProvenance,
   };
   return Object.fromEntries(
     Object.entries(trace).filter(([, value]) => {
@@ -3619,6 +3675,9 @@ function buildCreativeMemoryPromptTrace(memory = null, {
         ),
         corrected_terms: normalizeScreenplayStringList(bible?.correctedTerms, 6, 80),
         correction_replacements: normalizeScreenplayStringList(bible?.correctionReplacements, 6, 120),
+        field_provenance: buildLearnedFieldPromptTrace(
+          buildCharacterFieldProvenance(bible)
+        ),
       };
     }).filter((character) => character.name)
     : [];
@@ -3737,7 +3796,15 @@ function buildCreativeMemoryPromptTrace(memory = null, {
     correctedTerms.push(...character.corrected_terms);
     correctionReplacements.push(...character.correction_replacements);
   }
-  const screenplayProjectTrace = buildScreenplayProjectMemoryPromptTrace(screenplayProjectMemory);
+  const projectContinuity = memory?.projectContinuity &&
+    typeof memory.projectContinuity === "object" &&
+    !Array.isArray(memory.projectContinuity)
+    ? memory.projectContinuity
+    : null;
+  const screenplayProjectTrace = buildScreenplayProjectMemoryPromptTrace(
+    mergeScreenplayProjectMemoryForPromptTrace(screenplayProjectMemory, projectContinuity),
+    buildProjectFieldProvenance(projectContinuity)
+  );
   if (screenplayProjectTrace) {
     correctedTerms.push(...(screenplayProjectTrace.corrected_terms || []));
     correctionReplacements.push(...(screenplayProjectTrace.correction_replacements || []));
