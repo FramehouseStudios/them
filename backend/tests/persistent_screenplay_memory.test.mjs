@@ -305,6 +305,48 @@ test("[persistent-screenplay-memory] Story Spine cards can be corrected from Mem
   assert.match(buildMemoryAddendum(memory), /Mara chooses public courage/);
 });
 
+test("[persistent-screenplay-memory] Story Spine cards expose durable learned-field provenance", () => {
+  const memory = createEmptyEmotionMemory();
+  memory.screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems([{
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    act: "Act II",
+    currentBeat: "Mara reaches the midpoint hearing.",
+    updatedAt: 1_800_000_000_000,
+  }]);
+
+  const [card] = buildMemoryCards(memory, [], 4, {
+    updatedAt: 1_800_000_010_000,
+    projects: [{
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      centralQuestion: "Can Mara expose the truth without becoming her father?",
+      learnedFields: [{
+        field: "centralQuestion",
+        value: "Can Mara expose the truth without becoming her father?",
+        questionId: "screenplay-learning-project-central-question",
+        question: "What question should every sequence tighten?",
+        targetLabel: "the feature's central dramatic question",
+        learnedAt: 1_800_000_010_000,
+        updatedAt: 1_800_000_010_000,
+      }],
+      updatedAt: 1_800_000_010_000,
+    }],
+  });
+
+  assert.equal(card.source, "screenplay_project");
+  assert.equal(
+    card.storySpine.centralQuestion,
+    "Can Mara expose the truth without becoming her father?"
+  );
+  assert.equal(card.storySpine.field_provenance[0].field, "centralQuestion");
+  assert.equal(card.storySpine.field_provenance[0].status, "current");
+  assert.equal(
+    card.storySpine.field_provenance[0].source,
+    "screenplay_learning_confirmation"
+  );
+});
+
 test("[persistent-screenplay-memory] buildMemoryCards exposes structured character bible cards", () => {
   const cards = buildMemoryCards(
     createEmptyEmotionMemory(),
@@ -333,6 +375,17 @@ test("[persistent-screenplay-memory] buildMemoryCards exposes structured charact
               correctionText: "Actually, Mara's false belief is that truth will get Eli killed.",
               replacesFacts: ["Mara believes perfect proof can save everyone."],
               createdAt: 1_800_000_000_000,
+            }],
+            learnedFields: [{
+              id: "character_learning_1",
+              field: "falseBelief",
+              value: "perfect proof can save everyone",
+              source: "screenplay_learning_confirmation",
+              questionId: "screenplay-learning-character-false-belief",
+              question: "What false belief is Mara using to survive?",
+              targetLabel: "Mara's false belief",
+              learnedAt: 1_799_999_000_000,
+              updatedAt: 1_799_999_000_000,
             }],
             arc: {
               act: "Act II",
@@ -367,6 +420,17 @@ test("[persistent-screenplay-memory] buildMemoryCards exposes structured charact
   assert.equal(
     card.character_bible.authoritative_fields[0].source_correction_id,
     "canon_correction_123"
+  );
+  assert.equal(card.character_bible.field_provenance[0].field, "falseBelief");
+  assert.equal(card.character_bible.field_provenance[0].status, "corrected");
+  assert.equal(card.character_bible.field_provenance[0].value, "truth will get Eli killed");
+  assert.equal(
+    card.character_bible.field_provenance[0].learned_value,
+    "perfect proof can save everyone"
+  );
+  assert.equal(
+    card.character_bible.field_provenance[0].question,
+    "What false belief is Mara using to survive?"
   );
   assert.ok(card.snippets.some((item) => /Authoritative falseBelief:/i.test(item)));
   assert.match(card.summary, /Want: expose the forged testimony/);

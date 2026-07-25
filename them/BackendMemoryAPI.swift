@@ -269,6 +269,71 @@ nonisolated struct BackendAuthoritativeCharacterField: Codable, Hashable {
     let createdAt: TimeInterval?
 }
 
+nonisolated struct BackendLearnedFieldProvenance: Codable, Hashable {
+    let id: String?
+    let field: String
+    let value: String
+    let learnedValue: String?
+    let source: String?
+    let status: String?
+    let questionId: String?
+    let question: String?
+    let targetLabel: String?
+    let sourceCorrectionId: String?
+    let correctionText: String?
+    let learnedAt: TimeInterval?
+    let updatedAt: TimeInterval?
+
+    var isCorrected: Bool {
+        status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "corrected"
+    }
+
+    var statusLabel: String {
+        isCorrected ? "Corrected" : "Current"
+    }
+
+    var sourceLabel: String {
+        if isCorrected { return "Writer correction" }
+        let normalized = source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return normalized == "screenplay_learning_confirmation"
+            ? "Learned from your answer"
+            : "Story memory"
+    }
+
+    var fieldLabel: String {
+        switch field.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "falseBelief": return "False belief"
+        case "relationshipPressure": return "Relationship pressure"
+        case "currentTactic": return "Current tactic"
+        case "nextEmotionalTurn": return "Next emotional turn"
+        case "protagonistWant": return "Protagonist want"
+        case "protagonistNeed": return "Protagonist need"
+        case "antagonisticForce": return "Antagonistic force"
+        case "centralQuestion": return "Central question"
+        case "themeArgument": return "Theme argument"
+        case "endingImage": return "Ending image"
+        case "sceneObjective": return "Scene objective"
+        case "nextScenePlan": return "Next scene"
+        case "nextSceneMoves": return "Next moves"
+        case "unresolvedSetups": return "Unresolved setup"
+        case "unresolvedStoryThreads": return "Unresolved thread"
+        case "actThreePayoffPath": return "Act III payoff"
+        default:
+            return field
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+        }
+    }
+
+    var accessibilityKey: String {
+        let clean = field
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return String(clean).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+}
+
 nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
     var character: String
     var canon: [String]
@@ -276,6 +341,7 @@ nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
     var correctedTerms: [String]
     var correctionReplacements: [String]
     var authoritativeFields: [BackendAuthoritativeCharacterField]? = nil
+    var fieldProvenance: [BackendLearnedFieldProvenance]? = nil
     var arc: BackendCharacterBibleArcMemory?
     var voice: String?
     var tags: [String]?
@@ -287,6 +353,7 @@ nonisolated struct BackendCharacterBibleMemory: Codable, Hashable {
          !correctedTerms.isEmpty ||
          !correctionReplacements.isEmpty ||
          !(authoritativeFields ?? []).isEmpty ||
+         !(fieldProvenance ?? []).isEmpty ||
          arc?.isMeaningful == true)
     }
 
@@ -444,6 +511,7 @@ nonisolated struct BackendStorySpineMemory: Decodable, Hashable {
     let pageCount: Int?
     let targetPages: Int?
     let updatedAt: TimeInterval?
+    var fieldProvenance: [BackendLearnedFieldProvenance]? = nil
 
     var payload: [String: Any] {
         var out: [String: Any] = [:]

@@ -33,6 +33,7 @@ const CHARACTER_BIBLE_CANON_MAX = 12;
 const CHARACTER_BIBLE_CORRECTIONS_MAX = 8;
 const CHARACTER_BIBLE_TERMS_MAX = 12;
 const CHARACTER_BIBLE_AUTHORITATIVE_FIELDS_MAX = 8;
+const CHARACTER_BIBLE_LEARNED_FIELDS_MAX = 8;
 const CHARACTER_ARC_FIELD_MAX_CHARS = 180;
 const PROJECT_CONTINUITY_MAX = 24;
 const PROJECT_CORRECTED_TERMS_MAX = 64;
@@ -45,6 +46,7 @@ const WRITER_CANON_FACTS_MAX = 32;
 const WRITER_CANON_FACT_MAX_CHARS = 220;
 const WRITER_CANON_TARGETS_MAX = 16;
 const PROJECT_AUTHORITATIVE_FIELDS_MAX = 12;
+const PROJECT_LEARNED_FIELDS_MAX = 16;
 const EPISODIC_MEMORY_PROMPT_MAX = 6;
 const EPISODIC_SEMANTIC_FINGERPRINT_MAX = 96;
 const EPISODIC_EMBEDDING_DIMENSIONS_MAX = 3_072;
@@ -219,6 +221,7 @@ const ACCEPTED_CAUSAL_FACT_FIELDS = Object.freeze([
 ]);
 const ACCEPTED_CAUSAL_FACT_PROMPT_MAX = 8;
 const WRITER_CANON_AUTHORITY = "writer_correction";
+const SCREENPLAY_LEARNING_SOURCE = "screenplay_learning_confirmation";
 const SCREENPLAY_LEARNING_CHARACTER_FIELDS = Object.freeze({
   "character.want": "want",
   "character.need": "need",
@@ -240,6 +243,9 @@ const SCREENPLAY_LEARNING_PROJECT_FIELDS = Object.freeze({
   "story_thread.payoff_choice": { field: "nextSceneMoves", kind: "list" },
   "story_thread.next_setup": { field: "unresolvedSetups", kind: "list" },
 });
+const SCREENPLAY_LEARNING_PROJECT_FIELD_NAMES = new Set(
+  Object.values(SCREENPLAY_LEARNING_PROJECT_FIELDS).map((item) => item.field)
+);
 const ACCEPTED_CANON_CORRECTION_AMBIGUITY_MARGIN = 100;
 const ACCEPTED_CANON_ACTION_TERMS = new Set([
   "abandon", "admit", "arrest", "betray", "broadcast", "burn", "choose", "confess",
@@ -767,6 +773,72 @@ function buildAuthoritativeProjectFields({
     .filter(Boolean);
 }
 
+function sanitizeLearnedProjectField(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const field = normalizeWriterCanonTargetField(value.field) || cleanText(value.field, 64);
+  if (!SCREENPLAY_LEARNING_PROJECT_FIELD_NAMES.has(field)) return null;
+  const definition = Object.values(SCREENPLAY_LEARNING_PROJECT_FIELDS)
+    .find((item) => item.field === field);
+  const fieldValue = cleanText(value.value ?? value.fact ?? value.text, 240);
+  if (!definition || !fieldValue) return null;
+  const questionId = cleanText(value.questionId ?? value.question_id, 120);
+  const question = cleanText(value.question, 260);
+  const targetLabel = cleanText(value.targetLabel ?? value.target_label, 120);
+  const rawLearnedAt = Number(
+    value.learnedAt ?? value.learned_at ?? value.createdAt ?? value.created_at ?? nowMs()
+  );
+  const learnedAt = Number.isFinite(rawLearnedAt) && rawLearnedAt > 0
+    ? rawLearnedAt
+    : nowMs();
+  const rawUpdatedAt = Number(value.updatedAt ?? value.updated_at ?? learnedAt);
+  const updatedAt = Number.isFinite(rawUpdatedAt) && rawUpdatedAt > 0
+    ? Math.max(learnedAt, rawUpdatedAt)
+    : learnedAt;
+  const id = cleanText(value.id, 96) || `project_learning_${stableHash([
+    field,
+    fieldValue.toLowerCase(),
+    questionId,
+  ].join("|"))}`;
+  return {
+    id,
+    field,
+    kind: definition.kind,
+    value: fieldValue,
+    source: SCREENPLAY_LEARNING_SOURCE,
+    questionId,
+    question,
+    targetLabel,
+    learnedAt,
+    updatedAt,
+  };
+}
+
+function mergeLearnedProjectFields(incoming = [], existing = []) {
+  const newest = (Array.isArray(incoming) ? incoming : [])
+    .map(sanitizeLearnedProjectField)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  const retiredScalarFields = new Set(
+    newest.filter((item) => item.kind === "scalar").map((item) => item.field)
+  );
+  const older = (Array.isArray(existing) ? existing : [])
+    .map(sanitizeLearnedProjectField)
+    .filter((item) => item && !retiredScalarFields.has(item.field))
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  const out = [];
+  const seen = new Set();
+  for (const item of [...newest, ...older]) {
+    const key = item.kind === "scalar"
+      ? item.field
+      : `${item.field}:${item.value.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= PROJECT_LEARNED_FIELDS_MAX) break;
+  }
+  return out;
+}
+
 function sanitizeWriterCanonFact(value = null) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const correctionText = cleanText(value.correctionText ?? value.correction_text, 600);
@@ -897,6 +969,11 @@ function sanitizeProjectContinuity(value = {}) {
     []
   );
   if (authoritativeFields.length) out.authoritativeFields = authoritativeFields;
+  const learnedFields = mergeLearnedProjectFields(
+    source.learnedFields ?? source.learned_fields,
+    []
+  );
+  if (learnedFields.length) out.learnedFields = learnedFields;
   const correction = {
     correctedTerms: out.correctedTerms || [],
     correctionReplacements: out.correctionReplacements || [],
@@ -1405,6 +1482,65 @@ function buildAuthoritativeCharacterFields({
     .filter(Boolean);
 }
 
+function sanitizeLearnedCharacterField(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const field = normalizeWriterCanonTargetField(value.field) || cleanText(value.field, 64);
+  if (!CHARACTER_ARC_FIELDS.includes(field)) return null;
+  const maxChars = field === "act" ? 80 : CHARACTER_ARC_FIELD_MAX_CHARS;
+  const fieldValue = cleanText(value.value ?? value.fact ?? value.text, maxChars);
+  if (!fieldValue) return null;
+  const questionId = cleanText(value.questionId ?? value.question_id, 120);
+  const question = cleanText(value.question, 260);
+  const targetLabel = cleanText(value.targetLabel ?? value.target_label, 120);
+  const rawLearnedAt = Number(
+    value.learnedAt ?? value.learned_at ?? value.createdAt ?? value.created_at ?? nowMs()
+  );
+  const learnedAt = Number.isFinite(rawLearnedAt) && rawLearnedAt > 0
+    ? rawLearnedAt
+    : nowMs();
+  const rawUpdatedAt = Number(value.updatedAt ?? value.updated_at ?? learnedAt);
+  const updatedAt = Number.isFinite(rawUpdatedAt) && rawUpdatedAt > 0
+    ? Math.max(learnedAt, rawUpdatedAt)
+    : learnedAt;
+  const id = cleanText(value.id, 96) || `character_learning_${stableHash([
+    field,
+    fieldValue.toLowerCase(),
+    questionId,
+  ].join("|"))}`;
+  return {
+    id,
+    field,
+    value: fieldValue,
+    source: SCREENPLAY_LEARNING_SOURCE,
+    questionId,
+    question,
+    targetLabel,
+    learnedAt,
+    updatedAt,
+  };
+}
+
+function mergeLearnedCharacterFields(incoming = [], existing = []) {
+  const newest = (Array.isArray(incoming) ? incoming : [])
+    .map(sanitizeLearnedCharacterField)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  const retiredFields = new Set(newest.map((item) => item.field));
+  const older = (Array.isArray(existing) ? existing : [])
+    .map(sanitizeLearnedCharacterField)
+    .filter((item) => item && !retiredFields.has(item.field))
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  const out = [];
+  const seen = new Set();
+  for (const item of [...newest, ...older]) {
+    if (seen.has(item.field)) continue;
+    seen.add(item.field);
+    out.push(item);
+    if (out.length >= CHARACTER_BIBLE_LEARNED_FIELDS_MAX) break;
+  }
+  return out;
+}
+
 function applyWriterCanonCharacterTargetsToRecords(characters = [], {
   targets = [],
   projectId = "",
@@ -1512,6 +1648,10 @@ function sanitizeCharacterBibleDelta(value = null) {
     value.authoritativeFields ?? value.authoritative_fields,
     []
   );
+  const learnedFields = mergeLearnedCharacterFields(
+    value.learnedFields ?? value.learned_fields,
+    []
+  );
   const arc = applyAuthoritativeCharacterFields(
     value.arc ?? value.characterArc ?? value.character_arc,
     authoritativeFields
@@ -1530,7 +1670,8 @@ function sanitizeCharacterBibleDelta(value = null) {
     !arc &&
     !correctedTerms.length &&
     !correctionReplacements.length &&
-    !authoritativeFields.length
+    !authoritativeFields.length &&
+    !learnedFields.length
   ) return null;
   return {
     schemaVersion: 1,
@@ -1538,6 +1679,7 @@ function sanitizeCharacterBibleDelta(value = null) {
     corrections,
     ...(arc ? { arc } : {}),
     authoritativeFields,
+    learnedFields,
     correctedTerms,
     correctionReplacements,
     updatedAt: Math.max(0, Number(value.updatedAt || nowMs())),
@@ -1592,6 +1734,7 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
     correctedTerms: [],
     correctionReplacements: [],
     authoritativeFields: [],
+    learnedFields: [],
     updatedAt: 0,
   };
   const incoming = sanitizeCharacterBibleDelta(incomingBible);
@@ -1620,6 +1763,10 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
     incoming.authoritativeFields,
     existing.authoritativeFields
   );
+  const learnedFields = mergeLearnedCharacterFields(
+    incoming.learnedFields,
+    existing.learnedFields
+  );
   const arc = applyAuthoritativeCharacterFields(
     mergeCharacterArcState(existing.arc, incoming.arc, hasCorrection ? correction : null),
     authoritativeFields
@@ -1643,10 +1790,105 @@ function mergeCharacterBible(existingBible = null, incomingBible = null) {
     ),
     ...(arc ? { arc } : {}),
     authoritativeFields,
+    learnedFields,
     correctedTerms: correction.correctedTerms,
     correctionReplacements: correction.correctionReplacements,
     updatedAt: Math.max(Number(existing.updatedAt || 0), Number(incoming.updatedAt || 0), nowMs()),
   });
+}
+
+export function buildCharacterFieldProvenance(bible = null) {
+  const cleanBible = sanitizeCharacterBibleDelta(bible);
+  if (!cleanBible) return [];
+  const learnedByField = new Map(
+    mergeLearnedCharacterFields(cleanBible.learnedFields, [])
+      .map((item) => [item.field, item])
+  );
+  const authoritativeByField = new Map(
+    mergeAuthoritativeCharacterFields(cleanBible.authoritativeFields, [])
+      .map((item) => [item.field, item])
+  );
+  const rows = [];
+  for (const field of CHARACTER_ARC_FIELDS) {
+    const learned = learnedByField.get(field) || null;
+    const authoritative = authoritativeByField.get(field) || null;
+    if (!learned && !authoritative) continue;
+    const value = cleanText(
+      authoritative?.value || readArcField(cleanBible.arc, field) || learned?.value,
+      field === "act" ? 80 : CHARACTER_ARC_FIELD_MAX_CHARS
+    );
+    if (!value) continue;
+    rows.push({
+      id: authoritative?.id || learned?.id || `character_field_${field}`,
+      field,
+      value,
+      learnedValue: learned?.value || "",
+      source: authoritative?.source || learned?.source || SCREENPLAY_LEARNING_SOURCE,
+      status: authoritative ? "corrected" : "current",
+      questionId: learned?.questionId || "",
+      question: learned?.question || "",
+      targetLabel: learned?.targetLabel || "",
+      sourceCorrectionId: authoritative?.sourceCorrectionId || "",
+      correctionText: authoritative?.correctionText || "",
+      learnedAt: Math.max(0, Number(learned?.learnedAt || 0)),
+      updatedAt: Math.max(
+        0,
+        Number(authoritative?.createdAt || learned?.updatedAt || learned?.learnedAt || 0)
+      ),
+    });
+  }
+  return rows.slice(0, CHARACTER_BIBLE_LEARNED_FIELDS_MAX);
+}
+
+export function buildProjectFieldProvenance(project = null) {
+  const cleanProject = sanitizeProjectContinuity(project);
+  if (!cleanProject) return [];
+  const learnedByField = new Map();
+  for (const item of mergeLearnedProjectFields(cleanProject.learnedFields, [])) {
+    if (!learnedByField.has(item.field)) learnedByField.set(item.field, item);
+  }
+  const authoritativeByField = new Map();
+  for (const item of mergeAuthoritativeProjectFields(cleanProject.authoritativeFields, [])) {
+    if (!authoritativeByField.has(item.field)) authoritativeByField.set(item.field, item);
+  }
+  const orderedFields = [
+    ...new Set([
+      ...Object.values(SCREENPLAY_LEARNING_PROJECT_FIELDS).map((item) => item.field),
+      ...authoritativeByField.keys(),
+    ]),
+  ];
+  const rows = [];
+  for (const field of orderedFields) {
+    const learned = learnedByField.get(field) || null;
+    const authoritative = authoritativeByField.get(field) || null;
+    if (!learned && !authoritative) continue;
+    const currentValue = Array.isArray(cleanProject[field])
+      ? cleanProject[field].find((item) => (
+        !learned || cleanText(item, 240).toLowerCase() === learned.value.toLowerCase()
+      )) || cleanProject[field][0]
+      : cleanProject[field];
+    const value = cleanText(authoritative?.value || currentValue || learned?.value, 240);
+    if (!value) continue;
+    rows.push({
+      id: authoritative?.id || learned?.id || `project_field_${field}`,
+      field,
+      value,
+      learnedValue: learned?.value || "",
+      source: authoritative?.source || learned?.source || SCREENPLAY_LEARNING_SOURCE,
+      status: authoritative ? "corrected" : "current",
+      questionId: learned?.questionId || "",
+      question: learned?.question || "",
+      targetLabel: learned?.targetLabel || "",
+      sourceCorrectionId: authoritative?.sourceCorrectionId || "",
+      correctionText: authoritative?.correctionText || "",
+      learnedAt: Math.max(0, Number(learned?.learnedAt || 0)),
+      updatedAt: Math.max(
+        0,
+        Number(authoritative?.createdAt || learned?.updatedAt || learned?.learnedAt || 0)
+      ),
+    });
+  }
+  return rows.slice(0, PROJECT_LEARNED_FIELDS_MAX);
 }
 
 function tokenizeMemoryText(value) {
@@ -2938,6 +3180,8 @@ function buildConfirmedScreenplayLearningPromotion({ learningContext, transcript
       projectId: cleanText(learningContext.projectId ?? learningContext.project_id, 96),
       projectTitle: cleanText(learningContext.projectTitle ?? learningContext.project_title, 160),
       questionId,
+      question: cleanText(learningContext.question, 260),
+      targetLabel: cleanText(learningContext.targetLabel ?? learningContext.target_label, 120),
     };
   }
 
@@ -2954,6 +3198,8 @@ function buildConfirmedScreenplayLearningPromotion({ learningContext, transcript
     projectId,
     projectTitle,
     questionId,
+    question: cleanText(learningContext.question, 260),
+    targetLabel: cleanText(learningContext.targetLabel ?? learningContext.target_label, 120),
   };
 }
 
@@ -4449,6 +4695,12 @@ function createCreativeMemoryStore({
             existing.authoritativeFields
           );
         }
+        if (Object.prototype.hasOwnProperty.call(incoming, "learnedFields")) {
+          next.learnedFields = mergeLearnedProjectFields(
+            incoming.learnedFields,
+            existing.learnedFields
+          );
+        }
         if (Object.prototype.hasOwnProperty.call(incoming, "writerCanonFacts")) {
           next.writerCanonFacts = mergeWriterCanonFacts(
             incoming.writerCanonFacts,
@@ -4767,14 +5019,27 @@ function createCreativeMemoryStore({
       projectTitle,
       metadataKey: "metadata",
     });
+    const projectCharacter = (character) => ({
+      name: character.name,
+      traits: character.traits || null,
+      bible: character.bible
+        ? {
+          character: character.name,
+          ...character.bible,
+        }
+        : null,
+      fieldProvenance: buildCharacterFieldProvenance(character.bible),
+      projectId: cleanText(character.metadata?.projectId ?? character.metadata?.project_id, 96),
+      projectTitle: cleanText(character.metadata?.projectTitle ?? character.metadata?.project_title, 160),
+    });
     if (characterName && typeof characterName === "string") {
       const name = characterName.trim();
       if (!name) return null;
       const found = characters.find((c) => c.name.toLowerCase() === name.toLowerCase());
       if (!found) return null;
-      return { name: found.name, traits: found.traits || null };
+      return projectCharacter(found);
     }
-    return characters.map((c) => ({ name: c.name, traits: c.traits || null }));
+    return characters.map(projectCharacter);
   }
 
   async function recordSceneCompletion({ userId, scenePageCount }) {
@@ -5032,6 +5297,7 @@ function createCreativeMemoryStore({
 
   async function promoteConfirmedScreenplayLearningAnswer({ userId, promotion } = {}) {
     if (!userId || !promotion) return { ok: false, applied: false };
+    const promotedAt = nowMs();
     const metadata = {
       ...(promotion.projectId ? { projectId: promotion.projectId } : {}),
       ...(promotion.projectTitle ? { projectTitle: promotion.projectTitle } : {}),
@@ -5070,7 +5336,16 @@ function createCreativeMemoryStore({
             `${promotion.character}'s ${screenplayLearningFieldLabel(promotion.field)}: ${promotion.value}`,
           ],
           arc: { [promotion.field]: promotion.value },
-          updatedAt: nowMs(),
+          learnedFields: [{
+            field: promotion.field,
+            value: promotion.value,
+            questionId: promotion.questionId,
+            question: promotion.question,
+            targetLabel: promotion.targetLabel,
+            learnedAt: promotedAt,
+            updatedAt: promotedAt,
+          }],
+          updatedAt: promotedAt,
         },
       });
       const current = await readUser(userId);
@@ -5113,6 +5388,15 @@ function createCreativeMemoryStore({
     const continuity = {
       projectId: promotion.projectId,
       projectTitle: promotion.projectTitle,
+      learnedFields: [{
+        field: promotion.field,
+        value: promotion.value,
+        questionId: promotion.questionId,
+        question: promotion.question,
+        targetLabel: promotion.targetLabel,
+        learnedAt: promotedAt,
+        updatedAt: promotedAt,
+      }],
       continuityNotes: normalizeStringList(
         [note, ...(existingProject?.continuityNotes || [])],
         8,

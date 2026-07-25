@@ -59,6 +59,21 @@ struct ScreenplayProjectScopedState {
     }
 }
 
+struct ScreenplayCharacterTraitsRefreshPolicy {
+    static func shouldFallbackToUserLibrary(
+        response: BackendCharacterTraitsResponse,
+        projectID: String?,
+        projectTitle: String?
+    ) -> Bool {
+        let scopedProjectID = (projectID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let scopedProjectTitle = (projectTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let responseError = (response.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return response.characters.isEmpty &&
+            responseError.isEmpty &&
+            (!scopedProjectID.isEmpty || !scopedProjectTitle.isEmpty)
+    }
+}
+
 struct ScreenplayProjectSelectionRestorePolicy {
     static func selectedProjectId(
         activeProjectId: String?,
@@ -1370,6 +1385,11 @@ private extension View {
 
 @MainActor
 private final class ScreenplayStudioViewModel: ObservableObject {
+    private struct CharacterTraitsRefreshResult {
+        let traits: BackendCharacterTraitsResponse
+        let archetypes: BackendCharacterArchetypesResponse?
+    }
+
     struct LocalDraftRecoveryCandidate: Equatable {
         let projectId: String
         let draft: String
@@ -1424,6 +1444,8 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var isCharacterTraitsLoading: Bool = false
     @Published var characterTraitsErrorText: String = ""
     @Published var characterTraitsInfoText: String = ""
+    private var characterTraitsRefreshTask: Task<CharacterTraitsRefreshResult, Error>?
+    private var characterTraitsRefreshID: UUID?
     @Published var craftTwists: ScreenplayCraftTwistSuggestResponse?
     @Published var isCraftTwistLoading: Bool = false
     @Published var craftTwistErrorText: String = ""
@@ -3769,24 +3791,66 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    func refreshCharacterTraits(source: String = "io.them") async {
-        guard !IOThemRuntime.isRunningTests else { return }
-        guard !isCharacterTraitsLoading else { return }
-        isCharacterTraitsLoading = true
-        defer { isCharacterTraitsLoading = false }
-        do {
+    func refreshCharacterTraits(
+        source: String = "io.them",
+        allowDuringTests: Bool = false
+    ) async {
+        guard !IOThemRuntime.isRunningTests || allowDuringTests else {
+            return
+        }
+
+        let refreshTask: Task<CharacterTraitsRefreshResult, Error>
+        let refreshID: UUID
+        if let activeTask = characterTraitsRefreshTask,
+           let activeID = characterTraitsRefreshID {
+            refreshTask = activeTask
+            refreshID = activeID
+        } else {
             let bridge = ScreenplayLiveDraftBridge.shared
-            let response = try await StudioCraftResilience.run(source: source) {
-                try await craftClient.fetchMemoryCharacterTraits(
-                    projectID: bridge.preferredProjectID,
-                    projectTitle: bridge.projectBinding.projectTitle
+            let projectID = bridge.preferredProjectID
+            let projectTitle = bridge.projectBinding.projectTitle
+            refreshID = UUID()
+            refreshTask = Task<CharacterTraitsRefreshResult, Error> {
+                var response = try await StudioCraftResilience.run(source: source) {
+                    try await self.craftClient.fetchMemoryCharacterTraits(
+                        projectID: projectID,
+                        projectTitle: projectTitle
+                    )
+                }
+                if ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
+                    response: response,
+                    projectID: projectID,
+                    projectTitle: projectTitle
+                ) {
+                    response = try await StudioCraftResilience.run(source: source) {
+                        try await self.craftClient.fetchMemoryCharacterTraits()
+                    }
+                }
+                let archetypes = try? await StudioCraftResilience.run(source: source, operation: {
+                    try await self.craftClient.fetchMemoryCharacterArchetypes()
+                })
+                return CharacterTraitsRefreshResult(
+                    traits: response,
+                    archetypes: archetypes
                 )
             }
-            characterTraits = response
-            ScreenplayLiveDraftBridge.shared.updateCharacterVoiceMemories(from: response)
-            characterArchetypes = try? await StudioCraftResilience.run(source: source, operation: {
-                try await craftClient.fetchMemoryCharacterArchetypes()
-            })
+            characterTraitsRefreshTask = refreshTask
+            characterTraitsRefreshID = refreshID
+            isCharacterTraitsLoading = true
+        }
+
+        defer {
+            if characterTraitsRefreshID == refreshID {
+                characterTraitsRefreshTask = nil
+                characterTraitsRefreshID = nil
+                isCharacterTraitsLoading = false
+            }
+        }
+        do {
+            let result = try await refreshTask.value
+            characterTraits = result.traits
+            ScreenplayLiveDraftBridge.shared.updateCharacterVoiceMemories(from: result.traits)
+            characterArchetypes = result.archetypes
             characterTraitsErrorText = ""
             characterTraitsInfoText = source
         } catch {
@@ -5879,6 +5943,13 @@ struct ScreenplayStudioScreen: View {
         studioConfiguredView
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("studio.surface")
+            .task(id: uiTestLiveMemoryRefreshEnabled) {
+                guard uiTestLiveMemoryRefreshEnabled else { return }
+                await vm.refreshCharacterTraits(
+                    source: "Manual cross-device memory smoke",
+                    allowDuringTests: true
+                )
+            }
             .overlay(alignment: .topLeading) {
                 #if DEBUG
                 if IOThemRuntime.isRunningUITests {
@@ -5890,6 +5961,15 @@ struct ScreenplayStudioScreen: View {
                 }
                 #endif
             }
+    }
+
+    private var uiTestLiveMemoryRefreshEnabled: Bool {
+        #if DEBUG
+        IOThemRuntime.isRunningUITests &&
+            ProcessInfo.processInfo.arguments.contains("--ui-live-memory")
+        #else
+        false
+        #endif
     }
 
     #if DEBUG
@@ -5931,7 +6011,10 @@ struct ScreenplayStudioScreen: View {
             "latest_comment_author": vm.comments.first?.authorEmail ?? "",
             "latest_comment_resolved": vm.comments.first?.resolved ?? false,
             "latest_comment_deleted": vm.comments.first?.isDeleted ?? false,
-            "error_text": vm.errorText.trimmingCharacters(in: .whitespacesAndNewlines)
+            "character_memory_loading": vm.isCharacterTraitsLoading,
+            "character_memory_count": vm.characterTraits?.characters.count ?? 0,
+            "character_memory_error": vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines),
+            "character_memory_source": vm.characterTraitsInfoText.trimmingCharacters(in: .whitespacesAndNewlines)
         ])
     }
     #endif
@@ -6300,7 +6383,9 @@ Replace is best when this file should become the script you edit. Append is safe
                 if newValue == .them {
                     Task {
                         await vm.refreshBlockSignal(source: "io.them rail")
-                        await vm.refreshCharacterTraits(source: "io.them rail")
+                        if !IOThemRuntime.isRunningUITests {
+                            await vm.refreshCharacterTraits(source: "io.them rail")
+                        }
                         await vm.refreshCraftTwists(source: "io.them rail")
                         await vm.refreshAcceptedCraftTwists(source: "io.them rail")
                     }
@@ -6509,7 +6594,6 @@ Replace is best when this file should become the script you edit. Append is safe
                 _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 await restoreStudioWorkspaceAfterProjectHydration()
                 await vm.refreshScreenplayExportFormatsAutomatically()
-                await vm.refreshCharacterTraits(source: "Studio open")
                 if directionOneRightPanelTab == .them {
                     await vm.refreshBlockSignal(source: "Studio open")
                     await vm.refreshCraftTwists(source: "Studio open")
@@ -11064,6 +11148,12 @@ private var directionOneThemPanel: some View {
     let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
 
     return VStack(alignment: .leading, spacing: 16) {
+        if vm.isCharacterTraitsLoading ||
+            !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            vm.characterTraits != nil {
+            directionOneCharacterTraitsCard(characterTraitCards)
+        }
+
         VStack(alignment: .leading, spacing: 6) {
             Text("io.them")
                 .font(.system(size: 30, weight: .semibold, design: .serif))
@@ -11145,12 +11235,6 @@ private var directionOneThemPanel: some View {
             directionOneBlockSignalNudgeCard(blockSignalNudge, history: blockSignalHistoryTrend)
         }
 
-        if vm.isCharacterTraitsLoading ||
-            !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            vm.characterTraits != nil {
-            directionOneCharacterTraitsCard(characterTraitCards)
-        }
-
         if vm.isCraftTwistLoading ||
             !vm.craftTwistErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             vm.craftTwists != nil {
@@ -11182,6 +11266,11 @@ private var directionOneThemPanel: some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
             .stroke(Color.herShellStroke.opacity(0.40), lineWidth: 1)
     )
+    .task {
+        if !IOThemRuntime.isRunningUITests {
+            await vm.refreshCharacterTraits(source: "io.them rail")
+        }
+    }
 }
 
     private func directionOneBlockSignalNudgeCard(
@@ -11362,6 +11451,17 @@ private var directionOneThemPanel: some View {
                                 .foregroundStyle(Color.herText.opacity(0.72))
                                 .fixedSize(horizontal: false, vertical: true)
 
+                            if !card.fieldProvenance.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(Array(card.fieldProvenance.prefix(4).enumerated()), id: \.offset) { index, row in
+                                        if index > 0 {
+                                            Divider().overlay(Color.herText.opacity(0.10))
+                                        }
+                                        studioLearnedFieldRow(row, characterKey: card.accessibilityKey)
+                                    }
+                                }
+                            }
+
                             if card.hasArchetype && !card.archetypeSummary.isEmpty {
                                 Text(card.archetypeScoreLabel.isEmpty ? card.archetypeSummary : "\(card.archetypeSummary) - \(card.archetypeScoreLabel)")
                                     .font(.system(size: 11, weight: .semibold, design: .default))
@@ -11395,6 +11495,53 @@ private var directionOneThemPanel: some View {
                 }
             }
         }
+    }
+
+    private func studioLearnedFieldRow(
+        _ row: BackendLearnedFieldProvenance,
+        characterKey: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(row.fieldLabel)
+                    .font(.system(size: 10, weight: .semibold, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.58))
+                Spacer(minLength: 6)
+                HStack(spacing: 4) {
+                    Image(
+                        systemName: row.isCorrected
+                            ? "arrow.triangle.2.circlepath"
+                            : "checkmark.circle"
+                    )
+                    .accessibilityHidden(true)
+                    Text(row.statusLabel)
+                        .accessibilityIdentifier(
+                            "studio.learned-field.\(characterKey).\(row.accessibilityKey).status"
+                        )
+                }
+                .font(.system(size: 9, weight: .semibold, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.62))
+            }
+
+            Text(row.value)
+                .font(.system(size: 11, weight: .medium, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.82))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(
+                    "studio.learned-field.\(characterKey).\(row.accessibilityKey).value"
+                )
+
+            Text(row.sourceLabel)
+                .font(.system(size: 9, weight: .medium, design: .default))
+                .foregroundStyle(Color.herText.opacity(0.48))
+                .accessibilityIdentifier(
+                    "studio.learned-field.\(characterKey).\(row.accessibilityKey).source"
+                )
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(
+            "studio.learned-field.\(characterKey).\(row.accessibilityKey)"
+        )
     }
 
     private func directionOneTwistCardsCard(_ cards: [ScreenplayCraftTwistCardState]) -> some View {

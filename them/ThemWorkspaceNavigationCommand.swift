@@ -31,6 +31,11 @@ enum ThemWorkspaceSurfaceRestorePolicy {
     static let storageKey = "them.workspace.primarySurface.v1"
     static let homeRawValue = "home"
     static let studioRawValue = "studio"
+    private static let explicitUITestSurfaceArguments: Set<String> = [
+        "--ui-open-memories",
+        "--ui-open-data-controls",
+        "--ui-open-studio",
+    ]
 
     static func normalizedSurfaceRawValue(_ value: String) -> String? {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -54,6 +59,14 @@ enum ThemWorkspaceSurfaceRestorePolicy {
             return normalized
         }
         return isMacOS ? studioRawValue : homeRawValue
+    }
+
+    static func shouldRestorePersistedSurface(
+        isRunningUITests: Bool,
+        arguments: [String]
+    ) -> Bool {
+        guard isRunningUITests else { return true }
+        return explicitUITestSurfaceArguments.isDisjoint(with: arguments)
     }
 }
 

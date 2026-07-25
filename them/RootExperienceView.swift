@@ -2413,7 +2413,17 @@ struct RootExperienceView: View {
                 onboardingNameFocused = true
             }
         } else {
-            restoreWorkspaceSurfaceForLaunchIfNeeded()
+            #if DEBUG
+            let shouldRestorePersistedSurface = ThemWorkspaceSurfaceRestorePolicy.shouldRestorePersistedSurface(
+                isRunningUITests: IOThemRuntime.isRunningUITests,
+                arguments: ProcessInfo.processInfo.arguments
+            )
+            #else
+            let shouldRestorePersistedSurface = true
+            #endif
+            if shouldRestorePersistedSurface {
+                restoreWorkspaceSurfaceForLaunchIfNeeded()
+            }
             if !isStudioSurfaceActive {
                 verballyAskForPersonalityIfNeeded()
             }

@@ -6,7 +6,11 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { createCreativeMemoryStore } from "../lib/creative_memory_store.js";
+import {
+  buildCharacterFieldProvenance,
+  buildProjectFieldProvenance,
+  createCreativeMemoryStore,
+} from "../lib/creative_memory_store.js";
 
 // Post-T08-postgres: store takes a persistence handle. Each test gets a
 // fresh JSON-file-backed adapter rooted in a tmp dir so tests are isolated.
@@ -156,6 +160,26 @@ test("recordTriggersFromTalkTurn learns a short answer to Clementine's planned s
   });
   const mara = memory.characters.find((item) => item.name === "Mara");
   assert.equal(mara.bible.arc.want, "Freedom");
+  assert.equal(mara.bible.learnedFields[0].field, "want");
+  assert.equal(mara.bible.learnedFields[0].questionId, "screenplay-learning-8-character.want");
+  assert.equal(
+    mara.bible.learnedFields[0].question,
+    "What does Mara want badly enough to keep choosing danger instead of safety?"
+  );
+  assert.deepEqual(
+    buildCharacterFieldProvenance(mara.bible).map(({ field, value, status, source }) => ({
+      field,
+      value,
+      status,
+      source,
+    })),
+    [{
+      field: "want",
+      value: "Freedom",
+      status: "current",
+      source: "screenplay_learning_confirmation",
+    }]
+  );
   assert.ok(mara.bible.canon.some((item) => /Mara's want: Freedom/i.test(item)));
   assert.equal(memory.episodicMemories.length, 1);
   assert.match(memory.episodicMemories[0].summary, /Writer clarified Mara's dramatic want: Freedom/);
@@ -195,6 +219,11 @@ test("confirmed story questions populate Story Spine fields across store restart
     query: "What question drives the whole feature?",
   });
   assert.equal(memory.projectContinuity.centralQuestion, centralQuestion);
+  const [provenance] = buildProjectFieldProvenance(memory.projectContinuity);
+  assert.equal(provenance.field, "centralQuestion");
+  assert.equal(provenance.value, centralQuestion);
+  assert.equal(provenance.status, "current");
+  assert.equal(provenance.questionId, "screenplay-learning-12-project.central_question");
   assert.ok(memory.projectContinuity.continuityNotes.some((item) => (
     /Writer clarified central question/.test(item)
   )));
@@ -261,6 +290,13 @@ test("authoritative corrections block stale clarification replay across sessions
     mara.bible.authoritativeFields.find((item) => item.field === "falseBelief")?.source,
     "writer_correction"
   );
+  const correctedField = buildCharacterFieldProvenance(mara.bible)
+    .find((item) => item.field === "falseBelief");
+  assert.equal(correctedField.status, "corrected");
+  assert.equal(correctedField.value, "truth will get Eli killed");
+  assert.equal(correctedField.learnedValue, "Perfect proof can keep everyone safe");
+  assert.equal(correctedField.questionId, learningContext.questionId);
+  assert.match(correctedField.correctionText, /truth will get Eli killed/i);
   assert.ok(!JSON.stringify(memory).includes("Writer clarified Mara's false belief: Perfect proof"));
 });
 
@@ -314,6 +350,11 @@ test("Story Spine corrections block stale clarification replay across sessions",
     memory.projectContinuity.centralQuestion,
     "whether Mara can expose the truth without becoming her father"
   );
+  const correctedField = buildProjectFieldProvenance(memory.projectContinuity)
+    .find((item) => item.field === "centralQuestion");
+  assert.equal(correctedField.status, "corrected");
+  assert.equal(correctedField.learnedValue, "Whether Mara can save the ferry without losing Eli");
+  assert.match(correctedField.value, /expose the truth without becoming her father/i);
   assert.ok(!JSON.stringify(memory).includes("Writer clarified the feature's central dramatic question: Whether Mara can save"));
 });
 

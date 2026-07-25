@@ -86,6 +86,30 @@ final class ThemWorkspaceNavigationCommandTests: XCTestCase {
         )
     }
 
+    func testExplicitUITestSurfaceTakesPriorityOverPersistedMacSurface() {
+        for argument in ["--ui-open-memories", "--ui-open-data-controls", "--ui-open-studio"] {
+            XCTAssertFalse(
+                ThemWorkspaceSurfaceRestorePolicy.shouldRestorePersistedSurface(
+                    isRunningUITests: true,
+                    arguments: ["them", "--ui-testing", argument]
+                ),
+                "Expected \(argument) to bypass persisted surface restoration."
+            )
+        }
+        XCTAssertTrue(
+            ThemWorkspaceSurfaceRestorePolicy.shouldRestorePersistedSurface(
+                isRunningUITests: false,
+                arguments: ["them", "--ui-open-memories"]
+            )
+        )
+        XCTAssertTrue(
+            ThemWorkspaceSurfaceRestorePolicy.shouldRestorePersistedSurface(
+                isRunningUITests: true,
+                arguments: ["them", "--ui-testing"]
+            )
+        )
+    }
+
     func testWorkspaceAuthenticationRequiresLiveAccountBeforeStudio() {
         XCTAssertTrue(
             ThemWorkspaceAuthenticationPolicy.requiresAccount(

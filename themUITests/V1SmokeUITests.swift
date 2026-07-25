@@ -296,6 +296,66 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_cross_platform_learned_answer_appears_after_relaunch() throws {
+        guard let fixture = try learnedMemoryFixtureFromEnvironment() else {
+            throw XCTSkip("No cross-platform learned-memory fixture was provided.")
+        }
+
+        for launchIndex in 1...2 {
+            let app = launchApp(
+                openMemories: true,
+                liveMemory: true,
+                launchEnvironment: fixture.appLaunchEnvironment
+            )
+            let memoriesSurface = learnedMemorySurface(in: app)
+            XCTAssertTrue(
+                memoriesSurface.waitForExistence(timeout: 12),
+                "Memories did not open on learned-memory launch \(launchIndex). Accessibility hierarchy:\n\(app.debugDescription)"
+            )
+            let card = learnedMemoryCard(
+                character: fixture.character,
+                in: memoriesSurface
+            )
+            XCTAssertTrue(
+                card.waitForExistence(timeout: 30),
+                "The learned character was not restored on launch \(launchIndex)."
+            )
+            openLearnedMemoryCard(card, in: memoriesSurface)
+            assertLearnedMemoryFields(fixture, prefix: "memory.learned-field", in: app)
+            closeLearnedMemorySurfaceIfNeeded(memoriesSurface, in: app)
+            app.terminate()
+        }
+
+        let studio = launchApp(
+            openStudio: true,
+            liveMemory: true,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+        defer { studio.terminate() }
+        XCTAssertTrue(
+            element(identifier: "studio.surface", in: studio).waitForExistence(timeout: 12),
+            "Studio did not open for the learned-memory handoff."
+        )
+        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: studio)
+        let rightToggle = studio.buttons["studio.sidebar.right.toggle"]
+        if !rightDrawer.exists,
+           rightToggle.waitForExistence(timeout: 5),
+           rightToggle.isHittable {
+            rightToggle.tap()
+        }
+        let studioPrefix = "studio.learned-field.\(fixture.characterKey)"
+        let studioValue = element(
+            identifier: "\(studioPrefix).\(fixture.fieldKey).value",
+            in: studio
+        )
+        XCTAssertTrue(
+            studioValue.waitForExistence(timeout: 30),
+            "Studio did not surface the learned character field."
+        )
+        assertLearnedMemoryFields(fixture, prefix: studioPrefix, in: studio)
+    }
+
+    @MainActor
     private func assertBackendProjectRestoreLoads(_ fixture: RestoreContractFixture) async throws {
         let app = launchApp(
             openStudio: true,
@@ -404,6 +464,7 @@ final class V1SmokeUITests: XCTestCase {
         showCanonClarification: Bool = false,
         showDraftConflict: Bool = false,
         conflictSaveSuccess: Bool = false,
+        liveMemory: Bool = false,
         realtimeNetworkFaultStage: String? = nil,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
@@ -462,6 +523,9 @@ final class V1SmokeUITests: XCTestCase {
         }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
+        }
+        if liveMemory {
+            arguments.append("--ui-live-memory")
         }
         if let realtimeNetworkFaultStage {
             arguments.append(contentsOf: [
@@ -656,6 +720,205 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.exists && element.isHittable
+    }
+
+    private struct LearnedMemoryFixture {
+        let character: String
+        let field: String
+        let value: String
+        let status: String
+        let source: String
+        let appLaunchEnvironment: [String: String]
+
+        var characterKey: String { Self.accessibilityKey(character) }
+        var fieldKey: String { Self.accessibilityKey(field) }
+
+        private static func accessibilityKey(_ value: String) -> String {
+            let characters = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+            return String(characters).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        }
+    }
+
+    private func assertLearnedMemoryFields(
+        _ fixture: LearnedMemoryFixture,
+        prefix: String,
+        in app: XCUIApplication
+    ) {
+        let fieldPrefix = "\(prefix).\(fixture.fieldKey)"
+        let value = element(identifier: "\(fieldPrefix).value", in: app)
+        XCTAssertTrue(
+            value.waitForExistence(timeout: 12),
+            "Learned value was missing at \(fieldPrefix). Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            accessibilityText(of: value).localizedCaseInsensitiveContains(fixture.value),
+            "Expected learned value '\(fixture.value)', got '\(accessibilityText(of: value))'."
+        )
+
+        let status = element(identifier: "\(fieldPrefix).status", in: app)
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            accessibilityText(of: status).localizedCaseInsensitiveContains(fixture.status),
+            "Expected status '\(fixture.status)', got '\(accessibilityText(of: status))'."
+        )
+
+        let source = element(identifier: "\(fieldPrefix).source", in: app)
+        XCTAssertTrue(source.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            accessibilityText(of: source).localizedCaseInsensitiveContains(fixture.source),
+            "Expected source '\(fixture.source)', got '\(accessibilityText(of: source))'."
+        )
+    }
+
+    private func learnedMemorySurface(in app: XCUIApplication) -> XCUIElement {
+#if os(macOS)
+        return app.sheets.firstMatch
+#else
+        return app.otherElements["memories.screen"]
+#endif
+    }
+
+    private func learnedMemoryCard(character: String, in surface: XCUIElement) -> XCUIElement {
+        surface.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "label CONTAINS[c] %@",
+                "\(character) Character Memory"
+            ))
+            .firstMatch
+    }
+
+    private func openLearnedMemoryCard(
+        _ card: XCUIElement,
+        in surface: XCUIElement
+    ) {
+        if card.isHittable {
+            card.tap()
+            return
+        }
+
+#if os(macOS)
+        card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+#else
+        surface.swipeUp()
+        XCTAssertTrue(
+            waitForHittability(of: card, timeout: 5),
+            "The learned-memory card never became tappable."
+        )
+        card.tap()
+#endif
+    }
+
+    private func closeLearnedMemorySurfaceIfNeeded(
+        _ surface: XCUIElement,
+        in app: XCUIApplication
+    ) {
+#if os(macOS)
+        let returnButton = surface.buttons
+            .matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Return"))
+            .firstMatch
+        XCTAssertTrue(
+            returnButton.waitForExistence(timeout: 5),
+            "Memories did not expose its Return control."
+        )
+        if returnButton.isHittable {
+            returnButton.tap()
+        } else {
+            returnButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(
+            waitForDisappearance(of: surface, timeout: 8),
+            "Memories remained open after Return."
+        )
+#else
+        _ = app
+#endif
+    }
+
+    private func learnedMemoryFixtureFromEnvironment(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> LearnedMemoryFixture? {
+        let encoded = (environment["THEM_UITEST_LEARNED_MEMORY_FIXTURE_BASE64URL"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !encoded.isEmpty else { return nil }
+        var base64 = encoded
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - (base64.count % 4)) % 4)
+        guard let data = Data(base64Encoded: base64),
+              let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(
+                domain: "themUITests.learnedMemory",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not decode learned-memory fixture JSON."]
+            )
+        }
+
+        let baseURL = try firstNonEmptyString(
+            payload["baseURL"],
+            payload["base_url"],
+            message: "Learned-memory fixture missing baseURL."
+        )
+        let appToken = stringValue(payload["appToken"]).isEmpty
+            ? "them-dev"
+            : stringValue(payload["appToken"])
+        let userID = try firstNonEmptyString(
+            payload["userID"],
+            payload["user_id"],
+            message: "Learned-memory fixture missing userID."
+        )
+        let clientToken = try firstNonEmptyString(
+            payload["clientToken"],
+            payload["client_token"],
+            message: "Learned-memory fixture missing clientToken."
+        )
+        let accessToken = try firstNonEmptyString(
+            payload["accessToken"],
+            payload["access_token"],
+            message: "Learned-memory fixture missing accessToken."
+        )
+        let cachedAt = max(1, intValue(payload["clientTokenCachedAt"]))
+        let expiry = try firstNonEmptyString(
+            payload["clientTokenExpiry"],
+            payload["client_token_expiry"],
+            message: "Learned-memory fixture missing clientTokenExpiry."
+        )
+        return LearnedMemoryFixture(
+            character: try firstNonEmptyString(
+                payload["character"],
+                message: "Learned-memory fixture missing character."
+            ),
+            field: try firstNonEmptyString(
+                payload["field"],
+                message: "Learned-memory fixture missing field."
+            ),
+            value: try firstNonEmptyString(
+                payload["value"],
+                message: "Learned-memory fixture missing value."
+            ),
+            status: try firstNonEmptyString(
+                payload["status"],
+                message: "Learned-memory fixture missing status."
+            ),
+            source: try firstNonEmptyString(
+                payload["source"],
+                message: "Learned-memory fixture missing source."
+            ),
+            appLaunchEnvironment: [
+                "THEM_UITEST_BACKEND_BASE_URL": baseURL,
+                "THEM_UITEST_APP_TOKEN": appToken,
+                "THEM_UITEST_USER_ID": userID,
+                "THEM_UITEST_CLIENT_TOKEN": clientToken,
+                "THEM_UITEST_CLIENT_TOKEN_CACHED_AT": "\(cachedAt)",
+                "THEM_UITEST_CLIENT_TOKEN_BASE_URL": baseURL,
+                "THEM_UITEST_CLIENT_TOKEN_EXPIRY": expiry,
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN": accessToken,
+                "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED": "1",
+                "THEM_UITEST_AUTH_SIGNED_IN": "1",
+            ]
+        )
     }
 
     private struct RestoreContractFixture {

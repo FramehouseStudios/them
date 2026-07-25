@@ -535,6 +535,107 @@ final class ScreenplayCraftModelsTests: XCTestCase {
         XCTAssertEqual(cards.last?.summary, "Known character; voice inventory is still learning.")
     }
 
+    func testCharacterTraitsRefreshPolicyFallsBackWhenScopedLibraryIsEmpty() throws {
+        let response = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            characters: [],
+            error: nil
+        )
+
+        XCTAssertTrue(
+            ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
+                response: response,
+                projectID: "cross-platform-learning",
+                projectTitle: ""
+            )
+        )
+        XCTAssertFalse(
+            ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
+                response: response,
+                projectID: "",
+                projectTitle: ""
+            )
+        )
+    }
+
+    func testCharacterTraitsRefreshPolicyKeepsScopedMatchAndErrorsAuthoritative() throws {
+        let scopedMatch = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            characters: [BackendCharacterTraitRecord(name: "MARA", traits: nil)],
+            error: nil
+        )
+        let serverError = BackendCharacterTraitsResponse(
+            schemaVersion: 1,
+            userId: "usr_test",
+            characters: [],
+            error: "character_traits_failed"
+        )
+
+        XCTAssertFalse(
+            ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
+                response: scopedMatch,
+                projectID: "cross-platform-learning",
+                projectTitle: "Cross-Platform Learning"
+            )
+        )
+        XCTAssertFalse(
+            ScreenplayCharacterTraitsRefreshPolicy.shouldFallbackToUserLibrary(
+                response: serverError,
+                projectID: "cross-platform-learning",
+                projectTitle: "Cross-Platform Learning"
+            )
+        )
+    }
+
+    @MainActor
+    func testCharacterTraitCardStateMapsLearnedFieldProvenance() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "userId": "usr_test",
+          "characters": [{
+            "name": "MARA",
+            "traits": null,
+            "bible": {
+              "character": "MARA",
+              "canon": [],
+              "corrections": [],
+              "correctedTerms": [],
+              "correctionReplacements": []
+            },
+            "fieldProvenance": [{
+              "id": "character_learning_1",
+              "field": "falseBelief",
+              "value": "Truth will get Eli killed",
+              "learnedValue": "Perfect proof keeps everyone safe",
+              "source": "writer_correction",
+              "status": "corrected",
+              "questionId": "screenplay-learning-character-false-belief",
+              "question": "What false belief is Mara using to survive?",
+              "sourceCorrectionId": "canon_correction_1",
+              "correctionText": "Actually, truth will get Eli killed.",
+              "learnedAt": 1800000000000,
+              "updatedAt": 1800000010000
+            }]
+          }],
+          "error": null
+        }
+        """#.utf8)
+        let response = try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: data)
+
+        let card = try XCTUnwrap(BackendCharacterTraitCardState.make(response: response).first)
+        XCTAssertEqual(response.characters.first?.bible?.character, "MARA")
+        let field = try XCTUnwrap(card.fieldProvenance.first)
+        XCTAssertEqual(field.fieldLabel, "False belief")
+        XCTAssertEqual(field.value, "Truth will get Eli killed")
+        XCTAssertEqual(field.learnedValue, "Perfect proof keeps everyone safe")
+        XCTAssertEqual(field.statusLabel, "Corrected")
+        XCTAssertEqual(field.sourceLabel, "Writer correction")
+        XCTAssertEqual(field.accessibilityKey, "falsebelief")
+    }
+
     func testCharacterTraitCardStateMapsArchetypeInsight() throws {
         let traits = BackendCharacterTraitsResponse(
             schemaVersion: 1,

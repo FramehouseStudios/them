@@ -409,6 +409,47 @@ test("[trait-library] GET /memory/character-traits filters to one character when
   });
 });
 
+test("[trait-library] GET surfaces question provenance and correction status for learned fields", async () => {
+  await withTestServer(async ({ baseURL, creativeMemoryStore }) => {
+    await creativeMemoryStore.recordTriggersFromTalkTurn({
+      userId: "user-trait",
+      transcript: "She wants to free Eli from the family lie.",
+      projectId: "rain-docket",
+      projectTitle: "Rain Docket",
+      learningContext: {
+        questionId: "screenplay-learning-character-want",
+        projectId: "rain-docket",
+        projectTitle: "Rain Docket",
+        targetField: "character.want",
+        targetLabel: "Mara's dramatic want",
+        anchor: "Mara",
+        question: "What does Mara want enough to risk the case?",
+        authority: "writer_clarification",
+      },
+    });
+
+    const { status, body } = await get(
+      baseURL,
+      "/memory/character-traits?projectId=rain-docket&projectTitle=Rain%20Docket"
+    );
+
+    assert.equal(status, 200);
+    assert.equal(body.characters.length, 1);
+    assert.equal(body.characters[0].name, "Mara");
+    assert.equal(body.characters[0].bible.character, "Mara");
+    assert.equal(body.characters[0].fieldProvenance[0].field, "want");
+    assert.equal(body.characters[0].fieldProvenance[0].status, "current");
+    assert.equal(
+      body.characters[0].fieldProvenance[0].source,
+      "screenplay_learning_confirmation"
+    );
+    assert.equal(
+      body.characters[0].fieldProvenance[0].question,
+      "What does Mara want enough to risk the case?"
+    );
+  });
+});
+
 test("[trait-library] unauthenticated POST returns 401 and ignores spoofed X-User-Id", async () => {
   await withTestServer(
     async ({ baseURL }) => {

@@ -64,6 +64,8 @@ import {
 } from "./lib/outbox_store.js";
 import { createPersonaRuntime } from "./lib/persona.js";
 import {
+  buildCharacterFieldProvenance,
+  buildProjectFieldProvenance,
   createCreativeMemoryStore,
   extractWriterCanonStructuredTargets,
 } from "./lib/creative_memory_store.js";
@@ -30334,6 +30336,35 @@ function normalizeCharacterBibleCardArc(arc = null) {
   return out;
 }
 
+function learnedFieldProvenanceToApi(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((item) => {
+      const field = normalizeSnippet(item?.field, 64);
+      const value = normalizeSnippet(item?.value, 240);
+      if (!field || !value) return null;
+      return {
+        id: normalizeSnippet(item?.id, 96),
+        field,
+        value,
+        learned_value: normalizeSnippet(item?.learnedValue ?? item?.learned_value, 240),
+        source: normalizeSnippet(item?.source, 64),
+        status: normalizeSnippet(item?.status, 32) || "current",
+        question_id: normalizeSnippet(item?.questionId ?? item?.question_id, 120),
+        question: normalizeSnippet(item?.question, 260),
+        target_label: normalizeSnippet(item?.targetLabel ?? item?.target_label, 120),
+        source_correction_id: normalizeSnippet(
+          item?.sourceCorrectionId ?? item?.source_correction_id,
+          96
+        ),
+        correction_text: normalizeSnippet(item?.correctionText ?? item?.correction_text, 600),
+        learned_at: Math.max(0, Number(item?.learnedAt ?? item?.learned_at ?? 0)),
+        updated_at: Math.max(0, Number(item?.updatedAt ?? item?.updated_at ?? 0)),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 16);
+}
+
 function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now()) {
   const characters = Array.isArray(creativeMemory?.characters)
     ? creativeMemory.characters
@@ -30382,13 +30413,17 @@ function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now(
       })
       .filter(Boolean)
       .slice(0, 8);
+    const fieldProvenance = learnedFieldProvenanceToApi(
+      buildCharacterFieldProvenance(bible)
+    );
     const arc = normalizeCharacterBibleCardArc(bible?.arc);
     const voice = normalizeSnippet(character?.voice, 140);
     const tags = normalizeCharacterBibleCardList(character?.tags, 8, 48);
     const traitKeywords = normalizeCharacterBibleCardList(traits?.keywords, 5, 80);
     const hasArc = Object.keys(arc).length > 0;
     const hasSignal = canon.length || corrections.length || correctedTerms.length ||
-      correctionReplacements.length || authoritativeFields.length || hasArc || voice || traitKeywords.length;
+      correctionReplacements.length || authoritativeFields.length || fieldProvenance.length ||
+      hasArc || voice || traitKeywords.length;
     if (!hasSignal) continue;
 
     const summaryParts = [
@@ -30439,6 +30474,11 @@ function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now(
       ].slice(0, 4),
       referenceHint: normalizeSnippet(arc.next_emotional_turn || arc.current_tactic || canon[0] || "", 140),
       source: "character_bible",
+      projectId: normalizeSnippet(character?.metadata?.projectId ?? character?.metadata?.project_id, 96),
+      projectTitle: normalizeSnippet(
+        character?.metadata?.projectTitle ?? character?.metadata?.project_title,
+        160
+      ),
       character_bible: {
         character: name,
         canon,
@@ -30446,6 +30486,7 @@ function buildCharacterBibleMemoryCards(creativeMemory = null, nowTs = Date.now(
         corrected_terms: correctedTerms,
         correction_replacements: correctionReplacements,
         authoritative_fields: authoritativeFields,
+        field_provenance: fieldProvenance,
         arc,
         voice,
         tags,
@@ -30802,13 +30843,60 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
   cards.push(...correctionReceipts);
   cards.push(...buildEpisodicMemoryCards(creativeMemory, nowTs, controlledCorrectionMemoryIds));
 
-  const screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
+  let screenplayProjectMemory = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
   ).filter((item) => (
     !hasClearMarker ||
     Math.max(0, Number(item?.updatedAt || 0)) > memoriesClearedAt
   ));
+
+  const creativeProjects = (Array.isArray(creativeMemory?.projects)
+    ? creativeMemory.projects
+    : [])
+    .filter((project) => (
+      !hasClearMarker || Math.max(0, Number(project?.updatedAt || 0)) > memoriesClearedAt
+    ));
+  const matchedCreativeProjects = new Set();
+  screenplayProjectMemory = screenplayProjectMemory.map((item) => {
+    const projectId = normalizeSnippet(item?.projectId, 96).toLowerCase();
+    const projectTitle = normalizeSnippet(item?.projectTitle, 160).toLowerCase();
+    const creativeIndex = creativeProjects.findIndex((project) => {
+      const candidateId = normalizeSnippet(project?.projectId ?? project?.project_id, 96).toLowerCase();
+      const candidateTitle = normalizeSnippet(
+        project?.projectTitle ?? project?.project_title,
+        160
+      ).toLowerCase();
+      if (projectId && candidateId) return projectId === candidateId;
+      return !projectId && projectTitle && candidateTitle === projectTitle;
+    });
+    if (creativeIndex < 0) return item;
+    matchedCreativeProjects.add(creativeIndex);
+    const project = creativeProjects[creativeIndex];
+    const fieldProvenance = buildProjectFieldProvenance(project);
+    const merged = { ...item, _fieldProvenance: fieldProvenance };
+    for (const row of fieldProvenance) {
+      const projectValue = project?.[row.field];
+      merged[row.field] = Array.isArray(projectValue) ? projectValue : row.value;
+    }
+    merged.updatedAt = Math.max(
+      Number(item?.updatedAt || 0),
+      Number(project?.updatedAt || 0)
+    );
+    return merged;
+  });
+  for (const [index, project] of creativeProjects.entries()) {
+    if (matchedCreativeProjects.has(index)) continue;
+    const projected = sanitizeScreenplayProjectMemoryItems([project], 1)[0];
+    if (!projected) continue;
+    screenplayProjectMemory.push({
+      ...projected,
+      _fieldProvenance: buildProjectFieldProvenance(project),
+    });
+  }
+  screenplayProjectMemory = screenplayProjectMemory
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, SCREENPLAY_PROJECT_MEMORY_MAX);
 
   for (const item of screenplayProjectMemory) {
     const projectKey = buildScreenplayProjectMemoryCardId(item, cards.length + 1);
@@ -30911,6 +30999,7 @@ function buildMemoryCards(memory, historyThreads = [], limit = 24, creativeMemor
         pageCount: normalizeScreenplayMemoryInteger(item.pageCount),
         targetPages: normalizeScreenplayMemoryInteger(item.targetPages),
         updatedAt: Math.max(0, Number(item.updatedAt || 0)),
+        field_provenance: learnedFieldProvenanceToApi(item._fieldProvenance),
       },
     });
   }

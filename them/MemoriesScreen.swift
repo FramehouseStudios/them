@@ -1613,6 +1613,15 @@ struct MemoryDetailView: View {
                         CharacterBibleDetailSection(bible: characterBible)
                     }
 
+                    if let storySpine = currentItem.storySpine,
+                       !(storySpine.fieldProvenance ?? []).isEmpty {
+                        LearnedFieldProvenanceSection(
+                            title: "Story Spine Learning",
+                            rows: storySpine.fieldProvenance ?? [],
+                            accessibilityPrefix: "memory.story-field"
+                        )
+                    }
+
                     if !currentItem.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Why I remembered this")
@@ -2147,11 +2156,18 @@ private struct CharacterBibleDetailSection: View {
                 }
             }
 
+            if !fieldProvenance.isEmpty {
+                LearnedFieldProvenanceRows(
+                    rows: fieldProvenance,
+                    accessibilityPrefix: "memory.learned-field"
+                )
+            }
+
             if !bible.canon.isEmpty {
                 characterBibleList("Canon", items: bible.canon)
             }
 
-            if !authoritativeFields.isEmpty {
+            if fieldProvenance.isEmpty && !authoritativeFields.isEmpty {
                 characterBibleList(
                     "Writer-authoritative fields",
                     items: authoritativeFields.map { "\(fieldLabel($0.field)): \($0.value)" }
@@ -2175,6 +2191,13 @@ private struct CharacterBibleDetailSection: View {
 
     private var authoritativeFields: [BackendAuthoritativeCharacterField] {
         (bible.authoritativeFields ?? []).filter {
+            !$0.field.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var fieldProvenance: [BackendLearnedFieldProvenance] {
+        (bible.fieldProvenance ?? []).filter {
             !$0.field.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -2217,6 +2240,104 @@ private struct CharacterBibleDetailSection: View {
                     .font(.system(size: 13, weight: .regular, design: .default))
                     .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.90))
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+private struct LearnedFieldProvenanceSection: View {
+    let title: String
+    let rows: [BackendLearnedFieldProvenance]
+    let accessibilityPrefix: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold, design: .default))
+                .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.92))
+            LearnedFieldProvenanceRows(
+                rows: rows,
+                accessibilityPrefix: accessibilityPrefix
+            )
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+        )
+    }
+}
+
+private struct LearnedFieldProvenanceRows: View {
+    let rows: [BackendLearnedFieldProvenance]
+    let accessibilityPrefix: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(rows.prefix(8).enumerated()), id: \.offset) { index, row in
+                if index > 0 {
+                    Divider().overlay(Color.white.opacity(0.16))
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(row.fieldLabel)
+                            .font(.system(size: 12, weight: .semibold, design: .default))
+                            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.72))
+                        Spacer(minLength: 8)
+                        HStack(spacing: 4) {
+                            Image(
+                                systemName: row.isCorrected
+                                    ? "arrow.triangle.2.circlepath"
+                                    : "checkmark.circle"
+                            )
+                            .accessibilityHidden(true)
+                            Text(row.statusLabel)
+                                .accessibilityIdentifier(
+                                    "\(accessibilityPrefix).\(row.accessibilityKey).status"
+                                )
+                        }
+                        .font(.system(size: 10, weight: .semibold, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.76))
+                    }
+
+                    Text(row.value)
+                        .font(.system(size: 13, weight: .regular, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.94))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("\(accessibilityPrefix).\(row.accessibilityKey).value")
+
+                    Text(row.sourceLabel)
+                        .font(.system(size: 11, weight: .medium, design: .default))
+                        .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.64))
+                        .accessibilityIdentifier("\(accessibilityPrefix).\(row.accessibilityKey).source")
+
+                    let learnedValue = (row.learnedValue ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if row.isCorrected,
+                       !learnedValue.isEmpty,
+                       learnedValue.caseInsensitiveCompare(row.value) != .orderedSame {
+                        Text("Previously learned: \(learnedValue)")
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.56))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    let question = (row.question ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !question.isEmpty {
+                        Text(question)
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(MemoriesTheme.textPrimary.opacity(0.56))
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("\(accessibilityPrefix).\(row.accessibilityKey)")
             }
         }
     }

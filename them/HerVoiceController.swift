@@ -459,6 +459,7 @@ final class HerVoiceController: ObservableObject {
     // MARK: - Audio
     private let engine = AVAudioEngine()
     private var isEngineRunning = false
+    private var isInputTapInstalled = false
 
     // Playback hook (use your existing player)
     // You MUST set these from outside if you already have a player.
@@ -647,9 +648,7 @@ final class HerVoiceController: ObservableObject {
 
     func stopRecording() {
         HerLog.mic.info("stopRecording requested")
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        isEngineRunning = false
+        stopAudioEngineIfNeeded()
         partialTranscriber.stop(resetText: true)
         partialLastChangedAt = .distantPast
         partialLastSeenForStability = ""
@@ -669,9 +668,7 @@ final class HerVoiceController: ObservableObject {
     }
 
     func teardown() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        isEngineRunning = false
+        stopAudioEngineIfNeeded()
         partialTranscriber.stop(resetText: true)
         partialLastChangedAt = .distantPast
         partialLastSeenForStability = ""
@@ -747,6 +744,7 @@ final class HerVoiceController: ObservableObject {
         partialTranscriber.start()
         let partialTranscriber = self.partialTranscriber
         input.removeTap(onBus: 0)
+        isInputTapInstalled = false
         HerLog.mic.info("MIC installing input tap")
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
@@ -782,13 +780,29 @@ final class HerVoiceController: ObservableObject {
                 self?.handle(frames: frames, rms: rms, now: Date())
             }
         }
+        isInputTapInstalled = true
 
         do {
             try engine.start()
             isEngineRunning = true
             HerLog.mic.info("MIC engine started")
         } catch {
+            stopAudioEngineIfNeeded()
+            partialTranscriber.stop(resetText: true)
             print("Audio engine failed to start: \(error)")
+        }
+    }
+
+    private func stopAudioEngineIfNeeded() {
+        // Accessing AVAudioEngine.inputNode lazily binds the Mac input device.
+        // Do not create that node while dismissing an idle voice session.
+        if isInputTapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            isInputTapInstalled = false
+        }
+        if isEngineRunning {
+            engine.stop()
+            isEngineRunning = false
         }
     }
 

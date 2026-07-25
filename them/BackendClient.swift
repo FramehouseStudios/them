@@ -477,6 +477,10 @@ struct BackendCharacterTraits: Codable, Equatable {
 struct BackendCharacterTraitRecord: Codable, Equatable {
     let name: String
     let traits: BackendCharacterTraits?
+    var bible: BackendCharacterBibleMemory? = nil
+    var fieldProvenance: [BackendLearnedFieldProvenance]? = nil
+    var projectId: String? = nil
+    var projectTitle: String? = nil
 }
 
 struct BackendCharacterTraitsResponse: Codable, Equatable {
@@ -543,6 +547,15 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
     let archetypeSummary: String
     let archetypeScoreLabel: String
     let hasArchetype: Bool
+    let fieldProvenance: [BackendLearnedFieldProvenance]
+
+    var accessibilityKey: String {
+        let characters = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return String(characters).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
 
     static func make(
         response: BackendCharacterTraitsResponse?,
@@ -573,6 +586,14 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
             let vocabulary = (traits?.vocabulary ?? []).map { clean($0) }.filter { !$0.isEmpty }
             let keywords = (traits?.keywords ?? []).map { clean($0) }.filter { !$0.isEmpty }
             let relationships = traits?.relationships ?? [:]
+            let fieldProvenance = (record.fieldProvenance ?? record.bible?.fieldProvenance ?? [])
+                .filter {
+                    !$0.field.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+                .sorted { left, right in
+                    (left.updatedAt ?? left.learnedAt ?? 0) > (right.updatedAt ?? right.learnedAt ?? 0)
+                }
             let summary: String
             if !emotionalDefault.isEmpty {
                 summary = "Default: \(emotionalDefault)"
@@ -600,7 +621,8 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
                 archetypeLabel: archetypeLabel,
                 archetypeSummary: clean(archetypeEntry?.summary ?? ""),
                 archetypeScoreLabel: scoreLabel,
-                hasArchetype: !archetypeLabel.isEmpty
+                hasArchetype: !archetypeLabel.isEmpty,
+                fieldProvenance: Array(fieldProvenance.prefix(6))
             )
         }
     }
