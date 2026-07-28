@@ -1,0 +1,460 @@
+import assert from "node:assert/strict";
+import { rmSync } from "node:fs";
+
+import {
+  buildProjectFieldProvenance,
+  createCreativeMemoryStore,
+} from "../lib/creative_memory_store.js";
+import { createPersistence } from "../lib/persistence_adapter.js";
+import {
+  buildScreenplayQuestionPlan,
+  createPendingScreenplayLearningQuestion,
+  resolvePendingScreenplayLearningAnswer,
+} from "../lib/screenplay_question_planner.js";
+import { startBackend } from "../tests/helpers/backend_test_server.mjs";
+import {
+  createStudioRestoreOwnerIdentity,
+  requestStudioRestoreJSON,
+  studioRestoreOwnerHeaders,
+} from "./studio_restore_seed_helper.mjs";
+
+const APP_TOKEN = "them-cross-platform-question-cadence";
+const ANSWERED_PROJECT_ID = "question-cadence-answered";
+const ANSWERED_PROJECT_TITLE = "The Last Crossing";
+const IGNORED_PROJECT_ID = "question-cadence-ignored";
+const IGNORED_PROJECT_TITLE = "After the Flood";
+const MINUTE_MS = 60 * 1_000;
+
+function requireText(value, message) {
+  const clean = String(value || "").trim();
+  assert.ok(clean, message);
+  return clean;
+}
+
+function questionInteraction(pending, responseStatus = "asked", respondedAt = 0) {
+  return {
+    ...pending,
+    questionId: pending.id,
+    responseStatus,
+    respondedAt,
+  };
+}
+
+function plannerTrace(memory, { projectId, projectTitle }) {
+  const project = memory?.projectContinuity && typeof memory.projectContinuity === "object"
+    ? memory.projectContinuity
+    : {};
+  return {
+    applied: true,
+    project_id: projectId,
+    project_title: projectTitle,
+    accepted_scenes: (Array.isArray(memory?.acceptedScenes) ? memory.acceptedScenes : [])
+      .map((scene) => ({
+        scene_heading: scene.sceneHeading ?? scene.scene_heading,
+        act: scene.act,
+        feature_sequence: scene.featureSequence ?? scene.feature_sequence,
+        summary: scene.summary,
+        accepted_at: scene.acceptedAt ?? scene.accepted_at,
+      })),
+    screenplay_project_memory: {
+      project_id: projectId,
+      project_title: projectTitle,
+      act: project.act,
+      feature_sequence: project.featureSequence,
+      protagonist_want: project.protagonistWant,
+      central_question: project.centralQuestion,
+      antagonistic_force: project.antagonisticForce,
+      protagonist_need: project.protagonistNeed,
+      ending_image: project.endingImage,
+      theme_argument: project.themeArgument,
+      scene_objective: project.sceneObjective,
+      next_scene_plan: project.nextScenePlan,
+      unresolved_setups: project.unresolvedSetups,
+      question_effectiveness: project.questionEffectiveness,
+      field_provenance: buildProjectFieldProvenance(project),
+    },
+  };
+}
+
+async function createAuthenticatedProject(server, identity, projectId, title) {
+  const result = await requestStudioRestoreJSON({
+    baseURL: server.baseUrl,
+    path: "/screenplay/projects",
+    method: "POST",
+    headers: studioRestoreOwnerHeaders(identity),
+    body: {
+      project_id: projectId,
+      title,
+      phase: "scene_draft",
+      activate: true,
+    },
+  });
+  assert.ok(
+    result.response.ok,
+    `Authenticated project creation failed with HTTP ${result.status}.`
+  );
+}
+
+async function refreshClientIdentity(server, identity) {
+  const result = await requestStudioRestoreJSON({
+    baseURL: server.baseUrl,
+    path: "/session",
+    method: "POST",
+    headers: {
+      "X-APP-TOKEN": identity.appToken,
+      Authorization: `Bearer ${identity.accessToken}`,
+    },
+    body: {},
+  });
+  assert.ok(result.response.ok, `macOS session refresh failed with HTTP ${result.status}.`);
+  const expiresIn = Math.max(60, Number(result.payload?.expires_in || 0));
+  return {
+    ...identity,
+    clientToken: requireText(
+      result.payload?.client_token,
+      "macOS session refresh returned no client token."
+    ),
+    clientTokenCachedAt: Math.floor(Date.now() / 1_000),
+    clientTokenExpiry: new Date(Date.now() + expiresIn * 1_000).toISOString(),
+  };
+}
+
+async function assertMacCanRestoreProjects(server, identity) {
+  const result = await requestStudioRestoreJSON({
+    baseURL: server.baseUrl,
+    path: "/screenplay/projects",
+    headers: studioRestoreOwnerHeaders(identity),
+  });
+  assert.ok(result.response.ok, `macOS project restore failed with HTTP ${result.status}.`);
+  const projects = Array.isArray(result.payload?.screenplay_projects)
+    ? result.payload.screenplay_projects
+    : Array.isArray(result.payload?.projects)
+      ? result.payload.projects
+      : [];
+  const ids = new Set(projects.map((project) => String(
+    project?.id ?? project?.project_id ?? project?.projectId ?? ""
+  )));
+  assert.ok(ids.has(ANSWERED_PROJECT_ID), "macOS could not restore the answered project.");
+  assert.ok(ids.has(IGNORED_PROJECT_ID), "macOS could not restore the ignored project.");
+}
+
+function openMemoryStore(server) {
+  const persistence = createPersistence({ jsonRoot: server.env.PERSISTENCE_JSON_ROOT });
+  return {
+    persistence,
+    store: createCreativeMemoryStore({ persistence }),
+  };
+}
+
+let server = null;
+let persistence = null;
+let dataDir = "";
+
+try {
+  const backendEnv = { APP_TOKEN, REQUIRE_USER_AUTH: "1" };
+  server = await startBackend({ env: backendEnv });
+  dataDir = server.dataDir;
+  const iPhoneIdentity = await createStudioRestoreOwnerIdentity({
+    baseURL: server.baseUrl,
+    appToken: APP_TOKEN,
+    emailPrefix: "question-cadence",
+  });
+  await createAuthenticatedProject(
+    server,
+    iPhoneIdentity,
+    ANSWERED_PROJECT_ID,
+    ANSWERED_PROJECT_TITLE
+  );
+  await createAuthenticatedProject(
+    server,
+    iPhoneIdentity,
+    IGNORED_PROJECT_ID,
+    IGNORED_PROJECT_TITLE
+  );
+
+  let memory = openMemoryStore(server);
+  persistence = memory.persistence;
+  let store = memory.store;
+  const askedAt = Date.now();
+
+  await store.recordProjectContinuity({
+    userId: iPhoneIdentity.userID,
+    continuity: {
+      projectId: ANSWERED_PROJECT_ID,
+      projectTitle: ANSWERED_PROJECT_TITLE,
+      act: "Act II",
+      featureSequence: "Midpoint Fallout",
+      protagonistWant: "Bring her sister home before the ferries stop.",
+      centralQuestion: "Can Mara save June without deciding who June must become?",
+      antagonisticForce: "The evacuation authority and Mara's need for control.",
+      protagonistNeed: "Trust June to choose the risk for herself.",
+      endingImage: "The sisters board separate ferries and wave across the water.",
+    },
+  });
+  let answeredMemory = await store.getCreativeMemoryForPrompt({
+    userId: iPhoneIdentity.userID,
+    projectId: ANSWERED_PROJECT_ID,
+    projectTitle: ANSWERED_PROJECT_TITLE,
+    query: "The theme is blurry. Help me find what this feature argues.",
+  });
+  const answeredAskPlan = buildScreenplayQuestionPlan({
+    transcript: "The theme is blurry. Help me find what this feature argues.",
+    creativeMemoryTrace: plannerTrace(answeredMemory, {
+      projectId: ANSWERED_PROJECT_ID,
+      projectTitle: ANSWERED_PROJECT_TITLE,
+    }),
+    studioMeta: {
+      screenplayProjectId: ANSWERED_PROJECT_ID,
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Midpoint Fallout",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now: askedAt,
+  });
+  assert.equal(answeredAskPlan.shouldAsk, true);
+  assert.equal(answeredAskPlan.targetField, "project.theme_argument");
+  const answeredPending = createPendingScreenplayLearningQuestion(answeredAskPlan, {
+    askedAtTurn: 20,
+    now: askedAt,
+  });
+  assert.ok(answeredPending, "iPhone did not create the theme learning question.");
+  const answeredAskedReceipt = await store.recordTriggersFromTalkTurn({
+    userId: iPhoneIdentity.userID,
+    transcript: "Help me sharpen the theme.",
+    reply: answeredPending.question,
+    projectId: ANSWERED_PROJECT_ID,
+    projectTitle: ANSWERED_PROJECT_TITLE,
+    questionInteraction: questionInteraction(answeredPending),
+  });
+  assert.equal(answeredAskedReceipt.questionInteractionsRecorded, 1);
+
+  const ignoredAcceptedAt = askedAt - (40 * MINUTE_MS);
+  await store.recordProjectContinuity({
+    userId: iPhoneIdentity.userID,
+    continuity: {
+      projectId: IGNORED_PROJECT_ID,
+      projectTitle: IGNORED_PROJECT_TITLE,
+      act: "Act III",
+      featureSequence: "Resolution",
+      protagonistWant: "Get the drowned neighborhood recognized as a crime scene.",
+      centralQuestion: "Will Lena expose the city if it costs her the last home she has?",
+      antagonisticForce: "The mayor's recovery commission.",
+      protagonistNeed: "Stop mistaking isolation for integrity.",
+      themeArgument: "Repair begins when private grief becomes public responsibility.",
+      acceptedScenes: [{
+        anchorSceneId: "ignored-project-resolution-page",
+        sceneHeading: "EXT. FLOODED BLOCK - DAWN",
+        act: "Act III",
+        featureSequence: "Resolution",
+        summary: "Lena opens the barricade and lets the displaced families return.",
+        acceptedAt: ignoredAcceptedAt,
+      }],
+    },
+  });
+  let ignoredMemory = await store.getCreativeMemoryForPrompt({
+    userId: iPhoneIdentity.userID,
+    projectId: IGNORED_PROJECT_ID,
+    projectTitle: IGNORED_PROJECT_TITLE,
+    query: "Help me find the final image for the ending.",
+  });
+  const ignoredAskPlan = buildScreenplayQuestionPlan({
+    transcript: "Help me find the final image for the ending.",
+    creativeMemoryTrace: plannerTrace(ignoredMemory, {
+      projectId: IGNORED_PROJECT_ID,
+      projectTitle: IGNORED_PROJECT_TITLE,
+    }),
+    studioMeta: {
+      screenplayProjectId: IGNORED_PROJECT_ID,
+      screenplayAct: "Act III",
+      screenplayFeatureSequence: "Resolution",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now: askedAt,
+  });
+  assert.equal(ignoredAskPlan.shouldAsk, true);
+  assert.equal(ignoredAskPlan.targetField, "project.ending_image");
+  const ignoredPending = createPendingScreenplayLearningQuestion(ignoredAskPlan, {
+    askedAtTurn: 40,
+    now: askedAt,
+  });
+  assert.ok(ignoredPending, "iPhone did not create the ending-image learning question.");
+  const ignoredAskedReceipt = await store.recordTriggersFromTalkTurn({
+    userId: iPhoneIdentity.userID,
+    transcript: "Help me solve the ending image.",
+    reply: ignoredPending.question,
+    projectId: IGNORED_PROJECT_ID,
+    projectTitle: IGNORED_PROJECT_TITLE,
+    questionInteraction: questionInteraction(ignoredPending),
+  });
+  assert.equal(ignoredAskedReceipt.questionInteractionsRecorded, 1);
+
+  await persistence.close();
+  persistence = null;
+  await server.stop();
+  server = await startBackend({ dataDir, env: backendEnv });
+  const macIdentity = await refreshClientIdentity(server, iPhoneIdentity);
+  assert.notEqual(
+    macIdentity.clientToken,
+    iPhoneIdentity.clientToken,
+    "The two device sessions unexpectedly reused one client credential."
+  );
+  await assertMacCanRestoreProjects(server, macIdentity);
+
+  memory = openMemoryStore(server);
+  persistence = memory.persistence;
+  store = memory.store;
+  const answeredAt = Date.now();
+  const answerResolution = resolvePendingScreenplayLearningAnswer({
+    pending: answeredPending,
+    transcript: "Love without control means helping someone choose, even when their choice takes them away from you.",
+    projectId: ANSWERED_PROJECT_ID,
+    projectTitle: ANSWERED_PROJECT_TITLE,
+    currentTurn: 21,
+    now: answeredAt,
+  });
+  assert.equal(answerResolution.status, "answered");
+  const answerReceipt = await store.recordTriggersFromTalkTurn({
+    userId: macIdentity.userID,
+    transcript: "Love without control means helping someone choose, even when their choice takes them away from you.",
+    projectId: ANSWERED_PROJECT_ID,
+    projectTitle: ANSWERED_PROJECT_TITLE,
+    learningContext: answerResolution.learningContext,
+    questionInteraction: answerResolution.interaction,
+  });
+  assert.equal(answerReceipt.learningAnswersPromoted, 1);
+  const pageReceipt = await store.recordTriggersFromTalkTurn({
+    userId: macIdentity.userID,
+    transcript: "Keep that page.",
+    projectId: ANSWERED_PROJECT_ID,
+    projectTitle: ANSWERED_PROJECT_TITLE,
+    acceptedPageText: `EXT. WEST FERRY DOCK - BLUE HOUR
+
+Mara loosens her grip on June's ticket. June takes it, then steps onto the opposite ferry.`,
+  });
+  assert.equal(pageReceipt.questionAcceptedPageOutcomes, 1);
+
+  const ignoredAt = Math.max(Date.now(), answeredAt + 1);
+  const ignoredResolution = resolvePendingScreenplayLearningAnswer({
+    pending: ignoredPending,
+    transcript: "Let's keep moving through the resolution.",
+    projectId: IGNORED_PROJECT_ID,
+    projectTitle: IGNORED_PROJECT_TITLE,
+    currentTurn: ignoredPending.expiresAfterTurn + 1,
+    now: ignoredAt,
+  });
+  assert.equal(ignoredResolution.status, "expired");
+  const ignoredReceipt = await store.recordTriggersFromTalkTurn({
+    userId: macIdentity.userID,
+    transcript: "Let's keep moving through the resolution.",
+    projectId: IGNORED_PROJECT_ID,
+    projectTitle: IGNORED_PROJECT_TITLE,
+    questionInteraction: ignoredResolution.interaction,
+  });
+  assert.equal(ignoredReceipt.questionInteractionsRecorded, 1);
+
+  await persistence.close();
+  persistence = null;
+  memory = openMemoryStore(server);
+  persistence = memory.persistence;
+  store = memory.store;
+
+  answeredMemory = await store.getCreativeMemoryForPrompt({
+    userId: macIdentity.userID,
+    projectId: ANSWERED_PROJECT_ID,
+    projectTitle: ANSWERED_PROJECT_TITLE,
+    query: "What does this movie argue about love and control?",
+  });
+  const answeredOutcome = answeredMemory.projectContinuity.questionEffectiveness
+    .find((item) => item.questionId === answeredPending.id);
+  assert.equal(answeredOutcome.responseStatus, "answered");
+  assert.equal(answeredOutcome.acceptedPageCount, 1);
+  assert.equal(answeredOutcome.outcome, "accepted_pages");
+  assert.match(answeredMemory.projectContinuity.themeArgument, /love without control/i);
+  const noDuplicatePlan = buildScreenplayQuestionPlan({
+    transcript: "The theme matters here. Help me sharpen what this film argues.",
+    creativeMemoryTrace: plannerTrace(answeredMemory, {
+      projectId: ANSWERED_PROJECT_ID,
+      projectTitle: ANSWERED_PROJECT_TITLE,
+    }),
+    studioMeta: {
+      screenplayProjectId: ANSWERED_PROJECT_ID,
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Midpoint Fallout",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now: Date.now(),
+  });
+  assert.ok(
+    noDuplicatePlan.fieldStates.learned.includes("project.theme_argument"),
+    "The learned theme did not survive into planner field state."
+  );
+  assert.notEqual(
+    noDuplicatePlan.targetField,
+    "project.theme_argument",
+    "macOS re-asked the theme question after learning its answer."
+  );
+
+  ignoredMemory = await store.getCreativeMemoryForPrompt({
+    userId: macIdentity.userID,
+    projectId: IGNORED_PROJECT_ID,
+    projectTitle: IGNORED_PROJECT_TITLE,
+    query: "Keep developing the resolution.",
+  });
+  const ignoredOutcome = ignoredMemory.projectContinuity.questionEffectiveness
+    .find((item) => item.questionId === ignoredPending.id);
+  assert.equal(ignoredOutcome.responseStatus, "expired");
+  assert.equal(ignoredOutcome.outcome, "ignored");
+  assert.equal(ignoredOutcome.acceptedPageCount, undefined);
+  const protectedPlan = buildScreenplayQuestionPlan({
+    transcript: "Let's keep developing Act Three.",
+    creativeMemoryTrace: plannerTrace(ignoredMemory, {
+      projectId: IGNORED_PROJECT_ID,
+      projectTitle: IGNORED_PROJECT_TITLE,
+    }),
+    studioMeta: {
+      screenplayProjectId: IGNORED_PROJECT_ID,
+      screenplayAct: "Act III",
+      screenplayFeatureSequence: "Resolution",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now: ignoredAcceptedAt + (41 * MINUTE_MS),
+  });
+  assert.equal(protectedPlan.mode, "protect_momentum");
+  assert.equal(protectedPlan.shouldAsk, false);
+  assert.equal(protectedPlan.writingMomentum.interventionProfile.strategy, "favor_silence");
+  assert.equal(protectedPlan.writingMomentum.interventionProfile.windowMinutes, 45);
+
+  const resumedPlan = buildScreenplayQuestionPlan({
+    transcript: "Let's keep developing Act Three.",
+    creativeMemoryTrace: plannerTrace(ignoredMemory, {
+      projectId: IGNORED_PROJECT_ID,
+      projectTitle: IGNORED_PROJECT_TITLE,
+    }),
+    studioMeta: {
+      screenplayProjectId: IGNORED_PROJECT_ID,
+      screenplayAct: "Act III",
+      screenplayFeatureSequence: "Resolution",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now: ignoredAcceptedAt + (46 * MINUTE_MS),
+  });
+  assert.equal(resumedPlan.mode, "develop_then_learn");
+  assert.equal(resumedPlan.shouldAsk, true);
+
+  console.log(JSON.stringify({
+    ok: true,
+    sourceDevice: "iPhone",
+    restoredDevice: "macOS",
+    backendRestarted: true,
+    distinctClientSessions: true,
+    answeredOutcome: answeredOutcome.outcome,
+    ignoredOutcome: ignoredOutcome.outcome,
+    cadenceMinutes: protectedPlan.writingMomentum.interventionProfile.windowMinutes,
+    duplicateResolvedQuestion: false,
+  }));
+  console.log("cross-platform-question-cadence-smoke: ok");
+} finally {
+  if (persistence) await persistence.close().catch(() => {});
+  if (server) await server.stop().catch(() => {});
+  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+}
