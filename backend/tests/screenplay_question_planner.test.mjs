@@ -138,7 +138,7 @@ test("corrected Story Spine fields are authoritative and never re-asked", () => 
   assert.doesNotMatch(plan.question, /dramatic question/i);
 });
 
-test("a learned Character Bible want resolves the duplicate protagonist-want question", () => {
+test("a learned Character Bible want resolves the duplicate question and advances Act I opposition", () => {
   const plan = buildScreenplayQuestionPlan({
     transcript: "Let's work out the shape of Act One.",
     creativeMemoryTrace: {
@@ -163,9 +163,178 @@ test("a learned Character Bible want resolves the duplicate protagonist-want que
     turnPlanner: { intent: "idea_development" },
   });
 
-  assert.equal(plan.targetField, "project.central_question");
+  assert.equal(plan.targetField, "project.antagonistic_force");
   assert.ok(plan.fieldStates.learned.includes("project.protagonist_want"));
   assert.doesNotMatch(plan.question, /carry Split Ferries through all three acts/i);
+  assert.deepEqual(plan.actContext, {
+    key: "act1",
+    label: "Act I",
+    source: "transcript",
+  });
+});
+
+test("Act I prioritizes the protagonist's durable pursuit before downstream structure", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Help me break Act One.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: { act: "Act I" },
+    },
+    studioMeta: { screenplayProjectId: "split-ferries" },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.targetField, "project.protagonist_want");
+  assert.equal(plan.actContext.key, "act1");
+  assert.equal(plan.candidateScores[0].field, "project.protagonist_want");
+  assert.equal(plan.selectionScore, plan.candidateScores[0].score);
+});
+
+test("Act II prioritizes the protagonist's failing tactic over intake-level questions", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Help me diagnose why the Act Two pressure feels repetitive.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      characters: [{
+        name: "Mara",
+        arc: {
+          want: "Save Eli",
+          wound: "She once abandoned June",
+          false_belief: "Control keeps everyone safe",
+        },
+      }],
+      screenplay_project_memory: {
+        act: "Act II",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+        scene_objective: "Reach the quarantine gate",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+      screenplayCharacterFocus: ["Mara"],
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.targetField, "character.current_tactic");
+  assert.equal(plan.actContext.key, "act2");
+  assert.match(plan.question, /tactic/i);
+});
+
+test("Act III prioritizes a missing ending image over earlier-act discovery", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's make Act Three land.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      characters: [{
+        name: "Mara",
+        arc: {
+          want: "Save Eli",
+          wound: "She once abandoned June",
+          false_belief: "Control keeps everyone safe",
+          current_tactic: "Control every exit",
+          next_emotional_turn: "Trust Eli with the route",
+        },
+      }],
+      screenplay_project_memory: {
+        act: "Act III",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act III",
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.targetField, "project.ending_image");
+  assert.equal(plan.actContext.key, "act3");
+  assert.match(plan.question, /final image/i);
+});
+
+test("ordinary writer phrasing does not masquerade as a protagonist-want request", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "I want to work on Act Three.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: { act: "Act III" },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act III",
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.targetField, "project.ending_image");
+  assert.notEqual(plan.targetField, "project.protagonist_want");
+});
+
+test("an explicit craft focus outranks the current act's default gap order", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "The theme is blurry. Help me find what this movie argues.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        act: "Act II",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.targetField, "project.theme_argument");
+  assert.equal(plan.actContext.key, "act2");
+  assert.match(plan.question, /ultimately argue/i);
+});
+
+test("Act III scoring skips a corrected ending image and selects the next unresolved transformation", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's strengthen Act Three.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        act: "Act III",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+        field_provenance: [{
+          field: "endingImage",
+          value: "Mara lets Eli steer the ferry into dawn",
+          status: "corrected",
+          source: "writer_correction",
+          source_correction_id: "correction-ending",
+        }],
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act III",
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.targetField, "project.protagonist_need");
+  assert.ok(plan.fieldStates.corrected.includes("project.ending_image"));
+  assert.doesNotMatch(plan.question, /final image/i);
 });
 
 test("a resolved payoff question is not repeated for the same due setup", () => {

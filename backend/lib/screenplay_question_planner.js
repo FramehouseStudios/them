@@ -24,6 +24,80 @@ const CHARACTER_FIELD_DEFINITIONS = Object.freeze([
   ["character.current_tactic", "current_tactic", "currentTactic"],
   ["character.next_emotional_turn", "next_emotional_turn", "nextEmotionalTurn"],
 ]);
+const DEFAULT_GAP_SCORES = Object.freeze({
+  "project.protagonist_want": 100,
+  "project.central_question": 95,
+  "project.antagonistic_force": 90,
+  "project.protagonist_need": 85,
+  "project.ending_image": 80,
+  "project.theme_argument": 75,
+  "character.want": 72,
+  "character.wound": 70,
+  "character.false_belief": 68,
+  "character.current_tactic": 66,
+  "character.next_emotional_turn": 64,
+  "scene.objective": 110,
+  "story_thread.payoff_choice": 115,
+  "story_thread.next_setup": 92,
+  "story.next_irreversible_choice": 60,
+});
+const ACT_GAP_SCORES = Object.freeze({
+  act1: Object.freeze({
+    "project.protagonist_want": 125,
+    "project.antagonistic_force": 118,
+    "project.central_question": 112,
+    "character.wound": 108,
+    "character.false_belief": 104,
+    "project.protagonist_need": 88,
+    "project.theme_argument": 82,
+    "project.ending_image": 68,
+    "story_thread.next_setup": 90,
+    "story.next_irreversible_choice": 96,
+  }),
+  act2: Object.freeze({
+    "character.current_tactic": 124,
+    "story.next_irreversible_choice": 120,
+    "story_thread.payoff_choice": 118,
+    "story_thread.next_setup": 114,
+    "project.antagonistic_force": 110,
+    "character.false_belief": 106,
+    "project.protagonist_need": 102,
+    "character.next_emotional_turn": 98,
+    "project.central_question": 86,
+    "project.theme_argument": 84,
+    "project.ending_image": 78,
+    "project.protagonist_want": 72,
+  }),
+  act3: Object.freeze({
+    "story_thread.payoff_choice": 132,
+    "project.ending_image": 126,
+    "project.protagonist_need": 120,
+    "character.next_emotional_turn": 116,
+    "project.theme_argument": 112,
+    "project.central_question": 106,
+    "story_thread.next_setup": 102,
+    "story.next_irreversible_choice": 100,
+    "project.antagonistic_force": 82,
+    "character.false_belief": 80,
+    "project.protagonist_want": 62,
+  }),
+});
+const FIELD_TRANSCRIPT_SIGNALS = Object.freeze({
+  "project.protagonist_want": /\b(?:(?:protagonist|character|hero)(?:'s)?\s+(?:want|goal|pursuit|objective)|(?:dramatic|external|feature)\s+(?:want|goal)|what\s+does\s+[a-z][a-z'-]*\s+want)\b/i,
+  "project.central_question": /\b(?:central|dramatic)\s+question\b/i,
+  "project.antagonistic_force": /\b(?:antagonist|opposition|antagonistic|obstacle)\b/i,
+  "project.protagonist_need": /\b(?:(?:protagonist|character|hero)(?:'s)?\s+need|(?:deeper|internal)\s+need|transformation|character\s+arc)\b/i,
+  "project.ending_image": /\b(?:ending|final\s+image|last\s+image|closing\s+image)\b/i,
+  "project.theme_argument": /\b(?:theme|meaning|argument)\b/i,
+  "character.wound": /\b(?:wound|trauma|past)\b/i,
+  "character.false_belief": /\b(?:false\s+belief|misbelief|lie)\b/i,
+  "character.current_tactic": /\b(?:tactic|strategy|approach)\b/i,
+  "character.next_emotional_turn": /\b(?:emotional\s+turn|emotion|feeling)\b/i,
+  "scene.objective": /\b(?:scene\s+objective|scene\s+goal)\b/i,
+  "story_thread.payoff_choice": /\b(?:payoff|pay\s+off|reveal|reversal)\b/i,
+  "story_thread.next_setup": /\b(?:setup|plant|promise)\b/i,
+  "story.next_irreversible_choice": /\b(?:choice|decision|turn|next\s+(?:beat|scene|move))\b/i,
+});
 
 function clean(value, maxChars = 220) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars).trim();
@@ -216,6 +290,60 @@ function fieldIsUnknown(states, targetField) {
   return states?.[targetField]?.status === "unknown";
 }
 
+function actKeyFromValue(value) {
+  const normalized = clean(value, 240).toLowerCase();
+  if (!normalized) return "";
+  if (/\b(?:act\s*(?:iii|3|three)|third\s+act)\b/.test(normalized)) return "act3";
+  if (/\b(?:act\s*(?:ii|2|two)|second\s+act)\b/.test(normalized)) return "act2";
+  if (/\b(?:act\s*(?:i|1|one)|first\s+act)\b/.test(normalized)) return "act1";
+  return "";
+}
+
+function deriveActContext({ transcript, studioMeta, projectMemory }) {
+  const candidates = [
+    ["transcript", transcript],
+    ["studio", studioMeta?.screenplayAct],
+    ["memory", projectMemory?.act],
+    ["sequence", studioMeta?.screenplayFeatureSequence],
+    ["sequence", projectMemory?.feature_sequence],
+  ];
+  for (const [source, value] of candidates) {
+    const key = actKeyFromValue(value);
+    if (key) {
+      return {
+        key,
+        label: key === "act1" ? "Act I" : key === "act2" ? "Act II" : "Act III",
+        source,
+      };
+    }
+  }
+  return { key: "unknown", label: "Unknown act", source: "none" };
+}
+
+function scoreGap(gap, { actKey, writerBlocked, transcript }) {
+  const field = gap?.field || "";
+  const actScores = ACT_GAP_SCORES[actKey] || {};
+  let score = Number(actScores[field] ?? DEFAULT_GAP_SCORES[field] ?? 50);
+  if (writerBlocked) {
+    if (field === "scene.objective") score += 34;
+    if (field === "story_thread.payoff_choice") score += 30;
+    if (field === "story_thread.next_setup") score += 22;
+    if (field === "story.next_irreversible_choice") score += 28;
+  }
+  if (FIELD_TRANSCRIPT_SIGNALS[field]?.test(transcript)) score += 80;
+  return Math.round(score);
+}
+
+function selectHighestValueGap(candidates, context) {
+  return (Array.isArray(candidates) ? candidates : [])
+    .map((gap, order) => ({
+      ...gap,
+      score: scoreGap(gap, context),
+      order,
+    }))
+    .sort((left, right) => right.score - left.score || left.order - right.order)[0] || null;
+}
+
 function firstNamedCharacter(characters, transcript, characterFocus = []) {
   const items = Array.isArray(characters) ? characters.filter(Boolean) : [];
   const lowerTranscript = String(transcript || "").toLowerCase();
@@ -244,114 +372,116 @@ function buildGap({ field, label, anchor, question, reason }) {
   };
 }
 
-function characterGap(character, fieldStates) {
-  if (!character || typeof character !== "object") return null;
+function characterGaps(character, fieldStates) {
+  if (!character || typeof character !== "object") return [];
   const name = clean(character.name, 80) || "the protagonist";
+  const gaps = [];
   if (fieldIsUnknown(fieldStates, "character.want")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "character.want",
       label: `${name}'s dramatic want`,
       anchor: name,
       question: `What does ${name} want badly enough to keep choosing danger instead of safety?`,
       reason: "A durable want gives the feature a repeatable engine.",
-    });
+    }));
   }
   if (fieldIsUnknown(fieldStates, "character.wound")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "character.wound",
       label: `${name}'s wound`,
       anchor: name,
       question: `What old wound makes ${name}'s current goal emotionally dangerous?`,
       reason: "The wound turns external plot pressure into personal cost.",
-    });
+    }));
   }
   if (fieldIsUnknown(fieldStates, "character.false_belief")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "character.false_belief",
       label: `${name}'s false belief`,
       anchor: name,
       question: `What false belief is ${name} still using to survive?`,
       reason: "A false belief creates an act-spanning inner argument.",
-    });
+    }));
   }
   if (fieldIsUnknown(fieldStates, "character.current_tactic")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "character.current_tactic",
       label: `${name}'s current tactic`,
       anchor: name,
       question: `What tactic is ${name} relying on right now that the next scene can make fail?`,
       reason: "A failing tactic produces behavior, escalation, and a new choice.",
-    });
+    }));
   }
   if (fieldIsUnknown(fieldStates, "character.next_emotional_turn")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "character.next_emotional_turn",
       label: `${name}'s next emotional turn`,
       anchor: name,
       question: `What should ${name} feel by the end of the next scene that they cannot admit at its start?`,
       reason: "The emotional turn keeps plot movement from feeling mechanical.",
-    });
+    }));
   }
-  return null;
+  return gaps;
 }
 
-function projectGap({ fieldStates, projectName, protagonistName }) {
+function projectGaps({ fieldStates, projectName, protagonistName }) {
   const subject = protagonistName || "the protagonist";
+  const gaps = [];
   if (fieldIsUnknown(fieldStates, "project.protagonist_want")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "project.protagonist_want",
       label: `${subject}'s feature want`,
       anchor: subject,
       question: `What does ${subject} want badly enough to carry ${projectName} through all three acts?`,
       reason: "The feature needs one durable external pursuit before more beats are added.",
-    });
+    }));
   }
   if (fieldIsUnknown(fieldStates, "project.central_question")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "project.central_question",
       label: "the feature's central dramatic question",
       anchor: projectName,
       question: `What single dramatic question should ${projectName} keep tightening until the climax answers it?`,
       reason: "A central question lets every sequence advance the same movie.",
-    });
+    }));
   }
   if (fieldIsUnknown(fieldStates, "project.antagonistic_force")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "project.antagonistic_force",
       label: "the antagonistic force",
       anchor: projectName,
       question: `What force can actively punish ${subject} for pursuing that want?`,
       reason: "Active opposition creates escalation instead of incident accumulation.",
-    });
+    }));
   }
   if (fieldIsUnknown(fieldStates, "project.protagonist_need")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "project.protagonist_need",
       label: `${subject}'s deeper need`,
       anchor: subject,
       question: `What must ${subject} learn or surrender to become capable of the ending?`,
       reason: "The need connects the external climax to an internal transformation.",
-    });
+    }));
   }
   if (fieldIsUnknown(fieldStates, "project.ending_image")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "project.ending_image",
       label: "the ending image",
       anchor: projectName,
       question: `What final image would prove ${projectName} has emotionally changed, without explaining it in dialogue?`,
       reason: "An ending image gives earlier acts a visible destination.",
-    });
+    }));
   }
   if (fieldIsUnknown(fieldStates, "project.theme_argument")) {
-    return buildGap({
+    gaps.push(buildGap({
       field: "project.theme_argument",
       label: "the theme argument",
       anchor: projectName,
       question: `What does ${projectName} ultimately argue about how a person should live?`,
       reason: "A theme argument helps Clementine judge competing story moves by meaning, not novelty.",
-    });
+    }));
   }
-  return null;
+  return gaps;
 }
 
 function dueThreadGap(dueThread) {
@@ -482,45 +612,52 @@ export function buildScreenplayQuestionPlan({
   const protagonistName = clean(character?.name, 80) || "";
   const fieldStates = buildStoryFieldStates(projectMemory, character);
   const fieldStateSummary = summarizeFieldStates(fieldStates);
-  const dueGapCandidate = writerBlocked ? dueThreadGap(trace.due_story_thread) : null;
+  const actContext = deriveActContext({ transcript: text, studioMeta, projectMemory });
+  const dueGapCandidate = dueThreadGap(trace.due_story_thread);
   const dueGap = dueGapCandidate && !provenanceResolvesAnchor(
     fieldStates["story_thread.payoff_choice"],
     dueGapCandidate.anchor
   )
     ? dueGapCandidate
     : null;
-  const unresolvedSetupCandidate = writerBlocked
-    ? unresolvedSetupGap(projectMemory.unresolved_setups)
-    : null;
+  const unresolvedSetupCandidate = unresolvedSetupGap(projectMemory.unresolved_setups);
   const unresolvedSetup = unresolvedSetupCandidate && !provenanceResolvesAnchor(
     fieldStates["story_thread.next_setup"],
     unresolvedSetupCandidate.anchor
   )
     ? unresolvedSetupCandidate
     : null;
-  const projectStoryGap = projectGap({
+  const projectStoryGaps = projectGaps({
     fieldStates,
     projectName,
     protagonistName,
   });
-  const characterStoryGap = characterGap(character, fieldStates);
+  const characterStoryGaps = characterGaps(character, fieldStates);
   const fallbackGap = fieldIsUnknown(fieldStates, "story.next_irreversible_choice")
     ? fallbackChoiceGap({ protagonistName, projectName })
     : null;
-  const gap = dueGap ||
-    (writerBlocked && fieldIsUnknown(fieldStates, "scene.objective")
-      ? buildGap({
+  const sceneObjectiveGap = writerBlocked && fieldIsUnknown(fieldStates, "scene.objective")
+    ? buildGap({
         field: "scene.objective",
         label: "the next scene objective",
         anchor: protagonistName || projectName,
         question: `What must ${protagonistName || "the protagonist"} get before the next scene can end?`,
         reason: "A concrete scene objective converts abstract block into playable action.",
       })
-      : null) ||
-    unresolvedSetup ||
-    projectStoryGap ||
-    characterStoryGap ||
-    fallbackGap;
+    : null;
+  const candidateGaps = [
+    dueGap,
+    sceneObjectiveGap,
+    unresolvedSetup,
+    ...projectStoryGaps,
+    ...characterStoryGaps,
+    fallbackGap,
+  ].filter(Boolean);
+  const gap = selectHighestValueGap(candidateGaps, {
+    actKey: actContext.key,
+    writerBlocked,
+    transcript: text,
+  });
 
   if (!gap) {
     return {
@@ -535,6 +672,7 @@ export function buildScreenplayQuestionPlan({
         : "Develop the requested story area from known, learned, and corrected canon without asking another setup question.",
       reason: "Every relevant high-value field is already resolved.",
       fieldStates: fieldStateSummary,
+      actContext,
     };
   }
 
@@ -556,6 +694,19 @@ export function buildScreenplayQuestionPlan({
     memoryAuthority: "writer_clarification",
     targetFieldStatus: fieldStates[gap.field]?.status || "unknown",
     fieldStates: fieldStateSummary,
+    actContext,
+    selectionScore: gap.score,
+    candidateScores: candidateGaps
+      .map((candidate) => ({
+        field: candidate.field,
+        score: scoreGap(candidate, {
+          actKey: actContext.key,
+          writerBlocked,
+          transcript: text,
+        }),
+      }))
+      .sort((left, right) => right.score - left.score || left.field.localeCompare(right.field))
+      .slice(0, 6),
   };
 }
 
