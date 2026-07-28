@@ -337,6 +337,225 @@ test("Act III scoring skips a corrected ending image and selects the next unreso
   assert.doesNotMatch(plan.question, /final image/i);
 });
 
+test("opening-sequence planning prioritizes the wound that the ordinary world must dramatize", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "The opening image and ordinary world still feel generic.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      characters: [{
+        name: "Mara",
+        arc: { want: "Save Eli" },
+      }],
+      screenplay_project_memory: {
+        act: "Act I",
+        protagonist_want: "Save Eli",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act I",
+      screenplayCharacterFocus: ["Mara"],
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.sequenceContext.key, "opening");
+  assert.equal(plan.sequenceContext.source, "transcript");
+  assert.equal(plan.targetField, "character.wound");
+  assert.match(plan.question, /^For the opening sequence,/);
+  assert.match(plan.objective, /Opening Image \/ Ordinary World/);
+});
+
+test("midpoint planning spends a due setup on an irreversible reversal", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's solve the midpoint reversal.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      due_story_thread: {
+        setup: "Mara hid the ferry manifest in Eli's cassette case",
+        promised_payoff: "The manifest exposes who ordered the evacuation",
+      },
+      screenplay_project_memory: {
+        act: "Act II",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.sequenceContext.key, "midpoint");
+  assert.equal(plan.targetField, "story_thread.payoff_choice");
+  assert.match(plan.question, /^To make the midpoint irreversible,/);
+  assert.match(plan.question, /ferry manifest/);
+});
+
+test("all-is-lost planning prioritizes the need beneath the collapsing want", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "The all is lost sequence has no emotional power.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      characters: [{
+        name: "Mara",
+        arc: {
+          want: "Save Eli",
+          wound: "She once abandoned June",
+          false_belief: "Control keeps everyone safe",
+          current_tactic: "Control every exit",
+          next_emotional_turn: "Admit the plan has failed",
+        },
+      }],
+      screenplay_project_memory: {
+        act: "Act II",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.sequenceContext.key, "crisis");
+  assert.equal(plan.targetField, "project.protagonist_need");
+  assert.match(plan.question, /^To power the all-is-lost turn,/);
+});
+
+test("climax planning prioritizes transformed behavior under maximum pressure", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's make the climax decisive.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        act: "Act III",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act III",
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.sequenceContext.key, "climax");
+  assert.equal(plan.targetField, "project.protagonist_need");
+  assert.match(plan.question, /^Under climax pressure,/);
+});
+
+test("resolution planning prioritizes the corrected-feature destination image", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "The final image and resolution are not landing.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        act: "Act III",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+        protagonist_need: "Trust Eli with the route",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act III",
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.sequenceContext.key, "resolution");
+  assert.equal(plan.targetField, "project.ending_image");
+  assert.match(plan.question, /^To complete the resolution,/);
+});
+
+test("page position restores midpoint sequence pressure when labels are absent", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Help me develop the next section.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      due_story_thread: {
+        setup: "June pocketed the harbor master's red key",
+        promised_payoff: "The key opens the quarantine gate",
+      },
+      screenplay_project_memory: {
+        act: "Act II",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+        act_progress: {
+          current_act: "Act II",
+          page_count: 47,
+          target_pages: 110,
+        },
+      },
+    },
+    studioMeta: { screenplayProjectId: "split-ferries" },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.sequenceContext.key, "midpoint");
+  assert.equal(plan.sequenceContext.source, "page_position");
+  assert.equal(plan.sequenceContext.label, "Midpoint Pressure");
+  assert.equal(plan.targetField, "story_thread.payoff_choice");
+});
+
+test("a remembered Act III payoff runway becomes execution guidance instead of a repeated question", () => {
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Help me develop the final plan.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      screenplay_project_memory: {
+        act: "Act III",
+        feature_sequence: "Act III - Break Into Three / Final Plan",
+        current_beat: "Mara accepts that Eli must choose the route.",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+        protagonist_need: "Trust Eli with the route",
+        ending_image: "Eli steers while Mara watches the shore recede",
+        theme_argument: "Love without trust becomes possession",
+        next_scene_plan: "Mara gives Eli the harbor key",
+        act_three_payoff_path: [
+          "The ferry manifest exposes the evacuation order",
+          "The harbor key opens the quarantine gate",
+        ],
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act III",
+    },
+    turnPlanner: { intent: "idea_development" },
+  });
+
+  assert.equal(plan.sequenceContext.key, "final_plan");
+  assert.deepEqual(plan.sequenceContext.payoffRunway, [
+    "The ferry manifest exposes the evacuation order",
+    "The harbor key opens the quarantine gate",
+  ]);
+  assert.equal(plan.shouldAsk, false);
+  assert.match(plan.objective, /Spend the current beat first: Mara accepts/);
+  assert.match(plan.objective, /Protect the remembered payoff runway/);
+  assert.match(plan.objective, /ferry manifest exposes/);
+});
+
 test("a resolved payoff question is not repeated for the same due setup", () => {
   const baseTrace = {
     project_id: "split-ferries",

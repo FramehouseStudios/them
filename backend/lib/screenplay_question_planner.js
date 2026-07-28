@@ -1,3 +1,9 @@
+import {
+  DEFAULT_FEATURE_TARGET_PAGES,
+  FEATURE_SEQUENCE_TEMPLATE,
+  findSequenceForPage,
+} from "./feature_screenplay_map.js";
+
 const DIRECT_PAGE_REQUEST = /^(?:please\s+)?(?:write|draft|continue|finish|complete|rewrite|revise|punch\s*up|generate|give\s+me|show\s+me|start|keep\s+(?:writing|going))\b|\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:write|draft|continue|finish|complete|rewrite|revise|punch\s*up|generate|start)\b/i;
 const WRITER_BLOCK_SIGNAL = /\b(?:writer'?s\s+block|writers\s+block|stuck|blocked|out\s+of\s+ideas|no\s+ideas|don'?t\s+know\s+what\s+happens\s+next|what\s+happens\s+next|where\s+do\s+i\s+go|how\s+do\s+i\s+move|story\s+forward|next\s+beat|next\s+scene|middle\s+(?:is\s+)?(?:flat|dragging|slow)|second\s+act\s+(?:is\s+)?(?:flat|dragging|slow))\b/i;
 const DEVELOPMENT_SIGNAL = /\b(?:brainstorm|develop|figure\s+out|work\s+out|plan|outline|structure|break\s+(?:the\s+)?story|character\s+arc|story\s+arc|act\s+(?:one|two|three|i|ii|iii|1|2|3)|theme|ending|motivation|want|need|wound|false\s+belief|misbelief)\b/i;
@@ -97,6 +103,82 @@ const FIELD_TRANSCRIPT_SIGNALS = Object.freeze({
   "story_thread.payoff_choice": /\b(?:payoff|pay\s+off|reveal|reversal)\b/i,
   "story_thread.next_setup": /\b(?:setup|plant|promise)\b/i,
   "story.next_irreversible_choice": /\b(?:choice|decision|turn|next\s+(?:beat|scene|move))\b/i,
+});
+const SEQUENCE_GAP_BONUSES = Object.freeze({
+  opening: Object.freeze({
+    "character.wound": 70,
+    "project.protagonist_want": 60,
+    "project.theme_argument": 50,
+    "project.ending_image": 30,
+    "character.false_belief": 28,
+  }),
+  commitment: Object.freeze({
+    "story.next_irreversible_choice": 80,
+    "project.antagonistic_force": 65,
+    "project.protagonist_want": 50,
+    "scene.objective": 40,
+    "project.central_question": 35,
+  }),
+  premise: Object.freeze({
+    "character.current_tactic": 80,
+    "project.antagonistic_force": 55,
+    "story.next_irreversible_choice": 50,
+    "scene.objective": 45,
+    "character.next_emotional_turn": 35,
+  }),
+  midpoint: Object.freeze({
+    "story_thread.payoff_choice": 85,
+    "story.next_irreversible_choice": 80,
+    "project.central_question": 70,
+    "project.antagonistic_force": 50,
+    "character.current_tactic": 45,
+  }),
+  fallout: Object.freeze({
+    "character.current_tactic": 85,
+    "character.false_belief": 70,
+    "character.next_emotional_turn": 65,
+    "project.protagonist_need": 50,
+    "project.theme_argument": 45,
+  }),
+  crisis: Object.freeze({
+    "story_thread.payoff_choice": 90,
+    "project.protagonist_need": 85,
+    "character.false_belief": 75,
+    "character.next_emotional_turn": 65,
+    "story.next_irreversible_choice": 55,
+  }),
+  final_plan: Object.freeze({
+    "project.protagonist_need": 90,
+    "story_thread.payoff_choice": 80,
+    "character.next_emotional_turn": 70,
+    "story.next_irreversible_choice": 65,
+    "project.theme_argument": 55,
+  }),
+  climax: Object.freeze({
+    "story_thread.payoff_choice": 95,
+    "project.protagonist_need": 90,
+    "project.central_question": 75,
+    "character.next_emotional_turn": 75,
+    "project.ending_image": 60,
+    "project.theme_argument": 60,
+  }),
+  resolution: Object.freeze({
+    "project.ending_image": 110,
+    "project.theme_argument": 75,
+    "character.next_emotional_turn": 65,
+    "project.central_question": 50,
+  }),
+});
+const SEQUENCE_QUESTION_LEADS = Object.freeze({
+  opening: "For the opening sequence",
+  commitment: "To lock the Act I commitment",
+  premise: "For this premise-testing sequence",
+  midpoint: "To make the midpoint irreversible",
+  fallout: "In the midpoint fallout",
+  crisis: "To power the all-is-lost turn",
+  final_plan: "To make the final plan express change",
+  climax: "Under climax pressure",
+  resolution: "To complete the resolution",
 });
 
 function clean(value, maxChars = 220) {
@@ -320,10 +402,171 @@ function deriveActContext({ transcript, studioMeta, projectMemory }) {
   return { key: "unknown", label: "Unknown act", source: "none" };
 }
 
-function scoreGap(gap, { actKey, writerBlocked, transcript }) {
+function positiveInteger(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed);
+}
+
+function sequenceKeyForTemplateId(value) {
+  switch (clean(value, 40).toLowerCase()) {
+    case "sequence-1": return "opening";
+    case "sequence-2": return "commitment";
+    case "sequence-3": return "premise";
+    case "sequence-4": return "midpoint";
+    case "sequence-5": return "fallout";
+    case "sequence-6": return "crisis";
+    case "sequence-7": return "final_plan";
+    case "sequence-8": return "climax";
+    default: return "";
+  }
+}
+
+function sequenceKeyFromText(value) {
+  const text = clean(value, 500).toLowerCase();
+  if (!text) return "";
+  if (/\b(?:resolution|denouement|epilogue)\b/.test(text) ||
+      (/\b(?:final|closing|last)\s+image\b/.test(text) && !/\bclimax\b/.test(text))) {
+    return "resolution";
+  }
+  if (/\b(?:climax|final\s+battle|decisive\s+choice)\b/.test(text)) return "climax";
+  if (/\b(?:break\s+into\s+three|final\s+plan|new\s+plan)\b/.test(text)) return "final_plan";
+  if (/\b(?:all\s+is\s+lost|low\s+point|collapse|dark\s+night)\b/.test(text)) return "crisis";
+  if (/\b(?:reversal\s+fallout|bad\s+guys\s+close\s+in|midpoint\s+fallout)\b/.test(text)) return "fallout";
+  if (/\bmidpoint\b/.test(text)) return "midpoint";
+  if (/\b(?:promise\s+of\s+the\s+premise|fun\s+and\s+games|premise[-\s]+testing)\b/.test(text)) {
+    return "premise";
+  }
+  if (/\b(?:catalyst|inciting\s+incident|debate|commitment|break\s+into\s+two|lock[-\s]+in)\b/.test(text)) {
+    return "commitment";
+  }
+  if (/\b(?:opening\s+image|ordinary\s+world|opening\s+sequence)\b/.test(text)) return "opening";
+  return "";
+}
+
+function templateForSequenceKey(key) {
+  const templateId = {
+    opening: "sequence-1",
+    commitment: "sequence-2",
+    premise: "sequence-3",
+    midpoint: "sequence-4",
+    fallout: "sequence-5",
+    crisis: "sequence-6",
+    final_plan: "sequence-7",
+    climax: "sequence-8",
+    resolution: "sequence-8",
+  }[key];
+  return FEATURE_SEQUENCE_TEMPLATE.find((item) => item.id === templateId) || null;
+}
+
+function buildSequenceContext(key, source, {
+  obligation = "",
+  currentBeat = "",
+  payoffRunway = [],
+  template = null,
+} = {}) {
+  const sequence = template || templateForSequenceKey(key);
+  const resolvedLabel = key === "resolution"
+    ? "Resolution / Final Image"
+    : clean(sequence?.label, 160) || "Unknown sequence";
+  return {
+    key: key || "unknown",
+    label: resolvedLabel,
+    source: key ? source : "none",
+    obligation: firstValue(obligation, sequence?.obligation),
+    currentBeat: clean(currentBeat, 220),
+    payoffRunway: cleanList(payoffRunway, 3, 200),
+  };
+}
+
+function deriveSequenceContext({ transcript, studioMeta, projectMemory }) {
+  const progress = projectMemory?.act_progress && typeof projectMemory.act_progress === "object"
+    ? projectMemory.act_progress
+    : {};
+  const obligation = firstValue(
+    studioMeta?.screenplayFeatureObligation,
+    projectMemory?.feature_obligation,
+    progress.current_obligation
+  );
+  const currentBeat = firstValue(
+    studioMeta?.screenplayCurrentBeat,
+    projectMemory?.current_beat
+  );
+  const payoffRunway = cleanList(projectMemory?.act_three_payoff_path, 3, 200);
+  const explicitKey = sequenceKeyFromText(transcript);
+  if (explicitKey) {
+    return buildSequenceContext(explicitKey, "transcript", {
+      obligation,
+      currentBeat,
+      payoffRunway,
+    });
+  }
+
+  const namedCandidates = [
+    ["studio", studioMeta?.screenplayFeatureSequence],
+    ["memory", projectMemory?.feature_sequence],
+    ["act_progress", progress.current_sequence],
+  ];
+  for (const [source, value] of namedCandidates) {
+    const text = clean(value, 220);
+    if (!text) continue;
+    const template = FEATURE_SEQUENCE_TEMPLATE.find((item) => (
+      text.toLowerCase().includes(item.label.toLowerCase())
+    ));
+    const key = sequenceKeyForTemplateId(template?.id) || sequenceKeyFromText(text);
+    if (key) {
+      return buildSequenceContext(key, source, {
+        obligation,
+        currentBeat,
+        payoffRunway,
+        template,
+      });
+    }
+  }
+
+  const pageCount = positiveInteger(
+    studioMeta?.screenplayPageCount ?? progress.page_count
+  );
+  const targetPages = positiveInteger(
+    studioMeta?.screenplayTargetPages ?? progress.target_pages
+  ) || DEFAULT_FEATURE_TARGET_PAGES;
+  const pageSequence = findSequenceForPage(pageCount, targetPages);
+  const pageKey = sequenceKeyForTemplateId(pageSequence?.id);
+  if (pageKey) {
+    return buildSequenceContext(pageKey, "page_position", {
+      obligation,
+      currentBeat,
+      payoffRunway,
+      template: pageSequence,
+    });
+  }
+
+  for (const [source, value] of [
+    ["current_beat", currentBeat],
+    ["obligation", obligation],
+  ]) {
+    const key = sequenceKeyFromText(value);
+    if (key) {
+      return buildSequenceContext(key, source, {
+        obligation,
+        currentBeat,
+        payoffRunway,
+      });
+    }
+  }
+  return buildSequenceContext("", "none", { obligation, currentBeat, payoffRunway });
+}
+
+function scoreGap(gap, {
+  actKey,
+  sequenceKey,
+  writerBlocked,
+  transcript,
+}) {
   const field = gap?.field || "";
   const actScores = ACT_GAP_SCORES[actKey] || {};
   let score = Number(actScores[field] ?? DEFAULT_GAP_SCORES[field] ?? 50);
+  score += Number(SEQUENCE_GAP_BONUSES[sequenceKey]?.[field] || 0);
   if (writerBlocked) {
     if (field === "scene.objective") score += 34;
     if (field === "story_thread.payoff_choice") score += 30;
@@ -342,6 +585,39 @@ function selectHighestValueGap(candidates, context) {
       order,
     }))
     .sort((left, right) => right.score - left.score || left.order - right.order)[0] || null;
+}
+
+function contextualizeGapForSequence(gap, sequenceContext) {
+  if (!gap || !sequenceContext || sequenceContext.key === "unknown") return gap;
+  const lead = SEQUENCE_QUESTION_LEADS[sequenceContext.key];
+  if (!lead) return gap;
+  const question = clean(gap.question, 260);
+  const contextualQuestion = question
+    ? `${lead}, ${question.charAt(0).toLowerCase()}${question.slice(1)}`
+    : "";
+  return {
+    ...gap,
+    question: clean(contextualQuestion, 260),
+    reason: clean(
+      `${gap.reason} Current sequence: ${sequenceContext.label}.`,
+      180
+    ),
+  };
+}
+
+function sequenceExecutionDirective(sequenceContext) {
+  if (!sequenceContext || sequenceContext.key === "unknown") return "";
+  const directives = [`Keep the work inside ${sequenceContext.label}.`];
+  if (sequenceContext.obligation) {
+    directives.push(`Sequence obligation: ${sequenceContext.obligation}`);
+  }
+  if (sequenceContext.currentBeat) {
+    directives.push(`Spend the current beat first: ${sequenceContext.currentBeat}`);
+  }
+  if (sequenceContext.payoffRunway?.length) {
+    directives.push(`Protect the remembered payoff runway, beginning with: ${sequenceContext.payoffRunway[0]}`);
+  }
+  return ` ${directives.join(" ")}`;
 }
 
 function firstNamedCharacter(characters, transcript, characterFocus = []) {
@@ -613,6 +889,7 @@ export function buildScreenplayQuestionPlan({
   const fieldStates = buildStoryFieldStates(projectMemory, character);
   const fieldStateSummary = summarizeFieldStates(fieldStates);
   const actContext = deriveActContext({ transcript: text, studioMeta, projectMemory });
+  const sequenceContext = deriveSequenceContext({ transcript: text, studioMeta, projectMemory });
   const dueGapCandidate = dueThreadGap(trace.due_story_thread);
   const dueGap = dueGapCandidate && !provenanceResolvesAnchor(
     fieldStates["story_thread.payoff_choice"],
@@ -653,13 +930,16 @@ export function buildScreenplayQuestionPlan({
     ...characterStoryGaps,
     fallbackGap,
   ].filter(Boolean);
-  const gap = selectHighestValueGap(candidateGaps, {
+  const selectedGap = selectHighestValueGap(candidateGaps, {
     actKey: actContext.key,
+    sequenceKey: sequenceContext.key,
     writerBlocked,
     transcript: text,
   });
+  const gap = contextualizeGapForSequence(selectedGap, sequenceContext);
 
   if (!gap) {
+    const sequenceDirective = sequenceExecutionDirective(sequenceContext);
     return {
       active: true,
       mode: writerBlocked ? "rescue_with_known_spine" : "develop_with_known_spine",
@@ -668,14 +948,16 @@ export function buildScreenplayQuestionPlan({
       projectId,
       projectTitle,
       objective: writerBlocked
-        ? "Use the resolved Story Spine and Character Bible to offer concrete causal moves without reopening settled facts."
-        : "Develop the requested story area from known, learned, and corrected canon without asking another setup question.",
+        ? `Use the resolved Story Spine and Character Bible to offer concrete causal moves without reopening settled facts.${sequenceDirective}`
+        : `Develop the requested story area from known, learned, and corrected canon without asking another setup question.${sequenceDirective}`,
       reason: "Every relevant high-value field is already resolved.",
       fieldStates: fieldStateSummary,
       actContext,
+      sequenceContext,
     };
   }
 
+  const sequenceObjective = sequenceExecutionDirective(sequenceContext);
   return {
     active: true,
     mode: writerBlocked ? "rescue_then_decide" : "develop_then_learn",
@@ -684,8 +966,8 @@ export function buildScreenplayQuestionPlan({
     projectId,
     projectTitle,
     objective: writerBlocked
-      ? "Offer three distinct causal story moves first, then ask one anchored decision question."
-      : "Advance the idea first, then ask one question that fills the highest-value durable story gap.",
+      ? `Offer three distinct causal story moves first, then ask one anchored decision question.${sequenceObjective}`
+      : `Advance the idea first, then ask one question that fills the highest-value durable story gap.${sequenceObjective}`,
     targetField: gap.field,
     targetLabel: gap.label,
     anchor: gap.anchor,
@@ -695,12 +977,14 @@ export function buildScreenplayQuestionPlan({
     targetFieldStatus: fieldStates[gap.field]?.status || "unknown",
     fieldStates: fieldStateSummary,
     actContext,
+    sequenceContext,
     selectionScore: gap.score,
     candidateScores: candidateGaps
       .map((candidate) => ({
         field: candidate.field,
         score: scoreGap(candidate, {
           actKey: actContext.key,
+          sequenceKey: sequenceContext.key,
           writerBlocked,
           transcript: text,
         }),
