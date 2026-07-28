@@ -1366,6 +1366,7 @@ function createTalkHandler(deps) {
   let sttMs = 0, chatMs = 0, ttsMs = 0;
   let debugTranscriptOverride = "";
   let talkTestDebugOfflineMode = false;
+  let screenplayQuestionInteraction = null;
   const commitCreativeMemoryAfterTurn = ({
     transcript = "",
     reply = "",
@@ -1392,6 +1393,7 @@ function createTalkHandler(deps) {
         sessionDurationMs,
         source: source || (screenplayText ? "talk_screenplay_output" : "talk_turn"),
         learningContext: screenplayLearningAnswerContext,
+        questionInteraction: screenplayQuestionInteraction,
       }))
       .catch((err) => {
         console.error(`[creative_memory] trigger error rid=${rid}:`, err?.message || err);
@@ -2307,6 +2309,7 @@ function createTalkHandler(deps) {
         currentTurn: turnsInSession,
       });
       screenplayLearningAnswerContext = pendingLearningResolution.learningContext;
+      screenplayQuestionInteraction = pendingLearningResolution.interaction;
       if (pendingLearningResolution.shouldClear) {
         delete sessionMemory.pendingScreenplayLearningQuestion;
       }
@@ -3531,7 +3534,7 @@ EVOLVING SELF-AWARENESS:
       `low_usefulness:${memoryGuardrailsNow.lowUsefulnessCount}/${memoryGuardrailsNow.totalThemes}`;
     const userPrimaryName = normalizeUserPersonName(sessionMemory?.userPrimaryName);
     const screenplayQuestionSummary = screenplayQuestionPlan?.active
-      ? `mode=${screenplayQuestionPlan.mode} ask=${screenplayQuestionPlan.shouldAsk ? "1" : "0"} target=${screenplayQuestionPlan.targetField || "none"} act=${screenplayQuestionPlan.actContext?.label || "unknown"} sequence=${screenplayQuestionPlan.sequenceContext?.label || "unknown"} momentum=${screenplayQuestionPlan.writingMomentum?.active ? "protected" : screenplayQuestionPlan.writingMomentum?.source || "none"} strategy=${screenplayQuestionPlan.questionStrategy || "none"} score=${screenplayQuestionPlan.selectionScore || 0} learned_bonus=${screenplayQuestionPlan.effectivenessBonus || 0} reason=${screenplayQuestionPlan.reason || "none"}`
+      ? `mode=${screenplayQuestionPlan.mode} ask=${screenplayQuestionPlan.shouldAsk ? "1" : "0"} target=${screenplayQuestionPlan.targetField || "none"} act=${screenplayQuestionPlan.actContext?.label || "unknown"} sequence=${screenplayQuestionPlan.sequenceContext?.label || "unknown"} momentum=${screenplayQuestionPlan.writingMomentum?.active ? "protected" : screenplayQuestionPlan.writingMomentum?.source || "none"} cadence=${screenplayQuestionPlan.writingMomentum?.interventionProfile?.strategy || "balanced"}:${screenplayQuestionPlan.writingMomentum?.interventionProfile?.windowMinutes || 30}m strategy=${screenplayQuestionPlan.questionStrategy || "none"} score=${screenplayQuestionPlan.selectionScore || 0} learned_bonus=${screenplayQuestionPlan.effectivenessBonus || 0} reason=${screenplayQuestionPlan.reason || "none"}`
       : "inactive";
     const screenplayQuestionRule = screenplayQuestionPlan?.shouldAsk
       ? `First execute this turn's useful story work. Then end with exactly one question using question_text=${JSON.stringify(screenplayQuestionPlan.question)}. Do not substitute a generic question or ask anything else.`
@@ -4440,6 +4443,12 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
         );
         if (pendingQuestion) {
           sessionMemory.pendingScreenplayLearningQuestion = pendingQuestion;
+          screenplayQuestionInteraction = {
+            ...pendingQuestion,
+            questionId: pendingQuestion.id,
+            responseStatus: "asked",
+            respondedAt: 0,
+          };
           if (activeSession) activeSession.memory = sessionMemory;
           persistTalkMemory(sessionMemory, Date.now());
         }

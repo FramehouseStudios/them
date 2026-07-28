@@ -310,6 +310,75 @@ Eli takes the wheel as the map burns between them.`;
   assert.equal(repeated.questionAcceptedPageOutcomes, 0);
 });
 
+test("asked and ignored screenplay questions persist without earning false page credit", async () => {
+  const persistence = freshPersistence();
+  const userId = "u-question-intervention-cadence";
+  let store = createCreativeMemoryStore({ persistence });
+  const baseInteraction = {
+    questionId: "screenplay-learning-18-project.theme_argument",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "project.theme_argument",
+    targetLabel: "the feature's thematic argument",
+    anchor: "Split Ferries",
+    question: "What should this feature ultimately argue about love and control?",
+    actKey: "act2",
+    sequenceKey: "fallout",
+    writerBlocked: false,
+    askedAt: 1_000,
+  };
+  const asked = await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "Let's work on the midpoint fallout.",
+    reply: baseInteraction.question,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    questionInteraction: {
+      ...baseInteraction,
+      responseStatus: "asked",
+      respondedAt: 0,
+    },
+  });
+  assert.equal(asked.questionInteractionsRecorded, 1);
+
+  const ignored = await store.recordTriggersFromTalkTurn({
+    userId,
+    transcript: "Let's keep moving.",
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    questionInteraction: {
+      ...baseInteraction,
+      responseStatus: "expired",
+      respondedAt: 4_000,
+    },
+  });
+  assert.equal(ignored.questionInteractionsRecorded, 1);
+
+  const accepted = await store.recordTriggersFromTalkTurn({
+    userId,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    acceptedPageText: `INT. FERRY CABIN - NIGHT
+
+Mara locks the wheel and kills the engine.`,
+  });
+  assert.equal(accepted.questionAcceptedPageOutcomes, 0);
+
+  store = createCreativeMemoryStore({ persistence });
+  const memory = await store.getCreativeMemoryForPrompt({
+    userId,
+    projectId: "split-ferries",
+  });
+  const [interaction] = memory.projectContinuity.questionEffectiveness;
+  assert.equal(interaction.questionId, baseInteraction.questionId);
+  assert.equal(interaction.askedAt, 1_000);
+  assert.equal(interaction.respondedAt, 4_000);
+  assert.equal(interaction.responseStatus, "expired");
+  assert.equal(interaction.outcome, "ignored");
+  assert.equal(interaction.answeredAt, undefined);
+  assert.equal(interaction.acceptedPageCount, undefined);
+});
+
 test("authoritative corrections block stale clarification replay across sessions", async () => {
   const persistence = freshPersistence();
   const userId = "u-trig-learning-correction-safe";

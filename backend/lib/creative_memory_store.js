@@ -961,8 +961,26 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const questionId = cleanText(source.questionId ?? source.question_id, 120);
   const targetField = cleanText(source.targetField ?? source.target_field, 64).toLowerCase();
-  const answeredAt = Math.max(0, Number(source.answeredAt ?? source.answered_at ?? 0));
-  if (!questionId || !targetField || !answeredAt) return null;
+  let askedAt = Math.max(0, Number(source.askedAt ?? source.asked_at ?? 0));
+  let answeredAt = Math.max(0, Number(source.answeredAt ?? source.answered_at ?? 0));
+  const respondedAt = Math.max(
+    0,
+    Number(source.respondedAt ?? source.responded_at ?? answeredAt ?? 0)
+  );
+  if (!askedAt && answeredAt) askedAt = answeredAt;
+  const responseStatusRaw = cleanText(
+    source.responseStatus ?? source.response_status,
+    24
+  ).toLowerCase();
+  let responseStatus = ["asked", "answered", "declined", "expired"].includes(responseStatusRaw)
+    ? responseStatusRaw
+    : answeredAt
+      ? "answered"
+      : "asked";
+  if (responseStatus === "answered" && !answeredAt) {
+    answeredAt = respondedAt || nowMs();
+  }
+  if (!questionId || !targetField || !askedAt) return null;
   const actKeyRaw = cleanText(source.actKey ?? source.act_key, 24).toLowerCase();
   const sequenceKeyRaw = cleanText(source.sequenceKey ?? source.sequence_key, 32).toLowerCase();
   const acceptedPageAt = Math.max(
@@ -983,13 +1001,20 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
       source.blockResolutionCount ?? source.block_resolution_count ?? 1
     ) || 1)))
     : 0;
+  if (acceptedPageAt || blockResolvedAt) responseStatus = "answered";
   const outcome = acceptedPageAt && blockResolvedAt
     ? "accepted_pages_and_block_resolved"
     : acceptedPageAt
       ? "accepted_pages"
       : blockResolvedAt
         ? "block_resolved"
-        : "awaiting_outcome";
+        : responseStatus === "answered"
+          ? "awaiting_outcome"
+          : responseStatus === "declined"
+            ? "declined"
+            : responseStatus === "expired"
+              ? "ignored"
+              : "awaiting_answer";
   return Object.fromEntries(Object.entries({
     questionId,
     targetField,
@@ -999,14 +1024,19 @@ function sanitizeQuestionEffectivenessRecord(value = {}) {
     actKey: ["act1", "act2", "act3"].includes(actKeyRaw) ? actKeyRaw : "",
     sequenceKey: SCREENPLAY_QUESTION_SEQUENCE_KEYS.has(sequenceKeyRaw) ? sequenceKeyRaw : "",
     writerBlocked: Boolean(source.writerBlocked ?? source.writer_blocked),
+    askedAt,
     answeredAt,
+    respondedAt: respondedAt || answeredAt,
+    responseStatus,
     acceptedPageAt,
     acceptedPageCount,
     blockResolvedAt,
     blockResolutionCount,
     outcome,
     updatedAt: Math.max(
+      askedAt,
       answeredAt,
+      respondedAt,
       acceptedPageAt,
       blockResolvedAt,
       Number(source.updatedAt ?? source.updated_at ?? 0)
@@ -1029,11 +1059,28 @@ function mergeQuestionEffectivenessRecords(incoming = [], existing = []) {
       byQuestionId.set(item.questionId, item);
       continue;
     }
+    const responseStatusRank = {
+      asked: 0,
+      expired: 1,
+      declined: 1,
+      answered: 2,
+    };
+    const responseStatus = (
+      responseStatusRank[item.responseStatus] >
+      responseStatusRank[previous.responseStatus]
+    )
+      ? item.responseStatus
+      : previous.responseStatus;
     byQuestionId.set(item.questionId, sanitizeQuestionEffectivenessRecord({
       ...previous,
       ...item,
       writerBlocked: Boolean(previous.writerBlocked || item.writerBlocked),
-      answeredAt: Math.min(previous.answeredAt, item.answeredAt),
+      askedAt: Math.min(
+        ...[previous.askedAt, item.askedAt].filter((timestamp) => timestamp > 0)
+      ),
+      answeredAt: Math.max(previous.answeredAt || 0, item.answeredAt || 0),
+      respondedAt: Math.max(previous.respondedAt || 0, item.respondedAt || 0),
+      responseStatus,
       acceptedPageAt: Math.max(previous.acceptedPageAt || 0, item.acceptedPageAt || 0),
       acceptedPageCount: Math.max(
         previous.acceptedPageCount || 0,
@@ -1048,7 +1095,10 @@ function mergeQuestionEffectivenessRecords(incoming = [], existing = []) {
   }
   return [...byQuestionId.values()]
     .filter(Boolean)
-    .sort((left, right) => Number(right.answeredAt || 0) - Number(left.answeredAt || 0))
+    .sort((left, right) => (
+      Number(right.updatedAt || right.answeredAt || right.askedAt || 0) -
+      Number(left.updatedAt || left.answeredAt || left.askedAt || 0)
+    ))
     .slice(0, QUESTION_EFFECTIVENESS_MAX);
 }
 
@@ -1062,8 +1112,32 @@ function buildAnsweredQuestionEffectivenessRecord(learningContext, answeredAt = 
     actKey: learningContext?.actKey,
     sequenceKey: learningContext?.sequenceKey,
     writerBlocked: learningContext?.writerBlocked,
+    askedAt: learningContext?.askedAt,
     answeredAt,
+    respondedAt: answeredAt,
+    responseStatus: "answered",
     updatedAt: answeredAt,
+  });
+}
+
+function buildQuestionInteractionEffectivenessRecord(interaction) {
+  if (!interaction) return null;
+  const responseStatus = cleanText(interaction.responseStatus, 24).toLowerCase();
+  const respondedAt = Math.max(0, Number(interaction.respondedAt || 0));
+  return sanitizeQuestionEffectivenessRecord({
+    questionId: interaction.questionId,
+    targetField: interaction.targetField,
+    targetLabel: interaction.targetLabel,
+    question: interaction.question,
+    anchor: interaction.anchor,
+    actKey: interaction.actKey,
+    sequenceKey: interaction.sequenceKey,
+    writerBlocked: interaction.writerBlocked,
+    askedAt: interaction.askedAt,
+    answeredAt: responseStatus === "answered" ? respondedAt : 0,
+    respondedAt,
+    responseStatus,
+    updatedAt: respondedAt || interaction.askedAt,
   });
 }
 
@@ -3272,6 +3346,33 @@ function sanitizeScreenplayLearningContext(value, {
       ? cleanText(value.sequenceKey ?? value.sequence_key, 32).toLowerCase()
       : "",
     writerBlocked: Boolean(value.writerBlocked ?? value.writer_blocked),
+    askedAt: Math.max(0, Number(value.askedAt ?? value.asked_at ?? 0)),
+  };
+}
+
+function sanitizeScreenplayQuestionInteraction(value, {
+  projectId = "",
+  projectTitle = "",
+} = {}) {
+  const base = sanitizeScreenplayLearningContext(value, { projectId, projectTitle });
+  if (!base?.questionId) return null;
+  const responseStatus = cleanText(
+    value?.responseStatus ?? value?.response_status,
+    24
+  ).toLowerCase();
+  if (!["asked", "answered", "declined", "expired"].includes(responseStatus)) return null;
+  const askedAt = Math.max(0, Number(value?.askedAt ?? value?.asked_at ?? 0));
+  if (!askedAt) return null;
+  return {
+    ...base,
+    askedAt,
+    respondedAt: responseStatus === "asked"
+      ? 0
+      : Math.max(
+          askedAt,
+          Number(value?.respondedAt ?? value?.responded_at ?? nowMs()) || nowMs()
+        ),
+    responseStatus,
   };
 }
 
@@ -4935,6 +5036,8 @@ function createCreativeMemoryStore({
         []
       );
       const recent = outcomes.filter((item) => (
+        item.responseStatus === "answered" &&
+        Number(item.answeredAt || 0) > 0 &&
         outcomeAt >= Number(item.answeredAt || 0) &&
         outcomeAt - Number(item.answeredAt || 0) <= QUESTION_EFFECTIVENESS_ATTRIBUTION_WINDOW_MS
       ));
@@ -5699,6 +5802,7 @@ function createCreativeMemoryStore({
     acceptedPageText = "",
     source = "talk_turn",
     learningContext = null,
+    questionInteraction = null,
   } = {}) {
     if (!userId) return { skipped: true, reason: "no userId" };
     const cleanProjectId = cleanText(projectId, 96);
@@ -5735,6 +5839,7 @@ function createCreativeMemoryStore({
       learningAnswersRecorded: 0,
       learningAnswersPromoted: 0,
       learningAnswersCorrectionProtected: 0,
+      questionInteractionsRecorded: 0,
       questionOutcomesRecorded: 0,
       questionAcceptedPageOutcomes: 0,
       questionBlockResolutions: 0,
@@ -5758,6 +5863,13 @@ function createCreativeMemoryStore({
       projectId: resolvedProjectId,
       projectTitle: resolvedProjectTitle,
     });
+    const cleanQuestionInteraction = sanitizeScreenplayQuestionInteraction(
+      questionInteraction,
+      {
+        projectId: resolvedProjectId,
+        projectTitle: resolvedProjectTitle,
+      }
+    );
     const isLearningAnswer = Boolean(
       cleanLearningContext && isScreenplayLearningAnswerCandidate(userText, {
         targetField: cleanLearningContext.targetField,
@@ -6092,6 +6204,28 @@ function createCreativeMemoryStore({
       !turnCharacterNames.some((item) => item.toLowerCase() === cleanLearningContext.anchor.toLowerCase())
     ) {
       turnCharacterNames.push(cleanLearningContext.anchor);
+    }
+
+    if (cleanQuestionInteraction && (resolvedProjectId || resolvedProjectTitle)) {
+      try {
+        const interactionRecord = buildQuestionInteractionEffectivenessRecord(
+          cleanQuestionInteraction
+        );
+        if (interactionRecord) {
+          const interactionReceipt = await recordProjectContinuity({
+            userId,
+            continuity: {
+              projectId: resolvedProjectId,
+              projectTitle: resolvedProjectTitle,
+              questionEffectiveness: [interactionRecord],
+            },
+          });
+          if (interactionReceipt?.ok) {
+            summary.questionInteractionsRecorded += 1;
+            summary.projectContinuityRecorded = true;
+          }
+        }
+      } catch (_e) { /* never block the response on question interaction writes */ }
     }
 
     if (learningPromotion) {

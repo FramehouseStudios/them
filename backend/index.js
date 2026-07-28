@@ -3131,6 +3131,7 @@ function recordCreativeMemoryTriggersForRequest(req, turn = {}) {
     acceptedPageText,
     source,
     learningContext: turn?.learningContext,
+    questionInteraction: turn?.questionInteraction,
   });
 }
 
@@ -3594,15 +3595,29 @@ function buildScreenplayQuestionEffectivenessPromptTrace(value, maxItems = 12) {
     .map((item) => {
       const questionId = normalizeSnippet(item?.questionId ?? item?.question_id, 120);
       const targetField = normalizeSnippet(item?.targetField ?? item?.target_field, 64).toLowerCase();
+      const askedAt = Math.max(0, Number(item?.askedAt ?? item?.asked_at ?? 0));
       const answeredAt = Math.max(0, Number(item?.answeredAt ?? item?.answered_at ?? 0));
-      if (!questionId || !targetField || !answeredAt) return null;
+      if (!questionId || !targetField || (!askedAt && !answeredAt)) return null;
+      const responseStatusRaw = normalizeSnippet(
+        item?.responseStatus ?? item?.response_status,
+        24
+      ).toLowerCase();
+      const responseStatus = ["asked", "answered", "declined", "expired"].includes(
+        responseStatusRaw
+      )
+        ? responseStatusRaw
+        : answeredAt
+          ? "answered"
+          : "asked";
       return Object.fromEntries(Object.entries({
         question_id: questionId,
         target_field: targetField,
         act_key: normalizeSnippet(item?.actKey ?? item?.act_key, 24).toLowerCase(),
         sequence_key: normalizeSnippet(item?.sequenceKey ?? item?.sequence_key, 32).toLowerCase(),
         writer_blocked: Boolean(item?.writerBlocked ?? item?.writer_blocked),
+        asked_at: askedAt || answeredAt,
         answered_at: answeredAt,
+        response_status: responseStatus,
         accepted_page_count: Math.max(
           0,
           Math.floor(Number(item?.acceptedPageCount ?? item?.accepted_page_count ?? 0))
@@ -3617,7 +3632,10 @@ function buildScreenplayQuestionEffectivenessPromptTrace(value, maxItems = 12) {
       )));
     })
     .filter(Boolean)
-    .sort((left, right) => Number(right.answered_at || 0) - Number(left.answered_at || 0))
+    .sort((left, right) => (
+      Math.max(Number(right.answered_at || 0), Number(right.asked_at || 0)) -
+      Math.max(Number(left.answered_at || 0), Number(left.asked_at || 0))
+    ))
     .slice(0, Math.max(1, Math.min(24, Number(maxItems) || 12)));
 }
 

@@ -366,6 +366,101 @@ test("stale accepted pages do not suppress a useful development question", () =>
   assert.equal(plan.writingMomentum.acceptedSceneIsRecent, false);
 });
 
+test("ignored questions extend the project momentum-protection window", () => {
+  const now = 10_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's keep developing Act Two.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      accepted_scenes: [{
+        scene_heading: "INT. FERRY CABIN - NIGHT",
+        accepted_at: now - (50 * 60 * 1_000),
+      }],
+      screenplay_project_memory: {
+        act: "Act II",
+        question_effectiveness: [{
+          question_id: "q-ignored-2",
+          target_field: "character.current_tactic",
+          asked_at: now - 20_000,
+          response_status: "expired",
+          outcome: "ignored",
+        }, {
+          question_id: "q-ignored-1",
+          target_field: "project.theme_argument",
+          asked_at: now - 40_000,
+          response_status: "declined",
+          outcome: "declined",
+        }],
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now,
+  });
+
+  assert.equal(plan.mode, "protect_momentum");
+  assert.equal(plan.shouldAsk, false);
+  assert.equal(plan.writingMomentum.interventionProfile.strategy, "protect_flow");
+  assert.equal(plan.writingMomentum.interventionProfile.ignoredCount, 2);
+  assert.equal(plan.writingMomentum.interventionProfile.windowMinutes, 60);
+  assert.equal(plan.writingMomentum.acceptedSceneAgeSeconds, 3_000);
+});
+
+test("questions proven useful shorten the quiet window without forcing an interruption", () => {
+  const now = 20_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's keep developing Act Two.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      accepted_scenes: [{
+        scene_heading: "EXT. FERRY DECK - NIGHT",
+        accepted_at: now - (25 * 60 * 1_000),
+      }],
+      screenplay_project_memory: {
+        act: "Act II",
+        question_effectiveness: [{
+          question_id: "q-helpful-2",
+          target_field: "story.next_irreversible_choice",
+          asked_at: now - 40_000,
+          answered_at: now - 35_000,
+          response_status: "answered",
+          accepted_page_count: 1,
+          outcome: "accepted_pages",
+        }, {
+          question_id: "q-helpful-1",
+          target_field: "character.current_tactic",
+          asked_at: now - 80_000,
+          answered_at: now - 75_000,
+          response_status: "answered",
+          block_resolution_count: 1,
+          outcome: "block_resolved",
+        }],
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now,
+  });
+
+  assert.equal(plan.mode, "develop_then_learn");
+  assert.equal(plan.shouldAsk, true);
+  assert.equal(
+    plan.writingMomentum.interventionProfile.strategy,
+    "questions_proven_helpful"
+  );
+  assert.equal(plan.writingMomentum.interventionProfile.successfulCount, 2);
+  assert.equal(plan.writingMomentum.interventionProfile.windowMinutes, 20);
+  assert.equal(plan.writingMomentum.acceptedSceneIsRecent, false);
+});
+
 test("explicit craft focus can ask through active writing momentum", () => {
   const now = 6_000_000;
   const plan = buildScreenplayQuestionPlan({
@@ -840,6 +935,7 @@ test("a pending learning question turns the writer's next short answer into cont
     transcript: "Freedom.",
     projectId: "split-ferries",
     currentTurn: 9,
+    now: 2_000,
   });
 
   assert.equal(resolution.status, "answered");
@@ -849,6 +945,9 @@ test("a pending learning question turns the writer's next short answer into cont
   assert.equal(resolution.learningContext.actKey, "act2");
   assert.equal(resolution.learningContext.sequenceKey, "premise");
   assert.equal(resolution.learningContext.writerBlocked, true);
+  assert.equal(resolution.interaction.responseStatus, "answered");
+  assert.equal(resolution.interaction.askedAt, 1_000);
+  assert.equal(resolution.interaction.respondedAt, 2_000);
 });
 
 test("a central dramatic question remains a valid structured learning answer", () => {
@@ -904,17 +1003,46 @@ test("an ignored learning question is cleared instead of mislearning a page comm
     targetField: "project.ending_image",
     targetLabel: "the ending image",
     question: "What final image proves the story changed?",
-  }, { askedAtTurn: 4 });
+  }, { askedAtTurn: 4, now: 1_000 });
   const resolution = resolvePendingScreenplayLearningAnswer({
     pending,
     transcript: "Write the next scene now.",
     projectId: "split-ferries",
     currentTurn: 5,
+    now: 3_000,
   });
 
   assert.equal(resolution.status, "declined");
   assert.equal(resolution.learningContext, null);
   assert.equal(resolution.shouldClear, true);
+  assert.equal(resolution.interaction.responseStatus, "declined");
+  assert.equal(resolution.interaction.respondedAt, 3_000);
+});
+
+test("an unanswered learning question expires into an ignored interaction", () => {
+  const pending = createPendingScreenplayLearningQuestion({
+    active: true,
+    shouldAsk: true,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "project.ending_image",
+    targetLabel: "the ending image",
+    question: "What final image proves the story changed?",
+  }, { askedAtTurn: 4, now: 1_000 });
+  const resolution = resolvePendingScreenplayLearningAnswer({
+    pending,
+    transcript: "Let's talk about something else.",
+    projectId: "split-ferries",
+    currentTurn: 7,
+    now: 4_000,
+  });
+
+  assert.equal(resolution.status, "expired");
+  assert.equal(resolution.shouldClear, true);
+  assert.equal(resolution.learningContext, null);
+  assert.equal(resolution.interaction.responseStatus, "expired");
+  assert.equal(resolution.interaction.askedAt, 1_000);
+  assert.equal(resolution.interaction.respondedAt, 4_000);
 });
 
 test("question enforcement preserves useful work and replaces only the generic closing question", () => {

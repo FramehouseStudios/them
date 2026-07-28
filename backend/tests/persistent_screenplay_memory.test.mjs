@@ -1730,6 +1730,16 @@ test("[persistent-screenplay-memory] exposes question outcomes to planner trace 
         acceptedPageCount: 1,
         blockResolutionCount: 1,
         outcome: "accepted_pages_and_block_resolved",
+      }, {
+        questionId: "screenplay-learning-18-project.theme_argument",
+        targetField: "project.theme_argument",
+        targetLabel: "the feature's thematic argument",
+        question: "What should this feature ultimately argue?",
+        actKey: "act2",
+        sequenceKey: "fallout",
+        askedAt: 2_000,
+        responseStatus: "expired",
+        outcome: "ignored",
       }],
     },
   }, {
@@ -1738,12 +1748,22 @@ test("[persistent-screenplay-memory] exposes question outcomes to planner trace 
   });
 
   assert.deepEqual(trace.screenplay_project_memory.question_effectiveness, [{
+    question_id: "screenplay-learning-18-project.theme_argument",
+    target_field: "project.theme_argument",
+    act_key: "act2",
+    sequence_key: "fallout",
+    asked_at: 2_000,
+    response_status: "expired",
+    outcome: "ignored",
+  }, {
     question_id: "screenplay-learning-14-story.next_irreversible_choice",
     target_field: "story.next_irreversible_choice",
     act_key: "act2",
     sequence_key: "premise",
     writer_blocked: true,
+    asked_at: 1_000,
     answered_at: 1_000,
+    response_status: "answered",
     accepted_page_count: 1,
     block_resolution_count: 1,
     outcome: "accepted_pages_and_block_resolved",

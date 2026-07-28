@@ -181,6 +181,8 @@ const SEQUENCE_QUESTION_LEADS = Object.freeze({
   resolution: "To complete the resolution",
 });
 const ACTIVE_WRITING_MOMENTUM_WINDOW_MS = 30 * 60 * 1_000;
+const MIN_WRITING_MOMENTUM_WINDOW_MS = 20 * 60 * 1_000;
+const MAX_WRITING_MOMENTUM_WINDOW_MS = 75 * 60 * 1_000;
 const ACCEPTED_SCENE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 const SUBSTANTIAL_INSERTED_TEXT_CHARS = 120;
 
@@ -209,6 +211,7 @@ function deriveWritingMomentum({
   trace,
   studioMeta,
   writerBlocked,
+  interventionProfile,
 }) {
   const resolvedNow = Number.isFinite(Number(now)) ? Number(now) : Date.now();
   const acceptedScenes = Array.isArray(trace?.accepted_scenes) ? trace.accepted_scenes : [];
@@ -217,9 +220,16 @@ function deriveWritingMomentum({
     return Number.isFinite(acceptedAt) && acceptedAt > latest ? acceptedAt : latest;
   }, 0);
   const acceptedSceneAgeMs = latestAcceptedAt > 0 ? resolvedNow - latestAcceptedAt : null;
+  const momentumWindowMs = Math.max(
+    MIN_WRITING_MOMENTUM_WINDOW_MS,
+    Math.min(
+      MAX_WRITING_MOMENTUM_WINDOW_MS,
+      Number(interventionProfile?.windowMs) || ACTIVE_WRITING_MOMENTUM_WINDOW_MS
+    )
+  );
   const acceptedSceneIsRecent = acceptedSceneAgeMs !== null &&
     acceptedSceneAgeMs >= -ACCEPTED_SCENE_CLOCK_SKEW_MS &&
-    acceptedSceneAgeMs <= ACTIVE_WRITING_MOMENTUM_WINDOW_MS;
+    acceptedSceneAgeMs <= momentumWindowMs;
   const insertedTextChars = clean(studioMeta?.screenplayInsertedText, 6_000).length;
   const substantialPageInsertion = insertedTextChars >= SUBSTANTIAL_INSERTED_TEXT_CHARS;
   const explicitCraftFields = Object.entries(FIELD_TRANSCRIPT_SIGNALS)
@@ -240,7 +250,8 @@ function deriveWritingMomentum({
     insertedTextChars,
     explicitCraftFocus: explicitCraftFields.length > 0,
     explicitCraftFields,
-    windowSeconds: ACTIVE_WRITING_MOMENTUM_WINDOW_MS / 1_000,
+    windowSeconds: momentumWindowMs / 1_000,
+    interventionProfile,
   };
 }
 
@@ -396,8 +407,9 @@ function normalizeQuestionEffectiveness(rows) {
   return (Array.isArray(rows) ? rows : [])
     .map((row) => {
       const targetField = clean(row?.target_field ?? row?.targetField, 64).toLowerCase();
+      const askedAt = Math.max(0, Number(row?.asked_at ?? row?.askedAt ?? 0));
       const answeredAt = Math.max(0, Number(row?.answered_at ?? row?.answeredAt ?? 0));
-      if (!targetField || !answeredAt) return null;
+      if (!targetField || (!askedAt && !answeredAt)) return null;
       const acceptedPageCount = Math.max(
         0,
         Math.floor(Number(row?.accepted_page_count ?? row?.acceptedPageCount ?? 0))
@@ -406,21 +418,78 @@ function normalizeQuestionEffectiveness(rows) {
         0,
         Math.floor(Number(row?.block_resolution_count ?? row?.blockResolutionCount ?? 0))
       );
+      const outcome = clean(row?.outcome, 48).toLowerCase();
+      const responseStatusRaw = clean(
+        row?.response_status ?? row?.responseStatus,
+        24
+      ).toLowerCase();
+      const responseStatus = ["asked", "answered", "declined", "expired"].includes(responseStatusRaw)
+        ? responseStatusRaw
+        : answeredAt
+          ? "answered"
+          : outcome === "ignored"
+            ? "expired"
+            : outcome === "declined"
+              ? "declined"
+              : "asked";
       return {
         targetField,
         lane: questionFieldLane(targetField),
         actKey: clean(row?.act_key ?? row?.actKey, 24).toLowerCase(),
         sequenceKey: clean(row?.sequence_key ?? row?.sequenceKey, 32).toLowerCase(),
         writerBlocked: Boolean(row?.writer_blocked ?? row?.writerBlocked),
+        askedAt: askedAt || answeredAt,
         answeredAt,
+        responseStatus,
         acceptedPageCount,
         blockResolutionCount,
         successful: acceptedPageCount > 0 || blockResolutionCount > 0,
       };
     })
     .filter(Boolean)
-    .sort((left, right) => right.answeredAt - left.answeredAt)
+    .sort((left, right) => (
+      Math.max(right.answeredAt, right.askedAt) -
+      Math.max(left.answeredAt, left.askedAt)
+    ))
     .slice(0, 24);
+}
+
+function buildQuestionInterventionProfile(questionEffectiveness = []) {
+  const sample = (Array.isArray(questionEffectiveness) ? questionEffectiveness : []).slice(0, 8);
+  const answeredCount = sample.filter((item) => (
+    item.responseStatus === "answered" || item.successful
+  )).length;
+  const ignoredCount = sample.filter((item) => (
+    item.responseStatus === "declined" || item.responseStatus === "expired"
+  )).length;
+  const successfulCount = sample.filter((item) => item.successful).length;
+  const resolvedCount = answeredCount + ignoredCount;
+  const responseRate = resolvedCount > 0 ? answeredCount / resolvedCount : 0;
+  let windowMs = ACTIVE_WRITING_MOMENTUM_WINDOW_MS;
+  let strategy = "balanced";
+  if (ignoredCount >= 3 && responseRate < 0.5) {
+    windowMs = MAX_WRITING_MOMENTUM_WINDOW_MS;
+    strategy = "strongly_protect_flow";
+  } else if (ignoredCount >= 2 && responseRate < 0.5) {
+    windowMs = 60 * 60 * 1_000;
+    strategy = "protect_flow";
+  } else if (ignoredCount >= 1 && ignoredCount >= answeredCount) {
+    windowMs = 45 * 60 * 1_000;
+    strategy = "favor_silence";
+  } else if (successfulCount >= 2 && responseRate >= 0.6) {
+    windowMs = MIN_WRITING_MOMENTUM_WINDOW_MS;
+    strategy = "questions_proven_helpful";
+  }
+  return {
+    strategy,
+    sampleCount: sample.length,
+    answeredCount,
+    ignoredCount,
+    successfulCount,
+    responseRate: Number(responseRate.toFixed(2)),
+    windowMs,
+    windowMinutes: Math.round(windowMs / 60_000),
+  };
 }
 
 function questionEffectivenessBonus(field, {
@@ -1039,12 +1108,14 @@ export function buildScreenplayQuestionPlan({
   const fieldStateSummary = summarizeFieldStates(fieldStates);
   const actContext = deriveActContext({ transcript: text, studioMeta, projectMemory });
   const sequenceContext = deriveSequenceContext({ transcript: text, studioMeta, projectMemory });
+  const interventionProfile = buildQuestionInterventionProfile(questionEffectiveness);
   const writingMomentum = deriveWritingMomentum({
     now,
     transcript: text,
     trace,
     studioMeta,
     writerBlocked,
+    interventionProfile,
   });
   if (writingMomentum.active && !writingMomentum.explicitCraftFocus) {
     const sequenceDirective = sequenceExecutionDirective(sequenceContext);
@@ -1225,26 +1296,62 @@ function projectMatches(pending, { projectId = "", projectTitle = "" } = {}) {
   return Boolean(pendingId || pendingTitle) && !currentId && !currentTitle;
 }
 
+function buildPendingQuestionInteraction(pending, responseStatus, now) {
+  const status = clean(responseStatus, 24).toLowerCase();
+  if (!["asked", "answered", "declined", "expired"].includes(status)) return null;
+  const respondedAt = status === "asked"
+    ? 0
+    : Math.max(0, Number(now) || Date.now());
+  return {
+    questionId: clean(pending?.id ?? pending?.questionId, 120),
+    projectId: clean(pending?.projectId, 96),
+    projectTitle: clean(pending?.projectTitle, 160),
+    targetField: clean(pending?.targetField, 64),
+    targetLabel: clean(pending?.targetLabel, 120),
+    anchor: clean(pending?.anchor, 180),
+    question: clean(pending?.question, 260),
+    actKey: clean(pending?.actKey, 24),
+    sequenceKey: clean(pending?.sequenceKey, 32),
+    writerBlocked: Boolean(pending?.writerBlocked),
+    askedAt: Math.max(0, Number(pending?.askedAt) || respondedAt || Date.now()),
+    responseStatus: status,
+    respondedAt,
+  };
+}
+
 export function resolvePendingScreenplayLearningAnswer({
   pending = null,
   transcript = "",
   projectId = "",
   projectTitle = "",
   currentTurn = 0,
+  now = Date.now(),
 } = {}) {
   if (!pending || typeof pending !== "object") {
-    return { status: "none", shouldClear: false, learningContext: null };
+    return { status: "none", shouldClear: false, learningContext: null, interaction: null };
   }
   const turn = Math.max(0, Math.floor(Number(currentTurn) || 0));
   const expiresAfterTurn = Math.max(0, Math.floor(Number(pending.expiresAfterTurn) || 0));
   if (expiresAfterTurn && turn > expiresAfterTurn) {
-    return { status: "expired", shouldClear: true, learningContext: null };
+    return {
+      status: "expired",
+      shouldClear: true,
+      learningContext: null,
+      interaction: buildPendingQuestionInteraction(pending, "expired", now),
+    };
   }
   if (!projectMatches(pending, { projectId, projectTitle })) {
-    return { status: "different_project", shouldClear: false, learningContext: null };
+    return {
+      status: "different_project",
+      shouldClear: false,
+      learningContext: null,
+      interaction: null,
+    };
   }
   const answer = clean(transcript, 2_000);
-  if (!answer) return { status: "empty", shouldClear: false, learningContext: null };
+  if (!answer) {
+    return { status: "empty", shouldClear: false, learningContext: null, interaction: null };
+  }
   const words = answer.split(/\s+/).filter(Boolean);
   const looksLikeQuestion = /\?\s*$/.test(answer) && !/[.!]\s+/.test(answer);
   const targetField = clean(pending.targetField, 64);
@@ -1255,11 +1362,17 @@ export function resolvePendingScreenplayLearningAnswer({
     words.length > 140 ||
     DIRECT_PAGE_REQUEST.test(answer)
   ) {
-    return { status: "declined", shouldClear: true, learningContext: null };
+    return {
+      status: "declined",
+      shouldClear: true,
+      learningContext: null,
+      interaction: buildPendingQuestionInteraction(pending, "declined", now),
+    };
   }
   return {
     status: "answered",
     shouldClear: true,
+    interaction: buildPendingQuestionInteraction(pending, "answered", now),
     learningContext: {
       questionId: clean(pending.id, 120),
       projectId: clean(pending.projectId || projectId, 96),
@@ -1271,6 +1384,7 @@ export function resolvePendingScreenplayLearningAnswer({
       actKey: clean(pending.actKey, 24),
       sequenceKey: clean(pending.sequenceKey, 32),
       writerBlocked: Boolean(pending.writerBlocked),
+      askedAt: Math.max(0, Number(pending.askedAt) || 0),
       authority: "writer_clarification",
     },
   };
