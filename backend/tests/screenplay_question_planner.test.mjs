@@ -305,6 +305,101 @@ test("an explicit craft focus outranks the current act's default gap order", () 
   assert.match(plan.question, /ultimately argue/i);
 });
 
+test("recent accepted pages suppress generic development questions while writing is flowing", () => {
+  const now = 2_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's keep developing this sequence.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      accepted_scenes: [{
+        scene_heading: "INT. FERRY CABIN - NIGHT",
+        accepted_at: now - (5 * 60 * 1_000),
+      }],
+      screenplay_project_memory: {
+        act: "Act II",
+        feature_sequence: "Promise of the Premise",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+      screenplayFeatureSequence: "Promise of the Premise",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now,
+  });
+
+  assert.equal(plan.mode, "protect_momentum");
+  assert.equal(plan.shouldAsk, false);
+  assert.equal(plan.questionStrategy, "suppress_low_value_question");
+  assert.equal(plan.writingMomentum.active, true);
+  assert.equal(plan.writingMomentum.source, "recent_accepted_page");
+  assert.equal(plan.writingMomentum.acceptedSceneAgeSeconds, 300);
+  assert.match(plan.objective, /without opening a new intake question/i);
+});
+
+test("stale accepted pages do not suppress a useful development question", () => {
+  const now = 4_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "Let's keep developing Act Two.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      accepted_scenes: [{
+        scene_heading: "INT. FERRY CABIN - NIGHT",
+        accepted_at: now - (31 * 60 * 1_000),
+      }],
+      screenplay_project_memory: { act: "Act II" },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now,
+  });
+
+  assert.equal(plan.mode, "develop_then_learn");
+  assert.equal(plan.shouldAsk, true);
+  assert.equal(plan.writingMomentum.active, false);
+  assert.equal(plan.writingMomentum.acceptedSceneIsRecent, false);
+});
+
+test("explicit craft focus can ask through active writing momentum", () => {
+  const now = 6_000_000;
+  const plan = buildScreenplayQuestionPlan({
+    transcript: "The theme is blurry. Help me find what this movie argues.",
+    creativeMemoryTrace: {
+      project_id: "split-ferries",
+      project_title: "Split Ferries",
+      accepted_scenes: [{
+        scene_heading: "EXT. EAST FERRY DOCK - NIGHT",
+        accepted_at: now - (2 * 60 * 1_000),
+      }],
+      screenplay_project_memory: {
+        act: "Act II",
+        protagonist_want: "Save Eli",
+        central_question: "Can Mara save Eli without controlling him?",
+        antagonistic_force: "The evacuation authority",
+      },
+    },
+    studioMeta: {
+      screenplayProjectId: "split-ferries",
+      screenplayAct: "Act II",
+    },
+    turnPlanner: { intent: "idea_development" },
+    now,
+  });
+
+  assert.equal(plan.mode, "develop_then_learn");
+  assert.equal(plan.shouldAsk, true);
+  assert.equal(plan.targetField, "project.theme_argument");
+  assert.equal(plan.writingMomentum.active, true);
+  assert.equal(plan.writingMomentum.explicitCraftFocus, true);
+  assert.ok(plan.writingMomentum.explicitCraftFields.includes("project.theme_argument"));
+});
+
 test("Act III scoring skips a corrected ending image and selects the next unresolved transformation", () => {
   const plan = buildScreenplayQuestionPlan({
     transcript: "Let's strengthen Act Three.",
@@ -653,11 +748,16 @@ test("fully resolved Story Spine and Character Bible fields produce no intake qu
 });
 
 test("accepted-page and unblock outcomes improve future sequence-specific ranking", () => {
+  const now = 8_000_000;
   const plan = buildScreenplayQuestionPlan({
     transcript: "I'm stuck in the promise-of-the-premise sequence. What happens next?",
     creativeMemoryTrace: {
       project_id: "split-ferries",
       project_title: "Split Ferries",
+      accepted_scenes: [{
+        scene_heading: "INT. FERRY CABIN - NIGHT",
+        accepted_at: now - (3 * 60 * 1_000),
+      }],
       characters: [{
         name: "Mara",
         arc: {
@@ -697,10 +797,15 @@ test("accepted-page and unblock outcomes improve future sequence-specific rankin
       screenplayCharacterFocus: ["Mara"],
     },
     turnPlanner: { intent: "momentum_rescue" },
+    now,
   });
 
   assert.equal(plan.targetField, "story.next_irreversible_choice");
   assert.equal(plan.sequenceContext.key, "premise");
+  assert.equal(plan.shouldAsk, true);
+  assert.equal(plan.questionStrategy, "proven_block_recovery");
+  assert.equal(plan.writingMomentum.active, false);
+  assert.equal(plan.writingMomentum.acceptedSceneIsRecent, true);
   assert.equal(plan.effectivenessBonus, 42);
   assert.equal(plan.successfulQuestionOutcomes, 1);
   assert.equal(

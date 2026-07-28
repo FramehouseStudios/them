@@ -180,6 +180,9 @@ const SEQUENCE_QUESTION_LEADS = Object.freeze({
   climax: "Under climax pressure",
   resolution: "To complete the resolution",
 });
+const ACTIVE_WRITING_MOMENTUM_WINDOW_MS = 30 * 60 * 1_000;
+const ACCEPTED_SCENE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
+const SUBSTANTIAL_INSERTED_TEXT_CHARS = 120;
 
 function clean(value, maxChars = 220) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars).trim();
@@ -198,6 +201,47 @@ function cleanList(value, maxItems = 6, maxChars = 180) {
     if (out.length >= maxItems) break;
   }
   return out;
+}
+
+function deriveWritingMomentum({
+  now,
+  transcript,
+  trace,
+  studioMeta,
+  writerBlocked,
+}) {
+  const resolvedNow = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  const acceptedScenes = Array.isArray(trace?.accepted_scenes) ? trace.accepted_scenes : [];
+  const latestAcceptedAt = acceptedScenes.reduce((latest, scene) => {
+    const acceptedAt = Number(scene?.accepted_at ?? scene?.acceptedAt ?? 0);
+    return Number.isFinite(acceptedAt) && acceptedAt > latest ? acceptedAt : latest;
+  }, 0);
+  const acceptedSceneAgeMs = latestAcceptedAt > 0 ? resolvedNow - latestAcceptedAt : null;
+  const acceptedSceneIsRecent = acceptedSceneAgeMs !== null &&
+    acceptedSceneAgeMs >= -ACCEPTED_SCENE_CLOCK_SKEW_MS &&
+    acceptedSceneAgeMs <= ACTIVE_WRITING_MOMENTUM_WINDOW_MS;
+  const insertedTextChars = clean(studioMeta?.screenplayInsertedText, 6_000).length;
+  const substantialPageInsertion = insertedTextChars >= SUBSTANTIAL_INSERTED_TEXT_CHARS;
+  const explicitCraftFields = Object.entries(FIELD_TRANSCRIPT_SIGNALS)
+    .filter(([, signal]) => signal.test(transcript))
+    .map(([field]) => field);
+  const sources = [
+    acceptedSceneIsRecent ? "recent_accepted_page" : "",
+    substantialPageInsertion ? "current_page_insertion" : "",
+  ].filter(Boolean);
+  return {
+    active: !writerBlocked && sources.length > 0,
+    source: sources.join("+") || "none",
+    acceptedSceneIsRecent,
+    latestAcceptedAt,
+    acceptedSceneAgeSeconds: acceptedSceneAgeMs === null
+      ? null
+      : Math.max(0, Math.round(acceptedSceneAgeMs / 1_000)),
+    insertedTextChars,
+    explicitCraftFocus: explicitCraftFields.length > 0,
+    explicitCraftFields,
+    windowSeconds: ACTIVE_WRITING_MOMENTUM_WINDOW_MS / 1_000,
+  };
 }
 
 function firstValue(...values) {
@@ -414,6 +458,23 @@ function questionEffectivenessBonus(field, {
     if (matched >= 2 || bonus >= 42) break;
   }
   return Math.min(42, Math.max(0, Math.round(bonus)));
+}
+
+function hasProvenBlockRecovery(field, {
+  actKey,
+  sequenceKey,
+  questionEffectiveness = [],
+}) {
+  const targetField = clean(field, 64).toLowerCase();
+  const targetLane = questionFieldLane(targetField);
+  return questionEffectiveness.some((outcome) => {
+    if (!outcome?.writerBlocked || outcome.blockResolutionCount < 1) return false;
+    const exactField = outcome.targetField === targetField;
+    const sameLane = Boolean(targetLane && outcome.lane === targetLane);
+    const sameSequence = Boolean(sequenceKey && outcome.sequenceKey === sequenceKey);
+    const sameAct = Boolean(actKey && outcome.actKey === actKey);
+    return exactField || sameSequence || (sameLane && sameAct);
+  });
 }
 
 function normalizedAnchor(value) {
@@ -889,6 +950,7 @@ export function buildScreenplayQuestionPlan({
   studioMeta = null,
   turnPlanner = null,
   answeredLearningContext = null,
+  now = Date.now(),
 } = {}) {
   const text = clean(transcript, 4_000);
   const trace = creativeMemoryTrace && typeof creativeMemoryTrace === "object"
@@ -977,6 +1039,31 @@ export function buildScreenplayQuestionPlan({
   const fieldStateSummary = summarizeFieldStates(fieldStates);
   const actContext = deriveActContext({ transcript: text, studioMeta, projectMemory });
   const sequenceContext = deriveSequenceContext({ transcript: text, studioMeta, projectMemory });
+  const writingMomentum = deriveWritingMomentum({
+    now,
+    transcript: text,
+    trace,
+    studioMeta,
+    writerBlocked,
+  });
+  if (writingMomentum.active && !writingMomentum.explicitCraftFocus) {
+    const sequenceDirective = sequenceExecutionDirective(sequenceContext);
+    return {
+      active: true,
+      mode: "protect_momentum",
+      shouldAsk: false,
+      askAfterDeliverable: false,
+      projectId,
+      projectTitle,
+      objective: `Keep advancing the writer's current work from known canon without opening a new intake question.${sequenceDirective}`,
+      reason: "Recent accepted pages show active writing momentum; a generic learning question would interrupt useful flow.",
+      fieldStates: fieldStateSummary,
+      actContext,
+      sequenceContext,
+      writingMomentum,
+      questionStrategy: "suppress_low_value_question",
+    };
+  }
   const dueGapCandidate = dueThreadGap(trace.due_story_thread);
   const dueGap = dueGapCandidate && !provenanceResolvesAnchor(
     fieldStates["story_thread.payoff_choice"],
@@ -1042,10 +1129,20 @@ export function buildScreenplayQuestionPlan({
       fieldStates: fieldStateSummary,
       actContext,
       sequenceContext,
+      writingMomentum,
     };
   }
 
   const sequenceObjective = sequenceExecutionDirective(sequenceContext);
+  const questionStrategy = writerBlocked
+    ? hasProvenBlockRecovery(gap.field, {
+        actKey: actContext.key,
+        sequenceKey: sequenceContext.key,
+        questionEffectiveness,
+      })
+      ? "proven_block_recovery"
+      : "block_recovery"
+    : "highest_value_gap";
   return {
     active: true,
     mode: writerBlocked ? "rescue_then_decide" : "develop_then_learn",
@@ -1067,6 +1164,8 @@ export function buildScreenplayQuestionPlan({
     fieldStates: fieldStateSummary,
     actContext,
     sequenceContext,
+    writingMomentum,
+    questionStrategy,
     selectionScore: gap.score,
     effectivenessBonus: gap.effectivenessBonus || 0,
     successfulQuestionOutcomes: questionEffectiveness.filter((item) => item.successful).length,
