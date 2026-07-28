@@ -5,7 +5,11 @@ import {
   buildScreenplayQuestionPlan,
   createPendingScreenplayLearningQuestion,
   enforceScreenplayQuestionPlan,
+  removePendingScreenplayLearningQuestion,
   resolvePendingScreenplayLearningAnswer,
+  sanitizePendingScreenplayLearningQuestions,
+  selectPendingScreenplayLearningQuestion,
+  upsertPendingScreenplayLearningQuestion,
 } from "../lib/screenplay_question_planner.js";
 
 test("direct screenplay requests execute without a blocking question", () => {
@@ -948,6 +952,83 @@ test("a pending learning question turns the writer's next short answer into cont
   assert.equal(resolution.interaction.responseStatus, "answered");
   assert.equal(resolution.interaction.askedAt, 1_000);
   assert.equal(resolution.interaction.respondedAt, 2_000);
+});
+
+test("pending learning questions stay project-scoped and replace only their own project", () => {
+  const first = createPendingScreenplayLearningQuestion({
+    active: true,
+    shouldAsk: true,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "project.theme_argument",
+    targetLabel: "the theme",
+    question: "What does this feature argue about love and control?",
+  }, { askedAtTurn: 8, now: 1_000 });
+  const otherProject = createPendingScreenplayLearningQuestion({
+    active: true,
+    shouldAsk: true,
+    projectId: "rain-docket",
+    projectTitle: "Rain Docket",
+    targetField: "project.ending_image",
+    targetLabel: "the ending image",
+    question: "What final image proves Mara has changed?",
+  }, { askedAtTurn: 9, now: 2_000 });
+  const replacement = createPendingScreenplayLearningQuestion({
+    active: true,
+    shouldAsk: true,
+    projectId: "split-ferries",
+    projectTitle: "Split Ferries",
+    targetField: "project.protagonist_need",
+    targetLabel: "the protagonist's need",
+    question: "What must Mara learn that her pursuit cannot teach her?",
+  }, { askedAtTurn: 10, now: 3_000 });
+
+  let pending = upsertPendingScreenplayLearningQuestion([], first);
+  pending = upsertPendingScreenplayLearningQuestion(pending, otherProject);
+  pending = upsertPendingScreenplayLearningQuestion(pending, replacement);
+
+  assert.equal(pending.length, 2);
+  assert.equal(
+    selectPendingScreenplayLearningQuestion(pending, { projectId: "split-ferries" })?.id,
+    replacement.id
+  );
+  assert.equal(
+    selectPendingScreenplayLearningQuestion(pending, { projectTitle: "Rain Docket" })?.id,
+    otherProject.id
+  );
+  assert.equal(
+    selectPendingScreenplayLearningQuestion(pending, {}),
+    null,
+    "A non-screenplay turn must not consume another project's pending answer."
+  );
+
+  pending = removePendingScreenplayLearningQuestion(pending, replacement);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].id, otherProject.id);
+});
+
+test("pending learning-question persistence is bounded, sanitized, and newest-first", () => {
+  const pending = sanitizePendingScreenplayLearningQuestions([
+    ...Array.from({ length: 10 }, (_, index) => ({
+      id: `question-${index}`,
+      project_id: `project-${index}`,
+      project_title: `Project ${index}`,
+      target_field: "project.theme_argument",
+      question: `What does Project ${index} argue?`,
+      asked_at_turn: index,
+      expires_after_turn: index + 2,
+      asked_at: index + 1,
+      untrusted_extra: "drop me",
+    })),
+    { id: "malformed", project_id: "project-bad" },
+  ]);
+
+  assert.equal(pending.length, 8);
+  assert.equal(pending[0].id, "question-9");
+  assert.equal(pending.at(-1).id, "question-2");
+  assert.equal(Object.hasOwn(pending[0], "untrusted_extra"), false);
+  assert.equal(pending[0].projectId, "project-9");
+  assert.equal(pending[0].expiresAfterTurn, 11);
 });
 
 test("a central dramatic question remains a valid structured learning answer", () => {

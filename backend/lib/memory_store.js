@@ -1,3 +1,8 @@
+import {
+  sanitizePendingScreenplayLearningQuestion,
+  sanitizePendingScreenplayLearningQuestions,
+} from "./screenplay_question_planner.js";
+
 const userMemoryByIp = new Map();
 const userMemoryByUserId = new Map();
 const userMemoryByClientToken = new Map();
@@ -165,6 +170,16 @@ function sanitizePersistedSessionMemory(rawMemory) {
     0,
     Number(merged.screenplayProjectMemoryUpdatedAt || 0)
   );
+  const legacyPendingScreenplayQuestion = sanitizePendingScreenplayLearningQuestion(
+    merged.pendingScreenplayLearningQuestion
+  );
+  merged.pendingScreenplayLearningQuestions = sanitizePendingScreenplayLearningQuestions([
+    ...(Array.isArray(merged.pendingScreenplayLearningQuestions)
+      ? merged.pendingScreenplayLearningQuestions
+      : []),
+    ...(legacyPendingScreenplayQuestion ? [legacyPendingScreenplayQuestion] : []),
+  ]);
+  delete merged.pendingScreenplayLearningQuestion;
 
   let listeningFacts = [];
   const sourceFacts = Array.isArray(merged.listeningFacts) ? merged.listeningFacts : [];
@@ -299,6 +314,19 @@ function sanitizePersistedSessionMemory(rawMemory) {
   merged.lastUpdatedAt = Math.max(0, Number(merged.lastUpdatedAt || Date.now()));
 
   return merged;
+}
+
+function selectFreshestSessionMemory(activeMemory, persistedMemory) {
+  const hasActive = Boolean(activeMemory && typeof activeMemory === "object");
+  const hasPersisted = Boolean(persistedMemory && typeof persistedMemory === "object");
+  if (!hasActive && !hasPersisted) return sanitizePersistedSessionMemory({});
+  if (!hasActive) return sanitizePersistedSessionMemory(persistedMemory);
+  if (!hasPersisted) return sanitizePersistedSessionMemory(activeMemory);
+  const active = sanitizePersistedSessionMemory(activeMemory);
+  const persisted = sanitizePersistedSessionMemory(persistedMemory);
+  const activeUpdatedAt = Math.max(0, Number(active.lastUpdatedAt || 0));
+  const persistedUpdatedAt = Math.max(0, Number(persisted.lastUpdatedAt || 0));
+  return persistedUpdatedAt > activeUpdatedAt ? persisted : active;
 }
 
 function sanitizeClientTokenAliasList(items, maxItems = 24) {
@@ -651,6 +679,7 @@ export {
   loadUserMemoryStoreFromAdapter,
   sanitizeClientTokenAliasList,
   sanitizePersistedSessionMemory,
+  selectFreshestSessionMemory,
   saveUserMemoryStore,
   setPersistedUserMemoryForIp,
   setPersistedUserMemoryForUserId,

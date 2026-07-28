@@ -23,6 +23,7 @@ test("authenticated cross-platform question cadence survives relaunch", () => {
   assert.match(output, /"restoredDevice":"macOS"/);
   assert.match(output, /"backendRestarted":true/);
   assert.match(output, /"distinctClientSessions":true/);
+  assert.match(output, /"liveTalkResolution":true/);
   assert.match(output, /"answeredOutcome":"accepted_pages"/);
   assert.match(output, /"ignoredOutcome":"ignored"/);
   assert.match(output, /"cadenceMinutes":45/);

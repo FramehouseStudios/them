@@ -55,7 +55,10 @@ import {
   buildScreenplayQuestionPlan,
   createPendingScreenplayLearningQuestion,
   enforceScreenplayQuestionPlan,
+  removePendingScreenplayLearningQuestion,
   resolvePendingScreenplayLearningAnswer,
+  selectPendingScreenplayLearningQuestion,
+  upsertPendingScreenplayLearningQuestion,
 } from "./screenplay_question_planner.js";
 
 const REQUIRED_DEPS = Object.freeze(["OPENAI_API_KEY","CLEMENTINE_PROFILE","recordTalkMetric","scaleBackplane","storeTalkTurnMeta","resolveWritableMemoryContext","persistWritableMemoryContext","clientIp","commitTalkIdempotencySuccess","isAuthoritativeTalkScreenplayOutput","normalizeAcceptedCausalFacts"]);
@@ -2295,23 +2298,37 @@ function createTalkHandler(deps) {
     const shouldAskCheckInThisTurn = sessionNeedsCheckIn && !ipCheckInCooldownActive;
     const turnsInSession = Math.max(0, Number(sessionMemory?.turns || 0));
     if (sessionMemory) {
+      const screenplayProjectTitle =
+        studioMeta?.screenplayProjectTitle ??
+        req.body?.screenplayProjectTitle ??
+        req.body?.screenplay_project_title ??
+        req.body?.projectTitle ??
+        req.body?.project_title ??
+        req.body?.pack ??
+        "";
+      const pendingScreenplayLearningQuestion = selectPendingScreenplayLearningQuestion(
+        sessionMemory.pendingScreenplayLearningQuestions,
+        {
+          projectId: studioMeta?.screenplayProjectId,
+          projectTitle: screenplayProjectTitle,
+        }
+      );
       const pendingLearningResolution = resolvePendingScreenplayLearningAnswer({
-        pending: sessionMemory.pendingScreenplayLearningQuestion,
+        pending: pendingScreenplayLearningQuestion,
         transcript,
         projectId: studioMeta?.screenplayProjectId,
-        projectTitle:
-          req.body?.screenplayProjectTitle ??
-          req.body?.screenplay_project_title ??
-          req.body?.projectTitle ??
-          req.body?.project_title ??
-          req.body?.pack ??
-          "",
+        projectTitle: screenplayProjectTitle,
         currentTurn: turnsInSession,
       });
       screenplayLearningAnswerContext = pendingLearningResolution.learningContext;
       screenplayQuestionInteraction = pendingLearningResolution.interaction;
       if (pendingLearningResolution.shouldClear) {
-        delete sessionMemory.pendingScreenplayLearningQuestion;
+        sessionMemory.pendingScreenplayLearningQuestions =
+          removePendingScreenplayLearningQuestion(
+            sessionMemory.pendingScreenplayLearningQuestions,
+            pendingScreenplayLearningQuestion
+          );
+        persistTalkMemory(sessionMemory, Date.now());
       }
       if (activeSession) activeSession.memory = sessionMemory;
     }
@@ -4442,7 +4459,11 @@ OUTPUT: default 2-3 short lines (up to 5 when needed), blank line between lines,
           { askedAtTurn: turnsInSession }
         );
         if (pendingQuestion) {
-          sessionMemory.pendingScreenplayLearningQuestion = pendingQuestion;
+          sessionMemory.pendingScreenplayLearningQuestions =
+            upsertPendingScreenplayLearningQuestion(
+              sessionMemory.pendingScreenplayLearningQuestions,
+              pendingQuestion
+            );
           screenplayQuestionInteraction = {
             ...pendingQuestion,
             questionId: pendingQuestion.id,

@@ -185,6 +185,7 @@ const MIN_WRITING_MOMENTUM_WINDOW_MS = 20 * 60 * 1_000;
 const MAX_WRITING_MOMENTUM_WINDOW_MS = 75 * 60 * 1_000;
 const ACCEPTED_SCENE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 const SUBSTANTIAL_INSERTED_TEXT_CHARS = 120;
+const PENDING_SCREENPLAY_LEARNING_QUESTIONS_MAX = 8;
 
 function clean(value, maxChars = 220) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars).trim();
@@ -1286,6 +1287,79 @@ export function createPendingScreenplayLearningQuestion(plan, {
   };
 }
 
+export function sanitizePendingScreenplayLearningQuestion(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = clean(value.id ?? value.questionId, 120);
+  const projectId = clean(value.projectId ?? value.project_id, 96);
+  const projectTitle = clean(value.projectTitle ?? value.project_title, 160);
+  const targetField = clean(value.targetField ?? value.target_field, 64);
+  const question = clean(value.question, 260);
+  if (!id || (!projectId && !projectTitle) || !targetField || !question) return null;
+  const askedAtTurn = Math.max(
+    0,
+    Math.floor(Number(value.askedAtTurn ?? value.asked_at_turn ?? 0) || 0)
+  );
+  const expiresAfterTurn = Math.max(
+    askedAtTurn + 1,
+    Math.floor(Number(value.expiresAfterTurn ?? value.expires_after_turn ?? 0) || 0)
+  );
+  return {
+    id,
+    projectId,
+    projectTitle,
+    targetField,
+    targetLabel: clean(value.targetLabel ?? value.target_label, 120),
+    anchor: clean(value.anchor, 180),
+    question,
+    actKey: clean(value.actKey ?? value.act_key, 24),
+    sequenceKey: clean(value.sequenceKey ?? value.sequence_key, 32),
+    writerBlocked: Boolean(value.writerBlocked ?? value.writer_blocked),
+    askedAtTurn,
+    expiresAfterTurn,
+    askedAt: Math.max(0, Number(value.askedAt ?? value.asked_at ?? 0) || 0),
+  };
+}
+
+function pendingQuestionProjectKey(value) {
+  const pending = sanitizePendingScreenplayLearningQuestion(value);
+  if (!pending) return "";
+  if (pending.projectId) return `id:${pending.projectId.toLowerCase()}`;
+  return `title:${pending.projectTitle.toLowerCase()}`;
+}
+
+export function sanitizePendingScreenplayLearningQuestions(values) {
+  const source = Array.isArray(values) ? values : [];
+  const sanitized = source
+    .map(sanitizePendingScreenplayLearningQuestion)
+    .filter(Boolean)
+    .sort((left, right) => (
+      Number(right.askedAt || 0) - Number(left.askedAt || 0) ||
+      right.askedAtTurn - left.askedAtTurn
+    ));
+  const seenProjects = new Set();
+  const out = [];
+  for (const pending of sanitized) {
+    const projectKey = pendingQuestionProjectKey(pending);
+    if (!projectKey || seenProjects.has(projectKey)) continue;
+    seenProjects.add(projectKey);
+    out.push(pending);
+    if (out.length >= PENDING_SCREENPLAY_LEARNING_QUESTIONS_MAX) break;
+  }
+  return out;
+}
+
+export function upsertPendingScreenplayLearningQuestion(values, pending) {
+  const next = sanitizePendingScreenplayLearningQuestion(pending);
+  if (!next) return sanitizePendingScreenplayLearningQuestions(values);
+  const nextProjectKey = pendingQuestionProjectKey(next);
+  const existing = sanitizePendingScreenplayLearningQuestions(values)
+    .filter((item) => (
+      item.id !== next.id &&
+      pendingQuestionProjectKey(item) !== nextProjectKey
+    ));
+  return sanitizePendingScreenplayLearningQuestions([next, ...existing]);
+}
+
 function projectMatches(pending, { projectId = "", projectTitle = "" } = {}) {
   const pendingId = clean(pending?.projectId, 96).toLowerCase();
   const currentId = clean(projectId, 96).toLowerCase();
@@ -1293,7 +1367,26 @@ function projectMatches(pending, { projectId = "", projectTitle = "" } = {}) {
   const pendingTitle = clean(pending?.projectTitle, 160).toLowerCase();
   const currentTitle = clean(projectTitle, 160).toLowerCase();
   if (pendingTitle && currentTitle) return pendingTitle === currentTitle;
-  return Boolean(pendingId || pendingTitle) && !currentId && !currentTitle;
+  return false;
+}
+
+export function selectPendingScreenplayLearningQuestion(values, {
+  projectId = "",
+  projectTitle = "",
+} = {}) {
+  return sanitizePendingScreenplayLearningQuestions(values)
+    .find((pending) => projectMatches(pending, { projectId, projectTitle })) || null;
+}
+
+export function removePendingScreenplayLearningQuestion(values, pending) {
+  const target = sanitizePendingScreenplayLearningQuestion(pending);
+  if (!target) return sanitizePendingScreenplayLearningQuestions(values);
+  const projectKey = pendingQuestionProjectKey(target);
+  return sanitizePendingScreenplayLearningQuestions(values)
+    .filter((item) => (
+      item.id !== target.id &&
+      pendingQuestionProjectKey(item) !== projectKey
+    ));
 }
 
 function buildPendingQuestionInteraction(pending, responseStatus, now) {

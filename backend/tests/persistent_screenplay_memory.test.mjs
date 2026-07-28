@@ -22,6 +22,7 @@ const {
 } = await import("../index.js");
 const {
   sanitizePersistedSessionMemory,
+  selectFreshestSessionMemory,
 } = await import("../lib/memory_store.js");
 
 function withMockedNow(nowTs, fn) {
@@ -2112,4 +2113,79 @@ test("[persistent-screenplay-memory] session continuity marks project correction
   assert.deepEqual(snapshot.correction_replacements, ["cassette -> VHS tape"]);
   assert.match(snapshot.correction_contract, /CORRECTION_CONTRACT/);
   assert.ok(snapshot.opening_line.includes("I'll honor your latest correction first."));
+});
+
+test("[persistent-screenplay-memory] pending questions migrate into a sanitized project collection", () => {
+  const sanitized = sanitizePersistedSessionMemory({
+    pendingScreenplayLearningQuestion: {
+      id: "legacy-theme-question",
+      projectId: "feature-alpha",
+      projectTitle: "Mercy Court",
+      targetField: "project.theme_argument",
+      targetLabel: "the theme",
+      question: "What should this movie ultimately argue?",
+      askedAtTurn: 12,
+      expiresAfterTurn: 14,
+      askedAt: 1_000,
+      injected: "must not survive",
+    },
+    pendingScreenplayLearningQuestions: [{
+      id: "ending-question",
+      projectId: "feature-beta",
+      projectTitle: "After the Flood",
+      targetField: "project.ending_image",
+      question: "What final image proves the story changed?",
+      askedAtTurn: 18,
+      expiresAfterTurn: 20,
+      askedAt: 2_000,
+    }, {
+      id: "malformed",
+      projectId: "feature-bad",
+    }],
+  });
+
+  assert.equal(sanitized.pendingScreenplayLearningQuestion, undefined);
+  assert.equal(sanitized.pendingScreenplayLearningQuestions.length, 2);
+  assert.equal(sanitized.pendingScreenplayLearningQuestions[0].id, "ending-question");
+  assert.equal(sanitized.pendingScreenplayLearningQuestions[1].id, "legacy-theme-question");
+  assert.equal(
+    Object.hasOwn(sanitized.pendingScreenplayLearningQuestions[1], "injected"),
+    false
+  );
+});
+
+test("[persistent-screenplay-memory] authenticated devices select the freshest account memory", () => {
+  const active = {
+    lastUpdatedAt: 1_000,
+    pendingScreenplayLearningQuestions: [{
+      id: "stale-question",
+      projectId: "feature-alpha",
+      targetField: "project.theme_argument",
+      question: "What does the old session ask?",
+      askedAtTurn: 1,
+      expiresAfterTurn: 3,
+      askedAt: 1_000,
+    }],
+  };
+  const persisted = {
+    lastUpdatedAt: 2_000,
+    pendingScreenplayLearningQuestions: [{
+      id: "fresh-question",
+      projectId: "feature-alpha",
+      targetField: "project.protagonist_need",
+      question: "What must Mara learn?",
+      askedAtTurn: 2,
+      expiresAfterTurn: 4,
+      askedAt: 2_000,
+    }],
+  };
+
+  const selectedPersisted = selectFreshestSessionMemory(active, persisted);
+  assert.equal(selectedPersisted.pendingScreenplayLearningQuestions[0].id, "fresh-question");
+
+  const selectedActive = selectFreshestSessionMemory(
+    { ...active, lastUpdatedAt: 3_000 },
+    persisted
+  );
+  assert.equal(selectedActive.pendingScreenplayLearningQuestions[0].id, "stale-question");
 });

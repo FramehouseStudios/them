@@ -46,6 +46,7 @@ import {
   loadUserMemoryStoreFromAdapter,
   sanitizePersistedSessionMemory,
   sanitizeClientTokenAliasList,
+  selectFreshestSessionMemory,
   saveUserMemoryStore,
   setPersistedUserMemoryForIp,
   setPersistedUserMemoryForUserId,
@@ -31840,7 +31841,9 @@ function resolveWritableMemoryContext(req, nowTs = Date.now()) {
       ? (getPersistedUserMemoryForClientToken(clientToken, nowTs) || getPersistedUserMemoryForIp(sessionIp, nowTs))
       : getPersistedUserMemoryForIp(sessionIp, nowTs));
   const candidateMemory = activeSession?.memory && typeof activeSession.memory === "object"
-    ? activeSession.memory
+    ? (authenticatedUserId
+      ? selectFreshestSessionMemory(activeSession.memory, persistedMemory)
+      : activeSession.memory)
     : persistedMemory;
   return {
     requesterIp: sessionIp,
@@ -31909,6 +31912,7 @@ function clearConversationHistoryMemory(memory, nowTs = Date.now()) {
   base.pendingLocalActionPayload = "";
   base.pendingLocalActionSummary = "";
   base.pendingLocalActionUpdatedAt = 0;
+  base.pendingScreenplayLearningQuestions = [];
   base.lastRememberPromptTurn = 0;
   base.lastCycleMemoryTurn = 0;
   base.lastBackReferenceTurn = 0;
@@ -31934,6 +31938,7 @@ function clearAllMemoriesMemory(memory, nowTs = Date.now()) {
   base.recentEmotionShifts = [];
   base.screenplayProjectMemory = [];
   base.screenplayProjectMemoryUpdatedAt = nowTs;
+  base.pendingScreenplayLearningQuestions = [];
   base.lastTheme = "";
   base.lastFeelingHint = "";
   base.lastNeedHint = "";
@@ -32793,6 +32798,11 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
     token = requestedClientToken;
     expiresAt = existingSession.expiresAt;
     if (authUserId) {
+      const latestAccountMemory = getPersistedUserMemoryForAccount(authUserId, Date.now());
+      existingSession.memory = selectFreshestSessionMemory(
+        existingSession.memory,
+        latestAccountMemory
+      );
       existingSession.memory = setPersistedUserMemoryForAccount(authUserId, existingSession.memory, Date.now(), {
         clientTokenAliases: [requestedClientToken],
       });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 
 import {
   buildProjectFieldProvenance,
@@ -9,7 +9,6 @@ import { createPersistence } from "../lib/persistence_adapter.js";
 import {
   buildScreenplayQuestionPlan,
   createPendingScreenplayLearningQuestion,
-  resolvePendingScreenplayLearningAnswer,
 } from "../lib/screenplay_question_planner.js";
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
 import {
@@ -24,6 +23,7 @@ const ANSWERED_PROJECT_TITLE = "The Last Crossing";
 const IGNORED_PROJECT_ID = "question-cadence-ignored";
 const IGNORED_PROJECT_TITLE = "After the Flood";
 const MINUTE_MS = 60 * 1_000;
+const TALK_AUDIO = readFileSync(new URL("../test.wav", import.meta.url));
 
 function requireText(value, message) {
   const clean = String(value || "").trim();
@@ -146,12 +146,85 @@ function openMemoryStore(server) {
   };
 }
 
+async function seedAccountPendingQuestions(server, identity, pendingQuestions) {
+  const pendingPersistence = createPersistence({
+    jsonRoot: server.env.PERSISTENCE_JSON_ROOT,
+  });
+  try {
+    const key = `byUserId:${identity.userID}`;
+    const existing = await pendingPersistence.get({
+      domain: "user_memory",
+      key,
+    });
+    const now = Date.now();
+    await pendingPersistence.put({
+      domain: "user_memory",
+      key,
+      value: {
+        ...(existing && typeof existing === "object" ? existing : {}),
+        userId: identity.userID,
+        updatedAt: now,
+        memory: {
+          ...(existing?.memory && typeof existing.memory === "object"
+            ? existing.memory
+            : {}),
+          turns: 3,
+          lastUpdatedAt: now,
+          pendingScreenplayLearningQuestions: pendingQuestions,
+        },
+      },
+    });
+  } finally {
+    await pendingPersistence.close();
+  }
+}
+
+async function postAuthenticatedTalk(server, identity, transcript, {
+  projectId,
+  projectTitle,
+  act,
+  featureSequence,
+} = {}) {
+  const form = new FormData();
+  form.append("debug_transcript", transcript);
+  form.append("screenplay_project_id", projectId);
+  form.append("screenplay_project_title", projectTitle);
+  form.append("screenplay_act", act);
+  form.append("screenplay_feature_sequence", featureSequence);
+  form.append("screenplay_target", "voice_pin");
+  form.append("screenplay_prompt_source", "typed");
+  form.append("file", new Blob([TALK_AUDIO], { type: "audio/wav" }), "test.wav");
+  const response = await fetch(`${server.baseUrl}/talk`, {
+    method: "POST",
+    headers: {
+      "X-APP-TOKEN": identity.appToken,
+      Authorization: `Bearer ${identity.accessToken}`,
+      "X-Client-Token": identity.clientToken,
+    },
+    body: form,
+  });
+  const audio = Buffer.from(await response.arrayBuffer());
+  assert.equal(response.status, 200, `Authenticated /talk failed with HTTP ${response.status}.`);
+  assert.ok(audio.length > 1_024, "Authenticated /talk returned no usable audio.");
+  assert.equal(response.headers.get("x-turn-status"), "responded");
+  return {
+    turnId: requireText(response.headers.get("x-turn-id"), "Authenticated /talk returned no turn id."),
+    transcript: decodeURIComponent(response.headers.get("x-transcript") || ""),
+  };
+}
+
 let server = null;
 let persistence = null;
 let dataDir = "";
 
 try {
-  const backendEnv = { APP_TOKEN, REQUIRE_USER_AUTH: "1" };
+  const backendEnv = {
+    APP_TOKEN,
+    REQUIRE_USER_AUTH: "1",
+    TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: "1",
+    TALK_TEST_DEBUG_OFFLINE_ENABLED: "1",
+    TALK_STREAM_AUDIO_ENABLED: "0",
+  };
   server = await startBackend({ env: backendEnv });
   dataDir = server.dataDir;
   const iPhoneIdentity = await createStudioRestoreOwnerIdentity({
@@ -214,7 +287,7 @@ try {
   assert.equal(answeredAskPlan.shouldAsk, true);
   assert.equal(answeredAskPlan.targetField, "project.theme_argument");
   const answeredPending = createPendingScreenplayLearningQuestion(answeredAskPlan, {
-    askedAtTurn: 20,
+    askedAtTurn: 3,
     now: askedAt,
   });
   assert.ok(answeredPending, "iPhone did not create the theme learning question.");
@@ -274,7 +347,7 @@ try {
   assert.equal(ignoredAskPlan.shouldAsk, true);
   assert.equal(ignoredAskPlan.targetField, "project.ending_image");
   const ignoredPending = createPendingScreenplayLearningQuestion(ignoredAskPlan, {
-    askedAtTurn: 40,
+    askedAtTurn: 0,
     now: askedAt,
   });
   assert.ok(ignoredPending, "iPhone did not create the ending-image learning question.");
@@ -291,6 +364,12 @@ try {
   await persistence.close();
   persistence = null;
   await server.stop();
+  server = null;
+  await seedAccountPendingQuestions(
+    { env: { PERSISTENCE_JSON_ROOT: `${dataDir}/persistence` } },
+    iPhoneIdentity,
+    [answeredPending, ignoredPending]
+  );
   server = await startBackend({ dataDir, env: backendEnv });
   const macIdentity = await refreshClientIdentity(server, iPhoneIdentity);
   assert.notEqual(
@@ -300,28 +379,34 @@ try {
   );
   await assertMacCanRestoreProjects(server, macIdentity);
 
+  const answeredTalk = await postAuthenticatedTalk(
+    server,
+    macIdentity,
+    "Love without control means helping someone choose, even when their choice takes them away from you.",
+    {
+      projectId: ANSWERED_PROJECT_ID,
+      projectTitle: ANSWERED_PROJECT_TITLE,
+      act: "Act II",
+      featureSequence: "Midpoint Fallout",
+    }
+  );
+  assert.match(answeredTalk.transcript, /love without control/i);
+  const ignoredTalk = await postAuthenticatedTalk(
+    server,
+    macIdentity,
+    "Let's keep moving through the resolution.",
+    {
+      projectId: IGNORED_PROJECT_ID,
+      projectTitle: IGNORED_PROJECT_TITLE,
+      act: "Act III",
+      featureSequence: "Resolution",
+    }
+  );
+  assert.match(ignoredTalk.transcript, /keep moving through the resolution/i);
+
   memory = openMemoryStore(server);
   persistence = memory.persistence;
   store = memory.store;
-  const answeredAt = Date.now();
-  const answerResolution = resolvePendingScreenplayLearningAnswer({
-    pending: answeredPending,
-    transcript: "Love without control means helping someone choose, even when their choice takes them away from you.",
-    projectId: ANSWERED_PROJECT_ID,
-    projectTitle: ANSWERED_PROJECT_TITLE,
-    currentTurn: 21,
-    now: answeredAt,
-  });
-  assert.equal(answerResolution.status, "answered");
-  const answerReceipt = await store.recordTriggersFromTalkTurn({
-    userId: macIdentity.userID,
-    transcript: "Love without control means helping someone choose, even when their choice takes them away from you.",
-    projectId: ANSWERED_PROJECT_ID,
-    projectTitle: ANSWERED_PROJECT_TITLE,
-    learningContext: answerResolution.learningContext,
-    questionInteraction: answerResolution.interaction,
-  });
-  assert.equal(answerReceipt.learningAnswersPromoted, 1);
   const pageReceipt = await store.recordTriggersFromTalkTurn({
     userId: macIdentity.userID,
     transcript: "Keep that page.",
@@ -332,25 +417,6 @@ try {
 Mara loosens her grip on June's ticket. June takes it, then steps onto the opposite ferry.`,
   });
   assert.equal(pageReceipt.questionAcceptedPageOutcomes, 1);
-
-  const ignoredAt = Math.max(Date.now(), answeredAt + 1);
-  const ignoredResolution = resolvePendingScreenplayLearningAnswer({
-    pending: ignoredPending,
-    transcript: "Let's keep moving through the resolution.",
-    projectId: IGNORED_PROJECT_ID,
-    projectTitle: IGNORED_PROJECT_TITLE,
-    currentTurn: ignoredPending.expiresAfterTurn + 1,
-    now: ignoredAt,
-  });
-  assert.equal(ignoredResolution.status, "expired");
-  const ignoredReceipt = await store.recordTriggersFromTalkTurn({
-    userId: macIdentity.userID,
-    transcript: "Let's keep moving through the resolution.",
-    projectId: IGNORED_PROJECT_ID,
-    projectTitle: IGNORED_PROJECT_TITLE,
-    questionInteraction: ignoredResolution.interaction,
-  });
-  assert.equal(ignoredReceipt.questionInteractionsRecorded, 1);
 
   await persistence.close();
   persistence = null;
@@ -447,6 +513,7 @@ Mara loosens her grip on June's ticket. June takes it, then steps onto the oppos
     restoredDevice: "macOS",
     backendRestarted: true,
     distinctClientSessions: true,
+    liveTalkResolution: true,
     answeredOutcome: answeredOutcome.outcome,
     ignoredOutcome: ignoredOutcome.outcome,
     cadenceMinutes: protectedPlan.writingMomentum.interventionProfile.windowMinutes,
