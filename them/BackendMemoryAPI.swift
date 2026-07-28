@@ -1460,6 +1460,17 @@ nonisolated struct BackendSessionResponse: Decodable {
     let backendBootId: String?
     let evolutionSync: BackendEvolutionSyncSnapshot?
     let continuity: BackendSessionContinuitySnapshot?
+    let pendingScreenplayQuestion: BackendPendingScreenplayQuestion?
+}
+
+nonisolated struct BackendPendingScreenplayQuestion: Decodable, Equatable {
+    let id: String
+    let projectId: String
+    let projectTitle: String
+    let targetField: String
+    let targetLabel: String
+    let question: String
+    let askedAt: TimeInterval?
 }
 
 nonisolated struct BackendAuthUser: Codable, Hashable {
@@ -4053,7 +4064,8 @@ actor BackendMemoryAPI {
             backendBuild: nil,
             backendBootId: nil,
             evolutionSync: nil,
-            continuity: nil
+            continuity: nil,
+            pendingScreenplayQuestion: nil
         )
     }
 

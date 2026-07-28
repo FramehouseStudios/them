@@ -89,6 +89,7 @@ import {
   evaluateScreenplayCanonContinuity,
   normalizeAcceptedCausalFacts,
 } from "./lib/screenplay_canon_guard.js";
+import { selectPendingScreenplayLearningQuestion } from "./lib/screenplay_question_planner.js";
 import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
 import {
   buildTalkScreenplayQualityAlert,
@@ -32900,7 +32901,37 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
     sanitizedRestoredMemory?.screenplayProjectMemory,
     SCREENPLAY_PROJECT_MEMORY_MAX
   );
-  const sessionProjectMemory = sessionProjectMemoryItems[0] || null;
+  const sessionScreenplayOwner = screenplayStoreByOwner.get(resolveScreenplayOwnerKey(req)) || null;
+  const sessionActiveProjectId = normalizeSnippet(sessionScreenplayOwner?.activeProjectId, 64);
+  const sessionActiveProject = Array.isArray(sessionScreenplayOwner?.projects)
+    ? sessionScreenplayOwner.projects.find((project) => project?.id === sessionActiveProjectId) || null
+    : null;
+  const sessionActiveProjectTitle = normalizeSnippet(sessionActiveProject?.title, 160);
+  const sessionProjectMemory = sessionProjectMemoryItems.find((item) => (
+    (sessionActiveProjectId && normalizeSnippet(item?.projectId, 96) === sessionActiveProjectId) ||
+    (
+      sessionActiveProjectTitle &&
+      normalizeSnippet(item?.projectTitle, 160).toLowerCase() === sessionActiveProjectTitle.toLowerCase()
+    )
+  )) || sessionProjectMemoryItems[0] || null;
+  const sessionPendingScreenplayQuestion = selectPendingScreenplayLearningQuestion(
+    sanitizedRestoredMemory?.pendingScreenplayLearningQuestions,
+    {
+      projectId: sessionActiveProjectId || sessionProjectMemory?.projectId || "",
+      projectTitle: sessionActiveProjectTitle || sessionProjectMemory?.projectTitle || "",
+    }
+  );
+  const sessionPendingScreenplayQuestionPayload = sessionPendingScreenplayQuestion
+    ? {
+        id: sessionPendingScreenplayQuestion.id,
+        project_id: sessionPendingScreenplayQuestion.projectId,
+        project_title: sessionPendingScreenplayQuestion.projectTitle,
+        target_field: sessionPendingScreenplayQuestion.targetField,
+        target_label: sessionPendingScreenplayQuestion.targetLabel,
+        question: sessionPendingScreenplayQuestion.question,
+        asked_at: Math.max(0, Number(sessionPendingScreenplayQuestion.askedAt || 0)) || null,
+      }
+    : null;
   let sessionCreativeMemory = null;
   if (authUserId) {
     try {
@@ -32975,6 +33006,7 @@ app.post("/session", sessionRateLimitGuard, async (req, res) => {
     last_conversation_snapshot: lastConversationSnapshot,
     last_conversation_at: lastConversationAt || null,
     continuity: sessionContinuity,
+    pending_screenplay_question: sessionPendingScreenplayQuestionPayload,
     evolution_sync: evolutionSync,
     state_version: sessionStateVersion,
     last_updated_at: sessionLastUpdatedAt || null,

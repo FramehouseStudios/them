@@ -1415,6 +1415,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
     @Published var selectedProjectID: String = ""
     @Published var selectedProject: BackendScreenplayProjectSummary?
     @Published var outline: BackendScreenplayOutline = .empty
+    @Published var pendingScreenplayQuestion: BackendPendingScreenplayQuestion?
 
     @Published var craftFrameworks: [ScreenplayCraftFrameworkReference] = []
     @Published var selectedCraftFrameworkID: String = ""
@@ -1644,10 +1645,12 @@ private final class ScreenplayStudioViewModel: ObservableObject {
                 projects: projects
             )
             await loadSelectedProjectOutline()
+            await refreshPendingScreenplayQuestion()
         } catch {
             didLoadScreenplayProjectsFromBackend = false
             errorText = error.localizedDescription
             selectedProject = nil
+            pendingScreenplayQuestion = nil
             outline = .empty
             clearFeatureSpineFields()
             syncLiveDraftBridgeProjectContext(clearWhenEmpty: true)
@@ -1682,6 +1685,29 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         resetCraftReportForProjectChange()
         await loadSelectedProjectOutline()
         await persistActiveProjectSelection(projectID)
+        await refreshPendingScreenplayQuestion()
+    }
+
+    func refreshPendingScreenplayQuestion() async {
+        guard !IOThemRuntime.isRunningTests else { return }
+        let selectedID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selectedID.isEmpty else {
+            pendingScreenplayQuestion = nil
+            return
+        }
+        do {
+            let session = try await BackendMemoryAPI.shared.bootstrapSession(force: true)
+            let pending = session.pendingScreenplayQuestion
+            let pendingProjectID = pending?.projectId.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            pendingScreenplayQuestion = pendingProjectID == selectedID ? pending : nil
+        } catch {
+            // Keep the last restored question visible during a transient reconnect.
+        }
+    }
+
+    func dismissPendingScreenplayQuestion(id: String) {
+        guard pendingScreenplayQuestion?.id == id else { return }
+        pendingScreenplayQuestion = nil
     }
 
     func replaceDraftFromVoiceBridgeIfNeeded(_ draft: String, draftOriginProjectID: String) {
@@ -4171,6 +4197,7 @@ private final class ScreenplayStudioViewModel: ObservableObject {
             selectedProjectID = locallySelectedProjectID
             guard !locallySelectedProjectID.isEmpty else { return }
             await loadSelectedProjectOutline(reportErrors: false, remoteRefresh: true)
+            await refreshPendingScreenplayQuestion()
         } catch {
             // Background continuity refreshes stay quiet; explicit refresh still reports errors.
         }
@@ -4428,6 +4455,12 @@ private final class ScreenplayStudioViewModel: ObservableObject {
         }
         if !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID) {
             conflictState = nil
+        }
+        if !ScreenplayProjectScopedState.matches(
+            pendingScreenplayQuestion?.projectId,
+            selectedProjectId: projectID
+        ) {
+            pendingScreenplayQuestion = nil
         }
     }
 
@@ -5684,6 +5717,7 @@ struct ScreenplayStudioScreen: View {
     @State private var studioPromptSeed: String = ""
     @State private var studioPromptIntent: StudioPromptIntent = .advice
     @State private var isSubmittingStudioPrompt: Bool = false
+    @State private var deferredPendingQuestionSkip: BackendPendingScreenplayQuestion?
     @State private var perceivedSpeedState: StudioPerceivedSpeedState = .idle
     @State private var sendingVoicePinSuggestionID: String?
     @State private var pendingDraftImportURL: URL?
@@ -5926,6 +5960,7 @@ struct ScreenplayStudioScreen: View {
     @State private var lastAppliedStudioDebugInspectorInteractionToken: Int = 0
     @State private var didApplyUITestLaunchActions = false
     @State private var didApplyUITestDraftConflictFixture = false
+    @State private var didResolveUITestPendingQuestionFixture = false
     @State private var trackedStudioDebugProjectLoadToken: Int = 0
     @State private var trackedStudioDebugProjectLoadRequestedProjectID = ""
     @State private var trackedStudioDebugProjectLoadRequestedVersionID = ""
@@ -5949,6 +5984,12 @@ struct ScreenplayStudioScreen: View {
                     source: "Manual cross-device memory smoke",
                     allowDuringTests: true
                 )
+            }
+            .onChange(of: isSubmittingPrompt) { _, _ in
+                flushDeferredPendingQuestionSkipIfPossible()
+            }
+            .onChange(of: isSubmittingStudioPrompt) { _, _ in
+                flushDeferredPendingQuestionSkipIfPossible()
             }
             .overlay(alignment: .topLeading) {
                 #if DEBUG
@@ -6014,7 +6055,9 @@ struct ScreenplayStudioScreen: View {
             "character_memory_loading": vm.isCharacterTraitsLoading,
             "character_memory_count": vm.characterTraits?.characters.count ?? 0,
             "character_memory_error": vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines),
-            "character_memory_source": vm.characterTraitsInfoText.trimmingCharacters(in: .whitespacesAndNewlines)
+            "character_memory_source": vm.characterTraitsInfoText.trimmingCharacters(in: .whitespacesAndNewlines),
+            "pending_screenplay_question_id": vm.pendingScreenplayQuestion?.id ?? "",
+            "pending_screenplay_question_project_id": vm.pendingScreenplayQuestion?.projectId ?? ""
         ])
     }
     #endif
@@ -6593,6 +6636,9 @@ Replace is best when this file should become the script you edit. Append is safe
                 _ = await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
                 _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 await restoreStudioWorkspaceAfterProjectHydration()
+                #if DEBUG
+                applyUITestPendingScreenplayQuestionFixtureIfNeeded()
+                #endif
                 await vm.refreshScreenplayExportFormatsAutomatically()
                 if directionOneRightPanelTab == .them {
                     await vm.refreshBlockSignal(source: "Studio open")
@@ -7747,6 +7793,12 @@ Replace is best when this file should become the script you edit. Append is safe
             .onChange(of: draggedSceneID) { _, _ in
                 updateInspectorAutoScroll(proxy: proxy)
             }
+            .onChange(of: vm.pendingScreenplayQuestion?.id) { _, pendingID in
+                guard pendingID != nil else { return }
+                withAnimation(.easeOut(duration: 0.20)) {
+                    proxy.scrollTo("studio.pending-question.anchor", anchor: .top)
+                }
+            }
             .onDisappear {
                 inspectorAutoScrollTask?.cancel()
                 inspectorAutoScrollTask = nil
@@ -8010,6 +8062,8 @@ Replace is best when this file should become the script you edit. Append is safe
                 .font(.system(size: 11, weight: .semibold, design: .default))
                 .foregroundStyle(directionOneChromeSecondaryText)
             }
+
+            pendingScreenplayQuestionPrompt
 
             if isDirectionOneComposerExpanded {
                 VStack(alignment: .leading, spacing: 10) {
@@ -8350,8 +8404,6 @@ Replace is best when this file should become the script you edit. Append is safe
             directionOneThemSectionDivider
             directionOneCompactVoicePinSection
             directionOneThemSectionDivider
-            directionOneCompactComposerSection
-            directionOneThemSectionDivider
 
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -8507,7 +8559,8 @@ Replace is best when this file should become the script you edit. Append is safe
     }
 
     private var directionOneCompactComposerSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let shouldShowComposer = isDirectionOneComposerExpanded
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("Ask io.them")
                     .font(.system(size: 11, weight: .semibold, design: .default))
@@ -8524,7 +8577,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 .font(.system(size: 11, weight: .semibold, design: .default))
                 .foregroundStyle(Color.herText.opacity(0.68))
             }
-            if isDirectionOneComposerExpanded {
+            if shouldShowComposer {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Intent")
                         .font(.system(size: 11, weight: .semibold, design: .default))
@@ -8553,6 +8606,22 @@ Replace is best when this file should become the script you edit. Append is safe
                         submitStudioPromptSeed()
                     }
                     .accessibilityIdentifier("studio.prompt.field")
+#if os(iOS)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Send") {
+                                submitStudioPromptSeed()
+                            }
+                            .accessibilityIdentifier("studio.prompt.keyboard-send")
+                            .disabled(
+                                isSubmittingStudioPrompt ||
+                                isSubmittingPrompt ||
+                                studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            )
+                        }
+                    }
+#endif
 
                     Button(isSubmittingStudioPrompt || isSubmittingPrompt ? "Sending…" : "Send") {
                         submitStudioPromptSeed()
@@ -11148,6 +11217,9 @@ private var directionOneThemPanel: some View {
     let twistCards = ScreenplayCraftTwistCardState.cards(from: vm.craftTwists, acceptedTwists: vm.acceptedCraftTwists)
 
     return VStack(alignment: .leading, spacing: 16) {
+        pendingScreenplayQuestionPrompt
+        directionOneCompactComposerSection
+
         if vm.isCharacterTraitsLoading ||
             !vm.characterTraitsErrorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             vm.characterTraits != nil {
@@ -17226,6 +17298,8 @@ private var projectsSidebarContent: some View {
     private var studioPromptComposerCard: some View {
         sectionCard(title: "Tell io.them") {
             VStack(alignment: .leading, spacing: 12) {
+                pendingScreenplayQuestionPrompt
+
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Intent")
@@ -24407,6 +24481,9 @@ Return revised screenplay lines only.
     }
 
     private func handleStudioTurnCommittedEvent(_ event: BackendTurnCommittedEvent) {
+        if vm.pendingScreenplayQuestion != nil {
+            Task { await vm.refreshPendingScreenplayQuestion() }
+        }
         if let index = studioAskNoteHistory.firstIndex(where: { studioTurnEventMatchesExchange(event, exchange: $0) }) {
             studioAskNoteHistory[index] = applyingBackendTurnEvent(event, to: studioAskNoteHistory[index])
             persistStudioAskNoteHistory(studioAskNoteHistory, for: activeStudioAskNoteHistoryKey)
@@ -25356,7 +25433,8 @@ Return revised screenplay lines only.
     private func openStudioCommandBar(
         prefill text: String? = nil,
         routingMode: PromptRoutingMode? = nil,
-        intent: StudioPromptIntent? = nil
+        intent: StudioPromptIntent? = nil,
+        focusComposer: Bool = true
     ) {
         if let text {
             studioPromptSeed = text
@@ -25373,7 +25451,137 @@ Return revised screenplay lines only.
         }
         studioThreadListFocused = false
         studioInspectorFocused = false
-        studioPromptFocused = true
+        studioPromptFocused = focusComposer
+    }
+
+    @ViewBuilder
+    private var pendingScreenplayQuestionPrompt: some View {
+        if let pending = vm.pendingScreenplayQuestion {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.accentColor.opacity(0.86))
+                    Text("Clementine wants to know")
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.herText.opacity(0.64))
+                    Spacer(minLength: 0)
+                    if !pending.targetLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(pending.targetLabel)
+                            .font(.system(size: 10, weight: .medium, design: .default))
+                            .foregroundStyle(Color.herText.opacity(0.46))
+                            .lineLimit(1)
+                    }
+                }
+
+                Text(pending.question)
+                    .font(.system(size: 13, weight: .medium, design: .default))
+                    .foregroundStyle(Color.herText.opacity(0.90))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("studio.pending-question.text")
+
+                HStack(spacing: 10) {
+                    Button("Answer") {
+                        answerPendingScreenplayQuestion(pending)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("studio.pending-question.answer")
+
+                    Button {
+                        skipPendingScreenplayQuestion(pending)
+                    } label: {
+                        Text("Skip")
+                            .frame(minWidth: 44, minHeight: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .foregroundStyle(Color.herText.opacity(0.58))
+                    .accessibilityIdentifier("studio.pending-question.skip")
+                    .disabled(isSubmittingStudioPrompt)
+                }
+            }
+            .padding(.leading, 12)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.42))
+                    .frame(width: 2)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("studio.pending-question")
+            .id("studio.pending-question.anchor")
+        }
+    }
+
+    private func answerPendingScreenplayQuestion(_ pending: BackendPendingScreenplayQuestion) {
+        studioPromptSeed = ""
+        #if os(iOS)
+        let shouldFocusComposer = false
+        #else
+        let shouldFocusComposer = true
+        #endif
+        openStudioCommandBar(
+            routingMode: .voicePin,
+            intent: .advice,
+            focusComposer: shouldFocusComposer
+        )
+        vm.infoText = "Answer Clementine in your own words. She will remember it with this project."
+    }
+
+    private func skipPendingScreenplayQuestion(_ pending: BackendPendingScreenplayQuestion) {
+        guard !isSubmittingStudioPrompt else { return }
+
+        dismissPendingScreenplayQuestion(id: pending.id)
+        if isSubmittingPrompt {
+            deferredPendingQuestionSkip = pending
+            vm.infoText = "Question skipped. Saving after the current response."
+            return
+        }
+        persistPendingScreenplayQuestionSkip(pending)
+    }
+
+    private func flushDeferredPendingQuestionSkipIfPossible() {
+        guard !isSubmittingPrompt,
+              !isSubmittingStudioPrompt,
+              let pending = deferredPendingQuestionSkip else {
+            return
+        }
+        persistPendingScreenplayQuestionSkip(pending)
+    }
+
+    private func persistPendingScreenplayQuestionSkip(_ pending: BackendPendingScreenplayQuestion) {
+        deferredPendingQuestionSkip = nil
+        submitStudioPromptText(
+            "skip",
+            displayText: "Skip Clementine's question",
+            source: .typed,
+            routingMode: .voicePin,
+            successMessage: "Question skipped.",
+            clearSeedOnSuccess: false,
+            sendingSuggestionID: nil
+        ) { error in
+            guard error != nil else { return }
+            restorePendingScreenplayQuestion(pending)
+        }
+    }
+
+    private func dismissPendingScreenplayQuestion(id: String) {
+        vm.dismissPendingScreenplayQuestion(id: id)
+        #if DEBUG
+        if id == "ui-pending-theme-question" {
+            didResolveUITestPendingQuestionFixture = true
+        }
+        #endif
+    }
+
+    private func restorePendingScreenplayQuestion(_ pending: BackendPendingScreenplayQuestion) {
+        vm.pendingScreenplayQuestion = pending
+        #if DEBUG
+        if pending.id == "ui-pending-theme-question" {
+            didResolveUITestPendingQuestionFixture = false
+        }
+        #endif
     }
 
     private func collapseStudioCommandBar() {
@@ -26011,6 +26219,7 @@ Return revised screenplay lines only.
         }
         let submittedText = featureContinuationPrompt ?? text
         let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
+        let pendingQuestionIDAtSubmission = vm.pendingScreenplayQuestion?.id
         if let featureSnapshotForSubmission {
             liveDraftBridge.recordFeatureWorkflowContext(
                 ScreenplayFeatureWorkflowSessionContext(
@@ -26080,6 +26289,9 @@ Return revised screenplay lines only.
                     successMessage: successMessage,
                     clearSeedOnSuccess: clearSeedOnSuccess
                 )
+                if let pendingQuestionIDAtSubmission {
+                    dismissPendingScreenplayQuestion(id: pendingQuestionIDAtSubmission)
+                }
                 completion?(nil)
                 return
             }
@@ -26128,6 +26340,10 @@ Return revised screenplay lines only.
             }
             if clearSeedOnSuccess {
                 studioPromptSeed = ""
+            }
+            if let pendingQuestionIDAtSubmission {
+                dismissPendingScreenplayQuestion(id: pendingQuestionIDAtSubmission)
+                await vm.refreshPendingScreenplayQuestion()
             }
             let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
             let committedPageWrite: ScreenplayCommittedWrite?
@@ -27569,6 +27785,25 @@ Look at the city.
         guard arguments.indices.contains(valueIndex) else { return nil }
         return arguments[valueIndex]
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func applyUITestPendingScreenplayQuestionFixtureIfNeeded() {
+        guard IOThemRuntime.isRunningUITests,
+              ProcessInfo.processInfo.arguments.contains("--ui-show-pending-screenplay-question"),
+              !didResolveUITestPendingQuestionFixture else {
+            return
+        }
+        vm.pendingScreenplayQuestion = BackendPendingScreenplayQuestion(
+            id: "ui-pending-theme-question",
+            projectId: vm.selectedProjectID.isEmpty ? "ui-project" : vm.selectedProjectID,
+            projectTitle: vm.selectedProject?.title ?? "The Last Crossing",
+            targetField: "project.theme_argument",
+            targetLabel: "Theme argument",
+            question: "What does Mara learn about love when control can no longer keep June safe?",
+            askedAt: Date().timeIntervalSince1970 * 1_000
+        )
+        directionOneRightPanelTab = .them
+        isDirectionOneRightRailExpanded = true
     }
 
     private func applyUITestDraftConflictFixtureIfNeeded() {

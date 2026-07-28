@@ -116,7 +116,42 @@ async function refreshClientIdentity(server, identity) {
     ),
     clientTokenCachedAt: Math.floor(Date.now() / 1_000),
     clientTokenExpiry: new Date(Date.now() + expiresIn * 1_000).toISOString(),
+    sessionPayload: result.payload,
   };
+}
+
+async function activateProject(server, identity, projectId) {
+  const result = await requestStudioRestoreJSON({
+    baseURL: server.baseUrl,
+    path: `/screenplay/projects/${encodeURIComponent(projectId)}/activate`,
+    method: "POST",
+    headers: studioRestoreOwnerHeaders(identity),
+    body: {},
+  });
+  assert.ok(result.response.ok, `Project activation failed with HTTP ${result.status}.`);
+}
+
+function assertRestoredSessionQuestion(identity, expected) {
+  const pending = identity.sessionPayload?.pending_screenplay_question;
+  assert.ok(pending, "Session restore did not include the active project's pending question.");
+  assert.deepEqual(
+    Object.keys(pending).sort(),
+    [
+      "asked_at",
+      "id",
+      "project_id",
+      "project_title",
+      "question",
+      "target_field",
+      "target_label",
+    ],
+    "Session restore exposed fields outside the content-safe question contract."
+  );
+  assert.equal(pending.id, expected.id);
+  assert.equal(pending.project_id, expected.projectId);
+  assert.equal(pending.project_title, expected.projectTitle);
+  assert.equal(pending.target_field, expected.targetField);
+  assert.equal(pending.question, expected.question);
 }
 
 async function assertMacCanRestoreProjects(server, identity) {
@@ -371,13 +406,18 @@ try {
     [answeredPending, ignoredPending]
   );
   server = await startBackend({ dataDir, env: backendEnv });
-  const macIdentity = await refreshClientIdentity(server, iPhoneIdentity);
+  let macIdentity = await refreshClientIdentity(server, iPhoneIdentity);
   assert.notEqual(
     macIdentity.clientToken,
     iPhoneIdentity.clientToken,
     "The two device sessions unexpectedly reused one client credential."
   );
   await assertMacCanRestoreProjects(server, macIdentity);
+  assertRestoredSessionQuestion(macIdentity, ignoredPending);
+
+  await activateProject(server, macIdentity, ANSWERED_PROJECT_ID);
+  macIdentity = await refreshClientIdentity(server, macIdentity);
+  assertRestoredSessionQuestion(macIdentity, answeredPending);
 
   const answeredTalk = await postAuthenticatedTalk(
     server,
@@ -513,6 +553,8 @@ Mara loosens her grip on June's ticket. June takes it, then steps onto the oppos
     restoredDevice: "macOS",
     backendRestarted: true,
     distinctClientSessions: true,
+    activeProjectQuestionRestored: true,
+    sessionQuestionContractSafe: true,
     liveTalkResolution: true,
     answeredOutcome: answeredOutcome.outcome,
     ignoredOutcome: ignoredOutcome.outcome,

@@ -261,6 +261,62 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5))
     }
 
+    func test_restored_screenplay_question_can_be_answered_or_skipped() {
+        let answerApp = launchApp(
+            openStudio: true,
+            showPendingScreenplayQuestion: true
+        )
+        revealStudioPendingQuestion(in: answerApp)
+        let answerCard = element(identifier: "studio.pending-question", in: answerApp)
+        XCTAssertTrue(
+            answerCard.waitForExistence(timeout: 8),
+            "The restored Clementine question was not visible. Accessibility hierarchy:\n\(answerApp.debugDescription)"
+        )
+        let questionText = element(identifier: "studio.pending-question.text", in: answerApp)
+        XCTAssertTrue(questionText.waitForExistence(timeout: 3), "The restored question text was missing.")
+        let questionTextContent = [
+            questionText.label,
+            questionText.value as? String ?? ""
+        ].joined(separator: " ")
+        XCTAssertTrue(
+            questionTextContent.localizedCaseInsensitiveContains("What does Mara learn"),
+            "The restored question text did not match the active project: \(questionTextContent)"
+        )
+        answerApp.buttons["studio.pending-question.answer"].tap()
+        let answerField = element(identifier: "studio.prompt.field", in: answerApp)
+        XCTAssertTrue(answerField.waitForExistence(timeout: 5))
+        answerField.tap()
+        answerField.typeText("She learns that love means trusting June to choose for herself.")
+        submitFocusedPrompt(in: answerApp, field: answerField)
+        XCTAssertTrue(
+            waitForDisappearance(of: answerCard, timeout: 5),
+            "The answered question remained visible after submitting from the keyboard."
+        )
+        answerApp.terminate()
+
+        let skipApp = launchApp(
+            openStudio: true,
+            showPendingScreenplayQuestion: true
+        )
+        defer { skipApp.terminate() }
+        revealStudioPendingQuestion(in: skipApp)
+        let skipCard = element(identifier: "studio.pending-question", in: skipApp)
+        XCTAssertTrue(skipCard.waitForExistence(timeout: 8))
+        XCTAssertEqual(
+            skipApp.descendants(matching: .any).matching(identifier: "studio.pending-question").count,
+            1,
+            "Studio exposed duplicate pending-question cards."
+        )
+        let skipButton = skipApp.buttons["studio.pending-question.skip"]
+        XCTAssertTrue(skipButton.isEnabled, "Skip was visible but disabled by unrelated companion work.")
+        XCTAssertTrue(skipButton.isHittable, "Skip was visible but its touch target was covered.")
+        skipButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: skipCard, timeout: 5),
+            "The skipped question remained visible after the decline was recorded. Accessibility hierarchy:\n\(skipApp.debugDescription)"
+        )
+    }
+
     @MainActor
     func test_backend_project_restore_loads_seeded_screenplay_session() async throws {
         let baseURL = URL(string: "http://127.0.0.1:31337")!
@@ -465,6 +521,7 @@ final class V1SmokeUITests: XCTestCase {
         showDraftConflict: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
+        showPendingScreenplayQuestion: Bool = false,
         realtimeNetworkFaultStage: String? = nil,
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
@@ -527,6 +584,9 @@ final class V1SmokeUITests: XCTestCase {
         if liveMemory {
             arguments.append("--ui-live-memory")
         }
+        if showPendingScreenplayQuestion {
+            arguments.append("--ui-show-pending-screenplay-question")
+        }
         if let realtimeNetworkFaultStage {
             arguments.append(contentsOf: [
                 "--ui-realtime-network-fault",
@@ -572,6 +632,46 @@ final class V1SmokeUITests: XCTestCase {
         }
 #endif
         return app
+    }
+
+    private func revealStudioPendingQuestion(in app: XCUIApplication) {
+        let card = element(identifier: "studio.pending-question", in: app)
+        let deadline = Date().addingTimeInterval(8)
+        let rightToggle = app.buttons["studio.sidebar.right.toggle"]
+        while Date() < deadline, !card.exists {
+            if rightToggle.waitForExistence(timeout: 0.5),
+               rightToggle.isHittable,
+               rightToggle.label.localizedCaseInsensitiveContains("Open") {
+                rightToggle.tap()
+            }
+            let themTab = app.buttons["io.them"]
+            if themTab.exists, themTab.isHittable, !themTab.isSelected {
+                themTab.tap()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+    }
+
+    private func submitFocusedPrompt(in app: XCUIApplication, field: XCUIElement) {
+#if os(iOS)
+        let toolbarSend = app.buttons["studio.prompt.keyboard-send"]
+        if toolbarSend.waitForExistence(timeout: 5), toolbarSend.isHittable {
+            toolbarSend.tap()
+            return
+        }
+        let sendKey = app.keyboards.buttons
+            .matching(NSPredicate(format: "label ==[c] %@", "send"))
+            .firstMatch
+        XCTAssertTrue(
+            sendKey.waitForExistence(timeout: 5),
+            "The Studio prompt did not expose the keyboard Send action."
+        )
+        sendKey.tap()
+#elseif os(macOS)
+        field.typeKey(.return, modifierFlags: [])
+#else
+        field.typeText("\n")
+#endif
     }
 
     private func assertRealtimeNetworkFault(
